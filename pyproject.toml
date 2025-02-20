@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dapr-agents"
+dynamic = ["version"]
+description = "Agentic Workflows Made Simple"
+keywords = ["dapr", "agents", "workflows"]
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Dapr Authors", email = "dapr@dapr.io"}
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "dapr-dev >= 1.13.0rc1.dev",
+    "durabletask-dapr >= 0.2.0a4",
+    "pydantic == 2.10.5",
+    "openai == 1.59.6",
+    "openapi-pydantic == 0.5.1",
+    "openapi-schema-pydantic==1.2.4",
+    "regex >= 2023.12.25",
+    "Jinja2 == 3.1.5",
+    "azure-identity == 1.19.0",
+    "dapr == 1.14.0",
+    "dapr-ext-fastapi == 1.14.0",
+    "dapr-ext-workflow == 0.5.0",
+    "colorama == 0.4.6",
+    "cloudevents == 1.11.0",
+    "pyyaml == 6.0.2",
+    "rich == 13.9.4",
+    "huggingface_hub == 0.27.1",
+    "numpy == 2.2.2",
+]
+
+[project.urls]
+Documentation = "https://github.com/dapr/docs"
+Source = "https://github.com/dapr/python-sdk"
+
+[tool.setuptools.packages.find]
+include = ["dapr_agents"]
+exclude = ["tests"]
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
