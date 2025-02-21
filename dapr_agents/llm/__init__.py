@@ -10,3 +10,4 @@ from .nvidia.client import NVIDIAClientBase
 from .nvidia.chat import NVIDIAChatClient
 from .nvidia.embeddings import NVIDIAEmbeddingClient
 from .elevenlabs import ElevenLabsSpeechClient
+from .dapr import DaprChatClient

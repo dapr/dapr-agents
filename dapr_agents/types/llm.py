@@ -31,6 +31,14 @@ class NVIDIAClientConfig(BaseModel):
             raise PydanticUseDefault()
         return v
 
+class DaprInferenceClientConfig:
+    @field_validator("*", mode="before")
+    @classmethod
+    def none_to_default(cls, v):
+        if v is None:
+            raise PydanticUseDefault()
+        return v
+    
 class HFInferenceClientConfig(BaseModel):
     model: Optional[str] = Field(None, description="Model ID on Hugging Face Hub or URL to a deployed Inference Endpoint. Defaults to a recommended model if not provided.")
     api_key: Optional[Union[str, bool]] = Field(None, description="Hugging Face API key for authentication. Defaults to the locally saved token. Pass False to skip token.")
