@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from pathlib import Path
 import logging
 import os
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,29 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             'prompt_template': prompt_template,
         })
 
+    def translate_response(self, response: dict, model: str) -> dict:
+        """Converts a Dapr response dict into a structure compatible with Choice and ChatCompletion."""
+        choices = [
+            {
+                "finish_reason": "stop",
+                "index": i,
+                "message": {
+                    "content": output["result"],
+                    "role": "assistant"
+                },
+                "logprobs": None
+            }
+            for i, output in enumerate(response.get("outputs", []))
+        ]
+        
+        return {
+            "choices": choices,
+            "created": int(time.time()),
+            "model": model,
+            "object": "chat.completion",
+            "usage": {"total_tokens": len(response.get("outputs", []))}
+        }
+
     def generate(
         self,
         messages: Union[str, Dict[str, Any], BaseMessage, Iterable[Union[Dict[str, Any], BaseMessage]]] = None,
@@ -96,16 +120,13 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             raise ValueError("Either 'messages' or 'input_data' must be provided.")
 
         # Process and normalize the messages
-        params = {'messages': RequestHandler.normalize_chat_messages(messages)}
-
+        params = {'inputs': RequestHandler.normalize_chat_messages(messages)}
         # Merge Prompty parameters if available, then override with any explicit kwargs
         if self.prompty:
             params = {**self.prompty.model.parameters.model_dump(), **params, **kwargs}
         else:
             params.update(kwargs)
 
-        # If a model is provided, override the default model
-        params['llm_component'] = llm_component or self._llm_component
         params['scrubPII'] = scrubPII
 
         # Prepare and send the request
@@ -113,10 +134,11 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
 
         try:
             logger.info("Invoking the Dapr Conversation API.")
-            response = self.client.chat_completion(**params)
+            response = self.client.chat_completion(llm_component or self._llm_component, params)
+            transposed_response = self.translate_response(response, self._llm_component)
             logger.info("Chat completion retrieved successfully.")
 
-            return ResponseHandler.process_response(response, llm_provider=self.provider, response_model=response_model, stream=params.get('stream', False))
+            return ResponseHandler.process_response(transposed_response, llm_provider=self.provider, response_model=response_model, stream=params.get('stream', False))
         except Exception as e:
             logger.error(f"An error occurred during the Dapr Conversation API call: {e}")
             raise

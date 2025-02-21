@@ -15,20 +15,12 @@ class DaprClient:
                     'DAPR_HTTP_PORT', '3500')
 
     def chat_completion(self, llm: str, request: List[Dict]) -> Any:
-        messages = request['messages']
-        scrubPII = request['scrubPII']
-
-        conversation_request = {
-            "inputs": messages,
-            "scrubPII": scrubPII
-        }
-
         # Invoke Dapr
         result = requests.post(
             url='%s/v1.0-alpha1/conversation/%s/converse' % (self._dapr_endpoint, llm),
-            data=json.dumps(conversation_request)
+            data=json.dumps(request)
         )
-
+        
         return result.json()
 
 class DaprInferenceClientBase(LLMClientBase):
