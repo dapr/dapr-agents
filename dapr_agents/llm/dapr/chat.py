@@ -49,9 +49,6 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         # Generate the prompt template from the Prompty instance
         prompt_template = Prompty.to_prompt_template(prompty_instance)
 
-        # Extract the model configuration from Prompty
-        model_config = prompty_instance.model
-
         # Initialize the DaprChatClient based on the Prompty model configuration
         return cls.model_validate({
             'timeout': timeout,

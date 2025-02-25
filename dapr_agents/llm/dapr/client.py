@@ -61,7 +61,6 @@ class DaprInferenceClientBase(LLMClientBase):
         """
         Initializes and returns the Dapr Inference client.
         """
-        config: DaprInferenceClientConfig = self.config
         return DaprInferenceClient()
     
     @classmethod
