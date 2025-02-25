@@ -4,6 +4,7 @@ from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.types.message import BaseMessage
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.tool import AgentTool
+from dapr.clients.grpc._request import ConversationInput
 from typing import Union, Optional, Iterable, Dict, Any, List, Iterator, Type
 from pydantic import BaseModel
 from pathlib import Path
@@ -78,8 +79,18 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             "created": int(time.time()),
             "model": model,
             "object": "chat.completion",
-            "usage": {"total_tokens": len(response.get("outputs", []))}
+            "usage": {"total_tokens": "-1"}
         }
+
+    def convert_to_conversation_inputs(self, inputs: List[Dict[str, Any]]) -> List[ConversationInput]:
+        return [
+            ConversationInput(
+                content=item["content"],
+                role=item.get("role"),
+                scrub_pii=item.get("scrubPII") == "true" 
+            )
+            for item in inputs
+        ]
 
     def generate(
         self,
@@ -89,6 +100,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         tools: Optional[List[Union[AgentTool, Dict[str, Any]]]] = None,
         response_model: Optional[Type[BaseModel]] = None,
         scrubPII: Optional[bool] = False,
+        temperature: Optional[float] = None,
         **kwargs
     ) -> Union[Iterator[Dict[str, Any]], Dict[str, Any]]:
         """
@@ -127,14 +139,13 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         else:
             params.update(kwargs)
 
-        params['scrubPII'] = scrubPII
-
         # Prepare and send the request
         params = RequestHandler.process_params(params, llm_provider=self.provider, tools=tools, response_model=response_model)
-
+        inputs = self.convert_to_conversation_inputs(params['inputs'])
+        
         try:
             logger.info("Invoking the Dapr Conversation API.")
-            response = self.client.chat_completion(llm_component or self._llm_component, params)
+            response = self.client.chat_completion(llm=llm_component or self._llm_component, conversation_inputs=inputs, scrub_pii=scrubPII, temperature=temperature)
             transposed_response = self.translate_response(response, self._llm_component)
             logger.info("Chat completion retrieved successfully.")
 

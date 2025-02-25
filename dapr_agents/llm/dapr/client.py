@@ -1,27 +1,35 @@
 from dapr_agents.types.llm import DaprInferenceClientConfig
 from dapr_agents.llm.base import LLMClientBase
-from typing import Optional, Dict, Any, List
-from pydantic import Field, model_validator
-import os
+from dapr.clients import DaprClient
+from dapr.clients.grpc._request import ConversationInput
+from dapr.clients.grpc._response import ConversationResponse
+from typing import Dict, Any, List
+from pydantic import model_validator
+
 import logging
-import requests
-import json
 
 logger = logging.getLogger(__name__)
 
-class DaprClient:
-    def __init__(self):
-        self._dapr_endpoint = os.getenv('DAPR_BASE_URL', 'http://localhost') + ':' + os.getenv(
-                    'DAPR_HTTP_PORT', '3500')
+class DaprInferenceClient:
+    def translate_to_json(self, response: ConversationResponse) -> dict:
+        response_dict = {
+            "outputs": [
+                {
+                    "result": output.result,
+                }
+                for output in response.outputs
+            ]
+        }
 
-    def chat_completion(self, llm: str, request: List[Dict]) -> Any:
-        # Invoke Dapr
-        result = requests.post(
-            url='%s/v1.0-alpha1/conversation/%s/converse' % (self._dapr_endpoint, llm),
-            data=json.dumps(request)
-        )
-        
-        return result.json()
+        return response_dict
+    
+    def chat_completion(self, llm: str, conversation_inputs: List[ConversationInput], scrub_pii: bool | None = None, temperature: float | None = None) -> Any:
+        with DaprClient() as client:
+            response = client.converse_alpha1(name=llm, inputs=conversation_inputs, scrub_pii=scrub_pii, temperature=temperature)
+            output = self.translate_to_json(response)
+
+            return output
+
 
 class DaprInferenceClientBase(LLMClientBase):
     """
@@ -49,12 +57,12 @@ class DaprInferenceClientBase(LLMClientBase):
         """
         return DaprInferenceClientConfig()
 
-    def get_client(self) -> DaprClient:
+    def get_client(self) -> DaprInferenceClient:
         """
         Initializes and returns the Dapr Inference client.
         """
         config: DaprInferenceClientConfig = self.config
-        return DaprClient()
+        return DaprInferenceClient()
     
     @classmethod
     def from_config(cls, client_options: DaprInferenceClientConfig, timeout: float = 1500):
@@ -75,5 +83,5 @@ class DaprInferenceClientBase(LLMClientBase):
         return self._config
 
     @property
-    def client(self) -> DaprClient:
+    def client(self) -> DaprInferenceClient:
         return self._client
