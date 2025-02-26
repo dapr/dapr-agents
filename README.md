@@ -49,7 +49,13 @@ cd dapr-agents
 poetry install
 ```
 
-## Install Dapr CLI
+## Install Dapr
+
+If you're using an IDE that supports devcontainers, you can use the devcontainer configuration in this repository to get started. This has Python & the Dapr CLI preinstalled, and will also initialize Dapr on startup.
+
+If you're not using the devcontainer, follow the steps below to install the Dapr CLI.
+
+### Install the Dapr CLI
 
 Install the [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) to manage Dapr-related tasks like running applications with sidecars, viewing logs, and launching the Dapr dashboard. It works seamlessly with both self-hosted and Kubernetes environments. For a complete step-by-step guide, visit the official [Dapr CLI installation page](https://docs.dapr.io/getting-started/install-dapr-cli/).
 
