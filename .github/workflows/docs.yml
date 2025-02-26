@@ -1,0 +1,29 @@
+name: docs
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - docs
+permissions:
+  contents: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+      - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV 
+      - uses: actions/cache@v4
+        with:
+          key: mkdocs-material-${{ env.cache_id }}
+          path: .cache
+          restore-keys: |
+            mkdocs-material-
+      - name: Install Python dependencies
+        run: |
+          pip install mkdocs-material
+          pip install .[recommended,git,imaging] 
+      - run: mkdocs gh-deploy --force
