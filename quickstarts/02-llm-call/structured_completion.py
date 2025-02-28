@@ -1,0 +1,25 @@
+from floki import OpenAIChatClient
+from floki.types import UserMessage
+from pydantic import BaseModel
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
+
+# Define our data model
+class Dog(BaseModel):
+    name: str
+    breed: str
+    reason: str
+
+# Initialize the chat client
+llm = OpenAIChatClient()
+
+# Get structured response
+response = llm.generate(
+    messages=[UserMessage("One famous dog in history.")],
+    response_model=Dog
+)
+
+# Print the structured response
+print(response)

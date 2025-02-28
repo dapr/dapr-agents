@@ -1,0 +1,32 @@
+# https://docs.dapr.io/developing-applications/local-development/multi-app-dapr-run/multi-app-template/#template-properties
+version: 1
+common:
+  resourcesPath: ./components
+  logLevel: info
+  appLogDestination: console
+  daprdLogDestination: console
+
+apps:
+- appId: HobbitApp
+  appDirPath: ./services/hobbit/
+  appPort: 8001
+  command: ["python3", "app.py"]
+  daprGRPCPort: 50001
+
+- appId: WizardApp
+  appDirPath: ./services/wizard/
+  appPort: 8002
+  command: ["python3", "app.py"]
+  daprGRPCPort: 50002
+
+- appId: ElfApp
+  appDirPath: ./services/elf/
+  appPort: 8003
+  command: ["python3", "app.py"]
+  daprGRPCPort: 50003
+
+- appId: WorkflowApp
+  appDirPath: ./services/workflow-roundrobin/
+  appPort: 8004
+  command: ["python3", "app.py"]
+  daprGRPCPort: 50004
