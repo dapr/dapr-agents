@@ -1,4 +1,4 @@
-from floki import OpenAIChatClient
+from dapr_agents import OpenAIChatClient
 from dotenv import load_dotenv
 
 # Load environment variables from .env

@@ -1,5 +1,5 @@
-from floki import OpenAIChatClient
-from floki.types import UserMessage
+from dapr_agents import OpenAIChatClient
+from dapr_agents.types import UserMessage
 from pydantic import BaseModel
 from dotenv import load_dotenv
 

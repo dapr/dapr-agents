@@ -1,4 +1,4 @@
-from floki import RoundRobinWorkflowService
+from dapr_agents import RoundRobinWorkflowService
 from dotenv import load_dotenv
 import asyncio
 import logging

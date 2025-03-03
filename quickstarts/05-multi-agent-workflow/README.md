@@ -190,7 +190,7 @@ Once all services are running, you can start the workflow via HTTP:
 ```bash
 curl -i -X POST http://localhost:8004/RunWorkflow \
     -H "Content-Type: application/json" \
-    -d '{"message": "How to get to Mordor? Lets all help!"}'
+    -d '{"message": "How to get to Mordor? Let's all help!"}'
 ```
 
 **Expected output:** The agents will engage in a conversation about getting to Mordor, with each agent taking turns to contribute based on their character.

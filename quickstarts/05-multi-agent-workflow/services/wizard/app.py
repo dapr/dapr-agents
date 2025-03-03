@@ -1,4 +1,4 @@
-from floki import Agent, AgentService
+from dapr_agents import Agent, AgentService
 from dotenv import load_dotenv
 import asyncio
 import logging

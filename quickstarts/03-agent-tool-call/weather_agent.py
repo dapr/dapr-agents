@@ -1,5 +1,8 @@
 from weather_tools import tools
-from floki import Agent
+from dapr_agents import Agent
+from dotenv import load_dotenv
+
+load_dotenv()
 
 AIAgent = Agent(
     name = "Stevie",

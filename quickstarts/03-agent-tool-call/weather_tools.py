@@ -1,4 +1,4 @@
-from floki import tool
+from dapr_agents import tool
 from pydantic import BaseModel, Field
 
 class GetWeatherSchema(BaseModel):

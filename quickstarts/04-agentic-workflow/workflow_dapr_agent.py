@@ -1,5 +1,5 @@
-from floki import WorkflowApp
-from floki.types import DaprWorkflowContext
+from dapr_agents import WorkflowApp
+from dapr_agents.types import DaprWorkflowContext
 from dotenv import load_dotenv
 
 # Load environment variables
