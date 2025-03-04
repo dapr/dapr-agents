@@ -1,9 +1,9 @@
-from floki.llm.huggingface.client import HFHubInferenceClientBase
-from floki.llm.utils import RequestHandler, ResponseHandler
-from floki.prompt.prompty import Prompty
-from floki.types.message import BaseMessage
-from floki.llm.chat import ChatClientBase
-from floki.tool import AgentTool
+from dapr_agents.llm.huggingface.client import HFHubInferenceClientBase
+from dapr_agents.llm.utils import RequestHandler, ResponseHandler
+from dapr_agents.prompt.prompty import Prompty
+from dapr_agents.types.message import BaseMessage
+from dapr_agents.llm.chat import ChatClientBase
+from dapr_agents.tool import AgentTool
 from typing import Union, Optional, Iterable, Dict, Any, List, Iterator, Type, Literal, ClassVar
 from pydantic import BaseModel
 from pathlib import Path
