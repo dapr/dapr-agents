@@ -9,7 +9,8 @@ from .message import (
     ToolMessage,
     ToolCall,
     FunctionCall,
-    MessagePlaceHolder
+    MessagePlaceHolder,
+    EventMessageMetadata
 )
 from .llm import OpenAIChatCompletionParams, OpenAIModelConfig
 from .exceptions import ToolError, AgentError, AgentToolExecutorError, StructureError, FunCallBuilderError
