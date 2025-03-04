@@ -1,5 +1,7 @@
-from floki import tool, Agent
+from dapr_agents import tool, Agent
+from dotenv import load_dotenv
 
+load_dotenv()
 @tool
 def weather() -> str:
     """Get current weather."""

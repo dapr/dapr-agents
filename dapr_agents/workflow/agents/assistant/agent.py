@@ -79,7 +79,8 @@ class AssistantAgent(AgentServiceBase):
             self.state["instances"].setdefault(instance_id, workflow_entry.model_dump(mode="json"))
 
             if not ctx.is_replaying:
-                logger.info(f"Initial message from {self.state["instances"][instance_id]["source_agent"]} -> {self.name}")
+                logger.info(
+                    f"Initial message from {self.state['instances'][instance_id]['source_agent']} -> {self.name}")
 
         # Step 2: Retrieve workflow entry for this instance
         workflow_entry = self.state["instances"][instance_id]

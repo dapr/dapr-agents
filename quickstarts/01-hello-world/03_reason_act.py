@@ -1,5 +1,7 @@
-from floki import tool, ReActAgent
+from dapr_agents import tool, ReActAgent
+from dotenv import load_dotenv
 
+load_dotenv()
 @tool
 def search_weather(city: str) -> str:
     """Get weather information for a city."""
