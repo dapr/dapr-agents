@@ -47,7 +47,7 @@ python text_completion.py
 The script demonstrates basic usage of Dapr Agents' OpenAIChatClient for text generation:
 
 ```python
-from floki import OpenAIChatClient
+from dapr_agents import OpenAIChatClient
 from dotenv import load_dotenv
 
 # Load environment variables from .env
@@ -76,8 +76,8 @@ python structured_completion.py
 This example shows how to use Pydantic models to get structured data from LLMs:
 
 ```python
-from floki import OpenAIChatClient
-from floki.types import UserMessage
+from dapr_agents import OpenAIChatClient
+from dapr_agents.types import UserMessage
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
