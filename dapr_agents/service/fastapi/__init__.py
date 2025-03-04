@@ -1,2 +1,2 @@
-from .base import ServiceBase
-from .dapr import DaprEnabledService
+from .base import FastAPIServerBase
+from .dapr import DaprFastAPIServer
