@@ -1,24 +1,33 @@
-from dapr_agents.agent.services.base import AgentServiceBase
-from dapr_agents.agent.services.messaging import message_router
+from dapr_agents.agent.actor.service import AgentActorServiceBase
+from dapr_agents.messaging import message_router
 from dapr_agents.types.agent import AgentActorMessage
 from dapr_agents.types.message import BaseMessage, EventMessageMetadata
 from fastapi import Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
-class TriggerActionMessage(BaseModel):
-    task: Optional[str] = None
+class AgentTaskResponse(BaseMessage):
+    """
+    Represents a response message from an agent after completing a task.
+    """
 
-class AgentService(AgentServiceBase):
+class TriggerAction(BaseModel):
+    """
+    Represents a message used to trigger an agent's activity within the workflow.
+    """
+    task: Optional[str] = Field(None, description="The specific task to execute. If not provided, the agent can act based on its memory or predefined behavior.")
+    iteration: Optional[int] = Field(default=0, description="The current iteration of the workflow loop.")
+
+class AgentActorService(AgentActorServiceBase):
     """
     A Pydantic-based class for managing services and exposing FastAPI routes with Dapr pub/sub and actor support.
     """
     
     @message_router
-    async def process_trigger_action(self, message: TriggerActionMessage, metadata: EventMessageMetadata) -> Response:
+    async def process_trigger_action(self, message: TriggerAction, metadata: EventMessageMetadata) -> Response:
         """
         Processes TriggerAction messages sent directly to the agent's topic.
         """
@@ -42,13 +51,15 @@ class AgentService(AgentServiceBase):
             # Broadcast result
             response_message = BaseMessage(name=self.agent.name, role="user", content=content)
             await self.broadcast_message(message=response_message)
+            
+            # Prepare metadata for routing
+            additional_metadata = {"event_name": "AgentTaskResponse", "workflow_instance_id": workflow_instance_id}
 
-            # Publish result
-            additional_metadata = {"ttlInSeconds": "120"}
-            if workflow_instance_id:
-                additional_metadata.update({"event_name": "AgentCompletedTask", "workflow_instance_id": workflow_instance_id})
-
-            await self.publish_task_result(message=response_message, **additional_metadata)
+            # Validate and wrap response
+            agent_response = AgentTaskResponse(**response_message.model_dump())
+            
+            # Send the message to the target agent
+            await self.send_message_to_agent(name=metadata.source, message=agent_response, **additional_metadata)
 
             return Response(content="Task processed successfully", status_code=status.HTTP_200_OK)
         except Exception as e:
@@ -69,7 +80,7 @@ class AgentService(AgentServiceBase):
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
 
             # Log and process the valid broadcast message
-            logger.info(f"{self.agent.name} is processing broadcast message of type '{metadata.type}' from '{metadata.source}'.")
+            logger.debug(f"{self.agent.name} is processing broadcast message of type '{metadata.type}' from '{metadata.source}'.")
             logger.debug(f"Message content: {message.content}")
 
             # Add the message to the agent's memory
