@@ -1,9 +1,9 @@
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import Field, ConfigDict
 from typing import List, Optional, Any
-from abc import ABC
+from dapr_agents.service import APIServerBase
 import uvicorn
 import asyncio
 import signal
@@ -11,16 +11,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class ServiceBase(BaseModel, ABC):
+class FastAPIServerBase(APIServerBase):
     """
-    An abstract base class for managing services and exposing FastAPI routes.
-    Provides core functionality, with abstract methods for process handling and actor-specific functionality.
+    Abstract base class for FastAPI-based API server services.
+    Provides core FastAPI functionality, with support for CORS, lifecycle management, and graceful shutdown.
     """
 
-    name: str = Field(..., description="The name of the service, derived from the agent's role if not provided.")
-    port: int = Field(..., description="The port number to run the FastAPI server on.")
-    host: str = Field("0.0.0.0", description="Host address for the FastAPI server.")
-    description: Optional[str] = Field(None, description="Description of the service.")
+    description: Optional[str] = Field(None, description="Description of the API service.")
     cors_origins: Optional[List[str]] = Field(default_factory=lambda: ["*"], description="Allowed CORS origins.")
     cors_credentials: bool = Field(True, description="Whether to allow credentials in CORS requests.")
     cors_methods: Optional[List[str]] = Field(default_factory=lambda: ["*"], description="Allowed HTTP methods for CORS.")
@@ -37,14 +34,14 @@ class ServiceBase(BaseModel, ABC):
         Post-initialization to configure core FastAPI app and CORS settings.
         """
         
-        # Prepare FastAPI app with a dynamic title
+        # Initialize FastAPI app with title and description
         self.app = FastAPI(
-            title=f"{self.name}Service",
-            description=self.description or self.name,
+            title=f"{self.service_name} API Server",
+            description=self.description or self.service_name,
             lifespan=self.lifespan
         )
 
-        # CORS settings
+        # Configure CORS settings
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=self.cors_origins,
@@ -53,9 +50,9 @@ class ServiceBase(BaseModel, ABC):
             allow_headers=self.cors_headers,
         )
         
-        logger.info(f"{self.name} service initialized on port {self.port} with CORS settings.")
+        logger.info(f"{self.service_name} FastAPI server initialized on port {self.service_port} with CORS settings.")
 
-        # Complete post-initialization
+        # Call the base post-initialization
         super().model_post_init(__context)
         
     @asynccontextmanager
@@ -80,7 +77,7 @@ class ServiceBase(BaseModel, ABC):
         if log_level is None:
             log_level = logging.getLevelName(logger.getEffectiveLevel()).lower()
 
-        config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level=log_level)
+        config = uvicorn.Config(self.app, host=self.service_host, port=self.service_port, log_level=log_level)
         self.server: uvicorn.Server = uvicorn.Server(config)
 
         # Set up signal handling for graceful shutdown
@@ -88,7 +85,7 @@ class ServiceBase(BaseModel, ABC):
         for s in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(s, lambda: asyncio.create_task(self.stop()))
 
-        logger.info(f"Starting {self.name} service at {self.host}:{self.port}")
+        logger.info(f"Starting {self.service_name} service at {self.service_host}:{self.service_port}")
         await self.server.serve()
 
     async def stop(self):
@@ -96,5 +93,5 @@ class ServiceBase(BaseModel, ABC):
         Stop the FastAPI server gracefully.
         """
         if self.server:
-            logger.info(f"Stopping {self.name} server on port {self.port}.")
+            logger.info(f"Stopping {self.service_name} server on port {self.service_port}.")
             self.server.should_exit = True

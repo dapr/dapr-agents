@@ -3,7 +3,7 @@ from fastapi import HTTPException, status, Request
 from cloudevents.http.conversion import from_http
 from cloudevents.http.event import CloudEvent
 from fastapi.responses import JSONResponse
-from dapr_agents.service.fastapi import DaprEnabledService
+from dapr_agents.service.fastapi import DaprFastAPIServer
 from dapr_agents.workflow import WorkflowApp
 from fastapi import Request
 from pydantic import Field
@@ -13,12 +13,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class WorkflowAppService(DaprEnabledService, WorkflowApp):
+class WorkflowAppService(DaprFastAPIServer, WorkflowApp):
     """
     Abstract base class for agentic workflows, providing a template for common workflow operations.
     """
 
-    # Fields initialized later
     workflow_name: str = Field(default=None, init=False, description="The main workflow name for this service.")
 
     def model_post_init(self, __context: Any) -> None:
@@ -36,6 +35,12 @@ class WorkflowAppService(DaprEnabledService, WorkflowApp):
         """
         Run a workflow instance triggered by an incoming HTTP request.
         Handles both CloudEvents and plain JSON input, with background monitoring.
+
+        Args:
+            request (Request): The incoming request containing input data for the workflow.
+
+        Returns:
+            Response: Accepted or error response based on event processing.
         """
         try:
             # Extract headers and body
@@ -45,21 +50,16 @@ class WorkflowAppService(DaprEnabledService, WorkflowApp):
             # Attempt to parse as CloudEvent
             try:
                 event: CloudEvent = from_http(dict(headers), body)
-                workflow_name = event.get("subject") or headers.get("workflow_name", self.workflow_name)
                 input_data = event.data
             except Exception:
                 # Fallback to plain JSON
                 data = await request.json()
-                workflow_name = headers.get("workflow_name", self.workflow_name)
                 input_data = data
 
-            if not workflow_name:
-                raise ValueError("Workflow name must be provided in headers or as CloudEvent subject.")
-
-            logger.info(f"Starting '{workflow_name}' from request with input: {input_data}")
+            logger.info(f"Starting '{self.workflow_name}' from request with input: {input_data}")
 
             # Start the workflow
-            instance_id = self.run_workflow(workflow=workflow_name, input=input_data)
+            instance_id = self.run_workflow(workflow=self.workflow_name, input=input_data)
 
             # Schedule background monitoring
             asyncio.create_task(self.monitor_workflow_completion(instance_id))
@@ -67,14 +67,14 @@ class WorkflowAppService(DaprEnabledService, WorkflowApp):
             # Respond with the workflow instance ID immediately
             return JSONResponse(
                 content={"message": "Workflow initiated successfully.", "workflow_instance_id": instance_id},
-                status_code=status.HTTP_200_OK,
+                status_code=status.HTTP_202_ACCEPTED,
             )
 
         except Exception as e:
-            logger.error(f"Error triggering workflow: {e}", exc_info=True)
-            raise HTTPException(
+            logging.error(f"Error starting workflow: {str(e)}", exc_info=True)
+            return JSONResponse(
+                content={"error": "Failed to start workflow", "details": str(e)},
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error triggering workflow: {str(e)}",
             )
     
     async def raise_workflow_event_from_request(self, request: Request) -> Response:

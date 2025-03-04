@@ -5,7 +5,7 @@ from dapr_agents.types.message import BaseMessage
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.tool import AgentTool
-from typing import Union, Optional, Iterable, Dict, Any, List, Iterator, Type
+from typing import Union, Optional, Iterable, Dict, Any, List, Iterator, Type, Literal, ClassVar
 from openai.types.chat import ChatCompletionMessage
 from pydantic import BaseModel, Field, model_validator
 from pathlib import Path
@@ -19,6 +19,8 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
     Combines OpenAI client management with Prompty-specific functionality.
     """
     model: str = Field(default=None, description="Model name to use, e.g., 'gpt-4'.")
+
+    SUPPORTED_STRUCTURED_MODES: ClassVar[set] = {"json", "function_call"}
 
     @model_validator(mode="before")
     def validate_and_initialize(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -95,7 +97,8 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
         input_data: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
         tools: Optional[List[Union[AgentTool, Dict[str, Any]]]] = None,
-        response_model: Optional[Type[BaseModel]] = None,
+        response_format: Optional[Type[BaseModel]] = None,
+        structured_mode: Literal["json", "function_call"] = "json",
         **kwargs
     ) -> Union[Iterator[Dict[str, Any]], Dict[str, Any]]:
         """
@@ -106,13 +109,17 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
             input_data (Optional[Dict[str, Any]]): Input variables for prompt templates.
             model (str): Specific model to use for the request, overriding the default.
             tools (List[Union[AgentTool, Dict[str, Any]]]): List of tools for the request.
-            response_model (Type[BaseModel]): Optional Pydantic model for structured response parsing.
+            response_format (Type[BaseModel]): Optional Pydantic model for structured response parsing.
+            structured_mode (Literal["json", "function_call"]): Mode for structured output: "json" or "function_call".
             **kwargs: Additional parameters for the language model.
 
         Returns:
             Union[Iterator[Dict[str, Any]], Dict[str, Any]]: The chat completion response(s).
         """
-
+        
+        if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
+            raise ValueError(f"Invalid structured_mode '{structured_mode}'. Must be one of {self.SUPPORTED_STRUCTURED_MODES}.")
+        
         # If input_data is provided, check for a prompt_template
         if input_data:
             if not self.prompt_template:
@@ -137,16 +144,28 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
         # If a model is provided, override the default model
         params['model'] = model or self.model
 
-        # Prepare and send the request
-        params = RequestHandler.process_params(params, llm_provider=self.provider, tools=tools, response_model=response_model)
+        # Prepare request parameters
+        params = RequestHandler.process_params(
+            params,
+            llm_provider=self.provider,
+            tools=tools,
+            response_format=response_format,
+            structured_mode=structured_mode
+        )
 
         try:
             logger.info("Invoking ChatCompletion API.")
-            logger.debug(f"ChatCompletion API Parameters:{params}")
+            logger.debug(f"ChatCompletion API Parameters: {params}")
             response: ChatCompletionMessage = self.client.chat.completions.create(**params, timeout=self.timeout)
             logger.info("Chat completion retrieved successfully.")
 
-            return ResponseHandler.process_response(response, llm_provider=self.provider, response_model=response_model, stream=params.get('stream', False))
+            return ResponseHandler.process_response(
+                response,
+                llm_provider=self.provider,
+                response_format=response_format,
+                structured_mode=structured_mode,
+                stream=params.get('stream', False)
+            )
         except Exception as e:
             logger.error(f"An error occurred during the ChatCompletion API call: {e}")
             raise

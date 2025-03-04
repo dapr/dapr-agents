@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional, Iterable, Any, Union
+from dapr_agents.document.embedder.base import EmbedderBase
 from pydantic import BaseModel, Field
 from dapr_agents.types.document import Document
 from abc import ABC, abstractmethod
@@ -11,7 +12,7 @@ class VectorStoreBase(BaseModel, ABC):
     """Base interface for a vector store."""
 
     client: Any = Field(default=None, init=False, description="The client to interact with the vector store.")
-    embedding_function: Any = Field(default=None, init=False, description="Embedding function to use to embed documents.")
+    embedding_function: EmbedderBase = Field(default=None, init=False, description="Embedding function to use to embed documents.")
     
     @abstractmethod
     def add(self, documents: Iterable[str], embeddings: Optional[List[List[float]]] = None, metadatas: Optional[List[dict]] = None, **kwargs: Any) -> List[int]:

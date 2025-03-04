@@ -4,7 +4,7 @@ from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.types.message import BaseMessage
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.tool import AgentTool
-from typing import Union, Optional, Iterable, Dict, Any, List, Iterator, Type
+from typing import Union, Optional, Iterable, Dict, Any, List, Iterator, Type, Literal, ClassVar
 from pydantic import BaseModel
 from pathlib import Path
 import logging
@@ -16,6 +16,8 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
     Concrete class for the Hugging Face Hub's chat completion API using the Inference API.
     This class extends the ChatClientBase and provides the necessary configurations for Hugging Face models.
     """
+
+    SUPPORTED_STRUCTURED_MODES: ClassVar[set] = {"function_call"}
 
     def model_post_init(self, __context: Any) -> None:
         """
@@ -66,7 +68,8 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
         input_data: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
         tools: Optional[List[Union[AgentTool, Dict[str, Any]]]] = None,
-        response_model: Optional[Type[BaseModel]] = None,
+        response_format: Optional[Type[BaseModel]] = None,
+        structured_mode: Literal["function_call"] = "function_call",
         **kwargs
     ) -> Union[Iterator[Dict[str, Any]], Dict[str, Any]]:
         """
@@ -77,13 +80,17 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             input_data (Optional[Dict[str, Any]]): Input variables for prompt templates.
             model (str): Specific model to use for the request, overriding the default.
             tools (List[Union[AgentTool, Dict[str, Any]]]): List of tools for the request.
-            response_model (Type[BaseModel]): Optional Pydantic model for structured response parsing.
+            response_format (Type[BaseModel]): Optional Pydantic model for structured response parsing.
+            structured_mode (Literal["function_call"]): Mode for structured output: "function_call" (Limited Support).
             **kwargs: Additional parameters for the language model.
 
         Returns:
             Union[Iterator[Dict[str, Any]], Dict[str, Any]]: The chat completion response(s).
         """
 
+        if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
+            raise ValueError(f"Invalid structured_mode '{structured_mode}'. Must be one of {self.SUPPORTED_STRUCTURED_MODES}.")
+        
         # If input_data is provided, check for a prompt_template
         if input_data:
             if not self.prompt_template:
@@ -108,15 +115,27 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
         # If a model is provided, override the default model
         params['model'] = model or self.model
 
-        # Prepare and send the request
-        params = RequestHandler.process_params(params, llm_provider=self.provider, tools=tools, response_model=response_model)
+        # Prepare request parameters
+        params = RequestHandler.process_params(
+            params,
+            llm_provider=self.provider,
+            tools=tools,
+            response_format=response_format,
+            structured_mode=structured_mode
+        )
 
         try:
             logger.info("Invoking Hugging Face ChatCompletion API.")
             response = self.client.chat_completion(**params)
             logger.info("Chat completion retrieved successfully.")
-
-            return ResponseHandler.process_response(response, llm_provider=self.provider, response_model=response_model, stream=params.get('stream', False))
+            
+            return ResponseHandler.process_response(
+                response,
+                llm_provider=self.provider,
+                response_format=response_format,
+                structured_mode=structured_mode,
+                stream=params.get('stream', False)
+            )
         except Exception as e:
             logger.error(f"An error occurred during the ChatCompletion API call: {e}")
             raise

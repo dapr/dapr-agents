@@ -64,7 +64,7 @@ class ColorTextFormatter:
         """
         separator = "-" * 80
         self.print_colored_text([(f"\n{separator}\n", "reset")])
-    
+
     def print_message(self, message: Union[BaseMessage, Dict[str, Any]], include_separator: bool = True):
         """
         Prints messages with colored formatting based on the role and message content.
@@ -79,7 +79,12 @@ class ColorTextFormatter:
         if isinstance(message, BaseMessage):
             message = message.model_dump()
 
-        role = message.get("role")
+        role = message.get("role", "unknown")
+        name = message.get("name")
+
+        # Format role as "role(name)" if name exists, otherwise just "role"
+        formatted_role = f"{name}({role})" if name else role
+
         content = message.get("content", "")
         
         color_map = {
@@ -88,7 +93,7 @@ class ColorTextFormatter:
             "tool_calls": "dapr_agents_red",
             "tool": "dapr_agents_pink"
         }
-
+        
         # Handle tool calls
         if "tool_calls" in message and message["tool_calls"]:
             tool_calls = message["tool_calls"]
@@ -97,19 +102,19 @@ class ColorTextFormatter:
                 arguments = tool_call["function"]["arguments"]
                 tool_id = tool_call["id"]
                 tool_call_text = [
-                    (f"{role}(tool_call):\n", color_map["tool_calls"]),
+                    (f"{formatted_role}:\n", color_map["tool_calls"]),
                     (f"Function name: {function_name} (Call Id: {tool_id})\n", color_map["tool_calls"]),
                     (f"Arguments: {arguments}", color_map["tool_calls"]),
                 ]
                 self.print_colored_text(tool_call_text)
                 if include_separator:
                     self.print_separator()
-
+        
         elif role == "tool":
             # Handle tool messages
             tool_call_id = message.get("tool_call_id", "Unknown")
             tool_message_text = [
-                (f"{role}(Id: {tool_call_id}):\n", color_map["tool"]),
+                (f"{formatted_role} (Id: {tool_call_id}):\n", color_map["tool"]),
                 (f"{content}", color_map["tool"]),
             ]
             self.print_colored_text(tool_message_text)
@@ -119,7 +124,7 @@ class ColorTextFormatter:
         else:
             # Handle regular user or assistant messages
             regular_message_text = [
-                (f"{role}:\n", color_map.get(role, "reset")),
+                (f"{formatted_role}:\n", color_map.get(role, "reset")),
                 (f"{content}", color_map.get(role, "reset")),
             ]
             self.print_colored_text(regular_message_text)

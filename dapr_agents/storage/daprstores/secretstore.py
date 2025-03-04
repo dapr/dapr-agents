@@ -15,7 +15,7 @@ class DaprSecretStore(DaprStoreBase):
         Returns:
             Optional[Dict[str, str]]: The secret stored in the secret store, or None if not found.
         """
-        with DaprClient(address=self.address) as client:
+        with DaprClient(address=self.daprGrpcAddress) as client:
             response = client.get_secret(store_name=self.store_name, key=key, secret_metadata=secret_metadata)
             return response.secret
 
@@ -29,6 +29,6 @@ class DaprSecretStore(DaprStoreBase):
         Returns:
             Dict[str, Dict[str, str]]: A dictionary of secrets.
         """
-        with DaprClient(address=self.address) as client:
+        with DaprClient(address=self.daprGrpcAddress) as client:
             response = client.get_bulk_secret(store_name=self.store_name, secret_metadata=secret_metadata)
             return response.secrets

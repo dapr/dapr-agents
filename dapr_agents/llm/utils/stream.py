@@ -18,7 +18,7 @@ class StreamHandler:
     def process_stream(
         stream: Iterator[Dict[str, Any]],
         llm_provider: str,
-        response_model: Optional[Union[Type[T], Type[Iterable[T]]]] = None,
+        response_format: Optional[Union[Type[T], Type[Iterable[T]]]] = None,
     ) -> Iterator[Dict[str, Any]]:
         """
         Stream chat completion responses.
@@ -26,7 +26,7 @@ class StreamHandler:
         Args:
             stream: The response stream from the API.
             llm_provider: The LLM provider to use (e.g., 'openai').
-            response_model: The optional Pydantic model or iterable model for validating the response.
+            response_format: The optional Pydantic model or iterable model for validating the response.
 
         Yields:
             dict: Each processed and validated chunk from the chat completion response.
@@ -35,7 +35,7 @@ class StreamHandler:
 
         try:
             if llm_provider == 'openai':
-                yield from StreamHandler._process_openai_stream(stream, response_model)
+                yield from StreamHandler._process_openai_stream(stream, response_format)
             else:
                 yield from stream
         except Exception as e:
@@ -45,14 +45,14 @@ class StreamHandler:
     @staticmethod
     def _process_openai_stream(
         stream: Iterator[Dict[str, Any]],
-        response_model: Optional[Union[Type[T], Type[Iterable[T]]]] = None
+        response_format: Optional[Union[Type[T], Type[Iterable[T]]]] = None
     ) -> Iterator[Dict[str, Any]]:
         """
         Process OpenAI stream for chat completion.
 
         Args:
             stream: The response stream from the OpenAI API.
-            response_model: The optional Pydantic model or iterable model for validating the response.
+            response_format: The optional Pydantic model or iterable model for validating the response.
 
         Yields:
             dict: Each processed and validated chunk from the chat completion response.
@@ -95,7 +95,7 @@ class StreamHandler:
                     tool_calls[tool_call_index]["function"]["arguments"] += tool_call_arguments
 
                     # Process Iterable model if provided
-                    if response_model and isinstance(response_model, Iterable) is True:
+                    if response_format and isinstance(response_format, Iterable) is True:
                         trimmed_character = tool_call_arguments.strip()
                         # Check beginning of List
                         if trimmed_character == "[" and json_extraction_active is False:
@@ -109,7 +109,7 @@ class StreamHandler:
                             json_brace_level -= 1
                             json_string_buffer += trimmed_character.rstrip(',')
                             if json_brace_level == 0:
-                                yield from StreamHandler._validate_json_object(response_model, json_string_buffer)
+                                yield from StreamHandler._validate_json_object(response_format, json_string_buffer)
                                 # Reset buffers and counts
                                 json_string_buffer = ""
                         elif json_extraction_active is True:
@@ -119,7 +119,7 @@ class StreamHandler:
             yield {"type": "final_content", "data": content_accumulator}
         
         if tool_calls:
-            yield from StreamHandler._get_final_tool_calls(tool_calls, response_model)
+            yield from StreamHandler._get_final_tool_calls(tool_calls, response_format)
 
     @staticmethod
     def _process_openai_chunk(chunk: ChatCompletionChunk) -> Dict[str, Any]:
@@ -162,11 +162,11 @@ class StreamHandler:
     
     @staticmethod
     def _validate_json_object(
-        response_model: Optional[Union[Type[T], Type[Iterable[T]]]],
+        response_format: Optional[Union[Type[T], Type[Iterable[T]]]],
         json_string_buffer: str
     ):
         try:
-            model_class = get_args(response_model)[0]
+            model_class = get_args(response_format)[0]
             # Return current tool call
             structured_output = StructureHandler.validate_response(json_string_buffer, model_class)
             if isinstance(structured_output, model_class):
@@ -178,22 +178,22 @@ class StreamHandler:
     @staticmethod
     def _get_final_tool_calls(
         tool_calls: Dict[int, Any],
-        response_model: Optional[Union[Type[T], Type[Iterable[T]]]]
+        response_format: Optional[Union[Type[T], Type[Iterable[T]]]]
     ) -> Iterator[Dict[str, Any]]:
         """
         Yield final tool calls after processing.
 
         Args:
             tool_calls: The dictionary of accumulated tool calls.
-            response_model: The response model for validation.
+            response_format: The response model for validation.
 
         Yields:
             dict: Each processed and validated tool call.
         """
         for tool in tool_calls.values():
-            if response_model and isinstance(response_model, Iterable) is False:
-                structured_output = StructureHandler.validate_response(tool["function"]["arguments"], response_model)
-                if isinstance(structured_output, response_model):
+            if response_format and isinstance(response_format, Iterable) is False:
+                structured_output = StructureHandler.validate_response(tool["function"]["arguments"], response_format)
+                if isinstance(structured_output, response_format):
                     logger.info("Structured output was successfully validated.")
                     yield {"type": "structured_output", "data": structured_output}
             else:

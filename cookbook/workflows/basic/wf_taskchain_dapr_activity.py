@@ -1,33 +1,41 @@
-from dapr_agents import WorkflowApp
-from dapr_agents.types import DaprWorkflowContext
+from time import sleep
+import dapr.ext.workflow as wf
 
-wfapp = WorkflowApp()
+wfr = wf.WorkflowRuntime()
 
-@wfapp.workflow(name='random_workflow')
-def task_chain_workflow(ctx:DaprWorkflowContext, input: int):
-    result1 = yield ctx.call_activity(step1, input=input)
+@wfr.workflow(name='random_workflow')
+def task_chain_workflow(ctx: wf.DaprWorkflowContext, x: int):
+    result1 = yield ctx.call_activity(step1, input=x)
     result2 = yield ctx.call_activity(step2, input=result1)
     result3 = yield ctx.call_activity(step3, input=result2)
     return [result1, result2, result3]
 
-@wfapp.task
-def step1(activity_input):
+@wfr.activity
+def step1(ctx, activity_input):
     print(f'Step 1: Received input: {activity_input}.')
     # Do some work
     return activity_input + 1
 
-@wfapp.task
-def step2(activity_input):
+@wfr.activity
+def step2(ctx, activity_input):
     print(f'Step 2: Received input: {activity_input}.')
     # Do some work
     return activity_input * 2
 
-@wfapp.task
-def step3(activity_input):
+@wfr.activity
+def step3(ctx, activity_input):
     print(f'Step 3: Received input: {activity_input}.')
     # Do some work
     return activity_input ^ 2
 
 if __name__ == '__main__':
-    results = wfapp.run_and_monitor_workflow(task_chain_workflow, input=10)
-    print(f"Results: {results}")
+    wfr.start()
+    sleep(5)  # wait for workflow runtime to start
+
+    wf_client = wf.DaprWorkflowClient()
+    instance_id = wf_client.schedule_new_workflow(workflow=task_chain_workflow, input=10)
+    print(f'Workflow started. Instance ID: {instance_id}')
+    state = wf_client.wait_for_workflow_completion(instance_id)
+    print(f'Workflow completed! Status: {state.runtime_status}')
+
+    wfr.shutdown()
