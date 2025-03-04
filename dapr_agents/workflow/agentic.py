@@ -431,11 +431,11 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
         
         # Print sender -> recipient and the message
         interaction_text = [
-            (sender_agent_name, "floki_mustard"),
-            (" -> ", "floki_teal"),
-            (f"{recipient_agent_name}\n\n", "floki_mustard"),
+            (sender_agent_name, "dapr_agents_mustard"),
+            (" -> ", "dapr_agents_teal"),
+            (f"{recipient_agent_name}\n\n", "dapr_agents_mustard"),
             (message + "\n\n", None),
-            (separator + "\n", "floki_teal"),
+            (separator + "\n", "dapr_agents_teal"),
         ]
 
         # Print the formatted text

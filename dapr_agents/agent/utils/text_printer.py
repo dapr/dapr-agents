@@ -4,11 +4,11 @@ from colorama import Style
 
 # Define your custom colors as a dictionary
 COLORS = {
-    "floki_teal": '\033[38;2;147;191;183m',
-    "floki_mustard": '\033[38;2;242;182;128m',
-    "floki_red": '\033[38;2;217;95;118m',
-    "floki_pink": '\033[38;2;191;69;126m',
-    "floki_purple": '\033[38;2;146;94;130m',
+    "dapr_agents_teal": '\033[38;2;147;191;183m',
+    "dapr_agents_mustard": '\033[38;2;242;182;128m',
+    "dapr_agents_red": '\033[38;2;217;95;118m',
+    "dapr_agents_pink": '\033[38;2;191;69;126m',
+    "dapr_agents_purple": '\033[38;2;146;94;130m',
     "reset": Style.RESET_ALL
 }
 
@@ -88,10 +88,10 @@ class ColorTextFormatter:
         content = message.get("content", "")
         
         color_map = {
-            "user": "floki_mustard",
-            "assistant": "floki_teal",
-            "tool_calls": "floki_red",
-            "tool": "floki_pink"
+            "user": "dapr_agents_mustard",
+            "assistant": "dapr_agents_teal",
+            "tool_calls": "dapr_agents_red",
+            "tool": "dapr_agents_pink"
         }
         
         # Handle tool calls
@@ -140,9 +140,9 @@ class ColorTextFormatter:
             content (str): The content to print.
         """
         color_map = {
-            "Thought": "floki_red",
-            "Action": "floki_pink",
-            "Observation": "floki_purple"
+            "Thought": "dapr_agents_red",
+            "Action": "dapr_agents_pink",
+            "Observation": "dapr_agents_purple"
         }
 
         # Get the color for the part type, defaulting to reset if not found

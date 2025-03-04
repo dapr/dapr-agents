@@ -15,7 +15,7 @@ class DockerCodeExecutor(CodeExecutorBase):
     """Executes code securely inside a persistent Docker container with dynamic volume updates."""
 
     image: Optional[str] = Field("python:3.9", description="Docker image used for execution.")
-    container_name: Optional[str] = Field("floki_code_executor", description="Name of the Docker container.")
+    container_name: Optional[str] = Field("dapr_agents_code_executor", description="Name of the Docker container.")
     disable_network_access: bool = Field(default=True, description="Disable network access inside the container.")
     execution_timeout: int = Field(default=60, description="Max execution time (seconds).")
     execution_mode: str = Field("detached", description="Execution mode: 'interactive' or 'detached'.")
@@ -49,7 +49,7 @@ class DockerCodeExecutor(CodeExecutorBase):
         if self.host_workspace:
             self.host_workspace = os.path.abspath(self.host_workspace)  # Ensure absolute path
         else:
-            self.host_workspace = os.path.join(tempfile.gettempdir(), "floki_executor_workspace")
+            self.host_workspace = os.path.join(tempfile.gettempdir(), "dapr_agents_executor_workspace")
 
         # Ensure the directory exists
         os.makedirs(self.host_workspace, exist_ok=True)

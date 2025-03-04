@@ -1,12 +1,12 @@
 # Multi-Agent LOTR: Agents as Actors
 
-This guide shows you how to set up and run an event-driven agentic workflow using Floki. By leveraging [Dapr Pub/Sub](https://docs.dapr.io/developing-applications/building-blocks/pubsub/pubsub-overview/) and FastAPI, `Floki` enables agents to collaborate dynamically in decentralized systems.
+This guide shows you how to set up and run an event-driven agentic workflow using Dapr Agents. By leveraging [Dapr Pub/Sub](https://docs.dapr.io/developing-applications/building-blocks/pubsub/pubsub-overview/) and FastAPI, `Dapr Agents` enables agents to collaborate dynamically in decentralized systems.
 
 ## Prerequisites
 
 Before you start, ensure you have the following:
 
-* [Floki environment set up](https://cyb3rward0g.github.io/floki/home/installation/), including Python 3.8 or higher and Dapr CLI.
+* [Dapr Agents environment set up](https://github.com/dapr-sandbox/dapr-agents), including Python 3.8 or higher and Dapr CLI.
 * Docker installed and running.
 * Basic understanding of microservices and event-driven architecture.
 

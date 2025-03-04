@@ -21,7 +21,7 @@ class LocalCodeExecutor(CodeExecutorBase):
     efficient dependency management, and reduced file I/O.
     """
 
-    cache_dir: Path = Field(default_factory=lambda: Path.cwd() / ".floki_cached_envs", description="Directory for cached virtual environments and execution artifacts.")
+    cache_dir: Path = Field(default_factory=lambda: Path.cwd() / ".dapr_agents_cached_envs", description="Directory for cached virtual environments and execution artifacts.")
     user_functions: List[Callable] = Field(default_factory=list, description="List of user-defined functions available during execution.")
     cleanup_threshold: int = Field(default=604800, description="Time (in seconds) before cached virtual environments are considered for cleanup.")
 
