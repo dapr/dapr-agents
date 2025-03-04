@@ -5,6 +5,8 @@ from dapr_agents.llm.nvidia import NVIDIAChatClient, NVIDIAEmbeddingClient
 from dapr_agents.llm.elevenlabs import ElevenLabsSpeechClient
 from dapr_agents.tool import AgentTool, tool
 from dapr_agents.workflow import (
-    WorkflowApp, WorkflowAppService, AgenticWorkflowService, LLMOrchestrator, RandomOrchestrator, RoundRobinOrchestrator
+    WorkflowApp, WorkflowAppService, AgenticWorkflowService,
+    LLMOrchestrator, RandomOrchestrator, RoundRobinOrchestrator,
+    AssistantAgent
 )
 from dapr_agents.executors import LocalCodeExecutor, DockerCodeExecutor
