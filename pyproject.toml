@@ -35,7 +35,7 @@ dependencies = [
     "regex >= 2023.12.25",
     "Jinja2 == 3.1.5",
     "azure-identity == 1.19.0",
-    "dapr == 1.14.0",
+    "dapr >= 1.15.0",
     "dapr-ext-fastapi == 1.14.0",
     "dapr-ext-workflow == 0.5.0",
     "colorama == 0.4.6",
