@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional, List, Type, Union, Iterable
+from typing import Dict, Any, Optional, List, Type, Union, Iterable, Literal
 from dapr_agents.prompt.prompty import Prompty, PromptyHelper
 from dapr_agents.types.message import BaseMessage
 from dapr_agents.llm.utils import StructureHandler
@@ -76,7 +76,8 @@ class RequestHandler:
         params: Dict[str, Any],
         llm_provider: str,
         tools: Optional[List[Dict[str, Any]]] = None,
-        response_model: Optional[Type[BaseModel]] = None,
+        response_format: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
+        structured_mode: Literal["json", "function_call"] = "json",
     ) -> Dict[str, Any]:
         """
         Prepare request parameters for the language model.
@@ -85,7 +86,10 @@ class RequestHandler:
             params: Parameters for the request.
             llm_provider: The LLM provider to use (e.g., 'openai').
             tools: List of tools to include in the request.
-            response_model: A pydantic model to parse and validate the structured response.
+            response_format: Either a Pydantic model (for function calling)
+                            or a JSON Schema definition/dict (for raw JSON structured output).
+            structured_mode: The mode of structured output: 'json' or 'function_call'.
+                            Defaults to 'json'.
 
         Returns:
             Dict[str, Any]: Prepared request parameters.
@@ -94,9 +98,14 @@ class RequestHandler:
             logger.info("Tools are available in the request.")
             params['tools'] = [ToolHelper.format_tool(tool, tool_format=llm_provider) for tool in tools]
 
-        if response_model:
-            logger.info("A response model has been passed to structure the response of the LLM.")
-            params = StructureHandler.generate_request(response_model=response_model, llm_provider=llm_provider, **params)
+        if response_format:
+            logger.info(f"Structured Mode Activated! Mode={structured_mode}.")
+            params = StructureHandler.generate_request(
+                response_format=response_format,
+                llm_provider=llm_provider,
+                structured_mode=structured_mode,
+                **params
+            )
         
         return params
     

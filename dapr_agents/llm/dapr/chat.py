@@ -5,7 +5,7 @@ from dapr_agents.types.message import BaseMessage
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.tool import AgentTool
 from dapr.clients.grpc._request import ConversationInput
-from typing import Union, Optional, Iterable, Dict, Any, List, Iterator, Type
+from typing import Union, Optional, Iterable, Dict, Any, List, Iterator, Type, Literal, ClassVar
 from pydantic import BaseModel
 from pathlib import Path
 import logging
@@ -19,6 +19,8 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
     Concrete class for Dapr's chat completion API using the Inference API.
     This class extends the ChatClientBase.
     """
+
+    SUPPORTED_STRUCTURED_MODES: ClassVar[set] = {"function_call"}
 
     def model_post_init(self, __context: Any) -> None:
         """
@@ -95,7 +97,8 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         input_data: Optional[Dict[str, Any]] = None,
         llm_component: Optional[str] = None,
         tools: Optional[List[Union[AgentTool, Dict[str, Any]]]] = None,
-        response_model: Optional[Type[BaseModel]] = None,
+        response_format: Optional[Type[BaseModel]] = None,
+        structured_mode: Literal["function_call"] = "function_call",
         scrubPII: Optional[bool] = False,
         temperature: Optional[float] = None,
         **kwargs
@@ -108,13 +111,16 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             input_data (Optional[Dict[str, Any]]): Input variables for prompt templates.
             llm_component (str): Name of the LLM component to use for the request.
             tools (List[Union[AgentTool, Dict[str, Any]]]): List of tools for the request.
-            response_model (Type[BaseModel]): Optional Pydantic model for structured response parsing.
+            response_format (Type[BaseModel]): Optional Pydantic model for structured response parsing.
+            structured_mode (Literal["function_call"]): Mode for structured output: "function_call" (Limited Support).
             scrubPII (Type[bool]): Optional flag to obfuscate any sensitive information coming back from the LLM.
             **kwargs: Additional parameters for the language model.
 
         Returns:
             Union[Iterator[Dict[str, Any]], Dict[str, Any]]: The chat completion response(s).
         """
+        if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
+            raise ValueError(f"Invalid structured_mode '{structured_mode}'. Must be one of {self.SUPPORTED_STRUCTURED_MODES}.")
         
         # If input_data is provided, check for a prompt_template
         if input_data:
@@ -135,9 +141,15 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             params = {**self.prompty.model.parameters.model_dump(), **params, **kwargs}
         else:
             params.update(kwargs)
-
-        # Prepare and send the request
-        params = RequestHandler.process_params(params, llm_provider=self.provider, tools=tools, response_model=response_model)
+        
+        # Prepare request parameters
+        params = RequestHandler.process_params(
+            params,
+            llm_provider=self.provider,
+            tools=tools,
+            response_format=response_format,
+            structured_mode=structured_mode
+        )
         inputs = self.convert_to_conversation_inputs(params['inputs'])
         
         try:
@@ -145,8 +157,14 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             response = self.client.chat_completion(llm=llm_component or self._llm_component, conversation_inputs=inputs, scrub_pii=scrubPII, temperature=temperature)
             transposed_response = self.translate_response(response, self._llm_component)
             logger.info("Chat completion retrieved successfully.")
-
-            return ResponseHandler.process_response(transposed_response, llm_provider=self.provider, response_model=response_model, stream=params.get('stream', False))
+            
+            return ResponseHandler.process_response(
+                    transposed_response,
+                    llm_provider=self.provider,
+                    response_format=response_format,
+                    structured_mode=structured_mode,
+                    stream=params.get('stream', False)
+                )
         except Exception as e:
             logger.error(f"An error occurred during the Dapr Conversation API call: {e}")
             raise
