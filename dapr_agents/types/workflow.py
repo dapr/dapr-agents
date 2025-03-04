@@ -5,7 +5,7 @@ from enum import Enum
 from datetime import datetime
 import uuid
 
-class WorkflowStatus(str, Enum):
+class DaprWorkflowStatus(str, Enum):
     """Enumeration of possible workflow statuses for standardized tracking."""
     UNKNOWN = "unknown"              # Workflow is in an undefined state
     RUNNING = "running"              # Workflow is actively running

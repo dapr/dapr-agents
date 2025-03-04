@@ -2,9 +2,11 @@ from pydantic import BaseModel, Field, ConfigDict, TypeAdapter, ValidationError
 from typing import Any, Callable, Optional, Union, get_origin, get_args, List
 from dapr_agents.types import ChatCompletion, BaseMessage, UserMessage
 from dapr_agents.llm.utils import StructureHandler
-from dapr_agents.llm.base import LLMClientBase
+from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.openai import OpenAIChatClient
+from dapr_agents.agent.base import AgentBase
 from dapr.ext.workflow import WorkflowActivityContext
+from collections.abc import Iterable
 from functools import update_wrapper
 from types import SimpleNamespace
 from dataclasses import is_dataclass
@@ -14,7 +16,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class Task(BaseModel):
+class WorkflowTask(BaseModel):
     """
     Encapsulates task logic for execution by an LLM, agent, or Python function.
 
@@ -24,10 +26,10 @@ class Task(BaseModel):
 
     func: Optional[Callable] = Field(None, description="The original function to be executed, if provided.")
     description: Optional[str] = Field(None, description="A description template for the task, used with LLM or agent.")
-    agent: Optional[Any] = Field(None, description="The agent used for task execution, if applicable.")
-    agent_method: Union[str, Callable] = Field("run", description="The method or callable for invoking the agent.")
-    llm: Optional[LLMClientBase] = Field(default_factory=OpenAIChatClient, description="The LLM client for executing the task, if applicable.")
-    llm_method: Union[str, Callable] = Field("generate", description="The method or callable for invoking the LLM client.")
+    agent: Optional[AgentBase] = Field(None, description="The agent used for task execution, if applicable.")
+    llm: Optional[ChatClientBase] = Field(None, description="The LLM client for executing the task, if applicable.")
+    include_chat_history: Optional[bool] = Field(False, description="Whether to include past conversation history in the LLM call.")
+    workflow_app: Optional[Any] = Field(None, description="Reference to the WorkflowApp instance.")
 
     # Initialized during setup
     signature: Optional[inspect.Signature] = Field(None, init=False, description="The signature of the provided function.")
@@ -53,19 +55,26 @@ class Task(BaseModel):
         """
         Executes the task and validates its output.
         Ensures all coroutines are awaited before returning.
+
+        Args:
+            ctx (WorkflowActivityContext): The workflow execution context.
+            input (Any): The task input.
+
+        Returns:
+            Any: The result of the task.
         """
         input = self._normalize_input(input) if input is not None else {}
 
         try:
             if self.agent or self.llm:
-                # Task requires LLM/Agent
-                description = self.description or (self.func.__doc__ if self.func else None)
-                logger.info(f"Executing task with LLM/agent")
-                result = await self._run_task(self.format_description(description, input))
+                if not self.description:
+                    raise ValueError(f"Task {self.func.__name__} is LLM-based but has no description!")
+
+                result = await self._run_task(self.format_description(self.description, input))
                 result = await self._validate_output_llm(result)
             elif self.func:
                 # Task is a Python function
-                logger.info(f"Executing Regular Task")
+                logger.info(f"Invoking Regular Task")
                 if asyncio.iscoroutinefunction(self.func):
                     # Await async function
                     result = await self.func(**input)
@@ -161,62 +170,60 @@ class Task(BaseModel):
         Returns:
             Any: The result of the agent execution.
         """
-        logger.info("Running task with agent...")
-        if isinstance(self.agent_method, str):
-            agent_callable = getattr(self.agent, self.agent_method, None)
-            if not agent_callable:
-                raise AttributeError(f"Agent does not have a method named '{self.agent_method}'.")
-        elif callable(self.agent_method):
-            agent_callable = self.agent_method
-        else:
-            raise ValueError("Invalid agent method provided.")
+        logger.info("Invoking Task with AI Agent...")
 
-        # Execute the agent method
-        result = await agent_callable({"task": description}) if asyncio.iscoroutinefunction(agent_callable) else agent_callable({"task": description})
+        result = self.agent.run(task=description)
 
         logger.debug(f"Agent result type: {type(result)}, value: {result}")
         return self._convert_result(result)
-
+    
     async def _run_llm(self, description: Union[str, List[BaseMessage]]) -> Any:
         """
         Execute the task using the provided LLM.
 
         Args:
             description (Union[str, List[BaseMessage]]): The description to pass to the LLM.
-
+        
         Returns:
             Any: The result of the LLM execution.
-
+        
         Raises:
             AttributeError: If the LLM method does not exist.
             ValueError: If the LLM method is not callable.
         """
-        logger.info("Running task with LLM...")
+        logger.info("Invoking Task with LLM...")
 
-        # Ensure description is a list of UserMessages
+        # Retrieve dynamic conversation history if enabled
+        conversation_history = []
+        if self.include_chat_history and self.workflow_app is not None:
+            logger.info("Retrieving conversation history...")
+            conversation_history = self.workflow_app.get_chat_history()
+            logger.debug(f"Conversation history retrieved: {conversation_history}")
+
+        # Convert input description into message format
         if isinstance(description, str):
-            description = [UserMessage(description)]
-
-        llm_params = {'messages': description}
-
-        # Add response model if the signature specifies it
+            description = [UserMessage(description)]  # Convert to structured message format
+        
+        # Combine conversation history with the new task description
+        llm_messages = conversation_history + description
+        llm_params = {'messages': llm_messages}
+        
+        # Add response model if specified in the function signature
         if self.signature and self.signature.return_annotation is not inspect.Signature.empty:
             return_annotation = self.signature.return_annotation
-            if isinstance(return_annotation, type) and issubclass(return_annotation, BaseModel):
-                llm_params['response_model'] = return_annotation
 
-        # Resolve and call the LLM method
-        if isinstance(self.llm_method, str):
-            llm_callable = getattr(self.llm, self.llm_method, None)
-            if not llm_callable:
-                raise AttributeError(f"The LLM does not have a method named '{self.llm_method}'.")
-        elif callable(self.llm_method):
-            llm_callable = self.llm_method
-        else:
-            raise ValueError("Invalid LLM method provided.")
+            # Case 1: Return type is a single Pydantic model
+            if isinstance(return_annotation, type) and issubclass(return_annotation, BaseModel):
+                llm_params['response_format'] = return_annotation
+
+            # Case 2: Return type is a List[BaseModel] → Convert to Iterable[BaseModel]
+            elif get_origin(return_annotation) is list:
+                list_type = get_args(return_annotation)[0]  # Extract the Pydantic model type
+                if isinstance(list_type, type) and issubclass(list_type, BaseModel):
+                    llm_params['response_format'] = Iterable[list_type]
 
         # Execute the LLM method (async or sync)
-        result = await llm_callable(**llm_params) if asyncio.iscoroutinefunction(llm_callable) else llm_callable(**llm_params)
+        result = self.llm.generate(**llm_params)
 
         logger.debug(f"LLM result type: {type(result)}, value: {result}")
         return self._convert_result(result)
@@ -232,15 +239,15 @@ class Task(BaseModel):
             Any: The converted result.
         """
         if isinstance(result, ChatCompletion):
-            logger.info("Extracted message content from ChatCompletion.")
+            logger.debug("Extracted message content from ChatCompletion.")
             return result.get_content()
 
         if isinstance(result, BaseModel):
-            logger.info("Converting Pydantic model to dictionary.")
+            logger.debug("Converting Pydantic model to dictionary.")
             return result.model_dump()
 
         if isinstance(result, list) and all(isinstance(item, BaseModel) for item in result):
-            logger.info("Converting list of Pydantic models to list of dictionaries.")
+            logger.debug("Converting list of Pydantic models to list of dictionaries.")
             return [item.model_dump() for item in result]
 
         # If no specific conversion is necessary, return as-is
@@ -298,13 +305,15 @@ class Task(BaseModel):
                         raise TypeError(f"Validation failed for type {expected_type}: {e}")
 
                 # Handle lists of Pydantic models
-                if origin:
-                    args = get_args(expected_type)
-                    if origin is list and len(args) == 1 and issubclass(args[0], BaseModel):
-                        if not all(isinstance(item, args[0]) for item in result):
-                            raise TypeError(f"Expected all items in the list to be of type {args[0]}, but got {type(result)}")
-                        return [StructureHandler.validate_response(item, args[0]) for item in result]
+                if origin is list:
+                    model_type = get_args(expected_type)[0]
+                    if issubclass(model_type, BaseModel):
+                        if not isinstance(result, list):
+                            raise TypeError(f"Expected a list of {model_type}, but got {type(result)}.")
 
+                        # Validate all items
+                        return [StructureHandler.validate_response(item, model_type).model_dump() for item in result]
+                
         # If no specific validation applies, return the result as-is
         return result
     
@@ -325,23 +334,57 @@ class Task(BaseModel):
             expected_type = self.signature.return_annotation
 
             if expected_type and expected_type is not inspect.Signature.empty:
-                # Use TypeAdapter for validation
                 try:
+                    origin = get_origin(expected_type)  # Extracts base type (list, dict, etc.)
+                    args = get_args(expected_type)  # Extracts inner types
+
+                    # Handle a single Pydantic model
+                    if isinstance(expected_type, type) and issubclass(expected_type, BaseModel):
+
+                        if isinstance(result, dict):  # Convert dict -> Pydantic model
+                            return expected_type(**result).model_dump()
+                        elif not isinstance(result, expected_type):
+                            raise TypeError(f"Expected {expected_type}, got {type(result)}")
+                        return result.model_dump()
+
+                    # Handle List[PydanticModel] safely
+                    elif origin is list and args:
+                        model_type = args[0]  # Extract inner type
+
+                        if isinstance(model_type, type) and issubclass(model_type, BaseModel):
+                            if not isinstance(result, list):
+                                raise TypeError(f"Expected a list of {model_type}, but got {type(result)}.")
+                            return [model_type(**item).model_dump() if isinstance(item, dict) else item.model_dump() for item in result]
+
+                        # Handle List[Dict[str, Any]] correctly
+                        elif model_type is dict:
+                            if not isinstance(result, list):
+                                raise TypeError(f"Expected a list of dictionaries, but got {type(result)}.")
+                            return result  # Already valid
+
+                    # Handle Dict[str, Any] directly
+                    elif origin is dict:
+                        if not isinstance(result, dict):
+                            raise TypeError(f"Expected a dictionary, but got {type(result)}.")
+                        return result  # Already valid
+
+                    # Handle primitive types (int, str, bool, etc.)
                     adapter = TypeAdapter(expected_type)
                     validated_result = adapter.validate_python(result)
                     return validated_result
-                except ValidationError as e:
-                    raise TypeError(f"Validation failed for type {expected_type}: {e}")
 
-        # If no specific validation applies, return the result as-is
-        return result
+                except ValidationError as e:
+                    logger.error(f"Validation failed for expected type {expected_type}. Error: {e}")
+                    raise TypeError(f"Invalid return type {expected_type}: {e}")
+
+        return result  # If no validation applies, return result as-is
 
 class TaskWrapper:
     """
     A wrapper for the Task class that allows it to be used as a callable with a __name__ attribute.
     """
 
-    def __init__(self, task_instance: Task, name: str):
+    def __init__(self, task_instance: WorkflowTask, name: str):
         """
         Initialize the TaskWrapper.
 
