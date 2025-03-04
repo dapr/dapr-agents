@@ -48,7 +48,7 @@ python 01_ask_llm.py
 This example demonstrates the simplest way to use Dapr Agents' OpenAIChatClient:
 
 ```python
-from floki import OpenAIChatClient
+from dapr_agents import OpenAIChatClient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -70,8 +70,10 @@ python 02_build_agent.py
 This example shows how to create a basic agent with a custom tool:
 
 ```python
-from floki import tool, Agent
+from dapr_agents import tool, Agent
+from dotenv import load_dotenv
 
+load_dotenv()
 @tool
 def weather() -> str:
     """Get current weather."""
@@ -101,8 +103,10 @@ python 03_reason_act.py
 This example demonstrates the ReAct pattern with multiple tools:
 
 ```python
-from floki import tool, ReActAgent
+from dapr_agents import tool, ReActAgent
+from dotenv import load_dotenv
 
+load_dotenv()
 @tool
 def search_weather(city: str) -> str:
     """Get weather information for a city."""
@@ -118,6 +122,7 @@ def get_activities(weather: str) -> str:
 react_agent = ReActAgent(
     name="TravelAgent",
     role="Travel Assistant",
+    pattern="react",
     instructions=["Check weather, then suggest activities"],
     tools=[search_weather, get_activities]
 )
@@ -138,30 +143,38 @@ python 04_chain_tasks.py
 This example demonstrates how to create a workflow with multiple tasks:
 
 ```python
-from floki import WorkflowApp
-from floki.types import DaprWorkflowContext
+from dapr_agents.workflow import WorkflowApp, workflow, task
+from dapr_agents.types import DaprWorkflowContext
 
-wfapp = WorkflowApp()
+from dotenv import load_dotenv
 
-@wfapp.workflow(name='research_workflow')
+load_dotenv()
+
+@workflow(name='analyze_topic')
 def analyze_topic(ctx: DaprWorkflowContext, topic: str):
+    # Each step is durable and can be retried
     outline = yield ctx.call_activity(create_outline, input=topic)
     blog_post = yield ctx.call_activity(write_blog, input=outline)
     return blog_post
 
-@wfapp.task(description="Create a detailed outline about {topic}")
+@task(description="Create a detailed outline about {topic}")
 def create_outline(topic: str) -> str:
     pass
 
-@wfapp.task(description="Write a comprehensive blog post following this outline: {outline}")
+@task(description="Write a comprehensive blog post following this outline: {outline}")
 def write_blog(outline: str) -> str:
     pass
 
 if __name__ == '__main__':
+    wfapp = WorkflowApp()
+
     results = wfapp.run_and_monitor_workflow(
-        workflow=analyze_topic,
+        analyze_topic,
         input="AI Agents"
     )
+    print(f"Results: {results}")
+
+
 ```
 
 **Expected output:** The workflow will create an outline about AI Agents and then generate a blog post based on that outline.

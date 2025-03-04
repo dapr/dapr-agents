@@ -43,7 +43,7 @@ This example shows how to create tools and an agent that can use them:
 1. First, create the tools in `weather_tools.py`:
 
 ```python
-from floki import tool
+from dapr_agents import tool
 from pydantic import BaseModel, Field
 
 class GetWeatherSchema(BaseModel):
@@ -71,7 +71,7 @@ tools = [get_weather, jump]
 
 ```python
 from weather_tools import tools
-from floki import Agent
+from dapr_agents import Agent
 
 AIAgent = Agent(
     name = "Stevie",

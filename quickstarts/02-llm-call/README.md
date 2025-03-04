@@ -96,7 +96,7 @@ llm = OpenAIChatClient()
 # Get structured response
 response = llm.generate(
     messages=[UserMessage("One famous dog in history.")],
-    response_model=Dog
+    response_format=Dog
 )
 
 # Print the structured response
