@@ -10,7 +10,7 @@ load_dotenv()
 wfr = wf.WorkflowRuntime()
 
 # Define Workflow logic
-@wfr.workflow(name='lotr_workflow')
+@wfr.workflow(name='task_chain_workflow')
 def task_chain_workflow(ctx: wf.DaprWorkflowContext):
     result1 = yield ctx.call_activity(get_character)
     result2 = yield ctx.call_activity(get_line, input=result1)
@@ -53,7 +53,7 @@ def get_line(ctx, character: str):
 if __name__ == '__main__':
     wfr.start()
     sleep(5)  # wait for workflow runtime to start
-
+    
     wf_client = wf.DaprWorkflowClient()
     instance_id = wf_client.schedule_new_workflow(workflow=task_chain_workflow)
     print(f'Workflow started. Instance ID: {instance_id}')

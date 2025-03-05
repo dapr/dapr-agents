@@ -10,9 +10,11 @@ load_dotenv()
 # Define Workflow logic
 @workflow(name='task_chain_workflow')
 def task_chain_workflow(ctx: DaprWorkflowContext):
-    result1 = yield ctx.call_activity(get_character)
-    result2 = yield ctx.call_activity(get_line, input={"character": result1})
-    return result2
+    character = yield ctx.call_activity(get_character)
+    print(f"Character: {character}")
+    line = yield ctx.call_activity(get_line, input={"character": character})
+    print(f"Line: {line}")
+    return line
 
 @task(description="""
     Pick a random character from The Lord of the Rings\n
@@ -23,10 +25,11 @@ def get_character() -> str:
 
 @task(description="What is a famous line by {character}",)
 def get_line(character: str) -> str:
+    print(f"Character: {character}")
     pass
 
 if __name__ == '__main__':
     wfapp = WorkflowApp()
 
     results = wfapp.run_and_monitor_workflow(task_chain_workflow)
-    print(f"Famous Line: {results}")
+    print(f"Results: {results}")

@@ -72,15 +72,15 @@ tools = [get_weather, jump]
 ```python
 from weather_tools import tools
 from dapr_agents import Agent
+from dotenv import load_dotenv
+
+load_dotenv()
 
 AIAgent = Agent(
     name = "Stevie",
     role = "Weather Assistant",
     goal = "Assist Humans with weather related tasks.",
-    instructions = [
-        "Get accurate weather information", 
-        "From time to time, you can Jump."
-    ],
+    instructions = ["Get accurate weather information", "From time to time, you can also Jump after answering the weather question."],
     tools=tools
 )
 
@@ -89,9 +89,33 @@ AIAgent.run("What is the weather in Virginia, New York and Washington DC?")
 
 3. Run the weather agent:
 
+<!-- STEP
+name: Run text completion example
+expected_stdout_lines:
+  - "user:"
+  - "What is the weather in Virginia, New York and Washington DC?"
+  - "assistant:"
+  - "Function name: GetWeather (Call Id:"
+  - 'Arguments: {"location": "Virginia"}'
+  - "assistant:"
+  - "Function name: GetWeather (Call Id:"
+  - 'Arguments: {"location": "New York"}'
+  - "assistant:"
+  - "Function name: GetWeather (Call Id:"
+  - 'Arguments: {"location": "Washington DC"}'
+  - "GetWeather(tool)"
+  - "Virginia:"
+  - "GetWeather(tool)"
+  - "New York:"
+  - "GetWeather(tool)"
+  - "Washington DC:"
+timeout_seconds: 30
+output_match_mode: substring
+-->
 ```bash
 python weather_agent.py
 ```
+<!-- END_STEP -->
 
 **Expected output:** The agent will identify the locations and use the get_weather tool to fetch weather information for each city.
 

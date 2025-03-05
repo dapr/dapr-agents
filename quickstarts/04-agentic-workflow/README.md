@@ -141,9 +141,20 @@ if __name__ == '__main__':
 
 Run the pure Dapr workflow:
 
+<!-- STEP
+name: Run text completion example
+expected_stdout_lines:
+  - "== APP == Workflow started. Instance ID:"
+  - "== APP == Character:"
+  - "== APP == Line:"
+  - "== APP == Workflow completed! Status: WorkflowStatus.COMPLETED"
+timeout_seconds: 30
+output_match_mode: substring
+-->
 ```bash
-dapr run --app-id dapr-wf --dapr-grpc-port 50001 --resources-path components/ -- python workflow_dapr.py
+dapr run --app-id dapr-wf --resources-path components/ -- python workflow_dapr.py
 ```
+<!-- END_STEP -->
 
 **Expected output:** The workflow will select a random Lord of the Rings character and then generate a famous line by that character.
 
@@ -189,9 +200,19 @@ if __name__ == '__main__':
 
 Run the Dapr Agents workflow:
 
+<!-- STEP
+name: Run text completion example
+expected_stdout_lines:
+  - "== APP == Character:"
+  - "== APP == Line:"
+  - "== APP == Results:"
+timeout_seconds: 30
+output_match_mode: substring
+-->
 ```bash
-dapr run --app-id dapr-agent-wf --dapr-grpc-port 50001 --resources-path components/ -- python workflow_dapr_agent.py
+dapr run --app-id dapr-agent-wf --resources-path components/ -- python workflow_dapr_agent.py
 ```
+<!-- END_STEP -->
 
 **Expected output:** Similar to the pure Dapr workflow, but with significantly less code.
 
