@@ -7,7 +7,7 @@ async def main():
     try:
         roundrobin_workflow_service = RoundRobinOrchestrator(
             name="Orchestrator",
-            essage_bus_name="messagepubsub",
+            message_bus_name="messagepubsub",
             state_store_name="agenticworkflowstate",
             state_key="workflow_state",
             agents_registry_store_name="agentsregistrystore",

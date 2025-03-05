@@ -1,6 +1,10 @@
+from dapr_agents.agent.actor.agent import AgentTaskResponse
+from dapr_agents.messaging import message_router
 from dapr_agents.workflow.orchestrators.base import OrchestratorServiceBase
-from dapr_agents.types import DaprWorkflowContext, BaseMessage
+from dapr_agents.types import DaprWorkflowContext, BaseMessage, EventMessageMetadata
 from dapr_agents.workflow.decorators import workflow, task
+from fastapi.responses import JSONResponse
+from fastapi import Response, status
 from typing import Any, Optional
 from dataclasses import dataclass
 from datetime import timedelta
@@ -65,7 +69,7 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
         Returns:
             str: The last processed message when the workflow terminates.
         """
-        message = input.get("message")
+        message = input.get("task")
         iteration = input.get("iteration", 0)
         instance_id = ctx.instance_id
 
@@ -93,7 +97,7 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
 
         # Wait for response or timeout
         logger.info("Waiting for agent response...")
-        event_data = ctx.wait_for_external_event("AgentCompletedTask")
+        event_data = ctx.wait_for_external_event("AgentTaskResponse")
         timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
         any_results = yield self.when_any([event_data, timeout_task])
 
@@ -121,7 +125,7 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
         Returns:
             dict: Serialized UserMessage with the content.
         """
-        return {"role": "user", "content": message}
+        return {"role": "user", "name": self.name, "content": message}
     
     @task
     async def broadcast_input_message(self, **kwargs):
@@ -144,7 +148,7 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
         Returns:
             str: The name of the selected agent.
         """
-        agents_metadata = await self.get_agents_metadata()
+        agents_metadata = self.get_agents_metadata()
         if not agents_metadata:
             logger.warning("No agents available for selection.")
             raise ValueError("Agents metadata is empty. Cannot select next speaker.")
@@ -170,3 +174,27 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
             message=TriggerActionMessage(task=None),
             workflow_instance_id=instance_id,
         )
+
+    @message_router
+    async def process_agent_response(self, message: AgentTaskResponse,
+                                     metadata: EventMessageMetadata) -> Response:
+        """
+        Processes agent response messages sent directly to the agent's topic.
+
+        Args:
+            message (AgentTaskResponse): The agent's response containing task results.
+            metadata (EventMessageMetadata): Metadata associated with the message, including headers.
+
+        Returns:
+            Response: A JSON response confirming the workflow event was successfully triggered.
+        """
+        agent_response = (message).model_dump()
+        workflow_instance_id = metadata.headers.get("workflow_instance_id")
+        event_name = metadata.headers.get("event_name", "AgentTaskResponse")
+
+        # Raise a workflow event with the Agent's Task Response!
+        self.raise_workflow_event(instance_id=workflow_instance_id, event_name=event_name,
+                                  data=agent_response)
+
+        return JSONResponse(content={"message": "Workflow event triggered successfully."},
+                            status_code=status.HTTP_200_OK)

@@ -9,4 +9,4 @@ spec:
       endpointAddress: http://localhost:9411/api/v2/spans
   features:
     - name: SchedulerReminders
-      enabled: false
+      enabled: true

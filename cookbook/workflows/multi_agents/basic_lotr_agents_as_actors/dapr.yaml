@@ -27,7 +27,7 @@ apps:
   daprGRPCPort: 50003
 
 - appId: WorkflowApp
-  appDirPath: ./services/workflow-llm/
+  appDirPath: ./services/workflow-roundrobin/
   appPort: 8009
   command: ["python3", "app.py"]
   daprGRPCPort: 50009
