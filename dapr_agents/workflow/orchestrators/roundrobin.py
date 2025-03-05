@@ -1,37 +1,26 @@
 from dapr_agents.agent.actor.agent import AgentTaskResponse
 from dapr_agents.messaging import message_router
 from dapr_agents.workflow.orchestrators.base import OrchestratorServiceBase
+from dapr_agents.workflow.orchestrators.interface import OrchestratorInterface
 from dapr_agents.types import DaprWorkflowContext, BaseMessage, EventMessageMetadata
 from dapr_agents.workflow.decorators import workflow, task
 from fastapi.responses import JSONResponse
 from fastapi import Response, status
-from typing import Any, Optional
-from dataclasses import dataclass
-from datetime import timedelta
+from typing import Any, Optional, Dict
 from pydantic import BaseModel
+from datetime import timedelta
 import logging
 
 logger = logging.getLogger(__name__)
 
-class TriggerActionMessage(BaseModel):
+class TriggerAction(BaseModel):
     """
     Represents a message used to trigger an agent's activity within the workflow.
     """
     task: Optional[str] = None
+    iteration: Optional[int] = 0
 
-@dataclass
-class ChatLoop:
-    """
-    Represents the state of the chat loop, which is updated after each iteration.
-
-    Attributes:
-        message (str): The latest message in the conversation.
-        iteration (int): The current iteration of the workflow loop.
-    """
-    message: str
-    iteration: int
-
-class RoundRobinOrchestrator(OrchestratorServiceBase):
+class RoundRobinOrchestrator(OrchestratorServiceBase, OrchestratorInterface):
     """
     Implements a round-robin workflow where agents take turns performing tasks.
     The workflow iterates through conversations by selecting agents in a circular order.
@@ -43,13 +32,11 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
         Initializes and configures the round-robin workflow service.
         Registers tasks and workflows, then starts the workflow runtime.
         """
-
         self.workflow_name = "RoundRobinWorkflow"
-        
         super().model_post_init(__context)
     
     @workflow(name="RoundRobinWorkflow")
-    def round_robin_workflow(self, ctx: DaprWorkflowContext, input: ChatLoop):
+    def main_workflow(self, ctx: DaprWorkflowContext, input: TriggerAction):
         """
         Executes a round-robin workflow where agents interact iteratively.
 
@@ -64,12 +51,12 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
 
         Args:
             ctx (DaprWorkflowContext): The workflow execution context.
-            input (ChatLoop): The current workflow state containing `message` and `iteration`.
+            input (TriggerAction): The current workflow state containing task and iteration.
 
         Returns:
             str: The last processed message when the workflow terminates.
         """
-        message = input.get("task")
+        task = input.get("task")
         iteration = input.get("iteration", 0)
         instance_id = ctx.instance_id
 
@@ -79,15 +66,15 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
         # Check Termination Condition
         if iteration >= self.max_iterations:
             logger.info(f"Max iterations reached. Ending round-robin workflow (Instance ID: {instance_id}).")
-            return message
+            return task
 
         # First iteration: Process input and broadcast
         if iteration == 0:
-            message_input = yield ctx.call_activity(self.process_input, input={"message": message})
-            logger.info(f"Initial message from {message_input['role']} -> {self.name}")
+            message = yield ctx.call_activity(self.process_input, input={"task": task})
+            logger.info(f"Initial message from {message['role']} -> {self.name}")
 
             # Broadcast initial message
-            yield ctx.call_activity(self.broadcast_input_message, input=message_input)
+            yield ctx.call_activity(self.broadcast_message_to_agents, input={"message": message})
 
         # Select next speaker
         next_speaker = yield ctx.call_activity(self.select_next_speaker, input={"iteration": iteration})
@@ -108,34 +95,33 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
             task_results = yield event_data
             logger.info(f"{task_results['name']} -> {self.name}")
 
-        # Update ChatLoop for next iteration
-        input["message"] = task_results
+        # Update for next iteration
+        input["task"] = task_results["content"]
         input["iteration"] = iteration + 1
 
         # Restart workflow with updated state
         ctx.continue_as_new(input)
 
     @task
-    async def process_input(self, message: str):
+    async def process_input(self, task: str) -> Dict[str, Any]:
         """
         Processes the input message for the workflow.
 
         Args:
-            message (str): The user-provided input message.
+            task (str): The user-provided input task.
         Returns:
             dict: Serialized UserMessage with the content.
         """
-        return {"role": "user", "name": self.name, "content": message}
+        return {"role": "user", "name": self.name, "content": task}
     
     @task
-    async def broadcast_input_message(self, **kwargs):
+    async def broadcast_message_to_agents(self, message: Dict[str, Any]):
         """
         Broadcasts a message to all agents.
 
         Args:
-            **kwargs: The message content and additional metadata.
+            message (Dict[str, Any]): The message content and additional metadata.
         """
-        message = {key: value for key, value in kwargs.items()}
         await self.broadcast_message(message=BaseMessage(**message))
     
     @task
@@ -171,13 +157,13 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
         """
         await self.send_message_to_agent(
             name=name,
-            message=TriggerActionMessage(task=None),
+            message=TriggerAction(task=None),
             workflow_instance_id=instance_id,
         )
 
     @message_router
     async def process_agent_response(self, message: AgentTaskResponse,
-                                     metadata: EventMessageMetadata) -> Response:
+                                   metadata: EventMessageMetadata) -> Response:
         """
         Processes agent response messages sent directly to the agent's topic.
 
@@ -194,7 +180,7 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
 
         # Raise a workflow event with the Agent's Task Response!
         self.raise_workflow_event(instance_id=workflow_instance_id, event_name=event_name,
-                                  data=agent_response)
+                                data=agent_response)
 
         return JSONResponse(content={"message": "Workflow event triggered successfully."},
-                            status_code=status.HTTP_200_OK)
+                          status_code=status.HTTP_200_OK)
