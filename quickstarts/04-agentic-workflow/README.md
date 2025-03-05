@@ -153,35 +153,36 @@ This example demonstrates how Dapr Agents simplifies the same workflow:
 
 ```python
 # workflow_dapr_agent.py
-from floki import WorkflowApp
-from floki.types import DaprWorkflowContext
+from dapr_agents.workflow import WorkflowApp, workflow, task
+from dapr_agents.types import DaprWorkflowContext
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 # Initialize the WorkflowApp
-wfapp = WorkflowApp()
 
 # Define Workflow logic
-@wfapp.workflow(name='lotr_workflow')
+@workflow(name='task_chain_workflow')
 def task_chain_workflow(ctx: DaprWorkflowContext):
     result1 = yield ctx.call_activity(get_character)
     result2 = yield ctx.call_activity(get_line, input={"character": result1})
     return result2
 
-@wfapp.task(description="""
-    Pick a random character from The Lord of the Rings
+@task(description="""
+    Pick a random character from The Lord of the Rings\n
     and respond with the character's name only
 """)
 def get_character() -> str:
     pass
 
-@wfapp.task(description="What is a famous line by {character}")
+@task(description="What is a famous line by {character}",)
 def get_line(character: str) -> str:
     pass
 
 if __name__ == '__main__':
+    wfapp = WorkflowApp()
+
     results = wfapp.run_and_monitor_workflow(task_chain_workflow)
     print(f"Famous Line: {results}")
 ```

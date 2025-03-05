@@ -72,7 +72,7 @@ Each agent is implemented as a separate service. Here's an example for the Hobbi
 
 ```python
 # services/hobbit/app.py
-from floki import Agent, AgentService
+from dapr_agents import Agent, AgentActorService
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -88,7 +88,7 @@ async def main():
         )
         
         # Expose Agent as a Service
-        hobbit_service = AgentService(
+        hobbit_service = AgentActorService(
             agent=hobbit_agent,
             message_bus_name="messagepubsub",
             agents_state_store_name="agentstatestore",
@@ -110,34 +110,37 @@ Similar implementations exist for the Wizard (Gandalf) and Elf (Legolas) agents.
 
 ### Workflow Orchestrator Implementation
 
-The workflow orchestrator manages the interaction between agents:
+The workflow orchestrator manages the interaction between agents. Currently Dapr Agents support three workflow types: RoundRobin, Random, and LLM-based. Here's an example for the Random workflow orchestrator:
 
 ```python
-# services/workflow-roundrobin/app.py
-from floki import RoundRobinWorkflowService
+# services/workflow-random/app.py
+from dapr_agents import RandomOrchestrator
 from dotenv import load_dotenv
 import asyncio
 import logging
 
 async def main():
     try:
-        roundrobin_workflow_service = RoundRobinWorkflowService(
+        random_workflow_service = RandomOrchestrator(
             name="Orchestrator",
             message_bus_name="messagepubsub",
-            agents_state_store_name="agentstatestore",
-            workflow_state_store_name="workflowstatestore",
-            port=8004,
-            daprGrpcPort=50004,
-            max_iterations=2
+            state_store_name="agenticworkflowstate",
+            state_key="workflow_state",
+            agents_registry_store_name="agentsregistrystore",
+            agents_registry_key="agents_registry",
+            service_port=8009,
+            daprGrpcPort=50009,
+            max_iterations=3
         )
-
-        await roundrobin_workflow_service.start()
+        await random_workflow_service.start()
     except Exception as e:
         print(f"Error starting service: {e}")
 
 if __name__ == "__main__":
     load_dotenv()
+
     logging.basicConfig(level=logging.INFO)
+    
     asyncio.run(main())
 ```
 
@@ -173,7 +176,7 @@ apps:
   daprGRPCPort: 50003
 
 - appId: WorkflowApp
-  appDirPath: ./services/workflow-roundrobin/
+  appDirPath: ./services/workflow-random/
   appPort: 8004
   command: ["python3", "app.py"]
   daprGRPCPort: 50004
@@ -190,7 +193,7 @@ Once all services are running, you can start the workflow via HTTP:
 ```bash
 curl -i -X POST http://localhost:8004/RunWorkflow \
     -H "Content-Type: application/json" \
-    -d '{"message": "How to get to Mordor? Let's all help!"}'
+    -d '{"task": "How to get to Mordor? Let'\''s all help!"}'
 ```
 
 **Expected output:** The agents will engage in a conversation about getting to Mordor, with each agent taking turns to contribute based on their character.
