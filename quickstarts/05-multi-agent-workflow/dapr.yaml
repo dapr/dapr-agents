@@ -30,3 +30,8 @@ apps:
   appPort: 8004
   command: ["python3", "app.py"]
   daprGRPCPort: 50004
+
+- appId: ClientApp
+  appDirPath: ./services/client/
+  command: ["python3", "client.py"]
+  daprGRPCPort: 50011

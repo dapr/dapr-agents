@@ -146,7 +146,7 @@ if __name__ == "__main__":
 
 ### Running the Multi-Agent System
 
-The project includes a `dapr.yaml` configuration for running all services:
+The project includes a `dapr.yaml` configuration for running all services and an additional Client application for interacting with the agents:
 
 ```yaml
 version: 1
@@ -180,23 +180,38 @@ apps:
   appPort: 8004
   command: ["python3", "app.py"]
   daprGRPCPort: 50004
+
+- appId: ClientApp
+  appDirPath: ./services/client/
+  command: ["python3", "client.py"]
+  daprGRPCPort: 50011
 ```
 
 Start all services using the Dapr CLI:
 
+<!-- STEP
+name: Run text completion example
+match_order: none
+expected_stdout_lines:
+  - "Workflow started successfully!"
+  - "user:"
+  - "How to get to Mordor? Let's all help!"
+  - "assistant:"
+  - "user:"
+  - "assistant:"
+timeout_seconds: 20
+output_match_mode: substring
+background: false
+-->
 ```bash
-dapr run -f .
+dapr run -f . 
 ```
+<!-- END_STEP -->
 
-Once all services are running, you can start the workflow via HTTP:
+You will see the agents engaging in a conversation about getting to Mordor, with different agents contributing based on their character.
 
-```bash
-curl -i -X POST http://localhost:8004/RunWorkflow \
-    -H "Content-Type: application/json" \
-    -d '{"task": "How to get to Mordor? Let'\''s all help!"}'
-```
 
-**Expected output:** The agents will engage in a conversation about getting to Mordor, with each agent taking turns to contribute based on their character.
+**Expected output:** The agents will engage in a conversation about getting to Mordor, with different agents contributing based on their character.
 
 ## Key Concepts
 
