@@ -179,19 +179,13 @@ Run the workflow example to see how to create a multi-step LLM process:
 <!-- STEP
 name: Run a simple workflow example
 expected_stdout_lines:
-  - "== APP == 2025-03-05 11:24:02.858 durabletask-worker INFO: Starting gRPC worker that connects to dns:127.0.0.1:50001"
-  - "== APP == 2025-03-05 11:24:02.858 durabletask-client INFO: Starting new 'analyze_topic' instance with ID ="
-  - "== APP == 2025-03-05 11:24:02.860 durabletask-worker INFO: Successfully connected to dns:127.0.0.1:50001. Waiting for work items..."
-  - "== APP == 2025-03-05 11:24:53.427 durabletask-worker INFO: 78b7c01004204371b173587703d7390c: Orchestration completed with status: COMPLETED"
-  - "== APP == 2025-03-05 11:24:53.435 durabletask-worker INFO: Disconnected from dns:127.0.0.1:50001"
-  - "== APP == 2025-03-05 11:24:53.435 durabletask-worker INFO: No longer listening for work items"
-  - "== APP == 2025-03-05 11:24:53.436 durabletask-worker INFO: Worker shutdown completed"
+  - "Outline:"
+  - "Blog post:"
   - "Result:"
-timeout_seconds: 30
 output_match_mode: substring
 -->
 ```bash
-dapr run --app-id dapr-agent-wf --dapr-grpc-port 50001 -- python 04_chain_tasks.py
+dapr run --app-id dapr-agent-wf -- python 04_chain_tasks.py
 ```
 <!-- END_STEP -->
 

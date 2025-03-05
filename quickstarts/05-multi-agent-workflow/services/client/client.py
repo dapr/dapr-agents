@@ -6,7 +6,7 @@ import sys
 
 if __name__ == "__main__":
     workflow_url = "http://localhost:8004/RunWorkflow"
-    task_payload = {"task": "How to get to Mordor? Let's all help!"}
+    task_payload = {"task": "How to get to Mordor? We all need to help!"}
 
     attempt = 1
 

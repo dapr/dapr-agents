@@ -59,7 +59,7 @@ services/                  # Directory for agent services
 │   └── app.py           # FastAPI app for wizard
 ├── elf/                 # Third agent's service
 │   └── app.py           # FastAPI app for elf
-└── workflow-roundrobin/ # Workflow orchestrator
+└── workflow-random/      # Workflow orchestrator
     └── app.py           # Workflow service
 dapr.yaml                # Multi-App Run Template
 ```
@@ -195,7 +195,7 @@ match_order: none
 expected_stdout_lines:
   - "Workflow started successfully!"
   - "user:"
-  - "How to get to Mordor? Let's all help!"
+  - "How to get to Mordor? We all need to help!"
   - "assistant:"
   - "user:"
   - "assistant:"

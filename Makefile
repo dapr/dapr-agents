@@ -1,7 +1,3 @@
-# Default target
-.PHONY: all
-all: validate-quickstarts
-
 # Get all directories within quickstarts
 QUICKSTART_DIRS := $(shell find quickstarts -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
 
@@ -35,7 +31,27 @@ validate-quickstarts:
 				deactivate && \
 				rm -rf .venv; \
 			fi; \
-			exit $$RESULT \
-		) || echo "Validation failed for $$dir"; \
+			exit $$RESULT; \
+		); \
+		if [ $$? -ne 0 ]; then \
+			echo "Validation failed for $$dir. Stopping all validations."; \
+			exit 1; \
+		fi; \
+		sleep 1; \
 	done
-	@echo "\nAll validations completed!"
+	@echo "\nAll validations completed successfully!"
+
+# Useful for local development, with a single, controlled venv
+.PHONY: validate-quickstarts-local
+validate-quickstarts-local:
+	@echo "Validating all quickstart directories..."
+	@for dir in $(QUICKSTART_DIRS); do \
+		echo "\n=== Validating $$dir ==="; \
+		(cd quickstarts && ./validate.sh $$dir); \
+		if [ $$? -ne 0 ]; then \
+			echo "Validation failed for $$dir. Stopping all validations."; \
+			exit 1; \
+		fi; \
+		sleep 2; \
+	done
+	@echo "\nAll validations completed successfully!"

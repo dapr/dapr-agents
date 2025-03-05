@@ -9,14 +9,18 @@ load_dotenv()
 def analyze_topic(ctx: DaprWorkflowContext, topic: str):
     # Each step is durable and can be retried
     outline = yield ctx.call_activity(create_outline, input=topic)
+    if len(outline) > 0:
+        print("Outline:", outline)
     blog_post = yield ctx.call_activity(write_blog, input=outline)
+    if len(blog_post) > 0:
+        print("Blog post:", blog_post)
     return blog_post
 
-@task(description="Create a detailed outline about {topic}")
+@task(description="Create a short outline about {topic}")
 def create_outline(topic: str) -> str:
     pass
 
-@task(description="Write a comprehensive blog post following this outline: {outline}")
+@task(description="Write a short blog post following this outline: {outline}")
 def write_blog(outline: str) -> str:
     pass
 

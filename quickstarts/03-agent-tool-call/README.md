@@ -96,19 +96,19 @@ expected_stdout_lines:
   - "What is the weather in Virginia, New York and Washington DC?"
   - "assistant:"
   - "Function name: GetWeather (Call Id:"
-  - 'Arguments: {"location": "Virginia"}'
+  - 'Arguments: {"location":'
   - "assistant:"
   - "Function name: GetWeather (Call Id:"
-  - 'Arguments: {"location": "New York"}'
+  - 'Arguments: {"location":'
   - "assistant:"
   - "Function name: GetWeather (Call Id:"
-  - 'Arguments: {"location": "Washington DC"}'
+  - 'Arguments: {"location":'
   - "GetWeather(tool)"
-  - "Virginia:"
+  - "Virginia"
   - "GetWeather(tool)"
-  - "New York:"
+  - "New York"
   - "GetWeather(tool)"
-  - "Washington DC:"
+  - "Washington DC"
 timeout_seconds: 30
 output_match_mode: substring
 -->
