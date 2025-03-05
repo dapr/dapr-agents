@@ -27,5 +27,5 @@ if __name__ == '__main__':
         analyze_topic,
         input="AI Agents"
     )
-    print(f"Results: {results}")
-
+    if len(results) > 0:
+        print(f"Result: {results}")

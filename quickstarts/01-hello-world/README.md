@@ -41,9 +41,17 @@ Replace `your_api_key_here` with your actual OpenAI API key.
 
 Run the basic LLM example to see how to interact with OpenAI's language models:
 
+<!-- STEP
+name: Run basic LLM example
+expected_stdout_lines:
+  - "Got response:"
+timeout_seconds: 30
+output_match_mode: substring
+-->
 ```bash
 python 01_ask_llm.py
 ```
+<!-- END_STEP -->
 
 This example demonstrates the simplest way to use Dapr Agents' OpenAIChatClient:
 
@@ -54,7 +62,9 @@ from dotenv import load_dotenv
 load_dotenv()
 llm = OpenAIChatClient()
 response = llm.generate("Tell me a joke")
-print(response.get_content())
+if len(response.get_content())>0:
+    print("Got response:", response.get_content())
+
 ```
 
 **Expected output:** The LLM will respond with a joke.
@@ -63,9 +73,24 @@ print(response.get_content())
 
 Run the agent example to see how to create an agent with custom tools:
 
+<!-- STEP
+name: Run simple agent with tools example
+expected_stdout_lines:
+  - "user:"
+  - "What's the weather?"
+  - "assistant:"
+  - "Function name: MyWeatherFunc"
+  - "MyWeatherFunc(tool)"
+  - "It's 72°F and sunny"
+  - "assistant:"
+  - "The current weather is 72°F and sunny."
+timeout_seconds: 30
+output_match_mode: substring
+-->
 ```bash
 python 02_build_agent.py
 ```
+<!-- END_STEP -->
 
 This example shows how to create a basic agent with a custom tool:
 
@@ -75,7 +100,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 @tool
-def weather() -> str:
+def my_weather_func() -> str:
     """Get current weather."""
     return "It's 72°F and sunny"
 
@@ -83,7 +108,7 @@ weather_agent = Agent(
     name="WeatherAgent",
     role="Weather Assistant",
     instructions=["Help users with weather information"],
-    tools=[weather]
+    tools=[my_weather_func]
 )
 
 response = weather_agent.run("What's the weather?")
@@ -96,11 +121,27 @@ print(response)
 
 Run the ReAct pattern example to see how to create an agent that can reason and act:
 
+<!-- STEP
+name: Run simple agent with tools example
+expected_stdout_lines:
+  - "user:"
+  - "What should I do in London today?"
+  - "Thought:"
+  - 'Action: {"name": "SearchWeather", "arguments": {"city": "London"}}'
+  - "Observation: rainy"
+  - "Thought:"
+  - 'Action: {"name": "GetActivities", "arguments": {"weather": "rainy"}}'
+  - "Observation: Visit museums"
+  - "Thought:"
+  - "assistant:"
+  - "Result:"
+timeout_seconds: 30
+output_match_mode: substring
+-->
 ```bash
 python 03_reason_act.py
 ```
-
-This example demonstrates the ReAct pattern with multiple tools:
+<!-- END_STEP -->
 
 ```python
 from dapr_agents import tool, ReActAgent
@@ -110,19 +151,18 @@ load_dotenv()
 @tool
 def search_weather(city: str) -> str:
     """Get weather information for a city."""
-    weather_data = {"london": "Rainy", "paris": "Sunny"}
+    weather_data = {"london": "rainy", "paris": "sunny"}
     return weather_data.get(city.lower(), "Unknown")
 
 @tool
 def get_activities(weather: str) -> str:
     """Get activity recommendations."""
-    activities = {"Rainy": "Visit museums", "Sunny": "Go hiking"}
-    return activities.get(weather, "Stay comfortable")
+    activities = {"rainy": "Visit museums", "Sunny": "Go hiking"}
+    return activities.get(weather.lower(), "Stay comfortable")
 
 react_agent = ReActAgent(
     name="TravelAgent",
     role="Travel Assistant",
-    pattern="react",
     instructions=["Check weather, then suggest activities"],
     tools=[search_weather, get_activities]
 )
@@ -136,9 +176,24 @@ react_agent.run("What should I do in London today?")
 
 Run the workflow example to see how to create a multi-step LLM process:
 
+<!-- STEP
+name: Run a simple workflow example
+expected_stdout_lines:
+  - "== APP == 2025-03-05 11:24:02.858 durabletask-worker INFO: Starting gRPC worker that connects to dns:127.0.0.1:50001"
+  - "== APP == 2025-03-05 11:24:02.858 durabletask-client INFO: Starting new 'analyze_topic' instance with ID ="
+  - "== APP == 2025-03-05 11:24:02.860 durabletask-worker INFO: Successfully connected to dns:127.0.0.1:50001. Waiting for work items..."
+  - "== APP == 2025-03-05 11:24:53.427 durabletask-worker INFO: 78b7c01004204371b173587703d7390c: Orchestration completed with status: COMPLETED"
+  - "== APP == 2025-03-05 11:24:53.435 durabletask-worker INFO: Disconnected from dns:127.0.0.1:50001"
+  - "== APP == 2025-03-05 11:24:53.435 durabletask-worker INFO: No longer listening for work items"
+  - "== APP == 2025-03-05 11:24:53.436 durabletask-worker INFO: Worker shutdown completed"
+  - "Result:"
+timeout_seconds: 30
+output_match_mode: substring
+-->
 ```bash
-python 04_chain_tasks.py
+dapr run --app-id dapr-agent-wf --dapr-grpc-port 50001 -- python 04_chain_tasks.py
 ```
+<!-- END_STEP -->
 
 This example demonstrates how to create a workflow with multiple tasks:
 
@@ -172,8 +227,8 @@ if __name__ == '__main__':
         analyze_topic,
         input="AI Agents"
     )
-    print(f"Results: {results}")
-
+    if len(results) > 0:
+        print(f"Result: {results}")
 
 ```
 
