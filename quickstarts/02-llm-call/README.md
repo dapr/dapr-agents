@@ -40,9 +40,17 @@ Replace `your_api_key_here` with your actual OpenAI API key.
 
 Run the basic text completion example:
 
+<!-- STEP
+name: Run text completion example
+expected_stdout_lines:
+  - "Response:"
+timeout_seconds: 30
+output_match_mode: substring
+-->
 ```bash
 python text_completion.py
 ```
+<!-- END_STEP -->
 
 The script demonstrates basic usage of Dapr Agents' OpenAIChatClient for text generation:
 
@@ -53,14 +61,12 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
-# Initialize the chat client
+# Initialize the chat client and call
 llm = OpenAIChatClient()
-
-# Generate a response
 response = llm.generate("Name a famous dog!")
 
-# Print the response content
-print(response.get_content())
+if len(response.get_content()) > 0:
+    print("Response: ", response.get_content())
 ```
 
 **Expected output:** The LLM will respond with the name of a famous dog (e.g., "Lassie", "Hachiko", etc.).
@@ -69,13 +75,25 @@ print(response.get_content())
 
 Run the structured output example:
 
+<!-- STEP
+name: Run text completion example
+expected_stdout_lines:
+  - '"name":'
+  - '"breed":'
+  - '"reason":'
+timeout_seconds: 30
+output_match_mode: substring
+-->
 ```bash
 python structured_completion.py
 ```
+<!-- END_STEP -->
 
 This example shows how to use Pydantic models to get structured data from LLMs:
 
 ```python
+import json
+
 from dapr_agents import OpenAIChatClient
 from dapr_agents.types import UserMessage
 from pydantic import BaseModel
@@ -99,8 +117,7 @@ response = llm.generate(
     response_format=Dog
 )
 
-# Print the structured response
-print(response)
+print(json.dumps(response.model_dump(), indent=2))
 ```
 
 **Expected output:** A structured Dog object with name, breed, and reason fields (e.g., `Dog(name='Hachiko', breed='Akita', reason='Known for his remarkable loyalty...')`)

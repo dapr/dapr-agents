@@ -8,4 +8,5 @@ load_dotenv()
 llm = OpenAIChatClient()
 response = llm.generate("Name a famous dog!")
 
-print(response.get_content())
+if len(response.get_content()) > 0:
+    print("Response: ", response.get_content())

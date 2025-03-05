@@ -1,3 +1,5 @@
+import json
+
 from dapr_agents import OpenAIChatClient
 from dapr_agents.types import UserMessage
 from pydantic import BaseModel
@@ -21,5 +23,4 @@ response = llm.generate(
     response_format=Dog
 )
 
-# Print the structured response
-print(response)
+print(json.dumps(response.model_dump(), indent=2))
