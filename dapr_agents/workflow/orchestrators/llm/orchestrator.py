@@ -1,4 +1,3 @@
-from dapr_agents.workflow.orchestrators.interface import OrchestratorInterface
 from dapr_agents.workflow.orchestrators.llm.schemas import TriggerAction, NextStep, AgentTaskResponse, ProgressCheckOutput, PLAN_SCHEMA, NEXT_STEP_SCHEMA, PROGRESS_CHECK_SCHEMA
 from dapr_agents.workflow.orchestrators.llm.prompts import TASK_INITIAL_PROMPT, TASK_PLANNING_PROMPT, NEXT_STEP_PROMPT, PROGRESS_CHECK_PROMPT, SUMMARY_GENERATION_PROMPT
 from dapr_agents.workflow.orchestrators.llm.state import LLMWorkflowState, LLMWorkflowEntry, LLMWorkflowMessage, PlanStep, TaskResult
@@ -16,7 +15,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class LLMOrchestrator(OrchestratorServiceBase, OrchestratorInterface):
+class LLMOrchestrator(OrchestratorServiceBase):
     """
     Implements an agentic workflow where an LLM dynamically selects the next speaker.
     The workflow iterates through conversations, updating its state and persisting messages.

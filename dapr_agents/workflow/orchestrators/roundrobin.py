@@ -1,7 +1,6 @@
 from dapr_agents.agent.actor.agent import AgentTaskResponse
 from dapr_agents.messaging import message_router
 from dapr_agents.workflow.orchestrators.base import OrchestratorServiceBase
-from dapr_agents.workflow.orchestrators.interface import OrchestratorInterface
 from dapr_agents.types import DaprWorkflowContext, BaseMessage, EventMessageMetadata
 from dapr_agents.workflow.decorators import workflow, task
 from fastapi.responses import JSONResponse
@@ -20,7 +19,7 @@ class TriggerAction(BaseModel):
     task: Optional[str] = None
     iteration: Optional[int] = 0
 
-class RoundRobinOrchestrator(OrchestratorServiceBase, OrchestratorInterface):
+class RoundRobinOrchestrator(OrchestratorServiceBase):
     """
     Implements a round-robin workflow where agents take turns performing tasks.
     The workflow iterates through conversations by selecting agents in a circular order.

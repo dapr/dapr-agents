@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 import random
 import logging
 
-from dapr_agents.workflow.orchestrators.interface import OrchestratorInterface
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,7 @@ class TriggerAction(BaseModel):
     task: Optional[str] = Field(None, description="The specific task to execute. If not provided, the agent can act based on its memory or predefined behavior.")
     iteration: Optional[int] = Field(default=0, description="The current iteration of the workflow loop.")
 
-class RandomOrchestrator(OrchestratorServiceBase, OrchestratorInterface):
+class RandomOrchestrator(OrchestratorServiceBase):
     """
     Implements a random workflow where agents are selected randomly to perform tasks.
     The workflow iterates through conversations, selecting a random agent at each step.
