@@ -26,8 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "dapr-dev >= 1.13.0rc1.dev",
-    "durabletask-dapr >= 0.2.0a4",
+    "durabletask-dapr >= 0.2.0a7",
     "pydantic == 2.10.5",
     "openai == 1.59.6",
     "openapi-pydantic == 0.5.1",
@@ -36,8 +35,8 @@ dependencies = [
     "Jinja2 == 3.1.5",
     "azure-identity == 1.19.0",
     "dapr >= 1.15.0",
-    "dapr-ext-fastapi == 1.14.0",
-    "dapr-ext-workflow == 0.5.0",
+    "dapr-ext-fastapi == 1.15.0",
+    "dapr-ext-workflow == 1.15.0",
     "colorama == 0.4.6",
     "cloudevents == 1.11.0",
     "pyyaml == 6.0.2",

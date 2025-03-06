@@ -83,6 +83,21 @@ Verify you have container instances with `daprio/dapr`, `openzipkin/zipkin`, and
 docker ps
 ```
 
+## Development
+To run the automated tests in the `quickstarts` directory you need to install the [Mechanical Markdown](https://github.com/dapr/mechanical-markdown) tool. This tool is used to run the code snippets in the markdown files and verify the output.
+Once installed, you can validate all the quickstarts by running the following command:
+
+```bash
+make validate-quickstarts
+```
+
+To validate a single quickstart, navigate to the `quickstarts` directory and run the `validate.sh` script:
+
+```bash
+cd quickstarts
+./validate 01-hello-world
+```
+
 ## Contributing to the docs
 
 ### Running the docs locally
@@ -101,3 +116,6 @@ pip install mkdocs-jupyter
 ```bash
 mkdocs serve
 ```
+
+## Acknowledgments
+Dapr Agents was born out of a desire to explore and learn more about [Dapr](https://dapr.io/) and its potential for building agentic systems. I wanted to understand how to deploy agents as services, manage message communication, and connect various components effectively. Along the way, I looked to several established frameworks for ideas and guidance, which helped shape my thinking and approach:

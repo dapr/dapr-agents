@@ -41,7 +41,7 @@ ChatCompletion(choices=[Choice(finish_reason='stop', index=0, message=MessageCon
 
 ## Structured Output
 
-Onge again, initialize `OpenAIChatClient`.
+Once again, initialize `OpenAIChatClient`.
 
 ```python
 from dapr_agents import OpenAIChatClient

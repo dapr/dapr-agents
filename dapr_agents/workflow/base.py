@@ -402,6 +402,7 @@ class WorkflowApp(BaseModel):
         Returns:
             Optional[str]: The serialized output of the workflow.
         """
+        instance_id = None
         try:
             # Schedule the workflow
             instance_id = self.run_workflow(workflow, input=input)
