@@ -26,5 +26,6 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install mkdocs-material
-          pip install .[recommended,git,imaging] 
+          pip install .[recommended,git,imaging]
+          pip install mkdocs-jupyter
       - run: mkdocs gh-deploy --force

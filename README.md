@@ -98,11 +98,24 @@ cd quickstarts
 ./validate 01-hello-world
 ```
 
+## Contributing to the docs
+
+### Running the docs locally
+
+1. Install the dependencies
+
+```bash
+pip install mkdocs
+pip install mkdocs-material
+pip install "mkdocs-material[imaging]"
+pip install mkdocs-jupyter
+```
+
+2. Run the docs
+
+```bash
+mkdocs serve
+```
+
 ## Acknowledgments
 Dapr Agents was born out of a desire to explore and learn more about [Dapr](https://dapr.io/) and its potential for building agentic systems. I wanted to understand how to deploy agents as services, manage message communication, and connect various components effectively. Along the way, I looked to several established frameworks for ideas and guidance, which helped shape my thinking and approach:
-
-* https://github.com/microsoft/autogen
-* https://github.com/langchain-ai/langchain
-* https://github.com/run-llama/llama_deploy
-
-While these frameworks provided valuable insights, Dapr Agents is my unique take on how to leverage Dapr for agent-based workflows and systems. It reflects my learning journey and ongoing research in this exciting space.
