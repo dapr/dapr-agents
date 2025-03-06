@@ -1,5 +1,7 @@
 # Core Principles
 
+![](../img/concepts-agents-overview.png)
+
 ## 1. Agent-Centric Design
 
 Dapr Agents is designed to place agents, powered by LLMs, at the core of task execution and workflow orchestration. This principle emphasizes:
