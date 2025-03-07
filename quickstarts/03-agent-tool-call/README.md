@@ -121,14 +121,6 @@ python weather_agent.py
 
 ## Key Concepts
 
-- **@tool decorator**: Transforms Python functions into agent-accessible tools
-- **Pydantic models**: Define the schema and validate arguments for tools
-- **Agent**: Combines an LLM with tools and instructions
-- **Function Calling**: The LLM intelligently decides when and how to call tools
-- **Agent Memory**: Conversation history that the agent can reference
-
-## Understanding the Code
-
 ### Tool Definition
 - The `@tool` decorator registers functions as tools with the agent
 - Each tool has a docstring that helps the LLM understand its purpose
@@ -148,7 +140,7 @@ python weather_agent.py
 
 ## Working with Agent Memory
 
-You can access and manage the agent's conversation history too:
+You can access and manage the agent's conversation history too. Add this code fragment to the end of `weather_agent.py` and run it again.
 
 ```python
 # View the history after first interaction
@@ -166,6 +158,37 @@ print(AIAgent.chat_history)
 AIAgent.reset_memory()
 print("Chat history after reset:")
 print(AIAgent.chat_history)  # Should be empty now
+```
+This will show agent interaction history growth and reset.
+
+## Available Agent Types
+
+Dapr Agents provides several agent implementations, each designed for different use cases:
+
+### 1. Standard Agent (ToolCallAgent)
+The default agent type, designed for tool execution and straightforward interactions. It receives your input, determines which tools to use, executes them directly, and provides the final answer. The reasoning process is mostly hidden from you, focusing instead on delivering concise responses.
+
+### 2. ReActAgent
+Implements the Reasoning-Action framework for more complex problem-solving with explicit thought processes.
+When you interact with it, you'll see explicit "Thought", "Action", and "Observation" steps as it works through your request, providing transparency into how it reaches conclusions.
+
+### 3. OpenAPIReActAgent
+There is one more agent that we didn't run in this quickstart. OpenAPIReActAgent specialized agent for working with OpenAPI specifications and API integrations. When you ask about working with an API, it will methodically identify relevant endpoints, construct proper requests with parameters, handle authentication, and execute API calls on your behalf.
+
+```python
+from dapr_agents import Agent
+from dapr_agents.tool.utils.openapi import OpenAPISpecParser
+from dapr_agents.storage import VectorStore
+
+# This agent type requires additional components
+openapi_agent = Agent(
+    name="APIExpert",
+    role="API Expert",
+    pattern="openapireact",  # Specify OpenAPIReAct pattern
+    spec_parser=OpenAPISpecParser(),
+    api_vector_store=VectorStore(),
+    auth_header={"Authorization": "Bearer token"}
+)
 ```
 
 ## Troubleshooting

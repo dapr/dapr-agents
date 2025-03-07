@@ -128,6 +128,65 @@ print(json.dumps(response.model_dump(), indent=2))
 - **generate()**: The primary method for getting responses from LLMs
 - **response_model**: Using Pydantic models to structure LLM outputs
 - **get_content()**: Extracting plain text from LLM responses
+  The Dapr Agents project provides several client implementations for interacting with language models. Each client offers different capabilities and integrations:
+
+## Available LLM Clients
+
+The Dapr Agents provides several client implementations for interacting with language models:
+
+### 1. OpenAIChatClient
+The standard client for OpenAI's models, used in the examples above.
+
+```python
+from dapr_agents import OpenAIChatClient
+
+# Basic initialization using environment variables
+llm = OpenAIChatClient()  # Uses OPENAI_API_KEY env var
+# Or specify a model (defaults to gpt-4o if not specified)
+llm = OpenAIChatClient(model="gpt-4")
+```
+
+### 2. AzureOpenAIChatClient
+For Azure-hosted OpenAI deployments.
+
+```python
+from dapr_agents import AzureOpenAIChatClient
+
+# Basic initialization using environment variables
+llm = AzureOpenAIChatClient()  # Uses AZURE_OPENAI_API_KEY env var
+```
+
+### 3. HFHubChatClient
+Connect to Hugging Face Hub models.
+
+```python
+from dapr_agents import HFHubChatClient
+
+# Initialize with a model
+llm = HFHubChatClient(model="model_identifier")  # Uses HUGGINGFACE_API_KEY env var
+```
+
+### 4. NVIDIAChatClient
+For NVIDIA's language models.
+
+```python
+from dapr_agents import NVIDIAChatClient
+
+# Basic initialization (uses default model 'meta/llama3-8b-instruct')
+llm = NVIDIAChatClient()  # Uses NVIDIA_API_KEY env var
+```
+
+### 5. DaprChatClient
+Dapr's own inference API client. 
+
+```python
+from dapr_agents import DaprChatClient
+
+# Basic initialization
+llm = DaprChatClient()  # Uses DAPR_LLM_COMPONENT_DEFAULT env var
+```
+
+All these clients implement the same interface, allowing you to easily switch between providers while maintaining consistent code.
 
 ## Troubleshooting
 
