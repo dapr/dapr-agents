@@ -12,26 +12,31 @@ apps:
   appPort: 8001
   command: ["python3", "app.py"]
   daprGRPCPort: 50001
+  metricsPort: 6001
 
 - appId: WizardApp
   appDirPath: ./services/wizard/
   appPort: 8002
   command: ["python3", "app.py"]
   daprGRPCPort: 50002
+  metricsPort: 6002
 
 - appId: ElfApp
   appDirPath: ./services/elf/
   appPort: 8003
   command: ["python3", "app.py"]
   daprGRPCPort: 50003
+  metricsPort: 6003
 
 - appId: WorkflowApp
   appDirPath: ./services/workflow-random/
   appPort: 8004
   command: ["python3", "app.py"]
   daprGRPCPort: 50004
+  metricsPort: 6004
 
 - appId: ClientApp
   appDirPath: ./services/client/
   command: ["python3", "client.py"]
   daprGRPCPort: 50011
+  metricsPort: 6005

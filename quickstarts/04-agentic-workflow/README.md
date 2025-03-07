@@ -1,6 +1,6 @@
 # Agentic Workflow with Task Chain
 
-This quickstart demonstrates how to create task chain workflows using both pure Dapr and Dapr Agents' enhanced workflow capabilities. You'll learn how to orchestrate multiple tasks that use LLM inference, seeing firsthand how Dapr Agents simplifies and improves the workflow development experience.
+This quickstart demonstrates how to create stateful task chains using both pure Dapr Workflows and Dapr Agents' enhanced workflow capabilities. You'll learn how to orchestrate multiple tasks that use LLM inference, seeing firsthand how Dapr Agents simplifies and improves the workflow development experience.
 
 ## Prerequisites
 
@@ -68,7 +68,7 @@ spec:
 
 ## Examples
 
-### 1. Pure Dapr Workflow
+### 1. Dapr Workflow Without Dapr Agents
 
 This example shows a basic task chain using pure Dapr workflows:
 
@@ -226,7 +226,7 @@ dapr run --app-id dapr-agent-wf --resources-path components/ -- python workflow_
 
 ## Key Differences and Benefits
 
-### Pure Dapr Approach
+### Pure Dapr Workflow Approach
 - Requires manual OpenAI client setup
 - Explicit handling of API calls and responses
 - More boilerplate code
@@ -251,8 +251,7 @@ This quickstart demonstrates core Dapr capabilities:
 1. **Redis Connection**: Ensure Redis is running (automatically installed by Dapr)
 2. **Dapr Initialization**: If components aren't found, verify Dapr is initialized with `dapr init`
 3. **API Key**: Check your OpenAI API key if authentication fails
-4. **Port Conflicts**: If ports are already in use, modify the `--dapr-grpc-port` value
 
 ## Next Steps
 
-After completing this quickstart, move on to the [Multi-Agent Workflow quickstart](../05-multi-agent-workflow) to learn how to create distributed systems of collaborating agents.
+After completing this quickstart, move on to the [Multi-Agent Workflow quickstart](../05-multi-agent-workflow/README.md) to learn how to create distributed systems of collaborating agents.

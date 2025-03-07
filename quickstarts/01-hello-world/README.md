@@ -30,7 +30,6 @@ Create a `.env` file in the project root:
 
 ```env
 OPENAI_API_KEY=your_api_key_here
-OPENAI_BASE_URL="https://api.openai.com/v1"
 ```
 
 Replace `your_api_key_here` with your actual OpenAI API key.
@@ -174,6 +173,12 @@ react_agent.run("What should I do in London today?")
 
 ### 4. Simple Workflow
 
+Make sure Dapr is initialized on your system:
+
+```bash
+dapr init
+```
+
 Run the workflow example to see how to create a multi-step LLM process:
 
 <!-- STEP
@@ -236,16 +241,6 @@ if __name__ == '__main__':
 - **ReActAgent**: An agent that follows the Reasoning + Action pattern
 - **WorkflowApp**: A Dapr-powered way to create stateful, multi-step processes
 
-## Dapr Integration
-
-While these simple examples run without Dapr services, they're built on Dapr Agents which provides:
-
-- **Resilience**: Dapr's state management for durable workflows
-- **Scalability**: Services can be distributed across infrastructure
-- **Interoperability**: Components integrate with various backend systems
-
-In the later quickstarts, you'll see explicit Dapr integration through state stores, pub/sub, and actor services.
-
 ## Troubleshooting
 
 1. **API Key Issues**: If you see an authentication error, verify your OpenAI API key in the `.env` file
@@ -255,4 +250,4 @@ In the later quickstarts, you'll see explicit Dapr integration through state sto
 
 ## Next Steps
 
-After completing these examples, move on to the [LLM Call quickstart](../02-llm-call) to learn more about structured outputs from LLMs.
+After completing these examples, move on to the [LLM Call quickstart](../02-llm-call/README.md) to learn more about structured outputs from LLMs.
