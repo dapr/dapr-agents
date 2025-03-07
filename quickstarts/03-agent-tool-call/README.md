@@ -146,24 +146,26 @@ python weather_agent.py
 4. The results are returned to the LLM to formulate a response
 5. The final answer is provided to the user
 
-## Dapr Integration
-
-Agents can be deployed as stateful, distributed services using Dapr:
-
-- **State Management**: Agent memory can persist across restarts
-- **Pub/Sub**: Agents can communicate through message buses
-- **Actor Model**: Dapr Actors enable stateful agent components
-
 ## Working with Agent Memory
 
-You can access and manage the agent's conversation history:
+You can access and manage the agent's conversation history too:
 
 ```python
-# Access conversation history
-AIAgent.chat_history
+# View the history after first interaction
+print("Chat history after first interaction:")
+print(AIAgent.chat_history)
 
-# Reset the agent's memory
+# Second interaction (agent will remember the first one)
+AIAgent.run("How about in Seattle?")
+
+# View updated history
+print("Chat history after second interaction:")
+print(AIAgent.chat_history)
+
+# Reset memory
 AIAgent.reset_memory()
+print("Chat history after reset:")
+print(AIAgent.chat_history)  # Should be empty now
 ```
 
 ## Troubleshooting
@@ -174,4 +176,4 @@ AIAgent.reset_memory()
 
 ## Next Steps
 
-After completing this quickstart, move on to the [Agentic Workflow quickstart](../04-agentic-workflow) to learn how to orchestrate multi-step processes combining deterministic tasks with LLM-powered reasoning.
+After completing this quickstart, move on to the [Agentic Workflow quickstart](../04-agentic-workflow/README.md) to learn how to orchestrate multi-step processes combining deterministic tasks with LLM-powered reasoning.

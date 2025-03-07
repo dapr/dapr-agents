@@ -1,3 +1,2 @@
-dapr-agents==0.1.dev26
+dapr-agents==0.1.dev39
 python-dotenv
-requests

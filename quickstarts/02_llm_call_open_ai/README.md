@@ -221,16 +221,6 @@ python embeddings.py
 - **response_model**: Using Pydantic models to structure LLM outputs
 - **get_content()**: Extracting plain text from LLM responses
 
-## Dapr Integration
-
-While these examples don't explicitly use Dapr's distributed capabilities, Dapr Agents provides:
-
-- **Unified API**: Consistent interfaces for different LLM providers
-- **Type Safety**: Structured data extraction and validation
-- **Integration Path**: Foundation for building more complex, distributed LLM applications
-
-In later quickstarts, you'll see how these LLM interactions integrate with Dapr's building blocks.
-
 ## Troubleshooting
 
 1. **Authentication Errors**: If you encounter authentication failures, check your OpenAI API key in the `.env` file
@@ -239,4 +229,4 @@ In later quickstarts, you'll see how these LLM interactions integrate with Dapr'
 
 ## Next Steps
 
-After completing these examples, move on to the [Agent Tool Call quickstart](../03-agent-tool-call) to learn how to build agents that can use tools to interact with external systems.
+After completing these examples, move on to the [Agent Tool Call quickstart](../03-agent-tool-call/README.md) to learn how to build agents that can use tools to interact with external systems.
