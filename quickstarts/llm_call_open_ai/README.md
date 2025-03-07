@@ -43,7 +43,9 @@ Replace `your_api_key_here` with your actual OpenAI API key.
 <!-- STEP
 name: Run text completion example
 expected_stdout_lines:
-  - "Response:"
+  - "Response 1:"
+  - "Response 2:"
+  - "Response 3:"
 timeout_seconds: 30
 output_match_mode: substring
 -->
@@ -71,7 +73,7 @@ if len(response.get_content()) > 0:
 
 **2. Expected output:** The LLM will respond with the name of a famous dog (e.g., "Lassie", "Hachiko", etc.).
 
-**Run the structured output example:**
+**Run the structured text completion example:**
 
 <!-- STEP
 name: Run text completion example
@@ -156,11 +158,11 @@ python audio_transcription.py
 <!-- END_STEP -->
 
 
-**2. Run the audio to text transcription example:**
+**2. Run the audio to text translation example:**
 
 [//]: # (<!-- STEP)
 
-[//]: # (name: Run audio transcription example)
+[//]: # (name: Run audio translation example)
 
 [//]: # (expected_stdout_lines:)
 
