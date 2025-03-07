@@ -36,9 +36,9 @@ Replace `your_api_key_here` with your actual OpenAI API key.
 
 ## Examples
 
-### 1. Text Completion
+### Text
 
-Run the basic text completion example:
+**1. Run the basic text completion example:**
 
 <!-- STEP
 name: Run text completion example
@@ -69,11 +69,9 @@ if len(response.get_content()) > 0:
     print("Response: ", response.get_content())
 ```
 
-**Expected output:** The LLM will respond with the name of a famous dog (e.g., "Lassie", "Hachiko", etc.).
+**2. Expected output:** The LLM will respond with the name of a famous dog (e.g., "Lassie", "Hachiko", etc.).
 
-### 2. Structured Output
-
-Run the structured output example:
+**Run the structured output example:**
 
 <!-- STEP
 name: Run text completion example
@@ -121,6 +119,82 @@ print(json.dumps(response.model_dump(), indent=2))
 ```
 
 **Expected output:** A structured Dog object with name, breed, and reason fields (e.g., `Dog(name='Hachiko', breed='Akita', reason='Known for his remarkable loyalty...')`)
+
+### Audio
+You can use the OpenAIAudioClient in `dapr-agents` for basic tasks with the OpenAI Audio API. We will explore:
+
+- Generating speech from text and saving it as an MP3 file.
+- Transcribing audio to text.
+- Translating audio content to English.
+
+**1. Run the speech to text example:**
+
+
+<!-- STEP
+name: Run audio generation example
+expected_stdout_lines:
+  - "Audio saved to output_speech.mp3"
+  - "File output_speech.mp3 has been deleted."
+-->
+```bash
+python speech_to_text.py
+```
+<!-- END_STEP -->
+
+**2. Run the audio to text transcription example:**
+
+<!-- STEP
+name: Run audio transcription example
+expected_stdout_lines:
+  - "Transcription:"
+  - "Success! The transcription contains at least 5 out of 7 words."
+output_match_mode: substring
+-->
+```bash
+python audio_transcription.py
+```
+<!-- END_STEP -->
+
+
+**2. Run the audio to text transcription example:**
+
+[//]: # (<!-- STEP)
+
+[//]: # (name: Run audio transcription example)
+
+[//]: # (expected_stdout_lines:)
+
+[//]: # (  - "Translation:")
+
+[//]: # (  - "Success! The translation contains at least 5 out of 6 words.")
+
+[//]: # (-->)
+
+[//]: # (```bash)
+
+[//]: # (python audio_translation.py)
+
+[//]: # (```)
+
+[//]: # (<!-- END_STEP -->)
+
+### Embeddings
+You can use the `OpenAIEmbedder` in dapr-agents for generating text embeddings.
+
+**1. Embeddings a single text:**
+<!-- STEP
+name: Run audio transcription example
+expected_stdout_lines:
+  - "Embedding (first 5 values):"
+  - "Text 1 embedding (first 5 values):"
+  - "Text 2 embedding (first 5 values):"
+output_match_mode: substring
+-->
+```bash
+python embeddings.py
+```
+<!-- END_STEP -->
+
 
 ## Key Concepts
 

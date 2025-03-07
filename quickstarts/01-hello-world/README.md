@@ -255,4 +255,4 @@ In the later quickstarts, you'll see explicit Dapr integration through state sto
 
 ## Next Steps
 
-After completing these examples, move on to the [LLM Call quickstart](../02-llm-call) to learn more about structured outputs from LLMs.
+After completing these examples, move on to the [LLM Call quickstart](../llm_call_open_ai) to learn more about structured outputs from LLMs.

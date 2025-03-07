@@ -116,6 +116,3 @@ pip install mkdocs-jupyter
 ```bash
 mkdocs serve
 ```
-
-## Acknowledgments
-Dapr Agents was born out of a desire to explore and learn more about [Dapr](https://dapr.io/) and its potential for building agentic systems. I wanted to understand how to deploy agents as services, manage message communication, and connect various components effectively. Along the way, I looked to several established frameworks for ideas and guidance, which helped shape my thinking and approach:

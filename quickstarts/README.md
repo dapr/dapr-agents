@@ -31,7 +31,7 @@ Learn how to interact with Language Models using Dapr Agents:
 
 This quickstart shows both basic text generation and structured data extraction from LLMs.
 
-[Go to LLM Call](./02-llm-call)
+[Go to LLM Call](./llm_call_open_ai)
 
 ### 03 - Agent Tool Call
 
