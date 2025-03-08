@@ -201,9 +201,11 @@ This demonstrates how Dapr connection attempt times out in 1s, then attempts to 
 ## Advantages of Using DaprChatClient
 
 1. **Provider Agnostic**: Write code once and switch between different LLM providers. 
-2. **Secret Management**: Handle API keys securely through Dapr's [secret stores](https://docs.dapr.io/reference/components-reference/supported-secret-stores/)
-3. **Resilience Patterns**: Benefit from Dapr's built-in timeout, retry and circuit-breaking [capabilities](https://docs.dapr.io/operations/resiliency/resiliency-overview/)
-4. **Simplified Testing**: Use the echo component during development and testing
+2. **Prompt Caching** – Reducing latency and costs by storing and reusing repetitive prompts across API calls, by leveraging local caching. 
+3. **Personally Identifiable Information (PII) Obfuscation** – Automatically detect and mask sensitive user information from inputs and outputs.
+4. **Secret Management**: Handle API keys securely through Dapr's [secret stores](https://docs.dapr.io/reference/components-reference/supported-secret-stores/)
+5. **Resilience Patterns**: Benefit from Dapr's built-in timeout, retry and circuit-breaking [capabilities](https://docs.dapr.io/operations/resiliency/resiliency-overview/)
+6. **Simplified Testing**: Use the echo component during development and testing
 
 By using Dapr components for LLM interactions, you gain flexibility, modularity, and separation of concerns that make your application more maintainable and adaptable to changing requirements or LLM providers.
 
