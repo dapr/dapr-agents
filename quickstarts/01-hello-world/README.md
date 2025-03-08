@@ -241,6 +241,19 @@ if __name__ == '__main__':
 - **ReActAgent**: An agent that follows the Reasoning + Action pattern
 - **WorkflowApp**: A Dapr-powered way to create stateful, multi-step processes
 
+## Dapr Integration
+These examples don't directly expose Dapr building blocks, but they're built on Dapr Agents which behind the scenes leverages the full capabilities of the Dapr runtime:
+
+**Resilience**: Built-in retry policies, circuit breaking, and timeout handling external systems interactions
+**Orchestration**: Stateful, durable workflows that can survive process restarts and continue execution from where they left off
+**Interoperability**: Pluggable component architecture that works with various backends and cloud services without changing application code
+**Scalability**: Distribute agents across infrastructure, from local development to multi-node Kubernetes clusters
+**Event-Driven**: Pub/Sub messaging for event-driven agent collaboration and coordination
+**Observability**: Integrated distributed tracing, metrics collection, and logging for visibility into agent operations
+**Security**: Protection through scoping, encryption, secret management, and authentication/authorization controls
+
+In the later quickstarts, you'll see explicit Dapr integration through state stores, pub/sub, and workflow services.
+
 ## Troubleshooting
 
 1. **API Key Issues**: If you see an authentication error, verify your OpenAI API key in the `.env` file
