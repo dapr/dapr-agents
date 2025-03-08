@@ -130,6 +130,8 @@ python weather_agent.py
 - The `Agent` class sets up a tool-calling agent by default
 - The `role`, `goal`, and `instructions` guide the agent's behavior
 - Tools are provided as a list for the agent to use
+- Agent Memory keeps the conversation history that the agent can reference
+
 
 ### Execution Flow
 1. The agent receives a user query
