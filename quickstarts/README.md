@@ -20,7 +20,7 @@ A rapid introduction to Dapr Agents core concepts through simple demonstrations:
 - **ReAct Pattern**: Implementing reasoning and action cycles in agents
 - **Simple Workflows**: Setting up multi-step LLM processes
 
-[Go to Hello World](./01-hello-world)
+[Go to Hello World](./01-hello-world/README.md)
 
 ### 02 - LLM Call
 
@@ -31,9 +31,22 @@ Learn how to interact with Language Models using Dapr Agents:
 
 This quickstart shows both basic text generation and structured data extraction from LLMs.
 
-[Go to LLM Call](./02-llm-call)
+[Go to LLM Call](./02-llm-call/README.md)
 
-### 03 - Agent Tool Call
+
+### 03 - LLM Call with Dapr Chat Client
+
+Learn how to interact with Language Models using Dapr Chat Client (based on Dapr Conversation API):
+
+- **Text Completion**: Generating responses to prompts
+- **Structured Outputs**: Converting LLM responses to Pydantic objects
+- **Network Resiliency**: Use retry policies, circuit breaking, and timeout handling
+
+This quickstart shows how to swap LLMs providers without changing application code.
+
+[Go to LLM Call With Dapr](./03-llm-call-dapr/README.md)
+
+### 04 - Agent Tool Call
 
 Create your first AI agent with custom tools:
 
@@ -43,9 +56,9 @@ Create your first AI agent with custom tools:
 
 This quickstart demonstrates how to build a weather assistant that can fetch information and perform actions.
 
-[Go to Agent Tool Call](./03-agent-tool-call)
+[Go to Agent Tool Call](./04-agent-tool-call/README.md)
 
-### 04 - Agentic Workflow
+### 05 - Agentic Workflow
 
 Introduction to Dapr workflows with Dapr Agents:
 
@@ -56,9 +69,9 @@ Introduction to Dapr workflows with Dapr Agents:
 
 This quickstart shows how to orchestrate multi-step processes that combine deterministic tasks with LLM-powered reasoning.
 
-[Go to Agentic Workflow](./04-agentic-workflow)
+[Go to Agentic Workflow](./05-agentic-workflow/README.md)
 
-### 05 - Multi-Agent Workflows
+### 06 - Multi-Agent Workflows
 
 Advanced example of event-driven workflows with multiple autonomous agents:
 
@@ -69,13 +82,13 @@ Advanced example of event-driven workflows with multiple autonomous agents:
 
 This quickstart demonstrates a Lord of the Rings themed multi-agent system where agents collaborate to solve problems.
 
-[Go to Multi-Agent Workflows](./05-multi-agent-workflow)
+[Go to Multi-Agent Workflows](./06-multi-agent-workflow/README.md)
 
 ## Getting Started
 
 1. Clone this repository
 ```bash
-git clone https://github.com/dapr-sandbox/dapr-agents/
+git clone https://github.com/dapr/dapr-agents/
 cd dapr-agents/quickstarts
 ```
 
@@ -85,10 +98,10 @@ cd dapr-agents/quickstarts
 echo "OPENAI_API_KEY=your_key_here" > .env
 ```
 
-3. For workflow examples, initialize Dapr
+3. For Dapr-based examples, initialize Dapr
 ```bash
 dapr init
 ```
 
 4. Choose a quickstart and follow its specific README  
-[Start from Hello World](./01-hello-world)
+[Start from Hello World](./01-hello-world/README.md)

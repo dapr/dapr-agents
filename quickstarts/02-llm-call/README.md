@@ -1,4 +1,4 @@
-# LLM Call with Dapr Agents
+# LLM Call with Native Chat Clients
 
 This quickstart demonstrates how to use Dapr Agents' LLM capabilities to interact with language models and generate both free-form text and structured data. You'll learn how to make basic calls to LLMs and how to extract structured information in a type-safe manner.
 

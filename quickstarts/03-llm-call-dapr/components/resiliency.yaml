@@ -1,0 +1,19 @@
+apiVersion: dapr.io/v1alpha1
+kind: Resiliency
+metadata:
+  name: awsbedrock-resiliency
+spec:
+  policies:
+    timeouts:
+      short-timeout: 1s
+    retries:
+      fixed-retry:
+        policy: constant
+        duration: 1s
+        maxRetries: 3
+  targets:
+    components:
+      awsbedrock:
+        outbound:
+          timeout: short-timeout
+          retry: fixed-retry

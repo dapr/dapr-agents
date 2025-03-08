@@ -1,0 +1,2 @@
+dapr-agents>=0.1.dev39
+python-dotenv

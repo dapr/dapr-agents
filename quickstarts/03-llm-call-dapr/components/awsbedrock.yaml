@@ -1,0 +1,13 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: awsbedrock
+spec:
+  type: conversation.aws.bedrock
+  metadata:
+    - name: endpoint
+      value: "http://localhost:4566"
+    - name: model
+      value: amazon.titan-text-express-v1
+    - name: cacheTTL
+      value: 10m
