@@ -132,7 +132,7 @@ print(json.dumps(response.model_dump(), indent=2))
 
 ## Available LLM Clients
 
-The Dapr Agents provides several client implementations for interacting with language models:
+Dapr Agents provides several client implementations for interacting with language models:
 
 ### 1. OpenAIChatClient
 The standard client for OpenAI's models, used in the examples above.
