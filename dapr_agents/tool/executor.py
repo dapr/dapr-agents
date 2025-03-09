@@ -62,12 +62,12 @@ class AgentToolExecutor(BaseModel):
         Raises:
             AgentToolExecutorError: If tool not found or if an execution error occurs.
         """
-        logger.info(f"Attempting to execute tool: {tool_name}")
         tool = self._tools_map.get(tool_name)
         if not tool:
             logger.error(f"Tool not found: {tool_name}")
             raise AgentToolExecutorError(f"Tool '{tool_name}' not found.")
         try:
+            logger.info(f"Executing tool: {tool_name} with arguments {kwargs}")
             result = tool(*args, **kwargs)
             logger.info(f"Tool '{tool_name}' executed successfully.")
             return result
