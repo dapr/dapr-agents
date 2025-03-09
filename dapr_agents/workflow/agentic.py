@@ -7,11 +7,16 @@ from pydantic import BaseModel, Field, model_validator, ValidationError
 from typing import Any, Optional, Union, Dict, Type, List
 from fastapi import Depends, Request, Response, HTTPException
 from dapr.clients import DaprClient
+import tempfile
+import json
+import threading
 import inspect
 import logging
 import asyncio
 import json
 import os
+
+state_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -220,20 +225,12 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
         directory = self.local_state_path or os.getcwd()
         os.makedirs(directory, exist_ok=True)  # Ensure directory exists
         return os.path.join(directory, f"{self.state_key}.json")
-    
+
     def save_state_to_disk(self, state_data: str, filename: Optional[str] = None) -> None:
         """
-        Saves the workflow state to a local JSON file for persistence.
-
-        This method writes the state as a JSON file to a directory specified by `local_state_path`. 
-        If `local_state_path` is not set, it defaults to the working directory.
-
-        Args:
-            state_data (str): The serialized state JSON string.
-            filename (Optional[str]): The filename for the saved state. Defaults to `<self.name>_state.json`.
-
-        Raises:
-            RuntimeError: If the file cannot be written.
+        Safely saves the workflow state to a local JSON file using a uniquely named temp file.
+        - Writes to a temp file in parallel.
+        - Locks only the final atomic replacement step to avoid overwriting.
         """
         try:
             # Determine save location
@@ -242,13 +239,32 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
             filename = filename or f"{self.name}_state.json"
             file_path = os.path.join(save_directory, filename)
 
-            # Write state to a temporary file first, then replace to avoid corruption
-            temp_path = f"{file_path}.tmp"
-            with open(temp_path, "w", encoding="utf-8") as file:
-                file.write(state_data)
+            # Write to a uniquely named temp file
+            with tempfile.NamedTemporaryFile("w", dir=save_directory, delete=False) as tmp_file:
+                tmp_file.write(state_data)
+                temp_path = tmp_file.name  # Save temp file path
 
-            # Replace old state file with the new one atomically
-            os.replace(temp_path, file_path)
+            # Lock only for the final atomic file replacement
+            with state_lock:
+                # Load the existing state (merge changes)
+                existing_state = {}
+                if os.path.exists(file_path):
+                    with open(file_path, "r", encoding="utf-8") as file:
+                        try:
+                            existing_state = json.load(file)
+                        except json.JSONDecodeError:
+                            logger.warning("Existing state file is corrupt or empty. Overwriting.")
+
+                # Merge new state into existing state
+                new_state = json.loads(state_data) if isinstance(state_data, str) else state_data
+                merged_state = {**existing_state, **new_state}  # Merge updates
+
+                # Write merged state back to a new temp file
+                with open(temp_path, "w", encoding="utf-8") as file:
+                    json.dump(merged_state, file, indent=4)
+
+                # Atomically replace the old state file
+                os.replace(temp_path, file_path)
 
             logger.info(f"Workflow state saved locally at '{file_path}'.")
 
