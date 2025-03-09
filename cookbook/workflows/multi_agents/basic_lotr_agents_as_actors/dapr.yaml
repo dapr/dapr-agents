@@ -5,7 +5,6 @@ common:
   logLevel: info
   appLogDestination: console
   daprdLogDestination: console
-  configFilePath: config.yaml
 
 apps:
 - appId: HobbitApp
