@@ -7,7 +7,7 @@ import logging
 async def main():
     try:
         workflow_service = RandomOrchestrator(
-            name="Orchestrator",
+            name="Random Orchestrator",
             message_bus_name="messagepubsub",
             state_store_name="workflowstatestore",
             state_key="workflow_state",

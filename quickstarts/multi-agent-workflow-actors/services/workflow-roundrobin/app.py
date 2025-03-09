@@ -7,7 +7,7 @@ import logging
 async def main():
     try:
         workflow_service = RoundRobinOrchestrator(
-            name="Orchestrator",
+            name="RoundRobin Orchestrator",
             message_bus_name="messagepubsub",
             state_store_name="workflowstatestore",
             state_key="workflow_state",

@@ -7,7 +7,7 @@ import logging
 async def main():
     try:
         workflow_service = LLMOrchestrator(
-            name="Orchestrator",
+            name="LLMOrchestrator",
             message_bus_name="messagepubsub",
             state_store_name="workflowstatestore",
             state_key="workflow_state",

@@ -210,7 +210,7 @@ expected_stdout_lines:
 timeout_seconds: 20
 output_match_mode: substring
 background: false
-sleep: 10
+sleep: 5
 -->
 ```bash
 dapr run -f dapr-random.yaml 
@@ -235,7 +235,7 @@ expected_stdout_lines:
 timeout_seconds: 20
 output_match_mode: substring
 background: false
-sleep: 10
+sleep: 5
 -->
 ```bash
 dapr run -f dapr-roundrobin.yaml 
