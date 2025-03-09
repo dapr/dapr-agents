@@ -43,9 +43,9 @@ Replace `your_api_key_here` with your actual OpenAI API key.
 <!-- STEP
 name: Run text completion example
 expected_stdout_lines:
-  - "Response 1:"
-  - "Response 2:"
-  - "Response 3:"
+  - "Response:"
+  - "Response with prompty:"
+  - "Response with user input:"
 timeout_seconds: 30
 output_match_mode: substring
 -->
@@ -58,17 +58,33 @@ The script demonstrates basic usage of Dapr Agents' OpenAIChatClient for text ge
 
 ```python
 from dapr_agents import OpenAIChatClient
+from dapr_agents.types import UserMessage
 from dotenv import load_dotenv
 
 # Load environment variables from .env
 load_dotenv()
 
-# Initialize the chat client and call
+# Basic chat completion
 llm = OpenAIChatClient()
 response = llm.generate("Name a famous dog!")
 
 if len(response.get_content()) > 0:
     print("Response: ", response.get_content())
+
+# Chat completion using a prompty file for context
+llm = OpenAIChatClient.from_prompty('basic.prompty')
+response = llm.generate(input_data={"question":"What is your name?"})
+
+if len(response.get_content()) > 0:
+    print("Response with prompty: ", response.get_content())
+
+# Chat completion with user input
+llm = OpenAIChatClient()
+response = llm.generate(messages=[UserMessage("hello")])
+
+
+if len(response.get_content()) > 0 and "hello" in response.get_content().lower():
+    print("Response with user input: ", response.get_content())
 ```
 
 **2. Expected output:** The LLM will respond with the name of a famous dog (e.g., "Lassie", "Hachiko", etc.).
@@ -129,7 +145,7 @@ You can use the OpenAIAudioClient in `dapr-agents` for basic tasks with the Open
 - Transcribing audio to text.
 - Translating audio content to English.
 
-**1. Run the speech to text example:**
+**1. Run the text to speech example:**
 
 
 <!-- STEP
@@ -139,11 +155,11 @@ expected_stdout_lines:
   - "File output_speech.mp3 has been deleted."
 -->
 ```bash
-python speech_to_text.py
+python text_to_speech.py
 ```
 <!-- END_STEP -->
 
-**2. Run the audio to text transcription example:**
+**2. Run the speech to text transcription example:**
 
 <!-- STEP
 name: Run audio transcription example
@@ -158,7 +174,7 @@ python audio_transcription.py
 <!-- END_STEP -->
 
 
-**2. Run the audio to text translation example:**
+**2. Run the speech to text translation example:**
 
 [//]: # (<!-- STEP)
 

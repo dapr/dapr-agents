@@ -43,9 +43,9 @@ Replace `your_api_key_here` with your actual Nvidia key.
 <!-- STEP
 name: Run text completion example
 expected_stdout_lines:
-  - "Response 1:"
-  - "Response 2:"
-  - "Response 3:"
+  - "Response:"
+  - "Response with prompty:"
+  - "Response with user input:"
 timeout_seconds: 30
 output_match_mode: substring
 -->
@@ -69,14 +69,14 @@ llm = NVIDIAChatClient()
 response = llm.generate("Name a famous dog!")
 
 if len(response.get_content()) > 0:
-    print("Response 1: ", response.get_content())
+    print("Response: ", response.get_content())
 
 # Chat completion using a prompty file for context
 llm = NVIDIAChatClient.from_prompty('basic.prompty')
 response = llm.generate(input_data={"question":"What is your name?"})
 
 if len(response.get_content()) > 0:
-    print("Response 2: ", response.get_content())
+    print("Response with prompty: ", response.get_content())
 
 # Chat completion with user input
 llm = NVIDIAChatClient()
@@ -84,7 +84,7 @@ response = llm.generate(messages=[UserMessage("hello")])
 
 
 if len(response.get_content()) > 0 and "hello" in response.get_content().lower():
-    print("Response 3: ", response.get_content())
+    print("Response with user input: ", response.get_content())
 ```
 
 **2. Expected output:** The LLM will respond with the name of a famous dog (e.g., "Lassie", "Hachiko", etc.).

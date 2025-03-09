@@ -10,14 +10,14 @@ llm = OpenAIChatClient()
 response = llm.generate("Name a famous dog!")
 
 if len(response.get_content()) > 0:
-    print("Response 1: ", response.get_content())
+    print("Response: ", response.get_content())
 
 # Chat completion using a prompty file for context
 llm = OpenAIChatClient.from_prompty('basic.prompty')
 response = llm.generate(input_data={"question":"What is your name?"})
 
 if len(response.get_content()) > 0:
-    print("Response 2: ", response.get_content())
+    print("Response with prompty: ", response.get_content())
 
 # Chat completion with user input
 llm = OpenAIChatClient()
@@ -25,4 +25,4 @@ response = llm.generate(messages=[UserMessage("hello")])
 
 
 if len(response.get_content()) > 0 and "hello" in response.get_content().lower():
-    print("Response 3: ", response.get_content())
+    print("Response with user input: ", response.get_content())
