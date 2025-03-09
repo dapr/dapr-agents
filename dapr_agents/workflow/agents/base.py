@@ -45,7 +45,7 @@ class AgentServiceBase(AgenticWorkflowService):
         """
 
         # Initialize tool executor with provided tools
-        self._tool_executor = AgentToolExecutor(tools=self.tools)
+        self.tool_executor = AgentToolExecutor(tools=self.tools)
 
         # Check if both agent and LLM have a prompt template specified and raise an error if both exist
         if self.prompt_template and self.llm.prompt_template:

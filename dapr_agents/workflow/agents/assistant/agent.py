@@ -79,8 +79,7 @@ class AssistantAgent(AgentServiceBase):
             self.state["instances"].setdefault(instance_id, workflow_entry.model_dump(mode="json"))
 
             if not ctx.is_replaying:
-                logger.info(
-                    f"Initial message from {self.state['instances'][instance_id]['source_agent']} -> {self.name}")
+                logger.info(f"Initial message from {self.state["instances"][instance_id]["source_agent"]} -> {self.name}")
 
         # Step 2: Retrieve workflow entry for this instance
         workflow_entry = self.state["instances"][instance_id]
@@ -91,10 +90,6 @@ class AssistantAgent(AgentServiceBase):
         response = yield ctx.call_activity(self.generate_response, input={"instance_id": instance_id, "task": task})
         response_message = yield ctx.call_activity(self.get_response_message, input={"response" : response})
 
-        if not ctx.is_replaying:
-            # Create a temporary dictionary with "name" added only if missing
-            self.text_formatter.print_message({**response_message, "name": response_message.get("name", self.name)})
-
         # Step 4: Extract Finish Reason
         finish_reason = yield ctx.call_activity(self.get_finish_reason, input={"response" : response})
 
@@ -102,23 +97,19 @@ class AssistantAgent(AgentServiceBase):
         if finish_reason == "tool_calls":     
             if not ctx.is_replaying:
                 logger.info(f"Tool calls detected in LLM response, extracting and preparing for execution..")
-            
-            # Store the response message in tool history for tracking
-            self.tool_history.append(response_message)
 
             # Retrieve the list of tool calls extracted from the LLM response
             tool_calls = yield ctx.call_activity(self.get_tool_calls, input={"response": response})
 
-            # Execute tool calls in parallel if available
-            if tool_calls:
-                if not ctx.is_replaying:
-                    logger.info(f"Executing {len(tool_calls)} tool call(s) in parallel..")
-
-                parallel_tasks = [
-                    ctx.call_activity(self.execute_tool, input={"tool_call": tool_call})
-                    for tool_call in tool_calls
-                ]
-                yield self.when_all(parallel_tasks)
+            # Execute tool calls in parallel
+            if not ctx.is_replaying:
+                logger.info(f"Executing {len(tool_calls)} tool call(s)..")
+            
+            parallel_tasks = [
+                ctx.call_activity(self.execute_tool, input={"tool_call": tool_call})
+                for tool_call in tool_calls
+            ]
+            yield self.when_all(parallel_tasks)
         else:
             if not ctx.is_replaying:
                 logger.info(f"Agent generating response without tool execution..")
@@ -179,13 +170,13 @@ class AssistantAgent(AgentServiceBase):
         Returns:
             ChatCompletion: The generated AI response encapsulated in a ChatCompletion object.
         """
+        # Contruct prompt messages
+        messages = self.construct_messages(task or {})
+
         # Store message in workflow state and local memory
         if task:
             task_message = {"role": "user", "content": task}
             await self.update_workflow_state(instance_id=instance_id, message=task_message)
-        
-        # Contruct prompt messages
-        messages = self.construct_messages(task or {})
 
         # Process conversation iterations
         messages += self.tool_history
@@ -209,6 +200,7 @@ class AssistantAgent(AgentServiceBase):
         """
         choices = response.get("choices", [])
         response_message = choices[0].get("message", {})
+        
         return response_message
     
     @task
@@ -257,6 +249,10 @@ class AssistantAgent(AgentServiceBase):
         if not choices:
             logger.warning("No choices found in LLM response.")
             return None
+        
+        # Save Tool Call Response Message
+        response_message = choices[0].get("message", {})
+        self.tool_history.append(response_message)
 
         # Extract tool calls safely
         tool_calls = choices[0].get("message", {}).get("tool_calls")
@@ -299,8 +295,7 @@ class AssistantAgent(AgentServiceBase):
             # Construct the tool response message
             tool_message = ToolMessage(tool_call_id=tool_call.get("id"), name=function_name, content=str(result))
 
-            # Log and store the tool execution result
-            self.text_formatter.print_message(tool_message)
+            # Store the tool execution result
             self.tool_history.append(tool_message)
 
         except json.JSONDecodeError:
