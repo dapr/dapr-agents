@@ -7,7 +7,7 @@ A collection of examples demonstrating how to use Dapr Agents to build applicati
 To run these quickstarts, you'll need:
 - Python 3.10 or higher
 - An OpenAI API key
-- Dapr CLI and Docker (for workflow examples)
+- Dapr CLI and Docker (for agent workflow examples)
 
 ## Available Quickstarts
 
