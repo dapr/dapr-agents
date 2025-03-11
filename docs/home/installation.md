@@ -11,22 +11,6 @@
 pip install dapr-agents
 ```
 
-### Remotely from GitHub
-
-```bash
-pip install git+https://github.com/dapr/dapr-agents.git
-```
-
-### From source with `poetry`:
-
-```bash
-git clone https://github.com/dapr/dapr-agents
-
-cd dapr-agents
-
-poetry install
-```
-
 ## Install Dapr CLI
 
 Install the Dapr CLI to manage Dapr-related tasks like running applications with sidecars, viewing logs, and launching the Dapr dashboard. It works seamlessly with both self-hosted and Kubernetes environments. For a complete step-by-step guide, visit the official [Dapr CLI installation page](https://docs.dapr.io/getting-started/install-dapr-cli/).
