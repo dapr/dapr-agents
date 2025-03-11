@@ -1,118 +1,79 @@
-# Dapr Agents: Agentic Workflows Made Simple
+# Dapr Agents: A Framework for Agentic AI Systems
 
-[![pypi](https://img.shields.io/pypi/v/floki-ai.svg)](https://pypi.python.org/pypi/floki-ai)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/floki-ai)](https://pypi.org/project/floki-ai/)
-[![GitHub Repo stars](https://img.shields.io/github/stars/dapr/dapr-agents)](https://github.com/dapr/dapr-agents)
+Dapr Agents is a developer framework designed to build production-grade resilient AI agent systems that operate at scale. Built on top of the battle-tested Dapr project, it enables software developers to create AI agents that reason, act, and collaborate using Large Language Models (LLMs), while leveraging built-in observability and stateful workflow execution to guarantee agentic workflows complete successfully, no matter how complex.
 
-![](docs/logo-workflows.png)
+## Key Features
 
-> 🚧 Dapr Agents is in active development and evolving with ongoing research. APIs and core structures may change as the framework matures and Dapr integration is refined.
+- **Scale and Efficiency**: Run thousands of agents efficiently on a single core. Dapr distributes single and multi-agent apps transparently across fleets of machines and handles their lifecycle.
+- **Workflow Resilience**: Automatically retries agentic workflows and ensures task completion.
+- **Kubernetes-Native**: Easily deploy and manage agents in Kubernetes environments.
+- **Data-Driven Agents**: Directly integrate with databases, documents, and unstructured data by connecting to dozens of different data sources.
+- **Multi-Agent Systems**: Secure and observable by default, enabling collaboration between agents.
+- **Vendor-Neutral & Open Source**: Avoid vendor lock-in and gain flexibility across cloud and on-premises deployments.
+- **Platform-Ready**: Built-in RBAC, access scopes and declarative resources enable platform teams to integrate Dapr agents into their systems. 
 
-Dapr Agents is an open-source framework for researchers and developers to experiment with LLM-based autonomous agents. It provides tools to create, orchestrate, and manage agents while seamlessly connecting to LLM inference APIs. Built on [Dapr](https://docs.dapr.io/), Dapr Agents leverages a unified programming model that simplifies microservices and supports both deterministic workflows and event-driven interactions. Using Dapr’s Virtual Actor pattern, Dapr Agents enables agents to function as independent, self-contained units that process messages sequentially, eliminating concurrency concerns while seamlessly integrating into larger workflows. It also facilitates agent collaboration through Dapr’s Pub/Sub integration, where agents communicate via a shared message bus, simplifying the design of workflows where tasks are distributed efficiently, and agents work together to achieve shared goals. By bringing together these features, Dapr Agents provides a powerful way to explore agentic workflows and the components that enable multi-agent systems to collaborate and scale, all powered by Dapr.
+## Why Choose Dapr Agents?
 
-## Documentation (WIP 🚧): https://github.com/dapr/dapr-agents
+### Scalable Workflows as a First Class Citizen
 
-## Why Dapr 🎩?
+Dapr Agents uses a [durable-execution workflow engine](https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-overview/) that guarantees each agent task executes to completion in the face of network interruptions, node crashes and other types of disruptive failures. Developers do not need to know about the underlying concepts of the workflow engine - simply write an agent that performs any number of tasks and these will get automatically distributed across the cluster. If any task fails, it will be retried and recover its state from where it left off.
 
-[Dapr](https://docs.dapr.io/) provides Dapr Agents with a unified programming model that simplifies the development of resilient and scalable systems by offering built-in APIs for features such as service invocation, Pub/Sub messaging, workflows, and even state management. These components, essential for defining agentic workflows, allow developers to focus on designing agents and workflows rather than rebuilding foundational features. By leveraging Dapr’s sidecar architecture and portable, event-driven runtime, Dapr Agents also enables agents to collaborate effectively, share tasks, and adapt dynamically across cloud and edge environments. This seamless integration brings together deterministic workflows and LLM-based decision-making into a unified system, making it easier to experiment with multi-agent systems and scalable agentic workflows.
+### Cost-Effective AI Adoption
 
-### Key Dapr Features in Dapr Agents:
-* 🎯 **Service-to-Service Invocation**: Facilitates direct communication between agents with built-in service discovery, error handling, and distributed tracing. Agents can leverage this for synchronous messaging in multi-agent workflows.
-* ⚡️ **Publish and Subscribe**: Supports loosely coupled collaboration between agents through a shared message bus. This enables real-time, event-driven interactions critical for task distribution and coordination.
-* 🔄 **Workflow API**: Defines long-running, persistent workflows that combine deterministic processes with LLM-based decision-making. Dapr Agents uses this to orchestrate complex multi-step agentic workflows seamlessly.
-* 🧠 **State Management**: Provides a flexible key-value store for agents to retain context across interactions, ensuring continuity and adaptability during workflows.
-* 🤖 **Actors**: Implements the Virtual Actor pattern, allowing agents to operate as self-contained, stateful units that handle messages sequentially. This eliminates concurrency concerns and enhances scalability in Dapr Agents's agent systems.
+Dapr Agents builds on top of Dapr's Workflow API, which under the hood represents each agent as an actor, a single unit of compute and state that is thread-safe and natively distributed, lending itself well to an agentic Scale-To-Zero architecture. This minimizes infrastructure costs, making AI adoption accessible to everyone. The underlying virtual actor model allows thousands of agents to run on demand on a single core machine with double-digit millisecond latency when scaling from zero. When unused, the agents are reclaimed by the system but retain their state until the next time they are needed. With this design, there's no trade-off between performance and resource efficiency.
 
-## Install Dapr Agents ⚡️
+### Data-Centric AI Agents
 
-Make sure you have Python already installed. `Python >=3.9`
+With built-in connectivity to over 50 enterprise data sources, Dapr Agents efficiently handle structured and unstructured data. From basic PDF extraction to large-scale database interactions, it enables seamless data-driven AI workflows with minimal code changes. Dapr's [bindings](https://docs.dapr.io/reference/components-reference/supported-bindings/) and [state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/) provide access to a large number of data sources that can be used to ingest data to an agent. [MCP integration](https://docs.anthropic.com/en/docs/agents-and-tools/mcp) is coming soon.
 
-### As a Python package using Pip
+### Accelerated Development
 
-```bash
-pip install dapr-agents
-```
+Dapr Agents provides a set of AI features that give developers a complete API surface to tackle common problems. Some of these include:
 
-### Remotely from GitHub
+- Multi-agent communications
+- Structured outputs
+- Multiple LLM providers
+- Contextual memory
+- Flexible prompting
+- Intelligent tool selection
 
-```bash
-pip install git+https://github.com/dapr/dapr-agents.git
-```
+### Integrated Security and Reliability
 
-### From source with `poetry`:
+By building on top of Dapr, platform and infrastructure teams can apply Dapr's [resiliency policies](https://docs.dapr.io/operations/resiliency/policies/) to the database and/or message broker of their choice that are used by Dapr Agents. These policies include timeouts, retry/backoffs and circuit breakers. When it comes to security, Dapr provides the option to scope access to a given database or message broker to one or more agentic app deployments. In addition, Dapr Agents uses mTLS to encrypt the communication layer of its underlying components. 
 
-```bash
-git clone https://github.com/dapr/dapr-agents
+### Vendor-Neutral and Open Source
 
-cd dapr-agents
+As a part of **CNCF**, Dapr Agents is vendor-neutral, eliminating concerns about lock-in, intellectual property risks, or proprietary restrictions. Organizations gain full flexibility and control over their AI applications using open-source software they can audit and contribute to.
 
-poetry install
-```
+## Getting Started
 
-## Install Dapr
+Prerequisites:
 
-If you're using an IDE that supports devcontainers, you can use the devcontainer configuration in this repository to get started. This has Python & the Dapr CLI preinstalled, and will also initialize Dapr on startup.
+- [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/)
+- [Python 3.10](https://www.python.org/downloads/release/python-3100/)
 
-If you're not using the devcontainer, follow the steps below to install the Dapr CLI.
-
-### Install the Dapr CLI
-
-Install the [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) to manage Dapr-related tasks like running applications with sidecars, viewing logs, and launching the Dapr dashboard. It works seamlessly with both self-hosted and Kubernetes environments. For a complete step-by-step guide, visit the official [Dapr CLI installation page](https://docs.dapr.io/getting-started/install-dapr-cli/).
-
-Verify the CLI is installed by restarting your terminal/command prompt and running the following:
-
-```bash
-dapr -h
-```
-
-### Initialize Dapr in Local Mode
-
-Make sure you have [Docker](https://docs.docker.com/get-started/get-docker/) already installed. I use [Docker Desktop](https://www.docker.com/products/docker-desktop/).
-
-Initialize Dapr locally to set up a self-hosted environment for development. This process installs Dapr sidecar binaries, runs essential services like Redis (state store and message broker) and Zipkin (observability), and prepares a default components folder. For detailed steps, see the official [guide on initializing Dapr locally](https://docs.dapr.io/getting-started/install-dapr-selfhost/).
-
-To initialize the Dapr control plane containers and create a default configuration file, open an elevated terminal and run:
+### Install Dapr Agents
 
 ```bash
 dapr init
 ```
 
-Verify you have container instances with `daprio/dapr`, `openzipkin/zipkin`, and `redis` images running:
-
 ```bash
-docker ps
+pip install dapr-agents
 ```
 
-## Development
-To run the automated tests in the `quickstarts` directory you need to install the [Mechanical Markdown](https://github.com/dapr/mechanical-markdown) tool. This tool is used to run the code snippets in the markdown files and verify the output.
-Once installed, you can validate all the quickstarts by running the following command:
+### Run The Quickstarts
 
-```bash
-make validate-quickstarts
-```
+To start running Dapr Agents locally, see our [quickstarts](./quickstarts/README.md).
 
-To validate a single quickstart, navigate to the `quickstarts` directory and run the `validate.sh` script:
+## Get Involved
 
-```bash
-cd quickstarts
-./validate 01-hello-world
-```
+Dapr Agents is an open-source project under the CNCF umbrella, and we welcome contributions from developers and organizations worldwide!
 
-## Contributing to the docs
+- GitHub Repository: [https://github.com/dapr/dapr-agents](https://github.com/dapr/dapr-agents)
+- Community Discord: [Join the discussion](https://bit.ly/dapr-discord). 
+- Contribute: Open an issue or submit a PR to help improve Dapr Agents!
 
-### Running the docs locally
+## Code of Conduct
 
-1. Install the dependencies
-
-```bash
-pip install mkdocs
-pip install mkdocs-material
-pip install "mkdocs-material[imaging]"
-pip install mkdocs-jupyter
-```
-
-2. Run the docs
-
-```bash
-mkdocs serve
-```
+Please refer to our [Dapr Community Code of Conduct](https://github.com/dapr/community/blob/master/CODE-OF-CONDUCT.md)
