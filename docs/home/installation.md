@@ -3,7 +3,7 @@
 ## Install Dapr Agents
 
 !!! info
-    make sure you have Python already installed. `Python >=3.9`
+    make sure you have Python already installed. `Python >=3.10`
 
 ### As a Python package using Pip
 

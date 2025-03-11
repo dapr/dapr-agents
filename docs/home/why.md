@@ -6,9 +6,9 @@ Dapr Agents is an open-source framework for building and orchestrating LLM-based
 
 Many agentic frameworks today attempt to redefine how microservices are built and orchestrated by developing their own platforms for workflows, Pub/Sub messaging, state management, and service communication. While these efforts showcase innovation, they often lead to a steep learning curve, fragmented systems, and unnecessary complexity when scaling or adapting to new environments.
 
-Rather than building on existing solutions that are proven to handle these challenges at scale, many frameworks require developers to adopt entirely new paradigms or recreate foundational infrastructure. This added complexity often diverts focus from the primary goal: designing and implementing intelligent, effective agents.
+Many of these frameworks require developers to adopt entirely new paradigms or recreate foundational infrastructure, rather than building on existing solutions that are proven to handle these challenges at scale. This added complexity often diverts focus from the primary goal: designing and implementing intelligent, effective agents.
 
-## Dapr Agents's Approach
+## Dapr Agents' Approach
 
 Dapr Agents takes a distinct approach by building on [Dapr](https://dapr.io/), a portable and event-driven runtime optimized for distributed systems. Dapr offers built-in APIs and patterns such as state management, Pub/Sub messaging, service invocation, and virtual actors—that eliminate the need to recreate foundational components from scratch. By integrating seamlessly with Dapr, Dapr Agents empowers developers to focus on the intelligence and behavior of LLM-powered agents while leveraging a proven framework for scalability and reliability.
 
