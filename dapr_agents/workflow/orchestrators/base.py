@@ -33,7 +33,8 @@ class OrchestratorServiceBase(AgenticWorkflowService, ABC):
         self.agent_metadata = {
             "name": self.name,
             "topic_name": self.orchestrator_topic_name,
-            "pubsub_name": self.message_bus_name
+            "pubsub_name": self.message_bus_name,
+            "orchestrator": True
         }
 
         # Register agent metadata

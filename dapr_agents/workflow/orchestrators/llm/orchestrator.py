@@ -183,7 +183,7 @@ class LLMOrchestrator(OrchestratorServiceBase):
         Returns:
             str: A formatted string listing the available agents and their roles.
         """
-        agents_metadata = self.get_agents_metadata()
+        agents_metadata = self.get_agents_metadata(exclude_orchestrator=True)
         if not agents_metadata:
             return "No available agents to assign tasks."
 
@@ -250,7 +250,7 @@ class LLMOrchestrator(OrchestratorServiceBase):
         task_message = BaseMessage(name=self.name, role="user", content=task)
 
         # Send broadcast message
-        await self.broadcast_message(message=task_message)
+        await self.broadcast_message(message=task_message, exclude_orchestrator=True)
     
     @task(description=NEXT_STEP_PROMPT, include_chat_history=True)
     async def generate_next_step(self, task: str, agents: str, plan: str, next_step_schema: str) -> NextStep:

@@ -76,7 +76,8 @@ class AgentActorServiceBase(DaprFastAPIServer, DaprPubSub):
             "role": self.agent.role,
             "goal": self.agent.goal,
             "topic_name": self.agent_topic_name,
-            "pubsub_name": self.message_bus_name
+            "pubsub_name": self.message_bus_name,
+            "orchestrator": False
         }
 
         # Proxy for actor methods
@@ -123,6 +124,7 @@ class AgentActorServiceBase(DaprFastAPIServer, DaprPubSub):
         try:
             yield  # Continue with FastAPI's main lifespan context
         finally:
+
             # Perform any required cleanup, such as metadata removal
             await self.stop()
     
@@ -144,19 +146,47 @@ class AgentActorServiceBase(DaprFastAPIServer, DaprPubSub):
 
                 return json.loads(data) if data else None
         except Exception as e:
-            logger.error(f"Error retrieving data for key '{key}' from store '{store_name}': {e}")
+            logger.warning(f"Error retrieving data for key '{key}' from store '{store_name}'")
             return None
     
-    async def get_agents_metadata(self) -> dict:
+    async def get_agents_metadata(self, exclude_self: bool = True, exclude_orchestrator: bool = False) -> dict:
         """
-        Retrieve metadata for all agents except the orchestrator itself.
+        Retrieves metadata for all registered agents while ensuring orchestrators do not interact with other orchestrators.
+
+        Args:
+            exclude_self (bool, optional): If True, excludes the current agent (`self.agent.name`). Defaults to True.
+            exclude_orchestrator (bool, optional): If True, excludes all orchestrators from the results. Defaults to False.
+
+        Returns:
+            dict: A mapping of agent names to their metadata. Returns an empty dict if no agents are found.
+
+        Raises:
+            RuntimeError: If the state store is not properly configured or retrieval fails.
         """
         try:
+            # Fetch agent metadata from the registry
             agents_metadata = await self.get_data_from_store(self.agents_registry_store_name, self.agents_registry_key) or {}
-            # Exclude the orchestrator's own metadata
-            return {name: metadata for name, metadata in agents_metadata.items() if name != self.agent.name}
+
+            if agents_metadata:
+                logger.info(f"Agents found in '{self.agents_registry_store_name}' for key '{self.agents_registry_key}'.")
+
+                # Filter based on exclusion rules
+                filtered_metadata = {
+                    name: metadata
+                    for name, metadata in agents_metadata.items()
+                    if not (exclude_self and name == self.agent.name)  # Exclude self if requested
+                    and not (exclude_orchestrator and metadata.get("orchestrator", False))  # Exclude all orchestrators if exclude_orchestrator=True
+                }
+
+                if not filtered_metadata:
+                    logger.info("No other agents found after filtering.")
+
+                return filtered_metadata
+
+            logger.info(f"No agents found in '{self.agents_registry_store_name}' for key '{self.agents_registry_key}'.")
+            return {}
         except Exception as e:
-            logger.error(f"Failed to retrieve agents metadata: {e}")
+            logger.error(f"Failed to retrieve agents metadata: {e}", exc_info=True)
             return {}
     
     async def register_agent_metadata(self) -> None:
@@ -165,7 +195,7 @@ class AgentActorServiceBase(DaprFastAPIServer, DaprPubSub):
         """
         try:
             # Retrieve existing metadata or initialize as an empty dictionary
-            agents_metadata = await self.get_data_from_store(self.agents_registry_store_name, self.agents_registry_key) or {}
+            agents_metadata = await self.get_agents_metadata()
             agents_metadata[self.agent.name] = self.agent_metadata
 
             # Save the updated metadata back to Dapr store
@@ -219,21 +249,24 @@ class AgentActorServiceBase(DaprFastAPIServer, DaprPubSub):
             logger.error(f"Failed to retrieve messages for {self.actor_name}: {e}")
             raise HTTPException(status_code=500, detail=f"Error retrieving messages: {str(e)}")
     
-    async def broadcast_message(self, message: Union[BaseModel, dict], **kwargs) -> None:
+    async def broadcast_message(self, message: Union[BaseModel, dict], exclude_orchestrator: bool = False, **kwargs) -> None:
         """
-        Sends a message to all agents.
+        Sends a message to all agents (or only to non-orchestrator agents if exclude_orchestrator=True).
 
         Args:
             message (Union[BaseModel, dict]): The message content as a Pydantic model or dictionary.
+            exclude_orchestrator (bool, optional): If True, excludes orchestrators from receiving the message. Defaults to False.
             **kwargs: Additional metadata fields to include in the message.
         """
         try:
-            agents_metadata = await self.get_agents_metadata()
+            # Retrieve agents metadata while respecting the exclude_orchestrator flag
+            agents_metadata = await self.get_agents_metadata(exclude_orchestrator=exclude_orchestrator)
+
             if not agents_metadata:
                 logger.warning("No agents available for broadcast.")
                 return
 
-            logger.info(f"{self.agent.name} broadcasting message to all agents.")
+            logger.info(f"{self.agent.name} broadcasting message to selected agents.")
 
             await self.publish_event_message(
                 topic_name=self.broadcast_topic_name,
@@ -243,7 +276,7 @@ class AgentActorServiceBase(DaprFastAPIServer, DaprPubSub):
                 **kwargs,
             )
 
-            logger.debug(f"{self.agent.name} broadcasted message to all agents.")
+            logger.debug(f"{self.agent.name} broadcasted message.")
         except Exception as e:
             logger.error(f"Failed to broadcast message: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error broadcasting message: {str(e)}")

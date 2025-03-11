@@ -89,7 +89,8 @@ class AgentServiceBase(AgenticWorkflowService):
             "goal": self.goal,
             "instructions": self.instructions,
             "topic_name": self.agent_topic_name,
-            "pubsub_name": self.message_bus_name
+            "pubsub_name": self.message_bus_name,
+            "orchestrator": False
         }
 
         # Register agent metadata

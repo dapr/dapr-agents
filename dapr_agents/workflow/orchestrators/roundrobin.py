@@ -121,7 +121,7 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
         Args:
             message (Dict[str, Any]): The message content and additional metadata.
         """
-        await self.broadcast_message(message=BaseMessage(**message))
+        await self.broadcast_message(message=BaseMessage(**message), exclude_orchestrator=True)
     
     @task
     async def select_next_speaker(self, iteration: int) -> str:
@@ -133,7 +133,7 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
         Returns:
             str: The name of the selected agent.
         """
-        agents_metadata = self.get_agents_metadata()
+        agents_metadata = self.get_agents_metadata(exclude_orchestrator=True)
         if not agents_metadata:
             logger.warning("No agents available for selection.")
             raise ValueError("Agents metadata is empty. Cannot select next speaker.")

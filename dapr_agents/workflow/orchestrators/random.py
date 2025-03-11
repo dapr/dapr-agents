@@ -125,7 +125,7 @@ class RandomOrchestrator(OrchestratorServiceBase):
         Args:
             message (Dict[str, Any]): The message content and additional metadata.
         """
-        await self.broadcast_message(message=BaseMessage(**message))
+        await self.broadcast_message(message=BaseMessage(**message), exclude_orchestrator=True)
 
     @task
     def select_random_speaker(self, iteration: int) -> str:
@@ -137,7 +137,7 @@ class RandomOrchestrator(OrchestratorServiceBase):
         Returns:
             str: The name of the randomly selected agent.
         """
-        agents_metadata = self.get_agents_metadata()
+        agents_metadata = self.get_agents_metadata(exclude_orchestrator=True)
         if not agents_metadata:
             logger.warning("No agents available for selection.")
             raise ValueError("Agents metadata is empty. Cannot select a random speaker.")

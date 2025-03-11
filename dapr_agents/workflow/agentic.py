@@ -334,12 +334,13 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
             logger.error(f"Failed to save state for key '{self.state_key}': {e}")
             raise
     
-    def get_agents_metadata(self, exclude_self: bool = True) -> dict:
+    def get_agents_metadata(self, exclude_self: bool = True, exclude_orchestrator: bool = False) -> dict:
         """
-        Retrieves metadata for all registered agents.
+        Retrieves metadata for all registered agents while ensuring orchestrators do not interact with other orchestrators.
 
         Args:
             exclude_self (bool, optional): If True, excludes the current agent (`self.name`). Defaults to True.
+            exclude_orchestrator (bool, optional): If True, excludes all orchestrators from the results. Defaults to False.
 
         Returns:
             dict: A mapping of agent names to their metadata. Returns an empty dict if no agents are found.
@@ -348,18 +349,19 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
             RuntimeError: If the state store is not properly configured or retrieval fails.
         """
         try:
-            # Ensure the state store is configured
-            if not self.agents_registry_store_name or not self.agents_registry_key:
-                raise RuntimeError("Agent registry store is not properly configured.")
-
             # Fetch agent metadata
-            has_data, agents_metadata = self.get_data_from_store(self.agents_registry_store_name, self.agents_registry_key)
+            agents_metadata = self.get_data_from_store(self.agents_registry_store_name, self.agents_registry_key) or {}
 
-            if has_data and agents_metadata:
+            if agents_metadata:
                 logger.info(f"Agents found in '{self.agents_registry_store_name}' for key '{self.agents_registry_key}'.")
 
-                # Exclude self if requested
-                filtered_metadata = {name: metadata for name, metadata in agents_metadata.items() if not (exclude_self and name == self.name)}
+                # Filter based on self-exclusion and orchestrator exclusion
+                filtered_metadata = {
+                    name: metadata
+                    for name, metadata in agents_metadata.items()
+                    if not (exclude_self and name == self.name)  # Exclude self if requested
+                    and not (exclude_orchestrator and metadata.get("orchestrator", False))  # Exclude orchestrators only if exclude_orchestrator=True
+                }
 
                 if not filtered_metadata:
                     logger.info("No other agents found after filtering.")
@@ -368,27 +370,28 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
 
             logger.info(f"No agents found in '{self.agents_registry_store_name}' for key '{self.agents_registry_key}'.")
             return {}
-
         except Exception as e:
             logger.error(f"Failed to retrieve agents metadata: {e}", exc_info=True)
             raise RuntimeError(f"Error retrieving agents metadata: {str(e)}") from e
     
-    async def broadcast_message(self, message: Union[BaseModel, dict], **kwargs) -> None:
+    async def broadcast_message(self, message: Union[BaseModel, dict], exclude_orchestrator: bool = False, **kwargs) -> None:
         """
-        Sends a message to all agents.
+        Sends a message to all agents (or only to non-orchestrator agents if exclude_orchestrator=True).
 
         Args:
             message (Union[BaseModel, dict]): The message content as a Pydantic model or dictionary.
+            exclude_orchestrator (bool, optional): If True, excludes orchestrators from receiving the message. Defaults to False.
             **kwargs: Additional metadata fields to include in the message.
         """
         try:
-            agents_metadata = self.get_agents_metadata()
-            
+            # Retrieve agents metadata while respecting the exclude_orchestrator flag
+            agents_metadata = self.get_agents_metadata(exclude_orchestrator=exclude_orchestrator)
+
             if not agents_metadata:
                 logger.warning("No agents available for broadcast.")
                 return
 
-            logger.info(f"{self.name} broadcasting message to all agents.")
+            logger.info(f"{self.name} broadcasting message to selected agents.")
 
             await self.publish_event_message(
                 topic_name=self.broadcast_topic_name,
@@ -398,7 +401,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
                 **kwargs,
             )
 
-            logger.debug(f"{self.name} broadcasted message to all agents.")
+            logger.debug(f"{self.name} broadcasted message.")
         except Exception as e:
             logger.error(f"Failed to broadcast message: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error broadcasting message: {str(e)}")
