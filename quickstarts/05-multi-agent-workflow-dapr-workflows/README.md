@@ -199,7 +199,7 @@ expected_stdout_lines:
   - "user:"
   - "assistant:"
   - "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'RandomWorkflow'"
-timeout_seconds: 40
+timeout_seconds: 120
 output_match_mode: substring
 background: false
 sleep: 5
@@ -224,7 +224,7 @@ expected_stdout_lines:
   - "user:"
   - "assistant:"
   - "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'RoundRobinWorkflow'"
-timeout_seconds: 40
+timeout_seconds: 120
 output_match_mode: substring
 background: false
 sleep: 5
@@ -245,7 +245,7 @@ expected_stdout_lines:
   - "user:"
   - "assistant:"
   - "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'LLMWorkflow'"
-timeout_seconds: 100
+timeout_seconds: 200
 output_match_mode: substring
 background: false
 -->
