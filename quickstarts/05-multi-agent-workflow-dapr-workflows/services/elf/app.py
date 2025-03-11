@@ -1,4 +1,4 @@
-from dapr_agents import Agent, AgentActorService, AssistantAgent
+from dapr_agents import AssistantAgent
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -6,20 +6,24 @@ import logging
 
 async def main():
     try:
-        elf_service = AssistantAgent(name="Legolas", role="Elf",
-                                     goal="Act as a scout, marksman, and protector, using keen senses and deadly accuracy to ensure the success of the journey.",
-                                     instructions=[
-                                         "Speak like Legolas, with grace, wisdom, and keen observation.",
-                                         "Be swift, silent, and precise, moving effortlessly across any terrain.",
-                                         "Use superior vision and heightened senses to scout ahead and detect threats.",
-                                         "Excel in ranged combat, delivering pinpoint arrow strikes from great distances.",
-                                         "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."],
-                                     message_bus_name="messagepubsub",
-                                     state_store_name="workflowstatestore",
-                                     state_key="workflow_state",
-                                     agents_registry_store_name="agentstatestore",
-                                     agents_registry_key="agents_registry", service_port=8003,
-                                     daprGrpcPort=50003)
+        elf_service = AssistantAgent(
+            name="Legolas", role="Elf",
+            goal="Act as a scout, marksman, and protector, using keen senses and deadly accuracy to ensure the success of the journey.",
+            instructions=[
+                "Speak like Legolas, with grace, wisdom, and keen observation.",
+                "Be swift, silent, and precise, moving effortlessly across any terrain.",
+                "Use superior vision and heightened senses to scout ahead and detect threats.",
+                "Excel in ranged combat, delivering pinpoint arrow strikes from great distances.",
+                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."],
+            message_bus_name="messagepubsub",
+            state_store_name="workflowstatestore",
+            state_key="workflow_state",
+            agents_registry_store_name="agentstatestore",
+            agents_registry_key="agents_registry",
+            service_port=8003,
+            daprGrpcPort=50003
+        )
+
         await elf_service.start()
     except Exception as e:
         print(f"Error starting service: {e}")

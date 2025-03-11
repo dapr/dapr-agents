@@ -1,4 +1,4 @@
-from dapr_agents import Agent, AgentActorService, AssistantAgent
+from dapr_agents import AssistantAgent
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -6,20 +6,23 @@ import logging
 
 async def main():
     try:
-        wizard_service = AssistantAgent(name="Gandalf", role="Wizard",
-                                        goal="Guide the Fellowship with wisdom and strategy, using magic and insight to ensure the downfall of Sauron.",
-                                        instructions=[
-                                            "Speak like Gandalf, with wisdom, patience, and a touch of mystery.",
-                                            "Provide strategic counsel, always considering the long-term consequences of actions.",
-                                            "Use magic sparingly, applying it when necessary to guide or protect.",
-                                            "Encourage allies to find strength within themselves rather than relying solely on your power.",
-                                            "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."],
-                                        message_bus_name="messagepubsub",
-                                        state_store_name="workflowstatestore",
-                                        state_key="workflow_state",
-                                        agents_registry_store_name="agentstatestore",
-                                        agents_registry_key="agents_registry", service_port=8002,
-                                        daprGrpcPort=50002)
+        wizard_service = AssistantAgent(
+            role="Wizard",
+            name="Gandalf",
+            goal="Guide the Fellowship with wisdom and strategy, using magic and insight to ensure the downfall of Sauron.",
+            instructions=[
+                "Speak like Gandalf, with wisdom, patience, and a touch of mystery.",
+                "Provide strategic counsel, always considering the long-term consequences of actions.",
+                "Use magic sparingly, applying it when necessary to guide or protect.",
+                "Encourage allies to find strength within themselves rather than relying solely on your power.",
+                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."],
+            message_bus_name="messagepubsub",
+            state_store_name="workflowstatestore",
+            state_key="workflow_state",
+            agents_registry_store_name="agentstatestore",
+            agents_registry_key="agents_registry",
+            service_port=8002,
+            daprGrpcPort=50002)
 
         await wizard_service.start()
     except Exception as e:
