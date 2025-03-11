@@ -1,9 +1,7 @@
 # Multi-Agent Event-Driven Workflows
-
 This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using Dapr Agents. You'll learn how to set up agents as services, implement workflow orchestration, and enable real-time agent collaboration through pub/sub messaging.
 
 ## Prerequisites
-
 - Python 3.10 (recommended)
 - pip package manager
 - OpenAI API key
@@ -48,26 +46,26 @@ dapr init
 ## Project Structure
 
 ```
-components/                # Dapr configuration files
+components/               # Dapr configuration files
 ├── statestore.yaml       # State store configuration
 ├── pubsub.yaml           # Pub/Sub configuration
 └── workflowstate.yaml    # Workflow state configuration
-services/                  # Directory for agent services
+services/                 # Directory for agent services
 ├── hobbit/               # First agent's service
-│   └── app.py           # FastAPI app for hobbit
-├── wizard/              # Second agent's service
-│   └── app.py           # FastAPI app for wizard
-├── elf/                 # Third agent's service
-│   └── app.py           # FastAPI app for elf
+│   └── app.py            # FastAPI app for hobbit
+├── wizard/               # Second agent's service
+│   └── app.py            # FastAPI app for wizard
+├── elf/                  # Third agent's service
+│   └── app.py            # FastAPI app for elf
 └── workflow-random/      # Workflow orchestrator
-    └── app.py           # Workflow service
+    └── app.py            # Workflow service
 └── workflow-roundrobin/  # Roundrobin orchestrator
-    └── app.py           # Workflow service    
+    └── app.py            # Workflow service    
 └── workflow-llm/         # LLM orchestrator
-    └── app.py           # Workflow service        
-dapr-random.yaml         # Multi-App Run Template using the random orchestrator
-dapr-roundrobin.yaml     # Multi-App Run Template using the roundrobin orchestrator
-dapr-llm.yaml            # Multi-App Run Template using the LLM orchestrator
+    └── app.py            # Workflow service        
+dapr-random.yaml          # Multi-App Run Template using the random orchestrator
+dapr-roundrobin.yaml      # Multi-App Run Template using the roundrobin orchestrator
+dapr-llm.yaml             # Multi-App Run Template using the LLM orchestrator
 ```
 
 ## Examples
@@ -77,7 +75,6 @@ dapr-llm.yaml            # Multi-App Run Template using the LLM orchestrator
 Each agent is implemented as a separate service. Here's an example for the Hobbit agent:
 
 ```python
-# services/hobbit/app.py
 from dapr_agents import Agent, AgentActorService
 from dotenv import load_dotenv
 import asyncio
@@ -119,7 +116,6 @@ Similar implementations exist for the Wizard (Gandalf) and Elf (Legolas) agents.
 The workflow orchestrators manage the interaction between agents. Currently, Dapr Agents support three workflow types: RoundRobin, Random, and LLM-based. Here's an example for the Random workflow orchestrator (you can find examples for RoundRobin and LLM-based orchestrators in the project):
 
 ```python
-# services/workflow-random/app.py
 from dapr_agents import RandomOrchestrator
 from dotenv import load_dotenv
 import asyncio
@@ -144,9 +140,7 @@ async def main():
 
 if __name__ == "__main__":
     load_dotenv()
-
     logging.basicConfig(level=logging.INFO)
-    
     asyncio.run(main())
 ```
 
@@ -265,48 +259,39 @@ dapr run -f dapr-llm.yaml
 **Expected output:** The agents will engage in a conversation about getting to Mordor, with different agents contributing based on their character.
 
 ## Key Concepts
-
-- **Agent Service**: Stateful service exposing an agent via API endpoints
-- **Pub/Sub Messaging**: Event-driven communication between agents
-- **Actor Model**: Stateful agent representation using Dapr Actors
-- **Workflow Orchestration**: Coordinating agent interactions
-- **Distributed System**: Multiple services working together
+- **Agent Service**: Stateful service exposing an agent via API endpoints with independent lifecycle management
+- **Pub/Sub Messaging**: Event-driven communication between agents for real-time collaboration
+- **State Store**: Persistent storage for both agent registration and conversational memory
+- **Actor Model**: Self-contained, sequential message processing via Dapr's Virtual Actor pattern
+- **Workflow Orchestration**: Coordinating agent interactions in a durable and resilient manner
 
 ## Workflow Types
-
 Dapr Agents supports multiple workflow orchestration patterns:
 
-1. **RoundRobin**: Cycles through agents sequentially
-2. **Random**: Selects agents randomly for tasks
-3. **LLM-based**: Uses GPT-4o to intelligently select agents based on context
-
-## Dapr Integration
-
-This quickstart showcases several Dapr building blocks:
-
-- **Pub/Sub**: Agent communication via Redis message bus
-- **State Management**: Persistence of agent and workflow states
-- **Service Invocation**: Direct HTTP communication between services
-- **Actors**: Stateful agent representation
+1. **RoundRobin**: Cycles through agents sequentially, ensuring equal task distribution
+2. **Random**: Selects agents randomly for tasks, useful for load balancing and testing
+3. **LLM-based**: Uses an LLM (default: OpenAI's models like gpt-4o) to intelligently select agents based on context and task requirements
 
 ## Monitoring and Observability
-
-1. **Console Logs**: Monitor real-time workflow execution
-2. **Redis Insights**: View message bus and state data at http://localhost:5540/
+1. **Console Logs**: Monitor real-time workflow execution and agent interactions
+2. **Dapr Dashboard**: View components, configurations and service details at http://localhost:8080/
 3. **Zipkin Tracing**: Access distributed tracing at http://localhost:9411/zipkin/
+4**Dapr Metrics**: Access agent performance metrics via (ex: HobbitApp) http://localhost:6001/metrics when configured
 
 ## Troubleshooting
 
 1. **Service Startup**: If services fail to start, verify Dapr components configuration
 2. **Communication Issues**: Check Redis connection and pub/sub setup
 3. **Workflow Errors**: Check Zipkin traces for detailed request flows
-4. **System Reset**: Clear Redis data through Redis Insights if needed
+4. **Port Conflicts**: If ports are already in use, check which port is already in use
+5. **System Reset**: Clear Redis data through Redis Insights if needed
 
 ## Next Steps
 
 After completing this quickstart, you can:
 
 - Add more agents to the workflow
-- Switch to another workflow orchestration pattern (Random, LLM-based)
+- Switch to another workflow orchestration pattern (RoundRobin, LLM-based)
 - Extend agents with custom tools
 - Deploy to a Kubernetes cluster using Dapr
+- Check out the [Cookbooks](../../cookbook/)

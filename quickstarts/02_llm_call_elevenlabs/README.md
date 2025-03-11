@@ -1,4 +1,4 @@
-# OpenAI LLM calls with Dapr Agents
+# Elevenlabs LLM calls with Dapr Agents
 
 This quickstart demonstrates how to use Dapr Agents' LLM capabilities to interact with language models and generate both free-form text and structured data. You'll learn how to make basic calls to LLMs and how to extract structured information in a type-safe manner.
 
@@ -6,7 +6,7 @@ This quickstart demonstrates how to use Dapr Agents' LLM capabilities to interac
 
 - Python 3.10 (recommended)
 - pip package manager
-- OpenAI API key
+- Elevenlabs API key
 
 ## Environment Setup
 
@@ -37,11 +37,7 @@ Replace `your_api_key_here` with your actual Elevenlabs API key.
 ## Examples
 
 ### Audio
-You can use the OpenAIAudioClient in `dapr-agents` for basic tasks with the OpenAI Audio API. We will explore:
-
-- Generating speech from text and saving it as an MP3 file.
-- Transcribing audio to text.
-- Translating audio content to English.
+You can use the `ElevenLabsSpeechClient` in `dapr-agents` for text to speech capabilities of the Elevenlabs Audio API.
 
 **1. Run the text to speech example:**
 
@@ -59,10 +55,8 @@ python text_to_speech.py
 
 ## Key Concepts
 
-- **OpenAIChatClient**: The interface for interacting with OpenAI's language models
-- **generate()**: The primary method for getting responses from LLMs
-- **response_model**: Using Pydantic models to structure LLM outputs
-- **get_content()**: Extracting plain text from LLM responses
+- **ElevenLabsSpeechClient**: The interface for interacting with Elevenlabs' language models
+- **create_speech()**: The primary method for text to speech capabilities
 
 ## Dapr Integration
 
@@ -76,7 +70,7 @@ In later quickstarts, you'll see how these LLM interactions integrate with Dapr'
 
 ## Troubleshooting
 
-1. **Authentication Errors**: If you encounter authentication failures, check your OpenAI API key in the `.env` file
+1. **Authentication Errors**: If you encounter authentication failures, check your Elevenlabs API key in the `.env` file
 2. **Structured Output Errors**: If the model fails to produce valid structured data, try refining your model or prompt
 3. **Module Not Found**: Ensure you've activated your virtual environment and installed the requirements
 

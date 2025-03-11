@@ -8,7 +8,7 @@ AIAgent = Agent(
     name = "Stevie",
     role = "Weather Assistant",
     goal = "Assist Humans with weather related tasks.",
-    instructions = ["Get accurate weather information", "From time to time, you can also Jump after answering the weather question."],
+    instructions = ["Get accurate weather information", "From time to time, you can also jump after answering the weather question."],
     tools=tools
 )
 

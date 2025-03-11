@@ -1,6 +1,6 @@
 # Dapr Agents Quickstarts
 
-A collection of example projects demonstrating how to use Dapr Agents to build applications with LLM-powered autonomous agents and event-driven workflows. Each quickstart builds upon the previous one, introducing new concepts incrementally.
+A collection of examples demonstrating how to use Dapr Agents to build applications with LLM-powered autonomous agents and event-driven workflows. Each quickstart builds upon the previous one, introducing new concepts incrementally.
 
 ## Prerequisites
 
@@ -13,11 +13,11 @@ To run these quickstarts, you'll need:
 
 ### 01 - Hello World
 
-A rapid introduction to Dapr Agents core concepts through simple examples:
+A rapid introduction to Dapr Agents core concepts through simple demonstrations:
 
 - **Basic LLM Usage**: Simple text generation with OpenAI models
 - **Creating Agents**: Building agents with custom tools in under 20 lines of code
-- **ReAct Pattern**: Implementing reasoning and action cycles
+- **ReAct Pattern**: Implementing reasoning and action cycles in agents
 - **Simple Workflows**: Setting up multi-step LLM processes
 
 [Go to Hello World](./01-hello-world)
@@ -69,7 +69,7 @@ Advanced example of event-driven workflows with multiple autonomous agents:
 
 This quickstart demonstrates a Lord of the Rings themed multi-agent system where agents collaborate to solve problems.
 
-[Go to Multi-Agent Workflows](./05-multi-agent-workflow)
+[Go to Multi-Agent Workflows](./05-multi-agent-workflow-actors)
 
 ## Getting Started
 
@@ -90,4 +90,5 @@ echo "OPENAI_API_KEY=your_key_here" > .env
 dapr init
 ```
 
-4. Choose a quickstart and follow its specific README
+4. Choose a quickstart and follow its specific README  
+[Start from Hello World](./01-hello-world)

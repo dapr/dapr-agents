@@ -1,4 +1,4 @@
-# OpenAI LLM calls with Dapr Agents
+# Nvidia LLM calls with Dapr Agents
 
 This quickstart demonstrates how to use Dapr Agents' LLM capabilities to interact with language models and generate both free-form text and structured data. You'll learn how to make basic calls to LLMs and how to extract structured information in a type-safe manner.
 
@@ -6,7 +6,7 @@ This quickstart demonstrates how to use Dapr Agents' LLM capabilities to interac
 
 - Python 3.10 (recommended)
 - pip package manager
-- OpenAI API key
+- Nvidia API key
 
 ## Environment Setup
 
@@ -54,7 +54,7 @@ python text_completion.py
 ```
 <!-- END_STEP -->
 
-The script demonstrates basic usage of Dapr Agents' OpenAIChatClient for text generation:
+The script demonstrates basic usage of Dapr Agents' NVIDIAChatClient for text generation:
 
 ```python
 from dapr_agents import NVIDIAChatClient
@@ -141,7 +141,7 @@ print(json.dumps(response.model_dump(), indent=2))
 **Expected output:** A structured Dog object with name, breed, and reason fields (e.g., `Dog(name='Hachiko', breed='Akita', reason='Known for his remarkable loyalty...')`)
 
 ### Embeddings
-You can use the `OpenAIEmbedder` in dapr-agents for generating text embeddings.
+You can use the `NVIDIAEmbedder` in dapr-agents for generating text embeddings.
 
 **1. Embeddings a single text:**
 <!-- STEP

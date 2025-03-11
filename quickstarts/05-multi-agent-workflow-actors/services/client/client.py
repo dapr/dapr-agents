@@ -1,8 +1,6 @@
-#!/usr/bin/env python3
 import requests
 import time
 import sys
-
 
 if __name__ == "__main__":
     workflow_url = "http://localhost:8004/RunWorkflow"

@@ -30,7 +30,6 @@ Create a `.env` file in the project root:
 
 ```env
 OPENAI_API_KEY=your_api_key_here
-OPENAI_BASE_URL="https://api.openai.com/v1"
 ```
 
 Replace `your_api_key_here` with your actual OpenAI API key.
@@ -62,9 +61,7 @@ from dotenv import load_dotenv
 load_dotenv()
 llm = OpenAIChatClient()
 response = llm.generate("Tell me a joke")
-if len(response.get_content())>0:
-    print("Got response:", response.get_content())
-
+print("Got response:", response.get_content())
 ```
 
 **Expected output:** The LLM will respond with a joke.
@@ -174,6 +171,12 @@ react_agent.run("What should I do in London today?")
 
 ### 4. Simple Workflow
 
+Make sure Dapr is initialized on your system:
+
+```bash
+dapr init
+```
+
 Run the workflow example to see how to create a multi-step LLM process:
 
 <!-- STEP
@@ -221,9 +224,7 @@ if __name__ == '__main__':
         analyze_topic,
         input="AI Agents"
     )
-    if len(results) > 0:
-        print(f"Result: {results}")
-
+    print(f"Result: {results}")
 ```
 
 **Expected output:** The workflow will create an outline about AI Agents and then generate a blog post based on that outline.
@@ -238,13 +239,17 @@ if __name__ == '__main__':
 
 ## Dapr Integration
 
-While these simple examples run without Dapr services, they're built on Dapr Agents which provides:
+These examples don't directly expose Dapr building blocks, but they're built on Dapr Agents which behind the scenes leverages the full capabilities of the Dapr runtime:
 
-- **Resilience**: Dapr's state management for durable workflows
-- **Scalability**: Services can be distributed across infrastructure
-- **Interoperability**: Components integrate with various backend systems
+- **Resilience**: Built-in retry policies, circuit breaking, and timeout handling external systems interactions
+- **Orchestration**: Stateful, durable workflows that can survive process restarts and continue execution from where they left off
+- **Interoperability**: Pluggable component architecture that works with various backends and cloud services without changing application code
+- **Scalability**: Distribute agents across infrastructure, from local development to multi-node Kubernetes clusters
+- **Event-Driven**: Pub/Sub messaging for event-driven agent collaboration and coordination
+- **Observability**: Integrated distributed tracing, metrics collection, and logging for visibility into agent operations
+- **Security**: Protection through scoping, encryption, secret management, and authentication/authorization controls
 
-In the later quickstarts, you'll see explicit Dapr integration through state stores, pub/sub, and actor services.
+In the later quickstarts, you'll see explicit Dapr integration through state stores, pub/sub, and workflow services.
 
 ## Troubleshooting
 
@@ -255,4 +260,4 @@ In the later quickstarts, you'll see explicit Dapr integration through state sto
 
 ## Next Steps
 
-After completing these examples, move on to the [LLM Call quickstart](../02_llm_call_open_ai) to learn more about structured outputs from LLMs.
+After completing these examples, move on to the [LLM Call quickstart](../02_llm_call_open_ai/README.md) to learn more about structured outputs from LLMs.
