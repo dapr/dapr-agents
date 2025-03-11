@@ -85,12 +85,14 @@ class WorkflowApp(BaseModel):
         Returns:
             Tuple[bool, dict]: A tuple indicating if data was found (bool) and the retrieved data (dict).
         """
-        with DaprClient(address=self.daprGrpcAddress) as client:
-            response: StateResponse = client.get_state(store_name=store_name, key=key)
-            if response and response.data:
-                return True, response.json()
-            logger.warning(f"Could not retrieve data for key '{key}' from store '{store_name}'")
-            return False, {}
+        try:
+            with DaprClient(address=self.daprGrpcAddress) as client:
+                response: StateResponse = client.get_state(store_name=store_name, key=key)
+                data = response.data
+                return json.loads(data) if data else None
+        except Exception as e:
+            logger.warning(f"Error retrieving data for key '{key}' from store '{store_name}'")
+            return None
 
     def register_all_tasks(self):
         """
