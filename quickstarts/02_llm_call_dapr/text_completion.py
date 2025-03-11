@@ -1,9 +1,9 @@
-import os
-
 from dapr_agents.llm import DaprChatClient
 from dapr_agents.types import UserMessage
+from dotenv import load_dotenv
 
-os.environ['DAPR_LLM_COMPONENT_DEFAULT'] = 'echo'
+# Load environment variables from .env
+load_dotenv()
 
 # Basic chat completion
 llm = DaprChatClient()
