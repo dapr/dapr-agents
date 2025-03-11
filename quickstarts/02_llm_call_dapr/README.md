@@ -1,6 +1,6 @@
 # LLM Call with Dapr Chat Client
 
-This quickstart demonstrates how to use Dapr Agents' `DaprChatClient` to call LLMs. You'll learn how to configure different LLM backends using Dapr components and switch between them without changing your application code.
+This quickstart demonstrates how to use Dapr Agents' `DaprChatClient` to call LLMs. You'll learn how to configure [different LLM backends](https://docs.dapr.io/reference/components-reference/supported-conversation/) using Dapr components and switch between them without changing your application code.
 
 ## Prerequisites
 
