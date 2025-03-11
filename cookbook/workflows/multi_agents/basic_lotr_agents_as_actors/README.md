@@ -6,7 +6,7 @@ This guide shows you how to set up and run an event-driven agentic workflow usin
 
 Before you start, ensure you have the following:
 
-* [Dapr Agents environment set up](https://github.com/dapr-sandbox/dapr-agents), including Python 3.8 or higher and Dapr CLI.
+* [Dapr Agents environment set up](https://github.com/dapr/dapr-agents), including Python 3.8 or higher and Dapr CLI.
 * Docker installed and running.
 * Basic understanding of microservices and event-driven architecture.
 

@@ -1,13 +1,13 @@
 # Project information
 site_name: Dapr Agents
-site_url: https://dapr-sandbox.github.io/dapr-agents
+site_url: https://dapr.github.io/dapr-agents
 site_author: Dapr maintainers
 site_description: Build autonomous, resilient and observable AI agents with built-in workflow orchestration, security, statefulness and telemetry.
 strict: false
 
 # Repository
-repo_name: dapr-sandbox/dapr-agents
-repo_url: https://github.com/dapr-sandbox/dapr-agents
+repo_name: dapr/dapr-agents
+repo_url: https://github.com/dapr/dapr-agents
 edit_uri: edit/main/docs/
 
 # Copyright
@@ -113,7 +113,7 @@ extra:
             Thanks for your feedback!
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/dapr-sandbox/dapr-agents
+      link: https://github.com/dapr/dapr-agents
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/dapr-agents/
     - icon: fontawesome/brands/x-twitter

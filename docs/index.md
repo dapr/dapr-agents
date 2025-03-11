@@ -2,8 +2,8 @@
 
 [![pypi](https://img.shields.io/pypi/v/floki-ai.svg)](https://pypi.python.org/pypi/floki-ai)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/floki-ai)](https://pypi.org/project/floki-ai/)
-[![GitHub Repo stars](https://img.shields.io/github/stars/Cyb3rWard0g/floki)](https://github.com/dapr-sandbox/dapr-agents)
-[![license](https://img.shields.io/github/license/Cyb3rWard0g/floki.svg)](https://github.com/dapr-sandbox/dapr-agents/blob/main/LICENSE)
+[![GitHub Repo stars](https://img.shields.io/github/stars/Cyb3rWard0g/floki)](https://github.com/dapr/dapr-agents)
+[![license](https://img.shields.io/github/license/Cyb3rWard0g/floki.svg)](https://github.com/dapr/dapr-agents/blob/main/LICENSE)
 
 ![](logo-workflows.png)
 
@@ -28,7 +28,7 @@ Dapr provides Dapr Agents with a unified programming model that simplifies the d
 
     ---
 
-    Install [`Dapr Agents`](https://github.com/dapr-sandbox/dapr-agents) with [`pip`](#) and set up your dapr environment in minutes
+    Install [`Dapr Agents`](https://github.com/dapr/dapr-agents) with [`pip`](#) and set up your dapr environment in minutes
 
     [:octicons-arrow-right-24: Installation](home/installation.md)
 

@@ -75,7 +75,7 @@ This quickstart demonstrates a Lord of the Rings themed multi-agent system where
 
 1. Clone this repository
 ```bash
-git clone https://github.com/dapr-sandbox/dapr-agents/
+git clone https://github.com/dapr/dapr-agents/
 cd dapr-agents/quickstarts
 ```
 

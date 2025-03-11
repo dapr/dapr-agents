@@ -14,13 +14,13 @@ pip install dapr-agents
 ### Remotely from GitHub
 
 ```bash
-pip install git+https://github.com/dapr-sandbox/dapr-agents.git
+pip install git+https://github.com/dapr/dapr-agents.git
 ```
 
 ### From source with `poetry`:
 
 ```bash
-git clone https://github.com/dapr-sandbox/dapr-agents
+git clone https://github.com/dapr/dapr-agents
 
 cd dapr-agents
 
