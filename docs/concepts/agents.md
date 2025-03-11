@@ -8,7 +8,7 @@ Agents in `Dapr Agents` are autonomous systems powered by Large Language Models 
 
 ### 1. LLM Integration
 
-Dapr Agents provides a unified interface to connect with LLM inference APIs, starting with [OpenAI models](https://platform.openai.com/docs/models). This abstraction allows developers to seamlessly integrate their agents with cutting-edge language models for reasoning and decision-making.
+Dapr Agents provides a unified interface to connect with LLM inference APIs. This abstraction allows developers to seamlessly integrate their agents with cutting-edge language models for reasoning and decision-making.
 
 ### 2. Structured Outputs
 
