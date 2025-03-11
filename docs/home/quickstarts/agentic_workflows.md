@@ -10,7 +10,7 @@ This allows systems to analyze information, adjust to new conditions, and refine
 In `Dapr Agents`, agentic workflows leverage LLM-based tasks, reasoning loop patterns, and an event-driven system powered by pub/sub messaging and a shared message bus. Agents operate autonomously, responding to events in real time, making decisions, and collaborating dynamically. This makes the system highly adaptable—agents can communicate, share tasks, and adjust based on new information, ensuring fluid coordination across distributed environments. This approach is particularly useful for decentralized systems that require flexible, intelligent collaboration across multiple agents and applications.
 
 !!! tip
-    We will demonstrate this concept using the [Multi-Agent Workflow Guide](https://github.com/dapr-sandbox/dapr-agents/tree/main/cookbook/workflows/multi_agents/basic_lotr_agents_as_workflows) from our Cookbook, which outlines a step-by-step guide to implementing a basic agentic workflow.
+    We will demonstrate this concept using the [Multi-Agent Workflow Guide](https://github.com/dapr/dapr-agents/tree/main/cookbook/workflows/multi_agents/basic_lotr_agents_as_workflows) from our Cookbook, which outlines a step-by-step guide to implementing a basic agentic workflow.
 
 ## Agents as Services: Dapr Actors and Dapr Workflows
 

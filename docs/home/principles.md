@@ -8,7 +8,7 @@ Dapr Agents is designed to place agents, powered by LLMs, at the core of task ex
 
 * LLM-Powered Agents: Dapr Agents enables the creation of agents that leverage LLMs for reasoning, dynamic decision-making, and natural language interactions.
 * Adaptive Task Handling: Agents in Dapr Agents are equipped with flexible patterns like tool calling and reasoning loops (e.g., ReAct), allowing them to autonomously tackle complex and evolving tasks.
-* Seamless Integration: Dapr Agents’s framework allows agents to act as modular, reusable building blocks that integrate seamlessly into workflows, whether they operate independently or collaboratively.
+* Seamless Integration: Dapr Agents’ framework allows agents to act as modular, reusable building blocks that integrate seamlessly into workflows, whether they operate independently or collaboratively.
 
 While Dapr Agents centers around agents, it also recognizes the versatility of using LLMs directly in deterministic workflows or simpler task sequences. In scenarios where the agent's built-in task-handling patterns, like `tool calling` or `ReAct` loops, are unnecessary, LLMs can act as core components for reasoning and decision-making. This flexibility ensures users can adapt Dapr Agents to suit diverse needs without being confined to a single approach.
 
@@ -53,7 +53,7 @@ Dapr Agents leverages [Dapr’s Virtual Actor model](https://docs.dapr.io/develo
 This model ensures agents remain focused on their core logic, while the infrastructure abstracts complexities like state management, fault recovery, and resource optimization.
 
 !!! info
-    Dapr Agents’s use of virtual actors makes agents always addressable and highly scalable, enabling them to operate reliably and efficiently in distributed, high-demand environments.
+    Dapr Agents’ use of virtual actors makes agents always addressable and highly scalable, enabling them to operate reliably and efficiently in distributed, high-demand environments.
 
 ## 5. Message-Driven Communication
 
@@ -64,7 +64,7 @@ Dapr Agents emphasizes the use of Pub/Sub messaging for event-driven communicati
 * Seamless Collaboration: Agents share updates, distribute tasks, and respond to events in a highly coordinated way.
 
 !!! info
-    Pub/Sub messaging serves as the backbone for Dapr Agents’s event-driven workflows, enabling agents to communicate and collaborate in real time.
+    Pub/Sub messaging serves as the backbone for Dapr Agents’ event-driven workflows, enabling agents to communicate and collaborate in real time.
 
 ![](../img/home_concepts_principles_message.png)
 

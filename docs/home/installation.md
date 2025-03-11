@@ -3,7 +3,7 @@
 ## Install Dapr Agents
 
 !!! info
-    make sure you have Python already installed. `Python >=3.9`
+    make sure you have Python already installed. `Python >=3.10`
 
 ### As a Python package using Pip
 
@@ -14,17 +14,17 @@ pip install dapr-agents
 ### Remotely from GitHub
 
 ```bash
-pip install git+https://github.com/dapr-sandbox/dapr-agents.git
+pip install git+https://github.com/dapr/dapr-agents.git
 ```
 
 ### From source with `poetry`:
 
 ```bash
-git clone https://github.com/dapr-sandbox/dapr-agents
+git clone https://github.com/dapr/dapr-agents
 
 cd dapr-agents
 
-poetry install
+pip install -r requirements.txt
 ```
 
 ## Install Dapr CLI
