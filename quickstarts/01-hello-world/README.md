@@ -61,9 +61,7 @@ from dotenv import load_dotenv
 load_dotenv()
 llm = OpenAIChatClient()
 response = llm.generate("Tell me a joke")
-if len(response.get_content())>0:
-    print("Got response:", response.get_content())
-
+print("Got response:", response.get_content())
 ```
 
 **Expected output:** The LLM will respond with a joke.
@@ -199,7 +197,6 @@ This example demonstrates how to create a workflow with multiple tasks:
 ```python
 from dapr_agents.workflow import WorkflowApp, workflow, task
 from dapr_agents.types import DaprWorkflowContext
-
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -226,9 +223,7 @@ if __name__ == '__main__':
         analyze_topic,
         input="AI Agents"
     )
-    if len(results) > 0:
-        print(f"Result: {results}")
-
+    print(f"Result: {results}")
 ```
 
 **Expected output:** The workflow will create an outline about AI Agents and then generate a blog post based on that outline.
@@ -244,13 +239,13 @@ if __name__ == '__main__':
 ## Dapr Integration
 These examples don't directly expose Dapr building blocks, but they're built on Dapr Agents which behind the scenes leverages the full capabilities of the Dapr runtime:
 
-**Resilience**: Built-in retry policies, circuit breaking, and timeout handling external systems interactions
-**Orchestration**: Stateful, durable workflows that can survive process restarts and continue execution from where they left off
-**Interoperability**: Pluggable component architecture that works with various backends and cloud services without changing application code
-**Scalability**: Distribute agents across infrastructure, from local development to multi-node Kubernetes clusters
-**Event-Driven**: Pub/Sub messaging for event-driven agent collaboration and coordination
-**Observability**: Integrated distributed tracing, metrics collection, and logging for visibility into agent operations
-**Security**: Protection through scoping, encryption, secret management, and authentication/authorization controls
+- **Resilience**: Built-in retry policies, circuit breaking, and timeout handling external systems interactions
+- **Orchestration**: Stateful, durable workflows that can survive process restarts and continue execution from where they left off
+- **Interoperability**: Pluggable component architecture that works with various backends and cloud services without changing application code
+- **Scalability**: Distribute agents across infrastructure, from local development to multi-node Kubernetes clusters
+- **Event-Driven**: Pub/Sub messaging for event-driven agent collaboration and coordination
+- **Observability**: Integrated distributed tracing, metrics collection, and logging for visibility into agent operations
+- **Security**: Protection through scoping, encryption, secret management, and authentication/authorization controls
 
 In the later quickstarts, you'll see explicit Dapr integration through state stores, pub/sub, and workflow services.
 

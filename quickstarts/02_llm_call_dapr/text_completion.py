@@ -23,6 +23,5 @@ if len(response.get_content()) > 0:
 llm = DaprChatClient()
 response = llm.generate(messages=[UserMessage("hello")])
 
-
 if len(response.get_content()) > 0 and "hello" in response.get_content().lower():
     print("Response with user input: ", response.get_content())

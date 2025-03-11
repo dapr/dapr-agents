@@ -1,9 +1,7 @@
 # Multi-Agent Event-Driven Workflows
-
 This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using Dapr Agents. You'll learn how to set up agents as services, implement workflow orchestration, and enable real-time agent collaboration through pub/sub messaging.
 
 ## Prerequisites
-
 - Python 3.10 (recommended)
 - pip package manager
 - OpenAI API key
@@ -60,8 +58,6 @@ services/                 # Directory for agent services
 ├── elf/                  # Third agent's service
 │   └── app.py            # FastAPI app for elf
 └── workflow-random/      # Workflow orchestrator
-    └── app.py            # Workflow service
-dapr.yaml                 # Multi-App Run Template
     └── app.py            # Workflow service
 └── workflow-roundrobin/  # Roundrobin orchestrator
     └── app.py            # Workflow service    
@@ -144,9 +140,7 @@ async def main():
 
 if __name__ == "__main__":
     load_dotenv()
-
     logging.basicConfig(level=logging.INFO)
-    
     asyncio.run(main())
 ```
 
@@ -280,10 +274,9 @@ Dapr Agents supports multiple workflow orchestration patterns:
 
 ## Monitoring and Observability
 1. **Console Logs**: Monitor real-time workflow execution and agent interactions
-2. **Redis Insights**: View message bus and state data at http://localhost:5540/
+2. **Dapr Dashboard**: View components, configurations and service details at http://localhost:8080/
 3. **Zipkin Tracing**: Access distributed tracing at http://localhost:9411/zipkin/
-4. **Dapr Dashboard**: View components, configurations and service details at http://localhost:8080/
-5. **Dapr Metrics**: Access agent performance metrics via (ex: HobbitApp) http://localhost:6001/metrics when configured
+4**Dapr Metrics**: Access agent performance metrics via (ex: HobbitApp) http://localhost:6001/metrics when configured
 
 ## Troubleshooting
 

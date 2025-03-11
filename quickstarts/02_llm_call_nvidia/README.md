@@ -158,17 +158,9 @@ python embeddings.py
 <!-- END_STEP -->
 
 
-## Key Concepts
-
-- **OpenAIChatClient**: The interface for interacting with OpenAI's language models
-- **generate()**: The primary method for getting responses from LLMs
-- **response_model**: Using Pydantic models to structure LLM outputs
-- **get_content()**: Extracting plain text from LLM responses
-  The Dapr Agents project provides several client implementations for interacting with language models. Each client offers different capabilities and integrations:
-
 ## Troubleshooting
 
-1. **Authentication Errors**: If you encounter authentication failures, check your OpenAI API key in the `.env` file
+1. **Authentication Errors**: If you encounter authentication failures, check your Nvidia API key in the `.env` file
 2. **Structured Output Errors**: If the model fails to produce valid structured data, try refining your model or prompt
 3. **Module Not Found**: Ensure you've activated your virtual environment and installed the requirements
 
