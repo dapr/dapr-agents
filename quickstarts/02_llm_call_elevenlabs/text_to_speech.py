@@ -1,6 +1,5 @@
 import os
 
-from dapr_agents.types.llm import AudioSpeechRequest
 from dapr_agents import ElevenLabsSpeechClient
 from dotenv import load_dotenv
 
