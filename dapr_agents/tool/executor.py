@@ -67,7 +67,8 @@ class AgentToolExecutor(BaseModel):
             logger.error(f"Tool not found: {tool_name}")
             raise AgentToolExecutorError(f"Tool '{tool_name}' not found.")
         try:
-            logger.info(f"Executing tool: {tool_name} with arguments {kwargs}")
+            logger.info(f"Executing tool: {tool_name}")
+            logger.debug(f"Tool Arguments: {kwargs}")
             result = tool(*args, **kwargs)
             logger.info(f"Tool '{tool_name}' executed successfully.")
             return result
