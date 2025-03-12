@@ -26,7 +26,7 @@ Dapr Agents builds on top of Dapr's Workflow API, which under the hood represent
 
 ### Data-Centric AI Agents
 
-With built-in connectivity to over 50 enterprise data sources, Dapr Agents efficiently handles structured and unstructured data. From basic [PDF extraction](./docs/concepts/concepts/arxiv_fetcher.md) to large-scale database interactions, it enables seamless data-driven AI workflows with minimal code changes. Dapr's [bindings](https://docs.dapr.io/reference/components-reference/supported-bindings/) and [state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/) provide access to a large number of data sources that can be used to ingest data to an agent. [MCP integration](https://docs.anthropic.com/en/docs/agents-and-tools/mcp) is coming soon.
+With built-in connectivity to over 50 enterprise data sources, Dapr Agents efficiently handles structured and unstructured data. From basic [PDF extraction](./docs/concepts/arxiv_fetcher.md) to large-scale database interactions, it enables seamless data-driven AI workflows with minimal code changes. Dapr's [bindings](https://docs.dapr.io/reference/components-reference/supported-bindings/) and [state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/) provide access to a large number of data sources that can be used to ingest data to an agent. [MCP integration](https://docs.anthropic.com/en/docs/agents-and-tools/mcp) is coming soon.
 
 ### Accelerated Development
 
@@ -41,7 +41,7 @@ Dapr Agents provides a set of AI features that give developers a complete API su
 
 ### Integrated Security and Reliability
 
-By building on top of Dapr, platform and infrastructure teams can apply Dapr's [resiliency policies](https://docs.dapr.io/operations/resiliency/policies/) to the database and/or message broker of their choice that are used by Dapr Agents. These policies include timeouts, retry/backoffs and circuit breakers. When it comes to security, Dapr provides the option to scope access to a given database or message broker to one or more agentic app deployments. In addition, Dapr Agents uses mTLS to encrypt the communication layer of its underlying components. 
+By building on top of Dapr, platform and infrastructure teams can apply Dapr's [resiliency policies](https://docs.dapr.io/operations/resiliency/resiliency-overview/) to the database and/or message broker of their choice that are used by Dapr Agents. These policies include timeouts, retry/backoffs and circuit breakers. When it comes to security, Dapr provides the option to scope access to a given database or message broker to one or more agentic app deployments. In addition, Dapr Agents uses mTLS to encrypt the communication layer of its underlying components. 
 
 ### Built-in Messaging and State Infrastructure
 
