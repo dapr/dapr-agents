@@ -47,7 +47,7 @@ dapr init
 mkdir -p components
 ```
 
-Add a `workflowstate.yaml` file to the components directory:
+Look at the `workflowstate.yaml` file in the components' directory:
 
 ```yaml
 apiVersion: dapr.io/v1alpha1
@@ -258,9 +258,10 @@ Dapr Agents workflows leverage Dapr's core capabilities:
 
 ## Troubleshooting
 
-1. **Redis Connection**: Ensure Redis is running (automatically installed by Dapr)
-2. **Dapr Initialization**: If components aren't found, verify Dapr is initialized with `dapr init`
-3. **API Key**: Check your OpenAI API key if authentication fails
+1. **Docker is Running**: Ensure Docker is running with `docker ps` and verify you have container instances with `daprio/dapr`, `openzipkin/zipkin`, and `redis` images running
+2. **Redis Connection**: Ensure Redis is running (automatically installed by Dapr)
+3. **Dapr Initialization**: If components aren't found, verify Dapr is initialized with `dapr init`
+4. **API Key**: Check your OpenAI API key if authentication fails
 
 ## Next Steps
 

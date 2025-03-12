@@ -78,6 +78,7 @@ To start running Dapr Agents locally, see our [quickstarts](./quickstarts/README
 Dapr Agents is an open-source project under the CNCF umbrella, and we welcome contributions from developers and organizations worldwide!
 
 - GitHub Repository: [https://github.com/dapr/dapr-agents](https://github.com/dapr/dapr-agents)
+- Documentation: [https://dapr.github.io/dapr-agents/](https://dapr.github.io/dapr-agents/)
 - Community Discord: [Join the discussion](https://bit.ly/dapr-discord). 
 - Contribute: Open an issue or submit a PR to help improve Dapr Agents!
 

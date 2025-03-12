@@ -256,7 +256,7 @@ sleep: 5
 dapr run -f dapr-llm.yaml 
 ```
 <!-- END_STEP -->
-**Expected output:** The agents will engage in a conversation about getting to Mordor, with different agents contributing based on their character.
+**Expected output:** The agents will engage in a conversation about getting to Mordor, with different agents contributing based on their character. Observe that in the logs, or checking the workflow state in [Redis Insights](https://dapr.github.io/dapr-agents/home/installation/#enable-redis-insights).
 
 ## Key Concepts
 - **Agent Service**: Stateful service exposing an agent via API endpoints with independent lifecycle management
@@ -293,5 +293,6 @@ After completing this quickstart, you can:
 - Add more agents to the workflow
 - Switch to another workflow orchestration pattern (RoundRobin, LLM-based)
 - Extend agents with custom tools
-- Deploy to a Kubernetes cluster using Dapr
+- Deploy agents and Dapr to a Kubernetes cluster. For more information on read [Deploy Dapr on a Kubernetes cluster](https://docs.dapr.io/operations/hosting/kubernetes/kubernetes-deploy)
 - Check out the [Cookbooks](../../cookbook/)
+

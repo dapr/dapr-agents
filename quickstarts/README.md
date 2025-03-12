@@ -5,9 +5,11 @@ A collection of examples demonstrating how to use Dapr Agents to build applicati
 ## Prerequisites
 
 To run these quickstarts, you'll need:
-- [Python 3.10 or higher](https://www.python.org/downloads/release/python-3100/)
-- An OpenAI API key (Used for tutorials, other LLMs are available)
+- [Python 3.10 or higher](https://www.python.org/downloads/)
+- [Docker](https://docs.docker.com/get-docker/)
 - [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/)
+- [OpenAI API Key](https://platform.openai.com/api-keys) (Used for tutorials, other LLMs are available too)
+
 
 ## Getting Started
 
@@ -17,23 +19,16 @@ git clone https://github.com/dapr/dapr-agents/
 cd dapr-agents/quickstarts
 ```
 
-2. Set up environment variables
-```bash
-# Create .env file with your OpenAI API key
-echo "OPENAI_API_KEY=your_key_here" > .env
-```
-
-3. For workflow examples, initialize Dapr
+2. For workflow examples, [install Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) and initialize Dapr
 ```bash
 dapr init
 ```
 
-4. Choose a quickstart
-Choose from the list of quickstarts below. Click [here](./01-hello-world) for Hello-World.
+3. Choose a quickstart from the list below. Or click [here](./01-hello-world) to start with Hello-World.
 
 ## Available Quickstarts
 
-### 01 - Hello World
+### Hello World
 
 A rapid introduction to Dapr Agents core concepts through simple demonstrations:
 
@@ -44,31 +39,35 @@ A rapid introduction to Dapr Agents core concepts through simple demonstrations:
 
 [Go to Hello World](./01-hello-world)
 
-### 02 - LLM Call using Dapr's Conversation API
+### LLM Call with Dapr Chat Client
 
-Learn how to interact with Language Models using Dapr Agents:
+Learn how to interact with Language Models using Dapr Agents' `DaprChatClient`:
 
 - **Text Completion**: Generating responses to prompts
-- **Structured Outputs**: Converting LLM responses to Pydantic objects
+- **Swapping LLM providers**: switching LLM backends without application code change
+- **Resilience**: Setting timeout, retry and circuit-breaking
+- **PII Obfuscation** – Automatically detect and mask sensitive user information.
 
-This quickstart shows both basic text generation and structured data extraction. Using the DaprChatClient you can target different LLM providers without changing your agent's code.
 
-[Go to LLM Call](./02_llm_call_dapr)
+This quickstart shows basic text generation using plain text prompts and templates. Using the `DaprChatClient` you can target different LLM providers without changing your agent's code.
 
-### 03 - LLM Call using the Open AI Client
+[Go to Dapr LLM Call](./02_llm_call_dapr)
 
-Learn how to interact with Language Models using Dapr Agents:
+### LLM Call with OpenAI Client
+
+Learn how to interact with Language Models using Dapr Agents and native LLM client libraries.
 
 - **Text Completion**: Generating responses to prompts
 - **Structured Outputs**: Converting LLM responses to Pydantic objects
 
 This quickstart shows both basic text generation and structured data extraction from LLMs. This quickstart uses the OpenAIChatClient which allows you to use audio and perform embeddings in addition to chat completion. 
 
-*Note: Other specific clients are available for Elevenlabs, Huggingface and NVIDIA*
+*Note: Other quickstarts for specific clients are available for [Elevenlabs](./02_llm_call_elevenlabs), [Hugging Face](./02_llm_call_hugging_face), and [Nvidia](./02_llm_call_nvidia).*
 
-[Go to LLM Call](./02_llm_call_open_ai)
 
-### 04 - Agent Tool Call
+[Go to OpenAI LLM call](./02_llm_call_open_ai)
+
+### Agent Tool Call
 
 Create your first AI agent with custom tools:
 
@@ -80,20 +79,20 @@ This quickstart demonstrates how to build a weather assistant that can fetch inf
 
 [Go to Agent Tool Call](./03-agent-tool-call)
 
-### 05 - Agentic Workflow
+### Agentic Workflow
 
-Introduction to Dapr workflows with Dapr Agents:
+Introduction to using stateful workflows with Dapr Agents:
 
-- **Workflow Basics**: Understanding Dapr's workflow capabilities
-- **Task Chaining**: Creating resilient multi-step processes
 - **LLM-powered Tasks**: Using language models in workflows
-- **Comparison**: Seeing the difference between pure Dapr and Dapr Agents approaches
+- **Task Chaining**: Creating resilient multi-step processes executing in sequence
+- **Fan-out/Fan-in**:Executing activities in parallel; then synchronize these activities until all preceding activities have completed.
 
-This quickstart shows how to orchestrate multi-step processes that combine deterministic tasks with LLM-powered reasoning.
+
+This quickstart demonstrates how to orchestrate sequential and parallel tasks using Dapr Agents' workflow capabilities.
 
 [Go to Agentic Workflow](./04-agentic-workflow)
 
-### 06 - Multi-Agent Workflows
+### Multi-Agent Workflows
 
 Advanced example of event-driven workflows with multiple autonomous agents:
 
@@ -104,4 +103,6 @@ Advanced example of event-driven workflows with multiple autonomous agents:
 
 This quickstart demonstrates a Lord of the Rings themed multi-agent system where agents collaborate to solve problems.
 
-[Go to Multi-Agent Workflows](./05-multi-agent-workflow-actors)
+*Note: To see Actor-based workflow see [Multi-Agent Actors](./05-multi-agent-workflow-actors).*
+
+[Go to Multi-Agent Workflows](./05-multi-agent-workflow-dapr-workflows)
