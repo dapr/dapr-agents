@@ -117,7 +117,7 @@ extra:
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/dapr-agents/
     - icon: fontawesome/brands/x-twitter
-      link: https://twitter.com/dapr
+      link: https://x.com/daprdev
 
 # https://www.mkdocs.org/user-guide/configuration/#validation
 validation:
