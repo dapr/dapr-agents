@@ -196,7 +196,7 @@ class LLMOrchestrator(OrchestratorServiceBase):
         return agent_list
     
     @task(description=TASK_PLANNING_PROMPT)
-    async def generate_plan(self, task: str, agents: str, plan_schema: str) -> List[PlanStep]:
+    async def generate_plan(task: str, agents: str, plan_schema: str) -> List[PlanStep]:
         """
         Generates a structured execution plan for the given task.
 
