@@ -128,7 +128,7 @@ async def main():
             message_bus_name="messagepubsub",
             state_store_name="agenticworkflowstate",
             state_key="workflow_state",
-            agents_registry_store_name="agentsregistrystore",
+            agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
             service_port=8009,
             daprGrpcPort=50009,
@@ -276,7 +276,7 @@ Dapr Agents supports multiple workflow orchestration patterns:
 1. **Console Logs**: Monitor real-time workflow execution and agent interactions
 2. **Dapr Dashboard**: View components, configurations and service details at http://localhost:8080/
 3. **Zipkin Tracing**: Access distributed tracing at http://localhost:9411/zipkin/
-4**Dapr Metrics**: Access agent performance metrics via (ex: HobbitApp) http://localhost:6001/metrics when configured
+4. **Dapr Metrics**: Access agent performance metrics via (ex: HobbitApp) http://localhost:6001/metrics when configured
 
 ## Troubleshooting
 

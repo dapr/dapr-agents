@@ -11,7 +11,7 @@ def search_weather(city: str) -> str:
 @tool
 def get_activities(weather: str) -> str:
     """Get activity recommendations."""
-    activities = {"rainy": "Visit museums", "Sunny": "Go hiking"}
+    activities = {"rainy": "Visit museums", "sunny": "Go hiking"}
     return activities.get(weather.lower(), "Stay comfortable")
 
 react_agent = ReActAgent(

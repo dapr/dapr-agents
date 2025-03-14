@@ -38,7 +38,7 @@ DAPR_LLM_COMPONENT_DEFAULT=echo
 ```
 
 The OpenAI API key is not needed for this example.
-Create a `echo.yaml ` file in the component folder
+Create a `echo.yaml` file in the component folder
 
 ```yaml
 apiVersion: dapr.io/v1alpha1

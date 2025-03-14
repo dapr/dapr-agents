@@ -6,10 +6,10 @@ The Arxiv Fetcher module in `Dapr Agents` provides a powerful interface to inter
 
 The Arxiv Fetcher simplifies the process of accessing research papers, offering features like:
 
-* Automated Literature Search: Query arXiv for specific topics, keywords, or authors.
-* Metadata Retrieval: Extract structured metadata, such as titles, abstracts, authors, categories, and submission dates.
-* Precise Filtering: Limit search results by date ranges (e.g., retrieve the latest research in a field).
-* PDF Downloading: Fetch full-text PDFs of papers for offline use.
+* **Automated Literature Search**: Query arXiv for specific topics, keywords, or authors.
+* **Metadata Retrieval**: Extract structured metadata, such as titles, abstracts, authors, categories, and submission dates.
+* **Precise Filtering**: Limit search results by date ranges (e.g., retrieve the latest research in a field).
+* **PDF Downloading**: Fetch full-text PDFs of papers for offline use.
 
 ## How to Use the Arxiv Fetcher
 

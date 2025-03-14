@@ -89,7 +89,7 @@ if not local_pdf_path.exists():
 
 ### Step 2: Read the Document
 
-For this example, we use Dapr Agents's `PyPDFReader`.
+For this example, we use Dapr Agents' `PyPDFReader`.
 
 !!! info
     The PyPDF Reader relies on the [pypdf python library](https://pypi.org/project/pypdf/), which is not included in the Dapr Agents core module. This design choice helps maintain modularity and avoids adding unnecessary dependencies for users who may not require this functionality. To use the PyPDF Reader, ensure that you install the library separately.
