@@ -7,7 +7,6 @@ from dapr_agents.workflow.task import WorkflowTask
 from dapr_agents.llm.chat import ChatClientBase
 from typing import Any, Callable, Optional, Dict, Union, List, Tuple, TypeVar
 from pydantic import BaseModel, Field, ConfigDict
-from dapr.conf import settings as dapr_settings
 from durabletask import task as dtask
 import functools
 import asyncio
@@ -15,7 +14,6 @@ import inspect
 import logging
 import uuid
 import json
-import os
 import sys
 
 logger = logging.getLogger(__name__)
@@ -27,9 +25,6 @@ class WorkflowApp(BaseModel):
     A Pydantic-based class to encapsulate a Dapr Workflow runtime and manage workflows and tasks.
     """
 
-    daprGrpcAddress: Optional[str] = Field(None, description="The full address of the Dapr sidecar (host:port). If not provided, constructed from host and port.")
-    daprGrpcHost: Optional[str] = Field(None, description="Host address for the Dapr gRPC endpoint.")
-    daprGrpcPort: Optional[int] = Field(None, description="Port number for the Dapr gRPC endpoint.")
     llm: Optional[ChatClientBase] = Field(default=None, description="The default LLM client for all LLM-based tasks.")
     timeout: int = Field(default=300, description="Default timeout duration in seconds for workflow tasks.")
 
@@ -37,6 +32,7 @@ class WorkflowApp(BaseModel):
     wf_runtime: Optional[WorkflowRuntime] = Field(default=None, init=False, description="Workflow runtime instance.")
     wf_runtime_is_running: Optional[bool] = Field(default=None, init=False, description="Is the Workflow runtime running?.")
     wf_client: Optional[DaprWorkflowClient] = Field(default=None, init=False, description="Workflow client instance.")
+    client: Optional[DaprClient] = Field(default=None, init=False, description="Dapr client instance.")
     tasks: Dict[str, Callable] = Field(default_factory=dict, init=False, description="Dictionary of registered tasks.")
     workflows: Dict[str, Callable] = Field(default_factory=dict, init=False, description="Dictionary of registered workflows.")
     
@@ -49,23 +45,14 @@ class WorkflowApp(BaseModel):
         Initializes the Dapr Workflow runtime, client, and state store, and ensures
         that workflows and tasks are registered.
         """
-        # Configure Dapr gRPC settings, using environment variables if provided
-        env_daprGrpcHost = os.getenv('DAPR_RUNTIME_HOST')
-        env_daprGrpcPort = os.getenv('DAPR_GRPC_PORT')
-
-        # Resolve final values for Dapr settings
-        self.daprGrpcHost = self.daprGrpcHost or env_daprGrpcHost or dapr_settings.DAPR_RUNTIME_HOST
-        self.daprGrpcPort = int(self.daprGrpcPort or env_daprGrpcPort or dapr_settings.DAPR_GRPC_PORT)
-
-        # Set the Dapr gRPC address based on finalized settings
-        self.daprGrpcAddress = self.daprGrpcAddress or f"{self.daprGrpcHost}:{self.daprGrpcPort}"
 
         # Initialize WorkflowRuntime and DaprWorkflowClient
-        self.wf_runtime = WorkflowRuntime(host=self.daprGrpcHost, port=self.daprGrpcPort)
+        self.wf_runtime = WorkflowRuntime()
         self.wf_runtime_is_running = False
-        self.wf_client = DaprWorkflowClient(host=self.daprGrpcHost, port=self.daprGrpcPort)
+        self.wf_client = DaprWorkflowClient()
+        self.client = DaprClient()
 
-        logger.info(f"Initialized WorkflowApp with Dapr gRPC host '{self.daprGrpcHost}' and port '{self.daprGrpcPort}'.")
+        logger.info(f"Initialized WorkflowApp.")
 
         # Register workflows and tasks after the instance is created
         self.register_all_workflows()
@@ -86,10 +73,9 @@ class WorkflowApp(BaseModel):
             Tuple[bool, dict]: A tuple indicating if data was found (bool) and the retrieved data (dict).
         """
         try:
-            with DaprClient(address=self.daprGrpcAddress) as client:
-                response: StateResponse = client.get_state(store_name=store_name, key=key)
-                data = response.data
-                return json.loads(data) if data else None
+            response: StateResponse = self.client.get_state(store_name=store_name, key=key)
+            data = response.data
+            return json.loads(data) if data else None
         except Exception as e:
             logger.warning(f"Error retrieving data for key '{key}' from store '{store_name}'")
             return None
@@ -541,20 +527,19 @@ class WorkflowApp(BaseModel):
             Exception: If the invocation fails.
         """
         try:
-            with DaprClient(address=self.daprGrpcAddress) as d:
-                resp = d.invoke_method(
-                    app_id=service, 
-                    method_name=method, 
-                    http_verb=http_method, 
-                    data=json.dumps(input) if input else None,
-                    timeout=timeout
-                )
-                if resp.status_code != 200:
-                    raise Exception(f"Error calling {service}.{method}: {resp.status_code}: {resp.text}")
+            resp = self.client.invoke_method(
+                app_id=service,
+                method_name=method,
+                http_verb=http_method,
+                data=json.dumps(input) if input else None,
+                timeout=timeout
+            )
+            if resp.status_code != 200:
+                raise Exception(f"Error calling {service}.{method}: {resp.status_code}: {resp.text}")
 
-                agent_response = json.loads(resp.data.decode("utf-8"))
-                logger.info(f"Agent's Response: {agent_response}")
-                return agent_response
+            agent_response = json.loads(resp.data.decode("utf-8"))
+            logger.info(f"Agent's Response: {agent_response}")
+            return agent_response
         except Exception as e:
             logger.error(f"Failed to invoke {service}.{method}: {e}")
             raise e

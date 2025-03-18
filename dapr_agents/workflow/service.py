@@ -1,11 +1,9 @@
-from fastapi import HTTPException, Request, Response, status
-from fastapi import HTTPException, status, Request
+from fastapi import HTTPException, status, Request, Response
+from fastapi.responses import JSONResponse
 from cloudevents.http.conversion import from_http
 from cloudevents.http.event import CloudEvent
-from fastapi.responses import JSONResponse
 from dapr_agents.service.fastapi import DaprFastAPIServer
 from dapr_agents.workflow import WorkflowApp
-from fastapi import Request
 from pydantic import Field
 from typing import Any
 import asyncio

@@ -43,6 +43,8 @@ class AgentActorServiceBase(DaprFastAPIServer, DaprPubSub):
     
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    dapr_client: Optional[DaprClient] = Field(default=None, init=False, description="Dapr client for state and messaging.")
+
     @model_validator(mode="before")
     def set_service_name_and_topic(cls, values: dict):
         # Derive the service name from the agent's name or role
@@ -86,6 +88,8 @@ class AgentActorServiceBase(DaprFastAPIServer, DaprPubSub):
         
         # DaprActor for actor support
         self.actor = DaprActor(self.app)
+
+        self.dapr_client = DaprClient()
 
         # Registering App routes and subscriping to topics dynamically
         self.register_message_routes()
@@ -140,11 +144,10 @@ class AgentActorServiceBase(DaprFastAPIServer, DaprPubSub):
             Optional[dict]: The data stored under the specified key if found; otherwise, None.
         """
         try:
-            async with DaprClient(address=self.daprGrpcAddress) as client:
-                response: StateResponse = await client.get_state(store_name=store_name, key=key)
-                data = response.data
+            response: StateResponse = await self.dapr_client.get_state(store_name=store_name, key=key)
+            data = response.data
 
-                return json.loads(data) if data else None
+            return json.loads(data) if data else None
         except Exception as e:
             logger.warning(f"Error retrieving data for key '{key}' from store '{store_name}'")
             return None
@@ -199,13 +202,12 @@ class AgentActorServiceBase(DaprFastAPIServer, DaprPubSub):
             agents_metadata[self.agent.name] = self.agent_metadata
 
             # Save the updated metadata back to Dapr store
-            async with DaprClient(address=self.daprGrpcAddress) as client:
-                await client.save_state(
-                    store_name=self.agents_registry_store_name,
-                    key=self.agents_registry_key,
-                    value=json.dumps(agents_metadata),
-                    state_metadata={"contentType": "application/json"}
-                )
+            await self.dapr_client.save_state(
+                store_name=self.agents_registry_store_name,
+                key=self.agents_registry_key,
+                value=json.dumps(agents_metadata),
+                state_metadata={"contentType": "application/json"}
+            )
             
             logger.info(f"{self.agent.name} registered its metadata under key '{self.agents_registry_key}'")
 

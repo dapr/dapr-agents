@@ -1,12 +1,9 @@
-from dapr.clients.grpc._response import StateResponse, BulkStatesResponse, BulkStateItem, StateResponse
+from dapr.clients.grpc._response import BulkStatesResponse, BulkStateItem, StateResponse, QueryResponse
 from dapr.clients.grpc._state import StateItem
 from dapr_agents.storage.daprstores.base import DaprStoreBase
-from dapr.clients.grpc._response import QueryResponse
-from dapr.clients import DaprClient
 from typing import Optional, Union, Dict, List, Tuple
 
 class DaprStateStore(DaprStoreBase):
-
     def get_state(self, key: str, state_metadata: Optional[Dict[str, str]] = dict(),) -> StateResponse:
         """
         Retrieves a value from the state store using the provided key.
@@ -18,9 +15,9 @@ class DaprStateStore(DaprStoreBase):
         Returns:
             StateResponse: gRPC metadata returned from callee and value obtained from the state store
         """
-        with DaprClient(address=self.daprGrpcAddress) as client:
-            response: StateResponse = client.get_state(store_name=self.store_name, key=key, state_metadata=state_metadata)
-            return response
+        response: StateResponse = self.client.get_state(store_name=self.store_name, key=key,
+                                                   state_metadata=state_metadata)
+        return response
     
     def try_get_state(self, key: str, state_metadata: Optional[Dict[str, str]] = dict()) -> Tuple[bool, Optional[dict]]:
         """
@@ -34,11 +31,11 @@ class DaprStateStore(DaprStoreBase):
             Tuple[bool, Optional[dict]]: A tuple where the first element is a boolean indicating whether the state exists,
                                         and the second element is the retrieved state data or None if not found.
         """
-        with DaprClient(address=self.daprGrpcAddress) as client:
-            response: StateResponse = client.get_state(store_name=self.store_name, key=key, state_metadata=state_metadata)
-            if response and response.data:
-                return True, response.json()
-            return False, None
+        response: StateResponse = self.client.get_state(store_name=self.store_name, key=key,
+                                                   state_metadata=state_metadata)
+        if response and response.data:
+            return True, response.json()
+        return False, None
 
     def get_bulk_state(
         self, keys: List[str], parallelism: int = 1, states_metadata: Optional[Dict[str, str]] = None
@@ -55,14 +52,12 @@ class DaprStateStore(DaprStoreBase):
             List[BulkStateItem]: A list of BulkStateItem objects representing the retrieved state.
         """
         states_metadata = states_metadata or {}
-        with DaprClient(address=self.daprGrpcAddress) as client:
-            response: BulkStatesResponse = client.get_bulk_state(
-                store_name=self.store_name, 
-                keys=keys, 
-                parallelism=parallelism, 
-                states_metadata=states_metadata
-            )
-        return response.items
+        response: BulkStatesResponse = self.client.get_bulk_state(store_name=self.store_name, keys=keys,
+            parallelism=parallelism, states_metadata=states_metadata)
+
+        if response and response.items:
+            return response.items
+        return []
     
     def save_state(self, key: str, value: Union[str, bytes], state_metadata: Optional[Dict[str, str]] = dict(),):
         """
@@ -73,9 +68,8 @@ class DaprStateStore(DaprStoreBase):
             value (Union[str, bytes]): The value to save.
             state_metadata (Dict[str, str], optional): Dapr metadata for state request
         """
-        with DaprClient(address=self.daprGrpcAddress) as client:
-            client.save_state(store_name=self.store_name, key=key, value=value, state_metadata=state_metadata)
-    
+        self.client.save_state(store_name=self.store_name, key=key, value=value, state_metadata=state_metadata)
+
     def save_bulk_state(self, states: List[StateItem], metadata: Optional[Dict[str, str]] = None) -> None:
         """
         Saves multiple key-value pairs to the state store in bulk.
@@ -84,8 +78,7 @@ class DaprStateStore(DaprStoreBase):
             states (List[StateItem]): The list of key-value pairs to save.
             metadata (Dict[str, str], optional): Metadata for the save request.
         """
-        with DaprClient(address=self.daprGrpcAddress) as client:
-            client.save_bulk_state(store_name=self.store_name, states=states, metadata=metadata)
+        self.client.save_bulk_state(store_name=self.store_name, states=states, metadata=metadata)
 
     def delete_state(self, key: str):
         """
@@ -94,9 +87,8 @@ class DaprStateStore(DaprStoreBase):
         Args:
             key (str): The key to delete.
         """
-        with DaprClient(address=self.daprGrpcAddress) as client:
-            client.delete_state(store_name=self.store_name, key=key)
-    
+        self.client.delete_state(store_name=self.store_name, key=key)
+
     def query_state(self, query: str, states_metadata: Optional[Dict[str, str]] = None) -> QueryResponse:
         """
         Queries the state store with a specific query.
@@ -108,6 +100,4 @@ class DaprStateStore(DaprStoreBase):
         Returns:
             QueryResponse: Contains query results and metadata.
         """
-        with DaprClient(address=self.daprGrpcAddress) as client:
-            response: QueryResponse = client.query_state(store_name=self.store_name, query=query, states_metadata=states_metadata)
-        return response
+        return self.client.query_state(store_name=self.store_name, query=query, states_metadata=states_metadata)

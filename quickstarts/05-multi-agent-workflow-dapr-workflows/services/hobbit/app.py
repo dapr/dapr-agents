@@ -21,7 +21,6 @@ async def main():
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
             service_port=8001,
-            daprGrpcPort=50001
         )
 
         await hobbit_service.start()

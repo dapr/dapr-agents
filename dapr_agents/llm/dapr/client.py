@@ -11,6 +11,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 class DaprInferenceClient:
+    def __init__(self):
+        self.dapr_client = DaprClient()
+
     def translate_to_json(self, response: ConversationResponse) -> dict:
         response_dict = {
             "outputs": [
@@ -24,11 +27,10 @@ class DaprInferenceClient:
         return response_dict
     
     def chat_completion(self, llm: str, conversation_inputs: List[ConversationInput], scrub_pii: bool | None = None, temperature: float | None = None) -> Any:
-        with DaprClient() as client:
-            response = client.converse_alpha1(name=llm, inputs=conversation_inputs, scrub_pii=scrub_pii, temperature=temperature)
-            output = self.translate_to_json(response)
+        response = self.dapr_client.converse_alpha1(name=llm, inputs=conversation_inputs, scrub_pii=scrub_pii, temperature=temperature)
+        output = self.translate_to_json(response)
 
-            return output
+        return output
 
 
 class DaprInferenceClientBase(LLMClientBase):

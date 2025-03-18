@@ -7,55 +7,55 @@ common:
   daprdLogDestination: console
 
 apps:
-- appId: HobbitApp
+- appID: HobbitApp
   appDirPath: ./services/hobbit/
   appPort: 8001
   command: ["python3", "app.py"]
   daprGRPCPort: 50001
 
-- appId: WizardApp
+- appID: WizardApp
   appDirPath: ./services/wizard/
   appPort: 8002
   command: ["python3", "app.py"]
   daprGRPCPort: 50002
 
-- appId: ElfApp
+- appID: ElfApp
   appDirPath: ./services/elf/
   appPort: 8003
   command: ["python3", "app.py"]
   daprGRPCPort: 50003
 
-- appId: DwarfApp
+- appID: DwarfApp
   appDirPath: ./services/dwarf/
   appPort: 8004
   command: ["python3", "app.py"]
   daprGRPCPort: 50004
 
-- appId: RangerApp
+- appID: RangerApp
   appDirPath: ./services/ranger/
   appPort: 8007
   command: ["python3", "app.py"]
   daprGRPCPort: 50007
 
-- appId: EagleApp
+- appID: EagleApp
   appDirPath: ./services/eagle/
   appPort: 8008
   command: ["python3", "app.py"]
   daprGRPCPort: 50008
 
-- appId: LLMOrchestratorApp
+- appID: LLMOrchestratorApp
   appDirPath: ./services/orchestrator/
   appPort: 8009
   command: ["python3", "app.py"]
   daprGRPCPort: 50009
 
-#- appId: RandomApp
+#- appID: RandomApp
 #  appDirPath: ./services/workflow-random/
 #  appPort: 8009
 #  command: ["python3", "app.py"]
 #  daprGRPCPort: 50009
 
-#- appId: RoundRobinApp
+#- appID: RoundRobinApp
 #  appDirPath: ./services/workflow-roundrobin/
 #  appPort: 8009
 #  command: ["python3", "app.py"]

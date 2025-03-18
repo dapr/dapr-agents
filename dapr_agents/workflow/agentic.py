@@ -8,7 +8,6 @@ from typing import Any, Optional, Union, Dict, Type, List
 from fastapi import Depends, Request, Response, HTTPException
 from dapr.clients import DaprClient
 import tempfile
-import json
 import threading
 import inspect
 import logging
@@ -70,7 +69,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
         self.text_formatter = ColorTextFormatter()
 
         # Initialize Workflow state store client only if a state store name is provided
-        self.state_store_client = DaprStateStore(store_name=self.state_store_name, address=self.daprGrpcAddress)
+        self.state_store_client = DaprStateStore(store_name=self.state_store_name)
         logger.info(f"State store '{self.state_store_name}' initialized.")
         
         # Load or initialize state
@@ -470,7 +469,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
             agents_metadata[self.name] = self.agent_metadata
 
             # Save the updated metadata back to Dapr store
-            with DaprClient(address=self.daprGrpcAddress) as client:
+            with DaprClient() as client:
                 client.save_state(
                     store_name=self.agents_registry_store_name,
                     key=self.agents_registry_key,

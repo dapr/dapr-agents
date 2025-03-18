@@ -1,10 +1,8 @@
 from typing import Optional, Any, Dict, Union
-from dapr.conf import settings as dapr_settings
 from dapr.aio.clients import DaprClient
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from dapr_agents.messaging import PubSubBase
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -13,24 +11,15 @@ class DaprPubSub(PubSubBase):
     Dapr-based implementation of pub/sub messaging.
     """
 
-    daprGrpcHost: Optional[str] = Field(None, description="Host address for the Dapr gRPC endpoint.")
-    daprGrpcPort: Optional[int] = Field(None, description="Port number for the Dapr gRPC endpoint.")
-    daprGrpcAddress: Optional[str] = Field(None, description="Full address of the Dapr sidecar (host:port).")
+    dapr_client: Optional[DaprClient] = Field(default=None, init=False,
+                                              description="Dapr client for state and messaging.")
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context: Any) -> None:
         """
         Post-initialization to configure Dapr settings.
         """
-        # Configure Dapr gRPC settings, using environment variables if provided
-        env_daprGrpcHost = os.getenv('DAPR_RUNTIME_HOST')
-        env_daprGrpcPort = os.getenv('DAPR_GRPC_PORT')
-
-        # Resolve final values for Dapr settings
-        self.daprGrpcHost = self.daprGrpcHost or env_daprGrpcHost or dapr_settings.DAPR_RUNTIME_HOST
-        self.daprGrpcPort = int(self.daprGrpcPort or env_daprGrpcPort or dapr_settings.DAPR_GRPC_PORT)
-
-        # Set the Dapr gRPC address based on finalized settings
-        self.daprGrpcAddress = self.daprGrpcAddress or f"{self.daprGrpcHost}:{self.daprGrpcPort}"
+        self.dapr_client = DaprClient()
 
         # Proceed with base model setup
         super().model_post_init(__context)
@@ -54,15 +43,14 @@ class DaprPubSub(PubSubBase):
             json_message = await self.serialize_message(message)
             
             # Publishing message
-            async with DaprClient(address=self.daprGrpcAddress) as client:
-                await client.publish_event(
-                    pubsub_name=pubsub_name or self.message_bus_name,
-                    topic_name=topic_name,
-                    data=json_message,
-                    data_content_type='application/json',
-                    publish_metadata=metadata or {}
-                )
-            
+            await self.dapr_client.publish_event(
+                pubsub_name=pubsub_name or self.message_bus_name,
+                topic_name=topic_name,
+                data=json_message,
+                data_content_type='application/json',
+                publish_metadata=metadata or {}
+            )
+
             logger.debug(f"Message successfully published to topic '{topic_name}' on pub/sub '{pubsub_name}'.")
             logger.debug(f"Serialized Message: {json_message}, Metadata: {metadata}")
         except Exception as e:

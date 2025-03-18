@@ -19,7 +19,7 @@ async def main():
         # Expose Agent as an Actor over a Service
         hobbit_service = AgentActorService(agent=hobbit_agent, message_bus_name="messagepubsub",
             agents_registry_store_name="agentstatestore", agents_registry_key="agents_registry",
-            service_port=8001, daprGrpcPort=50001)
+            service_port=8001)
 
         await hobbit_service.start()
     except Exception as e:

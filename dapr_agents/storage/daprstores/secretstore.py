@@ -1,5 +1,4 @@
 from dapr_agents.storage.daprstores.base import DaprStoreBase
-from dapr.clients import DaprClient
 from typing import Dict, Optional
 
 class DaprSecretStore(DaprStoreBase):
@@ -15,9 +14,8 @@ class DaprSecretStore(DaprStoreBase):
         Returns:
             Optional[Dict[str, str]]: The secret stored in the secret store, or None if not found.
         """
-        with DaprClient(address=self.daprGrpcAddress) as client:
-            response = client.get_secret(store_name=self.store_name, key=key, secret_metadata=secret_metadata)
-            return response.secret
+        response = self.client.get_secret(store_name=self.store_name, key=key, secret_metadata=secret_metadata)
+        return response.secret
 
     def get_bulk_secret(self, secret_metadata: Optional[Dict[str, str]] = {}) -> Dict[str, Dict[str, str]]:
         """
@@ -29,6 +27,5 @@ class DaprSecretStore(DaprStoreBase):
         Returns:
             Dict[str, Dict[str, str]]: A dictionary of secrets.
         """
-        with DaprClient(address=self.daprGrpcAddress) as client:
-            response = client.get_bulk_secret(store_name=self.store_name, secret_metadata=secret_metadata)
-            return response.secrets
+        response = self.client.get_bulk_secret(store_name=self.store_name, secret_metadata=secret_metadata)
+        return response.secrets

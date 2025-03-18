@@ -14,7 +14,6 @@ async def main():
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
             service_port=8004,
-            daprGrpcPort=50004,
             max_iterations=3
         )
 

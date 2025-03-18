@@ -27,9 +27,6 @@ class ConversationDaprStateMemory(MemoryBase):
 
     store_name: str = Field(default="statestore", description="The name of the Dapr state store.")
     session_id: Optional[Union[str, int]] = Field(default=None, description="Unique identifier for the conversation session.")
-    address: Optional[str] = Field(default=None, description="The full address of the Dapr sidecar (host:port).")
-    host: Optional[str] = Field(default=None, description="The host of the Dapr sidecar.")
-    port: Optional[str] = Field(default=None, description="The port of the Dapr sidecar.")
     query_index_name: Optional[str] = Field(default=None, description="The index name for querying state.")
 
     # Private attribute to hold the initialized DaprStateStore
@@ -52,14 +49,9 @@ class ConversationDaprStateMemory(MemoryBase):
 
     def model_post_init(self, __context: Any) -> None:
         """
-        Initializes the Dapr state store after validation, allowing optional host and port configuration.
+        Initializes the Dapr state store after validation
         """
-        self.dapr_store = DaprStateStore(
-            store_name=self.store_name,
-            address=self.address,
-            host=self.host,
-            port=self.port
-        )
+        self.dapr_store = DaprStateStore(store_name=self.store_name)
         logger.info(f"ConversationDaprStateMemory initialized with session ID: {self.session_id}")
         
         # Complete post-initialization

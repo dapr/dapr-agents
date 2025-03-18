@@ -303,13 +303,13 @@ common:
   configFilePath: config.yaml
 
 apps:
-- appId: HobbitApp
+- appID: HobbitApp
   appDirPath: ./services/hobbit/
   appPort: 8001
   command: ["python3", "app.py"]
   daprGRPCPort: 50001
 
-- appId: WizardApp
+- appID: WizardApp
   appDirPath: ./services/wizard/
   appPort: 8002
   command: ["python3", "app.py"]
@@ -317,13 +317,13 @@ apps:
 
 ...
 
-- appId: RangerApp
+- appID: RangerApp
   appDirPath: ./services/ranger/
   appPort: 8007
   command: ["python3", "app.py"]
   daprGRPCPort: 50007
 
-- appId: WorkflowApp
+- appID: WorkflowApp
   appDirPath: ./services/workflow-llm/
   appPort: 8009
   command: ["python3", "app.py"]
@@ -436,7 +436,7 @@ You can easily switch to a different `Orchestrator` type by updating the `dapr.y
 - Update dapr.yaml: Modify the appDirPath for the workflow service to point to the `workflow-random` directory:
 
 ```yaml
-- appId: WorkflowApp
+- appID: WorkflowApp
   appDirPath: ./services/workflow-random/
   appPort: 8009
   command: ["python3", "app.py"]

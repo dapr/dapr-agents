@@ -7,25 +7,25 @@ common:
   daprdLogDestination: console
 
 apps:
-- appId: HobbitApp
+- appID: HobbitApp
   appDirPath: ./services/hobbit/
   appPort: 8001
   command: ["python3", "app.py"]
   daprGRPCPort: 50001
 
-- appId: WizardApp
+- appID: WizardApp
   appDirPath: ./services/wizard/
   appPort: 8002
   command: ["python3", "app.py"]
   daprGRPCPort: 50002
 
-- appId: ElfApp
+- appID: ElfApp
   appDirPath: ./services/elf/
   appPort: 8003
   command: ["python3", "app.py"]
   daprGRPCPort: 50003
 
-- appId: WorkflowApp
+- appID: WorkflowApp
   appDirPath: ./services/workflow-roundrobin/
   appPort: 8009
   command: ["python3", "app.py"]

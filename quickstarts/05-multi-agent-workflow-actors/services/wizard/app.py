@@ -18,7 +18,7 @@ async def main():
         # Expose Agent as an Actor over a Service
         wizard_service = AgentActorService(agent=wizard_agent, message_bus_name="messagepubsub",
             agents_registry_store_name="agentstatestore", agents_registry_key="agents_registry",
-            service_port=8002, daprGrpcPort=50002)
+            service_port=8002)
 
         await wizard_service.start()
     except Exception as e:
