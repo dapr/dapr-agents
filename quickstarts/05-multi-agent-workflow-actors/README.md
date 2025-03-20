@@ -96,7 +96,6 @@ async def main():
             message_bus_name="messagepubsub",
             agents_state_store_name="agentstatestore",
             port=8001,
-            daprGrpcPort=50001
         )
 
         await hobbit_service.start()
@@ -131,7 +130,6 @@ async def main():
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
             service_port=8009,
-            daprGrpcPort=50009,
             max_iterations=3
         )
         await random_workflow_service.start()
@@ -162,30 +160,25 @@ apps:
   appDirPath: ./services/hobbit/
   appPort: 8001
   command: ["python3", "app.py"]
-  daprGRPCPort: 50001
 
 - appID: WizardApp
   appDirPath: ./services/wizard/
   appPort: 8002
   command: ["python3", "app.py"]
-  daprGRPCPort: 50002
 
 - appID: ElfApp
   appDirPath: ./services/elf/
   appPort: 8003
   command: ["python3", "app.py"]
-  daprGRPCPort: 50003
 
 - appID: WorkflowApp
   appDirPath: ./services/workflow-random/
   appPort: 8004
   command: ["python3", "app.py"]
-  daprGRPCPort: 50004
 
 - appID: ClientApp
   appDirPath: ./services/client/
   command: ["python3", "client.py"]
-  daprGRPCPort: 50011
 ```
 
 Start all services using the Dapr CLI:
