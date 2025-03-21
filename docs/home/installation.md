@@ -68,3 +68,10 @@ Redis Insight makes it easy to visualize and manage the data powering your agent
 
 ![](../img/home_installation_redis_dashboard.png)
 
+## Using custom OpenAI endpoints
+
+To use a custom OpenAI endpoint follow the below instructions for adding the custom endpoint to the `.env` file. Keep the key in the `OPENAI_API_KEY=your_api_key_here`.
+
+| Provider | Environment variable |
+|---|-----|
+| Azure OpenAI | AZURE_OPENAI_ENDPOINT=your_custom_endpoint_here |
