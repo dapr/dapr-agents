@@ -1,15 +1,13 @@
 from abc import ABC, abstractmethod
-
-from dapr_agents.workflow.agentic import AgenticWorkflowService
+from dapr_agents.workflow.agentic import AgenticWorkflow
 from pydantic import Field, model_validator
 import logging
 from typing import Any, Optional
-from dapr_agents.types import DaprWorkflowContext, EventMessageMetadata
-from fastapi import Response
+from dapr_agents.types import DaprWorkflowContext
 
 logger = logging.getLogger(__name__)
 
-class OrchestratorServiceBase(AgenticWorkflowService, ABC):
+class OrchestratorWorkflowBase(AgenticWorkflow, ABC):
 
     orchestrator_topic_name: Optional[str] = Field(None, description="The topic name dedicated to this specific orchestrator, derived from the orchestrator's name if not provided.")
     
@@ -30,7 +28,7 @@ class OrchestratorServiceBase(AgenticWorkflowService, ABC):
         super().model_post_init(__context)
 
         # Prepare agent metadata
-        self.agent_metadata = {
+        self._agent_metadata = {
             "name": self.name,
             "topic_name": self.orchestrator_topic_name,
             "pubsub_name": self.message_bus_name,
@@ -41,13 +39,13 @@ class OrchestratorServiceBase(AgenticWorkflowService, ABC):
         self.register_agentic_system()
 
     @abstractmethod
-    def main_workflow(self, ctx: DaprWorkflowContext, input: Any) -> Any:
+    def main_workflow(self, ctx: DaprWorkflowContext, message: Any) -> Any:
         """
         Execute the primary workflow that coordinates agent interactions.
 
         Args:
             ctx (DaprWorkflowContext): The workflow execution context
-            input (Any): The input for this workflow iteration
+            message (Any): The input for this workflow iteration
 
         Returns:
             Any: The workflow result or continuation
@@ -55,7 +53,7 @@ class OrchestratorServiceBase(AgenticWorkflowService, ABC):
         pass
 
     @abstractmethod
-    async def process_agent_response(self, message: Any, metadata: EventMessageMetadata) -> Response:
+    async def process_agent_response(self, message: Any) -> None:
         """Process responses from agents."""
         pass
 

@@ -1,21 +1,25 @@
-from dapr_agents.workflow.agents.assistant.state import AssistantWorkflowState, AssistantWorkflowEntry, AssistantWorkflowMessage, AssistantWorkflowToolMessage
-from dapr_agents.workflow.agents.assistant.schemas import TriggerAction, AgentTaskResponse
-from dapr_agents.types import AgentError, ChatCompletion, ToolMessage
-from dapr_agents.types.message import BaseMessage, EventMessageMetadata
-from dapr_agents.workflow.agents.base import AgentServiceBase
-from dapr_agents.workflow.decorators import workflow, task
-from dapr_agents.types import DaprWorkflowContext
-from dapr_agents.messaging import message_router
-from fastapi import Response, status
-from typing import Any, List, Dict, Optional, Union
-from pydantic import Field
-from datetime import datetime
-import logging
 import json
+import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Union
+
+from pydantic import Field
+
+from dapr_agents.types import AgentError, ChatCompletion, DaprWorkflowContext, ToolMessage
+from dapr_agents.workflow.agents.assistant.schemas import AgentTaskResponse, BroadcastMessage, TriggerAction
+from dapr_agents.workflow.agents.assistant.state import (
+    AssistantWorkflowEntry,
+    AssistantWorkflowMessage,
+    AssistantWorkflowState,
+    AssistantWorkflowToolMessage,
+)
+from dapr_agents.workflow.agents.base import AgentWorkflowBase
+from dapr_agents.workflow.decorators import task, workflow
+from dapr_agents.workflow.messaging.decorator import message_router
 
 logger = logging.getLogger(__name__)
 
-class AssistantAgent(AgentServiceBase):
+class AssistantAgent(AgentWorkflowBase):
     """
     A conversational AI agent that responds to user messages, engages in discussions, 
     and dynamically utilizes external tools when needed. 
@@ -36,7 +40,7 @@ class AssistantAgent(AgentServiceBase):
         self.state = AssistantWorkflowState()
 
         # Name of main Workflow
-        self.workflow_name = "ToolCallingWorkflow"
+        self._workflow_name = "ToolCallingWorkflow"
 
         # Define Tool Selection Strategy
         self.tool_choice = self.tool_choice or ('auto' if self.tools else None)
@@ -59,19 +63,19 @@ class AssistantAgent(AgentServiceBase):
         
         # Step 1: Initialize instance entry on first iteration
         if iteration == 0:
-            metadata = message.get("_message_metadata") or {}
+            metadata = message.get("_message_metadata", {})
 
             # Ensure "instances" key exists
             self.state.setdefault("instances", {})
-
+            
             # Extract workflow metadata with proper defaults
-            source_agent = metadata.get("source") or None
-            source_workflow_instance_id = metadata.get("headers", {}).get("workflow_instance_id") or None
+            source = metadata.get("source") or None
+            source_workflow_instance_id = message.get("workflow_instance_id") or None
 
             # Create a new workflow entry
             workflow_entry = AssistantWorkflowEntry(
                 input=task or "Triggered without input.",
-                source_agent=source_agent,
+                source=source,
                 source_workflow_instance_id=source_workflow_instance_id,
             )
 
@@ -79,11 +83,11 @@ class AssistantAgent(AgentServiceBase):
             self.state["instances"].setdefault(instance_id, workflow_entry.model_dump(mode="json"))
 
             if not ctx.is_replaying:
-                logger.info(f"Initial message from {self.state['instances'][instance_id]['source_agent']} -> {self.name}")
+                logger.info(f"Initial message from {self.state['instances'][instance_id]['source']} -> {self.name}")
 
         # Step 2: Retrieve workflow entry for this instance
         workflow_entry = self.state["instances"][instance_id]
-        source_agent = workflow_entry["source_agent"]
+        source = workflow_entry["source"]
         source_workflow_instance_id = workflow_entry["source_workflow_instance_id"]
 
         # Step 3: Generate Response
@@ -134,18 +138,13 @@ class AssistantAgent(AgentServiceBase):
             else:
                 verdict = "model hit a natural stop point."
             
-            # Step 8
-            if source_agent:
-                # Broadcasting Response to all agents
-                yield ctx.call_activity(self.broadcast_message_to_agents, input={"message": response_message})
+            # Step 8: Broadcasting Response to all agents if available
+            yield ctx.call_activity(self.broadcast_message_to_agents, input={"message": response_message})
 
-                # Respond to source agent if available
-                if not ctx.is_replaying:
-                    logger.info(f"Sending response to {source_agent}..")
+            # Step 9: Respond to source agent if available
+            yield ctx.call_activity(self.send_response_back, input={"response": response_message, "target_agent": source, "target_instance_id": source_workflow_instance_id})
 
-                yield ctx.call_activity(self.send_response_back, input={"response": response_message, "target_agent": source_agent, "target_instance_id": source_workflow_instance_id})
-
-            # Step 8: Share Final Message
+            # Step 10: Share Final Message
             yield ctx.call_activity(self.finish_workflow, input={"instance_id": instance_id, "message": response_message})
             
             if not ctx.is_replaying:
@@ -318,7 +317,7 @@ class AssistantAgent(AgentServiceBase):
         # Format message for broadcasting
         message["role"] = "user"
         message["name"] = self.name
-        response_message = BaseMessage(**message)
+        response_message = BroadcastMessage(**message)
 
         # Broadcast message to all agents
         await self.broadcast_message(message=response_message)
@@ -336,16 +335,14 @@ class AssistantAgent(AgentServiceBase):
         Raises:
             ValidationError: If the response does not match the expected structure for `AgentTaskResponse`.
         """
-        # Prepare metadata for routing
-        additional_metadata = {"event_name": "AgentTaskResponse", "workflow_instance_id": target_instance_id}
-
         # Format Response
         response["role"] = "user"
         response["name"] = self.name
+        response["workflow_instance_id"] = target_instance_id
         agent_response = AgentTaskResponse(**response)
 
         # Send the message to the target agent
-        await self.send_message_to_agent(name=target_agent, message=agent_response, **additional_metadata)
+        await self.send_message_to_agent(name=target_agent, message=agent_response)
     
     @task
     async def finish_workflow(self, instance_id: str, message: Dict[str, Any]):
@@ -416,35 +413,41 @@ class AssistantAgent(AgentServiceBase):
         self.save_state()
     
     @message_router(broadcast=True)
-    async def process_broadcast_message(self, message: BaseMessage, metadata: EventMessageMetadata) -> Response:
+    async def process_broadcast_message(self, message: BroadcastMessage):
         """
         Processes a broadcast message, filtering out messages sent by the same agent 
         and updating local memory with valid messages.
 
         Args:
-            message (BaseMessage): The received broadcast message.
-            metadata (EventMessageMetadata): Metadata associated with the broadcast event.
+            message (BroadcastMessage): The received broadcast message.
 
         Returns:
-            Response: HTTP response indicating success or failure.
+            None: The function updates the agent's memory and ignores unwanted messages.
         """
         try:
-            logger.info(f"{self.name} received broadcast message of type '{metadata.type}' from '{metadata.source}'.")
+            # Extract metadata safely from message["_message_metadata"]
+            metadata = message.get("_message_metadata", {})
+
+            if not isinstance(metadata, dict):
+                logger.warning(f"{self.name} received a broadcast message with invalid metadata format. Ignoring.")
+                return
+
+            source = metadata.get("source", "unknown_source")
+            message_type = metadata.get("type", "unknown_type")
+            message_content = message.get("content", "No Data")
+
+            logger.info(f"{self.name} received broadcast message of type '{message_type}' from '{source}'.")
 
             # Ignore messages sent by this agent
-            if metadata.source == self.name:
-                logger.info(f"{self.name} ignored its own broadcast message of type '{metadata.type}'.")
-                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            if source == self.name:
+                logger.info(f"{self.name} ignored its own broadcast message of type '{message_type}'.")
+                return
 
             # Log and process the valid broadcast message
-            logger.debug(f"{self.name} is processing broadcast message of type '{metadata.type}' from '{metadata.source}'.")
-            logger.debug(f"Message content: {message.content}")
+            logger.debug(f"{self.name} processing broadcast message from '{source}'. Content: {message_content}")
 
-            # Update the local chat history
+            # Store the message in local memory
             self.memory.add_message(message)
-
-            return Response(content="Broadcast message added to memory and actor state.", status_code=status.HTTP_200_OK)
 
         except Exception as e:
             logger.error(f"Error processing broadcast message: {e}", exc_info=True)
-            return Response(content=f"Error processing message: {str(e)}", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)

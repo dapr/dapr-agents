@@ -1,7 +1,7 @@
-from dapr_agents.workflow.orchestrators.base import OrchestratorServiceBase
+from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
 from dapr_agents.types import DaprWorkflowContext, BaseMessage, EventMessageMetadata
 from dapr_agents.workflow.decorators import workflow, task
-from dapr_agents.messaging import message_router
+from dapr_agents.workflow.messaging.decorator import message_router
 from fastapi.responses import JSONResponse
 from fastapi import Response, status
 from typing import Any, Optional, Dict, Any
@@ -17,6 +17,7 @@ class AgentTaskResponse(BaseMessage):
     """
     Represents a response message from an agent after completing a task.
     """
+    workflow_instance_id: Optional[str] = Field(default=None, description="Dapr workflow instance id from source if available")
 
 class TriggerAction(BaseModel):
     """
@@ -25,7 +26,7 @@ class TriggerAction(BaseModel):
     task: Optional[str] = Field(None, description="The specific task to execute. If not provided, the agent can act based on its memory or predefined behavior.")
     iteration: Optional[int] = Field(default=0, description="The current iteration of the workflow loop.")
 
-class RandomOrchestrator(OrchestratorServiceBase):
+class RandomOrchestrator(OrchestratorWorkflowBase):
     """
     Implements a random workflow where agents are selected randomly to perform tasks.
     The workflow iterates through conversations, selecting a random agent at each step.
@@ -40,7 +41,7 @@ class RandomOrchestrator(OrchestratorServiceBase):
         Initializes and configures the random workflow service.
         Registers tasks and workflows, then starts the workflow runtime.
         """
-        self.workflow_name = "RandomWorkflow"
+        self._workflow_name = "RandomWorkflow"
         
         super().model_post_init(__context)
 

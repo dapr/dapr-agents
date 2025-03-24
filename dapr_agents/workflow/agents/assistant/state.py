@@ -29,7 +29,7 @@ class AssistantWorkflowEntry(BaseModel):
     messages: List[AssistantWorkflowMessage] = Field(default_factory=list, description="Messages exchanged during the workflow")
     last_message: Optional[AssistantWorkflowMessage] = Field(default=None, description="Last processed message in the workflow")
     tool_history: List[AssistantWorkflowToolMessage] = Field(default_factory=list, description="Tool message exchanged during the workflow")
-    source_agent: Optional[str] = Field(None, description="The agent or entity that initiated the task.")
+    source: Optional[str] = Field(None, description="Entity that initiated the task.")
     source_workflow_instance_id: Optional[str] = Field(None, description="The workflow instance ID associated with the original request.")
 
 class AssistantWorkflowState(BaseModel):

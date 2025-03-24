@@ -1,18 +1,20 @@
-from typing import Any, Optional, Union, List, Dict, Callable, Literal
-from dapr_agents.types import MessagePlaceHolder
-from dapr_agents.llm import ChatClientBase, OpenAIChatClient
-from dapr_agents.workflow.agentic import AgenticWorkflowService
-from dapr_agents.tool.executor import AgentToolExecutor
-from dapr_agents.prompt.base import PromptTemplateBase
-from dapr_agents.prompt import ChatPromptTemplate
-from dapr_agents.tool.base import AgentTool
-from pydantic import Field, model_validator
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
+
+from pydantic import Field, model_validator
+
+from dapr_agents.llm import ChatClientBase, OpenAIChatClient
+from dapr_agents.prompt import ChatPromptTemplate
+from dapr_agents.prompt.base import PromptTemplateBase
+from dapr_agents.tool.base import AgentTool
+from dapr_agents.tool.executor import AgentToolExecutor
+from dapr_agents.types import MessagePlaceHolder
+from dapr_agents.workflow.agentic import AgenticWorkflow
 
 logger = logging.getLogger(__name__)
 
-class AgentServiceBase(AgenticWorkflowService):
+class AgentWorkflowBase(AgenticWorkflow):
 
     role: Optional[str] = Field(default="Assistant", description="The agent's role in the interaction (e.g., 'Weather Expert').")
     goal: Optional[str] = Field(default="Help humans", description="The agent's main objective (e.g., 'Provide Weather information').")
@@ -83,7 +85,7 @@ class AgentServiceBase(AgenticWorkflowService):
         super().model_post_init(__context)
 
         # Prepare agent metadata
-        self.agent_metadata = {
+        self._agent_metadata = {
             "name": self.name,
             "role": self.role,
             "goal": self.goal,
@@ -230,4 +232,4 @@ class AgentServiceBase(AgenticWorkflowService):
             raise ValueError("Prompt template must be initialized before pre-filling variables.")
         
         self.prompt_template = self.prompt_template.pre_fill_variables(**kwargs)
-        logger.info(f"Pre-filled prompt template with variables: {kwargs.keys()}")
+        logger.debug(f"Pre-filled prompt template with variables: {kwargs.keys()}")

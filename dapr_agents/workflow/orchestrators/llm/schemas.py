@@ -5,10 +5,16 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 import json
 
+class BroadcastMessage(BaseMessage):
+    """
+    Represents a broadcast message from an agent.
+    """
+
 class AgentTaskResponse(BaseMessage):
     """
     Represents a response message from an agent after completing a task.
     """
+    workflow_instance_id: Optional[str] = Field(default=None, description="Dapr workflow instance id from source if available")
 
 class TriggerAction(BaseModel):
     """
@@ -16,6 +22,7 @@ class TriggerAction(BaseModel):
     """
     task: Optional[str] = Field(None, description="The specific task to execute. If not provided, the agent can act based on its memory or predefined behavior.")
     iteration: Optional[int] = Field(default=0, description="The current iteration of the workflow loop.")
+    workflow_instance_id: Optional[str] = Field(default=None, description="Dapr workflow instance id from source if available")
 
 class NextStep(BaseModel):
     """

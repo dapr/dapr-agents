@@ -1,16 +1,21 @@
-from dapr_agents.agent.actor.agent import AgentTaskResponse
-from dapr_agents.messaging import message_router
-from dapr_agents.workflow.orchestrators.base import OrchestratorServiceBase
+from dapr_agents.workflow.messaging.decorator import message_router
+from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
 from dapr_agents.types import DaprWorkflowContext, BaseMessage, EventMessageMetadata
 from dapr_agents.workflow.decorators import workflow, task
 from fastapi.responses import JSONResponse
 from fastapi import Response, status
 from typing import Any, Optional, Dict
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import timedelta
 import logging
 
 logger = logging.getLogger(__name__)
+
+class AgentTaskResponse(BaseMessage):
+    """
+    Represents a response message from an agent after completing a task.
+    """
+    workflow_instance_id: Optional[str] = Field(default=None, description="Dapr workflow instance id from source if available")
 
 class TriggerAction(BaseModel):
     """
@@ -19,7 +24,7 @@ class TriggerAction(BaseModel):
     task: Optional[str] = None
     iteration: Optional[int] = 0
 
-class RoundRobinOrchestrator(OrchestratorServiceBase):
+class RoundRobinOrchestrator(OrchestratorWorkflowBase):
     """
     Implements a round-robin workflow where agents take turns performing tasks.
     The workflow iterates through conversations by selecting agents in a circular order.
@@ -31,7 +36,7 @@ class RoundRobinOrchestrator(OrchestratorServiceBase):
         Initializes and configures the round-robin workflow service.
         Registers tasks and workflows, then starts the workflow runtime.
         """
-        self.workflow_name = "RoundRobinWorkflow"
+        self._workflow_name = "RoundRobinWorkflow"
         super().model_post_init(__context)
     
     @workflow(name="RoundRobinWorkflow")

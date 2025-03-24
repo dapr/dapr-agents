@@ -1,21 +1,19 @@
-from dapr_agents.workflow.orchestrators.llm.schemas import TriggerAction, NextStep, AgentTaskResponse, ProgressCheckOutput, PLAN_SCHEMA, NEXT_STEP_SCHEMA, PROGRESS_CHECK_SCHEMA
+import logging
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+from dapr_agents.types import DaprWorkflowContext
+from dapr_agents.workflow.decorators import task, workflow
+from dapr_agents.workflow.messaging.decorator import message_router
+from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
+from dapr_agents.workflow.orchestrators.llm.schemas import BroadcastMessage, TriggerAction, NextStep, AgentTaskResponse, ProgressCheckOutput, PLAN_SCHEMA, NEXT_STEP_SCHEMA, PROGRESS_CHECK_SCHEMA
 from dapr_agents.workflow.orchestrators.llm.prompts import TASK_INITIAL_PROMPT, TASK_PLANNING_PROMPT, NEXT_STEP_PROMPT, PROGRESS_CHECK_PROMPT, SUMMARY_GENERATION_PROMPT
 from dapr_agents.workflow.orchestrators.llm.state import LLMWorkflowState, LLMWorkflowEntry, LLMWorkflowMessage, PlanStep, TaskResult
 from dapr_agents.workflow.orchestrators.llm.utils import update_step_statuses, restructure_plan, find_step_in_plan
-from dapr_agents.types import DaprWorkflowContext, BaseMessage, EventMessageMetadata
-from dapr_agents.workflow.orchestrators.base import OrchestratorServiceBase
-from dapr_agents.workflow.decorators import workflow, task
-from dapr_agents.messaging import message_router
-from typing import Dict, Any, Optional, List
-from fastapi import Response, status
-from fastapi.responses import JSONResponse
-from datetime import timedelta
-from datetime import datetime
-import logging
 
 logger = logging.getLogger(__name__)
 
-class LLMOrchestrator(OrchestratorServiceBase):
+class LLMOrchestrator(OrchestratorWorkflowBase):
     """
     Implements an agentic workflow where an LLM dynamically selects the next speaker.
     The workflow iterates through conversations, updating its state and persisting messages.
@@ -32,12 +30,13 @@ class LLMOrchestrator(OrchestratorServiceBase):
         self.state = LLMWorkflowState()
 
         # Set main workflow name
-        self.workflow_name = "LLMWorkflow"
+        self._workflow_name = "LLMWorkflow"
 
         super().model_post_init(__context)
 
+    @message_router
     @workflow(name="LLMWorkflow")
-    def main_workflow(self, ctx: DaprWorkflowContext, input: TriggerAction):
+    def main_workflow(self, ctx: DaprWorkflowContext, message: TriggerAction):
         """
         Executes an LLM-driven agentic workflow where the next agent is dynamically selected 
         based on task progress. The workflow iterates through execution cycles, updating state, 
@@ -45,7 +44,7 @@ class LLMOrchestrator(OrchestratorServiceBase):
 
         Args:
             ctx (DaprWorkflowContext): The workflow execution context.
-            input (TriggerAction): The current workflow state containing `message`, `iteration`, and `verdict`.
+            message (TriggerAction): The current workflow state containing `message`, `iteration`, and `verdict`.
 
         Returns:
             str: The final processed message when the workflow terminates.
@@ -53,9 +52,9 @@ class LLMOrchestrator(OrchestratorServiceBase):
         Raises:
             RuntimeError: If the LLM determines the task is `failed`.
         """
-        # Step 0: Retrieve iteration inputs
-        task = input.get("task")
-        iteration = input.get("iteration")
+        # Step 0: Retrieve iteration messages
+        task = message.get("task")
+        iteration = message.get("iteration")
 
         # Step 1:
         # Ensure 'instances' and the instance_id entry exist
@@ -169,11 +168,11 @@ class LLMOrchestrator(OrchestratorServiceBase):
             yield ctx.call_activity(self.update_plan, input={"instance_id": instance_id, "plan": plan, "status_updates": status_updates, "plan_updates": plan_updates})
         
         # Step 12: Update TriggerAction state and continue workflow
-        input["task"] = task_results["content"]
-        input["iteration"] = next_iteration_count
+        message["task"] = task_results["content"]
+        message["iteration"] = next_iteration_count
         
         # Restart workflow with updated TriggerAction state
-        ctx.continue_as_new(input)
+        ctx.continue_as_new(message)
     
     @task
     def get_agents_metadata_as_string(self) -> str:
@@ -247,7 +246,7 @@ class LLMOrchestrator(OrchestratorServiceBase):
         await self.update_workflow_state(instance_id=instance_id, message={"name": self.name, "role": "user", "content": task})
 
         # Format message for broadcasting
-        task_message = BaseMessage(name=self.name, role="user", content=task)
+        task_message = BroadcastMessage(name=self.name, role="user", content=task)
 
         # Send broadcast message
         await self.broadcast_message(message=task_message, exclude_orchestrator=True)
@@ -329,7 +328,7 @@ class LLMOrchestrator(OrchestratorServiceBase):
         await self.update_workflow_state(instance_id=instance_id, plan=updated_plan)
 
         # Send message to agent
-        await self.send_message_to_agent(name=name, message=TriggerAction(), workflow_instance_id=instance_id)
+        await self.send_message_to_agent(name=name, message=TriggerAction(workflow_instance_id=instance_id))
 
         return updated_plan
     
@@ -537,22 +536,27 @@ class LLMOrchestrator(OrchestratorServiceBase):
         self.save_state()
     
     @message_router
-    async def process_agent_response(self, message: AgentTaskResponse, metadata: EventMessageMetadata) -> Response:
+    async def process_agent_response(self, message: AgentTaskResponse):
         """
         Processes agent response messages sent directly to the agent's topic.
 
         Args:
             message (AgentTaskResponse): The agent's response containing task results.
-            metadata (EventMessageMetadata): Metadata associated with the message, including headers.
-        
+
         Returns:
-            Response: A JSON response confirming the workflow event was successfully triggered.
+            None: The function raises a workflow event with the agent's response.
         """
-        agent_response = (message).model_dump()
-        workflow_instance_id = metadata.headers.get("workflow_instance_id")
-        event_name = metadata.headers.get("event_name", "AgentTaskResponse")
+        try:
+            workflow_instance_id = message.get("workflow_instance_id")
 
-        # Raise a workflow event with the Agent's Task Response!
-        self.raise_workflow_event(instance_id=workflow_instance_id, event_name=event_name, data=agent_response)
+            if not workflow_instance_id:
+                logger.error(f"{self.name} received an agent response without a valid workflow_instance_id. Ignoring.")
+                return
 
-        return JSONResponse(content={"message": "Workflow event triggered successfully."}, status_code=status.HTTP_200_OK)
+            logger.info(f"{self.name} processing agent response for workflow instance '{workflow_instance_id}'.")
+
+            # Raise a workflow event with the Agent's Task Response
+            self.raise_workflow_event(instance_id=workflow_instance_id, event_name="AgentTaskResponse", data=message)
+
+        except Exception as e:
+            logger.error(f"Error processing agent response: {e}", exc_info=True)
