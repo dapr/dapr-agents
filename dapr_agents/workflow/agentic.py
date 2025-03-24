@@ -1,88 +1,186 @@
-from dapr_agents.memory import MemoryBase, ConversationListMemory, ConversationVectorMemory
-from dapr_agents.storage.daprstores.statestore import DaprStateStore
-from dapr_agents.agent.utils.text_printer import ColorTextFormatter
-from dapr_agents.messaging import DaprPubSub, parse_cloudevent
-from dapr_agents.workflow.service import WorkflowAppService
-from pydantic import BaseModel, Field, model_validator, ValidationError
-from typing import Any, Optional, Union, Dict, Type, List
-from fastapi import Depends, Request, Response, HTTPException
-from dapr.clients import DaprClient
-import tempfile
-import threading
-import inspect
-import logging
 import asyncio
 import json
+import logging
 import os
+import signal
+import tempfile
+import threading
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from pydantic import BaseModel, Field, ValidationError, PrivateAttr
+from dapr.clients import DaprClient
+from dapr_agents.agent.utils.text_printer import ColorTextFormatter
+from dapr_agents.memory import ConversationListMemory, ConversationVectorMemory, MemoryBase
+from dapr_agents.workflow.messaging import DaprPubSub
+from dapr_agents.workflow.messaging.routing import MessageRoutingMixin
+from dapr_agents.storage.daprstores.statestore import DaprStateStore
+from dapr_agents.workflow import WorkflowApp
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 state_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
-class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
+class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
     """
-    A service class for managing agentic workflows, extending `WorkflowAppService`.
-    Handles agent interactions, workflow execution, and metadata management.
+    A class for managing agentic workflows, extending `WorkflowApp`.
+    Handles agent interactions, workflow execution, messaging, and metadata management.
     """
 
     name: str = Field(..., description="The name of the agentic system.")
-    message_bus_name: str = Field(..., description="The name of the Dapr message bus component, defining the pub/sub base.")
-    broadcast_topic_name: Optional[str] = Field("beacon_channel", description="Default topic for broadcasting messages to all agents.")
-    state_store_name: str = Field(..., description="Dapr state store for agentic workflow state.")
-    state_key: str = Field(default="workflow_state", description="Dapr state store key for agentic workflow state.")
-    state: Optional[Union[BaseModel, dict]] = Field(default=None, description="The current state of the workflow. If not provided, it is loaded from storage if available; otherwise, it initializes an empty state.")
-    state_format: Optional[Type[BaseModel]] = Field(default=None, description="The schema to enforce state structure and validation.")
-    agents_registry_store_name: str = Field(..., description="Dapr state store component for centralized agent metadata.")
-    agents_registry_key: str = Field(default="agents_registry", description="Dapr state store key for agentic workflow state.")
-    max_iterations: int = Field(default=20, description="Maximum number of iterations for workflows. Must be greater than 0.", ge=1)
-    memory: MemoryBase = Field(default_factory=ConversationListMemory, description="Handles conversation history and context storage.")
-    save_state_locally: bool = Field(default=True, description="Whether to save the workflow state locally as a backup after each update. Defaults to True.")
-    local_state_path: Optional[str] = Field(default=None, description="The file path where the workflow state is saved locally. If not provided, defaults to the directory where the service is instantiated.")
-
-    # Fields Initialized during class initialization
-    state_store_client: Optional[DaprStateStore] = Field(default=None, init=False, description="Dapr state store instance for accessing and managing workflow state.")
-    text_formatter: Optional[ColorTextFormatter] = Field(default=None, init=False, description="Formatter for colored text output.")
-    agent_metadata: Optional[Dict[str, Any]] = Field(default=None, init=False, description="Dictionary containing metadata of the agent.")
-
-    @model_validator(mode="before")
-    def set_service_name(cls, values: dict) -> dict:
-        """
-        Ensures that `service_name` is set based on the name of the agentic system (`name`) if it is not explicitly provided.
-
-        Args:
-            values (dict): Dictionary of field values before model validation.
-        
-        Returns:
-            dict: The updated values with `service_name` set if it was missing.
-        """
-        if not values.get("service_name") and values.get("name"):
-            values["service_name"] = values["name"]
-
-        return values
+    message_bus_name: str = Field(..., description="Dapr message bus component for pub/sub messaging.")
+    broadcast_topic_name: Optional[str] = Field("beacon_channel", description="Default topic for broadcasting messages.")
+    state_store_name: str = Field(..., description="Dapr state store for workflow state.")
+    state_key: str = Field(default="workflow_state", description="Dapr state key for workflow state storage.")
+    state: Optional[Union[BaseModel, dict]] = Field(default=None, description="Current state of the workflow.")
+    state_format: Optional[Type[BaseModel]] = Field(default=None, description="Schema to enforce state structure.")
+    agents_registry_store_name: str = Field(..., description="Dapr state store for agent metadata.")
+    agents_registry_key: str = Field(default="agents_registry", description="Key for agents registry in state store.")
+    max_iterations: int = Field(default=20, description="Maximum iterations for workflows.", ge=1)
+    memory: MemoryBase = Field(default_factory=ConversationListMemory, description="Handles conversation history storage.")
+    save_state_locally: bool = Field(default=True, description="Whether to save workflow state locally.")
+    local_state_path: Optional[str] = Field(default=None, description="Path for saving local state.")
     
+    # Private internal attributes (not schema/validated)
+    _state_store_client: Optional[DaprStateStore] = PrivateAttr(default=None)
+    _text_formatter: Optional[ColorTextFormatter] = PrivateAttr(default=None)
+    _agent_metadata: Optional[Dict[str, Any]] = PrivateAttr(default=None)
+    _workflow_name: str = PrivateAttr(default=None)
+    _dapr_client: Optional[DaprClient] = PrivateAttr(default=None)
+    _is_running: bool = PrivateAttr(default=False)
+    _shutdown_event: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
+    _http_server: Optional[Any] = PrivateAttr(default=None)
+    _subscriptions: Dict[str, Callable] = PrivateAttr(default_factory=dict)
+    _topic_handlers: Dict[Tuple[str, str], Dict[Type[BaseModel], Callable]] = PrivateAttr(default_factory=dict)
+
     def model_post_init(self, __context: Any) -> None:
-        """
-        Configure agentic workflows, set state parameters, and initialize metadata store.
-        """
+        """Initializes the workflow service, messaging, and metadata storage."""
+        # Set up color formatter for logging and CLI printing
+        self._text_formatter = ColorTextFormatter()
 
-        # Initialize Text Formatter
-        self.text_formatter = ColorTextFormatter()
-
-        # Initialize Workflow state store client only if a state store name is provided
-        self.state_store_client = DaprStateStore(store_name=self.state_store_name)
+        # Initialize state store client (used for persisting workflow state to Dapr)
+        self._state_store_client = DaprStateStore(store_name=self.state_store_name)
         logger.info(f"State store '{self.state_store_name}' initialized.")
-        
-        # Load or initialize state
+
+        # Load or initialize the current workflow state
         self.initialize_state()
 
-        # Initialize WorkflowAppService (parent class)
+        # Create a Dapr client for service-to-service calls or state interactions
+        self._dapr_client = DaprClient()
+
+        # If FastAPI service mode is enabled, register a default health check route
+        if self._http_server:
+            logger.info("FastAPI server detected. Registering /status health check route.")
+            self.app.add_api_route("/status", lambda: {"ok": True})
+
         super().model_post_init(__context)
+    
+    @property
+    def app(self) -> "FastAPI":
+        """
+        Returns the FastAPI application instance if the workflow was initialized as a service.
 
-        # Registering App routes and subscriping to topics dynamically
-        self.register_message_routes()
+        Raises:
+            RuntimeError: If the FastAPI server has not been initialized via `.as_service()` first.
+        """
+        if self._http_server:
+            return self._http_server.app
+        raise RuntimeError("FastAPI server not initialized. Call `as_service()` first.")
+    
+    def as_service(self, port: int, host: str = "0.0.0.0"):
+        """
+        Enables FastAPI-based service mode for the agent by initializing a FastAPI server instance.
+        Must be called before `start()` if you want to expose HTTP endpoints.
+        """
+        from dapr_agents.service.fastapi import FastAPIServerBase
+        self._http_server: FastAPIServerBase = FastAPIServerBase(
+            service_name=self.name,
+            service_port=port,
+            service_host=host
+        )
+        return self
 
-        # Adding other API Routes
-        self.app.add_api_route("/GetChatHistory", self.get_chat_history, methods=["GET"])
+    def handle_shutdown_signal(self, sig):
+        logger.info(f"Shutdown signal {sig} received. Stopping service gracefully...")
+        self._shutdown_event.set()
+        asyncio.create_task(self.stop())
+
+    async def start(self):
+        """
+        Starts the agent workflow service, optionally as a FastAPI server if .as_service() was called.
+        Registers signal handlers and message routes if running in headless mode.
+        """
+        if self._is_running:
+            logger.warning("Service is already running. Ignoring duplicate start request.")
+            return
+
+        logger.info("Starting Agent Workflow Service...")
+        self._shutdown_event.clear()
+
+        try:
+            # Headless mode (no HTTP server)
+            if not hasattr(self, "_http_server") or self._http_server is None:
+                logger.info("Running in headless mode.")
+                loop = asyncio.get_running_loop()
+
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    try:
+                        loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(self.handle_shutdown_signal(s)))
+                    except NotImplementedError:
+                        logger.warning(f"Signal {sig} not supported in this environment.")
+
+                self.register_message_routes()
+
+                self._is_running = True
+                while not self._shutdown_event.is_set():
+                    await asyncio.sleep(1)
+
+            # FastAPI mode
+            else:
+                logger.info("Running in FastAPI service mode.")
+                self.register_message_routes()
+                self._is_running = True
+                await self._http_server.start()
+
+        except asyncio.CancelledError:
+            logger.info("Service received cancellation signal.")
+        finally:
+            await self.stop()
+
+    async def stop(self):
+        """
+        Gracefully stops the agent service by unsubscribing and stopping the HTTP server if present.
+        """
+        if not self._is_running:
+            logger.warning("Service is not running. Ignoring stop request.")
+            return
+
+        logger.info("Stopping Agent Workflow Service...")
+
+        # Unsubscribe from all topics
+        for (pubsub_name, topic_name), close_fn in self._subscriptions.items():
+            try:
+                logger.info(f"Unsubscribing from pubsub '{pubsub_name}' topic '{topic_name}'")
+                close_fn()
+            except Exception as e:
+                logger.error(f"Failed to unsubscribe from topic '{topic_name}': {e}")
+
+        self._subscriptions.clear()
+
+        # If running as FastAPI, stop the HTTP server
+        if hasattr(self, "_http_server") and self._http_server:
+            logger.info("Stopping FastAPI server...")
+            await self._http_server.stop()
+        
+        # Stop the workflow runtime
+        if self.wf_runtime_is_running:
+            logger.info("Shutting down workflow runtime.")
+            self.stop_runtime()
+            self.wf_runtime_is_running = False
+
+        self._is_running = False
+        logger.info("Agent Workflow Service stopped successfully.")
     
     def get_chat_history(self, task: Optional[str] = None) -> List[dict]:
         """
@@ -130,13 +228,13 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
 
             # Ensure state is a valid dictionary or Pydantic model
             if isinstance(self.state, BaseModel):
-                logger.info("User provided a state as a Pydantic model. Converting to dict.")
+                logger.debug("User provided a state as a Pydantic model. Converting to dict.")
                 self.state = self.state.model_dump()
 
             if not isinstance(self.state, dict):
                 raise TypeError(f"Invalid state type: {type(self.state)}. Expected dict or Pydantic model.")
 
-            logger.info(f"Workflow state initialized with {len(self.state)} key(s).")
+            logger.debug(f"Workflow state initialized with {len(self.state)} key(s).")
             self.save_state()
 
         except Exception as e:
@@ -189,7 +287,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
             ValidationError: If state schema validation fails.
         """
         try:
-            if not self.state_store_client or not self.state_store_name or not self.state_key:
+            if not self._state_store_client or not self.state_store_name or not self.state_key:
                 logger.error("State store is not configured. Cannot load state.")
                 raise RuntimeError("State store is not configured. Please provide 'state_store_name' and 'state_key'.")
 
@@ -198,7 +296,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
                 logger.info("Using existing in-memory state. Skipping load from storage.")
                 return self.state
 
-            has_state, state_data = self.state_store_client.try_get_state(self.state_key)
+            has_state, state_data = self._state_store_client.try_get_state(self.state_key)
 
             if has_state and state_data:
                 logger.info(f"Existing state found for key '{self.state_key}'. Validating it.")
@@ -265,7 +363,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
                 # Atomically replace the old state file
                 os.replace(temp_path, file_path)
 
-            logger.info(f"Workflow state saved locally at '{file_path}'.")
+            logger.debug(f"Workflow state saved locally at '{file_path}'.")
 
         except Exception as e:
             logger.error(f"Failed to save workflow state to disk: {e}")
@@ -292,7 +390,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
             Exception: If any error occurs during the save operation.
         """
         try:
-            if not self.state_store_client or not self.state_store_name or not self.state_key:
+            if not self._state_store_client or not self.state_store_name or not self.state_key:
                 logger.error("State store is not configured. Cannot save state.")
                 raise RuntimeError("State store is not configured. Please provide 'state_store_name' and 'state_key'.")
 
@@ -317,8 +415,8 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
                 raise TypeError(f"Invalid state type: {type(self.state)}. Expected dict, BaseModel, or JSON string.")
 
             # Save state in Dapr
-            self.state_store_client.save_state(self.state_key, state_to_save)
-            logger.info(f"Successfully saved state for key '{self.state_key}'.")
+            self._state_store_client.save_state(self.state_key, state_to_save)
+            logger.debug(f"Successfully saved state for key '{self.state_key}'.")
 
             # Save state locally if enabled
             if self.save_state_locally:
@@ -327,7 +425,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
             # Reload state after saving if requested
             if force_reload:
                 self.state = self.load_state()
-                logger.info(f"State reloaded after saving for key '{self.state_key}'.")
+                logger.debug(f"State reloaded after saving for key '{self.state_key}'.")
 
         except Exception as e:
             logger.error(f"Failed to save state for key '{self.state_key}': {e}")
@@ -390,7 +488,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
                 logger.warning("No agents available for broadcast.")
                 return
 
-            logger.info(f"{self.name} broadcasting message to selected agents.")
+            logger.info(f"{self.name} broadcasting message to {self.broadcast_topic_name}.")
 
             await self.publish_event_message(
                 topic_name=self.broadcast_topic_name,
@@ -403,7 +501,6 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
             logger.debug(f"{self.name} broadcasted message.")
         except Exception as e:
             logger.error(f"Failed to broadcast message: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error broadcasting message: {str(e)}")
     
     async def send_message_to_agent(self, name: str, message: Union[BaseModel, dict], **kwargs) -> None:
         """
@@ -416,9 +513,10 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
         """
         try:
             agents_metadata = self.get_agents_metadata()
+            
             if name not in agents_metadata:
-                logger.error(f"Agent {name} not found.")
-                raise RuntimeError(f"Agent {name} not found.")
+                logger.warning(f"Target '{name}' is not registered as an agent. Skipping message send.")
+                return  # Do not raise an error—just warn and move on.
 
             agent_metadata = agents_metadata[name]
             logger.info(f"{self.name} sending message to agent '{name}'.")
@@ -434,7 +532,6 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
             logger.debug(f"{self.name} sent message to agent '{name}'.")
         except Exception as e:
             logger.error(f"Failed to send message to agent '{name}': {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error sending message to agent '{name}': {str(e)}")
     
     def print_interaction(self, sender_agent_name: str, recipient_agent_name: str, message: str) -> None:
         """
@@ -457,7 +554,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
         ]
 
         # Print the formatted text
-        self.text_formatter.print_colored_text(interaction_text)
+        self._text_formatter.print_colored_text(interaction_text)
     
     def register_agentic_system(self) -> None:
         """
@@ -466,7 +563,7 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
         try:
             # Retrieve existing metadata (always returns a dict)
             agents_metadata = self.get_agents_metadata()
-            agents_metadata[self.name] = self.agent_metadata
+            agents_metadata[self.name] = self._agent_metadata
 
             # Save the updated metadata back to Dapr store
             with DaprClient() as client:
@@ -481,148 +578,3 @@ class AgenticWorkflowService(WorkflowAppService, DaprPubSub):
 
         except Exception as e:
             logger.error(f"Failed to register metadata for agent {self.name}: {e}")
-    
-    def register_message_routes(self) -> None:
-        """
-        Dynamically register message handlers and the Dapr /subscribe endpoint.
-        """
-        def register_subscription(pubsub_name: str, topic_name: str, dead_letter_topic: Optional[str] = None) -> dict:
-            """Ensure a subscription exists or create it if it doesn't."""
-            subscription = next(
-                (
-                    sub
-                    for sub in self.dapr_app._subscriptions
-                    if sub["pubsubname"] == pubsub_name and sub["topic"] == topic_name
-                ),
-                None,
-            )
-            if subscription is None:
-                subscription = {
-                    "pubsubname": pubsub_name,
-                    "topic": topic_name,
-                    "routes": {"rules": []},
-                    **({"deadLetterTopic": dead_letter_topic} if dead_letter_topic else {}),
-                }
-                self.dapr_app._subscriptions.append(subscription)
-                logger.info(f"Created new subscription for pubsub='{pubsub_name}', topic='{topic_name}'")
-            return subscription
-
-        def add_subscription_rule(subscription: dict, match_condition: str, route: str) -> None:
-            """Add a routing rule to an existing subscription."""
-            rule = {"match": match_condition, "path": route}
-            if rule not in subscription["routes"]["rules"]:
-                subscription["routes"]["rules"].append(rule)
-                logger.info(f"Added match condition: {match_condition}")
-                logger.debug(f"Rule: {rule}")
-
-        def create_dependency_injector(model):
-            """Factory to create a dependency injector for a specific message model."""
-            async def dependency_injector(request: Request):
-                if not model:
-                    raise ValueError("No message model provided for dependency injection.")
-                logger.debug(f"Using model '{model.__name__}' for this request.")
-                
-                # Extract message and metadata from the request
-                message, metadata = await parse_cloudevent(request, model)
-
-                # Return the message along with metadata in a dictionary
-                return {"message": message, "metadata": metadata}
-            return dependency_injector
-
-        def create_wrapped_method(method):
-            """Wraps method to handle workflows and regular handlers differently."""
-            async def wrapped_method(dependencies: dict = Depends(dependency_injector)):
-                try:
-                    # Validate expected parameters
-                    handler_signature = inspect.signature(method)
-                    expected_params = {
-                        key: value for key, value in dependencies.items()
-                        if key in handler_signature.parameters
-                    }
-
-                    if hasattr(method, "_is_workflow"):
-                        workflow_name = getattr(method, "_workflow_name")
-
-                        # Identify method parameters, skipping 'self' and 'cls'
-                        workflow_params = list(handler_signature.parameters.keys())
-                        filtered_params = [p for p in workflow_params if p not in {"self", "cls"}]
-
-                        # Find the input parameter after ctx
-                        input_param_name = filtered_params[1] if len(filtered_params) > 1 else None
-
-                        # Ensure input is serializable
-                        input_data = expected_params.get(input_param_name)  # Retrieve input dynamically
-                        if isinstance(input_data, BaseModel):
-                            input_data = input_data.model_dump()  # Convert Pydantic model to dict
-                        
-                        # Ensure metadata is serializable
-                        metadata = dependencies.get("metadata")  # Retrieve metadata from dependencies directly
-                        if isinstance(metadata, BaseModel):
-                            metadata = metadata.model_dump() # Convert Pydantic model to dict
-
-                        # Explicitly attach metadata to input before sending to workflow
-                        if isinstance(input_data, dict):
-                            input_data["_message_metadata"] = metadata  # Ensure metadata is passed along
-
-                        logger.info(f"Starting workflow '{workflow_name}'")
-                        logger.debug(f"Workflow Input: {input_data}")
-
-                        # Run workflow and monitor completion
-                        instance_id = self.run_workflow(workflow_name, input=input_data)
-                        asyncio.create_task(self.monitor_workflow_completion(instance_id))
-
-                        return Response(content=f"Workflow '{workflow_name}' started. Instance ID: {instance_id}", status_code=202)
-
-                    # Handle regular message handlers (non-workflow functions)
-                    result = await method(**expected_params)
-
-                    # Wrap non-Response objects
-                    if not isinstance(result, Response):
-                        logger.warning("Handler returned non-Response object; wrapping it in a Response.")
-                        result = Response(content=str(result), status_code=200)
-
-                    return result
-
-                except Exception as e:
-                    logger.error(f"Error invoking handler: {e}", exc_info=True)
-                    return Response(content=f"Internal Server Error: {str(e)}", status_code=500)
-
-            return wrapped_method
-
-        for method_name in dir(self):
-            method = getattr(self, method_name, None)
-            if callable(method) and hasattr(method, "_is_message_handler"):
-                try:
-                    # Retrieve metadata from the decorator
-                    router_data = method._message_router_data.copy()
-                    pubsub_name = router_data.get("pubsub") or self.message_bus_name
-                    is_broadcast = router_data.get("is_broadcast", False)
-                    topic_name = router_data.get("topic") or (self.name if not is_broadcast else self.broadcast_topic_name)
-                    route = router_data.get("route") or f"/events/{pubsub_name}/{topic_name}/{method_name}"
-                    dead_letter_topic = router_data.get("dead_letter_topic")
-                    message_model = router_data.get("message_model")
-
-                    # Validate message model presence
-                    if not message_model:
-                        raise ValueError(f"Message model is missing for handler '{method_name}'.")
-
-                    logger.debug(f"Registering route '{route}' for method '{method_name}' with parameters: {list(router_data.keys())}")
-
-                    # Ensure the subscription exists and add the rule
-                    subscription = register_subscription(pubsub_name, topic_name, dead_letter_topic)
-                    add_subscription_rule(subscription, f"event.type == '{message_model.__name__}'", route)
-
-                    # Create the dependency injector
-                    dependency_injector = create_dependency_injector(message_model)
-
-                    # Define the handler that wraps the original method
-                    wrapped_method = create_wrapped_method(method)
-
-                    # Register the route with the handler
-                    self.app.add_api_route(route, wrapped_method, methods=["POST"], tags=["PubSub"])
-
-                except Exception as e:
-                    logger.error(f"Failed to register message route: {e}", exc_info=True)
-                    raise
-
-        logger.debug(f"Final Subscription Routes: {json.dumps(self.dapr_app._get_subscriptions(), indent=2)}")
