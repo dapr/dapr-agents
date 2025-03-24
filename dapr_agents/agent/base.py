@@ -289,4 +289,4 @@ class AgentBase(BaseModel, ABC):
             raise ValueError("Prompt template must be initialized before pre-filling variables.")
         
         self.prompt_template = self.prompt_template.pre_fill_variables(**kwargs)
-        logger.info(f"Pre-filled prompt template with variables: {kwargs.keys()}")
+        logger.debug(f"Pre-filled prompt template with variables: {kwargs.keys()}")
