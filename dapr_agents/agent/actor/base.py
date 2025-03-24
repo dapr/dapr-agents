@@ -1,12 +1,18 @@
-from dapr_agents.types.agent import AgentActorState, AgentActorMessage, AgentStatus, AgentTaskEntry, AgentTaskStatus
-from dapr_agents.agent.actor.interface import AgentActorInterface
-from dapr_agents.agent.base import AgentBase
-from dapr.actor.runtime.context import ActorRuntimeContext
+import logging
+from typing import List, Optional, Union
 from dapr.actor import Actor
 from dapr.actor.id import ActorId
-from typing import List, Union, Optional
+from dapr.actor.runtime.context import ActorRuntimeContext
+from dapr_agents.agent.actor.interface import AgentActorInterface
+from dapr_agents.agent.base import AgentBase
+from dapr_agents.types.agent import (
+    AgentActorMessage,
+    AgentActorState,
+    AgentStatus,
+    AgentTaskEntry,
+    AgentTaskStatus,
+)
 from pydantic import ValidationError
-import logging
 
 logger = logging.getLogger(__name__)
 

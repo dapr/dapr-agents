@@ -1,7 +1,7 @@
 from abc import abstractmethod
+from typing import List, Optional, Union
 from dapr.actor import ActorInterface, actormethod
 from dapr_agents.types.agent import AgentActorMessage, AgentStatus
-from typing import Union, List, Optional
 
 class AgentActorInterface(ActorInterface):
     @abstractmethod

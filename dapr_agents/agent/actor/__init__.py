@@ -1,4 +1,4 @@
 from .base import AgentActorBase
 from .interface import AgentActorInterface
-from .service import AgentActorServiceBase
-from .agent import AgentActorService
+from .service import AgentActorService
+from .agent import AgentActor
