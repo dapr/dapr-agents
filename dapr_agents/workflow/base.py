@@ -5,6 +5,7 @@ from dapr.clients import DaprClient
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.workflow.task import WorkflowTask
 from dapr_agents.llm.chat import ChatClientBase
+from dapr_agents.workflow.utils import get_callable_decorated_methods
 from typing import Any, Callable, Optional, Dict, Union, List, Tuple, TypeVar
 from pydantic import BaseModel, Field, ConfigDict
 from durabletask import task as dtask
@@ -91,14 +92,14 @@ class WorkflowApp(BaseModel):
             if hasattr(func, "_is_task") and func.__module__ == current_module.__name__:
                 task_name = getattr(func, "_task_name", None) or name
                 all_functions[task_name] = func
+        
+        # Load instance methods that are tasks
+        task_methods = get_callable_decorated_methods(self, "_is_task")
+        for method_name, method in task_methods.items():
+            task_name = getattr(method, "_task_name", method_name)
+            all_functions[task_name] = method
 
-        for method_name in dir(self):
-            method = getattr(self, method_name, None)
-            if callable(method) and hasattr(method, "_is_task"):
-                task_name = getattr(method, "_task_name", method_name)
-                all_functions[task_name] = method
-
-        logger.info(f"Discovered tasks: {list(all_functions.keys())}")
+        logger.debug(f"Discovered tasks: {list(all_functions.keys())}")
 
         def make_task_wrapper(method):
             """Creates a unique task wrapper bound to a specific method reference."""
@@ -165,16 +166,17 @@ class WorkflowApp(BaseModel):
         current_module = sys.modules["__main__"]
 
         all_workflows = {}
+        # Load global-level workflow functions
         for name, func in inspect.getmembers(current_module, inspect.isfunction):
             if hasattr(func, "_is_workflow") and func.__module__ == current_module.__name__:
                 workflow_name = getattr(func, "_workflow_name", None) or name
                 all_workflows[workflow_name] = func
 
-        for method_name in dir(self):
-            method = getattr(self, method_name, None)
-            if callable(method) and hasattr(method, "_is_workflow"):
-                workflow_name = getattr(method, "_workflow_name", method_name)
-                all_workflows[workflow_name] = method
+        # Load instance methods that are workflows
+        workflow_methods = get_callable_decorated_methods(self, "_is_workflow")
+        for method_name, method in workflow_methods.items():
+            workflow_name = getattr(method, "_workflow_name", method_name)
+            all_workflows[workflow_name] = method
 
         logger.info(f"Discovered workflows: {list(all_workflows.keys())}")
 
