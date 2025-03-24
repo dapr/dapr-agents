@@ -9,24 +9,20 @@ common:
 apps:
 - appID: HobbitApp
   appDirPath: ./services/hobbit/
-  appPort: 8001
   command: ["python3", "app.py"]
 
 - appID: WizardApp
   appDirPath: ./services/wizard/
-  appPort: 8002
   command: ["python3", "app.py"]
 
 - appID: ElfApp
   appDirPath: ./services/elf/
-  appPort: 8003
   command: ["python3", "app.py"]
 
 - appID: WorkflowApp
   appDirPath: ./services/workflow-random/
-  appPort: 8004
   command: ["python3", "app.py"]
 
 - appID: ClientApp
   appDirPath: ./services/client/
-  command: ["python3", "client.py"]
+  command: ["python3", "client.py", "--orchestrator", "RandomOrchestrator"]

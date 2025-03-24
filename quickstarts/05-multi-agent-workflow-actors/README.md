@@ -75,7 +75,7 @@ dapr-llm.yaml             # Multi-App Run Template using the LLM orchestrator
 Each agent is implemented as a separate service. Here's an example for the Hobbit agent:
 
 ```python
-from dapr_agents import Agent, AgentActorService
+from dapr_agents import Agent, AgentActor
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -90,12 +90,12 @@ async def main():
             instructions=["Speak like Frodo"]
         )
         
-        # Expose Agent as a Service
-        hobbit_service = AgentActorService(
+        # Expose Agent as an Actor Service
+        hobbit_service = AgentActor(
             agent=hobbit_agent,
             message_bus_name="messagepubsub",
             agents_state_store_name="agentstatestore",
-            port=8001,
+            service_port8001,
         )
 
         await hobbit_service.start()
@@ -122,19 +122,18 @@ import logging
 
 async def main():
     try:
-        random_workflow_service = RandomOrchestrator(
+        random_workflow = RandomOrchestrator(
             name="RandomOrchestrator",
             message_bus_name="messagepubsub",
             state_store_name="agenticworkflowstate",
             state_key="workflow_state",
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
-            service_port=8009,
             max_iterations=3
         )
-        await random_workflow_service.start()
+        await random_workflow.start()
     except Exception as e:
-        print(f"Error starting service: {e}")
+        print(f"Error starting workflow: {e}")
 
 if __name__ == "__main__":
     load_dotenv()
@@ -173,12 +172,11 @@ apps:
 
 - appID: WorkflowApp
   appDirPath: ./services/workflow-random/
-  appPort: 8004
   command: ["python3", "app.py"]
 
 - appID: ClientApp
   appDirPath: ./services/client/
-  command: ["python3", "client.py"]
+  command: ["python3", "client.py", "--orchestrator", "RandomOrchestrator"]
 ```
 
 Start all services using the Dapr CLI:

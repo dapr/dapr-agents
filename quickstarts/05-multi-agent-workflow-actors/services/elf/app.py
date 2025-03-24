@@ -1,4 +1,4 @@
-from dapr_agents import Agent, AgentActorService
+from dapr_agents import Agent, AgentActor
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -20,17 +20,17 @@ async def main():
         )
 
         # Expose Agent as an Actor over a Service
-        elf_service = AgentActorService(
+        elf_actor = AgentActor(
             agent=elf_agent,
             message_bus_name="messagepubsub",
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
-            service_port=8003,
+            service_port=8003
         )
 
-        await elf_service.start()
+        await elf_actor.start()
     except Exception as e:
-        print(f"Error starting service: {e}")
+        print(f"Error starting actor: {e}")
 
 if __name__ == "__main__":
     load_dotenv()

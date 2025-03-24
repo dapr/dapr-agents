@@ -24,9 +24,8 @@ apps:
 
 - appID: WorkflowApp
   appDirPath: ./services/workflow-roundrobin/
-  appPort: 8004
   command: ["python3", "app.py"]
 
 - appID: ClientApp
   appDirPath: ./services/client/
-  command: ["python3", "client.py"]
+  command: ["python3", "client.py", "--orchestrator", "RoundRobinOrchestrator"]

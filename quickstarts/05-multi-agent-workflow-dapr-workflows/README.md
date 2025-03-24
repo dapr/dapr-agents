@@ -75,14 +75,16 @@ dapr-llm.yaml             # Multi-App Run Template using the LLM orchestrator
 Each agent is implemented as a separate service. Here's an example for the Hobbit agent:
 
 ```python
-from dapr_agents import Agent, AgentActorService, AssistantAgent
+from dapr_agents import Agent, AssistantAgent
 from dotenv import load_dotenv
 import asyncio
 import logging
 
 async def main():
     try:
-        hobbit_service = AssistantAgent(name="Frodo", role="Hobbit",
+        hobbit_service = AssistantAgent(
+          name="Frodo",
+          role="Hobbit",
           goal="Carry the One Ring to Mount Doom, resisting its corruptive power while navigating danger and uncertainty.",
           instructions=[
               "Speak like Frodo, with humility, determination, and a growing sense of resolve.",
@@ -95,7 +97,7 @@ async def main():
           state_key="workflow_state",
           agents_registry_store_name="agentstatestore",
           agents_registry_key="agents_registry", 
-          service_port=8001)
+        )
 
         await hobbit_service.start()
     except Exception as e:
@@ -128,7 +130,6 @@ async def main():
             state_key="workflow_state",
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
-            service_port=8009,
             max_iterations=3
         )
         await random_workflow_service.start()
@@ -157,27 +158,23 @@ common:
 apps:
 - appID: HobbitApp
   appDirPath: ./services/hobbit/
-  appPort: 8001
   command: ["python3", "app.py"]
 
 - appID: WizardApp
   appDirPath: ./services/wizard/
-  appPort: 8002
   command: ["python3", "app.py"]
 
 - appID: ElfApp
   appDirPath: ./services/elf/
-  appPort: 8003
   command: ["python3", "app.py"]
 
 - appID: WorkflowApp
   appDirPath: ./services/workflow-random/
-  appPort: 8004
   command: ["python3", "app.py"]
 
 - appID: ClientApp
   appDirPath: ./services/client/
-  command: ["python3", "client.py"]
+  command: ["python3", "client.py", "--orchestrator", "RandomOrchestrator"]
 ```
 
 Start all services using the Dapr CLI:

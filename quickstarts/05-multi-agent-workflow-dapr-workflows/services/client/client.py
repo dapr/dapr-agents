@@ -1,34 +1,68 @@
 #!/usr/bin/env python3
-import requests
-import time
+import json
 import sys
+import time
+import argparse
+from dapr.clients import DaprClient
 
+# Default Pub/Sub component
+PUBSUB_NAME = "messagepubsub"
 
-if __name__ == "__main__":
-    workflow_url = "http://localhost:8004/RunWorkflow"
-    task_payload = {"task": "How to get to Mordor? We all need to help!"}
+def main(orchestrator_topic, max_attempts=10, retry_delay=1):
+    """
+    Publishes a task to a specified Dapr Pub/Sub topic with retries.
+
+    Args:
+        orchestrator_topic (str): The name of the orchestrator topic.
+        max_attempts (int): Maximum number of retry attempts.
+        retry_delay (int): Delay in seconds between attempts.
+    """
+    task_message = {
+        "task": "How to get to Mordor? We all need to help!"
+    }
+
+    time.sleep(5)
 
     attempt = 1
 
-    while attempt <= 10:
+    while attempt <= max_attempts:
         try:
-            print(f"Attempt {attempt}...")
-            response = requests.post(workflow_url, json=task_payload, timeout=5)
+            print(f"📢 Attempt {attempt}: Publishing to topic '{orchestrator_topic}'...")
+            
+            with DaprClient() as client:
+                client.publish_event(
+                    pubsub_name=PUBSUB_NAME,
+                    topic_name=orchestrator_topic,
+                    data=json.dumps(task_message),
+                    data_content_type="application/json",
+                    publish_metadata={
+                        "cloudevent.type": "TriggerAction",
+                    }
+                )
 
-            if response.status_code == 202:
-                print("Workflow started successfully!")
-                sys.exit(0)
-            else:
-                print(f"Received status code {response.status_code}: {response.text}")
+            print(f"✅ Successfully published request to '{orchestrator_topic}'")
+            sys.exit(0)
 
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
-
+        except Exception as e:
+            print(f"❌ Request failed: {e}")
+        
         attempt += 1
-        print(f"Waiting 1s seconds before next attempt...")
-        time.sleep(1)
+        print(f"⏳ Waiting {retry_delay}s before next attempt...")
+        time.sleep(retry_delay)
 
-    print(f"Maximum attempts (10) reached without success.")
-
-    print("Failed to get successful response")
+    print(f"❌ Maximum attempts ({max_attempts}) reached without success.")
     sys.exit(1)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Dynamically publish tasks to a Dapr Pub/Sub orchestrator.")
+    parser.add_argument(
+        "--orchestrator", 
+        type=str, 
+        default="LLMOrchestrator", 
+        help="The orchestrator topic to publish the task to (default: LLMOrchestrator)."
+    )
+
+    args = parser.parse_args()
+    orchestrator_topic = args.orchestrator
+
+    main(orchestrator_topic)

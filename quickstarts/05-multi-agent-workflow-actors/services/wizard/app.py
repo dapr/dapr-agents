@@ -1,4 +1,4 @@
-from dapr_agents import Agent, AgentActorService
+from dapr_agents import Agent, AgentActor
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -16,13 +16,17 @@ async def main():
                 "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."])
 
         # Expose Agent as an Actor over a Service
-        wizard_service = AgentActorService(agent=wizard_agent, message_bus_name="messagepubsub",
-            agents_registry_store_name="agentstatestore", agents_registry_key="agents_registry",
-            service_port=8002)
+        wizard_actor = AgentActor(
+            agent=wizard_agent,
+            message_bus_name="messagepubsub",
+            agents_registry_store_name="agentstatestore",
+            agents_registry_key="agents_registry",
+            service_port=8002
+        )
 
-        await wizard_service.start()
+        await wizard_actor.start()
     except Exception as e:
-        print(f"Error starting service: {e}")
+        print(f"Error starting actor: {e}")
 
 
 if __name__ == "__main__":
