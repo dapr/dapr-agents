@@ -70,23 +70,43 @@ class FastAPIServerBase(APIServerBase):
         """
         Start the FastAPI app server using the existing event loop with a specified logging level,
         and ensure that shutdown is handled gracefully with SIGINT and SIGTERM signals.
-        Args:
-            log_level (Optional[str]): The logging level for the Uvicorn server. Defaults to the global logging level.
         """
-        # If log_level is not passed, fallback to the current logging level in the root logger
         if log_level is None:
             log_level = logging.getLevelName(logger.getEffectiveLevel()).lower()
 
-        config = uvicorn.Config(self.app, host=self.service_host, port=self.service_port, log_level=log_level)
+        # Set port to 0 if we want a random port
+        requested_port = self.service_port or 0
+
+        config = uvicorn.Config(
+            self.app,
+            host=self.service_host,
+            port=requested_port,
+            log_level=log_level,
+        )
         self.server: uvicorn.Server = uvicorn.Server(config)
 
-        # Set up signal handling for graceful shutdown
+        # Add signal handlers
         loop = asyncio.get_event_loop()
         for s in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(s, lambda: asyncio.create_task(self.stop()))
 
-        logger.info(f"Starting {self.service_name} service at {self.service_host}:{self.service_port}")
-        await self.server.serve()
+        # Start in background so we can inspect the actual port
+        server_task = asyncio.create_task(self.server.serve())
+
+        # Wait for startup to complete
+        while not self.server.started:
+            await asyncio.sleep(0.1)
+
+        # Extract the real port from the bound socket
+        if self.server.servers:
+            sock = list(self.server.servers)[0].sockets[0]
+            actual_port = sock.getsockname()[1]
+            self.service_port = actual_port
+            logger.info(f"{self.service_name} is running at http://{self.service_host}:{self.service_port}")
+        else:
+            logger.warning(f"{self.service_name} could not determine bound port")
+
+        await server_task
 
     async def stop(self):
         """
