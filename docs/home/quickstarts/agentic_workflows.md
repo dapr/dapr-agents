@@ -30,7 +30,7 @@ In `Dapr Agents`, agents are typically wrapped as [Dapr Actors](https://docs.dap
 **Example: Wrapping an Agent as a Dapr Actor**
 
 ```python
-from dapr agents import Agent, AgentActorService
+from dapr agents import Agent, AgentActor
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -52,13 +52,12 @@ async def main():
         )
         
         # Expose Agent as an Actor over a Service
-        hobbit_service = AgentActorService(
+        hobbit_service = AgentActor(
             agent=hobbit_agent,
             message_bus_name="messagepubsub",
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
             service_port=8001,
-            daprGrpcPort=50001
         )
 
         await hobbit_service.start()
@@ -112,8 +111,6 @@ async def main():
             state_key="workflow_state",
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
-            service_port=8002,
-            daprGrpcPort=50002
         )
 
         await wizard_service.start()
@@ -156,8 +153,6 @@ async def main():
             state_key="workflow_state",
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
-            service_port=8009,
-            daprGrpcPort=50009,
             max_iterations=25
         )
 
@@ -217,7 +212,7 @@ services/                  # Directory for agent services
 Create the `app.py` script and provide the following information.
 
 ```python
-from dapr_agents import Agent, AgentActorService
+from dapr_agents import Agent, AgentActor
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -239,13 +234,12 @@ async def main():
         )
         
         # Expose Agent as an Actor over a Service
-        hobbit_service = AgentActorService(
+        hobbit_service = AgentActor(
             agent=hobbit_agent,
             message_bus_name="messagepubsub",
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
             service_port=8001,
-            daprGrpcPort=50001
         )
 
         await hobbit_service.start()
@@ -267,7 +261,6 @@ Key Considerations:
 * Ensure the `message_bus_name` matches the `pub/sub` component name in your `pubsub.yaml` file.
 * Verify the `agents_registry_store_name` matches the state store component defined in your `agentstate.yaml` file.
 * Increment the `service_port` for each new agent service (e.g., 8001, 8002, 8003).
-* Similarly, increment the `daprGrpcPort` for each service (e.g., 50001, 50002, 50003) to avoid conflicts.
 * Customize the Agent parameters (`role`, `name`, `goal`, and `instructions`) to match the behavior you want for each service.
 
 ## The Multi-App Run template file
@@ -307,13 +300,11 @@ apps:
   appDirPath: ./services/hobbit/
   appPort: 8001
   command: ["python3", "app.py"]
-  daprGRPCPort: 50001
 
 - appID: WizardApp
   appDirPath: ./services/wizard/
   appPort: 8002
   command: ["python3", "app.py"]
-  daprGRPCPort: 50002
 
 ...
 
@@ -321,13 +312,10 @@ apps:
   appDirPath: ./services/ranger/
   appPort: 8007
   command: ["python3", "app.py"]
-  daprGRPCPort: 50007
 
 - appID: WorkflowApp
   appDirPath: ./services/workflow-llm/
-  appPort: 8009
   command: ["python3", "app.py"]
-  daprGRPCPort: 50009
 ```
 
 ## Starting All Service Servers
@@ -359,33 +347,83 @@ This command reads the `dapr.yaml` file and starts all the services specified in
 
 ![](../../img/workflows_llm_redis_agents_metadata.png)
 
-## Start Workflow via an HTTP Request
+## Starting the Workflow by Publishing a `TriggerAction` Message
 
-Once all services are running, you can initiate the workflow by making an HTTP POST request to the Agentic Workflow Service. This service orchestrates the workflow, triggering agent actions and handling communication among agents.
+Agentic workflows are now triggered by publishing a message to the orchestrator's pub/sub topic. This replaces the older method of making HTTP requests and enables fully message-driven coordination.
 
-Here’s an example of how to start the workflow using `curl`:
+### Step 1: Create a Trigger Script
+
+Create a Python file (e.g., trigger.py) in your `services/client/` directory with the following content:
+
+```Python
+#!/usr/bin/env python3
+import json
+import sys
+import time
+import argparse
+from dapr.clients import DaprClient
+
+PUBSUB_NAME = "messagepubsub"
+
+def main(topic, max_attempts=10, retry_delay=1):
+    message = {
+        "task": "How to get to Mordor? We all need to help!"
+    }
+
+    time.sleep(5)  # Give orchestrators time to come online
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            print(f"📢 Attempt {attempt}: Publishing to topic '{topic}'...")
+            with DaprClient() as client:
+                client.publish_event(
+                    pubsub_name=PUBSUB_NAME,
+                    topic_name=topic,
+                    data=json.dumps(message),
+                    data_content_type="application/json",
+                    publish_metadata={"cloudevent.type": "TriggerAction"}
+                )
+            print(f"✅ Message published to '{topic}'")
+            sys.exit(0)
+        except Exception as e:
+            print(f"❌ Publish failed: {e}")
+            if attempt < max_attempts:
+                print(f"⏳ Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+
+    print("❌ Failed to publish message after multiple attempts.")
+    sys.exit(1)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Trigger a workflow by publishing to a Dapr topic.")
+    parser.add_argument("--orchestrator", type=str, default="LLMOrchestrator", help="Target orchestrator topic")
+    args = parser.parse_args()
+    main(args.orchestrator)
+```
+
+### Step 2: Run the Trigger Script
+
+Once all your services are running, run the script with the target orchestrator topic:
 
 ```bash
-curl -i -X POST http://localhost:8009/RunWorkflow \
-    -H "Content-Type: application/json" \
-    -d '{"task": "Lets solve the riddle to open the Doors of Durin and enter Moria."}'
+python3 trigger.py --orchestrator LLMOrchestrator
 ```
 
-```
-HTTP/1.1 200 OK
-date: Sat, 22 Feb 2025 06:12:35 GMT
-server: uvicorn
-content-length: 104
-content-type: application/json
+Or if you’re running the `RandomOrchestrator` workflow:
 
-{"message":"Workflow initiated successfully.","workflow_instance_id":"8cd46d085d6a44fbb46e1c7c92abdd0f"}
+```bash
+python3 trigger.py --orchestrator RandomOrchestrator
 ```
+
+This will publish a `TriggerAction` message to the orchestrator’s topic, kicking off the workflow.
 
 In this example:
 
-* The request is sent to the Agentic Workflow Service running on port `8009`.
-* The message parameter is passed as input to the `LLM Workflow`, which is then used to generate the plan and trigger the agentic workflow.
-* This command demonstrates how to interact with the Agentic Workflow Service to kick off a new workflow.
+* The message is published to the orchestrator topic (e.g., `LLMOrchestrator`) via Dapr's Pub/Sub.
+* The orchestrator service listens on its topic and receives the message of type `TriggerAction`.
+* The message payload (e.g., a task) is used to generate the plan and initiate the agentic workflow.
+* This approach is fully decoupled from HTTP—no more direct POST requests to a service endpoint.
+* It enables truly asynchronous and event-driven orchestration, making your system more scalable and resilient.
 
 ## Monitoring Workflow Execution
 
@@ -438,9 +476,7 @@ You can easily switch to a different `Orchestrator` type by updating the `dapr.y
 ```yaml
 - appID: WorkflowApp
   appDirPath: ./services/workflow-random/
-  appPort: 8009
   command: ["python3", "app.py"]
-  daprGRPCPort: 50009
 ```
 
 ### Reset Redis Database
