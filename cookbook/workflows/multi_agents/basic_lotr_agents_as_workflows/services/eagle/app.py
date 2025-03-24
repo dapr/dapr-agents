@@ -23,8 +23,6 @@ async def main():
             state_key="workflow_state",
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
-            service_port=8008,
-            daprGrpcPort=50008
         )
 
         await eagle_service.start()

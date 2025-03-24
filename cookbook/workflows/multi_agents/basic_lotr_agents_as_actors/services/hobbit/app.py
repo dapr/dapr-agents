@@ -1,4 +1,4 @@
-from dapr_agents import Agent, AgentActorService
+from dapr_agents import Agent, AgentActor
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -20,13 +20,12 @@ async def main():
         )
         
         # Expose Agent as an Actor over a Service
-        hobbit_service = AgentActorService(
+        hobbit_service = AgentActor(
             agent=hobbit_agent,
             message_bus_name="messagepubsub",
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
-            service_port=8001,
-            daprGrpcPort=50001
+            service_port=8001
         )
 
         await hobbit_service.start()

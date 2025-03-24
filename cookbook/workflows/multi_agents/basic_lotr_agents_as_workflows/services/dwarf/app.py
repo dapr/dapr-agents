@@ -22,8 +22,6 @@ async def main():
             state_key="workflow_state",
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
-            service_port=8004,
-            daprGrpcPort=50004
         )
 
         await dwarf_service.start()

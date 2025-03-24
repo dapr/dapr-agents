@@ -9,45 +9,31 @@ common:
 apps:
 - appID: HobbitApp
   appDirPath: ./services/hobbit/
-  appPort: 8001
   command: ["python3", "app.py"]
-  daprGRPCPort: 50001
 
 - appID: WizardApp
   appDirPath: ./services/wizard/
-  appPort: 8002
   command: ["python3", "app.py"]
-  daprGRPCPort: 50002
 
 - appID: ElfApp
   appDirPath: ./services/elf/
-  appPort: 8003
   command: ["python3", "app.py"]
-  daprGRPCPort: 50003
 
 - appID: DwarfApp
   appDirPath: ./services/dwarf/
-  appPort: 8004
   command: ["python3", "app.py"]
-  daprGRPCPort: 50004
 
 - appID: RangerApp
   appDirPath: ./services/ranger/
-  appPort: 8007
   command: ["python3", "app.py"]
-  daprGRPCPort: 50007
 
 - appID: EagleApp
   appDirPath: ./services/eagle/
-  appPort: 8008
   command: ["python3", "app.py"]
-  daprGRPCPort: 50008
 
 - appID: LLMOrchestratorApp
   appDirPath: ./services/orchestrator/
-  appPort: 8009
   command: ["python3", "app.py"]
-  daprGRPCPort: 50009
 
 #- appID: RandomApp
 #  appDirPath: ./services/workflow-random/

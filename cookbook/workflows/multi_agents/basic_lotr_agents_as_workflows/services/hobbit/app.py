@@ -22,8 +22,6 @@ async def main():
             state_key="workflow_state",
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
-            service_port=8001,
-            daprGrpcPort=50001
         )
         
         await hobbit_agent.start()

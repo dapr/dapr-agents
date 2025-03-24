@@ -1,4 +1,4 @@
-from dapr_agents import Agent, AgentActorService
+from dapr_agents import Agent, AgentActor
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -20,13 +20,12 @@ async def main():
         )
 
         # Expose Agent as an Actor over a Service
-        wizard_service = AgentActorService(
+        wizard_service = AgentActor(
             agent=wizard_agent,
             message_bus_name="messagepubsub",
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
-            service_port=8002,
-            daprGrpcPort=50002
+            service_port=8002
         )
 
         await wizard_service.start()
