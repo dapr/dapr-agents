@@ -3,7 +3,7 @@ openai==1.59.6
 openapi-pydantic==0.5.1
 openapi-schema-pydantic==1.2.4
 regex>=2023.12.25
-Jinja2==3.1.5
+Jinja2>=3.1.6
 azure-identity==1.19.0
 dapr>=1.15.0
 dapr-ext-fastapi==1.15.0
