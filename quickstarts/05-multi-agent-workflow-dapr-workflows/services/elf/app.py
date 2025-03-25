@@ -20,7 +20,7 @@ async def main():
             state_key="workflow_state",
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
-        ).as_service(port=8003)
+        )
 
         await elf_service.start()
     except Exception as e:
