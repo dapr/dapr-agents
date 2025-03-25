@@ -154,7 +154,7 @@ async def main():
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
             max_iterations=25
-        )
+        ).as_service(port=8009)
 
         await agentic_orchestrator.start()
     except Exception as e:
@@ -316,6 +316,7 @@ apps:
 - appID: WorkflowApp
   appDirPath: ./services/workflow-llm/
   command: ["python3", "app.py"]
+  appPort: 8009
 ```
 
 ## Starting All Service Servers
@@ -347,9 +348,37 @@ This command reads the `dapr.yaml` file and starts all the services specified in
 
 ![](../../img/workflows_llm_redis_agents_metadata.png)
 
-## Starting the Workflow by Publishing a `TriggerAction` Message
+## Start Workflow via an HTTP Request
 
-Agentic workflows are now triggered by publishing a message to the orchestrator's pub/sub topic. This replaces the older method of making HTTP requests and enables fully message-driven coordination.
+Once all services are running, you can initiate the workflow by making an HTTP POST request to the Agentic Workflow Service. This service orchestrates the workflow, triggering agent actions and handling communication among agents. The `.as_service(port=8004)` is required on the orchestrator to enable the HTTP endpoint and built-in `start-workflow` route.
+
+Here’s an example of how to start the workflow using `curl`:
+
+```bash
+curl -i -X POST http://localhost:8009/start-workflow \
+    -H "Content-Type: application/json" \
+    -d '{"task": "Lets solve the riddle to open the Doors of Durin and enter Moria."}'
+```
+
+```
+HTTP/1.1 200 OK
+date: Sat, 22 Feb 2025 06:12:35 GMT
+server: uvicorn
+content-length: 104
+content-type: application/json
+
+{"message":"Workflow initiated successfully.","workflow_instance_id":"8cd46d085d6a44fbb46e1c7c92abdd0f"}
+```
+
+In this example:
+
+* The request is sent to the Agentic Workflow Service running on port `8009`.
+* The message parameter is passed as input to the `LLM Workflow`, which is then used to generate the plan and trigger the agentic workflow.
+* This command demonstrates how to interact with the Agentic Workflow Service to kick off a new workflow.
+
+## Starting the Workflow by Publishing a `TriggerAction` Message (Optional)
+
+Agentic workflows can also be triggered by publishing a message to the orchestrator's pub/sub topic. This is an optional method instead of making HTTP requests and enables fully message-driven coordination.
 
 ### Step 1: Create a Trigger Script
 
