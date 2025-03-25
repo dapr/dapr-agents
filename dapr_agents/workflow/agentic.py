@@ -5,6 +5,11 @@ import os
 import signal
 import tempfile
 import threading
+import inspect
+from fastapi import status, Request
+from fastapi.responses import JSONResponse
+from cloudevents.http.conversion import from_http
+from cloudevents.http.event import CloudEvent
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type, Union
 from pydantic import BaseModel, Field, ValidationError, PrivateAttr
 from dapr.clients import DaprClient
@@ -56,6 +61,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the workflow service, messaging, and metadata storage."""
+
         # Set up color formatter for logging and CLI printing
         self._text_formatter = ColorTextFormatter()
 
@@ -68,11 +74,6 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
         # Create a Dapr client for service-to-service calls or state interactions
         self._dapr_client = DaprClient()
-
-        # If FastAPI service mode is enabled, register a default health check route
-        if self._http_server:
-            logger.info("FastAPI server detected. Registering /status health check route.")
-            self.app.add_api_route("/status", lambda: {"ok": True})
 
         super().model_post_init(__context)
     
@@ -88,17 +89,40 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             return self._http_server.app
         raise RuntimeError("FastAPI server not initialized. Call `as_service()` first.")
     
+    def register_routes(self):
+        """
+        Hook method to register user-defined routes via `@route(...)` decorators,
+        including FastAPI route options like `tags`, `summary`, `response_model`, etc.
+        """
+        for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
+            if getattr(method, "_is_fastapi_route", False):
+                path = getattr(method, "_route_path")
+                method_type = getattr(method, "_route_method", "GET")
+                extra_kwargs = getattr(method, "_route_kwargs", {})
+
+                logger.info(f"Registering route {method_type} {path} -> {name}")
+                self.app.add_api_route(path, method, methods=[method_type], **extra_kwargs)
+
     def as_service(self, port: int, host: str = "0.0.0.0"):
         """
         Enables FastAPI-based service mode for the agent by initializing a FastAPI server instance.
         Must be called before `start()` if you want to expose HTTP endpoints.
         """
         from dapr_agents.service.fastapi import FastAPIServerBase
-        self._http_server: FastAPIServerBase = FastAPIServerBase(
+
+        self._http_server = FastAPIServerBase(
             service_name=self.name,
             service_port=port,
-            service_host=host
+            service_host=host,
         )
+
+        # Register built-in routes
+        self.app.add_api_route("/status", lambda: {"ok": True})
+        self.app.add_api_route("/start-workflow", self.run_workflow_from_request, methods=["POST"])
+
+        # Allow subclass to register additional routes
+        self.register_routes()
+
         return self
 
     def handle_shutdown_signal(self, sig):
@@ -578,3 +602,55 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
         except Exception as e:
             logger.error(f"Failed to register metadata for agent {self.name}: {e}")
+    
+    async def run_workflow_from_request(self, request: Request) -> JSONResponse:
+        """
+        Run a workflow instance triggered by an incoming HTTP POST request.
+        Supports dynamic workflow name via query param (?name=...).
+
+        Args:
+            request (Request): The incoming request containing input data for the workflow.
+
+        Returns:
+            JSONResponse: A 202 Accepted response with the workflow instance ID if successful,
+                        or a 400/500 error response if the request fails validation or execution.
+        """
+        try:
+            # Extract workflow name from query parameters or use default
+            workflow_name = request.query_params.get("name") or self._workflow_name
+            if not workflow_name:
+                return JSONResponse(
+                    content={"error": "No workflow name specified."},
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Validate workflow name against registered workflows
+            if workflow_name not in self.workflows:
+                return JSONResponse(
+                    content={"error": f"Unknown workflow '{workflow_name}'. Available: {list(self.workflows.keys())}"},
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Parse body as CloudEvent or fallback to JSON
+            try:
+                event: CloudEvent = from_http(dict(request.headers), await request.body())
+                input_data = event.data
+            except Exception:
+                input_data = await request.json()
+
+            logger.info(f"Starting workflow '{workflow_name}' with input: {input_data}")
+            instance_id = self.run_workflow(workflow=workflow_name, input=input_data)
+
+            asyncio.create_task(self.monitor_workflow_completion(instance_id))
+
+            return JSONResponse(
+                content={"message": "Workflow initiated successfully.", "workflow_instance_id": instance_id},
+                status_code=status.HTTP_202_ACCEPTED,
+            )
+
+        except Exception as e:
+            logger.error(f"Error starting workflow: {str(e)}", exc_info=True)
+            return JSONResponse(
+                content={"error": "Failed to start workflow", "details": str(e)},
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
