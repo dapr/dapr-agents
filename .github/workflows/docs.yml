@@ -33,7 +33,7 @@ jobs:
 
   documentation_validation:
     needs: changed_files
-    name: Documantation validation
+    name: Documentation validation
     if: needs.changed_files.outputs.docs_any_changed == 'true'
     runs-on: ubuntu-latest
     steps:
