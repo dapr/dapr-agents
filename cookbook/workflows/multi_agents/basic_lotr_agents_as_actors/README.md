@@ -55,7 +55,7 @@ dapr run -f .
 Send an HTTP POST request to the workflow service to start the workflow. Use curl or any API client:
 
 ```bash
-curl -i -X POST http://localhost:8009/RunWorkflow \
+curl -i -X POST http://localhost:8009/start-workflow \
     -H "Content-Type: application/json" \
     -d '{"task": "Lets solve the riddle to open the Doors of Durin and enter Moria."}'
 ```

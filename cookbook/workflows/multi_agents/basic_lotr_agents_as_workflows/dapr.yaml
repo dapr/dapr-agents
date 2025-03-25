@@ -34,16 +34,15 @@ apps:
 - appID: LLMOrchestratorApp
   appDirPath: ./services/orchestrator/
   command: ["python3", "app.py"]
+  appPort: 8004
 
 #- appID: RandomApp
 #  appDirPath: ./services/workflow-random/
 #  appPort: 8009
 #  command: ["python3", "app.py"]
-#  daprGRPCPort: 50009
 
 #- appID: RoundRobinApp
 #  appDirPath: ./services/workflow-roundrobin/
 #  appPort: 8009
 #  command: ["python3", "app.py"]
-#  daprGRPCPort: 50009
 

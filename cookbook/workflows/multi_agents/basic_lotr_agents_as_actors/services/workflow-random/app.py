@@ -13,7 +13,8 @@ async def main():
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
             max_iterations=3
-        )
+        ).as_service(port=8004)
+        
         await random_workflow_service.start()
     except Exception as e:
         print(f"Error starting service: {e}")

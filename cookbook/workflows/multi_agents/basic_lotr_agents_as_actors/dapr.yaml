@@ -25,3 +25,4 @@ apps:
 - appID: WorkflowApp
   appDirPath: ./services/workflow-roundrobin/
   command: ["python3", "app.py"]
+  appPort: 8004

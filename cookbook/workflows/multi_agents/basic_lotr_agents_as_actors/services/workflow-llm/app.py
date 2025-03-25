@@ -13,7 +13,7 @@ async def main():
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
             max_iterations=25
-        )
+        ).as_service(port=8004)
 
         await agentic_orchestrator.start()
     except Exception as e:
