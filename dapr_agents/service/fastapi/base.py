@@ -102,7 +102,6 @@ class FastAPIServerBase(APIServerBase):
             sock = list(self.server.servers)[0].sockets[0]
             actual_port = sock.getsockname()[1]
             self.service_port = actual_port
-            logger.info(f"{self.service_name} is running at http://{self.service_host}:{self.service_port}")
         else:
             logger.warning(f"{self.service_name} could not determine bound port")
 

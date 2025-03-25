@@ -69,7 +69,7 @@ class MessageRoutingMixin:
                         raise ValueError(f"Unsupported message model for handler '{method_name}': {schema}")
 
                     schema_name = schema.__name__
-                    logger.info(f"Registering handler '{method_name}' for topic '{topic_name}' with model '{schema_name}'")
+                    logger.debug(f"Registering handler '{method_name}' for topic '{topic_name}' with model '{schema_name}'")
 
                     # Prevent multiple handlers for the same schema
                     if schema_name in self._topic_handlers[topic_key]:
