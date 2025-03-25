@@ -95,7 +95,7 @@ async def main():
             agent=hobbit_agent,
             message_bus_name="messagepubsub",
             agents_state_store_name="agentstatestore",
-            service_port8001,
+            service_port=8001,
         )
 
         await hobbit_service.start()
@@ -130,7 +130,7 @@ async def main():
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
             max_iterations=3
-        )
+        ).as_service(port=8004)
         await random_workflow.start()
     except Exception as e:
         print(f"Error starting workflow: {e}")
@@ -173,10 +173,11 @@ apps:
 - appID: WorkflowApp
   appDirPath: ./services/workflow-random/
   command: ["python3", "app.py"]
+  appPort: 8004
 
 - appID: ClientApp
   appDirPath: ./services/client/
-  command: ["python3", "client.py", "--orchestrator", "RandomOrchestrator"]
+  command: ["python3", "http_client.py"]
 ```
 
 Start all services using the Dapr CLI:

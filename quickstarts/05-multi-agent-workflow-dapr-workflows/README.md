@@ -131,7 +131,7 @@ async def main():
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
             max_iterations=3
-        )
+        ).as_service(port=8004)
         await random_workflow_service.start()
     except Exception as e:
         print(f"Error starting service: {e}")
@@ -171,10 +171,11 @@ apps:
 - appID: WorkflowApp
   appDirPath: ./services/workflow-random/
   command: ["python3", "app.py"]
+  appPort: 8004
 
 - appID: ClientApp
   appDirPath: ./services/client/
-  command: ["python3", "client.py", "--orchestrator", "RandomOrchestrator"]
+  command: ["python3", "http_client.py"]
 ```
 
 Start all services using the Dapr CLI:

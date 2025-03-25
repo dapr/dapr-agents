@@ -25,7 +25,8 @@ apps:
 - appID: WorkflowApp
   appDirPath: ./services/workflow-random/
   command: ["python3", "app.py"]
+  appPort: 8004
 
 - appID: ClientApp
   appDirPath: ./services/client/
-  command: ["python3", "client.py", "--orchestrator", "RandomOrchestrator"]
+  command: ["python3", "http_client.py"]
