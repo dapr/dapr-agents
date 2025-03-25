@@ -586,7 +586,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         """
         try:
             # Update the agents registry store with the new agent metadata
-            self.transcational_update_store(
+            self.transactional_update_store(
                 store_name=self.agents_registry_store_name,
                 key=self.agents_registry_key,
                 data={

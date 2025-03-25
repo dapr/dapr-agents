@@ -65,7 +65,7 @@ class WorkflowApp(BaseModel):
         # Proceed with base model setup
         super().model_post_init(__context)
     
-    def transcational_update_store(self, store_name: str, key: str, data: dict) -> None:
+    def transactional_update_store(self, store_name: str, key: str, data: dict) -> None:
         """
         Merges the existing data with the new data and updates the store.
 
