@@ -585,23 +585,18 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         Registers the agent's metadata in the Dapr state store under 'agents_metadata'.
         """
         try:
-            # Retrieve existing metadata (always returns a dict)
-            agents_metadata = self.get_agents_metadata()
-            agents_metadata[self.name] = self._agent_metadata
-
-            # Save the updated metadata back to Dapr store
-            with DaprClient() as client:
-                client.save_state(
-                    store_name=self.agents_registry_store_name,
-                    key=self.agents_registry_key,
-                    value=json.dumps(agents_metadata),
-                    state_metadata={"contentType": "application/json"}
-                )
-
+            # Update the agents registry store with the new agent metadata
+            self.transcational_update_store(
+                store_name=self.agents_registry_store_name,
+                key=self.agents_registry_key,
+                data={
+                    self.name: self._agent_metadata
+                }
+            )
             logger.info(f"{self.name} registered its metadata under key '{self.agents_registry_key}'")
-
         except Exception as e:
             logger.error(f"Failed to register metadata for agent {self.name}: {e}")
+            raise e
     
     async def run_workflow_from_request(self, request: Request) -> JSONResponse:
         """

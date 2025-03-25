@@ -1,6 +1,8 @@
 from dapr.ext.workflow import WorkflowRuntime, WorkflowActivityContext, DaprWorkflowClient
 from dapr.ext.workflow.workflow_state import WorkflowState
 from dapr.clients.grpc._response import StateResponse
+from dapr.clients.grpc._request import TransactionalStateOperation, TransactionOperationType
+from dapr.clients.grpc._state import StateOptions, Concurrency, Consistency
 from dapr.clients import DaprClient
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.workflow.task import WorkflowTask
@@ -16,6 +18,7 @@ import logging
 import uuid
 import json
 import sys
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,58 @@ class WorkflowApp(BaseModel):
         # Proceed with base model setup
         super().model_post_init(__context)
     
+    def transcational_update_store(self, store_name: str, key: str, data: dict) -> None:
+        """
+        Merges the existing data with the new data and updates the store.
+
+        Args:
+            store_name (str): The name of the Dapr state store component.
+            key (str): The key to update.
+            data (dict): The data to update the store with.
+        """
+        # retry the entire operation up to ten times sleeping 1 second between each attempt
+        for attempt in range(1, 11):
+            try:
+                response: StateResponse = self.client.get_state(store_name=store_name, key=key)
+                if not response.etag:
+                    # if there is no etag the following transaction won't work as expected
+                    # so we need to save an empty object with a strong consistency to force the etag to be created
+                    self.client.save_state(
+                        store_name=store_name,
+                        key=key,
+                        value=json.dumps({}),
+                        state_metadata={"contentType": "application/json"},
+                        options=StateOptions(concurrency=Concurrency.first_write, consistency=Consistency.strong)
+                    )
+                    # raise an exception to retry the entire operation
+                    raise Exception(f"No etag found for key: {key}")
+                existing_data = json.loads(response.data) if response.data else {}
+                merged_data = {**existing_data, **data}
+                logger.info(f"read and merged data: {merged_data} etag: {response.etag}")
+                try:
+                    # using the transactional API to be able to later support the Dapr outbox pattern
+                    self.client.execute_state_transaction(
+                        store_name=store_name,
+                        operations=[
+                            TransactionalStateOperation(
+                                key=key,
+                                data=json.dumps(merged_data),
+                                etag=response.etag,
+                                operation_type=TransactionOperationType.upsert
+                            )
+                        ],
+                        transactional_metadata={"contentType": "application/json"}
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating state store: {e}")
+                    raise e
+                return None
+            except Exception as e:
+                logger.error(f"Error on transaction attempt: {attempt}: {e}")
+                logger.info(f"Sleeping for 1 second before retrying transaction...")
+                time.sleep(1)
+        raise Exception(f"Failed to update state store key: {key} after 10 attempts.")
+
     def get_data_from_store(self, store_name: str, key: str) -> Tuple[bool, dict]:
         """
         Retrieves data from the Dapr state store using the given key.
