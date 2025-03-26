@@ -92,7 +92,7 @@ class WorkflowApp(BaseModel):
                     raise Exception(f"No etag found for key: {key}")
                 existing_data = json.loads(response.data) if response.data else {}
                 merged_data = {**existing_data, **data}
-                logger.info(f"read and merged data: {merged_data} etag: {response.etag}")
+                logger.debug(f"read and merged data: {merged_data} etag: {response.etag}")
                 try:
                     # using the transactional API to be able to later support the Dapr outbox pattern
                     self.client.execute_state_transaction(
