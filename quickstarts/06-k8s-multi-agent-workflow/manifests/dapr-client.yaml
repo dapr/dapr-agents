@@ -15,6 +15,6 @@ spec:
         app: dapr-client
     spec:
       containers:
-      - image: registry.registry:5000/dapr-client:latest
+      - image: localhost:5001/dapr-client:latest
         imagePullPolicy: Always
         name: dapr-client

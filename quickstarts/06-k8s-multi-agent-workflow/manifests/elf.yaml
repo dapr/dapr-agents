@@ -15,6 +15,6 @@ spec:
         app: elf
     spec:
       containers:
-      - image: registry.registry.svc.cluster.local:5000/elf:latest
+      - image: localhost:5001/elf:latest
         imagePullPolicy: Always
         name: elf

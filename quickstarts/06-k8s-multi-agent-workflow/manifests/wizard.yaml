@@ -15,6 +15,6 @@ spec:
         app: wizard
     spec:
       containers:
-      - image: registry.registry.svc.cluster.local:5000/wizard:latest
+      - image: localhost:5001/wizard:latest
         imagePullPolicy: Always
         name: wizard

@@ -15,6 +15,6 @@ spec:
         app: workflow-llm
     spec:
       containers:
-      - image: registry.registry.svc.cluster.local:5000/workflow-llm:latest
+      - image: localhost:5001/workflow-llm:latest
         imagePullPolicy: Always
         name: workflow-llm

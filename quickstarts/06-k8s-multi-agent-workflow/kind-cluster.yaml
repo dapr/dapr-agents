@@ -3,9 +3,9 @@ name: dapr-agents
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+  image: kindest/node:v1.32.3@sha256:b36e76b4ad37b88539ce5e07425f77b29f73a8eaaebf3f1a8bc9c764401d118c
 - role: worker
-  image: kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+  image: kindest/node:1.32.3@sha256:b36e76b4ad37b88539ce5e07425f77b29f73a8eaaebf3f1a8bc9c764401d118c
   extraPortMappings:
   - containerPort: 30080
     hostPort: 82
@@ -14,8 +14,5 @@ nodes:
     hostPort: 445
     protocol: TCP
   - containerPort: 30500
-    hostPort: 5500
+    hostPort: 5000
     protocol: TCP
-networking:
-  disableDefaultCNI: true
-  podSubnet: 192.168.0.0/16

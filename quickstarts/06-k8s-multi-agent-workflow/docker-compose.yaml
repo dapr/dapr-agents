@@ -1,41 +1,41 @@
 services:
   dapr-client:
-    image: registry.registry:5500/dapr-client:latest
+    image: localhost:5001/dapr-client:latest
     build:
       context: ../05-multi-agent-workflow-dapr-workflows
       dockerfile: ./services/client/Dockerfile
-      platforms:
-        - linux/amd64
-        - linux/arm64
+      # platforms:
+      #   - linux/amd64
+      #   - linux/arm64
   workflow-llm:
-    image: registry.registry:5500/workflow-llm:latest
+    image: localhost:5001/workflow-llm:latest
     build:
       context: ../05-multi-agent-workflow-dapr-workflows
       dockerfile: ./services/workflow-llm/Dockerfile
-      platforms:
-        - linux/amd64
-        - linux/arm64
+      # platforms:
+      #   - linux/amd64
+      #   - linux/arm64
   elf:
-    image: registry.registry:5500/elf:latest
+    image: localhost:5001/elf:latest
     build:
       context: ../05-multi-agent-workflow-dapr-workflows
       dockerfile: ./services/elf/Dockerfile
-      platforms:
-        - linux/amd64
-        - linux/arm64
+      # platforms:
+      #   - linux/amd64
+      #   - linux/arm64
   hobbit:
-    image: registry.registry:5500/hobbit:latest
+    image: localhost:5001/hobbit:latest
     build:
       context: ../05-multi-agent-workflow-dapr-workflows
       dockerfile: ./services/hobbit/Dockerfile
-      platforms:
-        - linux/amd64
-        - linux/arm64
+      # platforms:
+      #   - linux/amd64
+      #   - linux/arm64
   wizard:
-    image: registry.registry:5500/wizard:latest
+    image: localhost:5001/wizard:latest
     build:
       context: ../05-multi-agent-workflow-dapr-workflows
       dockerfile: ./services/wizard/Dockerfile
-      platforms:
-        - linux/amd64
-        - linux/arm64
+      # platforms:
+      #   - linux/amd64
+      #   - linux/arm64

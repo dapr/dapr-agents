@@ -15,6 +15,6 @@ spec:
         app: hobbit
     spec:
       containers:
-      - image: registry.registry.svc.cluster.local:5000/hobbit:latest
+      - image: localhost:5001/hobbit:latest
         imagePullPolicy: Always
         name: hobbit
