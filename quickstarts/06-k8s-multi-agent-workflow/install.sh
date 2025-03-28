@@ -5,6 +5,7 @@ unset DOCKER_DEFAULT_PLATFORM
 BASE_DIR=$(dirname "$0")
 
 # Create Registry
+echo "### Creating local registry... ###"
 REG_NAME='dapr-registry'
 REG_PORT='5001'
 if [ "$(docker inspect -f '{{.State.Running}}' "${REG_NAME}" 2>/dev/null || true)" != 'true' ]; then
@@ -12,8 +13,10 @@ if [ "$(docker inspect -f '{{.State.Running}}' "${REG_NAME}" 2>/dev/null || true
     -d --restart=always -p "127.0.0.1:${REG_PORT}:5000" --network bridge --name "${REG_NAME}" \
     registry:2
 fi
+echo "### Local registry created! ###s"
 
 # Create kind cluster with registry config
+echo "### Creating kind cluster... ###"
 CLUSTER_NAME='dapr-agents'
 cat <<EOF | kind create cluster --config=-
 kind: Cluster
@@ -29,8 +32,10 @@ containerdConfigPatches:
   [plugins."io.containerd.grpc.v1.cri".registry]
     config_path = "/etc/containerd/certs.d"
 EOF
+echo "### Kind cluster created! ###"
 
 # Add the registry to the nodes
+echo "### Adding registry to nodes... ###"
 REGISTRY_DIR="/etc/containerd/certs.d/localhost:${REG_PORT}"
 for node in $(kind get nodes -n ${CLUSTER_NAME}); do
   docker exec "${node}" mkdir -p "${REGISTRY_DIR}"
@@ -38,14 +43,18 @@ for node in $(kind get nodes -n ${CLUSTER_NAME}); do
 [host."http://${REG_NAME}:5000"]
 EOF
 done
+echo "### Registry added to nodes! ###"
 
 # Connect the registry to the cluster network
+echo "### Connecting registry to cluster network... ###"
 if [ "$(docker inspect -f='{{json .NetworkSettings.Networks.kind}}' "${REG_NAME}")" = 'null' ]; then
   docker network connect "kind" "${REG_NAME}"
 fi
+echo "### Registry connected to cluster network! ###"
 
 # Document the local registry
 # https://github.com/kubernetes/enhancements/tree/master/keps/sig-cluster-lifecycle/generic/1755-communicating-a-local-registry
+echo "### Documenting local registry... ###"
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -57,21 +66,27 @@ data:
     host: "localhost:${REG_PORT}"
     help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
 EOF
+echo "### Documenting local registry done! ###"
 
 build_images () {
-  echo "Building images... This takes a while..."
+  echo "### Building images... This takes a while... ###"
   docker-compose -f docker-compose.yaml build --no-cache
-  echo "Images built!"
-  echo "Pushing images to local registry... This takes a while..."
+  echo "### Images built! ###"
+  echo "### Pushing images to local registry... This takes a while... ###"
   docker push localhost:5001/dapr-client:latest 
   docker push localhost:5001/workflow-llm:latest
   docker push localhost:5001/elf:latest 
   docker push localhost:5001/hobbit:latest
   docker push localhost:5001/wizard:latest
-  echo "Images pushed!"
+  echo "#### Images pushed! ####"
 }
 
-echo "Installing Dapr..."
+echo "### Installing Bitnami Redis... ###"
+helm install dapr-redis oci://registry-1.docker.io/bitnamicharts/redis \
+  --wait &>/dev/null
+echo "### Bitnami Redis installed! ###"
+
+echo "### Installing Dapr... ####"
 helm repo add dapr https://dapr.github.io/helm-charts/ &>/dev/null && \
   helm repo update &>/dev/null && \
   helm upgrade --install dapr dapr/dapr \
@@ -79,15 +94,22 @@ helm repo add dapr https://dapr.github.io/helm-charts/ &>/dev/null && \
   --namespace dapr-system \
   --create-namespace \
   --set global.tag=1.15.2-mariner \
+  --set daprd.logLevel=DEBUG \
   --wait &>/dev/null
-echo "Dapr installed!"
+echo "### Dapr installed! ###"
 
-echo "Installing components..."
-kubectl apply -f ../05-multi-agent-workflow-dapr-workflows/components/ &>/dev/null
-echo "Components installed!"
+echo "### Installing components... ###"
+kubectl apply -f "${BASE_DIR}/components/" &>/dev/null
+echo "### Components installed! ###"
 
 build_images
 
-echo "Installing Dapr agents..."
-kubectl apply -f manifests/
-echo "Dapr agents installed!"
+echo "### Substituting OPENAI_API_KEY from .env file into... ###"
+set -o allexport
+source .env
+set +o allexport
+envsubst < dapr-llm.yaml | dapr run -k -f -
+echo "### Kubernetes secret generated! ###"
+
+echo "### Installing Dapr agents... This will keep running - Enjoy! ###"
+dapr run -f "${BASE_DIR}/dapr-llm.yaml" -k
