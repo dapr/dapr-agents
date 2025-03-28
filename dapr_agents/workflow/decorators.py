@@ -1,8 +1,10 @@
-from pydantic import BaseModel, ValidationError
-from typing import Callable, Any, Optional
-from dapr_agents.types import DaprWorkflowContext
 import functools
 import inspect
+from typing import Any, Callable, Optional
+
+from pydantic import BaseModel, ValidationError
+
+from dapr_agents.types import DaprWorkflowContext
 
 def route(path: str, method: str = "GET", **kwargs):
     """
@@ -30,28 +32,33 @@ def task(
     func: Optional[Callable] = None,
     *,
     name: Optional[str] = None,
-    description: Optional[str] = None, 
+    description: Optional[str] = None,
     agent: Optional[Any] = None,
     llm: Optional[Any] = None,
-    include_chat_history: bool = False
+    include_chat_history: bool = False,
+    **task_kwargs
 ) -> Callable:
     """
     Decorator to register a function as a Dapr workflow task.
-    Automatically injects WorkflowActivityContext and properly handles async tasks.
+
+    This allows configuring a task with an LLM, agent, chat history, and other options.
+    All additional keyword arguments are stored and forwarded to the WorkflowTask constructor.
 
     Args:
-        func (Callable, optional): Function to be wrapped as a workflow task.
-        name (Optional[str]): Task name.
-        description (Optional[str]): Task description.
-        agent (Optional[Any]): The agent to execute the task.
-        llm (Optional[Any]): The LLM client.
-        include_chat_history (bool, optional): Whether to include previous chat messages.
+        func (Optional[Callable]): The function to wrap. Can also be used as `@task(...)`.
+        name (Optional[str]): Optional custom task name. Defaults to the function name.
+        description (Optional[str]): Optional prompt template for LLM-based execution.
+        agent (Optional[Any]): Optional agent to handle the task instead of an LLM or function.
+        llm (Optional[Any]): Optional LLM client used to execute the task.
+        include_chat_history (bool): Whether to include prior messages in LLM calls.
+        **task_kwargs: Additional keyword arguments to forward to `WorkflowTask`.
 
     Returns:
-        Callable: The decorated function.
+        Callable: The decorated function with attached task metadata.
     """
-
+    
     if isinstance(func, str):
+        # Allow syntax: @task("some description")
         description = func
         func = None
 
@@ -59,7 +66,7 @@ def task(
         if not callable(f):
             raise ValueError(f"@task must be applied to a function, got {type(f)}.")
 
-        # Store metadata for task execution and discovery
+        # Attach task metadata for later consumption
         f._is_task = True
         f._task_name = name or f.__name__
         f._task_description = description
@@ -67,10 +74,11 @@ def task(
         f._task_llm = llm
         f._task_include_chat_history = include_chat_history
         f._explicit_llm = llm is not None or bool(description)
+        f._task_kwargs = task_kwargs  # Forward anything else (e.g., structured_mode)
 
         return f
 
-    return decorator(func) if func else decorator  # Supports both @task and @task(name="custom")
+    return decorator(func) if func else decorator # Supports both @task and @task(name="custom")
 
 def is_pydantic_model(obj: Any) -> bool:
     """Check if the given type is a subclass of Pydantic's BaseModel."""
