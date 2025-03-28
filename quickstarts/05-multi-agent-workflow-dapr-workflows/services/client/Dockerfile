@@ -7,5 +7,5 @@ COPY ./requirements.txt ./services/client/k8s_http_client.py ./
 RUN python -m pip install --upgrade pip && \
     pip install -r requirements.txt
 
-CMD ["python", "http_client.py"]
+CMD ["python", "k8s_http_client.py"]
 
