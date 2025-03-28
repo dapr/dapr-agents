@@ -1,18 +1,20 @@
-from pydantic import BaseModel, Field, ConfigDict, TypeAdapter, ValidationError
-from typing import Any, Callable, Optional, Union, get_origin, get_args, List
-from dapr_agents.types import ChatCompletion, BaseMessage, UserMessage
-from dapr_agents.llm.utils import StructureHandler
-from dapr_agents.llm.chat import ChatClientBase
-from dapr_agents.llm.openai import OpenAIChatClient
-from dapr_agents.agent.base import AgentBase
-from dapr.ext.workflow import WorkflowActivityContext
-from collections.abc import Iterable
-from functools import update_wrapper
-from types import SimpleNamespace
-from dataclasses import is_dataclass
 import asyncio
 import inspect
 import logging
+from dataclasses import is_dataclass
+from functools import update_wrapper
+from types import SimpleNamespace
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from dapr.ext.workflow import WorkflowActivityContext
+
+from dapr_agents.agent.base import AgentBase
+from dapr_agents.llm.chat import ChatClientBase
+from dapr_agents.llm.openai import OpenAIChatClient
+from dapr_agents.llm.utils import StructureHandler
+from dapr_agents.types import BaseMessage, ChatCompletion, UserMessage
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,8 @@ class WorkflowTask(BaseModel):
     llm: Optional[ChatClientBase] = Field(None, description="The LLM client for executing the task, if applicable.")
     include_chat_history: Optional[bool] = Field(False, description="Whether to include past conversation history in the LLM call.")
     workflow_app: Optional[Any] = Field(None, description="Reference to the WorkflowApp instance.")
+    structured_mode: Literal["json", "function_call"] = Field(default="json", description="Structured response mode for LLM output. Valid values: 'json', 'function_call'.")
+    task_kwargs: Dict[str, Any] = Field(default_factory=dict, exclude=True, description="Additional keyword arguments passed via the @task decorator.")
 
     # Initialized during setup
     signature: Optional[inspect.Signature] = Field(None, init=False, description="The signature of the provided function.")
@@ -47,6 +51,9 @@ class WorkflowTask(BaseModel):
             update_wrapper(self, self.func)
 
         self.signature = inspect.signature(self.func) if self.func else None
+
+        if not self.structured_mode and "structured_mode" in self.task_kwargs:
+            self.structured_mode = self.task_kwargs["structured_mode"]
 
         # Proceed with base model setup
         super().model_post_init(__context)
@@ -71,7 +78,7 @@ class WorkflowTask(BaseModel):
                     raise ValueError(f"Task {self.func.__name__} is LLM-based but has no description!")
 
                 result = await self._run_task(self.format_description(self.description, input))
-                result = await self._validate_output_llm(result)
+                result = await self._validate_output(result)
             elif self.func:
                 # Task is a Python function
                 logger.info(f"Invoking Regular Task")
@@ -117,7 +124,13 @@ class WorkflowTask(BaseModel):
 
         Returns:
             dict: Dictionary with parameter name as the key.
+
+        Raises:
+            ValueError: If no function signature is available.
         """
+        if not self.signature:
+            raise ValueError("Cannot convert single input to dict: function signature is missing.")
+
         param_name = list(self.signature.parameters.keys())[0]
         return {param_name: value}
     
@@ -178,51 +191,41 @@ class WorkflowTask(BaseModel):
         return self._convert_result(result)
     
     async def _run_llm(self, description: Union[str, List[BaseMessage]]) -> Any:
-        """
-        Execute the task using the provided LLM.
-
-        Args:
-            description (Union[str, List[BaseMessage]]): The description to pass to the LLM.
-        
-        Returns:
-            Any: The result of the LLM execution.
-        
-        Raises:
-            AttributeError: If the LLM method does not exist.
-            ValueError: If the LLM method is not callable.
-        """
         logger.info("Invoking Task with LLM...")
 
-        # Retrieve dynamic conversation history if enabled
+        # 1. Get chat history if enabled
         conversation_history = []
-        if self.include_chat_history and self.workflow_app is not None:
+        if self.include_chat_history and self.workflow_app:
             logger.info("Retrieving conversation history...")
             conversation_history = self.workflow_app.get_chat_history()
             logger.debug(f"Conversation history retrieved: {conversation_history}")
 
-        # Convert input description into message format
+        # 2. Convert string input to structured messages
         if isinstance(description, str):
-            description = [UserMessage(description)]  # Convert to structured message format
-        
-        # Combine conversation history with the new task description
+            description = [UserMessage(description)]
         llm_messages = conversation_history + description
-        llm_params = {'messages': llm_messages}
-        
-        # Add response model if specified in the function signature
+
+        # 3. Base LLM parameters
+        llm_params = {"messages": llm_messages}
+
+        # 4. Add structured response config if a valid Pydantic model is the return type
         if self.signature and self.signature.return_annotation is not inspect.Signature.empty:
-            return_annotation = self.signature.return_annotation
+            return_type = self.signature.return_annotation
+            model_cls = StructureHandler.resolve_response_model(return_type)
 
-            # Case 1: Return type is a single Pydantic model
-            if isinstance(return_annotation, type) and issubclass(return_annotation, BaseModel):
-                llm_params['response_format'] = return_annotation
+            # Only proceed if we resolved a Pydantic model
+            if model_cls:
+                if not hasattr(self.llm, "provider"):
+                    raise AttributeError(
+                        f"{type(self.llm).__name__} is missing the `.provider` attribute — required for structured response generation."
+                    )
 
-            # Case 2: Return type is a List[BaseModel] → Convert to Iterable[BaseModel]
-            elif get_origin(return_annotation) is list:
-                list_type = get_args(return_annotation)[0]  # Extract the Pydantic model type
-                if isinstance(list_type, type) and issubclass(list_type, BaseModel):
-                    llm_params['response_format'] = Iterable[list_type]
+                logger.debug(f"Using LLM provider: {self.llm.provider}")
 
-        # Execute the LLM method (async or sync)
+                llm_params["response_format"] = return_type
+                llm_params["structured_mode"] = self.structured_mode or "json"
+
+        # 5. Call the LLM client
         result = self.llm.generate(**llm_params)
 
         logger.debug(f"LLM result type: {type(result)}, value: {result}")
@@ -266,122 +269,28 @@ class WorkflowTask(BaseModel):
         """
         return self.func(**input)
     
-    async def _validate_output_llm(self, result: Any) -> Any:
-        """
-        Specialized validation for LLM task outputs.
-
-        Args:
-            result (Any): The result to validate.
-
-        Returns:
-            Any: The validated result.
-
-        Raises:
-            TypeError: If the result does not match the expected type or validation fails.
-        """
-        if asyncio.iscoroutine(result):
-            logger.error("Unexpected coroutine detected during validation.")
-            result = await result 
-
-        if self.signature:
-            expected_type = self.signature.return_annotation
-
-            if expected_type and expected_type is not inspect.Signature.empty:
-                origin = get_origin(expected_type)
-
-                # Handle Union types
-                if origin is Union:
-                    valid_types = get_args(expected_type)
-                    if not isinstance(result, valid_types):
-                        raise TypeError(f"Expected return type to be one of {valid_types}, but got {type(result)}")
-                    return result
-
-                # Handle Pydantic models
-                if isinstance(expected_type, type) and issubclass(expected_type, BaseModel):
-                    try:
-                        validated_result = StructureHandler.validate_response(result, expected_type)
-                        return validated_result.model_dump()
-                    except ValidationError as e:
-                        raise TypeError(f"Validation failed for type {expected_type}: {e}")
-
-                # Handle lists of Pydantic models
-                if origin is list:
-                    model_type = get_args(expected_type)[0]
-                    if issubclass(model_type, BaseModel):
-                        if not isinstance(result, list):
-                            raise TypeError(f"Expected a list of {model_type}, but got {type(result)}.")
-
-                        # Validate all items
-                        return [StructureHandler.validate_response(item, model_type).model_dump() for item in result]
-                
-        # If no specific validation applies, return the result as-is
-        return result
-    
     async def _validate_output(self, result: Any) -> Any:
         """
-        Validate the output of the task against the expected type.
+        Validates the output of the task against the expected return type.
 
-        Args:
-            result (Any): The result to validate.
+        Supports coroutine outputs and structured type validation.
 
         Returns:
-            Any: The validated result.
-
-        Raises:
-            ValidationError: If the result does not match the expected type.
+            Any: The validated and potentially transformed result.
         """
-        if self.signature:
-            expected_type = self.signature.return_annotation
+        if asyncio.iscoroutine(result):
+            logger.warning("Result is a coroutine; awaiting.")
+            result = await result
 
-            if expected_type and expected_type is not inspect.Signature.empty:
-                try:
-                    origin = get_origin(expected_type)  # Extracts base type (list, dict, etc.)
-                    args = get_args(expected_type)  # Extracts inner types
+        if not self.signature or self.signature.return_annotation is inspect.Signature.empty:
+            return result
 
-                    # Handle a single Pydantic model
-                    if isinstance(expected_type, type) and issubclass(expected_type, BaseModel):
-
-                        if isinstance(result, dict):  # Convert dict -> Pydantic model
-                            return expected_type(**result).model_dump()
-                        elif not isinstance(result, expected_type):
-                            raise TypeError(f"Expected {expected_type}, got {type(result)}")
-                        return result.model_dump()
-
-                    # Handle List[PydanticModel] safely
-                    elif origin is list and args:
-                        model_type = args[0]  # Extract inner type
-
-                        if isinstance(model_type, type) and issubclass(model_type, BaseModel):
-                            if not isinstance(result, list):
-                                raise TypeError(f"Expected a list of {model_type}, but got {type(result)}.")
-                            return [model_type(**item).model_dump() if isinstance(item, dict) else item.model_dump() for item in result]
-
-                        # Handle List[Dict[str, Any]] correctly
-                        elif model_type is dict:
-                            if not isinstance(result, list):
-                                raise TypeError(f"Expected a list of dictionaries, but got {type(result)}.")
-                            return result  # Already valid
-
-                    # Handle Dict[str, Any] directly
-                    elif origin is dict:
-                        if not isinstance(result, dict):
-                            raise TypeError(f"Expected a dictionary, but got {type(result)}.")
-                        return result  # Already valid
-
-                    # Handle primitive types (int, str, bool, etc.)
-                    adapter = TypeAdapter(expected_type)
-                    validated_result = adapter.validate_python(result)
-                    return validated_result
-
-                except ValidationError as e:
-                    logger.error(f"Validation failed for expected type {expected_type}. Error: {e}")
-                    raise TypeError(f"Invalid return type {expected_type}: {e}")
-
-        return result  # If no validation applies, return result as-is
+        expected_type = self.signature.return_annotation
+        return StructureHandler.validate_against_signature(result, expected_type)
 
 class TaskWrapper:
     """
-    A wrapper for the Task class that allows it to be used as a callable with a __name__ attribute.
+    A wrapper for WorkflowTask that preserves callable behavior and attributes like __name__.
     """
 
     def __init__(self, task_instance: WorkflowTask, name: str):
@@ -389,33 +298,25 @@ class TaskWrapper:
         Initialize the TaskWrapper.
 
         Args:
-            task_instance (Task): The task instance to wrap.
-            name (str): The name of the task.
+            task_instance (WorkflowTask): The task instance to wrap.
+            name (str): The task name.
         """
         self.task_instance = task_instance
         self.__name__ = name
+        self.__doc__ = getattr(task_instance.func, "__doc__", None)
+        self.__module__ = getattr(task_instance.func, "__module__", None)
 
     def __call__(self, *args, **kwargs):
         """
-        Delegate the call to the wrapped Task instance.
-
-        Args:
-            *args: Positional arguments to pass to the Task's __call__ method.
-            **kwargs: Keyword arguments to pass to the Task's __call__ method.
-
-        Returns:
-            Any: The result of the Task's __call__ method.
+        Delegate the call to the wrapped WorkflowTask instance.
         """
         return self.task_instance(*args, **kwargs)
 
     def __getattr__(self, item):
         """
-        Delegate attribute access to the Task instance.
-
-        Args:
-            item (str): The attribute to access.
-
-        Returns:
-            Any: The value of the attribute on the Task instance.
+        Delegate attribute access to the wrapped task.
         """
         return getattr(self.task_instance, item)
+
+    def __repr__(self):
+        return f"<TaskWrapper name={self.__name__}>"
