@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: hobbit
+  name: hobbit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hobbit
+  template:
+    metadata:
+      labels:
+        app: hobbit
+    spec:
+      containers:
+      - image: registry.registry.svc.cluster.local:5000/hobbit:latest
+        imagePullPolicy: Always
+        name: hobbit

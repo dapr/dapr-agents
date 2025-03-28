@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: workflow-llm
+  name: workflow-llm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workflow-llm
+  template:
+    metadata:
+      labels:
+        app: workflow-llm
+    spec:
+      containers:
+      - image: registry.registry.svc.cluster.local:5000/workflow-llm:latest
+        imagePullPolicy: Always
+        name: workflow-llm

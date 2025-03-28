@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: dapr-client
+  name: dapr-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dapr-client
+  template:
+    metadata:
+      labels:
+        app: dapr-client
+    spec:
+      containers:
+      - image: registry.registry-service.svc.cluster.local:5000/dapr-client:latest
+        imagePullPolicy: Always
+        name: dapr-client

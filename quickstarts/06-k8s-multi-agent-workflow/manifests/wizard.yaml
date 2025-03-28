@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: wizard
+  name: wizard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wizard
+  template:
+    metadata:
+      labels:
+        app: wizard
+    spec:
+      containers:
+      - image: registry.registry.svc.cluster.local:5000/wizard:latest
+        imagePullPolicy: Always
+        name: wizard
