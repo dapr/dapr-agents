@@ -1,10 +1,24 @@
-from typing import Type, TypeVar, Optional, Union, List, get_args, Any, Dict, Literal
-from pydantic import BaseModel, Field, create_model, ValidationError
-from dapr_agents.tool.utils.function_calling import to_function_call_definition
-from dapr_agents.types import StructureError, OAIJSONSchema, OAIResponseFormatSchema
-from collections.abc import Iterable
-import logging
 import json
+import logging
+from collections.abc import Iterable
+from typing import (
+    Annotated,
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Type,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
+
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, create_model
+
+from dapr_agents.tool.utils.function_calling import to_function_call_definition
+from dapr_agents.types import OAIJSONSchema, OAIResponseFormatSchema, StructureError
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +41,19 @@ class StructureHandler:
             return True
         except json.JSONDecodeError:
             return False
+    
+    @staticmethod
+    def normalize_iterable_format(tp: Any) -> Any:
+        origin = get_origin(tp)
+        args = get_args(tp)
+        
+        if origin in (list, List, tuple, Iterable) and args:
+            item_type = args[0]
+            if isinstance(item_type, type) and issubclass(item_type, BaseModel):
+                logger.debug("Detected iterable of BaseModel. Wrapping in generated Pydantic model.")
+                return StructureHandler.create_iterable_model(item_type)
+        
+        return tp
     
     @staticmethod
     def generate_request(
@@ -60,21 +87,17 @@ class StructureHandler:
         """
         logger.debug(f"Structured response mode: {structured_mode}")
 
+        response_format = StructureHandler.normalize_iterable_format(response_format)
+
         # Handle iterable models in both modes
-        is_iterable = isinstance(response_format, Iterable) and not isinstance(response_format, (dict, str))
-        if is_iterable:
-            logger.debug("Detected an iterable response format.")
-            item_model = get_args(response_format)[0]
-            response_format = StructureHandler.create_iterable_model(item_model)
-
         if structured_mode == "function_call":
-            # Ensure response_format is a valid Pydantic model
-            if not (isinstance(response_format, type) and issubclass(response_format, BaseModel)):
-                raise TypeError("function_call mode requires a Pydantic model or an iterable of it.")
+            model_cls = StructureHandler.resolve_response_model(response_format)
+            if not model_cls:
+                raise TypeError("function_call mode requires a single, unambiguous Pydantic model.")
 
-            name = response_format.__name__
-            description = response_format.__doc__ or ""
-            model_tool_format = to_function_call_definition(name, description, response_format, llm_provider)
+            name = model_cls.__name__
+            description = model_cls.__doc__ or ""
+            model_tool_format = to_function_call_definition(name, description, model_cls, llm_provider)
 
             params["tools"] = [model_tool_format]
             params["tool_choice"] = {
@@ -85,6 +108,7 @@ class StructureHandler:
 
         elif structured_mode == "json":
             try:
+                logger.debug(f"generate_request called with type={type(response_format)}, mode={structured_mode}, provider={llm_provider}")
                 # If it's a dict, assume it's already a JSON schema; otherwise, try to create from model
                 if isinstance(response_format, dict):
                     raw_schema = response_format
@@ -122,9 +146,9 @@ class StructureHandler:
                 raise ValueError(f"Invalid response_format provided: {e}")
 
             return params
-
+        
         else:
-            raise ValueError(f"Unsupported structured_mode: {structured_mode}")
+            raise ValueError(f"Unsupported structured_mode: {structured_mode}. Must be 'json' or 'function_call'.")
 
     @staticmethod
     def create_iterable_model(
@@ -223,7 +247,7 @@ class StructureHandler:
                     return content
 
                 else:
-                    raise ValueError(f"Unsupported structured_mode: {structured_mode}")
+                    raise ValueError(f"Unsupported structured_mode: {structured_mode}. Must be 'json' or 'function_call'.")
             else:
                 raise StructureError(f"Unsupported LLM provider: {llm_provider}")
         except Exception as e:
@@ -394,3 +418,134 @@ class StructureHandler:
                 schema[key] = [StructureHandler.enforce_strict_json_schema(subschema) for subschema in schema[key]]
 
         return schema
+    
+    @staticmethod
+    def unwrap_annotated_type(tp: Any) -> Any:
+        origin = get_origin(tp)
+        if origin is Annotated:
+            args = get_args(tp)
+            return StructureHandler.unwrap_annotated_type(args[0])
+        if hasattr(tp, "__supertype__"):  # for NewType
+            return StructureHandler.unwrap_annotated_type(tp.__supertype__)
+        return tp
+    
+    @staticmethod
+    def resolve_all_pydantic_models(tp: Any) -> List[Type[BaseModel]]:
+        """
+        Extracts all Pydantic models from a typing annotation.
+
+        Handles:
+        - Single BaseModel
+        - List[BaseModel], Iterable[BaseModel]
+        - Union[...] with optional or multiple model types
+
+        Returns:
+            List[Type[BaseModel]]
+        """
+        models = []
+
+        tp = StructureHandler.unwrap_annotated_type(tp)
+
+        origin = get_origin(tp)
+        args = get_args(tp)
+
+        if isinstance(tp, type) and issubclass(tp, BaseModel):
+            return [tp]
+
+        if origin in (list, List, tuple, Iterable) and args:
+            inner = args[0]
+            if isinstance(inner, type) and issubclass(inner, BaseModel):
+                return [inner]
+
+        if origin is Union:
+            for arg in args:
+                if isinstance(arg, type) and issubclass(arg, BaseModel):
+                    models.append(arg)
+
+        return list(dict.fromkeys(models))
+    
+    @staticmethod
+    def resolve_response_model(tp: Any) -> Optional[Type[BaseModel]]:
+        """
+        Resolves a single Pydantic model from a type annotation if available.
+
+        This method attempts to extract exactly one BaseModel from the given type. It is used
+        to determine if structured output formatting (e.g., JSON schema or function call) should be applied.
+
+        - If the annotation is a BaseModel or a container of one (e.g., List[BaseModel]), it returns the model.
+        - If no Pydantic models are found (e.g., str, int), it returns None without logging.
+        - If multiple Pydantic models are found (e.g., Union[ModelA, ModelB]), it logs a warning and returns None.
+
+        Args:
+            tp (Any): The return type annotation to analyze.
+
+        Returns:
+            Optional[Type[BaseModel]]: The resolved model class, or None if not applicable or ambiguous.
+        """
+        tp = StructureHandler.unwrap_annotated_type(tp)
+        models = StructureHandler.resolve_all_pydantic_models(tp)
+
+        if len(models) == 1:
+            return models[0]
+        elif len(models) == 0:
+            return None  # No model = primitive or unsupported type → silently skip
+        else:
+            logger.warning(f"Ambiguous model resolution: found multiple models in {tp}. Returning None.")
+            return None
+    
+    @staticmethod
+    def validate_against_signature(result: Any, expected_type: Any) -> Any:
+        """
+        Validates a result against an expected return annotation type.
+
+        Supports:
+        - Single BaseModel
+        - List[BaseModel]
+        - Union[BaseModel, ...]
+        - Primitives (int, str, bool, etc.)
+        - Dict[str, Any], List[Dict[str, Any]]
+
+        Returns:
+            Any: The validated and possibly transformed result (e.g., model_dump()).
+
+        Raises:
+            TypeError: If validation fails or types mismatch.
+        """
+        expected_type = StructureHandler.unwrap_annotated_type(expected_type)
+
+        origin = get_origin(expected_type)
+        args = get_args(expected_type)
+
+        # Handle one or more BaseModels
+        models = StructureHandler.resolve_all_pydantic_models(expected_type)
+        for model_cls in models:
+            try:
+                if isinstance(result, list):
+                    return [StructureHandler.validate_response(item, model_cls).model_dump() for item in result]
+                else:
+                    validated = StructureHandler.validate_response(result, model_cls)
+                    return validated.model_dump()
+            except ValidationError:
+                continue
+
+        # Handle Union[str, dict, etc.]
+        if origin is Union:
+            for variant in args:
+                if isinstance(variant, type) and isinstance(result, variant):
+                    return result
+
+        # Handle Dict[str, Any]
+        if origin is dict and isinstance(result, dict):
+            return result
+
+        # Handle List[Dict[str, Any]]
+        if origin is list and args and args[0] is dict and isinstance(result, list):
+            return result
+
+        # Fallback for primitives via TypeAdapter
+        try:
+            logger.debug(f"Falling back to TypeAdapter for type: {expected_type}")
+            adapter = TypeAdapter(expected_type)
+            return adapter.validate_python(result)
+        except ValidationError as e:
+            raise TypeError(f"Validation failed for type {expected_type}: {e}")
