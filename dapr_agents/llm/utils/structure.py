@@ -431,36 +431,38 @@ class StructureHandler:
     
     @staticmethod
     def resolve_all_pydantic_models(tp: Any) -> List[Type[BaseModel]]:
-        """
-        Extracts all Pydantic models from a typing annotation.
-
-        Handles:
-        - Single BaseModel
-        - List[BaseModel], Iterable[BaseModel]
-        - Union[...] with optional or multiple model types
-
-        Returns:
-            List[Type[BaseModel]]
-        """
         models = []
 
         tp = StructureHandler.unwrap_annotated_type(tp)
-
         origin = get_origin(tp)
         args = get_args(tp)
 
-        if isinstance(tp, type) and issubclass(tp, BaseModel):
-            return [tp]
+        if isinstance(tp, type):
+            try:
+                if issubclass(tp, BaseModel):
+                    return [tp]
+            except TypeError:
+                pass
 
         if origin in (list, List, tuple, Iterable) and args:
             inner = args[0]
-            if isinstance(inner, type) and issubclass(inner, BaseModel):
-                return [inner]
+            if isinstance(inner, type):
+                try:
+                    if issubclass(inner, BaseModel):
+                        return [inner]
+                except TypeError:
+                    pass
+            else:
+                logger.debug(f"[resolve] Skipping non-class inner: {inner} ({type(inner)})")
 
         if origin is Union:
             for arg in args:
-                if isinstance(arg, type) and issubclass(arg, BaseModel):
-                    models.append(arg)
+                if isinstance(arg, type):
+                    try:
+                        if issubclass(arg, BaseModel):
+                            models.append(arg)
+                    except TypeError:
+                        continue
 
         return list(dict.fromkeys(models))
     
