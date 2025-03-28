@@ -5,7 +5,7 @@ import sys
 
 
 if __name__ == "__main__":
-    status_url = "http://workflow-llm:8004/status"
+    status_url = "http://workflow-llm/status"
     healthy = False
     for attempt in range(1, 11):
         try:
@@ -30,7 +30,7 @@ if __name__ == "__main__":
         print("Workflow app is not healthy!")
         sys.exit(1)
 
-    workflow_url = "http://workflow-llm:8004/start-workflow"
+    workflow_url = "http://workflow-llm/start-workflow"
     task_payload = {"task": "How to get to Mordor? We all need to help!"}
 
     for attempt in range(1, 11):
