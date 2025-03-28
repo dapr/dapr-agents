@@ -1,24 +1,28 @@
-from dapr.ext.workflow import WorkflowRuntime, WorkflowActivityContext, DaprWorkflowClient
-from dapr.ext.workflow.workflow_state import WorkflowState
-from dapr.clients.grpc._response import StateResponse
-from dapr.clients.grpc._request import TransactionalStateOperation, TransactionOperationType
-from dapr.clients.grpc._state import StateOptions, Concurrency, Consistency
-from dapr.clients import DaprClient
-from dapr_agents.types.workflow import DaprWorkflowStatus
-from dapr_agents.workflow.task import WorkflowTask
-from dapr_agents.llm.chat import ChatClientBase
-from dapr_agents.workflow.utils import get_callable_decorated_methods
-from typing import Any, Callable, Optional, Dict, Union, List, Tuple, TypeVar
-from pydantic import BaseModel, Field, ConfigDict
-from durabletask import task as dtask
-import functools
 import asyncio
+import functools
 import inspect
-import logging
-import uuid
 import json
+import logging
 import sys
 import time
+import uuid
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from durabletask import task as dtask
+
+from dapr.clients import DaprClient
+from dapr.clients.grpc._request import TransactionOperationType, TransactionalStateOperation
+from dapr.clients.grpc._response import StateResponse
+from dapr.clients.grpc._state import Concurrency, Consistency, StateOptions
+from dapr.ext.workflow import DaprWorkflowClient, WorkflowActivityContext, WorkflowRuntime
+from dapr.ext.workflow.workflow_state import WorkflowState
+
+from dapr_agents.llm.chat import ChatClientBase
+from dapr_agents.types.workflow import DaprWorkflowStatus
+from dapr_agents.workflow.task import WorkflowTask
+from dapr_agents.workflow.utils import get_callable_decorated_methods
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +172,9 @@ class WorkflowApp(BaseModel):
             # If task is explicitly LLM-based, but has no LLM, use `self.llm`
             if explicit_llm and self.llm is not None:
                 llm = self.llm 
-            
+
+            task_kwargs = getattr(method, "_task_kwargs", {})
+
             task_instance = WorkflowTask(
                 func=method,
                 description=getattr(method, "_task_description", None),
@@ -176,6 +182,7 @@ class WorkflowApp(BaseModel):
                 llm=llm,
                 include_chat_history=getattr(method, "_task_include_chat_history", False),
                 workflow_app=self,
+                **task_kwargs
             )
 
             def run_in_event_loop(coroutine):
