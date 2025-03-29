@@ -11,4 +11,4 @@ spec:
     targetPort: 0
   selector:
     app: hobbit
-  type: LoadBalancer
+  type: ClusterIP

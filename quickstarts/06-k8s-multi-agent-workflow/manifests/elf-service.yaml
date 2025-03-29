@@ -11,4 +11,4 @@ spec:
     targetPort: 0
   selector:
     app: elf
-  type: LoadBalancer
+  type: ClusterIP

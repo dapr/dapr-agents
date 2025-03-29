@@ -11,4 +11,4 @@ spec:
     targetPort: 8004
   selector:
     app: workflow-llm
-  type: LoadBalancer
+  type: ClusterIP

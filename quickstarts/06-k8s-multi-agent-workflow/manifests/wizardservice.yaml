@@ -11,4 +11,4 @@ spec:
     targetPort: 0
   selector:
     app: wizard
-  type: LoadBalancer
+  type: ClusterIP
