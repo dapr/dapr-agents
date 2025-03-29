@@ -104,12 +104,8 @@ echo "### Components installed! ###"
 
 build_images
 
-echo "### Substituting OPENAI_API_KEY from .env file into... ###"
+echo "### Substituting OPENAI_API_KEY from .env file into dapr-llm.yaml and run in Kubernetes... Enjoy! ###"
 set -o allexport
 source .env
 set +o allexport
 envsubst < dapr-llm.yaml | dapr run -k -f -
-echo "### Kubernetes secret generated! ###"
-
-echo "### Installing Dapr agents... This will keep running - Enjoy! ###"
-dapr run -f "${BASE_DIR}/dapr-llm.yaml" -k
