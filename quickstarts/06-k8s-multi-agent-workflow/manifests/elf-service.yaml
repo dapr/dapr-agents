@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: elf
+  name: elf
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 0
+  selector:
+    app: elf
+  type: LoadBalancer

@@ -28,3 +28,17 @@ The script will:
 1. Push the images to local in-cluster registry
 1. Install the [components for the agents](./components/)
 1. Run with `dapr run -f dapr-llm.yaml -k`
+
+### Install through manifests
+
+First create a secret from your `.env` file:
+
+```bash
+kubectl create secret generic openai-secrets --from-env-file=.env --namespace default --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Then deploy the manifests:
+
+```bash
+kubectl apply -f manifests/
+```

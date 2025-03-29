@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: dapr-client
+  name: dapr-client
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 0
+  selector:
+    app: dapr-client
+  type: LoadBalancer
