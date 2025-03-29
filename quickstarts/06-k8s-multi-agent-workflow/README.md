@@ -49,7 +49,7 @@ kubectl apply -f manifests/
 Port forward the `workload-llm` pod:
 
 ```bash
-kubectl port-forward -n default svc/workflow-llm 8004:80 &
+kubectl port-forward -n default svc/workflow-llm 8004:80 &>/dev/null &
 ```
 
 Trigger the client:
