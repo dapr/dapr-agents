@@ -73,7 +73,6 @@ build_images () {
   docker-compose -f docker-compose.yaml build --no-cache
   echo "### Images built! ###"
   echo "### Pushing images to local registry... This takes a while... ###"
-  docker push localhost:5001/dapr-client:latest 
   docker push localhost:5001/workflow-llm:latest
   docker push localhost:5001/elf:latest 
   docker push localhost:5001/hobbit:latest
@@ -104,8 +103,20 @@ echo "### Components installed! ###"
 
 build_images
 
-echo "### Substituting OPENAI_API_KEY from .env file into dapr-llm.yaml and run in Kubernetes... Enjoy! ###"
-set -o allexport
-source .env
-set +o allexport
-envsubst < dapr-llm.yaml | dapr run -k -f -
+echo "### Creating Kubernetes secret from .env file... ###"
+kubectl create secret generic openai-secrets \
+  --from-env-file="${BASE_DIR}/.env" \
+  --dry-run=client -o yaml | kubectl apply -f -
+echo "### Kubernetes secret created! ###"
+
+echo "### Creating manifests... ###"
+kubectl apply -f "${BASE_DIR}/manifests/" &>/dev/null
+echo "### Manifests created! ###"
+
+echo "### Port forwarding the workflow-llm pod... ###"
+kubectl port-forward -n default svc/workflow-llm 8004:8004 &>/dev/null &
+echo "### Port forwarding the workflow-llm pod... ###"
+
+echo "### Trigger workflow... ###"
+python3.10 -m pip install -r "${BASE_DIR}/services/client/requirements.txt" &>/dev/null
+python3.10 "${BASE_DIR}/services/client/k8s_http_client.py" &>/dev/null
