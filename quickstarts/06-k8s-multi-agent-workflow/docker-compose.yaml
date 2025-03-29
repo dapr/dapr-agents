@@ -1,26 +1,21 @@
 services:
-  dapr-client:
-    image: localhost:5001/dapr-client:latest
-    build:
-      context: ../05-multi-agent-workflow-dapr-workflows
-      dockerfile: ./services/client/Dockerfile
   workflow-llm:
     image: localhost:5001/workflow-llm:latest
     build:
-      context: ../05-multi-agent-workflow-dapr-workflows
-      dockerfile: ./services/workflow-llm/Dockerfile
+      context: ../
+      dockerfile: ./06-k8s-multi-agent-workflow/services/workflow-llm/Dockerfile
   elf:
     image: localhost:5001/elf:latest
     build:
-      context: ../05-multi-agent-workflow-dapr-workflows
-      dockerfile: ./services/elf/Dockerfile
+      context: ../
+      dockerfile: ./06-k8s-multi-agent-workflow/services/elf/Dockerfile
   hobbit:
     image: localhost:5001/hobbit:latest
     build:
-      context: ../05-multi-agent-workflow-dapr-workflows
-      dockerfile: ./services/hobbit/Dockerfile
+      context: ../
+      dockerfile: ./06-k8s-multi-agent-workflow/services/hobbit/Dockerfile
   wizard:
     image: localhost:5001/wizard:latest
     build:
-      context: ../05-multi-agent-workflow-dapr-workflows
-      dockerfile: ./services/wizard/Dockerfile
+      context: ../
+      dockerfile: ./06-k8s-multi-agent-workflow/services/wizard/Dockerfile
