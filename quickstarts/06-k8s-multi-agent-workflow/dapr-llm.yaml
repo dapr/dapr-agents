@@ -32,6 +32,5 @@ apps:
     appDirPath: ./
     containerImage: localhost:5001/dapr-client:latest
     containerImagePullPolicy: Always
-    createService: true
     env:
       OPENAI_API_KEY: ""
