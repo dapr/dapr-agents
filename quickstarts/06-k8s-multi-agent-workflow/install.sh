@@ -114,8 +114,11 @@ kubectl apply -f "${BASE_DIR}/manifests/" &>/dev/null
 echo "### Manifests created! ###"
 
 echo "### Port forwarding the workflow-llm pod... ###"
+while [[ $(kubectl get pods -l app=workflow-llm -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
+  sleep 1
+done
 kubectl port-forward -n default svc/workflow-llm 8004:8004 &>/dev/null &
-echo "### Port forwarding the workflow-llm pod... ###"
+echo "### Port forwarded the workflow-llm pod... ###"
 
 echo "### Trigger workflow... ###"
 python3.10 -m pip install -r "${BASE_DIR}/services/client/requirements.txt" &>/dev/null
