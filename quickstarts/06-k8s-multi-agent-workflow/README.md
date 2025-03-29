@@ -27,7 +27,10 @@ The script will:
 1. Build the images for [05-multi-agent-workflow-dapr-workflows](../05-multi-agent-workflow-dapr-workflows/)
 1. Push the images to local in-cluster registry
 1. Install the [components for the agents](./components/)
-1. Run with `dapr run -f dapr-llm.yaml -k`
+1. Create the kubernetes secret form `.env` file
+1. Deploy the [manifests for the agents](./manifests/)
+1. Port forward the `workload-llm` pod on port `8004`
+1. Trigger the workflow for getting to Morder by [k8s_http_client.py](./services/client/k8s_http_client.py)
 
 ### Install through manifests
 
@@ -43,10 +46,14 @@ Then deploy the manifests:
 kubectl apply -f manifests/
 ```
 
-Finally we execute the `Job` for the `dapr-client`:
+Port forward the `workload-llm` pod:
 
 ```bash
-kubectl create job --from=cronjob/dapr-client dapr-client-01
+kubectl port-forward -n default svc/workflow-llm 8004:8004 &
 ```
 
-As the `CronJob` is created with `.spec.suspend=true` it will **not** automatically trigger a job. This allows us to retrigger the job as per above by enumerating `dapr-client-0n`.
+Trigger the client:
+
+```bash
+python3 services/client/k8s_http_client.py
+```
