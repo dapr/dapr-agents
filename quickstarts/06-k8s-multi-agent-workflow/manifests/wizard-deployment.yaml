@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wizard
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wizard
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        dapr.io/app-id: wizard
+        dapr.io/enabled: "true"
+        dapr.io/metrics-port: "59074"
+        dapr.io/unix-domain-socket-path: ""
+      creationTimestamp: null
+      labels:
+        app: wizard
+    spec:
+      containers:
+      - env:
+        - name: DAPR_METRICS_PORT
+          value: "59074"
+        - name: DEBUG
+          value: "true"
+        - name: APP_ID
+          value: wizard
+        - name: APP_CHANNEL_ADDRESS
+        envFrom:
+        - secretRef:
+            name: openai-secrets
+        image: localhost:5001/wizard:latest
+        imagePullPolicy: Always
+        name: wizard
+        resources: {}
