@@ -4,38 +4,23 @@ services:
     build:
       context: ../05-multi-agent-workflow-dapr-workflows
       dockerfile: ./services/client/Dockerfile
-      # platforms:
-      #   - linux/amd64
-      #   - linux/arm64
   workflow-llm:
     image: localhost:5001/workflow-llm:latest
     build:
       context: ../05-multi-agent-workflow-dapr-workflows
       dockerfile: ./services/workflow-llm/Dockerfile
-      # platforms:
-      #   - linux/amd64
-      #   - linux/arm64
   elf:
     image: localhost:5001/elf:latest
     build:
       context: ../05-multi-agent-workflow-dapr-workflows
       dockerfile: ./services/elf/Dockerfile
-      # platforms:
-      #   - linux/amd64
-      #   - linux/arm64
   hobbit:
     image: localhost:5001/hobbit:latest
     build:
       context: ../05-multi-agent-workflow-dapr-workflows
       dockerfile: ./services/hobbit/Dockerfile
-      # platforms:
-      #   - linux/amd64
-      #   - linux/arm64
   wizard:
     image: localhost:5001/wizard:latest
     build:
       context: ../05-multi-agent-workflow-dapr-workflows
       dockerfile: ./services/wizard/Dockerfile
-      # platforms:
-      #   - linux/amd64
-      #   - linux/arm64
