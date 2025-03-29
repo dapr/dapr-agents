@@ -1,6 +1,23 @@
 # Run Multi agent workflows in Kubernetes
 
-## Headless run
+This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using Dapr Agents running on Kubernetes.
+
+## Prerequisites
+
+- Python 3.10 (recommended)
+- pip package manager
+- OpenAI API key
+- Dapr CLI and Docker installed
+
+## Configuration
+
+1. Create a `.env` file for your API keys:
+
+```env
+OPENAI_API_KEY=your_api_key_here
+```
+
+## Install through script
 
 The script will:
 
