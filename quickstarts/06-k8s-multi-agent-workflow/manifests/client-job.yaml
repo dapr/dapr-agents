@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dapr-client
+spec:
+  template:
+    metadata:
+      annotations:
+        dapr.io/enabled: "false"
+      labels:
+        app: dapr-client
+    spec:
+      containers:
+      - name: dapr-client
+        env:
+        - name: DEBUG
+          value: "true"
+        image: localhost:5001/dapr-client:latest
+        imagePullPolicy: Always
+      restartPolicy: Never
+  backoffLimit: 4
