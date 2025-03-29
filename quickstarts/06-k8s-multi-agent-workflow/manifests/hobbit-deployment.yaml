@@ -32,7 +32,6 @@ spec:
         envFrom:
         - secretRef:
             name: openai-secrets
-        image: localhost:5001/workflow-llm:latest
         image: localhost:5001/hobbit:latest
         imagePullPolicy: Always
         name: hobbit
