@@ -42,3 +42,11 @@ Then deploy the manifests:
 ```bash
 kubectl apply -f manifests/
 ```
+
+Finally we execute the `Job` for the `dapr-client`:
+
+```bash
+kubectl create job --from=cronjob/dapr-client dapr-client-01
+```
+
+As the `CronJob` is created with `.spec.suspend=true` it will **not** automatically trigger a job. This allows us to retrigger the job as per above by enumerating `dapr-client-0n`.
