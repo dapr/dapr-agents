@@ -5,7 +5,7 @@ import time
 
 def call_trigger_job(task):
     task_payload = {"task": task}
-    base_url = "http://localhost:8004"
+    base_url = "http://localhost:80"
     workflow_url = f"{base_url}/start-workflow"
     status_url = f"{base_url}/status"
 
