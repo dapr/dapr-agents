@@ -7,7 +7,8 @@ import logging
 async def main():
     try:
         hobbit_service = AssistantAgent(
-            name="Frodo", role="Hobbit",
+            name="Frodo",
+            role="Hobbit",
             goal="Carry the One Ring to Mount Doom, resisting its corruptive power while navigating danger and uncertainty.",
             instructions=[
                 "Speak like Frodo, with humility, determination, and a growing sense of resolve.",
