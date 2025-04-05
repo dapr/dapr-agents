@@ -185,7 +185,7 @@ class WorkflowTask(BaseModel):
         """
         logger.info("Invoking Task with AI Agent...")
 
-        result = self.agent.run(task=description)
+        result = await self.agent.run(description)
 
         logger.debug(f"Agent result type: {type(result)}, value: {result}")
         return self._convert_result(result)

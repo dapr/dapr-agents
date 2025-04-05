@@ -6,7 +6,7 @@ from dapr_agents.types import DaprWorkflowContext
 from dapr_agents.workflow.decorators import task, workflow
 from dapr_agents.workflow.messaging.decorator import message_router
 from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
-from dapr_agents.workflow.orchestrators.llm.schemas import BroadcastMessage, TriggerAction, NextStep, AgentTaskResponse, ProgressCheckOutput, PLAN_SCHEMA, NEXT_STEP_SCHEMA, PROGRESS_CHECK_SCHEMA
+from dapr_agents.workflow.orchestrators.llm.schemas import BroadcastMessage, TriggerAction, NextStep, AgentTaskResponse, ProgressCheckOutput, schemas
 from dapr_agents.workflow.orchestrators.llm.prompts import TASK_INITIAL_PROMPT, TASK_PLANNING_PROMPT, NEXT_STEP_PROMPT, PROGRESS_CHECK_PROMPT, SUMMARY_GENERATION_PROMPT
 from dapr_agents.workflow.orchestrators.llm.state import LLMWorkflowState, LLMWorkflowEntry, LLMWorkflowMessage, PlanStep, TaskResult
 from dapr_agents.workflow.orchestrators.llm.utils import update_step_statuses, restructure_plan, find_step_in_plan
@@ -75,7 +75,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                 logger.info(f"Initial message from User -> {self.name}")
             
             # Generate the plan using a language model
-            plan = yield ctx.call_activity(self.generate_plan, input={"task": task, "agents": agents, "plan_schema": PLAN_SCHEMA})
+            plan = yield ctx.call_activity(self.generate_plan, input={"task": task, "agents": agents, "plan_schema": schemas.plan})
 
             # Prepare initial message with task, agents and plan context
             initial_message = yield ctx.call_activity(self.prepare_initial_message, input={"instance_id": instance_id, "task": task, "agents": agents, "plan": plan})
@@ -84,7 +84,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             yield ctx.call_activity(self.broadcast_message_to_agents, input={"instance_id": instance_id, "task": initial_message})
         
         # Step 4: Identify agent and instruction for the next step
-        next_step = yield ctx.call_activity(self.generate_next_step, input={"task": task, "agents": agents, "plan": plan, "next_step_schema": NEXT_STEP_SCHEMA})
+        next_step = yield ctx.call_activity(self.generate_next_step, input={"task": task, "agents": agents, "plan": plan, "next_step_schema": schemas.next_step})
 
         # Extract Additional Properties from NextStep
         next_agent = next_step["next_agent"]
@@ -122,7 +122,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             yield ctx.call_activity(self.update_task_history, input={"instance_id": instance_id, "agent": next_agent, "step": step_id, "substep": substep_id, "results": task_results})
             
             # Step 10: Check progress
-            progress = yield ctx.call_activity(self.check_progress, input={ "task": task, "plan": plan, "step": step_id, "substep": substep_id, "results": task_results["content"], "progress_check_schema": PROGRESS_CHECK_SCHEMA})
+            progress = yield ctx.call_activity(self.check_progress, input={ "task": task, "plan": plan, "step": step_id, "substep": substep_id, "results": task_results["content"], "progress_check_schema": schemas.progress_check})
             
             if not ctx.is_replaying:
                 logger.info(f"Tracking Progress: {progress}")

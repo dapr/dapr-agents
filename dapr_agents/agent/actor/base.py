@@ -98,7 +98,8 @@ class AgentActorBase(Actor, AgentActorInterface):
 
         try:
             # Run the task if provided, or fallback to agent.run() if no task
-            result = self.agent.run(task) if task else self.agent.run()
+            task_input = task or None
+            result = await self.agent.run(task_input)
 
             # Update the task entry with the result and mark as COMPLETE
             task_entry.output = result

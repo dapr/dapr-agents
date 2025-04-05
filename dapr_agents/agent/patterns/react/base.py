@@ -1,10 +1,16 @@
-from dapr_agents.types import AgentError, AssistantMessage, ChatCompletion, FunctionCall
+import json
+import logging
+import textwrap
+from datetime import datetime
+
+import regex
+from pydantic import ConfigDict, Field
+
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+
 from dapr_agents.agent import AgentBase
 from dapr_agents.tool import AgentTool
-from typing import List, Dict, Any, Union, Callable, Literal, Optional, Tuple
-from datetime import datetime
-from pydantic import Field, ConfigDict
-import regex, json, textwrap, logging
+from dapr_agents.types import AgentError, AssistantMessage, ChatCompletion
 
 logger = logging.getLogger(__name__)
 
@@ -104,32 +110,29 @@ class ReActAgent(AgentBase):
 
         return "\n\n".join(prompt_parts)
     
-    def run(self, input_data: Optional[Union[str, Dict[str, Any]]] = None) -> Any:
+    async def run(self, input_data: Optional[Union[str, Dict[str, Any]]] = None) -> Any:
         """
-        Runs the main logic loop for processing the task and executing actions until a result is reached.
+        Runs the agent in a ReAct-style loop until it generates a final answer or reaches max iterations.
 
         Args:
-            input_data (Optional[Union[str, Dict[str, Any]]]): The task or data for the agent to process. If None, relies on memory.
+            input_data (Optional[Union[str, Dict[str, Any]]]): Initial task or message input.
 
         Returns:
-            Any: Final response after processing the task or reaching a final answer.
+            Any: The agent's final answer.
 
         Raises:
-            AgentError: On errors during chat message processing or action execution.
+            AgentError: If LLM fails or tool execution encounters issues.
         """
-        logger.debug(f"Agent run started with input: {input_data if input_data else 'Using memory context'}")
+        logger.debug(f"Agent run started with input: {input_data or 'Using memory context'}")
 
         # Format messages; construct_messages already includes chat history.
         messages = self.construct_messages(input_data or {})
-
-        # Get Last User Message
         user_message = self.get_last_user_message(messages)
-        
-        if input_data:
-            # Add the new user message to memory only if input_data is provided
-            if user_message:  # Ensure a user message exists before adding to memory
-                self.memory.add_message(user_message)
 
+        # Add the new user message to memory only if input_data is provided and user message exists.
+        if input_data and user_message:
+            self.memory.add_message(user_message)
+        
         # Always print the last user message for context, even if no input_data is provided
         if user_message:
             self.text_formatter.print_message(user_message)
@@ -139,7 +142,7 @@ class ReActAgent(AgentBase):
 
         # Initialize react_loop for iterative reasoning
         react_loop = ""
-        
+
         for iteration in range(self.max_iterations):
             logger.info(f"Iteration {iteration + 1}/{self.max_iterations} started.")
 
@@ -162,103 +165,123 @@ class ReActAgent(AgentBase):
                     iteration_messages[-1]["content"] += f"\n{react_loop}"  # Append react_loop to the last message
 
             try:
-                response: ChatCompletion = self.llm.generate(messages=iteration_messages, stop=self.stop_at_token)
+                response: ChatCompletion = self.llm.generate(
+                    messages=iteration_messages, stop=self.stop_at_token
+                )
 
                 # Parse response into thought, action, and potential final answer
                 thought_action, action, final_answer = self.parse_response(response)
 
                 # Print Thought immediately
                 self.text_formatter.print_react_part("Thought", thought_action)
-                
-                if final_answer:  # Direct final answer provided
-                    assistant_final_message = AssistantMessage(final_answer)
-                    self.memory.add_message(assistant_final_message)
+
+                if final_answer:
+                    assistant_final = AssistantMessage(final_answer)
+                    self.memory.add_message(assistant_final)
                     self.text_formatter.print_separator()
-                    self.text_formatter.print_message(assistant_final_message, include_separator=False)
+                    self.text_formatter.print_message(assistant_final, include_separator=False)
                     logger.info("Agent provided a direct final answer.")
                     return final_answer
-                
+
                 # If there's no action, update the loop and continue reasoning
-                if action is None:
+                if not action:
                     logger.info("No action specified; continuing with further reasoning.")
                     react_loop += f"Thought:{thought_action}\n"
                     continue  # Proceed to the next iteration
-        
+
                 action_name = action["name"]
                 action_args = action["arguments"]
 
                 # Print Action
                 self.text_formatter.print_react_part("Action", json.dumps(action))
 
-                if action_name in available_tools:
-                    logger.info(f"Executing {action_name} with arguments {action_args}")
-                    function_call = FunctionCall(**action)
-                    execution_results = self.tool_executor.execute(action_name, **function_call.arguments_dict)
-                    
-                    # Print Observation
-                    self.text_formatter.print_react_part("Observation", execution_results)
-
-                    # Update react_loop with the current execution
-                    new_content = f"Thought:{thought_action}\nAction:{action}\nObservation:{execution_results}"
-                    react_loop += new_content
-                    logger.info(new_content)
-                else:
+                if action_name not in available_tools:
                     raise AgentError(f"Unknown tool specified: {action_name}")
-            
+
+                logger.info(f"Executing {action_name} with arguments {action_args}")
+                result = await self.tool_executor.run_tool(action_name, **action_args)
+
+                # Print Observation
+                self.text_formatter.print_react_part("Observation", result)
+                react_loop += f"Thought:{thought_action}\nAction:{json.dumps(action)}\nObservation:{result}\n"
+
             except Exception as e:
-                logger.error(f"Failed during chat generation: {e}")
-                raise AgentError(f"Failed during chat generation: {e}") from e
-        
-        logger.info("Max iterations completed. Agent has stopped.")
+                logger.error(f"Error during ReAct agent loop: {e}")
+                raise AgentError(f"ReActAgent failed: {e}") from e
+
+        logger.info("Max iterations reached. Agent has stopped.")
+    
     
     def parse_response(self, response: ChatCompletion) -> Tuple[str, Optional[dict], Optional[str]]:
         """
-        Extracts the thought, action, and final answer (if present) from the language model response.
+        Parses a ReAct-style LLM response into a Thought, optional Action (JSON blob), and optional Final Answer.
 
         Args:
-            response (ChatCompletion): The language model's response message.
+            response (ChatCompletion): The LLM response object containing the message content.
 
         Returns:
-            tuple: (thought content, action dictionary if present, final answer if present)
+            Tuple[str, Optional[dict], Optional[str]]:
+                - Thought string.
+                - Parsed Action dictionary, if present.
+                - Final Answer string, if present.
+        """
+        pattern = r'\{(?:[^{}]|(?R))*\}'  # Recursive pattern to match nested JSON blobs
+        content = response.get_content()
+
+        # Compile reusable regex patterns
+        action_split_regex = regex.compile(r'action:\s*', flags=regex.IGNORECASE)
+        final_answer_regex = regex.compile(r'answer:\s*(.*)', flags=regex.IGNORECASE | regex.DOTALL)
+        thought_label_regex = regex.compile(r'thought:\s*', flags=regex.IGNORECASE)
+
+        # Strip leading "Thought:" labels (they get repeated a lot)
+        content = thought_label_regex.sub('', content).strip()
+
+        # Check if there's a final answer present
+        if final_match := final_answer_regex.search(content):
+            final_answer = final_match.group(1).strip()
+            logger.debug(f"[parse_response] Final answer detected: {final_answer}")
+            return content, None, final_answer
+
+        # Split on first "Action:" to separate Thought and Action
+        if action_split_regex.search(content):
+            thought_part, action_block = action_split_regex.split(content, 1)
+            thought_part = thought_part.strip()
+            logger.debug(f"[parse_response] Thought extracted: {thought_part}")
+            logger.debug(f"[parse_response] Action block to parse: {action_block.strip()}")
+        else:
+            logger.debug(f"[parse_response] No action or answer found. Returning content as Thought: {content}")
+            return content, None, None
+
+        # Attempt to extract the first valid JSON blob from the action block
+        for match in regex.finditer(pattern, action_block, flags=regex.DOTALL):
+            try:
+                action_dict = json.loads(match.group())
+                logger.debug(f"[parse_response] Successfully parsed action: {action_dict}")
+                return thought_part, action_dict, None
+            except json.JSONDecodeError as e:
+                logger.debug(f"[parse_response] Failed to parse action JSON blob: {match.group()} — {e}")
+                continue
+
+        logger.debug(f"[parse_response] No valid action JSON found. Returning Thought only.")
+        return thought_part, None, None
+    
+    async def run_tool(self, tool_name: str, *args, **kwargs) -> Any:
+        """
+        Executes a tool by name, resolving async or sync tools automatically.
+
+        Args:
+            tool_name (str): The name of the registered tool.
+            *args: Positional arguments.
+            **kwargs: Keyword arguments.
+
+        Returns:
+            Any: The tool result.
 
         Raises:
-            ValueError: If the action details cannot be decoded from the response.
+            AgentError: If execution fails.
         """
-        pattern = r'\{(?:[^{}]|(?R))*\}'  # Pattern to match JSON blobs
-        message_content = response.get_content()
-
-        # Use regex to find the start of "Action" or "Final Answer" (case insensitive)
-        action_split_regex = regex.compile(r'(?i)action:\s*', regex.IGNORECASE)
-        final_answer_regex = regex.compile(r'(?i)answer:\s*(.*)', regex.IGNORECASE | regex.DOTALL)
-        thought_label_regex = regex.compile(r'(?i)thought:\s*', regex.IGNORECASE)
-
-        # Clean up any repeated or prefixed "Thought:" labels
-        message_content = thought_label_regex.sub('', message_content).strip()
-
-        # Check for "Final Answer" directly in the thought
-        final_answer_match = final_answer_regex.search(message_content)
-        if final_answer_match:
-            final_answer = final_answer_match.group(1).strip() if final_answer_match.group(1) else None
-            return message_content, None, final_answer
-
-        # Split the content into "thought" and "action" parts
-        if action_split_regex.search(message_content):
-            parts = action_split_regex.split(message_content, 1)
-            thought_part = parts[0].strip()  # Everything before "Action" is the thought part
-            action_part = parts[1] if len(parts) > 1 else None  # Everything after "Action" is the action part
-        else:
-            thought_part = message_content
-            action_part = None
-
-        # If there's an action part, attempt to extract the JSON blob
-        if action_part:
-            matches = regex.finditer(pattern, action_part, regex.DOTALL)
-            for match in matches:
-                try:
-                    action_dict = json.loads(match.group())
-                    return thought_part, action_dict, None  # Return thought and action directly
-                except json.JSONDecodeError:
-                    continue
-
-        # If no action is found, just return the thought part with None for action and final answer
-        return thought_part, None, None
+        try:
+            return await self.tool_executor.run_tool(tool_name, *args, **kwargs)
+        except Exception as e:
+            logger.error(f"Failed to run tool '{tool_name}' via ReActAgent: {e}")
+            raise AgentError(f"Error running tool '{tool_name}': {e}") from e

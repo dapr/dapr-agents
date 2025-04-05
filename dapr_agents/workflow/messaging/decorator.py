@@ -34,16 +34,11 @@ def message_router(
     """
 
     def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
-
-        logger.debug(f"Inspecting function '{f.__name__}' for message routing.")
-
         is_workflow = hasattr(f, "_is_workflow")
         workflow_name = getattr(f, "_workflow_name", None)
 
         type_hints = get_type_hints(f)
         raw_hint = type_hints.get("message", None)
-
-        logger.debug(f"Found type hint on 'message': {raw_hint}")
 
         message_models = extract_message_models(raw_hint)
 
@@ -53,8 +48,8 @@ def message_router(
         for model in message_models:
             if not is_valid_routable_model(model):
                 raise TypeError(f"Handler '{f.__name__}' has unsupported message type: {model}")
-    
-        logger.debug(f"Extracted message models: {[m.__name__ for m in message_models]}")
+
+        logger.debug(f"@message_router: '{f.__name__}' => models {[m.__name__ for m in message_models]}")
 
         # Attach metadata for later registration
         f._is_message_handler = True

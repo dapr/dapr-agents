@@ -1,9 +1,11 @@
+from functools import cached_property
+import json
+from typing import List, Optional, Literal
+from pydantic import BaseModel, Field
+
 from dapr_agents.workflow.orchestrators.llm.state import PlanStep
 from dapr_agents.types.message import BaseMessage
 from dapr_agents.llm.utils import StructureHandler
-from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
-import json
 
 class BroadcastMessage(BaseMessage):
     """
@@ -50,6 +52,24 @@ class ProgressCheckOutput(BaseModel):
     plan_restructure: Optional[List[PlanStep]] = Field(None, description="A list of restructured steps. Only one step should be modified at a time.")
 
 # Schemas used in Prompts
-PLAN_SCHEMA = json.dumps(StructureHandler.enforce_strict_json_schema(TaskPlan.model_json_schema())["properties"]["plan"])
-PROGRESS_CHECK_SCHEMA = json.dumps(StructureHandler.enforce_strict_json_schema(ProgressCheckOutput.model_json_schema()))
-NEXT_STEP_SCHEMA = json.dumps(NextStep.model_json_schema())
+class Schemas:
+    """Lazily evaluated JSON schemas used in prompt calls."""
+
+    @cached_property
+    def plan(self) -> str:
+        return json.dumps(
+            StructureHandler.enforce_strict_json_schema(TaskPlan.model_json_schema())["properties"]["plan"]
+        )
+
+    @cached_property
+    def progress_check(self) -> str:
+        return json.dumps(
+            StructureHandler.enforce_strict_json_schema(ProgressCheckOutput.model_json_schema())
+        )
+
+    @cached_property
+    def next_step(self) -> str:
+        return json.dumps(NextStep.model_json_schema())
+
+
+schemas = Schemas()

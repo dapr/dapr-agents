@@ -285,8 +285,7 @@ class AssistantAgent(AgentWorkflowBase):
             function_args_as_dict = json.loads(function_args) if function_args else {}
 
             # Execute tool function
-            result = self.tool_executor.execute(function_name, **function_args_as_dict)
-
+            result = await self.tool_executor.run_tool(function_name, **function_args_as_dict)
             # Construct tool execution message payload
             workflow_tool_message = {
                 "tool_call_id": tool_call.get("id"),

@@ -1,16 +1,18 @@
-from dapr_agents.tool.utils.function_calling import to_function_call_definition
-from pydantic import BaseModel, Field, ValidationError, model_validator
-from typing import Callable, Type, Optional, Any, Dict
-from dapr_agents.tool.utils.tool import ToolHelper
-from inspect import signature, Parameter
-from dapr_agents.types import ToolError
+import inspect
 import logging
+from typing import Callable, Type, Optional, Any, Dict
+from inspect import signature, Parameter
+from pydantic import BaseModel, Field, ValidationError, model_validator, PrivateAttr
+
+from dapr_agents.tool.utils.tool import ToolHelper
+from dapr_agents.tool.utils.function_calling import to_function_call_definition
+from dapr_agents.types import ToolError
 
 logger = logging.getLogger(__name__)
 
 class AgentTool(BaseModel):
     """
-    Base class for agent tools, structuring both class-based and function-based tools.
+    Base class for agent tools, supporting both synchronous and asynchronous execution.
     
     Attributes:
         name (str): The tool's name.
@@ -23,23 +25,18 @@ class AgentTool(BaseModel):
     args_model: Optional[Type[BaseModel]] = Field(None, description="Pydantic model for validating tool arguments.")
     func: Optional[Callable] = Field(None, description="Optional function implementing the tool's behavior.")
 
+    _is_async: bool = PrivateAttr(default=False)
+
     @model_validator(mode='before')
     @classmethod
     def set_name_and_description(cls, values: dict) -> dict:
         """
-        Validator to dynamically set `name` and `description` before Pydantic validation.
-        This ensures that the `name` is formatted and derived either from the class or from the `func`.
-        
-        Args:
-            values (dict): A dictionary of field values before validation.
-
-        Returns:
-            dict: Updated field values after processing.
+        Validator to dynamically set `name` and `description` before validation.
         """
-        func = values.get('func')
+        func = values.get("func")
         if func:
-            values['name'] = values.get('name', func.__name__)
-            values['description'] = func.__doc__
+            values.setdefault("name", func.__name__)
+            values.setdefault("description", func.__doc__ or "")
         return values
 
     @classmethod
@@ -64,10 +61,10 @@ class AgentTool(BaseModel):
         self.name = self.name.replace(' ', '_').title().replace('_', '')
 
         if self.func:
+            self._is_async = inspect.iscoroutinefunction(self.func)
             self._initialize_from_func(self.func)
         else:
             self._initialize_from_run()
-        
         return super().model_post_init(__context)
 
     def _initialize_from_func(self, func: Callable) -> None:
@@ -79,70 +76,69 @@ class AgentTool(BaseModel):
         """Initialize Tool fields based on the abstract `_run` method."""
         if self.args_model is None:
             self.args_model = ToolHelper.infer_func_schema(self._run)
-
-    def _run(self, *args, **kwargs) -> Any:
-        """Provide default implementation of _run to support function-based tools."""
-        if self.func:
-            return self.func(*args, **kwargs)
-        raise NotImplementedError("No function or _run method defined for this tool.")
     
-    def run(self, *args, **kwargs) -> Any:
+    def _validate_and_prepare_args(self, func: Callable, *args, **kwargs) -> Dict[str, Any]:
         """
-        Executes the tool by running either the class-based `_run` method or the function-based `func`.
-        
+        Normalize and validate arguments for the given function.
+
         Args:
-            *args: Positional arguments for the tool.
-            **kwargs: Keyword arguments for the tool.
+            func (Callable): The function whose signature is used.
+            *args: Positional arguments.
+            **kwargs: Keyword arguments.
 
         Returns:
-            Any: The result of executing the tool.
+            Dict[str, Any]: Validated and prepared arguments.
 
         Raises:
-            ValidationError: If argument validation fails.
-            ToolError: If any other error occurs during execution.
-        """
-        try:
-            if self.func:
-                return self._run_function(*args, **kwargs)
-            return self._run_method(*args, **kwargs)
-        except ValidationError as e:
-            self._log_and_raise_error(e)
-        except Exception as e:
-            self._log_and_raise_error(e)
-
-    def _run_method(self, *args, **kwargs) -> Any:
-        """Validates and executes the class-based `_run` method."""
-        return self._execute_with_signature(self._run, *args, **kwargs)
-
-    def _run_function(self, *args, **kwargs) -> Any:
-        """Validates and executes the provided function `func`."""
-        return self._execute_with_signature(self.func, *args, **kwargs)
-
-    def _execute_with_signature(self, func: Callable, *args, **kwargs) -> Any:
-        """
-        Validates and executes a function (either class-based or function-based) using its signature.
-        
-        Args:
-            func (Callable): The function to execute.
-            *args: Positional arguments for the function.
-            **kwargs: Keyword arguments for the function.
-
-        Returns:
-            Any: The result of executing the function.
+            ToolError: If argument validation fails.
         """
         sig = signature(func)
-        
-        # Update kwargs with args by mapping positional arguments to parameter names
         if args:
             arg_names = list(sig.parameters.keys())
             kwargs.update(dict(zip(arg_names, args)))
 
-        # Validate and execute the function
         if self.args_model:
-            validated_args = self.args_model(**kwargs)  # Validate keyword arguments
-            kwargs = validated_args.model_dump()  # Convert validated model back to dict
+            try:
+                validated_args = self.args_model(**kwargs)
+                return validated_args.model_dump()
+            except ValidationError as ve:
+                logger.debug(f"Validation failed for tool '{self.name}': {ve}")
+                raise ToolError(f"Validation error in tool '{self.name}': {ve}") from ve
 
-        return func(**kwargs)
+        return kwargs
+    
+    def run(self, *args, **kwargs) -> Any:
+        """
+        Execute the tool synchronously.
+
+        Raises:
+            ToolError if the tool is async or execution fails.
+        """
+        if self._is_async:
+            raise ToolError(f"Tool '{self.name}' is async and must be awaited. Use `await tool.arun(...)` instead.")
+        try:
+            func = self.func or self._run
+            kwargs = self._validate_and_prepare_args(func, *args, **kwargs)
+            return func(**kwargs)
+        except Exception as e:
+            self._log_and_raise_error(e)
+    
+    async def arun(self, *args, **kwargs) -> Any:
+        """
+        Execute the tool asynchronously (whether it's sync or async under the hood).
+        """
+        try:
+            func = self.func or self._run
+            kwargs = self._validate_and_prepare_args(func, *args, **kwargs)
+            return await func(**kwargs) if self._is_async else func(**kwargs)
+        except Exception as e:
+            self._log_and_raise_error(e)
+    
+    def _run(self, *args, **kwargs) -> Any:
+        """Fallback default run logic if no `func` is set."""
+        if self.func:
+            return self.func(*args, **kwargs)
+        raise NotImplementedError("No function or _run method defined for this tool.")
 
     def _log_and_raise_error(self, error: Exception) -> None:
         """Log the error and raise a ToolError."""
@@ -150,7 +146,14 @@ class AgentTool(BaseModel):
         raise ToolError(f"An error occurred during the execution of tool '{self.name}': {str(error)}")
 
     def __call__(self, *args, **kwargs) -> Any:
-        """Allow the AgentTool instance to be called like a regular function."""
+        """
+        Enables `tool(...)` syntax.
+
+        Raises:
+            ToolError: if async tool is called without `await`.
+        """
+        if self._is_async:
+            raise ToolError(f"Tool '{self.name}' is async and must be awaited. Use `await tool.arun(...)`.")
         return self.run(*args, **kwargs)
 
     def to_function_call(self, format_type: str = 'openai', use_deprecated: bool = False) -> Dict:
@@ -175,9 +178,9 @@ class AgentTool(BaseModel):
         """Returns a JSON-serializable dictionary of the tool's function args_model."""
         if self.args_model:
             schema = self.args_model.model_json_schema()
-            for property_details in schema.get('properties', {}).values():
-                property_details.pop('title', None)
-            return schema["properties"]
+            for prop in schema.get("properties", {}).values():
+                prop.pop("title", None)
+            return schema.get("properties", {})
         return {}
 
     @property
