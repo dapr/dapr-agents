@@ -42,6 +42,12 @@ First create a secret from your `.env` file:
 kubectl create secret generic openai-secrets --from-env-file=.env --namespace default --dry-run=client -o yaml | kubectl apply -f -
 ```
 
+Then build the images locally with `docker-compose`:
+
+```bash
+docker-compose -f docker-compose.yaml build --no-cache
+```
+
 Then deploy the manifests:
 
 ```bash
