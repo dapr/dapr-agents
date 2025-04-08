@@ -78,11 +78,12 @@ In order to use Azure OpenAI for the model you'll need the following `.env` file
 AZURE_OPENAI_API_KEY=your_custom_key
 AZURE_OPENAI_ENDPOINT=your_custom_endpoint
 AZURE_OPENAI_DEPLOYMENT=your_custom_model
+AZURE_OPENAI_API_VERSION="azure_openai_api_version"
 ```
 
-**NB!** the `AZURE_OPENAI_DEPLOYMENT` refers to the _model_, e.g., `gpt-4o`.
+**NB!** the `AZURE_OPENAI_DEPLOYMENT` refers to the _model_, e.g., `gpt-4o`. `AZURE_OPENAI_API_VERSION` has been tested to work against `2024-08-01-preview`.
 
-Then instansiate the agent(s) as follows:
+Then instansiate the agent(s) as well as the orchestrator as follows:
 
 ```python
 from dapr_agents import AssistantAgent, OpenAIChatClient
@@ -95,7 +96,8 @@ async def main():
     llm = OpenAIChatClient(
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION")
     )
     
     try:
