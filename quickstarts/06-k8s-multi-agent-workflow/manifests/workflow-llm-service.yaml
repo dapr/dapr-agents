@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: workflow-llm
+  name: workflow-llm
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 8004
+  selector:
+    app: workflow-llm
+  type: ClusterIP

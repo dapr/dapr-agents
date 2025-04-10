@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hobbit
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hobbit
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        dapr.io/app-id: hobbit
+        dapr.io/enabled: "true"
+        dapr.io/metrics-port: "59160"
+        dapr.io/unix-domain-socket-path: ""
+      creationTimestamp: null
+      labels:
+        app: hobbit
+    spec:
+      containers:
+      - env:
+        - name: APP_ID
+          value: hobbit
+        - name: APP_CHANNEL_ADDRESS
+        - name: DAPR_METRICS_PORT
+          value: "59160"
+        - name: DEBUG
+          value: "true"
+        envFrom:
+        - secretRef:
+            name: openai-secrets
+        image: localhost:5001/hobbit:latest
+        imagePullPolicy: Always
+        name: hobbit
+        resources: {}
