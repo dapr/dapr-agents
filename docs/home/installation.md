@@ -68,10 +68,56 @@ Redis Insight makes it easy to visualize and manage the data powering your agent
 
 ![](../img/home_installation_redis_dashboard.png)
 
-## Using custom OpenAI endpoints
+## Using custom endpoints
 
-To use a custom OpenAI endpoint follow the below instructions for adding the custom endpoint to the `.env` file. Keep the key in the `OPENAI_API_KEY=your_api_key_here`.
+### Azure hosted OpenAI endpoint
 
-| Provider | Environment variable |
-|---|-----|
-| Azure OpenAI | AZURE_OPENAI_ENDPOINT=your_custom_endpoint_here |
+In order to use Azure OpenAI for the model you'll need the following `.env` file:
+
+```env
+AZURE_OPENAI_API_KEY=your_custom_key
+AZURE_OPENAI_ENDPOINT=your_custom_endpoint
+AZURE_OPENAI_DEPLOYMENT=your_custom_model
+AZURE_OPENAI_API_VERSION="azure_openai_api_version"
+```
+
+**NB!** the `AZURE_OPENAI_DEPLOYMENT` refers to the _model_, e.g., `gpt-4o`. `AZURE_OPENAI_API_VERSION` has been tested to work against `2024-08-01-preview`.
+
+Then instansiate the agent(s) as well as the orchestrator as follows:
+
+```python
+from dapr_agents import AssistantAgent, OpenAIChatClient
+from dotenv import load_dotenv
+import asyncio
+import logging
+import os
+
+async def main():
+    llm = OpenAIChatClient(
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION")
+    )
+    
+    try:
+        elf_service = AssistantAgent(
+            name="Legolas", role="Elf",
+            goal="Act as a scout, marksman, and protector, using keen senses and deadly accuracy to ensure the success of the journey.",
+            instructions=[
+                "Speak like Legolas, with grace, wisdom, and keen observation.",
+                "Be swift, silent, and precise, moving effortlessly across any terrain.",
+                "Use superior vision and heightened senses to scout ahead and detect threats.",
+                "Excel in ranged combat, delivering pinpoint arrow strikes from great distances.",
+                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."],
+            llm=llm, # Note the explicit reference to the above OpenAIChatClient 
+            message_bus_name="messagepubsub",
+            state_store_name="workflowstatestore",
+            state_key="workflow_state",
+            agents_registry_store_name="agentstatestore",
+            agents_registry_key="agents_registry",
+        )
+...
+```
+
+The above is taken from [multi-agent quick starter](https://github.com/dapr/dapr-agents/blob/main/quickstarts/05-multi-agent-workflow-dapr-workflows/services/elf/app.py#L1-L23).

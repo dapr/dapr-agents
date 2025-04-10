@@ -7,7 +7,8 @@ import logging
 async def main():
     try:
         elf_service = AssistantAgent(
-            name="Legolas", role="Elf",
+            name="Legolas",
+            role="Elf",
             goal="Act as a scout, marksman, and protector, using keen senses and deadly accuracy to ensure the success of the journey.",
             instructions=[
                 "Speak like Legolas, with grace, wisdom, and keen observation.",

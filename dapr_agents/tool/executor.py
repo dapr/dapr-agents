@@ -1,84 +1,60 @@
-from dapr_agents.types import AgentToolExecutorError, ToolError
+import logging
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, PrivateAttr
-from dapr_agents.tool import AgentTool
-from typing import Any, Dict, List
 from rich.table import Table
 from rich.console import Console
-import logging
+
+from dapr_agents.tool import AgentTool
+from dapr_agents.types import AgentToolExecutorError, ToolError
 
 logger = logging.getLogger(__name__)
 
+
 class AgentToolExecutor(BaseModel):
     """
-    Manages the registration and execution of tools, providing efficient access and validation
-    for tool instances by name.
-    """
+    Manages the registration and execution of tools, providing both sync and async interfaces.
 
+    Attributes:
+        tools (List[AgentTool]): List of tools to register and manage.
+    """
     tools: List[AgentTool] = Field(default_factory=list, description="List of tools to register and manage.")
     _tools_map: Dict[str, AgentTool] = PrivateAttr(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:
-        """
-        Registers each tool after model initialization, populating `_tools_map`.
-        """
-        if self.tools:  # Only register tools if the list is not empty
-            for tool in self.tools:
-                self.register_tool(tool)
-            logger.info(f"Tool Executor initialized with {len(self.tools)} registered tools.")
-        else:
-            logger.info("Tool Executor initialized with no tools to register.")
-
-        # Complete post-initialization
+        """Initializes the internal tools map after model creation."""
+        for tool in self.tools:
+            self.register_tool(tool)
+        logger.info(f"Tool Executor initialized with {len(self._tools_map)} tool(s).")
         super().model_post_init(__context)
 
     def register_tool(self, tool: AgentTool) -> None:
         """
-        Registers a tool, ensuring no duplicate names.
+        Registers a tool instance, ensuring no duplicate names.
 
         Args:
-            tool (AgentTool): The tool instance to register.
+            tool (AgentTool): The tool to register.
 
         Raises:
-            AgentToolExecutorError: If a tool with the same name is already registered.
+            AgentToolExecutorError: If the tool name is already registered.
         """
         if tool.name in self._tools_map:
-            logger.error(f"Attempt to register duplicate tool: {tool.name}")
+            logger.error(f"Attempted to register duplicate tool: {tool.name}")
             raise AgentToolExecutorError(f"Tool '{tool.name}' is already registered.")
         self._tools_map[tool.name] = tool
         logger.info(f"Tool registered: {tool.name}")
-    
-    def execute(self, tool_name: str, *args, **kwargs) -> Any:
+
+    def get_tool(self, tool_name: str) -> Optional[AgentTool]:
         """
-        Executes a specified tool by name, passing any arguments.
+        Retrieves a tool by name.
 
         Args:
-            tool_name (str): Name of the tool to execute.
-            *args: Positional arguments for tool execution.
-            **kwargs: Keyword arguments for tool execution.
+            tool_name (str): Name of the tool to retrieve.
 
         Returns:
-            Any: Result from tool execution.
-
-        Raises:
-            AgentToolExecutorError: If tool not found or if an execution error occurs.
+            AgentTool or None if not found.
         """
-        tool = self._tools_map.get(tool_name)
-        if not tool:
-            logger.error(f"Tool not found: {tool_name}")
-            raise AgentToolExecutorError(f"Tool '{tool_name}' not found.")
-        try:
-            logger.info(f"Executing tool: {tool_name}")
-            logger.debug(f"Tool Arguments: {kwargs}")
-            result = tool(*args, **kwargs)
-            logger.info(f"Tool '{tool_name}' executed successfully.")
-            return result
-        except ToolError as e:
-            logger.error(f"Error executing tool '{tool_name}': {e}")
-            raise AgentToolExecutorError(f"Execution error in tool '{tool_name}': {e}") from e
-        except Exception as e:
-            logger.error(f"Unexpected error executing tool '{tool_name}': {e}")
-            raise AgentToolExecutorError(f"Unexpected execution error in tool '{tool_name}': {e}") from e
-
+        return self._tools_map.get(tool_name)
+    
     def get_tool_names(self) -> List[str]:
         """
         Lists all registered tool names.
@@ -108,12 +84,41 @@ class AgentToolExecutor(BaseModel):
             f"{tool.name}: {tool.description}. Args schema: {tool.args_schema}"
             for tool in self._tools_map.values()
         )
+    
+    async def run_tool(self, tool_name: str, *args, **kwargs) -> Any:
+        """
+        Executes a tool by name, automatically handling both sync and async tools.
 
+        Args:
+            tool_name (str): Tool name to execute.
+            *args: Positional arguments.
+            **kwargs: Keyword arguments.
+
+        Returns:
+            Any: Result of tool execution.
+
+        Raises:
+            AgentToolExecutorError: If the tool is not found or execution fails.
+        """
+        tool = self.get_tool(tool_name)
+        if not tool:
+            logger.error(f"Tool not found: {tool_name}")
+            raise AgentToolExecutorError(f"Tool '{tool_name}' not found.")
+        try:
+            logger.info(f"Running tool (auto): {tool_name}")
+            if tool._is_async:
+                return await tool.arun(*args, **kwargs)
+            return tool(*args, **kwargs)
+        except ToolError as e:
+            logger.error(f"Tool execution error in '{tool_name}': {e}")
+            raise AgentToolExecutorError(str(e)) from e
+        except Exception as e:
+            logger.error(f"Unexpected error in '{tool_name}': {e}")
+            raise AgentToolExecutorError(f"Unexpected error in tool '{tool_name}': {e}") from e
+    
     @property
     def help(self) -> None:
-        """
-        Displays a tabular view of all registered tools with descriptions and signatures.
-        """
+        """Displays a rich-formatted table of registered tools."""
         table = Table(title="Available Tools")
         table.add_column("Name", style="bold cyan")
         table.add_column("Description")
