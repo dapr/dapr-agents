@@ -69,7 +69,7 @@ class WorkflowApp(BaseModel):
         # Proceed with base model setup
         super().model_post_init(__context)
     
-    def transactional_update_store(self, store_name: str, key: str, data: dict) -> None:
+    def register_agent(self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict) -> None:
         """
         Merges the existing data with the new data and updates the store.
 
@@ -81,29 +81,33 @@ class WorkflowApp(BaseModel):
         # retry the entire operation up to ten times sleeping 1 second between each attempt
         for attempt in range(1, 11):
             try:
-                response: StateResponse = self.client.get_state(store_name=store_name, key=key)
+                response: StateResponse = self.client.get_state(store_name=store_name, key=store_key)
                 if not response.etag:
                     # if there is no etag the following transaction won't work as expected
                     # so we need to save an empty object with a strong consistency to force the etag to be created
                     self.client.save_state(
                         store_name=store_name,
-                        key=key,
+                        key=store_key,
                         value=json.dumps({}),
                         state_metadata={"contentType": "application/json"},
                         options=StateOptions(concurrency=Concurrency.first_write, consistency=Consistency.strong)
                     )
                     # raise an exception to retry the entire operation
-                    raise Exception(f"No etag found for key: {key}")
+                    raise Exception(f"No etag found for key: {store_key}")
                 existing_data = json.loads(response.data) if response.data else {}
-                merged_data = {**existing_data, **data}
-                logger.debug(f"read and merged data: {merged_data} etag: {response.etag}")
+                if (agent_name, agent_metadata) in existing_data.items():
+                    logger.debug(f"agent {agent_name} already registered.")
+                    return None
+                agent_data = {agent_name: agent_metadata}
+                merged_data = {**existing_data, **agent_data}
+                logger.debug(f"merged data: {merged_data} etag: {response.etag}")
                 try:
                     # using the transactional API to be able to later support the Dapr outbox pattern
                     self.client.execute_state_transaction(
                         store_name=store_name,
                         operations=[
                             TransactionalStateOperation(
-                                key=key,
+                                key=store_key,
                                 data=json.dumps(merged_data),
                                 etag=response.etag,
                                 operation_type=TransactionOperationType.upsert
@@ -112,14 +116,13 @@ class WorkflowApp(BaseModel):
                         transactional_metadata={"contentType": "application/json"}
                     )
                 except Exception as e:
-                    logger.error(f"Error updating state store: {e}")
                     raise e
                 return None
             except Exception as e:
-                logger.error(f"Error on transaction attempt: {attempt}: {e}")
-                logger.info(f"Sleeping for 1 second before retrying transaction...")
+                logger.debug(f"Error on transaction attempt: {attempt}: {e}")
+                logger.debug(f"Sleeping for 1 second before retrying transaction...")
                 time.sleep(1)
-        raise Exception(f"Failed to update state store key: {key} after 10 attempts.")
+        raise Exception(f"Failed to update state store key: {store_key} after 10 attempts.")
 
     def get_data_from_store(self, store_name: str, key: str) -> Tuple[bool, dict]:
         """
