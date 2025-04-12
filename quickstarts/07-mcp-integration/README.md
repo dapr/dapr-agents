@@ -72,7 +72,7 @@ The script will:
 1. Create the kubernetes secret from `.env` file
 1. Deploy the [manifests for the agents](./manifests/)
 1. Port forward the `workload-llm` pod on port `8004`
-1. Trigger the workflow for getting to Morder by [k8s_http_client.py](./services/client/k8s_http_client.py)
+1. Trigger the workflow for proposing how to solve an issue on the repo by [k8s_http_client.py](./services/client/k8s_http_client.py)
 
 ### Install through manifests
 
