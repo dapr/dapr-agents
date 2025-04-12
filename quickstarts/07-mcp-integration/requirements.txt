@@ -1,0 +1,4 @@
+dapr-agents
+mcp
+requests
+python-dotenv
