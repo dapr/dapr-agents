@@ -1,0 +1,11 @@
+services:
+  workflow-llm:
+    image: localhost:5001/workflow-llm:latest
+    build:
+      context: ../
+      dockerfile: ./07-mcp-integration/services/workflow-llm/Dockerfile
+  github-agent:
+    image: localhost:5001/github-agent:latest
+    build:
+      context: ../
+      dockerfile: ./07-mcp-integration/services/github/Dockerfile
