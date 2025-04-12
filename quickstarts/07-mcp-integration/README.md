@@ -1,4 +1,4 @@
-# Multi-Agent Event-Driven Workflows
+# MCP Integrated GitHub Agent
 
 This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using Dapr Agents. You'll learn how to set up agents as services, implement workflow orchestration, and enable real-time agent collaboration through pub/sub messaging.
 
