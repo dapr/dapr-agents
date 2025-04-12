@@ -139,6 +139,7 @@ print(json.dumps(response.model_dump(), indent=2))
 **Expected output:** A structured Dog object with name, breed, and reason fields (e.g., `Dog(name='Hachiko', breed='Akita', reason='Known for his remarkable loyalty...')`)
 
 ### Audio
+
 You can use the OpenAIAudioClient in `dapr-agents` for basic tasks with the OpenAI Audio API. We will explore:
 
 - Generating speech from text and saving it as an MP3 file.
@@ -146,7 +147,6 @@ You can use the OpenAIAudioClient in `dapr-agents` for basic tasks with the Open
 - Translating audio content to English.
 
 **1. Run the text to speech example:**
-
 
 <!-- STEP
 name: Run audio generation example
@@ -173,7 +173,6 @@ python audio_transcription.py
 ```
 <!-- END_STEP -->
 
-
 **2. Run the speech to text translation example:**
 
 [//]: # (<!-- STEP)
@@ -197,6 +196,7 @@ python audio_transcription.py
 [//]: # (<!-- END_STEP -->)
 
 ### Embeddings
+
 You can use the `OpenAIEmbedder` in dapr-agents for generating text embeddings.
 
 **1. Embeddings a single text:**
@@ -214,6 +214,7 @@ python embeddings.py
 <!-- END_STEP -->
 
 ## Troubleshooting
+
 1. **Authentication Errors**: If you encounter authentication failures, check your OpenAI API key in the `.env` file
 2. **Structured Output Errors**: If the model fails to produce valid structured data, try refining your model or prompt
 3. **Module Not Found**: Ensure you've activated your virtual environment and installed the requirements

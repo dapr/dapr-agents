@@ -40,7 +40,7 @@ Replace `your_api_key_here` with your actual OpenAI API key.
 
 This example shows how to create tools and an agent that can use them:
 
-1. First, create the tools in `weather_tools.py`:
+First, create the tools in `weather_tools.py`:
 
 ```python
 from dapr_agents import tool
@@ -67,7 +67,7 @@ def jump(distance: str) -> str:
 tools = [get_weather, jump]
 ```
 
-2. Then, create the agent in `weather_agent.py`:
+Then, create the agent in `weather_agent.py`:
 
 ```python
 import asyncio
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-3. Run the weather agent:
+Run the weather agent:
 
 <!-- STEP
 name: Run text completion example
@@ -131,18 +131,20 @@ python weather_agent.py
 ## Key Concepts
 
 ### Tool Definition
+
 - The `@tool` decorator registers functions as tools with the agent
 - Each tool has a docstring that helps the LLM understand its purpose
 - Pydantic models provide type-safety for tool arguments
 
 ### Agent Setup
+
 - The `Agent` class sets up a tool-calling agent by default
 - The `role`, `goal`, and `instructions` guide the agent's behavior
 - Tools are provided as a list for the agent to use
 - Agent Memory keeps the conversation history that the agent can reference
 
-
 ### Execution Flow
+
 1. The agent receives a user query
 2. The LLM determines which tool(s) to use based on the query
 3. The agent executes the tool with appropriate arguments
@@ -170,6 +172,7 @@ AIAgent.reset_memory()
 print("Chat history after reset:")
 print(AIAgent.chat_history)  # Should be empty now
 ```
+
 This will show agent interaction history growth and reset.
 
 ## Available Agent Types
@@ -177,13 +180,16 @@ This will show agent interaction history growth and reset.
 Dapr Agents provides several agent implementations, each designed for different use cases:
 
 ### 1. Standard Agent (ToolCallAgent)
+
 The default agent type, designed for tool execution and straightforward interactions. It receives your input, determines which tools to use, executes them directly, and provides the final answer. The reasoning process is mostly hidden from you, focusing instead on delivering concise responses.
 
 ### 2. ReActAgent
+
 Implements the Reasoning-Action framework for more complex problem-solving with explicit thought processes.
 When you interact with it, you'll see explicit "Thought", "Action", and "Observation" steps as it works through your request, providing transparency into how it reaches conclusions.
 
 ### 3. OpenAPIReActAgent
+
 There is one more agent that we didn't run in this quickstart. OpenAPIReActAgent specialized agent for working with OpenAPI specifications and API integrations. When you ask about working with an API, it will methodically identify relevant endpoints, construct proper requests with parameters, handle authentication, and execute API calls on your behalf.
 
 ```python

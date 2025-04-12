@@ -5,26 +5,28 @@ A collection of examples demonstrating how to use Dapr Agents to build applicati
 ## Prerequisites
 
 To run these quickstarts, you'll need:
+
 - [Python 3.10 or higher](https://www.python.org/downloads/)
 - [Docker](https://docs.docker.com/get-docker/)
 - [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/)
 - [OpenAI API Key](https://platform.openai.com/api-keys) (Used for tutorials, other LLMs are available too)
 
-
 ## Getting Started
 
-1. Clone this repository
+Clone this repository
+
 ```bash
 git clone https://github.com/dapr/dapr-agents/
 cd dapr-agents/quickstarts
 ```
 
-2. For workflow examples, [install Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) and initialize Dapr
+For workflow examples, [install Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) and initialize Dapr
+
 ```bash
 dapr init
 ```
 
-3. Choose a quickstart from the list below. Or click [here](./01-hello-world) to start with Hello-World.
+Choose a quickstart from the list below. Or click [here](./01-hello-world) to start with Hello-World.
 
 ## Available Quickstarts
 
@@ -48,7 +50,6 @@ Learn how to interact with Language Models using Dapr Agents' `DaprChatClient`:
 - **Resilience**: Setting timeout, retry and circuit-breaking
 - **PII Obfuscation** – Automatically detect and mask sensitive user information.
 
-
 This quickstart shows basic text generation using plain text prompts and templates. Using the `DaprChatClient` you can target different LLM providers without changing your agent's code.
 
 [Go to Dapr LLM Call](./02_llm_call_dapr)
@@ -60,10 +61,9 @@ Learn how to interact with Language Models using Dapr Agents and native LLM clie
 - **Text Completion**: Generating responses to prompts
 - **Structured Outputs**: Converting LLM responses to Pydantic objects
 
-This quickstart shows both basic text generation and structured data extraction from LLMs. This quickstart uses the OpenAIChatClient which allows you to use audio and perform embeddings in addition to chat completion. 
+This quickstart shows both basic text generation and structured data extraction from LLMs. This quickstart uses the OpenAIChatClient which allows you to use audio and perform embeddings in addition to chat completion.
 
 *Note: Other quickstarts for specific clients are available for [Elevenlabs](./02_llm_call_elevenlabs), [Hugging Face](./02_llm_call_hugging_face), and [Nvidia](./02_llm_call_nvidia).*
-
 
 [Go to OpenAI LLM call](./02_llm_call_open_ai)
 
@@ -86,7 +86,6 @@ Introduction to using stateful workflows with Dapr Agents:
 - **LLM-powered Tasks**: Using language models in workflows
 - **Task Chaining**: Creating resilient multi-step processes executing in sequence
 - **Fan-out/Fan-in**:Executing activities in parallel; then synchronize these activities until all preceding activities have completed.
-
 
 This quickstart demonstrates how to orchestrate sequential and parallel tasks using Dapr Agents' workflow capabilities.
 

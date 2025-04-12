@@ -27,21 +27,21 @@ pip install -r requirements.txt
 
 ## Configuration
 
-1. Create a `.env` file in the project root:
+Create a `.env` file in the project root:
 
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
 
-2. Replace `your_api_key_here` with your actual OpenAI API key.
+Replace `your_api_key_here` with your actual OpenAI API key.
 
-3. Make sure Dapr is initialized on your system:
+Make sure Dapr is initialized on your system:
 
 ```bash
 dapr init
 ```
 
-4. Create the workflow state store component:
+Create the workflow state store component:
 
 ```bash
 mkdir -p components
@@ -125,6 +125,7 @@ dapr run --app-id dapr-agent-wf --resources-path components/ -- python sequentia
 
 **How it works:**
 In this chaining pattern, the workflow executes tasks in strict sequence:
+
 1. The `get_character()` task executes first and returns a character name
 2. Only after completion, the `get_line()` task runs using that character name as input
 3. Each task awaits the previous task's completion before starting
@@ -229,6 +230,7 @@ dapr run --app-id dapr-agent-research --resources-path components/ -- python par
 
 **How it works:**
 This fan-out/fan-in pattern combines sequential and parallel execution:
+
 1. First, `generate_questions()` executes sequentially
 2. Multiple `gather_information()` tasks run in parallel using `ctx.when_all()`
 3. The workflow waits for all parallel tasks to complete
@@ -254,7 +256,6 @@ Dapr Agents workflows leverage Dapr's core capabilities:
 - **State Management**: Workflow state is persisted in a distributed state store
 - **Actor Model**: Tasks run as reliable, stateful actors within the workflow
 - **Event Handling**: Workflows can react to external events
-
 
 ## Troubleshooting
 

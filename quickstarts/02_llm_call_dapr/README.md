@@ -95,6 +95,7 @@ print("Response with user input: ", response.get_content())
 **Expected output:** The echo component will simply return the prompts that were sent to it.
 
 **How It Works:**
+
 1. Dapr starts, loading all resources from the `components` folder.
 2. The client application retrieves the `DAPR_LLM_COMPONENT_DEFAULT` environment variable and uses it to communicate with Dapr's `echo` component.
 3. Dapr's `echo` component, simply returns back the input it receives.
@@ -135,6 +136,7 @@ dapr run --app-id dapr-llm --resources-path components/ -- python text_completio
 **Expected output:** The OpenAI component will respond with a different reply to each prompt.
 
 **How It Works:**
+
 1. Dapr starts, loading all resources from the `components` folder.
 2. The client application retrieves the `DAPR_LLM_COMPONENT_DEFAULT` environment variable and uses it to communicate with Dapr's `openai` component.
 3. The component defined in `components/openai.yaml` talks to OpenAI APIs.
@@ -204,9 +206,9 @@ dapr run --app-id dapr-llm --resources-path components/ -- python text_completio
 
 When you run this, you'll see output showing Dapr's retry mechanism in action:
 
-```
+```shell
 WARN[0002] Error processing operation component[awsbedrock] output. Retrying in 1s...
-== APP == 	details = "...exceeded maximum number of attempts, 3, https response error ... connect: connection refused"
+== APP ==  details = "...exceeded maximum number of attempts, 3, https response error ... connect: connection refused"
 ```
 
 This demonstrates how Dapr connection attempt times out in 1s, then attempts to retry the operation according to the policy (3 times with 1-second intervals) before finally failing with an error.

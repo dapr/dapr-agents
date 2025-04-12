@@ -141,6 +141,7 @@ print(json.dumps(response.model_dump(), indent=2))
 **Expected output:** A structured Dog object with name, breed, and reason fields (e.g., `Dog(name='Hachiko', breed='Akita', reason='Known for his remarkable loyalty...')`)
 
 ### Embeddings
+
 You can use the `NVIDIAEmbedder` in dapr-agents for generating text embeddings.
 
 **1. Embeddings a single text:**

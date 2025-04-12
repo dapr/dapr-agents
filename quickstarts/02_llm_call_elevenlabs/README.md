@@ -37,10 +37,10 @@ Replace `your_api_key_here` with your actual Elevenlabs API key.
 ## Examples
 
 ### Audio
+
 You can use the `ElevenLabsSpeechClient` in `dapr-agents` for text to speech capabilities of the Elevenlabs Audio API.
 
 **1. Run the text to speech example:**
-
 
 <!-- STEP
 name: Run audio generation example

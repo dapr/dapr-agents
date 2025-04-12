@@ -1,7 +1,9 @@
 # Multi-Agent Event-Driven Workflows
+
 This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using Dapr Agents. You'll learn how to set up agents as services, implement workflow orchestration, and enable real-time agent collaboration through pub/sub messaging.
 
 ## Prerequisites
+
 - Python 3.10 (recommended)
 - pip package manager
 - OpenAI API key
@@ -25,19 +27,19 @@ pip install -r requirements.txt
 
 ## Configuration
 
-1. Create a `.env` file for your API keys:
+Create a `.env` file for your API keys:
 
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
 
-2. Make sure Dapr is initialized on your system:
+Make sure Dapr is initialized on your system:
 
 ```bash
 dapr init
 ```
 
-3. The quickstart includes the necessary Dapr components in the `components` directory:
+The quickstart includes the necessary Dapr components in the `components` directory:
 
 - `statestore.yaml`: Agent state configuration
 - `pubsub.yaml`: Pub/Sub message bus configuration
@@ -45,7 +47,7 @@ dapr init
 
 ## Project Structure
 
-```
+```shell
 components/               # Dapr configuration files
 ├── statestore.yaml       # State store configuration
 ├── pubsub.yaml           # Pub/Sub configuration
@@ -146,6 +148,7 @@ if __name__ == "__main__":
 The project includes three dapr multi-app run configuration files (`dapr-random.yaml`, `dapr-roundrobin.yaml` and `dapr-llm.yaml` ) for running all services and an additional Client application for interacting with the agents:
 
 Example: `dapr-random.yaml`
+
 ```yaml
 version: 1
 common:
@@ -251,6 +254,7 @@ dapr run -f dapr-llm.yaml
 **Expected output:** The agents will engage in a conversation about getting to Mordor, with different agents contributing based on their character. Observe that in the logs, or checking the workflow state in [Redis Insights](https://dapr.github.io/dapr-agents/home/installation/#enable-redis-insights).
 
 ## Key Concepts
+
 - **Agent Service**: Stateful service exposing an agent via API endpoints with independent lifecycle management
 - **Pub/Sub Messaging**: Event-driven communication between agents for real-time collaboration
 - **State Store**: Persistent storage for both agent registration and conversational memory
@@ -258,6 +262,7 @@ dapr run -f dapr-llm.yaml
 - **Workflow Orchestration**: Coordinating agent interactions in a durable and resilient manner
 
 ## Workflow Types
+
 Dapr Agents supports multiple workflow orchestration patterns:
 
 1. **RoundRobin**: Cycles through agents sequentially, ensuring equal task distribution
@@ -265,10 +270,11 @@ Dapr Agents supports multiple workflow orchestration patterns:
 3. **LLM-based**: Uses an LLM (default: OpenAI's models like gpt-4o) to intelligently select agents based on context and task requirements
 
 ## Monitoring and Observability
+
 1. **Console Logs**: Monitor real-time workflow execution and agent interactions
-2. **Dapr Dashboard**: View components, configurations and service details at http://localhost:8080/
-3. **Zipkin Tracing**: Access distributed tracing at http://localhost:9411/zipkin/
-4. **Dapr Metrics**: Access agent performance metrics via (ex: HobbitApp) http://localhost:6001/metrics when configured
+2. **Dapr Dashboard**: View components, configurations and service details at <http://localhost:8080/>
+3. **Zipkin Tracing**: Access distributed tracing at <http://localhost:9411/zipkin/>
+4. **Dapr Metrics**: Access agent performance metrics via (ex: HobbitApp) <http://localhost:6001/metrics> when configured
 
 ## Troubleshooting
 
@@ -287,4 +293,3 @@ After completing this quickstart, you can:
 - Extend agents with custom tools
 - Deploy agents and Dapr to a Kubernetes cluster. For more information on read [Deploy Dapr on a Kubernetes cluster](https://docs.dapr.io/operations/hosting/kubernetes/kubernetes-deploy)
 - Check out the [Cookbooks](../../cookbook/)
-
