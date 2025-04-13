@@ -128,7 +128,7 @@ class AssistantAgent(AgentWorkflowBase):
         if finish_reason == "tool_calls":
             if not ctx.is_replaying:
                 logger.info(
-                    f"Tool calls detected in LLM response, extracting and preparing for execution.."
+                    "Tool calls detected in LLM response, extracting and preparing for execution.."
                 )
 
             # Retrieve the list of tool calls extracted from the LLM response
@@ -150,7 +150,7 @@ class AssistantAgent(AgentWorkflowBase):
             yield self.when_all(parallel_tasks)
         else:
             if not ctx.is_replaying:
-                logger.info(f"Agent generating response without tool execution..")
+                logger.info("Agent generating response without tool execution..")
 
             # No Tool Calls → Clear tools
             self.tool_history.clear()
