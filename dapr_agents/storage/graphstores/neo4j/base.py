@@ -304,9 +304,9 @@ class Neo4jGraphStore(GraphStoreBase):
             RETURN label, collect({property: property, type: type}) AS properties
             """
             INDEXES_QUERY = """
-            CALL apoc.schema.nodes() 
-            YIELD label, properties, type, size, valuesSelectivity 
-            WHERE type = 'RANGE' 
+            CALL apoc.schema.nodes()
+            YIELD label, properties, type, size, valuesSelectivity
+            WHERE type = 'RANGE'
             RETURN *, size * valuesSelectivity AS distinctValues
             """
 
