@@ -71,7 +71,7 @@ class OpenAIEmbedder(OpenAIEmbeddingClient, EmbedderBase):
     def _chunk_tokens(self, tokens: List[int], chunk_length: int) -> List[List[int]]:
         """Splits tokens into chunks of the specified length."""
         return [
-            tokens[i : i + chunk_length] for i in range(0, len(tokens), chunk_length)
+            tokens[i: i + chunk_length] for i in range(0, len(tokens), chunk_length)
         ]
 
     def _process_embeddings(
@@ -133,7 +133,7 @@ class OpenAIEmbedder(OpenAIEmbeddingClient, EmbedderBase):
         chunk_embeddings = []  # Holds embeddings for all chunks
 
         for i in range(0, len(chunks), batch_size):
-            batch = chunks[i : i + batch_size]
+            batch = chunks[i: i + batch_size]
             response = self.create_embedding(input=batch)  # Batch API call
             chunk_embeddings.extend(r.embedding for r in response.data)
 
