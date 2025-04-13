@@ -247,7 +247,7 @@ def generate_prompt(
         - Follow up on the previous discussion points and introduce the next topic naturally.
         """
 
-    instructions += f"""
+    instructions += """
     TASK:
     - Use the provided TEXT to guide this part of the conversation.
     - Alternate between speakers, ensuring a natural conversational flow.
