@@ -4,7 +4,6 @@ from dapr_agents.types import (
     ClaudeToolDefinition,
 )
 from dapr_agents.types.exceptions import FunCallBuilderError
-from typing import Any, Dict
 from pydantic import BaseModel, ValidationError
 from typing import Dict, Any, Optional
 
