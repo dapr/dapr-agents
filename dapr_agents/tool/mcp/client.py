@@ -355,18 +355,6 @@ class MCPClient(BaseModel):
         Raises:
             ToolError: If the result indicates an error
         """
-        # Handle error result
-        if hasattr(result, 'isError') and result.isError:
-            error_message = "Unknown error"
-            if hasattr(result, 'content') and result.content:
-                for content in result.content:
-                    if hasattr(content, 'text'):
-                        # This is not a real error, we just feed back the error from the tool
-                        # to the model for iterating again
-                        logger.info(f"MCP tool error thrown, returning result: {result}")
-                        return str(result)
-            raise ToolError(f"MCP tool error: {error_message}")
-        
         # Extract text content from result
         if hasattr(result, 'content') and result.content:
             text_contents = []
@@ -379,6 +367,15 @@ class MCPClient(BaseModel):
                 return text_contents[0]
             elif text_contents:
                 return text_contents
+
+        # Handle error result
+        if hasattr(result, 'isError') and result.isError:
+            error_message = "Unknown error"
+            if hasattr(result, 'content') and result.content:
+                for content in result.content:
+                    if hasattr(content, 'text'):
+                        error_message = content.text
+            raise ToolError(f"MCP tool error: {error_message}")
                 
         # Fallback for unexpected formats
         return str(result)
