@@ -98,9 +98,7 @@ class OpenAPISpecParser:
             ]:
                 operation = getattr(path_item, method, None)
                 if operation:
-                    _ = getattr(
-                        operation, "operationId", f"{method.upper()} {path}"
-                    )
+                    _ = getattr(operation, "operationId", f"{method.upper()} {path}")
                     description = getattr(
                         operation, "description", "No description provided."
                     )

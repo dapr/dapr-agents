@@ -62,7 +62,7 @@ class Neo4jGraphStore(GraphStoreBase):
 
         total_batches = (len(data) + batch_size - 1) // batch_size
         for i in range(0, len(data), batch_size):
-            batch = data[i: i + batch_size]
+            batch = data[i : i + batch_size]
             try:
                 with self.client.driver.session(
                     database=self.client.database

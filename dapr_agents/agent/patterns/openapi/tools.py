@@ -91,7 +91,7 @@ def generate_api_call_executor(
 
         # Avoid duplication of the version in the final URL
         if base_version and path_version == base_version:
-            formatted_path = formatted_path[len(f"/{path_version}"):]
+            formatted_path = formatted_path[len(f"/{path_version}") :]
 
         # Ensure there is a single slash between origin, base_path, and formatted_path
         final_url = f"{origin}/{base_path}/{formatted_path}".replace("//", "/")
