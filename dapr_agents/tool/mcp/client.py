@@ -361,21 +361,16 @@ class MCPClient(BaseModel):
             for content in result.content:
                 if hasattr(content, 'text'):
                     text_contents.append(content.text)
-            
+
             # Return single string if only one content item
             if len(text_contents) == 1:
                 return text_contents[0]
             elif text_contents:
                 return text_contents
-
-        # Handle error result
+            
         if hasattr(result, 'isError') and result.isError:
-            error_message = "Unknown error"
-            if hasattr(result, 'content') and result.content:
-                for content in result.content:
-                    if hasattr(content, 'text'):
-                        error_message = content.text
-            raise ToolError(f"MCP tool error: {error_message}")
+            # This will only trigger if the above if didn't contain content.text
+            raise ToolError(f"MCP tool error: {result}")
                 
         # Fallback for unexpected formats
         return str(result)
