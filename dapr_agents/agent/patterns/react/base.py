@@ -121,7 +121,7 @@ class ReActAgent(AgentBase):
         - Progressively Move Towards Finality: Reflect on the current step and avoid re-evaluating the entire user request each time. Aim to advance towards the final Answer in each cycle.
 
         ## Chat History
-        The chat history is provided to avoid repeating information and to ensure accurate references when summarizing past interactions.                               
+        The chat history is provided to avoid repeating information and to ensure accurate references when summarizing past interactions.
         """
         ).strip()
         prompt_parts.append(react_guidelines)
