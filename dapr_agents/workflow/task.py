@@ -108,7 +108,7 @@ class WorkflowTask(BaseModel):
                 result = await self._validate_output(result)
             elif self.func:
                 # Task is a Python function
-                logger.info(f"Invoking Regular Task")
+                logger.info("Invoking Regular Task")
                 if asyncio.iscoroutinefunction(self.func):
                     # Await async function
                     result = await self.func(**input)
