@@ -1,4 +1,3 @@
-from typing import Any
 from pydantic import BaseModel
 from dataclasses import is_dataclass
 from typing import Any, Union, get_args, get_origin
