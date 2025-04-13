@@ -163,8 +163,7 @@ class HistoricalWeather(AgentTool):
             )
 
         if (
-            datetime.strptime(end_date, "%Y-%m-%d")
-            - datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(start_date, "%Y-%m-%d")
         ).days > 30:
             raise ValueError(
                 "The time span between start_date and end_date cannot exceed 30 days."
