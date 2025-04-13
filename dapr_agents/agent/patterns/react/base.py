@@ -98,19 +98,19 @@ class ReActAgent(AgentBase):
         ... (repeat Thought/Action/Observation as needed, but **ALWAYS proceed to a final `Answer:` statement when you have enough information**)
         Thought: I now have sufficient information to answer the initial question.
         Answer: ALWAYS proceed to a final `Answer:` statement once enough information is gathered or if the tools do not provide the necessary data.
-        
+
         ### Providing a Final Answer
         Once you have enough information to answer the question OR if tools cannot provide the necessary data, respond using one of the following formats:
-        
+
         1. **Direct Answer without Tools**:
         Thought: I can answer directly without using any tools. Answer: Direct answer based on previous interactions or current knowledge.
-        
+
         2. **When All Needed Information is Gathered**:
         Thought: I now have sufficient information to answer the question. Answer: Complete final answer here.
-        
+
         3. **If Tools Cannot Provide the Needed Information**:
         Thought: The available tools do not provide the necessary information. Answer: Explanation of limitation and relevant information if possible.
-                                
+
         ### Key Guidelines
         - Always Conclude with an `Answer:` statement.
         - Ensure every response ends with an `Answer:` statement that summarizes the most recent findings or relevant information, avoiding incomplete thoughts.
