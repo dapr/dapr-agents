@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from typing import List, Any
 
+
 class EmbedderBase(BaseModel, ABC):
     """
     Abstract base class for Embedders.

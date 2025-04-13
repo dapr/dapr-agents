@@ -8,16 +8,18 @@ from dapr_agents.memory import MemoryBase
 from dapr_agents.tool import AgentTool
 from typing import Optional, List, Union, Type, TypeVar
 
-T = TypeVar('T', ToolCallAgent, ReActAgent, OpenAPIReActAgent)
+T = TypeVar("T", ToolCallAgent, ReActAgent, OpenAPIReActAgent)
+
 
 class AgentFactory:
     """
     Returns agent classes based on the provided pattern.
     """
+
     AGENT_PATTERNS = {
         "react": ReActAgent,
         "toolcalling": ToolCallAgent,
-        "openapireact": OpenAPIReActAgent
+        "openapireact": OpenAPIReActAgent,
     }
 
     @staticmethod
@@ -54,7 +56,7 @@ class Agent(AgentBase):
         llm: Optional[LLMClientBase] = None,
         memory: Optional[MemoryBase] = None,
         tools: Optional[List[AgentTool]] = [],
-        **kwargs
+        **kwargs,
     ) -> Union[ToolCallAgent, ReActAgent, OpenAPIReActAgent]:
         """
         Creates and returns an instance of the selected agent class.
@@ -77,11 +79,21 @@ class Agent(AgentBase):
         memory = memory or ConversationListMemory()
 
         if pattern == "openapireact":
-            kwargs.update({
-                "spec_parser": kwargs.get('spec_parser', OpenAPISpecParser()),
-                "auth_header": kwargs.get('auth_header', {})
-            })
+            kwargs.update(
+                {
+                    "spec_parser": kwargs.get("spec_parser", OpenAPISpecParser()),
+                    "auth_header": kwargs.get("auth_header", {}),
+                }
+            )
 
         instance = super().__new__(agent_class)
-        agent_class.__init__(instance, role=role, name=name, llm=llm, memory=memory, tools=tools, **kwargs)
+        agent_class.__init__(
+            instance,
+            role=role,
+            name=name,
+            llm=llm,
+            memory=memory,
+            tools=tools,
+            **kwargs,
+        )
         return instance

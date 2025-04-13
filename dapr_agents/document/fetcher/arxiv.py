@@ -16,7 +16,7 @@ class ArxivFetcher(FetcherBase):
 
     max_results: int = 10
     include_full_metadata: bool = False
-    
+
     def search(
         self,
         query: str,
@@ -25,7 +25,7 @@ class ArxivFetcher(FetcherBase):
         download: bool = False,
         dirpath: Path = Path("./"),
         include_summary: bool = False,
-        **kwargs
+        **kwargs,
     ) -> Union[List[Dict], List["Document"]]:
         """
         Search for papers on arXiv and optionally download them.
@@ -64,12 +64,14 @@ class ArxivFetcher(FetcherBase):
                 "The `arxiv` library is required to use the ArxivFetcher. "
                 "Install it with `pip install arxiv`."
             )
-        
+
         logger.info(f"Searching for query: {query}")
 
         # Enforce that both from_date and to_date are provided if one is specified
         if (from_date and not to_date) or (to_date and not from_date):
-            raise ValueError("Both 'from_date' and 'to_date' must be specified if one is provided.")
+            raise ValueError(
+                "Both 'from_date' and 'to_date' must be specified if one is provided."
+            )
 
         # Add date filter if both from_date and to_date are provided
         if from_date and to_date:
@@ -94,7 +96,7 @@ class ArxivFetcher(FetcherBase):
         content_id: str,
         download: bool = False,
         dirpath: Path = Path("./"),
-        include_summary: bool = False
+        include_summary: bool = False,
     ) -> Union[Optional[Dict], Optional[Document]]:
         """
         Search for a specific paper by its arXiv ID and optionally download it.
@@ -124,7 +126,7 @@ class ArxivFetcher(FetcherBase):
                 "The `arxiv` library is required to use the ArxivFetcher. "
                 "Install it with `pip install arxiv`."
             )
-        
+
         logger.info(f"Searching for paper by ID: {content_id}")
         try:
             search = arxiv.Search(id_list=[content_id])
@@ -133,17 +135,15 @@ class ArxivFetcher(FetcherBase):
                 logger.warning(f"No result found for ID: {content_id}")
                 return None
 
-            return self._process_results([result], download, dirpath, include_summary)[0]
+            return self._process_results([result], download, dirpath, include_summary)[
+                0
+            ]
         except Exception as e:
             logger.error(f"Error fetching result for ID {content_id}: {e}")
             return None
 
     def _process_results(
-        self,
-        results: List[Any],
-        download: bool,
-        dirpath: Path,
-        include_summary: bool
+        self, results: List[Any], download: bool, dirpath: Path, include_summary: bool
     ) -> Union[List[Dict], List["Document"]]:
         """
         Process arXiv search results.
@@ -162,16 +162,22 @@ class ArxivFetcher(FetcherBase):
             metadata_list = []
             for result in results:
                 file_path = self._download_result(result, dirpath)
-                metadata_list.append(self._format_result_metadata(result, file_path=file_path, include_summary=include_summary))
+                metadata_list.append(
+                    self._format_result_metadata(
+                        result, file_path=file_path, include_summary=include_summary
+                    )
+                )
             return metadata_list
         else:
             documents = []
             for result in results:
-                metadata = self._format_result_metadata(result, include_summary=include_summary)
+                metadata = self._format_result_metadata(
+                    result, include_summary=include_summary
+                )
                 text = result.summary.strip()
                 documents.append(Document(text=text, metadata=metadata))
             return documents
-    
+
     def _download_result(self, result: Any, dirpath: Path) -> Optional[str]:
         """
         Download a paper from an arXiv result object.
@@ -194,7 +200,12 @@ class ArxivFetcher(FetcherBase):
             logger.error(f"Failed to download paper {result.title}: {e}")
             return None
 
-    def _format_result_metadata(self, result: Any, file_path: Optional[str] = None, include_summary: bool = False) -> Dict:
+    def _format_result_metadata(
+        self,
+        result: Any,
+        file_path: Optional[str] = None,
+        include_summary: bool = False,
+    ) -> Dict:
         """
         Format metadata from an arXiv result, optionally including file path and summary.
 
@@ -219,24 +230,26 @@ class ArxivFetcher(FetcherBase):
         }
 
         if self.include_full_metadata:
-            metadata.update({
-                "links": result.links,
-                "authors_comment": result.comment,
-                "DOI": result.doi,
-                "journal_reference": result.journal_ref,
-            })
+            metadata.update(
+                {
+                    "links": result.links,
+                    "authors_comment": result.comment,
+                    "DOI": result.doi,
+                    "journal_reference": result.journal_ref,
+                }
+            )
 
         if include_summary:
             metadata["summary"] = result.summary.strip()
-        
+
         return {key: value for key, value in metadata.items() if value is not None}
-    
+
     def _format_date(self, date: Union[str, datetime]) -> str:
         """
         Format a date into the 'YYYYMMDDHHMM' format required by the arXiv API.
 
         Args:
-            date (Union[str, datetime]): The date to format. Can be a string in 'YYYYMMDD' or 
+            date (Union[str, datetime]): The date to format. Can be a string in 'YYYYMMDD' or
                 'YYYYMMDDHHMM' format, or a datetime object.
 
         Returns:
@@ -262,7 +275,9 @@ class ArxivFetcher(FetcherBase):
         if isinstance(date, str):
             # Check if the string matches the basic format
             if not re.fullmatch(r"^\d{8}(\d{4})?$", date):
-                raise ValueError(f"Invalid date format: {date}. Use 'YYYYMMDD' or 'YYYYMMDDHHMM'.")
+                raise ValueError(
+                    f"Invalid date format: {date}. Use 'YYYYMMDD' or 'YYYYMMDDHHMM'."
+                )
 
             # Validate that it is a real date
             try:
@@ -277,4 +292,6 @@ class ArxivFetcher(FetcherBase):
         elif isinstance(date, datetime):
             return date.strftime("%Y%m%d%H%M")
         else:
-            raise ValueError("Invalid date input. Provide a string in 'YYYYMMDD', 'YYYYMMDDHHMM' format, or a datetime object.")
+            raise ValueError(
+                "Invalid date input. Provide a string in 'YYYYMMDD', 'YYYYMMDDHHMM' format, or a datetime object."
+            )

@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict
 from abc import ABC, abstractmethod
 from typing import List
 
+
 class MemoryBase(BaseModel, ABC):
     """
     Abstract base class for managing message memory. This class defines a standard interface for memory operations,
@@ -38,7 +39,9 @@ class MemoryBase(BaseModel, ABC):
         pass
 
     @abstractmethod
-    def add_interaction(self, user_message: BaseMessage, assistant_message: BaseMessage):
+    def add_interaction(
+        self, user_message: BaseMessage, assistant_message: BaseMessage
+    ):
         """
         Adds a user-assistant interaction to the memory storage.
 
@@ -47,7 +50,7 @@ class MemoryBase(BaseModel, ABC):
             assistant_message (BaseMessage): The assistant message.
         """
         pass
-    
+
     @abstractmethod
     def get_messages(self) -> List[BaseMessage]:
         """

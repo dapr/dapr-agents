@@ -7,7 +7,7 @@ load_dotenv()
 embedder = OpenAIEmbedder(
     model="text-embedding-ada-002",  # Default embedding model
     chunk_size=1000,  # Batch size for processing
-    max_tokens=8191   # Maximum tokens per input
+    max_tokens=8191,  # Maximum tokens per input
 )
 
 # Generate embedding with a single text
@@ -22,7 +22,7 @@ if len(embedding) > 0:
 # Multiple input texts
 texts = [
     "Dapr Agents is an open-source framework for researchers and developers",
-    "It provides tools to create, orchestrate, and manage agents"
+    "It provides tools to create, orchestrate, and manage agents",
 ]
 
 # Generate embeddings

@@ -7,7 +7,10 @@ from dapr_agents.workflow.messaging.utils import is_supported_model, is_pydantic
 
 logger = logging.getLogger(__name__)
 
-def extract_cloudevent_data(message: Union[SubscriptionMessage, dict]) -> Tuple[dict, dict]:
+
+def extract_cloudevent_data(
+    message: Union[SubscriptionMessage, dict],
+) -> Tuple[dict, dict]:
     """
     Extracts CloudEvent metadata and raw payload data from a SubscriptionMessage or dict.
 
@@ -94,7 +97,9 @@ def validate_message_model(model: Type[Any], event_data: dict) -> Any:
         raise ValueError(f"Message validation failed: {e}")
 
 
-def parse_cloudevent(message: Union[SubscriptionMessage, dict], model: Optional[Type[Any]] = None) -> Tuple[Any, dict]:
+def parse_cloudevent(
+    message: Union[SubscriptionMessage, dict], model: Optional[Type[Any]] = None
+) -> Tuple[Any, dict]:
     """
     Parses and validates a CloudEvent from a SubscriptionMessage or dict.
 

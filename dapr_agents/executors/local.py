@@ -13,17 +13,27 @@ import ast
 
 logger = logging.getLogger(__name__)
 
+
 class LocalCodeExecutor(CodeExecutorBase):
-    """Executes code locally in an optimized virtual environment with caching, 
+    """Executes code locally in an optimized virtual environment with caching,
     user-defined functions, and enhanced security.
 
-    Supports Python and shell execution with real-time logging, 
+    Supports Python and shell execution with real-time logging,
     efficient dependency management, and reduced file I/O.
     """
 
-    cache_dir: Path = Field(default_factory=lambda: Path.cwd() / ".dapr_agents_cached_envs", description="Directory for cached virtual environments and execution artifacts.")
-    user_functions: List[Callable] = Field(default_factory=list, description="List of user-defined functions available during execution.")
-    cleanup_threshold: int = Field(default=604800, description="Time (in seconds) before cached virtual environments are considered for cleanup.")
+    cache_dir: Path = Field(
+        default_factory=lambda: Path.cwd() / ".dapr_agents_cached_envs",
+        description="Directory for cached virtual environments and execution artifacts.",
+    )
+    user_functions: List[Callable] = Field(
+        default_factory=list,
+        description="List of user-defined functions available during execution.",
+    )
+    cleanup_threshold: int = Field(
+        default=604800,
+        description="Time (in seconds) before cached virtual environments are considered for cleanup.",
+    )
 
     _env_lock = asyncio.Lock()
 
@@ -34,7 +44,9 @@ class LocalCodeExecutor(CodeExecutorBase):
         logger.info("Cache directory set.")
         logger.debug(f"{self.cache_dir}")
 
-    async def execute(self, request: Union[ExecutionRequest, dict]) -> List[ExecutionResult]:
+    async def execute(
+        self, request: Union[ExecutionRequest, dict]
+    ) -> List[ExecutionResult]:
         """Executes Python or shell code securely in a persistent virtual environment with caching and real-time logging.
 
         Args:
@@ -48,7 +60,7 @@ class LocalCodeExecutor(CodeExecutorBase):
 
         self.validate_snippets(request.snippets)
         results = []
-    
+
         for snippet in request.snippets:
             start_time = time.time()
 
@@ -58,8 +70,16 @@ class LocalCodeExecutor(CodeExecutorBase):
                 venv_path = await self._get_or_create_cached_env(required_packages)
 
                 # Load user-defined functions dynamically in memory
-                function_code = "\n".join(inspect.getsource(f) for f in self.user_functions) if self.user_functions else ""
-                exec_script = f"{function_code}\n{snippet.code}" if function_code else snippet.code
+                function_code = (
+                    "\n".join(inspect.getsource(f) for f in self.user_functions)
+                    if self.user_functions
+                    else ""
+                )
+                exec_script = (
+                    f"{function_code}\n{snippet.code}"
+                    if function_code
+                    else snippet.code
+                )
 
                 python_executable = venv_path / "bin" / "python3"
                 command = [str(python_executable), "-c", exec_script]
@@ -75,11 +95,13 @@ class LocalCodeExecutor(CodeExecutorBase):
                     *command,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    close_fds=True
+                    close_fds=True,
                 )
 
                 # Wait for completion with timeout enforcement
-                stdout_output, stderr_output = await asyncio.wait_for(process.communicate(), timeout=request.timeout)
+                stdout_output, stderr_output = await asyncio.wait_for(
+                    process.communicate(), timeout=request.timeout
+                )
 
                 status = "success" if process.returncode == 0 else "error"
                 execution_time = time.time() - start_time
@@ -88,17 +110,25 @@ class LocalCodeExecutor(CodeExecutorBase):
                 if stderr_output:
                     logger.error(f"STDERR: {stderr_output.decode()}")
 
-                results.append(ExecutionResult(
-                    status=status,
-                    output=stdout_output.decode(),
-                    exit_code=process.returncode
-                ))
+                results.append(
+                    ExecutionResult(
+                        status=status,
+                        output=stdout_output.decode(),
+                        exit_code=process.returncode,
+                    )
+                )
 
             except asyncio.TimeoutError:
                 process.terminate()  # Ensure subprocess is killed if it times out
-                results.append(ExecutionResult(status="error", output="Execution timed out", exit_code=1))
+                results.append(
+                    ExecutionResult(
+                        status="error", output="Execution timed out", exit_code=1
+                    )
+                )
             except Exception as e:
-                results.append(ExecutionResult(status="error", output=str(e), exit_code=1))
+                results.append(
+                    ExecutionResult(status="error", output=str(e), exit_code=1)
+                )
 
         return results
 
@@ -124,13 +154,15 @@ class LocalCodeExecutor(CodeExecutorBase):
         for node in ast.walk(parsed_code):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    modules.add(alias.name.split('.')[0])  # Get the top-level package
+                    modules.add(alias.name.split(".")[0])  # Get the top-level package
             elif isinstance(node, ast.ImportFrom) and node.module:
-                modules.add(node.module.split('.')[0])
+                modules.add(node.module.split(".")[0])
 
         return list(modules)
 
-    async def _get_missing_packages(self, packages: List[str], env_path: Path) -> List[str]:
+    async def _get_missing_packages(
+        self, packages: List[str], env_path: Path
+    ) -> List[str]:
         """Determines which packages are missing inside a given virtual environment.
 
         Args:
@@ -144,18 +176,21 @@ class LocalCodeExecutor(CodeExecutorBase):
 
         async def check_package(pkg):
             process = await asyncio.create_subprocess_exec(
-                str(python_bin), "-c", f"import {pkg}",
+                str(python_bin),
+                "-c",
+                f"import {pkg}",
                 stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
+                stderr=asyncio.subprocess.DEVNULL,
             )
             await process.wait()
-            return pkg if process.returncode != 0 else None  # Return package name if missing
+            return (
+                pkg if process.returncode != 0 else None
+            )  # Return package name if missing
 
         tasks = [check_package(pkg) for pkg in packages]
         results = await asyncio.gather(*tasks)
 
         return [pkg for pkg in results if pkg]  # Filter out installed packages
-
 
     async def _get_or_create_cached_env(self, dependencies: List[str]) -> Path:
         """Creates or retrieves a cached virtual environment based on dependencies.
@@ -194,7 +229,6 @@ class LocalCodeExecutor(CodeExecutorBase):
 
             return env_path
 
-
     async def _install_missing_packages(self, packages: List[str], env_dir: Path):
         """Installs missing Python packages inside the virtual environment.
 
@@ -215,7 +249,7 @@ class LocalCodeExecutor(CodeExecutorBase):
             *command,
             stdout=asyncio.subprocess.DEVNULL,  # Suppresses stdout since it's not used
             stderr=asyncio.subprocess.PIPE,
-            close_fds=True
+            close_fds=True,
         )
         _, stderr = await process.communicate()  # Capture only stderr
 

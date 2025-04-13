@@ -2,6 +2,7 @@ from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.utils.string import StringPromptHelper
 from typing import Any, Union, Literal
 
+
 class StringPromptTemplate(PromptTemplateBase):
     """
     A template class designed to handle string-based prompts. This class can format a string template
@@ -30,7 +31,9 @@ class StringPromptTemplate(PromptTemplateBase):
             ValueError: If required variables are missing or extra undeclared variables are passed.
         """
         # Extract the required input variables from the template
-        input_variables = StringPromptHelper.extract_variables(self.template, self.template_format)
+        input_variables = StringPromptHelper.extract_variables(
+            self.template, self.template_format
+        )
 
         # Check for missing variables
         missing_vars = [var for var in input_variables if var not in kwargs]
@@ -46,10 +49,14 @@ class StringPromptTemplate(PromptTemplateBase):
         kwargs = self.prepare_variables_for_formatting(**kwargs)
 
         # Use the helper to format the content
-        return StringPromptHelper.format_content(self.template, self.template_format, **kwargs)
+        return StringPromptHelper.format_content(
+            self.template, self.template_format, **kwargs
+        )
 
     @classmethod
-    def from_template(cls, template: str, template_format: str = "f-string", **kwargs: Any) -> 'StringPromptTemplate':
+    def from_template(
+        cls, template: str, template_format: str = "f-string", **kwargs: Any
+    ) -> "StringPromptTemplate":
         """
         Create a StringPromptTemplate from a template string.
 
@@ -61,10 +68,19 @@ class StringPromptTemplate(PromptTemplateBase):
         Returns:
             StringPromptTemplate: A new instance of the template with extracted input variables.
         """
-        input_variables = StringPromptHelper.extract_variables(template, template_format)
-        return cls(template=template, template_format=template_format, input_variables=input_variables, **kwargs)
+        input_variables = StringPromptHelper.extract_variables(
+            template, template_format
+        )
+        return cls(
+            template=template,
+            template_format=template_format,
+            input_variables=input_variables,
+            **kwargs,
+        )
 
-    def __add__(self, other: Union[str, 'StringPromptTemplate']) -> 'StringPromptTemplate':
+    def __add__(
+        self, other: Union[str, "StringPromptTemplate"]
+    ) -> "StringPromptTemplate":
         """
         Override the + operator to allow for combining prompt templates.
 
@@ -77,17 +93,24 @@ class StringPromptTemplate(PromptTemplateBase):
         if isinstance(other, StringPromptTemplate):
             # Ensure both templates use the same format
             if self.template_format != other.template_format:
-                raise ValueError("Adding prompt templates only supported for the same template format.")
-            
+                raise ValueError(
+                    "Adding prompt templates only supported for the same template format."
+                )
+
             # Combine input variables
-            input_variables = list(set(self.input_variables) | set(other.input_variables))
-            
+            input_variables = list(
+                set(self.input_variables) | set(other.input_variables)
+            )
+
             # Combine template strings
             template = self.template + other.template
-            
+
             # Combine pre-filled variables
-            pre_filled_variables = {**self.pre_filled_variables, **other.pre_filled_variables}
-            
+            pre_filled_variables = {
+                **self.pre_filled_variables,
+                **other.pre_filled_variables,
+            }
+
             # Create and return a new combined StringPromptTemplate
             return StringPromptTemplate(
                 template=template,
@@ -97,7 +120,9 @@ class StringPromptTemplate(PromptTemplateBase):
             )
         elif isinstance(other, str):
             # If other is a string, convert it to a StringPromptTemplate and combine
-            return self + StringPromptTemplate.from_template(other, template_format=self.template_format)
+            return self + StringPromptTemplate.from_template(
+                other, template_format=self.template_format
+            )
         else:
             # Raise error for unsupported types
             raise NotImplementedError(f"Unsupported operand type for +: {type(other)}")

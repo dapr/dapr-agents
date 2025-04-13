@@ -9,6 +9,7 @@ from dapr_agents.types import ChatCompletion
 
 logger = logging.getLogger(__name__)
 
+
 class ResponseHandler:
     """
     Handles the processing of responses from language models.
@@ -50,11 +51,15 @@ class ResponseHandler:
                 )
 
                 # Normalize format and resolve actual model class
-                normalized_format = StructureHandler.normalize_iterable_format(response_format)
+                normalized_format = StructureHandler.normalize_iterable_format(
+                    response_format
+                )
                 model_cls = StructureHandler.resolve_response_model(normalized_format)
 
                 if not model_cls:
-                    raise TypeError(f"Could not resolve a valid Pydantic model from response_format: {response_format}")
+                    raise TypeError(
+                        f"Could not resolve a valid Pydantic model from response_format: {response_format}"
+                    )
 
                 structured_response_instance = StructureHandler.validate_response(
                     structured_response_json, normalized_format

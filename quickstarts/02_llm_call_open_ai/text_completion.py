@@ -13,8 +13,8 @@ if len(response.get_content()) > 0:
     print("Response: ", response.get_content())
 
 # Chat completion using a prompty file for context
-llm = OpenAIChatClient.from_prompty('basic.prompty')
-response = llm.generate(input_data={"question":"What is your name?"})
+llm = OpenAIChatClient.from_prompty("basic.prompty")
+response = llm.generate(input_data={"question": "What is your name?"})
 
 if len(response.get_content()) > 0:
     print("Response with prompty: ", response.get_content())
