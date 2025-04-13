@@ -4,11 +4,10 @@ on:
   push:
     branches:
       - feature/*
+      - feat/*
+      - bugfix/*
+      - fix/*
   pull_request:
-    branches:
-      - main
-      - release-*
-      - feature/*
   workflow_dispatch:
   merge_group:
 
