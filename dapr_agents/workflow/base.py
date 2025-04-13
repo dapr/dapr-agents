@@ -87,7 +87,7 @@ class WorkflowApp(BaseModel):
         self.wf_client = DaprWorkflowClient()
         self.client = DaprClient()
 
-        logger.info(f"Initialized WorkflowApp.")
+        logger.info("Initialized WorkflowApp.")
 
         # Register workflows and tasks after the instance is created
         self.register_all_workflows()
@@ -151,7 +151,7 @@ class WorkflowApp(BaseModel):
                 return None
             except Exception as e:
                 logger.error(f"Error on transaction attempt: {attempt}: {e}")
-                logger.info(f"Sleeping for 1 second before retrying transaction...")
+                logger.info("Sleeping for 1 second before retrying transaction...")
                 time.sleep(1)
         raise Exception(f"Failed to update state store key: {key} after 10 attempts.")
 
