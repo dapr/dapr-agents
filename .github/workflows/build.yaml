@@ -1,15 +1,8 @@
 name: Lint and Build
 
 on:
-  push:
-    branches:
-      - feature/*
-      - feat/*
-      - bugfix/*
-      - fix/*
   pull_request:
   workflow_dispatch:
-  merge_group:
 
 jobs:
   lint:
