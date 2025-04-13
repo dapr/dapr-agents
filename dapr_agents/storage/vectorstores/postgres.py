@@ -107,11 +107,11 @@ class PostgresVectorStore(VectorStoreBase):
                             """
                         )
                         logger.info(
-                            f"Global index created for fixed-dimension embeddings."
+                            "Global index created for fixed-dimension embeddings."
                         )
                 else:
                     logger.info(
-                        f"No fixed dimension specified; relying on dynamic partial indexing."
+                        "No fixed dimension specified; relying on dynamic partial indexing."
                     )
         except Exception as e:
             logger.error(f"Failed to initialize PostgresVectorStore: {e}")
@@ -425,7 +425,7 @@ class PostgresVectorStore(VectorStoreBase):
                         params = []
                         if metadata_filter:
                             filter_conditions = " AND ".join(
-                                [f"metadata ->> %s = %s" for _ in metadata_filter]
+                                ["metadata ->> %s = %s" for _ in metadata_filter]
                             )
                             query += f" WHERE {filter_conditions}"
                             params.extend(
