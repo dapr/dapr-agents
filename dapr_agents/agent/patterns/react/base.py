@@ -302,7 +302,7 @@ class ReActAgent(AgentBase):
                 continue
 
         logger.debug(
-            f"[parse_response] No valid action JSON found. Returning Thought only."
+            "[parse_response] No valid action JSON found. Returning Thought only."
         )
         return thought_part, None, None
 
