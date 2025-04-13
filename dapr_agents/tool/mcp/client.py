@@ -362,7 +362,10 @@ class MCPClient(BaseModel):
                 for content in result.content:
                     if hasattr(content, 'text'):
                         error_message = content.text
-                        break
+                        # This is not a real error, we just feed back the error from the tool
+                        # to the model for iterating again
+                        logger.info(f"MCP tool error thrown, returning result: {result}")
+                        return str(result)
             raise ToolError(f"MCP tool error: {error_message}")
         
         # Extract text content from result
