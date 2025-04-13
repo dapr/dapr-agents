@@ -172,7 +172,7 @@ class WorkflowApp(BaseModel):
             )
             data = response.data
             return json.loads(data) if data else None
-        except Exception as e:
+        except Exception:
             logger.warning(
                 f"Error retrieving data for key '{key}' from store '{store_name}'"
             )
