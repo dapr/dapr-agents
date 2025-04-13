@@ -402,15 +402,18 @@ if __name__ == "__main__":
     # Merge CLI and Config inputs
     user_input = {
         "pdf_url": args.pdf_url or config.get("pdf_url"),
-        "podcast_name": args.podcast_name or config.get("podcast_name", "Default Podcast"),
+        "podcast_name": args.podcast_name
+        or config.get("podcast_name", "Default Podcast"),
         "host": {
             "name": args.host_name or config.get("host", {}).get("name", "Host"),
             "voice": args.host_voice or config.get("host", {}).get("voice", "alloy"),
         },
         "participants": config.get("participants", []),
         "max_rounds": args.max_rounds or config.get("max_rounds", 4),
-        "output_transcript_path": args.output_transcript_path or config.get("output_transcript_path", "podcast_dialogue.json"),
-        "output_audio_path": args.output_audio_path or config.get("output_audio_path", "final_podcast.mp3"),
+        "output_transcript_path": args.output_transcript_path
+        or config.get("output_transcript_path", "podcast_dialogue.json"),
+        "output_audio_path": args.output_audio_path
+        or config.get("output_audio_path", "final_podcast.mp3"),
         "audio_model": args.audio_model or config.get("audio_model", "tts-1"),
     }
 
