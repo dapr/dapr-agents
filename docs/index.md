@@ -26,7 +26,7 @@ Dapr Agents builds on top of Dapr's Workflow API, which under the hood represent
 
 ### Data-Centric AI Agents
 
-With built-in connectivity to over 50 enterprise data sources, Dapr Agents efficiently handles structured and unstructured data. From basic [PDF extraction](./concepts/arxiv_fetcher.md) to large-scale database interactions, it enables seamless data-driven AI workflows with minimal code changes. Dapr's [bindings](https://docs.dapr.io/reference/components-reference/supported-bindings/) and [state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/) provide access to a large number of data sources that can be used to ingest data to an agent. [MCP integration](https://docs.anthropic.com/en/docs/agents-and-tools/mcp) is coming soon.
+With built-in connectivity to over 50 enterprise data sources, Dapr Agents efficiently handles structured and unstructured data. From basic [PDF extraction](./concepts/arxiv_fetcher.md) to large-scale database interactions, it enables seamless data-driven AI workflows with minimal code changes. Dapr's [bindings](https://docs.dapr.io/reference/components-reference/supported-bindings/) and [state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/) provide access to a large number of data sources that can be used to ingest data to an agent. 
 
 ### Accelerated Development
 
@@ -38,6 +38,7 @@ Dapr Agents provides a set of AI features that give developers a complete API su
 - Contextual memory
 - Flexible prompting
 - Intelligent tool selection
+- [MCP integration](https://docs.anthropic.com/en/docs/agents-and-tools/mcp)
 
 ### Integrated Security and Reliability
 

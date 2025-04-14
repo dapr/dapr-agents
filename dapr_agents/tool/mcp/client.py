@@ -417,7 +417,6 @@ class MCPClient(BaseModel):
                 return text_contents[0]
             elif text_contents:
                 return text_contents
-
         # Fallback for unexpected formats
         return str(result)
 
