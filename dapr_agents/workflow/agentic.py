@@ -731,7 +731,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                 store_name=self.agents_registry_store_name,
                 store_key=self.agents_registry_key,
                 agent_name=self.name,
-                agent_metadata=self._agent_metadata
+                agent_metadata=self._agent_metadata,
             )
         except Exception as e:
             logger.error(f"Failed to register metadata for agent {self.name}: {e}")

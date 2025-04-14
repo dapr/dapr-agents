@@ -95,8 +95,10 @@ class WorkflowApp(BaseModel):
 
         # Proceed with base model setup
         super().model_post_init(__context)
-    
-    def register_agent(self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict) -> None:
+
+    def register_agent(
+        self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict
+    ) -> None:
         """
         Merges the existing data with the new data and updates the store.
 
@@ -108,7 +110,9 @@ class WorkflowApp(BaseModel):
         # retry the entire operation up to ten times sleeping 1 second between each attempt
         for attempt in range(1, 11):
             try:
-                response: StateResponse = self.client.get_state(store_name=store_name, key=store_key)
+                response: StateResponse = self.client.get_state(
+                    store_name=store_name, key=store_key
+                )
                 if not response.etag:
                     # if there is no etag the following transaction won't work as expected
                     # so we need to save an empty object with a strong consistency to force the etag to be created
@@ -152,7 +156,9 @@ class WorkflowApp(BaseModel):
                 logger.error(f"Error on transaction attempt: {attempt}: {e}")
                 logger.info("Sleeping for 1 second before retrying transaction...")
                 time.sleep(1)
-        raise Exception(f"Failed to update state store key: {store_key} after 10 attempts.")
+        raise Exception(
+            f"Failed to update state store key: {store_key} after 10 attempts."
+        )
 
     def get_data_from_store(self, store_name: str, key: str) -> Tuple[bool, dict]:
         """
