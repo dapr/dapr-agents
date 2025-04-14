@@ -25,7 +25,7 @@ def call_trigger_job(task):
             print(f"Request failed: {e}")
 
         attempt += 1
-        print(f"Waiting 5s seconds before next health checkattempt...")
+        print("Waiting 5s seconds before next health checkattempt...")
         time.sleep(5)
 
     for attempt in range(1, 11):
@@ -43,10 +43,10 @@ def call_trigger_job(task):
             print(f"Request failed: {e}")
 
         attempt += 1
-        print(f"Waiting 1s seconds before next attempt...")
+        print("Waiting 1s seconds before next attempt...")
         time.sleep(1)
 
-    print(f"Maximum attempts (10) reached without success.")
+    print("Maximum attempts (10) reached without success.")
 
     print("Failed to get successful response")
     sys.exit(1)
