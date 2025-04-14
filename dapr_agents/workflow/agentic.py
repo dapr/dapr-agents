@@ -586,12 +586,11 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         """
         try:
             # Update the agents registry store with the new agent metadata
-            self.transactional_update_store(
+            self.register_agent(
                 store_name=self.agents_registry_store_name,
-                key=self.agents_registry_key,
-                data={
-                    self.name: self._agent_metadata
-                }
+                store_key=self.agents_registry_key,
+                agent_name=self.name,
+                agent_metadata=self._agent_metadata
             )
             logger.info(f"{self.name} registered its metadata under key '{self.agents_registry_key}'")
         except Exception as e:

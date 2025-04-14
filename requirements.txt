@@ -14,3 +14,4 @@ pyyaml==6.0.2
 rich==13.9.4
 huggingface_hub==0.27.1
 numpy==2.2.2
+mcp==1.6.0
