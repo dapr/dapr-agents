@@ -1,4 +1,8 @@
-from dapr_agents.memory import MemoryBase, ConversationListMemory, ConversationVectorMemory
+from dapr_agents.memory import (
+    MemoryBase,
+    ConversationListMemory,
+    ConversationVectorMemory,
+)
 from dapr_agents.agent.utils.text_printer import ColorTextFormatter
 from dapr_agents.types import MessageContent, MessagePlaceHolder
 from dapr_agents.tool.executor import AgentToolExecutor
@@ -14,46 +18,79 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class AgentBase(BaseModel, ABC):
     """
     Base class for agents that interact with language models and manage tools for task execution.
     """
 
-    name: Optional[str] = Field(default=None, description="The agent's name, defaulting to the role if not provided.")
-    role: Optional[str] = Field(default="Assistant", description="The agent's role in the interaction (e.g., 'Weather Expert').")
-    goal: Optional[str] = Field(default="Help humans", description="The agent's main objective (e.g., 'Provide Weather information').")
-    instructions: Optional[List[str]] = Field(default=None, description="Instructions guiding the agent's tasks.")
-    system_prompt: Optional[str] = Field(default=None, description="A custom system prompt, overriding name, role, goal, and instructions.")
-    llm: LLMClientBase = Field(default_factory=OpenAIChatClient, description="Language model client for generating responses.")
-    prompt_template: Optional[PromptTemplateBase] = Field(default=None, description="The prompt template for the agent.")
-    tools: List[Union[AgentTool, Callable]] = Field(default_factory=list, description="Tools available for the agent to assist with tasks.")
-    max_iterations: int = Field(default=10, description="Max iterations for conversation cycles.")
-    memory: MemoryBase = Field(default_factory=ConversationListMemory, description="Handles conversation history and context storage.")
-    template_format: Literal["f-string", "jinja2"] = Field(default="jinja2", description="The format used for rendering the prompt template.")
+    name: Optional[str] = Field(
+        default=None,
+        description="The agent's name, defaulting to the role if not provided.",
+    )
+    role: Optional[str] = Field(
+        default="Assistant",
+        description="The agent's role in the interaction (e.g., 'Weather Expert').",
+    )
+    goal: Optional[str] = Field(
+        default="Help humans",
+        description="The agent's main objective (e.g., 'Provide Weather information').",
+    )
+    instructions: Optional[List[str]] = Field(
+        default=None, description="Instructions guiding the agent's tasks."
+    )
+    system_prompt: Optional[str] = Field(
+        default=None,
+        description="A custom system prompt, overriding name, role, goal, and instructions.",
+    )
+    llm: LLMClientBase = Field(
+        default_factory=OpenAIChatClient,
+        description="Language model client for generating responses.",
+    )
+    prompt_template: Optional[PromptTemplateBase] = Field(
+        default=None, description="The prompt template for the agent."
+    )
+    tools: List[Union[AgentTool, Callable]] = Field(
+        default_factory=list,
+        description="Tools available for the agent to assist with tasks.",
+    )
+    max_iterations: int = Field(
+        default=10, description="Max iterations for conversation cycles."
+    )
+    memory: MemoryBase = Field(
+        default_factory=ConversationListMemory,
+        description="Handles conversation history and context storage.",
+    )
+    template_format: Literal["f-string", "jinja2"] = Field(
+        default="jinja2",
+        description="The format used for rendering the prompt template.",
+    )
 
     # Private attributes
     _tool_executor: AgentToolExecutor = PrivateAttr()
-    _text_formatter: ColorTextFormatter = PrivateAttr(default_factory=ColorTextFormatter)
+    _text_formatter: ColorTextFormatter = PrivateAttr(
+        default_factory=ColorTextFormatter
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
+
     @model_validator(mode="before")
     def set_name_from_role(cls, values: dict):
         # Set name to role if name is not provided
         if not values.get("name") and values.get("role"):
             values["name"] = values["role"]
         return values
-    
+
     @property
     def tool_executor(self) -> AgentToolExecutor:
         """Returns the tool executor, ensuring it's accessible but read-only."""
         return self._tool_executor
-    
+
     @property
     def text_formatter(self) -> ColorTextFormatter:
         """Returns the text formatter for the agent."""
         return self._text_formatter
-    
+
     @property
     def chat_history(self, task: str = None) -> List[MessageContent]:
         """
@@ -69,7 +106,7 @@ class AgentBase(BaseModel, ABC):
             query_embeddings = self.memory.vector_store.embed_documents([task])
             return self.memory.get_messages(query_embeddings=query_embeddings)
         return self.memory.get_messages()
-    
+
     @abstractmethod
     def run(self, input_data: Union[str, Dict[str, Any]]) -> Any:
         """
@@ -97,7 +134,9 @@ class AgentBase(BaseModel, ABC):
 
         # If the agent's prompt_template is provided, use it and skip further configuration
         if self.prompt_template:
-            logger.info("Using the provided agent prompt_template. Skipping system prompt construction.")
+            logger.info(
+                "Using the provided agent prompt_template. Skipping system prompt construction."
+            )
             self.llm.prompt_template = self.prompt_template
 
         # If the LLM client already has a prompt template, sync it and prefill/validate as needed
@@ -112,7 +151,7 @@ class AgentBase(BaseModel, ABC):
 
             logger.info("Using system_prompt to create the prompt template.")
             self.prompt_template = self.construct_prompt_template()
-        
+
         # Pre-fill Agent Attributes if needed
         self.prefill_agent_attributes()
 
@@ -145,28 +184,44 @@ class AgentBase(BaseModel, ABC):
             prefill_data["instructions"] = "\n".join(self.instructions)
 
         # Collect attributes set but not in input_variables for informational logging
-        set_attributes = {"name": self.name, "role": self.role, "goal": self.goal, "instructions": self.instructions}
-        
+        set_attributes = {
+            "name": self.name,
+            "role": self.role,
+            "goal": self.goal,
+            "instructions": self.instructions,
+        }
+
         # Use Pydantic's model_fields_set to detect if attributes were user-set
-        user_set_attributes = {attr for attr in set_attributes if attr in self.model_fields_set}
-        
+        user_set_attributes = {
+            attr for attr in set_attributes if attr in self.model_fields_set
+        }
+
         ignored_attributes = [
-            attr for attr in set_attributes
-            if attr not in self.prompt_template.input_variables and set_attributes[attr] is not None and attr in user_set_attributes
+            attr
+            for attr in set_attributes
+            if attr not in self.prompt_template.input_variables
+            and set_attributes[attr] is not None
+            and attr in user_set_attributes
         ]
 
         # Apply pre-filled data only for attributes that are in input_variables
         if prefill_data:
-            self.prompt_template = self.prompt_template.pre_fill_variables(**prefill_data)
-            logger.info(f"Pre-filled prompt template with attributes: {list(prefill_data.keys())}")
+            self.prompt_template = self.prompt_template.pre_fill_variables(
+                **prefill_data
+            )
+            logger.info(
+                f"Pre-filled prompt template with attributes: {list(prefill_data.keys())}"
+            )
         elif ignored_attributes:
             raise ValueError(
                 f"The following agent attributes were explicitly set by the user but are not considered by the prompt template: {', '.join(ignored_attributes)}. "
                 "Please ensure that these attributes are included in the prompt template's input variables if they are needed."
             )
         else:
-            logger.info("No agent attributes were pre-filled, as the template did not require any.")
-    
+            logger.info(
+                "No agent attributes were pre-filled, as the template did not require any."
+            )
+
     def construct_system_prompt(self) -> str:
         """
         Constructs a system prompt with agent attributes like `name`, `role`, `goal`, and `instructions`.
@@ -191,7 +246,7 @@ class AgentBase(BaseModel, ABC):
             prompt_parts.append("## Instructions\n{{instructions}}")
 
         return "\n\n".join(prompt_parts)
-    
+
     def construct_prompt_template(self) -> ChatPromptTemplate:
         """
         Constructs a ChatPromptTemplate that includes the system prompt and a placeholder for chat history.
@@ -206,19 +261,21 @@ class AgentBase(BaseModel, ABC):
         # Create the template with placeholders for system message and chat history
         return ChatPromptTemplate.from_messages(
             messages=[
-                ('system', system_prompt),
-                MessagePlaceHolder(variable_name="chat_history")
+                ("system", system_prompt),
+                MessagePlaceHolder(variable_name="chat_history"),
             ],
-            template_format=self.template_format
+            template_format=self.template_format,
         )
-    
-    def construct_messages(self, input_data: Union[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    def construct_messages(
+        self, input_data: Union[str, Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """
         Constructs and formats initial messages based on input type, pre-filling chat history as needed.
 
         Args:
             input_data (Union[str, Dict[str, Any]]): User input, either as a string or dictionary.
-        
+
         Returns:
             List[Dict[str, Any]]: List of formatted messages, including the user message if input_data is a string.
         """
@@ -244,7 +301,7 @@ class AgentBase(BaseModel, ABC):
     def reset_memory(self):
         """Clears all messages stored in the agent's memory."""
         self.memory.reset_memory()
-    
+
     def get_last_message(self) -> Optional[MessageContent]:
         """
         Retrieves the last message from the chat history.
@@ -254,8 +311,10 @@ class AgentBase(BaseModel, ABC):
         """
         chat_history = self.chat_history
         return chat_history[-1] if chat_history else None
-    
-    def get_last_user_message(self, messages: List[Dict[str, Any]]) -> Optional[MessageContent]:
+
+    def get_last_user_message(
+        self, messages: List[Dict[str, Any]]
+    ) -> Optional[MessageContent]:
         """
         Retrieves the last user message in a list of messages.
 
@@ -272,13 +331,13 @@ class AgentBase(BaseModel, ABC):
                 message["content"] = message["content"].strip()
                 return message
         return None
-    
+
     def pre_fill_prompt_template(self, **kwargs: Union[str, Callable[[], str]]) -> None:
         """
         Pre-fills the prompt template with specified variables, updating input variables if applicable.
 
         Args:
-            **kwargs: Variables to pre-fill in the prompt template. These can be strings or callables 
+            **kwargs: Variables to pre-fill in the prompt template. These can be strings or callables
                     that return strings.
 
         Notes:
@@ -286,7 +345,9 @@ class AgentBase(BaseModel, ABC):
             - This method does not affect the `chat_history` which is dynamically updated.
         """
         if not self.prompt_template:
-            raise ValueError("Prompt template must be initialized before pre-filling variables.")
-        
+            raise ValueError(
+                "Prompt template must be initialized before pre-filling variables."
+            )
+
         self.prompt_template = self.prompt_template.pre_fill_variables(**kwargs)
         logger.debug(f"Pre-filled prompt template with variables: {kwargs.keys()}")

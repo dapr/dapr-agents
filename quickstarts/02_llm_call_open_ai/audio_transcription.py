@@ -10,8 +10,7 @@ audio_file_path = "speech.mp3"
 
 # Create a transcription request
 transcription_request = AudioTranscriptionRequest(
-    model="whisper-1",
-    file=audio_file_path
+    model="whisper-1", file=audio_file_path
 )
 
 ############

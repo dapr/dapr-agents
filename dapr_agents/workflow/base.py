@@ -13,10 +13,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from durabletask import task as dtask
 
 from dapr.clients import DaprClient
-from dapr.clients.grpc._request import TransactionOperationType, TransactionalStateOperation
+from dapr.clients.grpc._request import (
+    TransactionOperationType,
+    TransactionalStateOperation,
+)
 from dapr.clients.grpc._response import StateResponse
 from dapr.clients.grpc._state import Concurrency, Consistency, StateOptions
-from dapr.ext.workflow import DaprWorkflowClient, WorkflowActivityContext, WorkflowRuntime
+from dapr.ext.workflow import (
+    DaprWorkflowClient,
+    WorkflowActivityContext,
+    WorkflowRuntime,
+)
 from dapr.ext.workflow.workflow_state import WorkflowState
 
 from dapr_agents.llm.chat import ChatClientBase
@@ -26,24 +33,44 @@ from dapr_agents.workflow.utils import get_callable_decorated_methods
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 class WorkflowApp(BaseModel):
     """
     A Pydantic-based class to encapsulate a Dapr Workflow runtime and manage workflows and tasks.
     """
 
-    llm: Optional[ChatClientBase] = Field(default=None, description="The default LLM client for all LLM-based tasks.")
-    timeout: int = Field(default=300, description="Default timeout duration in seconds for workflow tasks.")
+    llm: Optional[ChatClientBase] = Field(
+        default=None, description="The default LLM client for all LLM-based tasks."
+    )
+    timeout: int = Field(
+        default=300,
+        description="Default timeout duration in seconds for workflow tasks.",
+    )
 
     # Initialized in model_post_init
-    wf_runtime: Optional[WorkflowRuntime] = Field(default=None, init=False, description="Workflow runtime instance.")
-    wf_runtime_is_running: Optional[bool] = Field(default=None, init=False, description="Is the Workflow runtime running?.")
-    wf_client: Optional[DaprWorkflowClient] = Field(default=None, init=False, description="Workflow client instance.")
-    client: Optional[DaprClient] = Field(default=None, init=False, description="Dapr client instance.")
-    tasks: Dict[str, Callable] = Field(default_factory=dict, init=False, description="Dictionary of registered tasks.")
-    workflows: Dict[str, Callable] = Field(default_factory=dict, init=False, description="Dictionary of registered workflows.")
-    
+    wf_runtime: Optional[WorkflowRuntime] = Field(
+        default=None, init=False, description="Workflow runtime instance."
+    )
+    wf_runtime_is_running: Optional[bool] = Field(
+        default=None, init=False, description="Is the Workflow runtime running?."
+    )
+    wf_client: Optional[DaprWorkflowClient] = Field(
+        default=None, init=False, description="Workflow client instance."
+    )
+    client: Optional[DaprClient] = Field(
+        default=None, init=False, description="Dapr client instance."
+    )
+    tasks: Dict[str, Callable] = Field(
+        default_factory=dict, init=False, description="Dictionary of registered tasks."
+    )
+    workflows: Dict[str, Callable] = Field(
+        default_factory=dict,
+        init=False,
+        description="Dictionary of registered workflows.",
+    )
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context: Any) -> None:
@@ -60,7 +87,7 @@ class WorkflowApp(BaseModel):
         self.wf_client = DaprWorkflowClient()
         self.client = DaprClient()
 
-        logger.info(f"Initialized WorkflowApp.")
+        logger.info("Initialized WorkflowApp.")
 
         # Register workflows and tasks after the instance is created
         self.register_all_workflows()
@@ -68,8 +95,10 @@ class WorkflowApp(BaseModel):
 
         # Proceed with base model setup
         super().model_post_init(__context)
-    
-    def register_agent(self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict) -> None:
+
+    def register_agent(
+        self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict
+    ) -> None:
         """
         Merges the existing data with the new data and updates the store.
 
@@ -81,7 +110,9 @@ class WorkflowApp(BaseModel):
         # retry the entire operation up to ten times sleeping 1 second between each attempt
         for attempt in range(1, 11):
             try:
-                response: StateResponse = self.client.get_state(store_name=store_name, key=store_key)
+                response: StateResponse = self.client.get_state(
+                    store_name=store_name, key=store_key
+                )
                 if not response.etag:
                     # if there is no etag the following transaction won't work as expected
                     # so we need to save an empty object with a strong consistency to force the etag to be created
@@ -90,7 +121,10 @@ class WorkflowApp(BaseModel):
                         key=store_key,
                         value=json.dumps({}),
                         state_metadata={"contentType": "application/json"},
-                        options=StateOptions(concurrency=Concurrency.first_write, consistency=Consistency.strong)
+                        options=StateOptions(
+                            concurrency=Concurrency.first_write,
+                            consistency=Consistency.strong,
+                        ),
                     )
                     # raise an exception to retry the entire operation
                     raise Exception(f"No etag found for key: {store_key}")
@@ -110,19 +144,21 @@ class WorkflowApp(BaseModel):
                                 key=store_key,
                                 data=json.dumps(merged_data),
                                 etag=response.etag,
-                                operation_type=TransactionOperationType.upsert
+                                operation_type=TransactionOperationType.upsert,
                             )
                         ],
-                        transactional_metadata={"contentType": "application/json"}
+                        transactional_metadata={"contentType": "application/json"},
                     )
                 except Exception as e:
                     raise e
                 return None
             except Exception as e:
-                logger.debug(f"Error on transaction attempt: {attempt}: {e}")
-                logger.debug(f"Sleeping for 1 second before retrying transaction...")
+                logger.error(f"Error on transaction attempt: {attempt}: {e}")
+                logger.info("Sleeping for 1 second before retrying transaction...")
                 time.sleep(1)
-        raise Exception(f"Failed to update state store key: {store_key} after 10 attempts.")
+        raise Exception(
+            f"Failed to update state store key: {store_key} after 10 attempts."
+        )
 
     def get_data_from_store(self, store_name: str, key: str) -> Tuple[bool, dict]:
         """
@@ -136,11 +172,15 @@ class WorkflowApp(BaseModel):
             Tuple[bool, dict]: A tuple indicating if data was found (bool) and the retrieved data (dict).
         """
         try:
-            response: StateResponse = self.client.get_state(store_name=store_name, key=key)
+            response: StateResponse = self.client.get_state(
+                store_name=store_name, key=key
+            )
             data = response.data
             return json.loads(data) if data else None
-        except Exception as e:
-            logger.warning(f"Error retrieving data for key '{key}' from store '{store_name}'")
+        except Exception:
+            logger.warning(
+                f"Error retrieving data for key '{key}' from store '{store_name}'"
+            )
             return None
 
     def register_all_tasks(self):
@@ -154,7 +194,7 @@ class WorkflowApp(BaseModel):
             if hasattr(func, "_is_task") and func.__module__ == current_module.__name__:
                 task_name = getattr(func, "_task_name", None) or name
                 all_functions[task_name] = func
-        
+
         # Load instance methods that are tasks
         task_methods = get_callable_decorated_methods(self, "_is_task")
         for method_name, method in task_methods.items():
@@ -174,7 +214,7 @@ class WorkflowApp(BaseModel):
 
             # If task is explicitly LLM-based, but has no LLM, use `self.llm`
             if explicit_llm and self.llm is not None:
-                llm = self.llm 
+                llm = self.llm
 
             task_kwargs = getattr(method, "_task_kwargs", {})
 
@@ -183,9 +223,11 @@ class WorkflowApp(BaseModel):
                 description=getattr(method, "_task_description", None),
                 agent=getattr(method, "_task_agent", None),
                 llm=llm,
-                include_chat_history=getattr(method, "_task_include_chat_history", False),
+                include_chat_history=getattr(
+                    method, "_task_include_chat_history", False
+                ),
                 workflow_app=self,
-                **task_kwargs
+                **task_kwargs,
             )
 
             def run_in_event_loop(coroutine):
@@ -204,7 +246,9 @@ class WorkflowApp(BaseModel):
                 wf_ctx = WorkflowActivityContext(ctx)
 
                 try:
-                    if inspect.iscoroutinefunction(method) or asyncio.iscoroutinefunction(task_instance.__call__):
+                    if inspect.iscoroutinefunction(
+                        method
+                    ) or asyncio.iscoroutinefunction(task_instance.__call__):
                         return run_in_event_loop(task_instance(wf_ctx, *args, **kwargs))
                     else:
                         return task_instance(wf_ctx, *args, **kwargs)
@@ -223,7 +267,7 @@ class WorkflowApp(BaseModel):
 
             # Store task reference
             self.tasks[task_name] = registered_activity
-    
+
     def register_all_workflows(self):
         """
         Registers all workflow functions dynamically with Dapr.
@@ -233,7 +277,10 @@ class WorkflowApp(BaseModel):
         all_workflows = {}
         # Load global-level workflow functions
         for name, func in inspect.getmembers(current_module, inspect.isfunction):
-            if hasattr(func, "_is_workflow") and func.__module__ == current_module.__name__:
+            if (
+                hasattr(func, "_is_workflow")
+                and func.__module__ == current_module.__name__
+            ):
                 workflow_name = getattr(func, "_workflow_name", None) or name
                 all_workflows[workflow_name] = func
 
@@ -255,7 +302,9 @@ class WorkflowApp(BaseModel):
                 try:
                     return method(*args, **kwargs)
                 except Exception as e:
-                    raise RuntimeError(f"Workflow '{workflow_name}' execution failed: {e}")
+                    raise RuntimeError(
+                        f"Workflow '{workflow_name}' execution failed: {e}"
+                    )
 
             return workflow_name, workflow_wrapper
 
@@ -268,7 +317,7 @@ class WorkflowApp(BaseModel):
 
             # Store workflow reference
             self.workflows[workflow_name] = registered_workflow
-    
+
     def resolve_task(self, task: Union[str, Callable]) -> Callable:
         """
         Resolves a registered task function by its name or decorated function.
@@ -292,9 +341,8 @@ class WorkflowApp(BaseModel):
         task_func = self.tasks.get(task_name)
         if not task_func:
             raise AttributeError(f"Task '{task_name}' not found.")
-        
-        return task_func
 
+        return task_func
 
     def resolve_workflow(self, workflow: Union[str, Callable]) -> Callable:
         """
@@ -322,7 +370,9 @@ class WorkflowApp(BaseModel):
 
         return workflow_func
 
-    def run_workflow(self, workflow: Union[str, Callable], input: Union[str, Dict[str, Any]] = None) -> str:
+    def run_workflow(
+        self, workflow: Union[str, Callable], input: Union[str, Dict[str, Any]] = None
+    ) -> str:
         """
         Starts a workflow execution.
 
@@ -350,9 +400,7 @@ class WorkflowApp(BaseModel):
 
             # Schedule workflow execution
             instance_id = self.wf_client.schedule_new_workflow(
-                workflow=workflow_func,
-                input=input,
-                instance_id=instance_id
+                workflow=workflow_func, input=input, instance_id=instance_id
             )
 
             logger.info(f"Started workflow with instance ID {instance_id}.")
@@ -360,7 +408,7 @@ class WorkflowApp(BaseModel):
         except Exception as e:
             logger.error(f"Failed to start workflow {workflow}: {e}")
             raise
-    
+
     async def monitor_workflow_state(self, instance_id: str) -> Optional[WorkflowState]:
         """
         Monitors and retrieves the final state of a workflow instance.
@@ -389,7 +437,7 @@ class WorkflowApp(BaseModel):
             return None
         except Exception as e:
             logger.error(f"Error retrieving workflow state for '{instance_id}': {e}")
-            return None 
+            return None
 
     async def monitor_workflow_completion(self, instance_id: str) -> None:
         """
@@ -408,19 +456,27 @@ class WorkflowApp(BaseModel):
 
             # Extract relevant details
             workflow_status = state.runtime_status.name
-            failure_details = state.failure_details  # This is an object, not a dictionary
+            failure_details = (
+                state.failure_details
+            )  # This is an object, not a dictionary
 
             if workflow_status == "COMPLETED":
-                logger.info(f"Workflow '{instance_id}' completed successfully. Status: {workflow_status}.")
+                logger.info(
+                    f"Workflow '{instance_id}' completed successfully. Status: {workflow_status}."
+                )
 
                 if state.serialized_output:
-                    logger.debug(f"Output: {json.dumps(state.serialized_output, indent=2)}")
+                    logger.debug(
+                        f"Output: {json.dumps(state.serialized_output, indent=2)}"
+                    )
 
             elif workflow_status == "FAILED":
                 # Ensure `failure_details` exists before accessing attributes
                 error_type = getattr(failure_details, "error_type", "Unknown")
                 message = getattr(failure_details, "message", "No message provided")
-                stack_trace = getattr(failure_details, "stack_trace", "No stack trace available")
+                stack_trace = getattr(
+                    failure_details, "stack_trace", "No stack trace available"
+                )
 
                 logger.error(
                     f"Workflow '{instance_id}' failed.\n"
@@ -442,11 +498,17 @@ class WorkflowApp(BaseModel):
             )
 
         except Exception as e:
-            logger.error(f"Error monitoring workflow '{instance_id}': {e}", exc_info=True)
+            logger.error(
+                f"Error monitoring workflow '{instance_id}': {e}", exc_info=True
+            )
         finally:
             logger.info(f"Finished monitoring workflow '{instance_id}'.")
-    
-    def run_and_monitor_workflow(self, workflow: Union[str, Callable], input: Optional[Union[str, Dict[str, Any]]] = None) -> Optional[str]:
+
+    def run_and_monitor_workflow(
+        self,
+        workflow: Union[str, Callable],
+        input: Optional[Union[str, Dict[str, Any]]] = None,
+    ) -> Optional[str]:
         """
         Runs a workflow synchronously and monitors its completion.
 
@@ -468,13 +530,19 @@ class WorkflowApp(BaseModel):
             if not state:
                 raise RuntimeError(f"Workflow '{instance_id}' not found.")
 
-            workflow_status = DaprWorkflowStatus[state.runtime_status.name] if state.runtime_status.name in DaprWorkflowStatus.__members__ else DaprWorkflowStatus.UNKNOWN
+            workflow_status = (
+                DaprWorkflowStatus[state.runtime_status.name]
+                if state.runtime_status.name in DaprWorkflowStatus.__members__
+                else DaprWorkflowStatus.UNKNOWN
+            )
 
             if workflow_status == DaprWorkflowStatus.COMPLETED:
                 logger.info(f"Workflow '{instance_id}' completed successfully!")
                 logger.debug(f"Output: {state.serialized_output}")
             else:
-                logger.error(f"Workflow '{instance_id}' ended with status '{workflow_status.value}'.")
+                logger.error(
+                    f"Workflow '{instance_id}' ended with status '{workflow_status.value}'."
+                )
 
             # Return the final state output
             return state.serialized_output
@@ -485,8 +553,10 @@ class WorkflowApp(BaseModel):
         finally:
             logger.info(f"Finished workflow with Instance ID: {instance_id}.")
             self.stop_runtime()
-    
-    def terminate_workflow(self, instance_id: str, *, output: Optional[Any] = None) -> None:
+
+    def terminate_workflow(
+        self, instance_id: str, *, output: Optional[Any] = None
+    ) -> None:
         """
         Terminates a running workflow.
 
@@ -499,11 +569,13 @@ class WorkflowApp(BaseModel):
         """
         try:
             self.wf_client.terminate_workflow(instance_id=instance_id, output=output)
-            logger.info(f"Successfully terminated workflow '{instance_id}' with output: {output}")
+            logger.info(
+                f"Successfully terminated workflow '{instance_id}' with output: {output}"
+            )
         except Exception as e:
             logger.error(f"Failed to terminate workflow '{instance_id}'. Error: {e}")
             raise Exception(f"Error terminating workflow '{instance_id}': {e}")
-    
+
     def get_workflow_state(self, instance_id: str) -> Optional[Any]:
         """
         Retrieves the state of a workflow instance.
@@ -519,13 +591,20 @@ class WorkflowApp(BaseModel):
         """
         try:
             state = self.wf_client.get_workflow_state(instance_id)
-            logger.info(f"Retrieved state for workflow {instance_id}: {state.runtime_status}.")
+            logger.info(
+                f"Retrieved state for workflow {instance_id}: {state.runtime_status}."
+            )
             return state
         except Exception as e:
             logger.error(f"Failed to retrieve workflow state for {instance_id}: {e}")
             return None
-    
-    def wait_for_workflow_completion(self, instance_id: str, fetch_payloads: bool = True, timeout_in_seconds: int = 120) -> Optional[WorkflowState]:
+
+    def wait_for_workflow_completion(
+        self,
+        instance_id: str,
+        fetch_payloads: bool = True,
+        timeout_in_seconds: int = 120,
+    ) -> Optional[WorkflowState]:
         """
         Waits for a workflow to complete and retrieves its state.
 
@@ -542,18 +621,28 @@ class WorkflowApp(BaseModel):
         """
         try:
             state = self.wf_client.wait_for_workflow_completion(
-                instance_id, fetch_payloads=fetch_payloads, timeout_in_seconds=timeout_in_seconds
+                instance_id,
+                fetch_payloads=fetch_payloads,
+                timeout_in_seconds=timeout_in_seconds,
             )
             if state:
-                logger.info(f"Workflow {instance_id} completed with status: {state.runtime_status}.")
+                logger.info(
+                    f"Workflow {instance_id} completed with status: {state.runtime_status}."
+                )
             else:
-                logger.warning(f"Workflow {instance_id} did not complete within the timeout period.")
+                logger.warning(
+                    f"Workflow {instance_id} did not complete within the timeout period."
+                )
             return state
         except Exception as e:
-            logger.error(f"Error while waiting for workflow {instance_id} completion: {e}")
+            logger.error(
+                f"Error while waiting for workflow {instance_id} completion: {e}"
+            )
             return None
-    
-    def raise_workflow_event(self, instance_id: str, event_name: str, *, data: Any | None = None) -> None:
+
+    def raise_workflow_event(
+        self, instance_id: str, event_name: str, *, data: Any | None = None
+    ) -> None:
         """
         Raises an event for a running workflow instance.
 
@@ -566,17 +655,32 @@ class WorkflowApp(BaseModel):
             Exception: If raising the event fails.
         """
         try:
-            logger.info(f"Raising workflow event '{event_name}' for instance '{instance_id}'")
-            self.wf_client.raise_workflow_event(instance_id=instance_id, event_name=event_name, data=data)
-            logger.info(f"Successfully raised workflow event '{event_name}' for instance '{instance_id}'!")
+            logger.info(
+                f"Raising workflow event '{event_name}' for instance '{instance_id}'"
+            )
+            self.wf_client.raise_workflow_event(
+                instance_id=instance_id, event_name=event_name, data=data
+            )
+            logger.info(
+                f"Successfully raised workflow event '{event_name}' for instance '{instance_id}'!"
+            )
         except Exception as e:
             logger.error(
                 f"Error raising workflow event '{event_name}' for instance '{instance_id}'. "
                 f"Data: {data}, Error: {e}"
             )
-            raise Exception(f"Failed to raise workflow event '{event_name}' for instance '{instance_id}': {str(e)}")
-    
-    def invoke_service(self, service: str, method: str, http_method: str = "POST", input: Optional[Dict[str, Any]] = None, timeout: Optional[int] = None) -> Any:
+            raise Exception(
+                f"Failed to raise workflow event '{event_name}' for instance '{instance_id}': {str(e)}"
+            )
+
+    def invoke_service(
+        self,
+        service: str,
+        method: str,
+        http_method: str = "POST",
+        input: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None,
+    ) -> Any:
         """
         Invokes an external service via Dapr.
 
@@ -599,10 +703,12 @@ class WorkflowApp(BaseModel):
                 method_name=method,
                 http_verb=http_method,
                 data=json.dumps(input) if input else None,
-                timeout=timeout
+                timeout=timeout,
             )
             if resp.status_code != 200:
-                raise Exception(f"Error calling {service}.{method}: {resp.status_code}: {resp.text}")
+                raise Exception(
+                    f"Error calling {service}.{method}: {resp.status_code}: {resp.text}"
+                )
 
             agent_response = json.loads(resp.data.decode("utf-8"))
             logger.info(f"Agent's Response: {agent_response}")
@@ -610,7 +716,7 @@ class WorkflowApp(BaseModel):
         except Exception as e:
             logger.error(f"Failed to invoke {service}.{method}: {e}")
             raise e
-    
+
     def when_all(self, tasks: List[dtask.Task[T]]) -> dtask.WhenAllTask[T]:
         """
         Waits for all given tasks to complete.
@@ -634,7 +740,7 @@ class WorkflowApp(BaseModel):
             dtask.WhenAnyTask: A task that completes when the first task finishes.
         """
         return dtask.when_any(tasks)
-    
+
     def start_runtime(self):
         """
         Starts the Dapr workflow runtime
@@ -642,7 +748,7 @@ class WorkflowApp(BaseModel):
 
         logger.info("Starting workflow runtime.")
         self.wf_runtime.start()
-    
+
     def stop_runtime(self):
         """
         Stops the Dapr workflow runtime.

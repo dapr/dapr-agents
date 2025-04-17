@@ -1,9 +1,13 @@
 import logging
 from copy import deepcopy
 from typing import Any, Callable, Optional, get_type_hints
-from dapr_agents.workflow.messaging.utils import is_valid_routable_model, extract_message_models
+from dapr_agents.workflow.messaging.utils import (
+    is_valid_routable_model,
+    extract_message_models,
+)
 
 logger = logging.getLogger(__name__)
+
 
 def message_router(
     func: Optional[Callable[..., Any]] = None,
@@ -43,24 +47,33 @@ def message_router(
         message_models = extract_message_models(raw_hint)
 
         if not message_models:
-            raise ValueError(f"Message handler '{f.__name__}' must have a 'message' parameter with a valid type hint.")
-        
+            raise ValueError(
+                f"Message handler '{f.__name__}' must have a 'message' parameter with a valid type hint."
+            )
+
         for model in message_models:
             if not is_valid_routable_model(model):
-                raise TypeError(f"Handler '{f.__name__}' has unsupported message type: {model}")
+                raise TypeError(
+                    f"Handler '{f.__name__}' has unsupported message type: {model}"
+                )
 
-        logger.debug(f"@message_router: '{f.__name__}' => models {[m.__name__ for m in message_models]}")
+        logger.debug(
+            f"@message_router: '{f.__name__}' => models {[m.__name__ for m in message_models]}"
+        )
 
         # Attach metadata for later registration
         f._is_message_handler = True
-        f._message_router_data = deepcopy({
-            "pubsub": pubsub,
-            "topic": topic,
-            "dead_letter_topic": dead_letter_topic or (f"{topic}_DEAD" if topic else None),
-            "is_broadcast": broadcast,
-            "message_schemas": message_models,
-            "message_types": [model.__name__ for model in message_models],
-        })
+        f._message_router_data = deepcopy(
+            {
+                "pubsub": pubsub,
+                "topic": topic,
+                "dead_letter_topic": dead_letter_topic
+                or (f"{topic}_DEAD" if topic else None),
+                "is_broadcast": broadcast,
+                "message_schemas": message_models,
+                "message_types": [model.__name__ for model in message_models],
+            }
+        )
 
         if is_workflow:
             f._is_workflow = True

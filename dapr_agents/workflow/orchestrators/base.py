@@ -7,18 +7,21 @@ from dapr_agents.types import DaprWorkflowContext
 
 logger = logging.getLogger(__name__)
 
-class OrchestratorWorkflowBase(AgenticWorkflow, ABC):
 
-    orchestrator_topic_name: Optional[str] = Field(None, description="The topic name dedicated to this specific orchestrator, derived from the orchestrator's name if not provided.")
-    
+class OrchestratorWorkflowBase(AgenticWorkflow, ABC):
+    orchestrator_topic_name: Optional[str] = Field(
+        None,
+        description="The topic name dedicated to this specific orchestrator, derived from the orchestrator's name if not provided.",
+    )
+
     @model_validator(mode="before")
     def set_orchestrator_topic_name(cls, values: dict):
         # Derive orchestrator_topic_name from agent name
         if not values.get("orchestrator_topic_name") and values.get("name"):
             values["orchestrator_topic_name"] = values["name"]
-        
+
         return values
-    
+
     def model_post_init(self, __context: Any) -> None:
         """
         Register agentic workflow.
@@ -32,7 +35,7 @@ class OrchestratorWorkflowBase(AgenticWorkflow, ABC):
             "name": self.name,
             "topic_name": self.orchestrator_topic_name,
             "pubsub_name": self.message_bus_name,
-            "orchestrator": True
+            "orchestrator": True,
         }
 
         # Register agent metadata

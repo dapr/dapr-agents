@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+
 class StructureHandler:
     @staticmethod
     def is_json_string(input_string: str) -> bool:
@@ -41,26 +42,28 @@ class StructureHandler:
             return True
         except json.JSONDecodeError:
             return False
-    
+
     @staticmethod
     def normalize_iterable_format(tp: Any) -> Any:
         origin = get_origin(tp)
         args = get_args(tp)
-        
+
         if origin in (list, List, tuple, Iterable) and args:
             item_type = args[0]
             if isinstance(item_type, type) and issubclass(item_type, BaseModel):
-                logger.debug("Detected iterable of BaseModel. Wrapping in generated Pydantic model.")
+                logger.debug(
+                    "Detected iterable of BaseModel. Wrapping in generated Pydantic model."
+                )
                 return StructureHandler.create_iterable_model(item_type)
-        
+
         return tp
-    
+
     @staticmethod
     def generate_request(
         response_format: Union[Type[T], Dict[str, Any], Iterable[Type[T]]],
         llm_provider: str,
         structured_mode: Literal["json", "function_call"] = "json",
-        **params
+        **params,
     ) -> Dict[str, Any]:
         """
         Generates a structured request that conforms to a specified API format using the given Pydantic model.
@@ -93,11 +96,15 @@ class StructureHandler:
         if structured_mode == "function_call":
             model_cls = StructureHandler.resolve_response_model(response_format)
             if not model_cls:
-                raise TypeError("function_call mode requires a single, unambiguous Pydantic model.")
+                raise TypeError(
+                    "function_call mode requires a single, unambiguous Pydantic model."
+                )
 
             name = model_cls.__name__
             description = model_cls.__doc__ or ""
-            model_tool_format = to_function_call_definition(name, description, model_cls, llm_provider)
+            model_tool_format = to_function_call_definition(
+                name, description, model_cls, llm_provider
+            )
 
             params["tools"] = [model_tool_format]
             params["tool_choice"] = {
@@ -108,19 +115,23 @@ class StructureHandler:
 
         elif structured_mode == "json":
             try:
-                logger.debug(f"generate_request called with type={type(response_format)}, mode={structured_mode}, provider={llm_provider}")
+                logger.debug(
+                    f"generate_request called with type={type(response_format)}, mode={structured_mode}, provider={llm_provider}"
+                )
                 # If it's a dict, assume it's already a JSON schema; otherwise, try to create from model
                 if isinstance(response_format, dict):
                     raw_schema = response_format
                     name = response_format.get("name", "custom_schema")
                     description = response_format.get("description")
-                elif isinstance(response_format, type) and issubclass(response_format, BaseModel):
+                elif isinstance(response_format, type) and issubclass(
+                    response_format, BaseModel
+                ):
                     raw_schema = response_format.model_json_schema()
                     name = response_format.__name__
                     description = response_format.__doc__
                 else:
                     raise TypeError("json mode requires a dict or a Pydantic model.")
-                
+
                 # Enforce strict JSON schema (process $refs, $defs, etc.)
                 logger.debug(f"Raw Schema: {raw_schema}")
                 strict_schema = StructureHandler.enforce_strict_json_schema(raw_schema)
@@ -130,31 +141,39 @@ class StructureHandler:
                     name=name,
                     description=description,
                     schema_=strict_schema,
-                    strict=True
+                    strict=True,
                 )
 
                 # Wrap it in the top-level response format object
-                response_format_obj = OAIResponseFormatSchema(json_schema=json_schema_obj)
+                response_format_obj = OAIResponseFormatSchema(
+                    json_schema=json_schema_obj
+                )
 
-                logger.debug(f"Generated JSON schema: {response_format_obj.model_dump()}")
+                logger.debug(
+                    f"Generated JSON schema: {response_format_obj.model_dump()}"
+                )
 
                 # Use model_dump() to serialize the response format into a dictionary
-                params["response_format"] = response_format_obj.model_dump(by_alias=True)
+                params["response_format"] = response_format_obj.model_dump(
+                    by_alias=True
+                )
 
             except ValidationError as e:
                 logger.error(f"Validation error in JSON schema: {e}")
                 raise ValueError(f"Invalid response_format provided: {e}")
 
             return params
-        
+
         else:
-            raise ValueError(f"Unsupported structured_mode: {structured_mode}. Must be 'json' or 'function_call'.")
+            raise ValueError(
+                f"Unsupported structured_mode: {structured_mode}. Must be 'json' or 'function_call'."
+            )
 
     @staticmethod
     def create_iterable_model(
         model: Type[BaseModel],
         model_name: Optional[str] = None,
-        model_description: Optional[str] = None
+        model_description: Optional[str] = None,
     ) -> Type[BaseModel]:
         """
         Constructs an iterable Pydantic model for a given Pydantic model.
@@ -171,14 +190,12 @@ class StructureHandler:
         iterable_model_name = f"Iterable{model_name}"
 
         objects_field = (
-            List[model], 
-            Field(..., description=f"A list of `{model_name}` objects")
+            List[model],
+            Field(..., description=f"A list of `{model_name}` objects"),
         )
 
         iterable_model = create_model(
-            iterable_model_name,
-            objects=objects_field,
-            __base__=(BaseModel,)
+            iterable_model_name, objects=objects_field, __base__=(BaseModel,)
         )
 
         iterable_model.__doc__ = (
@@ -193,7 +210,7 @@ class StructureHandler:
     def extract_structured_response(
         response: Any,
         llm_provider: str,
-        structured_mode: Literal["json", "function_call"] = "json"
+        structured_mode: Literal["json", "function_call"] = "json",
     ) -> Union[str, Dict[str, Any]]:
         """
         Extracts the structured JSON string or content from the response.
@@ -228,16 +245,20 @@ class StructureHandler:
                         function = getattr(tool_calls[0], "function", None)
                         if function and hasattr(function, "arguments"):
                             extracted_response = function.arguments
-                            logger.debug(f"Extracted function-call response: {extracted_response}")
+                            logger.debug(
+                                f"Extracted function-call response: {extracted_response}"
+                            )
                             return extracted_response
                     raise StructureError("No tool_calls found for function_call mode.")
-                
+
                 elif structured_mode == "json":
                     content = getattr(message, "content", None)
                     refusal = getattr(message, "refusal", None)
 
                     if refusal:
-                        logger.warning(f"Model refused to fulfill the request: {refusal}")
+                        logger.warning(
+                            f"Model refused to fulfill the request: {refusal}"
+                        )
                         raise StructureError(f"Request refused by the model: {refusal}")
 
                     if not content:
@@ -247,7 +268,9 @@ class StructureHandler:
                     return content
 
                 else:
-                    raise ValueError(f"Unsupported structured_mode: {structured_mode}. Must be 'json' or 'function_call'.")
+                    raise ValueError(
+                        f"Unsupported structured_mode: {structured_mode}. Must be 'json' or 'function_call'."
+                    )
             else:
                 raise StructureError(f"Unsupported LLM provider: {llm_provider}")
         except Exception as e:
@@ -259,7 +282,7 @@ class StructureHandler:
         """
         Validates a JSON string or a dictionary using a specified Pydantic model.
 
-        This method checks whether the response is a JSON string or a dictionary. 
+        This method checks whether the response is a JSON string or a dictionary.
         If the response is a JSON string, it validates it using the `model_validate_json` method.
         If the response is a dictionary, it validates it using the `model_validate` method.
 
@@ -284,7 +307,7 @@ class StructureHandler:
         except ValidationError as e:
             logger.error(f"Validation error while parsing structured response: {e}")
             raise StructureError(f"Validation failed for structured response: {e}")
-    
+
     @staticmethod
     def expand_local_refs(part: Dict[str, Any], root: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -302,29 +325,37 @@ class StructureHandler:
             logger.debug(f"Found $ref: {ref}")
             if not ref.startswith("#/$defs/"):
                 raise ValueError(f"Unexpected $ref format: {ref}")
-            
+
             ref_name = ref.split("/")[-1]
             defs_section = root.get("$defs", {})
             if ref_name not in defs_section:
                 raise ValueError(f"Reference '{ref_name}' not found in $defs.")
-            
+
             # Merge the referenced schema with the current part, resolving nested $refs
-            merged = {**defs_section[ref_name], **{k: v for k, v in part.items() if k != "$ref"}}
+            merged = {
+                **defs_section[ref_name],
+                **{k: v for k, v in part.items() if k != "$ref"},
+            }
             return StructureHandler.expand_local_refs(merged, root)
 
         # Process objects and their properties
         if part.get("type") == "object" and "properties" in part:
             for key, value in part["properties"].items():
-                part["properties"][key] = StructureHandler.expand_local_refs(value, root)
-        
+                part["properties"][key] = StructureHandler.expand_local_refs(
+                    value, root
+                )
+
         # Process arrays and their items
         if part.get("type") == "array" and "items" in part:
             part["items"] = StructureHandler.expand_local_refs(part["items"], root)
-        
+
         # Process anyOf and allOf schemas
         for key in ("anyOf", "allOf"):
             if key in part and isinstance(part[key], list):
-                part[key] = [StructureHandler.expand_local_refs(subschema, root) for subschema in part[key]]
+                part[key] = [
+                    StructureHandler.expand_local_refs(subschema, root)
+                    for subschema in part[key]
+                ]
 
         return part
 
@@ -357,7 +388,9 @@ class StructureHandler:
             required_fields = set(schema.get("required", []))
 
             for key, value in schema.get("properties", {}).items():
-                schema["properties"][key] = StructureHandler.enforce_strict_json_schema(value)
+                schema["properties"][key] = StructureHandler.enforce_strict_json_schema(
+                    value
+                )
 
                 # Remove default values (not allowed by OpenAI)
                 schema["properties"][key].pop("default", None)
@@ -366,22 +399,34 @@ class StructureHandler:
                 if key not in required_fields:
                     field_type = schema["properties"][key].get("type")
 
-                    if field_type and not isinstance(field_type, list):  # Ensure it's not already `anyOf`
+                    if field_type and not isinstance(
+                        field_type, list
+                    ):  # Ensure it's not already `anyOf`
                         if field_type in ["string", "integer", "number"]:
-                            schema["properties"][key]["anyOf"] = [{"type": field_type}, {"type": "null"}]
-                            schema["properties"][key].pop("type", None)  # Remove direct "type" field
+                            schema["properties"][key]["anyOf"] = [
+                                {"type": field_type},
+                                {"type": "null"},
+                            ]
+                            schema["properties"][key].pop(
+                                "type", None
+                            )  # Remove direct "type" field
 
                     # Ensure field is included in "required" (even if it allows null)
                     required_fields.add(key)
 
                 # Handle optional arrays inside object properties
-                if schema["properties"][key].get("anyOf") and isinstance(schema["properties"][key]["anyOf"], list):
+                if schema["properties"][key].get("anyOf") and isinstance(
+                    schema["properties"][key]["anyOf"], list
+                ):
                     for subschema in schema["properties"][key]["anyOf"]:
                         if subschema.get("type") == "array":
                             schema["properties"][key] = {
                                 "anyOf": [
-                                    {"type": "array", "items": subschema.get("items", {})},
-                                    {"type": "null"}
+                                    {
+                                        "type": "array",
+                                        "items": subschema.get("items", {}),
+                                    },
+                                    {"type": "null"},
                                 ]
                             }
 
@@ -394,31 +439,42 @@ class StructureHandler:
             if "items" not in schema:
                 raise ValueError(f"Array schema missing 'items': {schema}")
 
-            schema["items"] = StructureHandler.enforce_strict_json_schema(schema["items"])
+            schema["items"] = StructureHandler.enforce_strict_json_schema(
+                schema["items"]
+            )
 
             # Convert optional arrays from `anyOf` to `anyOf: [{"type": "array", "items": T}, {"type": "null"}]`
             if "anyOf" in schema and isinstance(schema["anyOf"], list):
-                if any(subschema.get("type") == "array" for subschema in schema["anyOf"]):
+                if any(
+                    subschema.get("type") == "array" for subschema in schema["anyOf"]
+                ):
                     schema["anyOf"] = [
                         {"type": "array", "items": schema["items"]},
-                        {"type": "null"}
+                        {"type": "null"},
                     ]
                     schema.pop("type", None)  # Remove direct "type" field
-                    schema.pop("minItems", None)  # Remove `minItems`, not needed with null
+                    schema.pop(
+                        "minItems", None
+                    )  # Remove `minItems`, not needed with null
 
         # Process $defs and remove after expansion
         if "$defs" in schema:
             for def_name, def_schema in schema["$defs"].items():
-                schema["$defs"][def_name] = StructureHandler.enforce_strict_json_schema(def_schema)
+                schema["$defs"][def_name] = StructureHandler.enforce_strict_json_schema(
+                    def_schema
+                )
             schema.pop("$defs", None)
 
         # Process anyOf and allOf schemas recursively
         for key in ("anyOf", "allOf"):
             if key in schema and isinstance(schema[key], list):
-                schema[key] = [StructureHandler.enforce_strict_json_schema(subschema) for subschema in schema[key]]
+                schema[key] = [
+                    StructureHandler.enforce_strict_json_schema(subschema)
+                    for subschema in schema[key]
+                ]
 
         return schema
-    
+
     @staticmethod
     def unwrap_annotated_type(tp: Any) -> Any:
         origin = get_origin(tp)
@@ -428,7 +484,7 @@ class StructureHandler:
         if hasattr(tp, "__supertype__"):  # for NewType
             return StructureHandler.unwrap_annotated_type(tp.__supertype__)
         return tp
-    
+
     @staticmethod
     def resolve_all_pydantic_models(tp: Any) -> List[Type[BaseModel]]:
         models = []
@@ -453,7 +509,9 @@ class StructureHandler:
                 except TypeError:
                     pass
             else:
-                logger.debug(f"[resolve] Skipping non-class inner: {inner} ({type(inner)})")
+                logger.debug(
+                    f"[resolve] Skipping non-class inner: {inner} ({type(inner)})"
+                )
 
         if origin is Union:
             for arg in args:
@@ -465,7 +523,7 @@ class StructureHandler:
                         continue
 
         return list(dict.fromkeys(models))
-    
+
     @staticmethod
     def resolve_response_model(tp: Any) -> Optional[Type[BaseModel]]:
         """
@@ -492,9 +550,11 @@ class StructureHandler:
         elif len(models) == 0:
             return None  # No model = primitive or unsupported type → silently skip
         else:
-            logger.warning(f"Ambiguous model resolution: found multiple models in {tp}. Returning None.")
+            logger.warning(
+                f"Ambiguous model resolution: found multiple models in {tp}. Returning None."
+            )
             return None
-    
+
     @staticmethod
     def validate_against_signature(result: Any, expected_type: Any) -> Any:
         """
@@ -523,7 +583,10 @@ class StructureHandler:
         for model_cls in models:
             try:
                 if isinstance(result, list):
-                    return [StructureHandler.validate_response(item, model_cls).model_dump() for item in result]
+                    return [
+                        StructureHandler.validate_response(item, model_cls).model_dump()
+                        for item in result
+                    ]
                 else:
                     validated = StructureHandler.validate_response(result, model_cls)
                     return validated.model_dump()
