@@ -17,7 +17,6 @@ def call_trigger_job(task):
 
             if response.status_code == 200:
                 print("Workflow app is healthy!")
-                healthy = True
                 break
             else:
                 print(f"Received status code {response.status_code}: {response.text}")
