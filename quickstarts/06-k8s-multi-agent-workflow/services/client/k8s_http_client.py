@@ -3,6 +3,7 @@ import sys
 import requests
 import time
 
+
 def call_trigger_job(task):
     task_payload = {"task": task}
     base_url = "http://localhost:8004"
@@ -50,6 +51,7 @@ def call_trigger_job(task):
 
     print("Failed to get successful response")
     sys.exit(1)
+
 
 if __name__ == "__main__":
     task = "How to get to Mordor? We all need to help!"
