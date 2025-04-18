@@ -6,7 +6,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class OpenAIEmbeddingClient(OpenAIClientBase):
     """
     Client for handling OpenAI's embedding functionalities, supporting both OpenAI and Azure OpenAI configurations.
@@ -17,20 +16,10 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
         dimensions (Optional[int]): Number of dimensions for the output embeddings. Only supported in specific models like `text-embedding-3`.
         user (Optional[str]): A unique identifier representing the end-user.
     """
-
-    model: str = Field(
-        default=None, description="ID of the model to use for embedding."
-    )
-    encoding_format: Optional[Literal["float", "base64"]] = Field(
-        "float", description="Format for the embeddings. Defaults to 'float'."
-    )
-    dimensions: Optional[int] = Field(
-        None,
-        description="Number of dimensions for the output embeddings. Supported in text-embedding-3 and later models.",
-    )
-    user: Optional[str] = Field(
-        None, description="Unique identifier representing the end-user."
-    )
+    model: str = Field(default=None, description="ID of the model to use for embedding.")
+    encoding_format: Optional[Literal["float", "base64"]] = Field("float", description="Format for the embeddings. Defaults to 'float'.")
+    dimensions: Optional[int] = Field(None, description="Number of dimensions for the output embeddings. Supported in text-embedding-3 and later models.")
+    user: Optional[str] = Field(None, description="Unique identifier representing the end-user.")
 
     @model_validator(mode="before")
     def validate_and_initialize(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -44,10 +33,10 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
         Returns:
             Dict[str, Any]: Updated dictionary of validated attributes.
         """
-        if "model" not in values or values["model"] is None:
-            values["model"] = values.get("azure_deployment", "text-embedding-ada-002")
+        if 'model' not in values or values['model'] is None:
+            values['model'] = values.get('azure_deployment', 'text-embedding-ada-002')
         return values
-
+    
     def model_post_init(self, __context: Any) -> None:
         """
         Post-initialization setup for private attributes.
@@ -60,11 +49,7 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
         self._api = "embeddings"
         return super().model_post_init(__context)
 
-    def create_embedding(
-        self,
-        input: Union[str, List[Union[str, List[int]]]],
-        model: Optional[str] = None,
-    ) -> CreateEmbeddingResponse:
+    def create_embedding(self, input: Union[str, List[Union[str, List[int]]]], model: Optional[str] = None) -> CreateEmbeddingResponse:
         """
         Generate embeddings for the given input text(s).
 
@@ -90,6 +75,6 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
             input=input,
             encoding_format=self.encoding_format,
             dimensions=self.dimensions,
-            user=self.user,
+            user=self.user
         )
         return response

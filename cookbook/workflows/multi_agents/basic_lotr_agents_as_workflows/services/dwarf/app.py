@@ -3,7 +3,6 @@ from dotenv import load_dotenv
 import asyncio
 import logging
 
-
 async def main():
     try:
         # Define Agent
@@ -16,7 +15,7 @@ async def main():
                 "Be strong-willed, fiercely loyal, and protective of companions.",
                 "Excel in close combat and battlefield tactics, favoring axes and brute strength.",
                 "Navigate caves, tunnels, and ancient stonework with expert knowledge.",
-                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task.",
+                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."
             ],
             message_bus_name="messagepubsub",
             state_store_name="agenticworkflowstate",
@@ -29,10 +28,9 @@ async def main():
     except Exception as e:
         print(f"Error starting service: {e}")
 
-
 if __name__ == "__main__":
     load_dotenv()
 
     logging.basicConfig(level=logging.INFO)
-
+    
     asyncio.run(main())

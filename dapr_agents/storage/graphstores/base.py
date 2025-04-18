@@ -5,7 +5,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class GraphStoreBase(BaseModel, ABC):
     """
     Base interface for a graph store.
@@ -31,8 +30,8 @@ class GraphStoreBase(BaseModel, ABC):
         start_node_props: Dict[str, Any],
         end_node_props: Dict[str, Any],
         relationship_type: str,
-        relationship_props: Optional[Dict[str, Any]] = None,
-    ) -> None:
+        relationship_props: Optional[Dict[str, Any]] = None
+        ) -> None:
         """Add a relationship to the graph store.
 
         Args:

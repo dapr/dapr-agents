@@ -18,7 +18,6 @@ from dapr_agents.types import BaseMessage, ChatCompletion, UserMessage
 
 logger = logging.getLogger(__name__)
 
-
 class WorkflowTask(BaseModel):
     """
     Encapsulates task logic for execution by an LLM, agent, or Python function.
@@ -27,40 +26,18 @@ class WorkflowTask(BaseModel):
     using Pydantic models or specified return types.
     """
 
-    func: Optional[Callable] = Field(
-        None, description="The original function to be executed, if provided."
-    )
-    description: Optional[str] = Field(
-        None, description="A description template for the task, used with LLM or agent."
-    )
-    agent: Optional[AgentBase] = Field(
-        None, description="The agent used for task execution, if applicable."
-    )
-    llm: Optional[ChatClientBase] = Field(
-        None, description="The LLM client for executing the task, if applicable."
-    )
-    include_chat_history: Optional[bool] = Field(
-        False,
-        description="Whether to include past conversation history in the LLM call.",
-    )
-    workflow_app: Optional[Any] = Field(
-        None, description="Reference to the WorkflowApp instance."
-    )
-    structured_mode: Literal["json", "function_call"] = Field(
-        default="json",
-        description="Structured response mode for LLM output. Valid values: 'json', 'function_call'.",
-    )
-    task_kwargs: Dict[str, Any] = Field(
-        default_factory=dict,
-        exclude=True,
-        description="Additional keyword arguments passed via the @task decorator.",
-    )
+    func: Optional[Callable] = Field(None, description="The original function to be executed, if provided.")
+    description: Optional[str] = Field(None, description="A description template for the task, used with LLM or agent.")
+    agent: Optional[AgentBase] = Field(None, description="The agent used for task execution, if applicable.")
+    llm: Optional[ChatClientBase] = Field(None, description="The LLM client for executing the task, if applicable.")
+    include_chat_history: Optional[bool] = Field(False, description="Whether to include past conversation history in the LLM call.")
+    workflow_app: Optional[Any] = Field(None, description="Reference to the WorkflowApp instance.")
+    structured_mode: Literal["json", "function_call"] = Field(default="json", description="Structured response mode for LLM output. Valid values: 'json', 'function_call'.")
+    task_kwargs: Dict[str, Any] = Field(default_factory=dict, exclude=True, description="Additional keyword arguments passed via the @task decorator.")
 
     # Initialized during setup
-    signature: Optional[inspect.Signature] = Field(
-        None, init=False, description="The signature of the provided function."
-    )
-
+    signature: Optional[inspect.Signature] = Field(None, init=False, description="The signature of the provided function.")
+    
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context: Any) -> None:
@@ -69,7 +46,7 @@ class WorkflowTask(BaseModel):
         """
         if self.description and not self.llm:
             self.llm = OpenAIChatClient()
-
+        
         if self.func:
             update_wrapper(self, self.func)
 
@@ -80,7 +57,7 @@ class WorkflowTask(BaseModel):
 
         # Proceed with base model setup
         super().model_post_init(__context)
-
+    
     async def __call__(self, ctx: WorkflowActivityContext, input: Any = None) -> Any:
         """
         Executes the task and validates its output.
@@ -98,17 +75,13 @@ class WorkflowTask(BaseModel):
         try:
             if self.agent or self.llm:
                 if not self.description:
-                    raise ValueError(
-                        f"Task {self.func.__name__} is LLM-based but has no description!"
-                    )
+                    raise ValueError(f"Task {self.func.__name__} is LLM-based but has no description!")
 
-                result = await self._run_task(
-                    self.format_description(self.description, input)
-                )
+                result = await self._run_task(self.format_description(self.description, input))
                 result = await self._validate_output(result)
             elif self.func:
                 # Task is a Python function
-                logger.info("Invoking Regular Task")
+                logger.info(f"Invoking Regular Task")
                 if asyncio.iscoroutinefunction(self.func):
                     # Await async function
                     result = await self.func(**input)
@@ -117,10 +90,8 @@ class WorkflowTask(BaseModel):
                     result = self._execute_function(input)
                 result = await self._validate_output(result)
             else:
-                raise ValueError(
-                    "Task must have an LLM, agent, or regular function for execution."
-                )
-
+                raise ValueError("Task must have an LLM, agent, or regular function for execution.")
+            
             return result
         except Exception as e:
             logger.error(f"Task execution error: {e}")
@@ -158,13 +129,11 @@ class WorkflowTask(BaseModel):
             ValueError: If no function signature is available.
         """
         if not self.signature:
-            raise ValueError(
-                "Cannot convert single input to dict: function signature is missing."
-            )
+            raise ValueError("Cannot convert single input to dict: function signature is missing.")
 
         param_name = list(self.signature.parameters.keys())[0]
         return {param_name: value}
-
+    
     def format_description(self, description: str, input: dict) -> str:
         """
         Formats a description string with input parameters.
@@ -181,7 +150,7 @@ class WorkflowTask(BaseModel):
             bound_args.apply_defaults()
             return description.format(**bound_args.arguments)
         return description.format(**input)
-
+    
     async def _run_task(self, formatted_description: str) -> Any:
         """
         Determine whether to run the task using an agent or an LLM.
@@ -220,7 +189,7 @@ class WorkflowTask(BaseModel):
 
         logger.debug(f"Agent result type: {type(result)}, value: {result}")
         return self._convert_result(result)
-
+    
     async def _run_llm(self, description: Union[str, List[BaseMessage]]) -> Any:
         logger.info("Invoking Task with LLM...")
 
@@ -240,10 +209,7 @@ class WorkflowTask(BaseModel):
         llm_params = {"messages": llm_messages}
 
         # 4. Add structured response config if a valid Pydantic model is the return type
-        if (
-            self.signature
-            and self.signature.return_annotation is not inspect.Signature.empty
-        ):
+        if self.signature and self.signature.return_annotation is not inspect.Signature.empty:
             return_type = self.signature.return_annotation
             model_cls = StructureHandler.resolve_response_model(return_type)
 
@@ -283,16 +249,14 @@ class WorkflowTask(BaseModel):
             logger.debug("Converting Pydantic model to dictionary.")
             return result.model_dump()
 
-        if isinstance(result, list) and all(
-            isinstance(item, BaseModel) for item in result
-        ):
+        if isinstance(result, list) and all(isinstance(item, BaseModel) for item in result):
             logger.debug("Converting list of Pydantic models to list of dictionaries.")
             return [item.model_dump() for item in result]
 
         # If no specific conversion is necessary, return as-is
         logger.info("Returning final task result.")
         return result
-
+    
     def _execute_function(self, input: dict) -> Any:
         """
         Execute the wrapped function with the provided input.
@@ -304,7 +268,7 @@ class WorkflowTask(BaseModel):
             Any: The result of the function execution.
         """
         return self.func(**input)
-
+    
     async def _validate_output(self, result: Any) -> Any:
         """
         Validates the output of the task against the expected return type.
@@ -318,15 +282,11 @@ class WorkflowTask(BaseModel):
             logger.warning("Result is a coroutine; awaiting.")
             result = await result
 
-        if (
-            not self.signature
-            or self.signature.return_annotation is inspect.Signature.empty
-        ):
+        if not self.signature or self.signature.return_annotation is inspect.Signature.empty:
             return result
 
         expected_type = self.signature.return_annotation
         return StructureHandler.validate_against_signature(result, expected_type)
-
 
 class TaskWrapper:
     """

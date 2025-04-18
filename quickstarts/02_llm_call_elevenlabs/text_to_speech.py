@@ -6,8 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 client = ElevenLabsSpeechClient(
-    model="eleven_multilingual_v2",  # Default model
-    voice="JBFqnCBsd6RMkjVDRZzb",  # 'name': 'George', 'language': 'en', 'labels': {'accent': 'British', 'description': 'warm', 'age': 'middle aged', 'gender': 'male', 'use_case': 'narration'}
+    model="eleven_multilingual_v2", # Default model
+    voice="JBFqnCBsd6RMkjVDRZzb" # 'name': 'George', 'language': 'en', 'labels': {'accent': 'British', 'description': 'warm', 'age': 'middle aged', 'gender': 'male', 'use_case': 'narration'}
 )
 
 
@@ -17,7 +17,7 @@ text = "Dapr Agents is an open-source framework for researchers and developers"
 # Create speech from text
 audio_bytes = client.create_speech(
     text=text,
-    output_format="mp3_44100_128",  # default output format, mp3 with 44.1kHz sample rate at 128kbps.
+    output_format="mp3_44100_128" # default output format, mp3 with 44.1kHz sample rate at 128kbps.
 )
 
 # You can also automatically create the audio file by passing the file name as an argument
@@ -37,3 +37,4 @@ print(f"Audio saved to {output_path}")
 
 os.remove(output_path)
 print(f"File {output_path} has been deleted.")
+

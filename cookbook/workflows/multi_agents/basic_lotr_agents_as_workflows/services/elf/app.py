@@ -3,7 +3,6 @@ from dotenv import load_dotenv
 import asyncio
 import logging
 
-
 async def main():
     try:
         # Define Agent
@@ -16,7 +15,7 @@ async def main():
                 "Be swift, silent, and precise, moving effortlessly across any terrain.",
                 "Use superior vision and heightened senses to scout ahead and detect threats.",
                 "Excel in ranged combat, delivering pinpoint arrow strikes from great distances.",
-                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task.",
+                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."
             ],
             message_bus_name="messagepubsub",
             state_store_name="agenticworkflowstate",
@@ -28,7 +27,6 @@ async def main():
         await elf_service.start()
     except Exception as e:
         print(f"Error starting service: {e}")
-
 
 if __name__ == "__main__":
     load_dotenv()

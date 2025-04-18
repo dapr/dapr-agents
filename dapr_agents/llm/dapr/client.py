@@ -10,7 +10,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class DaprInferenceClient:
     def __init__(self):
         self.dapr_client = DaprClient()
@@ -26,20 +25,9 @@ class DaprInferenceClient:
         }
 
         return response_dict
-
-    def chat_completion(
-        self,
-        llm: str,
-        conversation_inputs: List[ConversationInput],
-        scrub_pii: bool | None = None,
-        temperature: float | None = None,
-    ) -> Any:
-        response = self.dapr_client.converse_alpha1(
-            name=llm,
-            inputs=conversation_inputs,
-            scrub_pii=scrub_pii,
-            temperature=temperature,
-        )
+    
+    def chat_completion(self, llm: str, conversation_inputs: List[ConversationInput], scrub_pii: bool | None = None, temperature: float | None = None) -> Any:
+        response = self.dapr_client.converse_alpha1(name=llm, inputs=conversation_inputs, scrub_pii=scrub_pii, temperature=temperature)
         output = self.translate_to_json(response)
 
         return output
@@ -50,7 +38,6 @@ class DaprInferenceClientBase(LLMClientBase):
     Base class for managing Dapr Inference API clients.
     Handles client initialization, configuration, and shared logic.
     """
-
     @model_validator(mode="before")
     def validate_and_initialize(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         return values
@@ -65,7 +52,7 @@ class DaprInferenceClientBase(LLMClientBase):
         self._config = self.get_config()
         self._client = self.get_client()
         return super().model_post_init(__context)
-
+    
     def get_config(self) -> DaprInferenceClientConfig:
         """
         Returns the appropriate configuration for the Dapr Conversation API.
@@ -77,11 +64,9 @@ class DaprInferenceClientBase(LLMClientBase):
         Initializes and returns the Dapr Inference client.
         """
         return DaprInferenceClient()
-
+    
     @classmethod
-    def from_config(
-        cls, client_options: DaprInferenceClientConfig, timeout: float = 1500
-    ):
+    def from_config(cls, client_options: DaprInferenceClientConfig, timeout: float = 1500):
         """
         Initializes the DaprInferenceClientBase using DaprInferenceClientConfig.
 

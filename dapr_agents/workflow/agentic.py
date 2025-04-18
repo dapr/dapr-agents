@@ -10,25 +10,11 @@ from fastapi import status, Request
 from fastapi.responses import JSONResponse
 from cloudevents.http.conversion import from_http
 from cloudevents.http.event import CloudEvent
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type, Union
 from pydantic import BaseModel, Field, ValidationError, PrivateAttr
 from dapr.clients import DaprClient
 from dapr_agents.agent.utils.text_printer import ColorTextFormatter
-from dapr_agents.memory import (
-    ConversationListMemory,
-    ConversationVectorMemory,
-    MemoryBase,
-)
+from dapr_agents.memory import ConversationListMemory, ConversationVectorMemory, MemoryBase
 from dapr_agents.workflow.messaging import DaprPubSub
 from dapr_agents.workflow.messaging.routing import MessageRoutingMixin
 from dapr_agents.storage.daprstores.statestore import DaprStateStore
@@ -41,7 +27,6 @@ state_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
-
 class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
     """
     A class for managing agentic workflows, extending `WorkflowApp`.
@@ -49,45 +34,19 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
     """
 
     name: str = Field(..., description="The name of the agentic system.")
-    message_bus_name: str = Field(
-        ..., description="Dapr message bus component for pub/sub messaging."
-    )
-    broadcast_topic_name: Optional[str] = Field(
-        "beacon_channel", description="Default topic for broadcasting messages."
-    )
-    state_store_name: str = Field(
-        ..., description="Dapr state store for workflow state."
-    )
-    state_key: str = Field(
-        default="workflow_state",
-        description="Dapr state key for workflow state storage.",
-    )
-    state: Optional[Union[BaseModel, dict]] = Field(
-        default=None, description="Current state of the workflow."
-    )
-    state_format: Optional[Type[BaseModel]] = Field(
-        default=None, description="Schema to enforce state structure."
-    )
-    agents_registry_store_name: str = Field(
-        ..., description="Dapr state store for agent metadata."
-    )
-    agents_registry_key: str = Field(
-        default="agents_registry", description="Key for agents registry in state store."
-    )
-    max_iterations: int = Field(
-        default=20, description="Maximum iterations for workflows.", ge=1
-    )
-    memory: MemoryBase = Field(
-        default_factory=ConversationListMemory,
-        description="Handles conversation history storage.",
-    )
-    save_state_locally: bool = Field(
-        default=True, description="Whether to save workflow state locally."
-    )
-    local_state_path: Optional[str] = Field(
-        default=None, description="Path for saving local state."
-    )
-
+    message_bus_name: str = Field(..., description="Dapr message bus component for pub/sub messaging.")
+    broadcast_topic_name: Optional[str] = Field("beacon_channel", description="Default topic for broadcasting messages.")
+    state_store_name: str = Field(..., description="Dapr state store for workflow state.")
+    state_key: str = Field(default="workflow_state", description="Dapr state key for workflow state storage.")
+    state: Optional[Union[BaseModel, dict]] = Field(default=None, description="Current state of the workflow.")
+    state_format: Optional[Type[BaseModel]] = Field(default=None, description="Schema to enforce state structure.")
+    agents_registry_store_name: str = Field(..., description="Dapr state store for agent metadata.")
+    agents_registry_key: str = Field(default="agents_registry", description="Key for agents registry in state store.")
+    max_iterations: int = Field(default=20, description="Maximum iterations for workflows.", ge=1)
+    memory: MemoryBase = Field(default_factory=ConversationListMemory, description="Handles conversation history storage.")
+    save_state_locally: bool = Field(default=True, description="Whether to save workflow state locally.")
+    local_state_path: Optional[str] = Field(default=None, description="Path for saving local state.")
+    
     # Private internal attributes (not schema/validated)
     _state_store_client: Optional[DaprStateStore] = PrivateAttr(default=None)
     _text_formatter: Optional[ColorTextFormatter] = PrivateAttr(default=None)
@@ -98,9 +57,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
     _shutdown_event: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
     _http_server: Optional[Any] = PrivateAttr(default=None)
     _subscriptions: Dict[str, Callable] = PrivateAttr(default_factory=dict)
-    _topic_handlers: Dict[
-        Tuple[str, str], Dict[Type[BaseModel], Callable]
-    ] = PrivateAttr(default_factory=dict)
+    _topic_handlers: Dict[Tuple[str, str], Dict[Type[BaseModel], Callable]] = PrivateAttr(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the workflow service, messaging, and metadata storage."""
@@ -119,7 +76,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         self._dapr_client = DaprClient()
 
         super().model_post_init(__context)
-
+    
     @property
     def app(self) -> "FastAPI":
         """
@@ -131,7 +88,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         if self._http_server:
             return self._http_server.app
         raise RuntimeError("FastAPI server not initialized. Call `as_service()` first.")
-
+    
     def register_routes(self):
         """
         Hook method to register user-defined routes via `@route(...)` decorators,
@@ -144,9 +101,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                 extra_kwargs = getattr(method, "_route_kwargs", {})
 
                 logger.info(f"Registering route {method_type} {path} -> {name}")
-                self.app.add_api_route(
-                    path, method, methods=[method_type], **extra_kwargs
-                )
+                self.app.add_api_route(path, method, methods=[method_type], **extra_kwargs)
 
     def as_service(self, port: int, host: str = "0.0.0.0"):
         """
@@ -163,9 +118,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
         # Register built-in routes
         self.app.add_api_route("/status", lambda: {"ok": True})
-        self.app.add_api_route(
-            "/start-workflow", self.run_workflow_from_request, methods=["POST"]
-        )
+        self.app.add_api_route("/start-workflow", self.run_workflow_from_request, methods=["POST"])
 
         # Allow subclass to register additional routes
         self.register_routes()
@@ -183,9 +136,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         Registers signal handlers and message routes if running in headless mode.
         """
         if self._is_running:
-            logger.warning(
-                "Service is already running. Ignoring duplicate start request."
-            )
+            logger.warning("Service is already running. Ignoring duplicate start request.")
             return
 
         logger.info("Starting Agent Workflow Service...")
@@ -199,16 +150,9 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
                 for sig in (signal.SIGINT, signal.SIGTERM):
                     try:
-                        loop.add_signal_handler(
-                            sig,
-                            lambda s=sig: asyncio.create_task(
-                                self.handle_shutdown_signal(s)
-                            ),
-                        )
+                        loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(self.handle_shutdown_signal(s)))
                     except NotImplementedError:
-                        logger.warning(
-                            f"Signal {sig} not supported in this environment."
-                        )
+                        logger.warning(f"Signal {sig} not supported in this environment.")
 
                 self.register_message_routes()
 
@@ -241,9 +185,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         # Unsubscribe from all topics
         for (pubsub_name, topic_name), close_fn in self._subscriptions.items():
             try:
-                logger.info(
-                    f"Unsubscribing from pubsub '{pubsub_name}' topic '{topic_name}'"
-                )
+                logger.info(f"Unsubscribing from pubsub '{pubsub_name}' topic '{topic_name}'")
                 close_fn()
             except Exception as e:
                 logger.error(f"Failed to unsubscribe from topic '{topic_name}': {e}")
@@ -254,7 +196,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         if hasattr(self, "_http_server") and self._http_server:
             logger.info("Stopping FastAPI server...")
             await self._http_server.stop()
-
+        
         # Stop the workflow runtime
         if self.wf_runtime_is_running:
             logger.info("Shutting down workflow runtime.")
@@ -263,7 +205,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
         self._is_running = False
         logger.info("Agent Workflow Service stopped successfully.")
-
+    
     def get_chat_history(self, task: Optional[str] = None) -> List[dict]:
         """
         Retrieves and validates the agent's chat history.
@@ -273,7 +215,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         validated using Pydantic (if applicable) and returned as a list of dictionaries.
 
         Args:
-            task (str, optional): A specific task description to filter relevant messages
+            task (str, optional): A specific task description to filter relevant messages 
                 using vector embeddings. If not provided, retrieves the full chat history.
 
         Returns:
@@ -285,20 +227,17 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             chat_history = self.memory.get_messages(query_embeddings=query_embeddings)
         else:
             chat_history = self.memory.get_messages()
-        chat_history_messages = [
-            msg.model_dump() if isinstance(msg, BaseModel) else msg
-            for msg in chat_history
-        ]
+        chat_history_messages = [msg.model_dump() if isinstance(msg, BaseModel) else msg for msg in chat_history]
         return chat_history_messages
 
     def initialize_state(self) -> None:
         """
         Initializes the workflow state by using a provided state, loading from storage, or setting an empty state.
 
-        If the user provides a state, it is validated and used. Otherwise, the method attempts to load
+        If the user provides a state, it is validated and used. Otherwise, the method attempts to load 
         the existing state from storage. If no stored state is found, an empty dictionary is initialized.
 
-        Ensures `self.state` is always a valid dictionary. If a state format (`self.state_format`)
+        Ensures `self.state` is always a valid dictionary. If a state format (`self.state_format`) 
         is provided, the structure is validated before saving.
 
         Raises:
@@ -313,15 +252,11 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
             # Ensure state is a valid dictionary or Pydantic model
             if isinstance(self.state, BaseModel):
-                logger.debug(
-                    "User provided a state as a Pydantic model. Converting to dict."
-                )
+                logger.debug("User provided a state as a Pydantic model. Converting to dict.")
                 self.state = self.state.model_dump()
 
             if not isinstance(self.state, dict):
-                raise TypeError(
-                    f"Invalid state type: {type(self.state)}. Expected dict or Pydantic model."
-                )
+                raise TypeError(f"Invalid state type: {type(self.state)}. Expected dict or Pydantic model.")
 
             logger.debug(f"Workflow state initialized with {len(self.state)} key(s).")
             self.save_state()
@@ -329,13 +264,13 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         except Exception as e:
             logger.error(f"Failed to initialize workflow state: {e}")
             raise RuntimeError(f"Error initializing workflow state: {e}") from e
-
+    
     def validate_state(self, state_data: dict) -> dict:
         """
         Validates the workflow state against the defined schema (`state_format`).
 
-        If a `state_format` (Pydantic model) is provided, this method ensures that
-        the `state_data` conforms to the expected structure. If validation succeeds,
+        If a `state_format` (Pydantic model) is provided, this method ensures that 
+        the `state_data` conforms to the expected structure. If validation succeeds, 
         it returns the structured state as a dictionary.
 
         Args:
@@ -349,26 +284,22 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         """
         try:
             if not self.state_format:
-                logger.warning(
-                    "No schema (state_format) provided; returning state as-is."
-                )
+                logger.warning("No schema (state_format) provided; returning state as-is.")
                 return state_data
 
             logger.info("Validating workflow state against schema.")
-            validated_state: BaseModel = self.state_format(
-                **state_data
-            )  # Validate with Pydantic
+            validated_state: BaseModel = self.state_format(**state_data)  # Validate with Pydantic
             return validated_state.model_dump()  # Convert validated model to dict
 
         except ValidationError as e:
             logger.error(f"State validation failed: {e}")
             raise ValidationError(f"Invalid workflow state: {e.errors()}") from e
-
+    
     def load_state(self) -> dict:
         """
         Loads the workflow state from the Dapr state store.
 
-        This method attempts to retrieve the stored state from the configured Dapr state store.
+        This method attempts to retrieve the stored state from the configured Dapr state store. 
         If no state exists in storage, it initializes an empty state.
 
         Returns:
@@ -380,63 +311,43 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             ValidationError: If state schema validation fails.
         """
         try:
-            if (
-                not self._state_store_client
-                or not self.state_store_name
-                or not self.state_key
-            ):
+            if not self._state_store_client or not self.state_store_name or not self.state_key:
                 logger.error("State store is not configured. Cannot load state.")
-                raise RuntimeError(
-                    "State store is not configured. Please provide 'state_store_name' and 'state_key'."
-                )
+                raise RuntimeError("State store is not configured. Please provide 'state_store_name' and 'state_key'.")
 
             # Avoid overwriting state if self.state is already set
             if self.state:
-                logger.info(
-                    "Using existing in-memory state. Skipping load from storage."
-                )
+                logger.info("Using existing in-memory state. Skipping load from storage.")
                 return self.state
 
-            has_state, state_data = self._state_store_client.try_get_state(
-                self.state_key
-            )
+            has_state, state_data = self._state_store_client.try_get_state(self.state_key)
 
             if has_state and state_data:
-                logger.info(
-                    f"Existing state found for key '{self.state_key}'. Validating it."
-                )
+                logger.info(f"Existing state found for key '{self.state_key}'. Validating it.")
 
                 if not isinstance(state_data, dict):
-                    raise TypeError(
-                        f"Invalid state type retrieved: {type(state_data)}. Expected dict."
-                    )
+                    raise TypeError(f"Invalid state type retrieved: {type(state_data)}. Expected dict.")
 
-                return (
-                    self.validate_state(state_data) if self.state_format else state_data
-                )
+                return self.validate_state(state_data) if self.state_format else state_data
 
-            logger.info(
-                f"No existing state found for key '{self.state_key}'. Initializing empty state."
-            )
+            logger.info(f"No existing state found for key '{self.state_key}'. Initializing empty state.")
             return {}
 
         except Exception as e:
             logger.error(f"Failed to load state for key '{self.state_key}': {e}")
             raise RuntimeError(f"Error loading workflow state: {e}") from e
-
+    
     def get_local_state_file_path(self) -> str:
         """
         Returns the file path for saving the local state.
-
+        
         If `local_state_path` is None, it defaults to the current working directory with a filename based on `state_key`.
         """
         directory = self.local_state_path or os.getcwd()
         os.makedirs(directory, exist_ok=True)  # Ensure directory exists
         return os.path.join(directory, f"{self.state_key}.json")
 
-    def save_state_to_disk(
-        self, state_data: str, filename: Optional[str] = None
-    ) -> None:
+    def save_state_to_disk(self, state_data: str, filename: Optional[str] = None) -> None:
         """
         Safely saves the workflow state to a local JSON file using a uniquely named temp file.
         - Writes to a temp file in parallel.
@@ -450,9 +361,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             file_path = os.path.join(save_directory, filename)
 
             # Write to a uniquely named temp file
-            with tempfile.NamedTemporaryFile(
-                "w", dir=save_directory, delete=False
-            ) as tmp_file:
+            with tempfile.NamedTemporaryFile("w", dir=save_directory, delete=False) as tmp_file:
                 tmp_file.write(state_data)
                 temp_path = tmp_file.name  # Save temp file path
 
@@ -465,16 +374,10 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                         try:
                             existing_state = json.load(file)
                         except json.JSONDecodeError:
-                            logger.warning(
-                                "Existing state file is corrupt or empty. Overwriting."
-                            )
+                            logger.warning("Existing state file is corrupt or empty. Overwriting.")
 
                 # Merge new state into existing state
-                new_state = (
-                    json.loads(state_data)
-                    if isinstance(state_data, str)
-                    else state_data
-                )
+                new_state = json.loads(state_data) if isinstance(state_data, str) else state_data
                 merged_state = {**existing_state, **new_state}  # Merge updates
 
                 # Write merged state back to a new temp file
@@ -489,12 +392,8 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         except Exception as e:
             logger.error(f"Failed to save workflow state to disk: {e}")
             raise RuntimeError(f"Error saving workflow state to disk: {e}")
-
-    def save_state(
-        self,
-        state: Optional[Union[dict, BaseModel, str]] = None,
-        force_reload: bool = False,
-    ) -> None:
+    
+    def save_state(self, state: Optional[Union[dict, BaseModel, str]] = None, force_reload: bool = False) -> None:
         """
         Saves the current workflow state to the Dapr state store and optionally as a local backup.
 
@@ -502,9 +401,9 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         If `save_state_locally` is `True`, it calls `save_state_to_disk` to write the state to a local file.
 
         Args:
-            state (Optional[Union[dict, BaseModel, str]], optional):
+            state (Optional[Union[dict, BaseModel, str]], optional): 
                 The new state to save. If not provided, the method saves the existing `self.state`.
-            force_reload (bool, optional):
+            force_reload (bool, optional): 
                 If `True`, reloads the state from the store after saving to ensure consistency.
                 Defaults to `False`.
 
@@ -515,15 +414,9 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             Exception: If any error occurs during the save operation.
         """
         try:
-            if (
-                not self._state_store_client
-                or not self.state_store_name
-                or not self.state_key
-            ):
+            if not self._state_store_client or not self.state_store_name or not self.state_key:
                 logger.error("State store is not configured. Cannot save state.")
-                raise RuntimeError(
-                    "State store is not configured. Please provide 'state_store_name' and 'state_key'."
-                )
+                raise RuntimeError("State store is not configured. Please provide 'state_store_name' and 'state_key'.")
 
             # Update self.state with the new state if provided
             self.state = state or self.state
@@ -533,9 +426,9 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
             # Convert state to a JSON-compatible format
             if isinstance(self.state, BaseModel):
-                state_to_save = self.state.model_dump_json()
+                state_to_save = self.state.model_dump_json()  
             elif isinstance(self.state, dict):
-                state_to_save = json.dumps(self.state)
+                state_to_save = json.dumps(self.state)  
             elif isinstance(self.state, str):
                 try:
                     json.loads(self.state)  # Ensure the string is valid JSON
@@ -543,9 +436,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                     raise ValueError(f"Invalid JSON string provided as state: {e}")
                 state_to_save = self.state
             else:
-                raise TypeError(
-                    f"Invalid state type: {type(self.state)}. Expected dict, BaseModel, or JSON string."
-                )
+                raise TypeError(f"Invalid state type: {type(self.state)}. Expected dict, BaseModel, or JSON string.")
 
             # Save state in Dapr
             self._state_store_client.save_state(self.state_key, state_to_save)
@@ -563,10 +454,8 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         except Exception as e:
             logger.error(f"Failed to save state for key '{self.state_key}': {e}")
             raise
-
-    def get_agents_metadata(
-        self, exclude_self: bool = True, exclude_orchestrator: bool = False
-    ) -> dict:
+    
+    def get_agents_metadata(self, exclude_self: bool = True, exclude_orchestrator: bool = False) -> dict:
         """
         Retrieves metadata for all registered agents while ensuring orchestrators do not interact with other orchestrators.
 
@@ -582,28 +471,17 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         """
         try:
             # Fetch agent metadata
-            agents_metadata = (
-                self.get_data_from_store(
-                    self.agents_registry_store_name, self.agents_registry_key
-                )
-                or {}
-            )
+            agents_metadata = self.get_data_from_store(self.agents_registry_store_name, self.agents_registry_key) or {}
 
             if agents_metadata:
-                logger.info(
-                    f"Agents found in '{self.agents_registry_store_name}' for key '{self.agents_registry_key}'."
-                )
+                logger.info(f"Agents found in '{self.agents_registry_store_name}' for key '{self.agents_registry_key}'.")
 
                 # Filter based on self-exclusion and orchestrator exclusion
                 filtered_metadata = {
                     name: metadata
                     for name, metadata in agents_metadata.items()
-                    if not (
-                        exclude_self and name == self.name
-                    )  # Exclude self if requested
-                    and not (
-                        exclude_orchestrator and metadata.get("orchestrator", False)
-                    )  # Exclude orchestrators only if exclude_orchestrator=True
+                    if not (exclude_self and name == self.name)  # Exclude self if requested
+                    and not (exclude_orchestrator and metadata.get("orchestrator", False))  # Exclude orchestrators only if exclude_orchestrator=True
                 }
 
                 if not filtered_metadata:
@@ -611,20 +489,13 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
                 return filtered_metadata
 
-            logger.info(
-                f"No agents found in '{self.agents_registry_store_name}' for key '{self.agents_registry_key}'."
-            )
+            logger.info(f"No agents found in '{self.agents_registry_store_name}' for key '{self.agents_registry_key}'.")
             return {}
         except Exception as e:
             logger.error(f"Failed to retrieve agents metadata: {e}", exc_info=True)
             raise RuntimeError(f"Error retrieving agents metadata: {str(e)}") from e
-
-    async def broadcast_message(
-        self,
-        message: Union[BaseModel, dict],
-        exclude_orchestrator: bool = False,
-        **kwargs,
-    ) -> None:
+    
+    async def broadcast_message(self, message: Union[BaseModel, dict], exclude_orchestrator: bool = False, **kwargs) -> None:
         """
         Sends a message to all agents (or only to non-orchestrator agents if exclude_orchestrator=True).
 
@@ -635,17 +506,13 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         """
         try:
             # Retrieve agents metadata while respecting the exclude_orchestrator flag
-            agents_metadata = self.get_agents_metadata(
-                exclude_orchestrator=exclude_orchestrator
-            )
+            agents_metadata = self.get_agents_metadata(exclude_orchestrator=exclude_orchestrator)
 
             if not agents_metadata:
                 logger.warning("No agents available for broadcast.")
                 return
 
-            logger.info(
-                f"{self.name} broadcasting message to {self.broadcast_topic_name}."
-            )
+            logger.info(f"{self.name} broadcasting message to {self.broadcast_topic_name}.")
 
             await self.publish_event_message(
                 topic_name=self.broadcast_topic_name,
@@ -658,10 +525,8 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             logger.debug(f"{self.name} broadcasted message.")
         except Exception as e:
             logger.error(f"Failed to broadcast message: {e}", exc_info=True)
-
-    async def send_message_to_agent(
-        self, name: str, message: Union[BaseModel, dict], **kwargs
-    ) -> None:
+    
+    async def send_message_to_agent(self, name: str, message: Union[BaseModel, dict], **kwargs) -> None:
         """
         Sends a message to a specific agent.
 
@@ -672,11 +537,9 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         """
         try:
             agents_metadata = self.get_agents_metadata()
-
+            
             if name not in agents_metadata:
-                logger.warning(
-                    f"Target '{name}' is not registered as an agent. Skipping message send."
-                )
+                logger.warning(f"Target '{name}' is not registered as an agent. Skipping message send.")
                 return  # Do not raise an error—just warn and move on.
 
             agent_metadata = agents_metadata[name]
@@ -692,13 +555,9 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
             logger.debug(f"{self.name} sent message to agent '{name}'.")
         except Exception as e:
-            logger.error(
-                f"Failed to send message to agent '{name}': {e}", exc_info=True
-            )
-
-    def print_interaction(
-        self, sender_agent_name: str, recipient_agent_name: str, message: str
-    ) -> None:
+            logger.error(f"Failed to send message to agent '{name}': {e}", exc_info=True)
+    
+    def print_interaction(self, sender_agent_name: str, recipient_agent_name: str, message: str) -> None:
         """
         Prints the interaction between two agents in a formatted and colored text.
 
@@ -708,7 +567,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             message (str): The message content to display.
         """
         separator = "-" * 80
-
+        
         # Print sender -> recipient and the message
         interaction_text = [
             (sender_agent_name, "dapr_agents_mustard"),
@@ -720,7 +579,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
         # Print the formatted text
         self._text_formatter.print_colored_text(interaction_text)
-
+    
     def register_agentic_system(self) -> None:
         """
         Registers the agent's metadata in the Dapr state store under 'agents_metadata'.
@@ -731,12 +590,13 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                 store_name=self.agents_registry_store_name,
                 store_key=self.agents_registry_key,
                 agent_name=self.name,
-                agent_metadata=self._agent_metadata,
+                agent_metadata=self._agent_metadata
             )
+            logger.info(f"{self.name} registered its metadata under key '{self.agents_registry_key}'")
         except Exception as e:
             logger.error(f"Failed to register metadata for agent {self.name}: {e}")
             raise e
-
+    
     async def run_workflow_from_request(self, request: Request) -> JSONResponse:
         """
         Run a workflow instance triggered by an incoming HTTP POST request.
@@ -761,17 +621,13 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             # Validate workflow name against registered workflows
             if workflow_name not in self.workflows:
                 return JSONResponse(
-                    content={
-                        "error": f"Unknown workflow '{workflow_name}'. Available: {list(self.workflows.keys())}"
-                    },
+                    content={"error": f"Unknown workflow '{workflow_name}'. Available: {list(self.workflows.keys())}"},
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
             # Parse body as CloudEvent or fallback to JSON
             try:
-                event: CloudEvent = from_http(
-                    dict(request.headers), await request.body()
-                )
+                event: CloudEvent = from_http(dict(request.headers), await request.body())
                 input_data = event.data
             except Exception:
                 input_data = await request.json()
@@ -782,10 +638,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             asyncio.create_task(self.monitor_workflow_completion(instance_id))
 
             return JSONResponse(
-                content={
-                    "message": "Workflow initiated successfully.",
-                    "workflow_instance_id": instance_id,
-                },
+                content={"message": "Workflow initiated successfully.", "workflow_instance_id": instance_id},
                 status_code=status.HTTP_202_ACCEPTED,
             )
 

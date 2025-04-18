@@ -4,7 +4,6 @@ from pydantic import BaseModel
 from pathlib import Path
 from typing import List
 
-
 class ReaderBase(BaseModel, ABC):
     """
     Abstract base class for file readers.

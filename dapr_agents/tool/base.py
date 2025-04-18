@@ -10,35 +10,24 @@ from dapr_agents.types import ToolError
 
 logger = logging.getLogger(__name__)
 
-
 class AgentTool(BaseModel):
     """
     Base class for agent tools, supporting both synchronous and asynchronous execution.
-
+    
     Attributes:
         name (str): The tool's name.
         description (str): A brief description of the tool's purpose.
         args_model (Optional[Type[BaseModel]]): Model for validating tool arguments.
         func (Optional[Callable]): Function defining tool behavior.
     """
-
-    name: str = Field(
-        ...,
-        description="The name of the tool, formatted with capitalization and no spaces.",
-    )
-    description: str = Field(
-        ..., description="A brief description of the tool's functionality."
-    )
-    args_model: Optional[Type[BaseModel]] = Field(
-        None, description="Pydantic model for validating tool arguments."
-    )
-    func: Optional[Callable] = Field(
-        None, description="Optional function implementing the tool's behavior."
-    )
+    name: str = Field(..., description="The name of the tool, formatted with capitalization and no spaces.")
+    description: str = Field(..., description="A brief description of the tool's functionality.")
+    args_model: Optional[Type[BaseModel]] = Field(None, description="Pydantic model for validating tool arguments.")
+    func: Optional[Callable] = Field(None, description="Optional function implementing the tool's behavior.")
 
     _is_async: bool = PrivateAttr(default=False)
 
-    @model_validator(mode="before")
+    @model_validator(mode='before')
     @classmethod
     def set_name_and_description(cls, values: dict) -> dict:
         """
@@ -51,7 +40,7 @@ class AgentTool(BaseModel):
         return values
 
     @classmethod
-    def from_func(cls, func: Callable) -> "AgentTool":
+    def from_func(cls, func: Callable) -> 'AgentTool':
         """
         Creates an instance of `AgentTool` from a raw Python function.
 
@@ -63,13 +52,13 @@ class AgentTool(BaseModel):
         """
         ToolHelper.check_docstring(func)
         return cls(func=func)
-
+    
     def model_post_init(self, __context: Any) -> None:
         """
         Handles post-initialization logic for both class-based and function-based tools.
         Ensures `name` formatting and infers `args_model` if necessary.
         """
-        self.name = self.name.replace(" ", "_").title().replace("_", "")
+        self.name = self.name.replace(' ', '_').title().replace('_', '')
 
         if self.func:
             self._is_async = inspect.iscoroutinefunction(self.func)
@@ -87,10 +76,8 @@ class AgentTool(BaseModel):
         """Initialize Tool fields based on the abstract `_run` method."""
         if self.args_model is None:
             self.args_model = ToolHelper.infer_func_schema(self._run)
-
-    def _validate_and_prepare_args(
-        self, func: Callable, *args, **kwargs
-    ) -> Dict[str, Any]:
+    
+    def _validate_and_prepare_args(self, func: Callable, *args, **kwargs) -> Dict[str, Any]:
         """
         Normalize and validate arguments for the given function.
 
@@ -119,7 +106,7 @@ class AgentTool(BaseModel):
                 raise ToolError(f"Validation error in tool '{self.name}': {ve}") from ve
 
         return kwargs
-
+    
     def run(self, *args, **kwargs) -> Any:
         """
         Execute the tool synchronously.
@@ -128,16 +115,14 @@ class AgentTool(BaseModel):
             ToolError if the tool is async or execution fails.
         """
         if self._is_async:
-            raise ToolError(
-                f"Tool '{self.name}' is async and must be awaited. Use `await tool.arun(...)` instead."
-            )
+            raise ToolError(f"Tool '{self.name}' is async and must be awaited. Use `await tool.arun(...)` instead.")
         try:
             func = self.func or self._run
             kwargs = self._validate_and_prepare_args(func, *args, **kwargs)
             return func(**kwargs)
         except Exception as e:
             self._log_and_raise_error(e)
-
+    
     async def arun(self, *args, **kwargs) -> Any:
         """
         Execute the tool asynchronously (whether it's sync or async under the hood).
@@ -148,7 +133,7 @@ class AgentTool(BaseModel):
             return await func(**kwargs) if self._is_async else func(**kwargs)
         except Exception as e:
             self._log_and_raise_error(e)
-
+    
     def _run(self, *args, **kwargs) -> Any:
         """Fallback default run logic if no `func` is set."""
         if self.func:
@@ -158,9 +143,7 @@ class AgentTool(BaseModel):
     def _log_and_raise_error(self, error: Exception) -> None:
         """Log the error and raise a ToolError."""
         logger.error(f"Error executing tool '{self.name}': {str(error)}")
-        raise ToolError(
-            f"An error occurred during the execution of tool '{self.name}': {str(error)}"
-        )
+        raise ToolError(f"An error occurred during the execution of tool '{self.name}': {str(error)}")
 
     def __call__(self, *args, **kwargs) -> Any:
         """
@@ -170,14 +153,10 @@ class AgentTool(BaseModel):
             ToolError: if async tool is called without `await`.
         """
         if self._is_async:
-            raise ToolError(
-                f"Tool '{self.name}' is async and must be awaited. Use `await tool.arun(...)`."
-            )
+            raise ToolError(f"Tool '{self.name}' is async and must be awaited. Use `await tool.arun(...)`.")
         return self.run(*args, **kwargs)
 
-    def to_function_call(
-        self, format_type: str = "openai", use_deprecated: bool = False
-    ) -> Dict:
+    def to_function_call(self, format_type: str = 'openai', use_deprecated: bool = False) -> Dict:
         """
         Converts the tool to a specified function call format.
 
@@ -188,14 +167,12 @@ class AgentTool(BaseModel):
         Returns:
             Dict: The function call representation.
         """
-        return to_function_call_definition(
-            self.name, self.description, self.args_model, format_type, use_deprecated
-        )
+        return to_function_call_definition(self.name, self.description, self.args_model, format_type, use_deprecated)
 
     def __repr__(self) -> str:
         """Returns a string representation of the AgentTool."""
         return f"AgentTool(name={self.name}, description={self.description})"
-
+    
     @property
     def args_schema(self) -> dict:
         """Returns a JSON-serializable dictionary of the tool's function args_model."""
@@ -218,10 +195,7 @@ class AgentTool(BaseModel):
         ]
         return f"{self.name}({', '.join(args)})"
 
-
-def tool(
-    func: Optional[Callable] = None, *, args_model: Optional[Type[BaseModel]] = None
-) -> AgentTool:
+def tool(func: Optional[Callable] = None, *, args_model: Optional[Type[BaseModel]] = None) -> AgentTool:
     """
     A decorator to wrap a function with an `AgentTool` for validation and metadata.
 
@@ -232,9 +206,7 @@ def tool(
     Returns:
         AgentTool: The wrapped function as an `AgentTool`.
     """
-
     def decorator(f: Callable) -> AgentTool:
         ToolHelper.check_docstring(f)
         return AgentTool(func=f, args_model=args_model)
-
     return decorator(func) if func else decorator

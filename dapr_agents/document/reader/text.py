@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import List
 from pydantic import Field
 
-
 class TextLoader(ReaderBase):
     """
     Loader for plain text files.
@@ -12,7 +11,6 @@ class TextLoader(ReaderBase):
     Attributes:
         encoding (str): The text file encoding. Defaults to 'utf-8'.
     """
-
     encoding: str = Field(default="utf-8", description="Encoding of the text file.")
 
     def load(self, file_path: Path) -> List[Document]:

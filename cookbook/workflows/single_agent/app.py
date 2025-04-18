@@ -3,7 +3,6 @@ from dotenv import load_dotenv
 import asyncio
 import logging
 
-
 async def main():
     try:
         # Create the Weather Agent using those tools
@@ -28,10 +27,9 @@ async def main():
     except Exception as e:
         print(f"Error starting service: {e}")
 
-
 if __name__ == "__main__":
     load_dotenv()
 
     logging.basicConfig(level=logging.INFO)
-
+    
     asyncio.run(main())

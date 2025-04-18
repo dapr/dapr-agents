@@ -3,7 +3,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 def get_callable_decorated_methods(instance, decorator_attr: str) -> dict:
     """
     Safely retrieves all instance methods decorated with a specific attribute (e.g. `_is_task`, `_is_workflow`).

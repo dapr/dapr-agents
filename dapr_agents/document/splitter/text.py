@@ -4,7 +4,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class TextSplitter(SplitterBase):
     """
     Concrete implementation of the SplitterBase class.
@@ -34,9 +33,7 @@ class TextSplitter(SplitterBase):
 
         # Step 2: Short-circuit for small texts
         if self._get_chunk_size(text) <= effective_chunk_size:
-            logger.debug(
-                "Text size is smaller than effective chunk size. Returning as a single chunk."
-            )
+            logger.debug("Text size is smaller than effective chunk size. Returning as a single chunk.")
             return [text]
 
         # Step 3: Use adaptive splitting strategy

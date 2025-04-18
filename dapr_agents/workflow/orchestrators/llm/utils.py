@@ -1,6 +1,5 @@
 from typing import List, Dict, Any, Optional
 
-
 def update_step_statuses(plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Ensures step and sub-step statuses follow logical progression:
@@ -9,7 +8,7 @@ def update_step_statuses(plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     - If a sub-step is "completed" but the parent step is "not_started", update it to "in_progress".
     - If a parent step is "completed" but a substep is still "in_progress", downgrade it to "in_progress".
     - Steps without substeps should still progress logically.
-
+    
     Args:
         plan (List[Dict[str, Any]]): The current execution plan.
 
@@ -20,9 +19,7 @@ def update_step_statuses(plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         # Case 0: Handle steps that have NO substeps
         if "substeps" not in step or not step["substeps"]:
             if step["status"] == "not_started":
-                step[
-                    "status"
-                ] = "in_progress"  # Independent steps should start when execution begins
+                step["status"] = "in_progress"  # Independent steps should start when execution begins
             continue  # Skip further processing if no substeps exist
 
         substep_statuses = {ss["status"] for ss in step["substeps"]}
@@ -67,9 +64,7 @@ def validate_plan_structure(plan: List[Dict[str, Any]]) -> bool:
     return True
 
 
-def find_step_in_plan(
-    plan: List[Dict[str, Any]], step: int, substep: Optional[float] = None
-) -> Optional[Dict[str, Any]]:
+def find_step_in_plan(plan: List[Dict[str, Any]], step: int, substep: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Finds a specific step or substep in a plan.
 
@@ -85,16 +80,14 @@ def find_step_in_plan(
         if step_entry["step"] == step:
             if substep is None:
                 return step_entry
-
+            
             for sub in step_entry.get("substeps", []):
                 if sub["substep"] == substep:
                     return sub
     return None
 
 
-def restructure_plan(
-    plan: List[Dict[str, Any]], updates: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
+def restructure_plan(plan: List[Dict[str, Any]], updates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Applies restructuring updates to the task execution plan.
 

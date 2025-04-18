@@ -4,25 +4,21 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import logging
 
-
 @workflow
-def question(ctx: DaprWorkflowContext, input: int):
+def question(ctx:DaprWorkflowContext, input:int):
     step1 = yield ctx.call_activity(ask, input=input)
     return step1
-
 
 class Dog(BaseModel):
     name: str
     bio: str
     breed: str
 
-
 @task("Who was {name}?")
-def ask(name: str) -> Dog:
+def ask(name:str) -> Dog:
     pass
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
     load_dotenv()

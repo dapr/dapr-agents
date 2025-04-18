@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 from dapr_agents import AssistantAgent
 from dapr_agents.tool.mcp import MCPClient
 
-
 async def main():
     try:
         # Load MCP tools from server (stdio or sse)
@@ -35,10 +34,9 @@ async def main():
 
         # Start the FastAPI agent service
         await weather_agent.start()
-
+    
     except Exception as e:
         logging.exception("Error starting weather agent service", exc_info=e)
-
 
 if __name__ == "__main__":
     load_dotenv()
