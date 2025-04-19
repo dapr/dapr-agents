@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elf
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elf
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        dapr.io/app-id: elf
+        dapr.io/enabled: "true"
+        dapr.io/metrics-port: "59196"
+        dapr.io/unix-domain-socket-path: ""
+      creationTimestamp: null
+      labels:
+        app: elf
+    spec:
+      containers:
+      - env:
+        - name: APP_CHANNEL_ADDRESS
+        - name: DAPR_METRICS_PORT
+          value: "59196"
+        - name: DEBUG
+          value: "true"
+        - name: APP_ID
+          value: elf
+        envFrom:
+        - secretRef:
+            name: openai-secrets
+        image: localhost:5001/elf:latest
+        imagePullPolicy: Always
+        name: elf
+        resources: {}
