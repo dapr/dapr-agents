@@ -16,7 +16,6 @@ from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
-
 class AgentActorBase(Actor, AgentActorInterface):
     """Base class for all agent actors, including task execution and agent state management."""
 
@@ -25,23 +24,19 @@ class AgentActorBase(Actor, AgentActorInterface):
         self.actor_id = actor_id
         self.agent: AgentBase
         self.agent_state_key = "agent_state"
-
+    
     async def _on_activate(self) -> None:
         """
         Called when the actor is activated. Initializes the agent's state if not present.
         """
         logger.info(f"Activating actor with ID: {self.actor_id}")
-        has_state, state_data = await self._state_manager.try_get_state(
-            self.agent_state_key
-        )
+        has_state, state_data = await self._state_manager.try_get_state(self.agent_state_key)
 
         if not has_state:
             # Initialize state with default values if it doesn't exist
             logger.info(f"Initializing state for {self.actor_id}")
             self.state = AgentActorState(overall_status=AgentStatus.IDLE)
-            await self._state_manager.set_state(
-                self.agent_state_key, self.state.model_dump()
-            )
+            await self._state_manager.set_state(self.agent_state_key, self.state.model_dump())
             await self._state_manager.save_state()
         else:
             # Load existing state
@@ -53,20 +48,16 @@ class AgentActorBase(Actor, AgentActorInterface):
         """
         Called when the actor is deactivated.
         """
-        logger.info(
-            f"Deactivate {self.__class__.__name__} actor with ID: {self.actor_id}."
-        )
-
+        logger.info(f"Deactivate {self.__class__.__name__} actor with ID: {self.actor_id}.")
+    
     async def set_status(self, status: AgentStatus) -> None:
         """
         Sets the current operational status of the agent and saves the state.
         """
         self.state.overall_status = status
-        await self._state_manager.set_state(
-            self.agent_state_key, self.state.model_dump()
-        )
+        await self._state_manager.set_state(self.agent_state_key, self.state.model_dump())
         await self._state_manager.save_state()
-
+    
     async def invoke_task(self, task: Optional[str] = None) -> str:
         """
         Execute the agent's main task, log the input/output in the task history,
@@ -85,9 +76,7 @@ class AgentActorBase(Actor, AgentActorInterface):
             # Look for the last message in the conversation history
             last_message = messages[-1]
             default_task = last_message.get("content")
-            logger.debug(
-                f"Default task entry input derived from last message: {default_task}"
-            )
+            logger.debug(f"Default task entry input derived from last message: {default_task}")
 
         # Prepare the input for task entry
         task_entry_input = task or default_task or "Triggered without a specific task"
@@ -104,9 +93,7 @@ class AgentActorBase(Actor, AgentActorInterface):
         self.state.task_history.append(task_entry)
 
         # Save initial task state with IN_PROGRESS status
-        await self._state_manager.set_state(
-            self.agent_state_key, self.state.model_dump()
-        )
+        await self._state_manager.set_state(self.agent_state_key, self.state.model_dump())
         await self._state_manager.save_state()
 
         try:
@@ -133,13 +120,11 @@ class AgentActorBase(Actor, AgentActorInterface):
 
         finally:
             # Ensure the final state of the task is saved
-            await self._state_manager.set_state(
-                self.agent_state_key, self.state.model_dump()
-            )
+            await self._state_manager.set_state(self.agent_state_key, self.state.model_dump())
             await self._state_manager.save_state()
             # Revert the agent's status to idle
             await self.set_status(AgentStatus.IDLE)
-
+    
     async def add_message(self, message: Union[AgentActorMessage, dict]) -> None:
         """
         Adds a message to the conversation history in the actor's state.
@@ -150,25 +135,21 @@ class AgentActorBase(Actor, AgentActorInterface):
         # Convert dictionary to AgentActorMessage if necessary
         if isinstance(message, dict):
             message = AgentActorMessage(**message)
-
+        
         # Add the new message to the state
         self.state.messages.append(message)
         self.state.message_count += 1
 
         # Save state back to Dapr
-        await self._state_manager.set_state(
-            self.agent_state_key, self.state.model_dump()
-        )
+        await self._state_manager.set_state(self.agent_state_key, self.state.model_dump())
         await self._state_manager.save_state()
 
     async def get_messages(self) -> List[dict]:
         """
-        Retrieves the messages from the actor's state, validates it using Pydantic,
+        Retrieves the messages from the actor's state, validates it using Pydantic, 
         and returns a list of dictionaries if valid.
         """
-        has_state, state_data = await self._state_manager.try_get_state(
-            self.agent_state_key
-        )
+        has_state, state_data = await self._state_manager.try_get_state(self.agent_state_key)
 
         if has_state:
             try:

@@ -5,32 +5,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class ElevenLabsSpeechClient(ElevenLabsClientBase):
     """
     Client for ElevenLabs speech generation functionality.
     Handles text-to-speech conversions with customizable options.
     """
 
-    voice: Optional[Any] = Field(
-        default=None,
-        description="Default voice (ID, name, or object) for speech generation.",
-    )
-    model: Optional[str] = Field(
-        default="eleven_multilingual_v2",
-        description="Default model for speech generation.",
-    )
-    output_format: Optional[str] = Field(
-        default="mp3_44100_128", description="Default audio output format."
-    )
-    optimize_streaming_latency: Optional[int] = Field(
-        default=0,
-        description="Default latency optimization level (0 means no optimizations).",
-    )
-    voice_settings: Optional[Any] = Field(
-        default=None,
-        description="Default voice settings (stability, similarity boost, etc.).",
-    )
+    voice: Optional[Any] = Field(default=None, description="Default voice (ID, name, or object) for speech generation.")
+    model: Optional[str] = Field(default="eleven_multilingual_v2", description="Default model for speech generation.")
+    output_format: Optional[str] = Field(default="mp3_44100_128", description="Default audio output format.")
+    optimize_streaming_latency: Optional[int] = Field(default=0, description="Default latency optimization level (0 means no optimizations).")
+    voice_settings: Optional[Any] = Field(default=None, description="Default voice settings (stability, similarity boost, etc.).")
 
     def model_post_init(self, __context: Any) -> None:
         """
@@ -86,9 +71,7 @@ class ElevenLabsSpeechClient(ElevenLabsClientBase):
         voice = voice or self.voice
         model = model or self.model
         output_format = output_format or self.output_format
-        optimize_streaming_latency = (
-            optimize_streaming_latency or self.optimize_streaming_latency
-        )
+        optimize_streaming_latency = optimize_streaming_latency or self.optimize_streaming_latency
         voice_settings = voice_settings or self.voice_settings
 
         logger.info(f"Generating speech with voice '{voice}', model '{model}'.")

@@ -10,7 +10,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 def generate_numeric_session_id() -> int:
     """
     Generates a random numeric session ID by extracting digits from a UUID.
@@ -18,8 +17,7 @@ def generate_numeric_session_id() -> int:
     Returns:
         int: A numeric session ID.
     """
-    return int("".join(filter(str.isdigit, str(uuid.uuid4()))))
-
+    return int(''.join(filter(str.isdigit, str(uuid.uuid4()))))
 
 class ConversationDaprStateMemory(MemoryBase):
     """
@@ -27,20 +25,12 @@ class ConversationDaprStateMemory(MemoryBase):
     individually with a unique key and includes a session ID and timestamp for querying and retrieval.
     """
 
-    store_name: str = Field(
-        default="statestore", description="The name of the Dapr state store."
-    )
-    session_id: Optional[Union[str, int]] = Field(
-        default=None, description="Unique identifier for the conversation session."
-    )
-    query_index_name: Optional[str] = Field(
-        default=None, description="The index name for querying state."
-    )
+    store_name: str = Field(default="statestore", description="The name of the Dapr state store.")
+    session_id: Optional[Union[str, int]] = Field(default=None, description="Unique identifier for the conversation session.")
+    query_index_name: Optional[str] = Field(default=None, description="The index name for querying state.")
 
     # Private attribute to hold the initialized DaprStateStore
-    dapr_store: Optional[DaprStateStore] = Field(
-        default=None, init=False, description="Dapr State Store."
-    )
+    dapr_store: Optional[DaprStateStore] = Field(default=None, init=False, description="Dapr State Store.")
 
     @model_validator(mode="before")
     def set_session_id(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -62,10 +52,8 @@ class ConversationDaprStateMemory(MemoryBase):
         Initializes the Dapr state store after validation
         """
         self.dapr_store = DaprStateStore(store_name=self.store_name)
-        logger.info(
-            f"ConversationDaprStateMemory initialized with session ID: {self.session_id}"
-        )
-
+        logger.info(f"ConversationDaprStateMemory initialized with session ID: {self.session_id}")
+        
         # Complete post-initialization
         super().model_post_init(__context)
 
@@ -93,19 +81,13 @@ class ConversationDaprStateMemory(MemoryBase):
 
         message_id = str(uuid.uuid4())
         message_key = self._get_message_key(message_id)
-        message.update(
-            {
-                "sessionId": self.session_id,
-                "createdAt": datetime.now().isoformat() + "Z",
-            }
-        )
+        message.update({
+            "sessionId": self.session_id,
+            "createdAt": datetime.now().isoformat() + "Z"
+        })
 
-        logger.info(
-            f"Adding message with key {message_key} to session {self.session_id}"
-        )
-        self.dapr_store.save_state(
-            message_key, json.dumps(message), {"contentType": "application/json"}
-        )
+        logger.info(f"Adding message with key {message_key} to session {self.session_id}")
+        self.dapr_store.save_state(message_key, json.dumps(message), {"contentType": "application/json"})
 
     def add_messages(self, messages: List[Union[Dict, BaseMessage]]):
         """
@@ -120,9 +102,7 @@ class ConversationDaprStateMemory(MemoryBase):
                 message = message.model_dump()
             self.add_message(message)
 
-    def add_interaction(
-        self, user_message: BaseMessage, assistant_message: BaseMessage
-    ):
+    def add_interaction(self, user_message: BaseMessage, assistant_message: BaseMessage):
         """
         Adds a user-assistant interaction to the memory storage and saves it to the state store.
 
@@ -156,23 +136,18 @@ class ConversationDaprStateMemory(MemoryBase):
         Returns:
             List[Dict[str, str]]: A list containing the 'content' and 'role' fields of the messages.
         """
-        query = json.dumps(
-            {"filter": {"EQ": {"sessionId": self.session_id}}, "page": {"limit": limit}}
-        )
+        query = json.dumps({
+            "filter": {"EQ": {"sessionId": self.session_id}},
+            "page": {"limit": limit}
+        })
         query_response = self.query_messages(query=query)
-        messages = [
-            {"content": msg.get("content"), "role": msg.get("role")}
-            for msg in (
-                self._decode_message(result.value) for result in query_response.results
-            )
-        ]
-
+        messages = [{"content": msg.get("content"), "role": msg.get("role")}
+                    for msg in (self._decode_message(result.value) for result in query_response.results)]
+        
         logger.info(f"Retrieved {len(messages)} messages for session {self.session_id}")
         return messages
 
-    def query_messages(
-        self, query: Optional[str] = json.dumps({})
-    ) -> List[Dict[str, str]]:
+    def query_messages(self, query: Optional[str] = json.dumps({})) -> List[Dict[str, str]]:
         """
         Queries messages from the state store based on a pre-constructed query string.
 
@@ -187,9 +162,7 @@ class ConversationDaprStateMemory(MemoryBase):
         if self.query_index_name:
             states_metadata["queryIndexName"] = self.query_index_name
 
-        response = self.dapr_store.query_state(
-            query=query, states_metadata=states_metadata
-        )
+        response = self.dapr_store.query_state(query=query, states_metadata=states_metadata)
         return response
 
     def reset_memory(self):
@@ -201,7 +174,5 @@ class ConversationDaprStateMemory(MemoryBase):
         for key in keys:
             self.dapr_store.delete_state(key)
             logger.debug(f"Deleted state with key: {key}")
-
-        logger.info(
-            f"Memory reset for session {self.session_id} completed. Deleted {len(keys)} messages."
-        )
+        
+        logger.info(f"Memory reset for session {self.session_id} completed. Deleted {len(keys)} messages.")

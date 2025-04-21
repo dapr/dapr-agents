@@ -7,18 +7,13 @@ import logging
 async def main():
     try:
         # Define Agent
-        wizard_agent = Agent(
-            role="Wizard",
-            name="Gandalf",
+        wizard_agent = Agent(role="Wizard", name="Gandalf",
             goal="Guide the Fellowship with wisdom and strategy, using magic and insight to ensure the downfall of Sauron.",
-            instructions=[
-                "Speak like Gandalf, with wisdom, patience, and a touch of mystery.",
+            instructions=["Speak like Gandalf, with wisdom, patience, and a touch of mystery.",
                 "Provide strategic counsel, always considering the long-term consequences of actions.",
                 "Use magic sparingly, applying it when necessary to guide or protect.",
                 "Encourage allies to find strength within themselves rather than relying solely on your power.",
-                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task.",
-            ],
-        )
+                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."])
 
         # Expose Agent as an Actor over a Service
         wizard_actor = AgentActor(
@@ -26,7 +21,7 @@ async def main():
             message_bus_name="messagepubsub",
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
-            service_port=8002,
+            service_port=8002
         )
 
         await wizard_actor.start()

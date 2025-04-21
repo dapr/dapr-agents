@@ -13,7 +13,7 @@ async def main():
             state_key="workflow_state",
             agents_registry_store_name="agentstatestore",
             agents_registry_key="agents_registry",
-            max_iterations=3,
+            max_iterations=3
         ).as_service(port=8004)
 
         await llm_workflow.start()

@@ -9,15 +9,11 @@ from dapr.aio.clients.grpc.subscription import Subscription
 from dapr.clients.grpc._response import TopicEventResponse
 from dapr.clients.grpc.subscription import StreamInactiveError
 from dapr.common.pubsub.subscription import StreamCancelledError, SubscriptionMessage
-from dapr_agents.workflow.messaging.parser import (
-    extract_cloudevent_data,
-    validate_message_model,
-)
+from dapr_agents.workflow.messaging.parser import extract_cloudevent_data, validate_message_model
 from dapr_agents.workflow.messaging.utils import is_valid_routable_model
 from dapr_agents.workflow.utils import get_callable_decorated_methods
 
 logger = logging.getLogger(__name__)
-
 
 class MessageRoutingMixin:
     """
@@ -57,15 +53,11 @@ class MessageRoutingMixin:
                 router_data = method._message_router_data.copy()
                 pubsub_name = router_data.get("pubsub") or self.message_bus_name
                 is_broadcast = router_data.get("is_broadcast", False)
-                topic_name = router_data.get("topic") or (
-                    self.broadcast_topic_name if is_broadcast else self.name
-                )
+                topic_name = router_data.get("topic") or (self.broadcast_topic_name if is_broadcast else self.name)
                 message_schemas = router_data.get("message_schemas", [])
 
                 if not message_schemas:
-                    raise ValueError(
-                        f"No message models found for handler '{method_name}'."
-                    )
+                    raise ValueError(f"No message models found for handler '{method_name}'.")
 
                 wrapped_method = self._create_wrapped_method(method)
                 topic_key = (pubsub_name, topic_name)
@@ -74,14 +66,10 @@ class MessageRoutingMixin:
 
                 for schema in message_schemas:
                     if not is_valid_routable_model(schema):
-                        raise ValueError(
-                            f"Unsupported message model for handler '{method_name}': {schema}"
-                        )
+                        raise ValueError(f"Unsupported message model for handler '{method_name}': {schema}")
 
                     schema_name = schema.__name__
-                    logger.debug(
-                        f"Registering handler '{method_name}' for topic '{topic_name}' with model '{schema_name}'"
-                    )
+                    logger.debug(f"Registering handler '{method_name}' for topic '{topic_name}' with model '{schema_name}'")
 
                     # Prevent multiple handlers for the same schema
                     if schema_name in self._topic_handlers[topic_key]:
@@ -92,26 +80,23 @@ class MessageRoutingMixin:
 
                     self._topic_handlers[topic_key][schema_name] = {
                         "schema": schema,
-                        "handler": wrapped_method,
+                        "handler": wrapped_method
                     }
 
             except Exception as e:
-                logger.error(
-                    f"Failed to register handler '{method_name}': {e}", exc_info=True
-                )
+                logger.error(f"Failed to register handler '{method_name}': {e}", exc_info=True)
 
         # Subscribe once per topic
-        for pubsub_name, topic_name in self._topic_handlers.keys():
+        for (pubsub_name, topic_name) in self._topic_handlers.keys():
             self._subscribe_with_router(pubsub_name, topic_name)
 
         logger.info("All message routes registered.")
-
+    
     def _create_wrapped_method(self, method: Callable) -> Callable:
         """
         Wraps a message handler method to ensure it runs asynchronously,
         with special handling for workflows.
         """
-
         @functools.wraps(method)
         async def wrapped_method(message: dict):
             try:
@@ -127,17 +112,13 @@ class MessageRoutingMixin:
                     return method(message=message)
 
             except Exception as e:
-                logger.error(
-                    f"Error invoking handler '{method.__name__}': {e}", exc_info=True
-                )
+                logger.error(f"Error invoking handler '{method.__name__}': {e}", exc_info=True)
                 return None
 
         return wrapped_method
 
     def _subscribe_with_router(self, pubsub_name: str, topic_name: str):
-        subscription: Subscription = self._dapr_client.subscribe(
-            pubsub_name, topic_name
-        )
+        subscription: Subscription = self._dapr_client.subscribe(pubsub_name, topic_name)
         loop = asyncio.get_running_loop()
 
         def stream_messages(sub: Subscription):
@@ -147,10 +128,8 @@ class MessageRoutingMixin:
                         if message:
                             try:
                                 future = asyncio.run_coroutine_threadsafe(
-                                    self._route_message(
-                                        pubsub_name, topic_name, message
-                                    ),
-                                    loop,
+                                    self._route_message(pubsub_name, topic_name, message),
+                                    loop
                                 )
                                 response = future.result()
                                 sub.respond(message, response.status)
@@ -165,13 +144,9 @@ class MessageRoutingMixin:
             subscription.close()
 
         self._subscriptions[(pubsub_name, topic_name)] = close_subscription
-        threading.Thread(
-            target=stream_messages, args=(subscription,), daemon=True
-        ).start()
-
-    async def _route_message(
-        self, pubsub_name: str, topic_name: str, message: SubscriptionMessage
-    ) -> TopicEventResponse:
+        threading.Thread(target=stream_messages, args=(subscription,), daemon=True).start()
+    
+    async def _route_message(self, pubsub_name: str, topic_name: str, message: SubscriptionMessage) -> TopicEventResponse:
         """
         Routes an incoming message to the correct handler based on CloudEvent `type`.
 
@@ -186,9 +161,7 @@ class MessageRoutingMixin:
         try:
             handler_map = self._topic_handlers.get((pubsub_name, topic_name), {})
             if not handler_map:
-                logger.warning(
-                    f"No handlers for topic '{topic_name}' on pubsub '{pubsub_name}'. Dropping message."
-                )
+                logger.warning(f"No handlers for topic '{topic_name}' on pubsub '{pubsub_name}'. Dropping message.")
                 return TopicEventResponse("drop")
 
             # Step 1: Extract CloudEvent metadata and data
@@ -197,9 +170,7 @@ class MessageRoutingMixin:
 
             route_entry = handler_map.get(event_type)
             if not route_entry:
-                logger.warning(
-                    f"No handler matched CloudEvent type '{event_type}' on topic '{topic_name}'"
-                )
+                logger.warning(f"No handler matched CloudEvent type '{event_type}' on topic '{topic_name}'")
                 return TopicEventResponse("drop")
 
             schema = route_entry["schema"]
@@ -209,9 +180,7 @@ class MessageRoutingMixin:
                 parsed_message = validate_message_model(schema, event_data)
                 parsed_message["_message_metadata"] = metadata
 
-                logger.info(
-                    f"Dispatched to handler '{handler.__name__}' for event type '{event_type}'"
-                )
+                logger.info(f"Dispatched to handler '{handler.__name__}' for event type '{event_type}'")
                 result = await handler(parsed_message)
                 if result is not None:
                     return TopicEventResponse("success"), result
@@ -219,9 +188,7 @@ class MessageRoutingMixin:
                 return TopicEventResponse("success")
 
             except Exception as e:
-                logger.warning(
-                    f"Failed to validate message against schema '{schema.__name__}': {e}"
-                )
+                logger.warning(f"Failed to validate message against schema '{schema.__name__}': {e}")
                 return TopicEventResponse("retry")
 
         except Exception as e:

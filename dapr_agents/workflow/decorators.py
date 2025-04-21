@@ -6,7 +6,6 @@ from pydantic import BaseModel, ValidationError
 
 from dapr_agents.types import DaprWorkflowContext
 
-
 def route(path: str, method: str = "GET", **kwargs):
     """
     Decorator to mark an instance method as a FastAPI route.
@@ -21,16 +20,13 @@ def route(path: str, method: str = "GET", **kwargs):
         def health(self):
             return {"ok": True}
     """
-
     def decorator(func):
         func._is_fastapi_route = True
         func._route_path = path
         func._route_method = method.upper()
         func._route_kwargs = kwargs
         return func
-
     return decorator
-
 
 def task(
     func: Optional[Callable] = None,
@@ -40,7 +36,7 @@ def task(
     agent: Optional[Any] = None,
     llm: Optional[Any] = None,
     include_chat_history: bool = False,
-    **task_kwargs,
+    **task_kwargs
 ) -> Callable:
     """
     Decorator to register a function as a Dapr workflow task.
@@ -60,7 +56,7 @@ def task(
     Returns:
         Callable: The decorated function with attached task metadata.
     """
-
+    
     if isinstance(func, str):
         # Allow syntax: @task("some description")
         description = func
@@ -82,19 +78,13 @@ def task(
 
         return f
 
-    return (
-        decorator(func) if func else decorator
-    )  # Supports both @task and @task(name="custom")
-
+    return decorator(func) if func else decorator # Supports both @task and @task(name="custom")
 
 def is_pydantic_model(obj: Any) -> bool:
     """Check if the given type is a subclass of Pydantic's BaseModel."""
     return isinstance(obj, type) and issubclass(obj, BaseModel)
 
-
-def workflow(
-    func: Optional[Callable] = None, *, name: Optional[str] = None
-) -> Callable:
+def workflow(func: Optional[Callable] = None, *, name: Optional[str] = None) -> Callable:
     """
     Decorator to register a function as a Dapr workflow with optional Pydantic validation.
 
@@ -134,28 +124,21 @@ def workflow(
         elif params and params[0].name == "self":  # Instance method
             is_instance_method = True
 
-        elif (
-            params and params[0].name == "cls"
-        ):  # Class method without @classmethod decorator
+        elif params and params[0].name == "cls":  # Class method without @classmethod decorator
             is_class_method = True
 
         # Compute the expected index for `ctx`
         ctx_index = 1 if is_instance_method or is_class_method else 0
 
         # Ensure `ctx` is correctly positioned
-        if (
-            len(params) <= ctx_index
-            or params[ctx_index].annotation is not DaprWorkflowContext
-        ):
+        if len(params) <= ctx_index or params[ctx_index].annotation is not DaprWorkflowContext:
             raise TypeError(
                 f"Workflow '{f.__name__}' must have 'ctx: DaprWorkflowContext' as the {'second' if ctx_index == 1 else 'first'} parameter."
             )
 
         # Identify the input parameter (third argument for methods, second otherwise)
         input_param_index = ctx_index + 1
-        input_param = (
-            params[input_param_index] if len(params) > input_param_index else None
-        )
+        input_param = params[input_param_index] if len(params) > input_param_index else None
         input_type = input_param.annotation if input_param else None
         is_pydantic = is_pydantic_model(input_type)
 
@@ -169,16 +152,10 @@ def workflow(
             # Extract `ctx` (first parameter for functions, second for methods)
             ctx = bound_args.arguments.get(params[ctx_index].name, None)
             if not isinstance(ctx, DaprWorkflowContext):
-                raise TypeError(
-                    f"Expected '{params[ctx_index].name}' to be a DaprWorkflowContext instance."
-                )
+                raise TypeError(f"Expected '{params[ctx_index].name}' to be a DaprWorkflowContext instance.")
 
             # Extract `input` (third parameter for methods, second otherwise)
-            input_value = (
-                bound_args.arguments.get(input_param.name, None)
-                if input_param
-                else None
-            )
+            input_value = bound_args.arguments.get(input_param.name, None) if input_param else None
 
             # Ensure metadata is extracted without modifying input_value unnecessarily
             metadata = None
@@ -188,20 +165,14 @@ def workflow(
             # Validate input if it's a Pydantic model
             if is_pydantic and input_value:
                 try:
-                    validated_input: BaseModel = input_type(
-                        **input_value
-                    )  # Validate with Pydantic
+                    validated_input: BaseModel = input_type(**input_value)  # Validate with Pydantic
                 except ValidationError as e:
-                    raise ValueError(
-                        f"Invalid input for workflow '{f._workflow_name}': {e.errors()}"
-                    ) from e
+                    raise ValueError(f"Invalid input for workflow '{f._workflow_name}': {e.errors()}") from e
 
                 # Convert back to dict and reattach metadata
                 validated_dict = validated_input.model_dump()
                 if metadata is not None:
-                    validated_dict[
-                        "_message_metadata"
-                    ] = metadata  # Ensure metadata is not lost
+                    validated_dict["_message_metadata"] = metadata  # Ensure metadata is not lost
 
                 # Overwrite the function argument with the modified dictionary
                 bound_args.arguments[input_param.name] = validated_dict
@@ -210,6 +181,4 @@ def workflow(
 
         return wrapper
 
-    return (
-        decorator(func) if func else decorator
-    )  # Supports both `@workflow` and `@workflow(name="custom")`
+    return decorator(func) if func else decorator  # Supports both `@workflow` and `@workflow(name="custom")`

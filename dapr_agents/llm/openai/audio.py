@@ -1,17 +1,13 @@
 from dapr_agents.llm.openai.client.base import OpenAIClientBase
 from dapr_agents.llm.utils import RequestHandler
 from dapr_agents.types.llm import (
-    AudioSpeechRequest,
-    AudioTranscriptionRequest,
-    AudioTranslationRequest,
-    AudioTranscriptionResponse,
-    AudioTranslationResponse,
+    AudioSpeechRequest, AudioTranscriptionRequest,
+    AudioTranslationRequest, AudioTranscriptionResponse, AudioTranslationResponse,
 )
 from typing import Union, Optional, Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 class OpenAIAudioClient(OpenAIClientBase):
     """
@@ -26,11 +22,7 @@ class OpenAIAudioClient(OpenAIClientBase):
         self._api = "audio"
         super().model_post_init(__context)
 
-    def create_speech(
-        self,
-        request: Union[AudioSpeechRequest, Dict[str, Any]],
-        file_name: Optional[str] = None,
-    ) -> Union[bytes, None]:
+    def create_speech(self, request: Union[AudioSpeechRequest, Dict[str, Any]], file_name: Optional[str] = None) -> Union[bytes, None]:
         """
         Generate speech audio from text and optionally save it to a file.
 
@@ -42,20 +34,16 @@ class OpenAIAudioClient(OpenAIClientBase):
             Union[bytes, None]: The generated audio content as bytes if no file_name is provided, otherwise None.
         """
         # Transform dictionary to Pydantic object if needed
-        validated_request: AudioSpeechRequest = RequestHandler.validate_request(
-            request, AudioSpeechRequest
-        )
+        validated_request: AudioSpeechRequest = RequestHandler.validate_request(request, AudioSpeechRequest)
 
         logger.info(f"Using model '{validated_request.model}' for speech generation.")
 
         input_text = validated_request.input
-
+        
         max_chunk_size = 4096
 
         if len(input_text) > max_chunk_size:
-            logger.info(
-                f"Input exceeds {max_chunk_size} characters. Splitting into smaller chunks."
-            )
+            logger.info(f"Input exceeds {max_chunk_size} characters. Splitting into smaller chunks.")
 
         # Split input text into manageable chunks
         def split_text(text, max_size):
@@ -74,9 +62,7 @@ class OpenAIAudioClient(OpenAIClientBase):
         try:
             for chunk in text_chunks:
                 validated_request.input = chunk
-                with self.client.with_streaming_response.audio.speech.create(
-                    **validated_request.model_dump()
-                ) as response:
+                with self.client.with_streaming_response.audio.speech.create(**validated_request.model_dump()) as response:
                     if file_name:
                         # Write each chunk incrementally to the file
                         logger.info(f"Saving audio chunk to file: {file_name}")
@@ -97,9 +83,7 @@ class OpenAIAudioClient(OpenAIClientBase):
             logger.error(f"Failed to create or save speech: {e}")
             raise ValueError(f"An error occurred during speech generation: {e}")
 
-    def create_transcription(
-        self, request: Union[AudioTranscriptionRequest, Dict[str, Any]]
-    ) -> AudioTranscriptionResponse:
+    def create_transcription(self, request: Union[AudioTranscriptionRequest, Dict[str, Any]]) -> AudioTranscriptionResponse:
         """
         Transcribe audio to text.
 
@@ -109,21 +93,17 @@ class OpenAIAudioClient(OpenAIClientBase):
         Returns:
             AudioTranscriptionResponse: The transcription result.
         """
-        validated_request: AudioTranscriptionRequest = RequestHandler.validate_request(
-            request, AudioTranscriptionRequest
-        )
+        validated_request: AudioTranscriptionRequest = RequestHandler.validate_request(request, AudioTranscriptionRequest)
 
         logger.info(f"Using model '{validated_request.model}' for transcription.")
 
         response = self.client.audio.transcriptions.create(
             file=validated_request.file,
-            **validated_request.model_dump(exclude={"file"}),
+            **validated_request.model_dump(exclude={"file"})
         )
         return response
 
-    def create_translation(
-        self, request: Union[AudioTranslationRequest, Dict[str, Any]]
-    ) -> AudioTranslationResponse:
+    def create_translation(self, request: Union[AudioTranslationRequest, Dict[str, Any]]) -> AudioTranslationResponse:
         """
         Translate audio to English.
 
@@ -133,14 +113,12 @@ class OpenAIAudioClient(OpenAIClientBase):
         Returns:
             AudioTranslationResponse: The translation result.
         """
-        validated_request: AudioTranslationRequest = RequestHandler.validate_request(
-            request, AudioTranslationRequest
-        )
+        validated_request: AudioTranslationRequest = RequestHandler.validate_request(request, AudioTranslationRequest)
 
         logger.info(f"Using model '{validated_request.model}' for translation.")
 
         response = self.client.audio.translations.create(
             file=validated_request.file,
-            **validated_request.model_dump(exclude={"file"}),
+            **validated_request.model_dump(exclude={"file"})
         )
         return response

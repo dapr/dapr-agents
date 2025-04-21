@@ -17,10 +17,7 @@ class AgentToolExecutor(BaseModel):
     Attributes:
         tools (List[AgentTool]): List of tools to register and manage.
     """
-
-    tools: List[AgentTool] = Field(
-        default_factory=list, description="List of tools to register and manage."
-    )
+    tools: List[AgentTool] = Field(default_factory=list, description="List of tools to register and manage.")
     _tools_map: Dict[str, AgentTool] = PrivateAttr(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:
@@ -57,7 +54,7 @@ class AgentToolExecutor(BaseModel):
             AgentTool or None if not found.
         """
         return self._tools_map.get(tool_name)
-
+    
     def get_tool_names(self) -> List[str]:
         """
         Lists all registered tool names.
@@ -74,7 +71,7 @@ class AgentToolExecutor(BaseModel):
         Returns:
             str: Tool signatures, each on a new line.
         """
-        return "\n".join(tool.signature for tool in self._tools_map.values())
+        return '\n'.join(tool.signature for tool in self._tools_map.values())
 
     def get_tool_details(self) -> str:
         """
@@ -83,11 +80,11 @@ class AgentToolExecutor(BaseModel):
         Returns:
             str: Detailed tool information, each on a new line.
         """
-        return "\n".join(
+        return '\n'.join(
             f"{tool.name}: {tool.description}. Args schema: {tool.args_schema}"
             for tool in self._tools_map.values()
         )
-
+    
     async def run_tool(self, tool_name: str, *args, **kwargs) -> Any:
         """
         Executes a tool by name, automatically handling both sync and async tools.
@@ -117,10 +114,8 @@ class AgentToolExecutor(BaseModel):
             raise AgentToolExecutorError(str(e)) from e
         except Exception as e:
             logger.error(f"Unexpected error in '{tool_name}': {e}")
-            raise AgentToolExecutorError(
-                f"Unexpected error in tool '{tool_name}': {e}"
-            ) from e
-
+            raise AgentToolExecutorError(f"Unexpected error in tool '{tool_name}': {e}") from e
+    
     @property
     def help(self) -> None:
         """Displays a rich-formatted table of registered tools."""

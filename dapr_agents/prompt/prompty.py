@@ -1,9 +1,4 @@
-from dapr_agents.types.llm import (
-    PromptyModelConfig,
-    OpenAIModelConfig,
-    AzureOpenAIModelConfig,
-    PromptyDefinition,
-)
+from dapr_agents.types.llm import PromptyModelConfig, OpenAIModelConfig, AzureOpenAIModelConfig, PromptyDefinition
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.chat import ChatPromptTemplate
 from dapr_agents.prompt.string import StringPromptTemplate
@@ -14,47 +9,38 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class Prompty(PromptyDefinition):
     """
     A class to handle loading and formatting of Prompty templates for language models workflows.
     """
 
-    def extract_input_variables(
-        self, template_format: Literal["f-string", "jinja2"] = "jinja2"
-    ) -> Tuple[List[str], List[str]]:
+    def extract_input_variables(self, template_format: Literal["f-string", "jinja2"] = "jinja2") -> Tuple[List[str], List[str]]:
         """
-        Extract all input variables from the Prompty instance, including placeholders from content,
-        predefined inputs, and sample inputs. This method returns both regular input variables and
+        Extract all input variables from the Prompty instance, including placeholders from content, 
+        predefined inputs, and sample inputs. This method returns both regular input variables and 
         more complex placeholders that may require additional processing.
 
         Args:
             template_format (Literal["f-string", "jinja2"]): Template format for content parsing. Default is 'jinja2'.
 
         Returns:
-            Tuple[List[str], List[str]]:
+            Tuple[List[str], List[str]]: 
                 - A list of regular input variables.
                 - A list of placeholders that may require extra processing (e.g., loops or attributes).
         """
         # Extract undeclared variables and placeholders from the content
-        undeclared_variables = PromptyHelper.extract_placeholders_from_content(
-            self.content, template_format
-        )
+        undeclared_variables = PromptyHelper.extract_placeholders_from_content(self.content, template_format)
 
         # Gather predefined inputs and sample inputs, default to empty dict if they are None
         predefined_inputs = list(self.inputs.keys()) if self.inputs else []
         sample_inputs = list(self.sample.keys()) if self.sample else []
 
         # Combine undeclared variables (regular inputs), filtered predefined inputs, and sample inputs
-        regular_variables = list(
-            set(undeclared_variables + predefined_inputs + sample_inputs)
-        )
+        regular_variables = list(set(undeclared_variables + predefined_inputs + sample_inputs))
 
         return regular_variables
 
-    def to_prompt_template(
-        self, template_format: Literal["f-string", "jinja2"] = "jinja2"
-    ) -> PromptTemplateBase:
+    def to_prompt_template(self, template_format: Literal["f-string", "jinja2"] = "jinja2") -> PromptTemplateBase:
         """
         Convert this Prompty instance into a PromptTemplateBase instance by pre-processing the content
         into a list of messages (for chat) or a string (for completion).
@@ -68,17 +54,15 @@ class Prompty(PromptyDefinition):
         """
         # Ensure that content is present in the Prompty instance
         if not self.content:
-            raise ValueError(
-                "Prompty instance is missing 'content'. Cannot convert to prompt template."
-            )
+            raise ValueError("Prompty instance is missing 'content'. Cannot convert to prompt template.")
 
         # Extract input variables and placeholders using the updated method
         regular_variables = self.extract_input_variables(template_format)
 
         # Pre-process the content into a list of messages for chat-based prompts
-        if self.model.api == "chat":
+        if self.model.api == 'chat':
             # Process the content into messages using PromptyHelper
-            messages = PromptyHelper.to_prompt(self.content, api_type="chat")
+            messages = PromptyHelper.to_prompt(self.content, api_type='chat')
             return ChatPromptTemplate(
                 input_variables=regular_variables,
                 messages=messages,
@@ -92,13 +76,7 @@ class Prompty(PromptyDefinition):
             )
 
     @classmethod
-    def load(
-        cls,
-        prompty_source: Union[str, Path],
-        model: Optional[
-            Union[OpenAIModelConfig, AzureOpenAIModelConfig, Dict[str, Any]]
-        ] = None,
-    ) -> "Prompty":
+    def load(cls, prompty_source: Union[str, Path], model: Optional[Union[OpenAIModelConfig, AzureOpenAIModelConfig, Dict[str, Any]]] = None) -> 'Prompty':
         """
         Load a Prompty template from a file or inline content and configure the Prompty object.
 
@@ -126,14 +104,14 @@ class Prompty(PromptyDefinition):
             # Treat prompty_source as inline content
             metadata, content = PromptyHelper.parse_prompty_content(prompty_source)
             metadata = PromptyHelper.normalize(metadata, parent=Path().resolve())
-
+        
         # Override the model if provided
         if model:
             if isinstance(model, dict):
-                metadata["model"] = PromptyModelConfig(**model)
+                metadata['model'] = PromptyModelConfig(**model)
             else:
-                metadata["model"] = model.model_dump()
+                metadata['model'] = model.model_dump()
 
         # Validate and construct the Prompty object
-        metadata["content"] = content
+        metadata['content'] = content
         return cls.model_validate(metadata)

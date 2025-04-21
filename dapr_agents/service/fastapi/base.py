@@ -11,38 +11,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class FastAPIServerBase(APIServerBase):
     """
     Abstract base class for FastAPI-based API server services.
     Provides core FastAPI functionality, with support for CORS, lifecycle management, and graceful shutdown.
     """
 
-    description: Optional[str] = Field(
-        None, description="Description of the API service."
-    )
-    cors_origins: Optional[List[str]] = Field(
-        default_factory=lambda: ["*"], description="Allowed CORS origins."
-    )
-    cors_credentials: bool = Field(
-        True, description="Whether to allow credentials in CORS requests."
-    )
-    cors_methods: Optional[List[str]] = Field(
-        default_factory=lambda: ["*"], description="Allowed HTTP methods for CORS."
-    )
-    cors_headers: Optional[List[str]] = Field(
-        default_factory=lambda: ["*"], description="Allowed HTTP headers for CORS."
-    )
+    description: Optional[str] = Field(None, description="Description of the API service.")
+    cors_origins: Optional[List[str]] = Field(default_factory=lambda: ["*"], description="Allowed CORS origins.")
+    cors_credentials: bool = Field(True, description="Whether to allow credentials in CORS requests.")
+    cors_methods: Optional[List[str]] = Field(default_factory=lambda: ["*"], description="Allowed HTTP methods for CORS.")
+    cors_headers: Optional[List[str]] = Field(default_factory=lambda: ["*"], description="Allowed HTTP headers for CORS.")
 
     # Fields initialized in model_post_init
-    app: Optional[FastAPI] = Field(
-        default=None, init=False, description="The FastAPI application instance."
-    )
-    server: Optional[Any] = Field(
-        default=None,
-        init=False,
-        description="Server handle for running the FastAPI app.",
-    )
+    app: Optional[FastAPI] = Field(default=None, init=False, description="The FastAPI application instance.")
+    server: Optional[Any] = Field(default=None, init=False, description="Server handle for running the FastAPI app.")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -50,12 +33,12 @@ class FastAPIServerBase(APIServerBase):
         """
         Post-initialization to configure core FastAPI app and CORS settings.
         """
-
+        
         # Initialize FastAPI app with title and description
         self.app = FastAPI(
             title=f"{self.service_name} API Server",
             description=self.description or self.service_name,
-            lifespan=self.lifespan,
+            lifespan=self.lifespan
         )
 
         # Configure CORS settings
@@ -66,14 +49,12 @@ class FastAPIServerBase(APIServerBase):
             allow_methods=self.cors_methods,
             allow_headers=self.cors_headers,
         )
-
-        logger.info(
-            f"{self.service_name} FastAPI server initialized on port {self.service_port} with CORS settings."
-        )
+        
+        logger.info(f"{self.service_name} FastAPI server initialized on port {self.service_port} with CORS settings.")
 
         # Call the base post-initialization
         super().model_post_init(__context)
-
+        
     @asynccontextmanager
     async def lifespan(self, app: FastAPI):
         """
@@ -84,7 +65,7 @@ class FastAPIServerBase(APIServerBase):
             yield
         finally:
             await self.stop()
-
+    
     async def start(self, log_level=None):
         """
         Start the FastAPI app server using the existing event loop with a specified logging level,
@@ -131,7 +112,5 @@ class FastAPIServerBase(APIServerBase):
         Stop the FastAPI server gracefully.
         """
         if self.server:
-            logger.info(
-                f"Stopping {self.service_name} server on port {self.service_port}."
-            )
+            logger.info(f"Stopping {self.service_name} server on port {self.service_port}.")
             self.server.should_exit = True

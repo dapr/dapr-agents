@@ -1,7 +1,6 @@
 from pydantic import BaseModel, field_validator, ValidationInfo
 from typing import Dict, Literal, Optional, List
 
-
 class OAIFunctionDefinition(BaseModel):
     """
     Represents a callable function in the OpenAI API format.
@@ -11,11 +10,9 @@ class OAIFunctionDefinition(BaseModel):
         description (str): A detailed description of what the function does.
         parameters (Dict): A dictionary describing the parameters that the function accepts.
     """
-
     name: str
     description: str
     parameters: Dict
-
 
 class OAIToolDefinition(BaseModel):
     """
@@ -25,18 +22,14 @@ class OAIToolDefinition(BaseModel):
         type (Literal["function", "code_interpreter", "file_search"]): The type of the tool.
         function (Optional[OAIBaseFunctionDefinition]): The function definition, required if type is 'function'.
     """
-
     type: Literal["function", "code_interpreter", "file_search"]
     function: Optional[OAIFunctionDefinition] = None
 
-    @field_validator("function")
+    @field_validator('function')
     def check_function_requirements(cls, v, info: ValidationInfo):
-        if info.data.get("type") == "function" and not v:
-            raise ValueError(
-                "Function definition must be provided for function type tools."
-            )
+        if info.data.get('type') == 'function' and not v:
+            raise ValueError("Function definition must be provided for function type tools.")
         return v
-
 
 class ClaudeToolDefinition(BaseModel):
     """
@@ -47,11 +40,9 @@ class ClaudeToolDefinition(BaseModel):
         description (str): A description of the function's purpose and usage.
         input_schema (Dict): A dictionary defining the input schema for the function.
     """
-
     name: str
     description: str
     input_schema: Dict
-
 
 class GeminiFunctionDefinition(BaseModel):
     """
@@ -62,11 +53,9 @@ class GeminiFunctionDefinition(BaseModel):
         description (str): The description and purpose of the function. The model uses this to decide how and whether to call the function. For the best results, we recommend that you include a description.
         parameters (Dict): Describes the parameters of the function in the OpenAPI JSON Schema Object format: OpenAPI 3.0 specification.
     """
-
     name: str
     description: str
     parameters: Dict
-
 
 class GeminiToolDefinition(BaseModel):
     """
@@ -75,5 +64,4 @@ class GeminiToolDefinition(BaseModel):
     Attributes:
         function_declarations (List): A structured representation of a function declaration as defined by the OpenAPI 3.0 specification that represents a function the model may generate JSON inputs for.
     """
-
     function_declarations: List[GeminiFunctionDefinition]

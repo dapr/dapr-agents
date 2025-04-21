@@ -7,31 +7,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class OpenAIEmbedder(OpenAIEmbeddingClient, EmbedderBase):
     """
     OpenAI-based embedder for generating text embeddings with handling for long inputs.
     Inherits functionality from OpenAIEmbeddingClient for API interactions.
     """
 
-    max_tokens: int = Field(
-        default=8191, description="Maximum tokens allowed per input."
-    )
-    chunk_size: int = Field(
-        default=1000, description="Batch size for embedding requests."
-    )
-    normalize: bool = Field(
-        default=True, description="Whether to normalize embeddings."
-    )
-    encoding_name: Optional[str] = Field(
-        default=None, description="Token encoding name (if provided)."
-    )
-    encoder: Optional[Any] = Field(
-        default=None, init=False, description="TikToken Encoder"
-    )
+    max_tokens: int = Field(default=8191, description="Maximum tokens allowed per input.")
+    chunk_size: int = Field(default=1000, description="Batch size for embedding requests.")
+    normalize: bool = Field(default=True, description="Whether to normalize embeddings.")
+    encoding_name: Optional[str] = Field(default=None, description="Token encoding name (if provided).")
+    encoder: Optional[Any] = Field(default=None, init=False, description="TikToken Encoder")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
+    
     def model_post_init(self, __context: Any) -> None:
         """
         Initialize attributes after model validation.
@@ -70,13 +59,9 @@ class OpenAIEmbedder(OpenAIEmbeddingClient, EmbedderBase):
 
     def _chunk_tokens(self, tokens: List[int], chunk_length: int) -> List[List[int]]:
         """Splits tokens into chunks of the specified length."""
-        return [
-            tokens[i : i + chunk_length] for i in range(0, len(tokens), chunk_length)
-        ]
+        return [tokens[i:i + chunk_length] for i in range(0, len(tokens), chunk_length)]
 
-    def _process_embeddings(
-        self, embeddings: List[List[float]], weights: List[int]
-    ) -> List[float]:
+    def _process_embeddings(self, embeddings: List[List[float]], weights: List[int]) -> List[float]:
         """Combines embeddings using weighted averaging."""
         weighted_avg = np.average(embeddings, axis=0, weights=weights)
         if self.normalize:
@@ -84,9 +69,7 @@ class OpenAIEmbedder(OpenAIEmbeddingClient, EmbedderBase):
             return (weighted_avg / norm).tolist()
         return weighted_avg.tolist()
 
-    def embed(
-        self, input: Union[str, List[str]]
-    ) -> Union[List[float], List[List[float]]]:
+    def embed(self, input: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
         """
         Embeds input text(s) with support for both single and multiple inputs, handling long texts via chunking and batching.
 
@@ -133,7 +116,7 @@ class OpenAIEmbedder(OpenAIEmbeddingClient, EmbedderBase):
         chunk_embeddings = []  # Holds embeddings for all chunks
 
         for i in range(0, len(chunks), batch_size):
-            batch = chunks[i : i + batch_size]
+            batch = chunks[i:i + batch_size]
             response = self.create_embedding(input=batch)  # Batch API call
             chunk_embeddings.extend(r.embedding for r in response.data)
 
@@ -150,23 +133,19 @@ class OpenAIEmbedder(OpenAIEmbeddingClient, EmbedderBase):
                 results.append(embeddings[0])
             else:
                 # Combine chunk embeddings using weighted averaging
-                weights = [
-                    len(chunk) for chunk in self._chunk_tokens(tokens, self.max_tokens)
-                ]
+                weights = [len(chunk) for chunk in self._chunk_tokens(tokens, self.max_tokens)]
                 results.append(self._process_embeddings(embeddings, weights))
 
         # Return a single embedding if the input was a single string; otherwise, return a list
         return results[0] if single_input else results
-
-    def __call__(
-        self, input: Union[str, List[str]]
-    ) -> Union[List[float], List[List[float]]]:
+    
+    def __call__(self, input: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
         """
         Allows the instance to be called directly to embed text(s).
 
         Args:
             input (Union[str, List[str]]): The input text(s) to embed.
-
+        
         Returns:
             Union[List[float], List[List[float]]]: Embedding vector(s) for the input(s).
         """

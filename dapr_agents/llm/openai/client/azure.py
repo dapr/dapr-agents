@@ -1,8 +1,4 @@
-from azure.identity import (
-    DefaultAzureCredential,
-    ManagedIdentityCredential,
-    get_bearer_token_provider,
-)
+from azure.identity import DefaultAzureCredential, ManagedIdentityCredential, get_bearer_token_provider
 from dapr_agents.types.llm import AzureOpenAIClientConfig
 from dapr_agents.llm.utils import HTTPHelper
 from openai import AzureOpenAI
@@ -12,23 +8,22 @@ import os
 
 logger = logging.getLogger(__name__)
 
-
 class AzureOpenAIClient:
     """
     Client for Azure OpenAI language models, handling API communication and authentication.
     """
 
     def __init__(
-        self,
+        self, 
         api_key: Optional[str] = None,
         azure_ad_token: Optional[str] = None,
         organization: Optional[str] = None,
         project: Optional[str] = None,
         api_version: Optional[str] = None,
-        azure_endpoint: Optional[str] = None,
+        azure_endpoint: Optional[str] = None, 
         azure_deployment: Optional[str] = None,
-        azure_client_id: Optional[str] = None,
-        timeout: Union[int, float, dict] = 1500,
+        azure_client_id: Optional[str] = None, 
+        timeout: Union[int, float, dict] = 1500
     ):
         """
         Initializes the client with API key or Azure AD credentials.
@@ -55,12 +50,10 @@ class AzureOpenAIClient:
         self.azure_client_id = azure_client_id or os.getenv("AZURE_CLIENT_ID")
 
         if not self.azure_endpoint or not self.azure_deployment:
-            raise ValueError(
-                "Azure OpenAI endpoint and deployment must be provided, either via arguments or environment variables."
-            )
+            raise ValueError("Azure OpenAI endpoint and deployment must be provided, either via arguments or environment variables.")
 
         self.timeout = HTTPHelper.configure_timeout(timeout)
-
+    
     def get_client(self) -> AzureOpenAI:
         """
         Returns the Azure OpenAI client.
@@ -81,9 +74,7 @@ class AzureOpenAIClient:
             return self._create_client(azure_ad_token=self.azure_ad_token)
 
         # Case 3: Use Azure Identity Credentials
-        logger.info(
-            "No API key or Azure AD token provided, attempting to use Azure Identity credentials."
-        )
+        logger.info("No API key or Azure AD token provided, attempting to use Azure Identity credentials.")
         try:
             credential = (
                 ManagedIdentityCredential(client_id=self.azure_client_id)
@@ -96,9 +87,7 @@ class AzureOpenAIClient:
             return self._create_client(azure_ad_token_provider=azure_ad_token_provider)
         except Exception as e:
             logger.error(f"Failed to initialize Azure Identity credentials: {e}")
-            raise ValueError(
-                "Unable to authenticate using Azure Identity credentials. Check your setup."
-            ) from e
+            raise ValueError("Unable to authenticate using Azure Identity credentials. Check your setup.") from e
 
     def _create_client(self, **kwargs) -> AzureOpenAI:
         """
@@ -109,15 +98,15 @@ class AzureOpenAIClient:
             azure_deployment=self.azure_deployment,
             api_version=self.api_version,
             timeout=self.timeout,
-            **kwargs,
+            **kwargs
         )
-
+    
     @classmethod
     def from_config(
-        cls,
-        client_options: AzureOpenAIClientConfig,
-        azure_client_id: Optional[str] = None,
-        timeout: Union[int, float, dict] = 1500,
+        cls, 
+        client_options: AzureOpenAIClientConfig, 
+        azure_client_id: Optional[str] = None, 
+        timeout: Union[int, float, dict] = 1500
     ):
         """
         Initialize AzureOpenAIClient using AzureOpenAIClientOptions.
@@ -139,5 +128,5 @@ class AzureOpenAIClient:
             azure_endpoint=client_options.azure_endpoint,
             azure_deployment=client_options.azure_deployment,
             azure_client_id=azure_client_id,
-            timeout=timeout,
+            timeout=timeout
         )

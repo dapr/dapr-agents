@@ -18,7 +18,7 @@ def convert_prompt_message(message: PromptMessage) -> BaseMessage:
 
     Returns:
         A compatible BaseMessage subclass (UserMessage or AssistantMessage)
-
+        
     Raises:
         ValueError: If the message contains unsupported content type or role
     """
@@ -27,7 +27,7 @@ def convert_prompt_message(message: PromptMessage) -> BaseMessage:
         error_msg = f"Unsupported content type: {message.content.type}"
         logger.error(error_msg)
         raise ValueError(error_msg)
-
+    
     # Convert based on role
     if message.role == "user":
         return UserMessage(content=message.content.text)
@@ -40,7 +40,9 @@ def convert_prompt_message(message: PromptMessage) -> BaseMessage:
 
 
 async def load_prompt(
-    session: ClientSession, prompt_name: str, arguments: Optional[Dict[str, Any]] = None
+    session: ClientSession,
+    prompt_name: str,
+    arguments: Optional[Dict[str, Any]] = None
 ) -> List[BaseMessage]:
     """
     Fetch and convert a prompt from the MCP server to internal message format.
@@ -52,22 +54,20 @@ async def load_prompt(
 
     Returns:
         A list of internal BaseMessage-compatible messages
-
+        
     Raises:
         Exception: If prompt retrieval fails
     """
     logger.info(f"Loading prompt '{prompt_name}' from MCP server")
-
+    
     try:
         # Get prompt from server
         response = await session.get_prompt(prompt_name, arguments or {})
-
+        
         # Convert all messages
         converted_messages = [convert_prompt_message(m) for m in response.messages]
-        logger.info(
-            f"Loaded prompt '{prompt_name}' with {len(converted_messages)} messages"
-        )
-
+        logger.info(f"Loaded prompt '{prompt_name}' with {len(converted_messages)} messages")
+        
         return converted_messages
     except Exception as e:
         logger.error(f"Failed to load prompt '{prompt_name}': {str(e)}")

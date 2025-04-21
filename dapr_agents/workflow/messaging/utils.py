@@ -1,20 +1,17 @@
+from typing import Any
 from pydantic import BaseModel
 from dataclasses import is_dataclass
 from typing import Any, Union, get_args, get_origin
 
-
 def is_pydantic_model(cls: Any) -> bool:
     return isinstance(cls, type) and issubclass(cls, BaseModel)
-
 
 def is_valid_routable_model(cls: Any) -> bool:
     return is_dataclass(cls) or is_pydantic_model(cls)
 
-
 def is_supported_model(cls: Any) -> bool:
     """Checks if a class is a supported message schema (Pydantic, dataclass, or dict)."""
     return cls is dict or is_dataclass(cls) or is_pydantic_model(cls)
-
 
 def extract_message_models(type_hint: Any) -> list[type]:
     """

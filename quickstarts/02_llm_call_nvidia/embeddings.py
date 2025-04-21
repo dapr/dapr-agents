@@ -20,7 +20,7 @@ if len(embedding) > 0:
 # Multiple input texts
 texts = [
     "Dapr Agents is an open-source framework for researchers and developers",
-    "It provides tools to create, orchestrate, and manage agents",
+    "It provides tools to create, orchestrate, and manage agents"
 ]
 
 # Generate embeddings

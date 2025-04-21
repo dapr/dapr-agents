@@ -5,27 +5,17 @@ from pydantic import BaseModel, Field
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-
 class ChatClientBase(BaseModel, ABC):
     """
     Base class for chat-specific functionality.
     Handles Prompty integration and provides abstract methods for chat client configuration.
     """
-
-    prompty: Optional[Prompty] = Field(
-        default=None, description="Instance of the Prompty object (optional)."
-    )
-    prompt_template: Optional[PromptTemplateBase] = Field(
-        default=None, description="Prompt template for rendering (optional)."
-    )
+    prompty: Optional[Prompty] = Field(default=None, description="Instance of the Prompty object (optional).")
+    prompt_template: Optional[PromptTemplateBase] = Field(default=None, description="Prompt template for rendering (optional).")
 
     @classmethod
     @abstractmethod
-    def from_prompty(
-        cls,
-        prompty_source: Union[str, Path],
-        timeout: Union[int, float, Dict[str, Any]] = 1500,
-    ) -> "ChatClientBase":
+    def from_prompty(cls, prompty_source: Union[str, Path], timeout: Union[int, float, Dict[str, Any]] = 1500) -> 'ChatClientBase':
         """
         Abstract method to load a Prompty source and configure the chat client.
 
@@ -41,15 +31,13 @@ class ChatClientBase(BaseModel, ABC):
     @abstractmethod
     def generate(
         self,
-        messages: Union[
-            str, Dict[str, Any], BaseModel, Iterable[Union[Dict[str, Any], BaseModel]]
-        ] = None,
+        messages: Union[str, Dict[str, Any], BaseModel, Iterable[Union[Dict[str, Any], BaseModel]]] = None,
         input_data: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
         tools: Optional[List[Union[Dict[str, Any]]]] = None,
         response_format: Optional[Type[BaseModel]] = None,
         structured_mode: Optional[str] = None,
-        **kwargs,
+        **kwargs
     ) -> Union[Iterator[Dict[str, Any]], Dict[str, Any]]:
         """
         Abstract method to generate chat completions.

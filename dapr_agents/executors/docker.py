@@ -11,57 +11,26 @@ import os
 
 logger = logging.getLogger(__name__)
 
-
 class DockerCodeExecutor(CodeExecutorBase):
     """Executes code securely inside a persistent Docker container with dynamic volume updates."""
 
-    image: Optional[str] = Field(
-        "python:3.9", description="Docker image used for execution."
-    )
-    container_name: Optional[str] = Field(
-        "dapr_agents_code_executor", description="Name of the Docker container."
-    )
-    disable_network_access: bool = Field(
-        default=True, description="Disable network access inside the container."
-    )
-    execution_timeout: int = Field(
-        default=60, description="Max execution time (seconds)."
-    )
-    execution_mode: str = Field(
-        "detached", description="Execution mode: 'interactive' or 'detached'."
-    )
-    restart_policy: str = Field(
-        "no", description="Container restart policy: 'no', 'on-failure', 'always'."
-    )
+    image: Optional[str] = Field("python:3.9", description="Docker image used for execution.")
+    container_name: Optional[str] = Field("dapr_agents_code_executor", description="Name of the Docker container.")
+    disable_network_access: bool = Field(default=True, description="Disable network access inside the container.")
+    execution_timeout: int = Field(default=60, description="Max execution time (seconds).")
+    execution_mode: str = Field("detached", description="Execution mode: 'interactive' or 'detached'.")
+    restart_policy: str = Field("no", description="Container restart policy: 'no', 'on-failure', 'always'.")
     max_memory: str = Field("500m", description="Max memory for execution.")
     cpu_quota: int = Field(50000, description="CPU quota limit.")
-    runtime: Optional[str] = Field(
-        default=None, description="Container runtime (e.g., 'nvidia')."
-    )
-    auto_remove: bool = Field(
-        default=False, description="Keep container running to reuse it."
-    )
-    auto_cleanup: bool = Field(
-        default=False,
-        description="Automatically clean up the workspace after execution.",
-    )
-    volume_access_mode: Literal["ro", "rw"] = Field(
-        default="ro", description="Access mode for the workspace volume."
-    )
-    host_workspace: Optional[str] = Field(
-        default=None,
-        description="Custom workspace on host. If None, defaults to system temp dir.",
-    )
+    runtime: Optional[str] = Field(default=None, description="Container runtime (e.g., 'nvidia').")
+    auto_remove: bool = Field(default=False, description="Keep container running to reuse it.")
+    auto_cleanup: bool = Field(default=False, description="Automatically clean up the workspace after execution.")
+    volume_access_mode: Literal["ro", "rw"] = Field(default="ro", description="Access mode for the workspace volume.")
+    host_workspace: Optional[str] = Field(default=None, description="Custom workspace on host. If None, defaults to system temp dir.")
 
-    docker_client: Optional[Any] = Field(
-        default=None, init=False, description="Docker client instance."
-    )
-    execution_container: Optional[Any] = Field(
-        default=None, init=False, description="Persistent Docker container."
-    )
-    container_workspace: Optional[str] = Field(
-        default="/workspace", init=False, description="Mounted workspace in container."
-    )
+    docker_client: Optional[Any] = Field(default=None, init=False, description="Docker client instance.")
+    execution_container: Optional[Any] = Field(default=None, init=False, description="Persistent Docker container.")
+    container_workspace: Optional[str] = Field(default="/workspace", init=False, description="Mounted workspace in container.")
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the Docker client and ensures a reusable execution container is ready."""
@@ -69,9 +38,7 @@ class DockerCodeExecutor(CodeExecutorBase):
             from docker import DockerClient
             from docker.errors import DockerException
         except ImportError as e:
-            raise ImportError(
-                "Install 'docker' package with 'pip install docker'."
-            ) from e
+            raise ImportError("Install 'docker' package with 'pip install docker'.") from e
 
         try:
             self.docker_client: DockerClient = DockerClient.from_env()
@@ -80,13 +47,9 @@ class DockerCodeExecutor(CodeExecutorBase):
 
         # Validate or Set the Host Workspace
         if self.host_workspace:
-            self.host_workspace = os.path.abspath(
-                self.host_workspace
-            )  # Ensure absolute path
+            self.host_workspace = os.path.abspath(self.host_workspace)  # Ensure absolute path
         else:
-            self.host_workspace = os.path.join(
-                tempfile.gettempdir(), "dapr_agents_executor_workspace"
-            )
+            self.host_workspace = os.path.join(tempfile.gettempdir(), "dapr_agents_executor_workspace")
 
         # Ensure the directory exists
         os.makedirs(self.host_workspace, exist_ok=True)
@@ -103,14 +66,10 @@ class DockerCodeExecutor(CodeExecutorBase):
         try:
             from docker.errors import NotFound
         except ImportError as e:
-            raise ImportError(
-                "Install 'docker' package with 'pip install docker'."
-            ) from e
-
+            raise ImportError("Install 'docker' package with 'pip install docker'.") from e
+        
         try:
-            self.execution_container = self.docker_client.containers.get(
-                self.container_name
-            )
+            self.execution_container = self.docker_client.containers.get(self.container_name)
             logger.info(f"Reusing existing container: {self.container_name}")
         except NotFound:
             logger.info(f"Creating a new container: {self.container_name}")
@@ -123,9 +82,7 @@ class DockerCodeExecutor(CodeExecutorBase):
         try:
             from docker.errors import DockerException, APIError
         except ImportError as e:
-            raise ImportError(
-                "Install 'docker' package with 'pip install docker'."
-            ) from e
+            raise ImportError("Install 'docker' package with 'pip install docker'.") from e
         try:
             self.execution_container = self.docker_client.containers.create(
                 self.image,
@@ -142,22 +99,13 @@ class DockerCodeExecutor(CodeExecutorBase):
                 restart_policy={"Name": self.restart_policy},
                 runtime=self.runtime,
                 working_dir=self.container_workspace,
-                volumes={
-                    self.host_workspace: {
-                        "bind": self.container_workspace,
-                        "mode": self.volume_access_mode,
-                    }
-                },
+                volumes={self.host_workspace: {"bind": self.container_workspace, "mode": self.volume_access_mode}},
             )
         except (DockerException, APIError) as e:
             logger.error(f"Failed to create the execution container: {str(e)}")
-            raise RuntimeError(
-                f"Failed to create the execution container: {str(e)}"
-            ) from e
+            raise RuntimeError(f"Failed to create the execution container: {str(e)}") from e
 
-    async def execute(
-        self, request: Union[ExecutionRequest, dict]
-    ) -> List[ExecutionResult]:
+    async def execute(self, request: Union[ExecutionRequest, dict]) -> List[ExecutionResult]:
         """
         Executes code inside the persistent Docker container.
         The code is written to a shared volume instead of stopping & starting the container.
@@ -179,9 +127,7 @@ class DockerCodeExecutor(CodeExecutorBase):
                 if snippet.language == "python":
                     required_packages = self._extract_imports(snippet.code)
                     if required_packages:
-                        logger.info(
-                            f"Installing missing dependencies: {required_packages}"
-                        )
+                        logger.info(f"Installing missing dependencies: {required_packages}")
                         await self._install_missing_packages(required_packages)
 
                 script_filename = f"script.{snippet.language}"
@@ -192,24 +138,17 @@ class DockerCodeExecutor(CodeExecutorBase):
                 with open(script_path_host, "w", encoding="utf-8") as script_file:
                     script_file.write(snippet.code)
 
-                cmd = (
-                    f"timeout {self.execution_timeout} python3 {script_path_container}"
-                    if snippet.language == "python"
-                    else f"timeout {self.execution_timeout} sh {script_path_container}"
-                )
+                cmd = f"timeout {self.execution_timeout} python3 {script_path_container}" \
+                    if snippet.language == "python" else f"timeout {self.execution_timeout} sh {script_path_container}"
 
                 # Run command dynamically inside the running container
-                exec_result = await asyncio.to_thread(
-                    self.execution_container.exec_run, cmd
-                )
+                exec_result = await asyncio.to_thread(self.execution_container.exec_run, cmd)
 
                 exit_code = exec_result.exit_code
                 logs = exec_result.output.decode("utf-8", errors="ignore").strip()
                 status = "success" if exit_code == 0 else "error"
 
-                results.append(
-                    ExecutionResult(status=status, output=logs, exit_code=exit_code)
-                )
+                results.append(ExecutionResult(status=status, output=logs, exit_code=exit_code))
 
         except Exception as e:
             logs = self.get_container_logs()
@@ -220,10 +159,8 @@ class DockerCodeExecutor(CodeExecutorBase):
             if self.auto_cleanup:
                 if os.path.exists(self.host_workspace):
                     shutil.rmtree(self.host_workspace, ignore_errors=True)
-                    logger.info(
-                        f"Temporary workspace {self.host_workspace} cleaned up."
-                    )
-
+                    logger.info(f"Temporary workspace {self.host_workspace} cleaned up.")
+            
             if self.auto_remove:
                 self.execution_container.stop()
                 logger.info(f"Container {self.execution_container.id} stopped.")
@@ -241,7 +178,7 @@ class DockerCodeExecutor(CodeExecutorBase):
             List[str]: A list of unique top-level module names imported in the script.
 
         Raises:
-            SyntaxError: If the provided code is not valid Python, an error is logged,
+            SyntaxError: If the provided code is not valid Python, an error is logged, 
                         and an empty list is returned.
         """
         try:
@@ -254,9 +191,9 @@ class DockerCodeExecutor(CodeExecutorBase):
         for node in ast.walk(parsed_code):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    modules.add(alias.name.split(".")[0])
+                    modules.add(alias.name.split('.')[0])
             elif isinstance(node, ast.ImportFrom) and node.module:
-                modules.add(node.module.split(".")[0])
+                modules.add(node.module.split('.')[0])
 
         return list(modules)
 
@@ -294,9 +231,7 @@ class DockerCodeExecutor(CodeExecutorBase):
             Exception: If log retrieval fails, an error message is logged.
         """
         try:
-            logs = self.execution_container.logs(stdout=True, stderr=True).decode(
-                "utf-8"
-            )
+            logs = self.execution_container.logs(stdout=True, stderr=True).decode("utf-8")
             return logs
         except Exception as e:
             logger.error(f"Failed to retrieve container logs: {str(e)}")

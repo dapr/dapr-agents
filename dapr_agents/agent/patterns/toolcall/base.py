@@ -6,20 +6,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class ToolCallAgent(AgentBase):
     """
     Agent that manages tool calls and conversations using a language model.
     It integrates tools and processes them based on user inputs and task orchestration.
     """
 
-    tool_history: List[ToolMessage] = Field(
-        default_factory=list, description="Executed tool calls during the conversation."
-    )
-    tool_choice: Optional[str] = Field(
-        default=None,
-        description="Strategy for selecting tools ('auto', 'required', 'none'). Defaults to 'auto' if tools are provided.",
-    )
+    tool_history: List[ToolMessage] = Field(default_factory=list, description="Executed tool calls during the conversation.")
+    tool_choice: Optional[str] = Field(default=None, description="Strategy for selecting tools ('auto', 'required', 'none'). Defaults to 'auto' if tools are provided.")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -28,8 +22,8 @@ class ToolCallAgent(AgentBase):
         Initialize the agent's settings, such as tool choice and parent setup.
         Sets the tool choice strategy based on provided tools.
         """
-        self.tool_choice = self.tool_choice or ("auto" if self.tools else None)
-
+        self.tool_choice = self.tool_choice or ('auto' if self.tools else None)
+        
         # Proceed with base model setup
         super().model_post_init(__context)
 
@@ -46,14 +40,12 @@ class ToolCallAgent(AgentBase):
         Raises:
             AgentError: If user input is invalid or tool execution fails.
         """
-        logger.debug(
-            f"Agent run started with input: {input_data if input_data else 'Using memory context'}"
-        )
+        logger.debug(f"Agent run started with input: {input_data if input_data else 'Using memory context'}")
 
         # Format messages; construct_messages already includes chat history.
         messages = self.construct_messages(input_data or {})
         user_message = self.get_last_user_message(messages)
-
+        
         if input_data and user_message:
             # Add the new user message to memory only if input_data is provided and user message exists
             self.memory.add_message(user_message)
@@ -64,7 +56,7 @@ class ToolCallAgent(AgentBase):
 
         # Process conversation iterations
         return await self.process_iterations(messages)
-
+    
     async def process_response(self, tool_calls: List[dict]) -> None:
         """
         Asynchronously executes tool calls and appends tool results to memory.
@@ -78,21 +70,15 @@ class ToolCallAgent(AgentBase):
         for tool in tool_calls:
             function_name = tool.function.name
             try:
-                logger.info(
-                    f"Executing {function_name} with arguments {tool.function.arguments}"
-                )
-                result = await self.tool_executor.run_tool(
-                    function_name, **tool.function.arguments_dict
-                )
-                tool_message = ToolMessage(
-                    tool_call_id=tool.id, name=function_name, content=str(result)
-                )
+                logger.info(f"Executing {function_name} with arguments {tool.function.arguments}")
+                result = await self.tool_executor.run_tool(function_name, **tool.function.arguments_dict)
+                tool_message = ToolMessage(tool_call_id=tool.id, name=function_name, content=str(result))
                 self.text_formatter.print_message(tool_message)
                 self.tool_history.append(tool_message)
             except Exception as e:
                 logger.error(f"Error executing tool {function_name}: {e}")
                 raise AgentError(f"Error executing tool '{function_name}': {e}") from e
-
+    
     async def process_iterations(self, messages: List[Dict[str, Any]]) -> Any:
         """
         Iteratively drives the agent conversation until a final answer or max iterations.
@@ -132,7 +118,7 @@ class ToolCallAgent(AgentBase):
                 raise AgentError(f"Failed during chat generation: {e}") from e
 
         logger.info("Max iterations reached. Agent has stopped.")
-
+    
     async def run_tool(self, tool_name: str, *args, **kwargs) -> Any:
         """
         Executes a registered tool by name, automatically handling sync or async tools.

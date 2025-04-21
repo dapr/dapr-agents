@@ -12,7 +12,7 @@ audio_file_path = "speech_spanish.mp3"
 translation_request = AudioTranslationRequest(
     model="whisper-1",
     file=audio_file_path,
-    prompt="The user will provide an audio file in Spanish. Translate the audio to English and transcribe the english text, word for word.",
+    prompt="The user will provide an audio file in Spanish. Translate the audio to English and transcribe the english text, word for word."
 )
 
 # Generate translation

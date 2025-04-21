@@ -1,18 +1,6 @@
-from dapr_agents.types.message import (
-    BaseMessage,
-    SystemMessage,
-    UserMessage,
-    AssistantMessage,
-    ToolMessage,
-)
-from dapr_agents.prompt.utils.jinja import (
-    render_jinja_template,
-    extract_jinja_variables,
-)
-from dapr_agents.prompt.utils.fstring import (
-    render_fstring_template,
-    extract_fstring_variables,
-)
+from dapr_agents.types.message import BaseMessage, SystemMessage, UserMessage, AssistantMessage, ToolMessage
+from dapr_agents.prompt.utils.jinja import render_jinja_template, extract_jinja_variables
+from dapr_agents.prompt.utils.fstring import render_fstring_template, extract_fstring_variables
 from typing import Any, Dict, List, Tuple, Union, Optional
 import re
 import logging
@@ -29,12 +17,11 @@ DEFAULT_VARIABLE_EXTRACTOR_MAPPING = {
     "jinja2": extract_jinja_variables,
 }
 
-
 class ChatPromptHelper:
     """
-    Utility class for handling various operations on chat prompt messages, such as
+    Utility class for handling various operations on chat prompt messages, such as 
     formatting, normalizing, and extracting variables.
-
+    
     Attributes:
         _ROLE_MAP (Dict[str, Type[BaseMessage]]): A mapping of role names to message classes.
     """
@@ -50,10 +37,10 @@ class ChatPromptHelper:
     def normalize_chat_messages(cls, variable_value: Any) -> List[BaseMessage]:
         """
         Normalize the variable value into a list of BaseMessages, handling strings, dictionaries, and lists.
-
+        
         Args:
             variable_value (Any): The value associated with a placeholder variable to normalize.
-
+        
         Returns:
             List[BaseMessage]: A list of normalized BaseMessage instances.
 
@@ -62,13 +49,9 @@ class ChatPromptHelper:
         """
         normalized_messages = []
 
-        def validate_and_create_message(
-            role: str, content: str, message_data: dict
-        ) -> BaseMessage:
+        def validate_and_create_message(role: str, content: str, message_data: dict) -> BaseMessage:
             if role not in cls._ROLE_MAP:
-                raise ValueError(
-                    f"Unrecognized role '{role}' in message: {message_data}"
-                )
+                raise ValueError(f"Unrecognized role '{role}' in message: {message_data}")
             return cls.create_message(role, content, message_data)
 
         if isinstance(variable_value, str):
@@ -82,31 +65,20 @@ class ChatPromptHelper:
                 elif isinstance(item, dict):
                     role = item.get("role", "user")
                     content = item.get("content", "")
-                    normalized_messages.append(
-                        validate_and_create_message(role, content, item)
-                    )
+                    normalized_messages.append(validate_and_create_message(role, content, item))
                 else:
-                    raise ValueError(
-                        f"Unsupported type in list for variable: {type(item)}"
-                    )
+                    raise ValueError(f"Unsupported type in list for variable: {type(item)}")
         elif isinstance(variable_value, dict):
             role = variable_value.get("role", "user")
             content = variable_value.get("content", "")
-            normalized_messages.append(
-                validate_and_create_message(role, content, variable_value)
-            )
+            normalized_messages.append(validate_and_create_message(role, content, variable_value))
         else:
             raise ValueError(f"Unsupported type for variable: {type(variable_value)}")
 
         return normalized_messages
 
     @classmethod
-    def format_message(
-        cls,
-        message: Union[Tuple[str, str], Dict[str, Any], BaseMessage],
-        template_format: str,
-        **kwargs: Any,
-    ) -> BaseMessage:
+    def format_message(cls, message: Union[Tuple[str, str], Dict[str, Any], BaseMessage], template_format: str, **kwargs: Any) -> BaseMessage:
         """
         Format a single message by replacing template variables based on the specified format.
 
@@ -141,9 +113,7 @@ class ChatPromptHelper:
         return formatter(content, **kwargs)
 
     @classmethod
-    def extract_role_and_content(
-        cls, message: Union[Tuple[str, str], Dict[str, Any], BaseMessage]
-    ) -> Tuple[str, str]:
+    def extract_role_and_content(cls, message: Union[Tuple[str, str], Dict[str, Any], BaseMessage]) -> Tuple[str, str]:
         """
         Extract role and content from a message.
 
@@ -163,14 +133,10 @@ class ChatPromptHelper:
         elif isinstance(message, BaseMessage):
             return message.role, message.content
         else:
-            raise ValueError(
-                "Message must be a tuple (role, content), a dict with 'role' and 'content', or a BaseMessage instance."
-            )
+            raise ValueError("Message must be a tuple (role, content), a dict with 'role' and 'content', or a BaseMessage instance.")
 
     @classmethod
-    def create_message(
-        cls, role: str, content: str, message_data: Dict[str, Any]
-    ) -> BaseMessage:
+    def create_message(cls, role: str, content: str, message_data: Dict[str, Any]) -> BaseMessage:
         """
         Create a BaseMessage instance based on role.
 
@@ -190,17 +156,15 @@ class ChatPromptHelper:
 
         message_class = cls._ROLE_MAP[role]
         if role == "tool":
-            return message_class(
-                content=content, tool_call_id=message_data.get("tool_call_id")
-            )
+            return message_class(content=content, tool_call_id=message_data.get("tool_call_id"))
         return message_class(content=content)
-
+    
     @classmethod
     def get_message_class(cls, role: str) -> Union[BaseMessage, None]:
         """Get the message class for a given role."""
         role = role.lower()
         return cls._ROLE_MAP.get(role, None)
-
+    
     @staticmethod
     def parse_role_content(content: str) -> Tuple[List[str], Optional[str]]:
         """
@@ -212,12 +176,8 @@ class ChatPromptHelper:
             Tuple[List[str], Optional[str]]: Role-based chunks and any remaining plain text.
         """
         # Regex to split on role definitions, capturing role-based content.
-        role_pattern = (
-            r"(?i)^\s*#?\s*("
-            + "|".join(ChatPromptHelper._ROLE_MAP.keys())
-            + r")\s*:\s*\n"
-        )
-
+        role_pattern = r"(?i)^\s*#?\s*(" + "|".join(ChatPromptHelper._ROLE_MAP.keys()) + r")\s*:\s*\n"
+        
         # First, check for role-based patterns. If none, return the entire content as plain_text.
         if not re.search(role_pattern, content, flags=re.MULTILINE):
             return [], content.strip()
@@ -227,18 +187,14 @@ class ChatPromptHelper:
 
         # Extract plain text that is not part of role-based content, if any.
         plain_text = None
-        if (
-            chunks
-            and chunks[0].strip()
-            and chunks[0].lower() not in ChatPromptHelper._ROLE_MAP
-        ):
+        if chunks and chunks[0].strip() and chunks[0].lower() not in ChatPromptHelper._ROLE_MAP:
             plain_text = chunks.pop(0).strip()
 
         # Filter out empty or whitespace-only chunks from role-based content.
         role_chunks = [chunk.strip() for chunk in chunks if chunk.strip()]
 
         return role_chunks, plain_text
-
+    
     @staticmethod
     def to_message(role: str, content: str) -> BaseMessage:
         """
@@ -253,21 +209,19 @@ class ChatPromptHelper:
         message_class = ChatPromptHelper.get_message_class(role)
         if not message_class:
             raise ValueError(f"Invalid message role: '{role}'")
-
+        
         if not content:
             raise ValueError(f"Content missing for role: '{role}'")
-
+        
         return message_class(content=content)
-
+    
     @staticmethod
-    def parse_as_messages(
-        content: str,
-    ) -> Tuple[Optional[List[BaseMessage]], Optional[str]]:
+    def parse_as_messages(content: str) -> Tuple[Optional[List[BaseMessage]], Optional[str]]:
         """
         Parse the content into a list of role-based messages and any unstructured plain text.
-
+        
         Returns:
-            Tuple[List[BaseMessage], Optional[str]]: Parsed messages if role-based chunks are found,
+            Tuple[List[BaseMessage], Optional[str]]: Parsed messages if role-based chunks are found, 
             and any remaining plain text if detected.
         """
         role_chunks, plain_text = ChatPromptHelper.parse_role_content(content)
@@ -284,9 +238,7 @@ class ChatPromptHelper:
         for chunk in role_chunks:
             if chunk.lower() in ChatPromptHelper._ROLE_MAP.keys():
                 role = chunk  # Assign role if chunk matches a defined role.
-            elif (
-                role
-            ):  # If a role is set, treat this chunk as the content for that role.
+            elif role:  # If a role is set, treat this chunk as the content for that role.
                 messages.append(ChatPromptHelper.to_message(role, chunk))
                 role = None
             else:
