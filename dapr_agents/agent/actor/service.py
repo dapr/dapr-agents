@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
+import time
 
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.encoders import jsonable_encoder
@@ -17,7 +18,9 @@ from dapr.actor.runtime.config import (
 )
 from dapr.actor.runtime.runtime import ActorRuntime
 from dapr.clients import DaprClient
+from dapr.clients.grpc._request import TransactionOperationType, TransactionalStateOperation
 from dapr.clients.grpc._response import StateResponse
+from dapr.clients.grpc._state import Concurrency, Consistency, StateOptions
 from dapr.ext.fastapi import DaprActor
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
@@ -247,22 +250,72 @@ class AgentActorService(DaprPubSub, MessageRoutingMixin):
         Registers the agent's metadata in the Dapr state store under 'agents_metadata'.
         """
         try:
-            # Retrieve existing metadata or initialize as an empty dictionary
-            agents_metadata = self.get_agents_metadata()
-            agents_metadata[self.agent.name] = self.agent_metadata
-
-            # Save the updated metadata back to Dapr store
-            self._dapr_client.save_state(
+            # Update the agents registry store with the new agent metadata
+            self.register_agent(
                 store_name=self.agents_registry_store_name,
-                key=self.agents_registry_key,
-                value=json.dumps(agents_metadata),
-                state_metadata={"contentType": "application/json"}
+                store_key=self.agents_registry_key,
+                agent_name=self.name,
+                agent_metadata=self.agent_metadata
             )
-            
-            logger.info(f"{self.agent.name} registered its metadata under key '{self.agents_registry_key}'")
-
+            logger.info(f"{self.name} registered its metadata under key '{self.agents_registry_key}'")
         except Exception as e:
             logger.error(f"Failed to register metadata for agent {self.agent.name}: {e}")
+            raise e
+    
+    def register_agent(self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict) -> None:
+        """
+        Merges the existing data with the new data and updates the store.
+
+        Args:
+            store_name (str): The name of the Dapr state store component.
+            key (str): The key to update.
+            data (dict): The data to update the store with.
+        """
+        # retry the entire operation up to ten times sleeping 1 second between each attempt
+        for attempt in range(1, 11):
+            try:
+                response: StateResponse = self._dapr_client.get_state(store_name=store_name, key=store_key)
+                if not response.etag:
+                    # if there is no etag the following transaction won't work as expected
+                    # so we need to save an empty object with a strong consistency to force the etag to be created
+                    self._dapr_client.save_state(
+                        store_name=store_name,
+                        key=store_key,
+                        value=json.dumps({}),
+                        state_metadata={"contentType": "application/json"},
+                        options=StateOptions(concurrency=Concurrency.first_write, consistency=Consistency.strong)
+                    )
+                    # raise an exception to retry the entire operation
+                    raise Exception(f"No etag found for key: {store_key}")
+                existing_data = json.loads(response.data) if response.data else {}
+                if (agent_name, agent_metadata) in existing_data.items():
+                    logger.debug(f"agent {agent_name} already registered.")
+                    return None
+                agent_data = {agent_name: agent_metadata}
+                merged_data = {**existing_data, **agent_data}
+                logger.debug(f"merged data: {merged_data} etag: {response.etag}")
+                try:
+                    # using the transactional API to be able to later support the Dapr outbox pattern
+                    self._dapr_client.execute_state_transaction(
+                        store_name=store_name,
+                        operations=[
+                            TransactionalStateOperation(
+                                key=store_key,
+                                data=json.dumps(merged_data),
+                                etag=response.etag,
+                                operation_type=TransactionOperationType.upsert
+                            )
+                        ],
+                        transactional_metadata={"contentType": "application/json"}
+                    )
+                except Exception as e:
+                    raise e
+                return None
+            except Exception as e:
+                logger.debug(f"Error on transaction attempt: {attempt}: {e}")
+                logger.debug(f"Sleeping for 1 second before retrying transaction...")
+                time.sleep(1)
+        raise Exception(f"Failed to update state store key: {store_key} after 10 attempts.")
     
     async def invoke_task(self, task: Optional[str]) -> Response:
         """
