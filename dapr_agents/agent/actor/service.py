@@ -18,7 +18,10 @@ from dapr.actor.runtime.config import (
 )
 from dapr.actor.runtime.runtime import ActorRuntime
 from dapr.clients import DaprClient
-from dapr.clients.grpc._request import TransactionOperationType, TransactionalStateOperation
+from dapr.clients.grpc._request import (
+    TransactionOperationType,
+    TransactionalStateOperation,
+)
 from dapr.clients.grpc._response import StateResponse
 from dapr.clients.grpc._state import Concurrency, Consistency, StateOptions
 from dapr.ext.fastapi import DaprActor
@@ -325,14 +328,20 @@ class AgentActorService(DaprPubSub, MessageRoutingMixin):
                 store_name=self.agents_registry_store_name,
                 store_key=self.agents_registry_key,
                 agent_name=self.name,
-                agent_metadata=self.agent_metadata
+                agent_metadata=self.agent_metadata,
             )
-            logger.info(f"{self.name} registered its metadata under key '{self.agents_registry_key}'")
+            logger.info(
+                f"{self.name} registered its metadata under key '{self.agents_registry_key}'"
+            )
         except Exception as e:
-            logger.error(f"Failed to register metadata for agent {self.agent.name}: {e}")
+            logger.error(
+                f"Failed to register metadata for agent {self.agent.name}: {e}"
+            )
             raise e
-    
-    def register_agent(self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict) -> None:
+
+    def register_agent(
+        self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict
+    ) -> None:
         """
         Merges the existing data with the new data and updates the store.
 
@@ -344,7 +353,9 @@ class AgentActorService(DaprPubSub, MessageRoutingMixin):
         # retry the entire operation up to ten times sleeping 1 second between each attempt
         for attempt in range(1, 11):
             try:
-                response: StateResponse = self._dapr_client.get_state(store_name=store_name, key=store_key)
+                response: StateResponse = self._dapr_client.get_state(
+                    store_name=store_name, key=store_key
+                )
                 if not response.etag:
                     # if there is no etag the following transaction won't work as expected
                     # so we need to save an empty object with a strong consistency to force the etag to be created
@@ -353,7 +364,10 @@ class AgentActorService(DaprPubSub, MessageRoutingMixin):
                         key=store_key,
                         value=json.dumps({}),
                         state_metadata={"contentType": "application/json"},
-                        options=StateOptions(concurrency=Concurrency.first_write, consistency=Consistency.strong)
+                        options=StateOptions(
+                            concurrency=Concurrency.first_write,
+                            consistency=Consistency.strong,
+                        ),
                     )
                     # raise an exception to retry the entire operation
                     raise Exception(f"No etag found for key: {store_key}")
@@ -373,10 +387,10 @@ class AgentActorService(DaprPubSub, MessageRoutingMixin):
                                 key=store_key,
                                 data=json.dumps(merged_data),
                                 etag=response.etag,
-                                operation_type=TransactionOperationType.upsert
+                                operation_type=TransactionOperationType.upsert,
                             )
                         ],
-                        transactional_metadata={"contentType": "application/json"}
+                        transactional_metadata={"contentType": "application/json"},
                     )
                 except Exception as e:
                     raise e
@@ -385,8 +399,10 @@ class AgentActorService(DaprPubSub, MessageRoutingMixin):
                 logger.debug(f"Error on transaction attempt: {attempt}: {e}")
                 logger.debug(f"Sleeping for 1 second before retrying transaction...")
                 time.sleep(1)
-        raise Exception(f"Failed to update state store key: {store_key} after 10 attempts.")
-    
+        raise Exception(
+            f"Failed to update state store key: {store_key} after 10 attempts."
+        )
+
     async def invoke_task(self, task: Optional[str]) -> Response:
         """
         Use the actor to invoke a task by running the InvokeTask method through ActorProxy.

@@ -31,12 +31,9 @@ def sub(a: float, b: float) -> float:
 
 
 async def main():
- 
-
     calculator_agent = Agent(
         name="MathematicsAgent",
         role="Calculator Assistant",
- 
         goal="Assist Humans with calculation tasks.",
         instructions=[
             "Get accurate calculation results",
@@ -59,4 +56,4 @@ async def main():
 if __name__ == "__main__":
     load_dotenv()
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(main()) 
+    asyncio.run(main())
