@@ -11,7 +11,7 @@ from dapr.clients.grpc.subscription import StreamInactiveError
 from dapr.common.pubsub.subscription import StreamCancelledError, SubscriptionMessage
 from dapr_agents.workflow.messaging.parser import extract_cloudevent_data, validate_message_model
 from dapr_agents.workflow.messaging.utils import is_valid_routable_model
-from dapr_agents.workflow.utils import get_callable_decorated_methods
+from dapr_agents.workflow.utils import get_decorated_methods
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class MessageRoutingMixin:
         - Wraps each handler and maps it by `(pubsub_name, topic_name)` and schema name.
         - Ensures only one handler per schema per topic is allowed.
         """
-        message_handlers = get_callable_decorated_methods(self, "_is_message_handler")
+        message_handlers = get_decorated_methods(self, "_is_message_handler")
 
         for method_name, method in message_handlers.items():
             try:
