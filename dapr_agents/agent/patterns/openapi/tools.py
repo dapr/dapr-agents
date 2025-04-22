@@ -1,4 +1,6 @@
-import json, logging, requests
+import json
+import logging
+import requests
 from urllib.parse import urlparse
 from typing import Any, Dict, Optional, List
 
