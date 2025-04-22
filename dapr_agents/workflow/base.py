@@ -175,7 +175,7 @@ class WorkflowApp(BaseModel):
                 if asyncio.iscoroutine(call):
                     return run_sync(call)
                 return call
-            except Exception as e:
+            except Exception:
                 logger.exception(f"Task '{task_name}' failed")
                 raise
 
