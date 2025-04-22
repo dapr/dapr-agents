@@ -92,24 +92,30 @@ python 02_build_agent.py
 This example shows how to create a basic agent with a custom tool:
 
 ```python
+import asyncio
 from dapr_agents import tool, Agent
 from dotenv import load_dotenv
 
 load_dotenv()
+
 @tool
 def my_weather_func() -> str:
     """Get current weather."""
     return "It's 72°F and sunny"
 
-weather_agent = Agent(
-    name="WeatherAgent",
-    role="Weather Assistant",
-    instructions=["Help users with weather information"],
-    tools=[my_weather_func]
-)
+async def main():
+    weather_agent = Agent(
+        name="WeatherAgent",
+        role="Weather Assistant",
+        instructions=["Help users with weather information"],
+        tools=[my_weather_func]
+    )
 
-response = weather_agent.run("What's the weather?")
-print(response)
+    response = await weather_agent.run("What's the weather?")
+    print(response)
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 **Expected output:** The agent will use the weather tool to provide the current weather.
@@ -141,10 +147,12 @@ python 03_reason_act.py
 <!-- END_STEP -->
 
 ```python
+import asyncio
 from dapr_agents import tool, ReActAgent
 from dotenv import load_dotenv
 
 load_dotenv()
+
 @tool
 def search_weather(city: str) -> str:
     """Get weather information for a city."""
@@ -154,17 +162,23 @@ def search_weather(city: str) -> str:
 @tool
 def get_activities(weather: str) -> str:
     """Get activity recommendations."""
-    activities = {"rainy": "Visit museums", "Sunny": "Go hiking"}
+    activities = {"rainy": "Visit museums", "sunny": "Go hiking"}
     return activities.get(weather.lower(), "Stay comfortable")
 
-react_agent = ReActAgent(
-    name="TravelAgent",
-    role="Travel Assistant",
-    instructions=["Check weather, then suggest activities"],
-    tools=[search_weather, get_activities]
-)
+async def main():
+    react_agent = ReActAgent(
+        name="TravelAgent",
+        role="Travel Assistant",
+        instructions=["Check weather, then suggest activities"],
+        tools=[search_weather, get_activities]
+    )
 
-react_agent.run("What should I do in London today?")
+    result = await react_agent.run("What should I do in London today?")
+    if result:
+        print("Result:", result)
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 **Expected output:** The agent will first check the weather in London, find it's rainy, and then recommend visiting museums.

@@ -4,7 +4,7 @@ import logging
 from dataclasses import is_dataclass
 from functools import update_wrapper
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -44,249 +44,232 @@ class WorkflowTask(BaseModel):
         """
         Post-initialization to set up function signatures and default LLM clients.
         """
+        # Default to OpenAIChatClient if prompt‐based but no llm provided
         if self.description and not self.llm:
             self.llm = OpenAIChatClient()
-        
+
         if self.func:
+            # Preserve name / docs for stack traces
             update_wrapper(self, self.func)
 
+        # Capture signature for input / output handling
         self.signature = inspect.signature(self.func) if self.func else None
 
+        # Honor any structured_mode override
         if not self.structured_mode and "structured_mode" in self.task_kwargs:
             self.structured_mode = self.task_kwargs["structured_mode"]
 
         # Proceed with base model setup
         super().model_post_init(__context)
     
-    async def __call__(self, ctx: WorkflowActivityContext, input: Any = None) -> Any:
+    async def __call__(self, ctx: WorkflowActivityContext, payload: Any = None) -> Any:
         """
-        Executes the task and validates its output.
-        Ensures all coroutines are awaited before returning.
+        Executes the task, routing to agent, LLM, or pure-Python logic.
+
+        Dispatches to Python, Agent, or LLM paths and validates output.
 
         Args:
             ctx (WorkflowActivityContext): The workflow execution context.
-            input (Any): The task input.
+            payload (Any): The task input.
 
         Returns:
             Any: The result of the task.
         """
-        input = self._normalize_input(input) if input is not None else {}
+        # Prepare input dict
+        data = self._normalize_input(payload) if payload is not None else {}
+        logger.info(f"Executing task '{self.func.__name__}'")
+        logger.debug(f"Executing task '{self.func.__name__}' with input {data!r}")
 
         try:
-            if self.agent or self.llm:
+            executor = self._choose_executor()
+            if executor in ("agent", "llm"):
                 if not self.description:
-                    raise ValueError(f"Task {self.func.__name__} is LLM-based but has no description!")
-
-                result = await self._run_task(self.format_description(self.description, input))
-                result = await self._validate_output(result)
-            elif self.func:
-                # Task is a Python function
-                logger.info(f"Invoking Regular Task")
-                if asyncio.iscoroutinefunction(self.func):
-                    # Await async function
-                    result = await self.func(**input)
-                else:
-                    # Call sync function
-                    result = self._execute_function(input)
-                result = await self._validate_output(result)
+                    raise ValueError("LLM/agent tasks require a description template")
+                prompt = self.format_description(self.description, data)
+                raw = await self._run_via_ai(prompt, executor)
             else:
-                raise ValueError("Task must have an LLM, agent, or regular function for execution.")
-            
-            return result
-        except Exception as e:
-            logger.error(f"Task execution error: {e}")
+                raw = await self._run_python(data)
+
+            validated = await self._validate_output(raw)
+            return validated
+
+        except Exception:
+            logger.exception(f"Error in task '{self.func.__name__}'")
             raise
 
-    def _normalize_input(self, input: Any) -> dict:
+    def _choose_executor(self) -> Literal["agent", "llm", "python"]:
         """
-        Converts input into a normalized dictionary.
-
-        Args:
-            input (Any): Input to normalize (e.g., dictionary, dataclass, or object).
+        Pick execution path.
 
         Returns:
-            dict: Normalized dictionary representation of the input.
-        """
-        if is_dataclass(input):
-            return input.__dict__
-        elif isinstance(input, SimpleNamespace):
-            return vars(input)
-        elif not isinstance(input, dict):
-            return self._single_value_to_dict(input)
-        return input
-
-    def _single_value_to_dict(self, value: Any) -> dict:
-        """
-        Wraps a single input value in a dictionary.
-
-        Args:
-            value (Any): Single input value.
-
-        Returns:
-            dict: Dictionary with parameter name as the key.
+            One of "agent", "llm", or "python".
 
         Raises:
-            ValueError: If no function signature is available.
+            ValueError: If no valid executor is configured.
         """
-        if not self.signature:
-            raise ValueError("Cannot convert single input to dict: function signature is missing.")
-
-        param_name = list(self.signature.parameters.keys())[0]
-        return {param_name: value}
-    
-    def format_description(self, description: str, input: dict) -> str:
-        """
-        Formats a description string with input parameters.
-
-        Args:
-            description (str): Description template.
-            input (dict): Input parameters for formatting.
-
-        Returns:
-            str: Formatted description string.
-        """
-        if self.signature:
-            bound_args = self.signature.bind(**input)
-            bound_args.apply_defaults()
-            return description.format(**bound_args.arguments)
-        return description.format(**input)
-    
-    async def _run_task(self, formatted_description: str) -> Any:
-        """
-        Determine whether to run the task using an agent or an LLM.
-
-        Args:
-            formatted_description (str): The formatted description to pass to the agent or LLM.
-
-        Returns:
-            Any: The result of the agent or LLM execution.
-
-        Raises:
-            ValueError: If neither an agent nor an LLM is provided.
-        """
-        logger.debug(f"Task Description: {formatted_description}")
-
         if self.agent:
-            return await self._run_agent(formatted_description)
-        elif self.llm:
-            return await self._run_llm(formatted_description)
+            return "agent"
+        if self.llm:
+            return "llm"
+        if self.func:
+            return "python"
+        raise ValueError("No execution path found for this task")
+    
+    async def _run_python(self, data: dict) -> Any:
+        """
+        Invoke the Python function directly.
+
+        Args:
+            data: Keyword arguments for the function.
+
+        Returns:
+            The function's return value.
+        """
+        logger.info("Invoking regular Python function")
+        if asyncio.iscoroutinefunction(self.func):
+            return await self.func(**data)
         else:
-            raise ValueError("No agent or LLM provided.")
-
-    async def _run_agent(self, description: str) -> Any:
+            return self.func(**data)
+    
+    async def _run_via_ai(self, prompt: str, executor: Literal["agent", "llm"]) -> Any:
         """
-        Execute the task using the provided agent.
+        Run the prompt through an Agent or LLM.
 
         Args:
-            description (str): The formatted description to pass to the agent.
+            prompt: The fully formatted prompt string.
+            kind: "agent" or "llm".
 
         Returns:
-            Any: The result of the agent execution.
+            Raw result from the AI path.
         """
-        logger.info("Invoking Task with AI Agent...")
-
-        result = await self.agent.run(description)
-
-        logger.debug(f"Agent result type: {type(result)}, value: {result}")
+        logger.info(f"Invoking task via {executor.upper()}")
+        logger.debug(f"Invoking task with prompt: {prompt!r}")
+        if executor == "agent":
+            result = await self.agent.run(prompt)
+        else:
+            result = await self._invoke_llm(prompt)
         return self._convert_result(result)
     
-    async def _run_llm(self, description: Union[str, List[BaseMessage]]) -> Any:
-        logger.info("Invoking Task with LLM...")
+    async def _invoke_llm(self, prompt: str) -> Any:
+        """
+        Build messages and call the LLM client.
 
-        # 1. Get chat history if enabled
-        conversation_history = []
+        Args:
+            prompt: The formatted prompt string.
+
+        Returns:
+            LLM-generated result.
+        """
+        # Gather history if needed
+        history: List[BaseMessage] = []
         if self.include_chat_history and self.workflow_app:
-            logger.info("Retrieving conversation history...")
-            conversation_history = self.workflow_app.get_chat_history()
-            logger.debug(f"Conversation history retrieved: {conversation_history}")
+            logger.debug("Retrieving chat history")
+            history = self.workflow_app.get_chat_history()
 
-        # 2. Convert string input to structured messages
-        if isinstance(description, str):
-            description = [UserMessage(description)]
-        llm_messages = conversation_history + description
+        messages: List[BaseMessage] = history + [UserMessage(prompt)]
+        params: Dict[str, Any] = {"messages": messages}
 
-        # 3. Base LLM parameters
-        llm_params = {"messages": llm_messages}
-
-        # 4. Add structured response config if a valid Pydantic model is the return type
+        # Add structured formatting if return type is a Pydantic model
         if self.signature and self.signature.return_annotation is not inspect.Signature.empty:
-            return_type = self.signature.return_annotation
-            model_cls = StructureHandler.resolve_response_model(return_type)
-
-            # Only proceed if we resolved a Pydantic model
+            model_cls = StructureHandler.resolve_response_model(
+                self.signature.return_annotation
+            )
             if model_cls:
-                if not hasattr(self.llm, "provider"):
-                    raise AttributeError(
-                        f"{type(self.llm).__name__} is missing the `.provider` attribute — required for structured response generation."
-                    )
+                params["response_format"] = self.signature.return_annotation
+                params["structured_mode"] = self.structured_mode
 
-                logger.debug(f"Using LLM provider: {self.llm.provider}")
-
-                llm_params["response_format"] = return_type
-                llm_params["structured_mode"] = self.structured_mode or "json"
-
-        # 5. Call the LLM client
-        result = self.llm.generate(**llm_params)
-
-        logger.debug(f"LLM result type: {type(result)}, value: {result}")
-        return self._convert_result(result)
-
-    def _convert_result(self, result: Any) -> Any:
-        """
-        Convert the task result to a dictionary if necessary.
-
-        Args:
-            result (Any): The raw task result.
-
-        Returns:
-            Any: The converted result.
-        """
-        if isinstance(result, ChatCompletion):
-            logger.debug("Extracted message content from ChatCompletion.")
-            return result.get_content()
-
-        if isinstance(result, BaseModel):
-            logger.debug("Converting Pydantic model to dictionary.")
-            return result.model_dump()
-
-        if isinstance(result, list) and all(isinstance(item, BaseModel) for item in result):
-            logger.debug("Converting list of Pydantic models to list of dictionaries.")
-            return [item.model_dump() for item in result]
-
-        # If no specific conversion is necessary, return as-is
-        logger.info("Returning final task result.")
-        return result
+        logger.debug(f"LLM call params: {params}")
+        return self.llm.generate(**params)
     
-    def _execute_function(self, input: dict) -> Any:
+    def _normalize_input(self, raw_input: Any) -> dict:
         """
-        Execute the wrapped function with the provided input.
+        Normalize various input types into a dict.
 
         Args:
-            input (dict): The input data to pass to the function.
+            raw_input: Dataclass, SimpleNamespace, single value, or dict.
 
         Returns:
-            Any: The result of the function execution.
+            A dict suitable for function invocation.
+
+        Raises:
+            ValueError: If signature is missing when wrapping a single value.
         """
-        return self.func(**input)
+        if is_dataclass(raw_input):
+            return raw_input.__dict__
+        if isinstance(raw_input, SimpleNamespace):
+            return vars(raw_input)
+        if not isinstance(raw_input, dict):
+            # wrap single argument
+            if not self.signature:
+                raise ValueError("Cannot infer param name without signature")
+            name = next(iter(self.signature.parameters))
+            return {name: raw_input}
+        return raw_input
     
     async def _validate_output(self, result: Any) -> Any:
         """
-        Validates the output of the task against the expected return type.
+        Await and validate the result against return-type model.
 
-        Supports coroutine outputs and structured type validation.
+        Args:
+            result: Raw result from executor.
 
         Returns:
-            Any: The validated and potentially transformed result.
+            Validated/transformed result.
         """
         if asyncio.iscoroutine(result):
-            logger.warning("Result is a coroutine; awaiting.")
             result = await result
 
-        if not self.signature or self.signature.return_annotation is inspect.Signature.empty:
+        if (
+            not self.signature
+            or self.signature.return_annotation is inspect.Signature.empty
+        ):
             return result
 
-        expected_type = self.signature.return_annotation
-        return StructureHandler.validate_against_signature(result, expected_type)
+        return StructureHandler.validate_against_signature(
+            result, self.signature.return_annotation
+        )
+    
+    def _convert_result(self, result: Any) -> Any:
+        """
+        Unwrap AI return types into plain Python.
+
+        Args:
+            result: ChatCompletion, BaseModel, or list of BaseModel.
+
+        Returns:
+            A primitive, dict, or list of dicts.
+        """
+        # Unwrap ChatCompletion
+        if isinstance(result, ChatCompletion):
+            logger.debug("Extracted message content from ChatCompletion.")
+            return result.get_content()
+        # Pydantic → dict
+        if isinstance(result, BaseModel):
+            logger.debug("Converting Pydantic model to dictionary.")
+            return result.model_dump()
+        if isinstance(result, list) and all(isinstance(x, BaseModel) for x in result):
+            logger.debug("Converting list of Pydantic models to list of dictionaries.")
+            return [x.model_dump() for x in result]
+        # If no specific conversion is necessary, return as-is
+        logger.info("Returning final task result.")
+        return result
+
+    def format_description(self, template: str, data: dict) -> str:
+        """
+        Interpolate inputs into the prompt template.
+
+        Args:
+            template: The `{}`-style template string.
+            data: Mapping of variable names to values.
+
+        Returns:
+            The fully formatted prompt.
+        """
+        if self.signature:
+            bound = self.signature.bind(**data)
+            bound.apply_defaults()
+            return template.format(**bound.arguments)
+        return template.format(**data)
 
 class TaskWrapper:
     """

@@ -1,35 +1,53 @@
 import inspect
 import logging
+from typing import Any, Callable, Dict
 
 logger = logging.getLogger(__name__)
 
-def get_callable_decorated_methods(instance, decorator_attr: str) -> dict:
+def get_decorated_methods(instance: Any, attribute_name: str) -> Dict[str, Callable]:
     """
-    Safely retrieves all instance methods decorated with a specific attribute (e.g. `_is_task`, `_is_workflow`).
+    Find all **public** bound methods on `instance` that carry a given decorator attribute.
+
+    This will:
+      1. Inspect the class for functions or methods.
+      2. Bind them to the instance (so `self` is applied).
+      3. Filter in only those where `hasattr(method, attribute_name) is True`.
 
     Args:
-        instance: The class instance to inspect.
-        decorator_attr (str): The attribute name set by a decorator (e.g. "_is_task").
+        instance:  Any object whose methods you want to inspect.
+        attribute_name:  
+            The name of the attribute set by your decorator 
+            (e.g. "_is_task" or "_is_workflow").
 
     Returns:
-        dict: Mapping of method names to bound method callables.
+        A dict mapping `method_name` → `bound method`.
+
+    Example:
+        >>> class A:
+        ...     @task
+        ...     def foo(self): ...
+        ...
+        >>> get_decorated_methods(A(), "_is_task")
+        {"foo": <bound method A.foo of <A object ...>>}
     """
-    discovered = {}
-    for method_name in dir(instance):
-        if method_name.startswith("_"):
-            continue  # Skip private/protected
+    discovered: Dict[str, Callable] = {}
 
-        raw_attr = getattr(type(instance), method_name, None)
-        if not (inspect.isfunction(raw_attr) or inspect.ismethod(raw_attr)):
-            continue  # Skip non-methods (e.g., @property)
-
-        try:
-            method = getattr(instance, method_name)
-        except Exception as e:
-            logger.warning(f"Skipping method '{method_name}' due to error: {e}")
+    cls = type(instance)
+    for name, member in inspect.getmembers(cls, predicate=inspect.isfunction):
+        # skip private/protected
+        if name.startswith("_"):
             continue
 
-        if hasattr(method, decorator_attr):
-            discovered[method_name] = method
+        # bind to instance so that signature(self, ...) works
+        try:
+            bound = getattr(instance, name)
+        except Exception as e:
+            logger.warning(f"Could not bind method '{name}': {e}")
+            continue
+
+        # pick up only those with our decorator flag
+        if hasattr(bound, attribute_name):
+            discovered[name] = bound
+            logger.debug(f"Discovered decorated method: {name}")
 
     return discovered
