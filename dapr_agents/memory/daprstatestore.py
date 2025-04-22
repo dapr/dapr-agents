@@ -27,11 +27,18 @@ class ConversationDaprStateMemory(MemoryBase):
     individually with a unique key and includes a session ID and timestamp for querying and retrieval.
     """
 
-    store_name: str = Field(default="statestore", description="The name of the Dapr state store.")
-    session_id: Optional[Union[str, int]] = Field(default=None, description="Unique identifier for the conversation session.")
+    store_name: str = Field(
+        default="statestore", description="The name of the Dapr state store."
+    )
+    session_id: Optional[Union[str, int]] = Field(
+        default=None, description="Unique identifier for the conversation session."
+    )
 
     # Private attribute to hold the initialized DaprStateStore
-    dapr_store: Optional[DaprStateStore] = Field(default=None, init=False, description="Dapr State Store.")
+    dapr_store: Optional[DaprStateStore] = Field(
+        default=None, init=False, description="Dapr State Store."
+    )
+
     @model_validator(mode="before")
     def set_session_id(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -94,9 +101,13 @@ class ConversationDaprStateMemory(MemoryBase):
         existing = self.get_messages()
         existing.append(message)
 
-        logger.debug(f"Adding message with key {message_key} to session {self.session_id}")
-        self.dapr_store.save_state(self.session_id, json.dumps(existing), {"contentType": "application/json"})
-        
+        logger.debug(
+            f"Adding message with key {message_key} to session {self.session_id}"
+        )
+        self.dapr_store.save_state(
+            self.session_id, json.dumps(existing), {"contentType": "application/json"}
+        )
+
     def add_messages(self, messages: List[Union[Dict, BaseMessage]]):
         """
         Adds multiple messages to the memory and saves each one individually to the Dapr state store.
@@ -150,10 +161,14 @@ class ConversationDaprStateMemory(MemoryBase):
         if response and response.data:
             raw_messages = json.loads(response.data)
             if raw_messages:
-                messages = [{"content": msg.get("content"), "role": msg.get("role")}
-                            for msg in raw_messages]
-                
-                logger.info(f"Retrieved {len(messages)} messages for session {self.session_id}")
+                messages = [
+                    {"content": msg.get("content"), "role": msg.get("role")}
+                    for msg in raw_messages
+                ]
+
+                logger.info(
+                    f"Retrieved {len(messages)} messages for session {self.session_id}"
+                )
                 return messages
 
         return []

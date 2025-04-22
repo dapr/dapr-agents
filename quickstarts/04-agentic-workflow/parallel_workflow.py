@@ -85,6 +85,8 @@ if __name__ == "__main__":
     research_topic = "The environmental impact of quantum computing"
 
     logging.info(f"Starting research workflow on: {research_topic}")
-    results = wfapp.run_and_monitor_workflow_sync(research_workflow, input=research_topic)
+    results = wfapp.run_and_monitor_workflow_sync(
+        research_workflow, input=research_topic
+    )
     if len(results) > 0:
         logging.info(f"\nResearch Report:\n{results}")

@@ -84,7 +84,7 @@ class WorkflowTask(BaseModel):
 
         # Proceed with base model setup
         super().model_post_init(__context)
-    
+
     async def __call__(self, ctx: WorkflowActivityContext, payload: Any = None) -> Any:
         """
         Executes the task, routing to agent, LLM, or pure-Python logic.
@@ -137,7 +137,7 @@ class WorkflowTask(BaseModel):
         if self.func:
             return "python"
         raise ValueError("No execution path found for this task")
-    
+
     async def _run_python(self, data: dict) -> Any:
         """
         Invoke the Python function directly.
@@ -153,7 +153,7 @@ class WorkflowTask(BaseModel):
             return await self.func(**data)
         else:
             return self.func(**data)
-    
+
     async def _run_via_ai(self, prompt: str, executor: Literal["agent", "llm"]) -> Any:
         """
         Run the prompt through an Agent or LLM.
@@ -172,7 +172,7 @@ class WorkflowTask(BaseModel):
         else:
             result = await self._invoke_llm(prompt)
         return self._convert_result(result)
-    
+
     async def _invoke_llm(self, prompt: str) -> Any:
         """
         Build messages and call the LLM client.
@@ -193,7 +193,10 @@ class WorkflowTask(BaseModel):
         params: Dict[str, Any] = {"messages": messages}
 
         # Add structured formatting if return type is a Pydantic model
-        if self.signature and self.signature.return_annotation is not inspect.Signature.empty:
+        if (
+            self.signature
+            and self.signature.return_annotation is not inspect.Signature.empty
+        ):
             model_cls = StructureHandler.resolve_response_model(
                 self.signature.return_annotation
             )
@@ -203,7 +206,7 @@ class WorkflowTask(BaseModel):
 
         logger.debug(f"LLM call params: {params}")
         return self.llm.generate(**params)
-    
+
     def _normalize_input(self, raw_input: Any) -> dict:
         """
         Normalize various input types into a dict.
@@ -228,7 +231,7 @@ class WorkflowTask(BaseModel):
             name = next(iter(self.signature.parameters))
             return {name: raw_input}
         return raw_input
-    
+
     async def _validate_output(self, result: Any) -> Any:
         """
         Await and validate the result against return-type model.
@@ -251,7 +254,7 @@ class WorkflowTask(BaseModel):
         return StructureHandler.validate_against_signature(
             result, self.signature.return_annotation
         )
-    
+
     def _convert_result(self, result: Any) -> Any:
         """
         Unwrap AI return types into plain Python.

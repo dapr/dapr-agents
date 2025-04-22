@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict
 
 logger = logging.getLogger(__name__)
 
+
 def get_decorated_methods(instance: Any, attribute_name: str) -> Dict[str, Callable]:
     """
     Find all **public** bound methods on `instance` that carry a given decorator attribute.
@@ -15,8 +16,8 @@ def get_decorated_methods(instance: Any, attribute_name: str) -> Dict[str, Calla
 
     Args:
         instance:  Any object whose methods you want to inspect.
-        attribute_name:  
-            The name of the attribute set by your decorator 
+        attribute_name:
+            The name of the attribute set by your decorator
             (e.g. "_is_task" or "_is_workflow").
 
     Returns:

@@ -24,9 +24,15 @@ class TriggerAction(BaseModel):
     """
     Represents a message used to trigger an agent's activity within the workflow.
     """
-    task: Optional[str] = Field(None, description="The specific task to execute. If not provided, the agent will act based on its memory or predefined behavior.")
+
+    task: Optional[str] = Field(
+        None,
+        description="The specific task to execute. If not provided, the agent will act based on its memory or predefined behavior.",
+    )
     iteration: Optional[int] = Field(0, description="")
-    workflow_instance_id: Optional[str] = Field(default=None, description="Dapr workflow instance id from source if available")
+    workflow_instance_id: Optional[str] = Field(
+        default=None, description="Dapr workflow instance id from source if available"
+    )
 
 
 class RoundRobinOrchestrator(OrchestratorWorkflowBase):
@@ -188,7 +194,7 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
             name=name,
             message=TriggerAction(workflow_instance_id=instance_id),
         )
-    
+
     @message_router
     async def process_agent_response(self, message: AgentTaskResponse):
         """
@@ -204,13 +210,21 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
             workflow_instance_id = message.get("workflow_instance_id")
 
             if not workflow_instance_id:
-                logger.error(f"{self.name} received an agent response without a valid workflow_instance_id. Ignoring.")
+                logger.error(
+                    f"{self.name} received an agent response without a valid workflow_instance_id. Ignoring."
+                )
                 return
 
-            logger.info(f"{self.name} processing agent response for workflow instance '{workflow_instance_id}'.")
+            logger.info(
+                f"{self.name} processing agent response for workflow instance '{workflow_instance_id}'."
+            )
 
             # Raise a workflow event with the Agent's Task Response
-            self.raise_workflow_event(instance_id=workflow_instance_id, event_name="AgentTaskResponse", data=message)
+            self.raise_workflow_event(
+                instance_id=workflow_instance_id,
+                event_name="AgentTaskResponse",
+                data=message,
+            )
 
         except Exception as e:
             logger.error(f"Error processing agent response: {e}", exc_info=True)

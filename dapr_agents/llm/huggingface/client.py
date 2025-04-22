@@ -83,14 +83,14 @@ class HFHubInferenceClientBase(LLMClientBase):
         # mutual‑exclusivity
         if model is not None and base_url is not None:
             raise ValueError("Cannot provide both 'model' and 'base_url'.")
-        
+
         # require at least one
         if model is None and base_url is None:
             raise ValueError(
                 "HF Inference needs either `model` or `base_url`. "
                 "E.g. model='gpt2' or base_url='https://…/models/gpt2'."
             )
-        
+
         # auto‑derive model from base_url
         if model is None:
             derived = base_url.rstrip("/").split("/")[-1]

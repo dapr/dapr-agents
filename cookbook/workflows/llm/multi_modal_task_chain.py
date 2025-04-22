@@ -1,6 +1,6 @@
 from dapr_agents import OpenAIChatClient, NVIDIAChatClient
 from dapr_agents.types import DaprWorkflowContext
-from dapr_agents. workflow import WorkflowApp, task, workflow
+from dapr_agents.workflow import WorkflowApp, task, workflow
 from dotenv import load_dotenv
 import os
 import logging
@@ -8,8 +8,7 @@ import logging
 load_dotenv()
 
 nvidia_llm = NVIDIAChatClient(
-    model="meta/llama-3.1-8b-instruct",
-    api_key=os.getenv("NVIDIA_API_KEY")
+    model="meta/llama-3.1-8b-instruct", api_key=os.getenv("NVIDIA_API_KEY")
 )
 
 oai_llm = OpenAIChatClient(
@@ -22,7 +21,7 @@ azoai_llm = OpenAIChatClient(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
     azure_deployment="gpt-4o-mini",
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    azure_api_version="2024-12-01-preview"
+    azure_api_version="2024-12-01-preview",
 )
 
 
@@ -36,20 +35,29 @@ def test_workflow(ctx: DaprWorkflowContext):
     nvidia_results = yield ctx.call_activity(invoke_nvidia, input=azoai_results)
     return nvidia_results
 
-@task(description="What is the name of the capital of {country}?. Reply with just the name.", llm=oai_llm)
+
+@task(
+    description="What is the name of the capital of {country}?. Reply with just the name.",
+    llm=oai_llm,
+)
 def invoke_oai(country: str) -> str:
     pass
+
 
 @task(description="What is a famous thing about {capital}?", llm=azoai_llm)
 def invoke_azoai(capital: str) -> str:
     pass
 
-@task(description="Context: {context}. From the previous context. Pick one thing to do.", llm=nvidia_llm)
+
+@task(
+    description="Context: {context}. From the previous context. Pick one thing to do.",
+    llm=nvidia_llm,
+)
 def invoke_nvidia(context: str) -> str:
     pass
 
-if __name__ == '__main__':
 
+if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     wfapp = WorkflowApp()

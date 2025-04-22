@@ -29,9 +29,6 @@ if __name__ == "__main__":
 
     wfapp = WorkflowApp()
 
-    results = wfapp.run_and_monitor_workflow_sync(
-        workflow=question,
-        input="Scooby Doo"
-    )
+    results = wfapp.run_and_monitor_workflow_sync(workflow=question, input="Scooby Doo")
 
     print(results)

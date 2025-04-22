@@ -31,9 +31,6 @@ def write_blog(outline: str) -> str:
 if __name__ == "__main__":
     wfapp = WorkflowApp()
 
-    results = wfapp.run_and_monitor_workflow_sync(
-        analyze_topic,
-        input="AI Agents"
-    )
+    results = wfapp.run_and_monitor_workflow_sync(analyze_topic, input="AI Agents")
     if len(results) > 0:
         print(f"Result: {results}")
