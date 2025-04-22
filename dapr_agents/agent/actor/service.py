@@ -397,7 +397,7 @@ class AgentActorService(DaprPubSub, MessageRoutingMixin):
                 return None
             except Exception as e:
                 logger.debug(f"Error on transaction attempt: {attempt}: {e}")
-                logger.debug(f"Sleeping for 1 second before retrying transaction...")
+                logger.debug("Sleeping for 1 second before retrying transaction...")
                 time.sleep(1)
         raise Exception(
             f"Failed to update state store key: {store_key} after 10 attempts."
