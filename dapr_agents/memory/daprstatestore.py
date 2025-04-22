@@ -27,21 +27,11 @@ class ConversationDaprStateMemory(MemoryBase):
     individually with a unique key and includes a session ID and timestamp for querying and retrieval.
     """
 
-    store_name: str = Field(
-        default="statestore", description="The name of the Dapr state store."
-    )
-    session_id: Optional[Union[str, int]] = Field(
-        default=None, description="Unique identifier for the conversation session."
-    )
-    query_index_name: Optional[str] = Field(
-        default=None, description="The index name for querying state."
-    )
+    store_name: str = Field(default="statestore", description="The name of the Dapr state store.")
+    session_id: Optional[Union[str, int]] = Field(default=None, description="Unique identifier for the conversation session.")
 
     # Private attribute to hold the initialized DaprStateStore
-    dapr_store: Optional[DaprStateStore] = Field(
-        default=None, init=False, description="Dapr State Store."
-    )
-
+    dapr_store: Optional[DaprStateStore] = Field(default=None, init=False, description="Dapr State Store.")
     @model_validator(mode="before")
     def set_session_id(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -88,6 +78,7 @@ class ConversationDaprStateMemory(MemoryBase):
         Args:
             message (Union[Dict, BaseMessage]): The message to add to the memory.
         """
+
         if isinstance(message, BaseMessage):
             message = message.model_dump()
 
@@ -100,13 +91,12 @@ class ConversationDaprStateMemory(MemoryBase):
             }
         )
 
-        logger.info(
-            f"Adding message with key {message_key} to session {self.session_id}"
-        )
-        self.dapr_store.save_state(
-            message_key, json.dumps(message), {"contentType": "application/json"}
-        )
+        existing = self.get_messages()
+        existing.append(message)
 
+        logger.debug(f"Adding message with key {message_key} to session {self.session_id}")
+        self.dapr_store.save_state(self.session_id, json.dumps(existing), {"contentType": "application/json"})
+        
     def add_messages(self, messages: List[Union[Dict, BaseMessage]]):
         """
         Adds multiple messages to the memory and saves each one individually to the Dapr state store.
@@ -156,23 +146,19 @@ class ConversationDaprStateMemory(MemoryBase):
         Returns:
             List[Dict[str, str]]: A list containing the 'content' and 'role' fields of the messages.
         """
-        query = json.dumps(
-            {"filter": {"EQ": {"sessionId": self.session_id}}, "page": {"limit": limit}}
-        )
-        query_response = self.query_messages(query=query)
-        messages = [
-            {"content": msg.get("content"), "role": msg.get("role")}
-            for msg in (
-                self._decode_message(result.value) for result in query_response.results
-            )
-        ]
+        response = self.query_messages(session_id=self.session_id)
+        if response and response.data:
+            raw_messages = json.loads(response.data)
+            if raw_messages:
+                messages = [{"content": msg.get("content"), "role": msg.get("role")}
+                            for msg in raw_messages]
+                
+                logger.info(f"Retrieved {len(messages)} messages for session {self.session_id}")
+                return messages
 
-        logger.info(f"Retrieved {len(messages)} messages for session {self.session_id}")
-        return messages
+        return []
 
-    def query_messages(
-        self, query: Optional[str] = json.dumps({})
-    ) -> List[Dict[str, str]]:
+    def query_messages(self, session_id: str) -> List[Dict[str, str]]:
         """
         Queries messages from the state store based on a pre-constructed query string.
 
@@ -182,26 +168,14 @@ class ConversationDaprStateMemory(MemoryBase):
         Returns:
             List[Dict[str, str]]: A list containing the 'content' and 'role' fields of the messages.
         """
-        logger.debug(f"Executing query for session {self.session_id}: {query}")
+        logger.debug(f"Executing query for session {self.session_id}")
         states_metadata = {"contentType": "application/json"}
-        if self.query_index_name:
-            states_metadata["queryIndexName"] = self.query_index_name
-
-        response = self.dapr_store.query_state(
-            query=query, states_metadata=states_metadata
-        )
+        response = self.dapr_store.get_state(session_id, state_metadata=states_metadata)
         return response
 
     def reset_memory(self):
         """
         Clears all messages stored in the memory and resets the state store for the current session.
         """
-        query_response = self.query_messages()
-        keys = [result.key for result in query_response.results]
-        for key in keys:
-            self.dapr_store.delete_state(key)
-            logger.debug(f"Deleted state with key: {key}")
-
-        logger.info(
-            f"Memory reset for session {self.session_id} completed. Deleted {len(keys)} messages."
-        )
+        self.dapr_store.delete_state(self.session_id)
+        logger.info(f"Memory reset for session {self.session_id} completed.")

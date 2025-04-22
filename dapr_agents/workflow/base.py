@@ -6,7 +6,7 @@ import logging
 import sys
 import time
 import uuid
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,7 +29,7 @@ from dapr.ext.workflow.workflow_state import WorkflowState
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.workflow.task import WorkflowTask
-from dapr_agents.workflow.utils import get_callable_decorated_methods
+from dapr_agents.workflow.utils import get_decorated_methods
 
 logger = logging.getLogger(__name__)
 
@@ -50,55 +50,164 @@ class WorkflowApp(BaseModel):
     )
 
     # Initialized in model_post_init
-    wf_runtime: Optional[WorkflowRuntime] = Field(
-        default=None, init=False, description="Workflow runtime instance."
-    )
-    wf_runtime_is_running: Optional[bool] = Field(
-        default=None, init=False, description="Is the Workflow runtime running?."
-    )
-    wf_client: Optional[DaprWorkflowClient] = Field(
-        default=None, init=False, description="Workflow client instance."
-    )
-    client: Optional[DaprClient] = Field(
-        default=None, init=False, description="Dapr client instance."
-    )
-    tasks: Dict[str, Callable] = Field(
-        default_factory=dict, init=False, description="Dictionary of registered tasks."
-    )
-    workflows: Dict[str, Callable] = Field(
-        default_factory=dict,
-        init=False,
-        description="Dictionary of registered workflows.",
-    )
-
+    wf_runtime: Optional[WorkflowRuntime] = Field(default=None, init=False, description="Workflow runtime instance.")
+    wf_runtime_is_running: Optional[bool] = Field(default=None, init=False, description="Is the Workflow runtime running?")
+    wf_client: Optional[DaprWorkflowClient] = Field(default=None, init=False, description="Workflow client instance.")
+    client: Optional[DaprClient] = Field(default=None, init=False, description="Dapr client instance.")
+    tasks: Dict[str, Callable] = Field(default_factory=dict, init=False, description="Dictionary of registered tasks.")
+    workflows: Dict[str, Callable] = Field(default_factory=dict, init=False, description="Dictionary of registered workflows.")
+    
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context: Any) -> None:
         """
-        Post-initialization configuration for the WorkflowApp.
-
-        Initializes the Dapr Workflow runtime, client, and state store, and ensures
-        that workflows and tasks are registered.
+        Initialize the Dapr workflow runtime and register tasks & workflows.
         """
-
-        # Initialize WorkflowRuntime and DaprWorkflowClient
+        # Initialize clients and runtime
         self.wf_runtime = WorkflowRuntime()
         self.wf_runtime_is_running = False
         self.wf_client = DaprWorkflowClient()
         self.client = DaprClient()
+        logger.info("WorkflowApp initialized; discovering tasks and workflows.")
 
-        logger.info("Initialized WorkflowApp.")
+        # Discover and register tasks and workflows
+        discovered_tasks = self._discover_tasks()
+        self._register_tasks(discovered_tasks)
+        discovered_wfs = self._discover_workflows()
+        self._register_workflows(discovered_wfs)
 
-        # Register workflows and tasks after the instance is created
-        self.register_all_workflows()
-        self.register_all_tasks()
-
-        # Proceed with base model setup
         super().model_post_init(__context)
+    
+    def get_chat_history(self) -> List[Any]:
+        """
+        Stub for fetching past conversation history. Override in subclasses.
+        """
+        logger.debug("Fetching chat history (default stub)")
+        return []
 
-    def register_agent(
-        self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict
-    ) -> None:
+    def _choose_llm_for(self, method: Callable) -> Optional[ChatClientBase]:
+        """
+        Encapsulate LLM selection logic.
+          1. Use per-task override if provided on decorator.
+          2. Else if marked as explicitly requiring an LLM, fall back to default app LLM.
+          3. Otherwise, returns None.
+        """
+        per_task = getattr(method, '_task_llm', None)
+        if per_task:
+            return per_task
+        if getattr(method, '_explicit_llm', False):
+            return self.llm
+        return None
+    
+    def _discover_tasks(self) -> Dict[str, Callable]:
+        """Gather all @task-decorated functions and methods."""
+        module = sys.modules['__main__']
+        tasks: Dict[str, Callable] = {}
+        # Free functions in __main__
+        for name, fn in inspect.getmembers(module, inspect.isfunction):
+            if getattr(fn, '_is_task', False) and fn.__module__ == module.__name__:
+                tasks[getattr(fn, '_task_name', name)] = fn
+        # Bound methods (if any) discovered via helper
+        for name, method in get_decorated_methods(self, '_is_task').items():
+            tasks[getattr(method, '_task_name', name)] = method
+        logger.debug(f"Discovered tasks: {list(tasks)}")
+        return tasks
+
+    def _register_tasks(self, tasks: Dict[str, Callable]) -> None:
+        """Register each discovered task with the Dapr runtime."""
+        for task_name, method in tasks.items():
+            llm = self._choose_llm_for(method)
+            logger.debug(f"Registering task '{task_name}' with llm={getattr(llm, '__class__', None)}")
+            kwargs = getattr(method, '_task_kwargs', {})
+            task_instance = WorkflowTask(
+                func=method,
+                description=getattr(method, '_task_description', None),
+                agent=getattr(method, '_task_agent', None),
+                llm=llm,
+                include_chat_history=getattr(method, '_task_include_chat_history', False),
+                workflow_app=self,
+                **kwargs
+            )
+            # Wrap for Dapr invocation
+            wrapped = self._make_task_wrapper(task_name, method, task_instance)
+            activity_decorator = self.wf_runtime.activity(name=task_name)
+            self.tasks[task_name] = activity_decorator(wrapped)
+    
+    def _make_task_wrapper(
+        self,
+        task_name: str,
+        method: Callable,
+        task_instance: WorkflowTask
+    ) -> Callable:
+        """Produce the function that Dapr will invoke for each activity."""
+        def run_sync(coro):
+            # Try to get the running event loop and run until complete
+            try:
+                loop = asyncio.get_running_loop()
+                return loop.run_until_complete(coro)
+            except RuntimeError:
+                # If no running loop, create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                return loop.run_until_complete(coro)
+
+        @functools.wraps(method)
+        def wrapper(ctx: WorkflowActivityContext, *args, **kwargs):
+            wf_ctx = WorkflowActivityContext(ctx)
+            try:
+                call = task_instance(wf_ctx, *args, **kwargs)
+                if asyncio.iscoroutine(call):
+                    return run_sync(call)
+                return call
+            except Exception as e:
+                logger.exception(f"Task '{task_name}' failed")
+                raise
+        return wrapper
+
+    def _discover_workflows(self) -> Dict[str, Callable]:
+        """Gather all @workflow-decorated functions and methods."""
+        module = sys.modules['__main__']
+        wfs: Dict[str, Callable] = {}
+        for name, fn in inspect.getmembers(module, inspect.isfunction):
+            if getattr(fn, '_is_workflow', False) and fn.__module__ == module.__name__:
+                wfs[getattr(fn, '_workflow_name', name)] = fn
+        for name, method in get_decorated_methods(self, '_is_workflow').items():
+            wfs[getattr(method, '_workflow_name', name)] = method
+        logger.info(f"Discovered workflows: {list(wfs)}")
+        return wfs
+    
+    def _register_workflows(self, wfs: Dict[str, Callable]) -> None:
+        """Register each discovered workflow with the Dapr runtime."""
+        for wf_name, method in wfs.items():
+            # Use a closure helper to avoid late-binding capture issues.
+            def make_wrapped(meth: Callable) -> Callable:
+                @functools.wraps(meth)
+                def wrapped(*args, **kwargs):
+                    return meth(*args, **kwargs)
+                return wrapped
+
+            decorator = self.wf_runtime.workflow(name=wf_name)
+            self.workflows[wf_name] = decorator(make_wrapped(method))
+
+    def start_runtime(self):
+        """Idempotently start the Dapr workflow runtime."""
+        if not self.wf_runtime_is_running:
+            logger.info("Starting workflow runtime.")
+            self.wf_runtime.start()
+            self.wf_runtime_is_running = True
+        else:
+            logger.debug("Workflow runtime already running; skipping.")
+
+    def stop_runtime(self):
+        """Idempotently stop the Dapr workflow runtime."""
+        if self.wf_runtime_is_running:
+            logger.info("Stopping workflow runtime.")
+            self.wf_runtime.shutdown()
+            self.wf_runtime_is_running = False
+        else:
+            logger.debug("Workflow runtime already stopped; skipping.")
+    
+    def register_agent(self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict) -> None:
         """
         Merges the existing data with the new data and updates the store.
 
@@ -156,11 +265,9 @@ class WorkflowApp(BaseModel):
                 logger.error(f"Error on transaction attempt: {attempt}: {e}")
                 logger.info("Sleeping for 1 second before retrying transaction...")
                 time.sleep(1)
-        raise Exception(
-            f"Failed to update state store key: {store_key} after 10 attempts."
-        )
-
-    def get_data_from_store(self, store_name: str, key: str) -> Tuple[bool, dict]:
+        raise Exception(f"Failed to update state store key: {store_key} after 10 attempts.")
+    
+    def get_data_from_store(self, store_name: str, key: str) -> Optional[dict]:
         """
         Retrieves data from the Dapr state store using the given key.
 
@@ -169,7 +276,7 @@ class WorkflowApp(BaseModel):
             key (str): The key to fetch data from.
 
         Returns:
-            Tuple[bool, dict]: A tuple indicating if data was found (bool) and the retrieved data (dict).
+            Optional[dict]: the retrieved dictionary or None if not found.
         """
         try:
             response: StateResponse = self.client.get_state(
@@ -182,142 +289,7 @@ class WorkflowApp(BaseModel):
                 f"Error retrieving data for key '{key}' from store '{store_name}'"
             )
             return None
-
-    def register_all_tasks(self):
-        """
-        Registers all collected tasks with Dapr while preserving execution logic.
-        """
-        current_module = sys.modules["__main__"]
-
-        all_functions = {}
-        for name, func in inspect.getmembers(current_module, inspect.isfunction):
-            if hasattr(func, "_is_task") and func.__module__ == current_module.__name__:
-                task_name = getattr(func, "_task_name", None) or name
-                all_functions[task_name] = func
-
-        # Load instance methods that are tasks
-        task_methods = get_callable_decorated_methods(self, "_is_task")
-        for method_name, method in task_methods.items():
-            task_name = getattr(method, "_task_name", method_name)
-            all_functions[task_name] = method
-
-        logger.debug(f"Discovered tasks: {list(all_functions.keys())}")
-
-        def make_task_wrapper(method):
-            """Creates a unique task wrapper bound to a specific method reference."""
-            # Extract stored metadata from the function
-            task_name = getattr(method, "_task_name", method.__name__)
-            explicit_llm = getattr(method, "_explicit_llm", False)
-
-            # Always initialize `llm` as `None` explicitly first
-            llm = None
-
-            # If task is explicitly LLM-based, but has no LLM, use `self.llm`
-            if explicit_llm and self.llm is not None:
-                llm = self.llm
-
-            task_kwargs = getattr(method, "_task_kwargs", {})
-
-            task_instance = WorkflowTask(
-                func=method,
-                description=getattr(method, "_task_description", None),
-                agent=getattr(method, "_task_agent", None),
-                llm=llm,
-                include_chat_history=getattr(
-                    method, "_task_include_chat_history", False
-                ),
-                workflow_app=self,
-                **task_kwargs,
-            )
-
-            def run_in_event_loop(coroutine):
-                """Ensures that an async function runs synchronously if needed."""
-                try:
-                    loop = asyncio.get_running_loop()
-                    return loop.run_until_complete(coroutine)
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    return loop.run_until_complete(coroutine)
-
-            @functools.wraps(method)
-            def task_wrapper(ctx: WorkflowActivityContext, *args, **kwargs):
-                """Wrapper function for executing tasks in a Dapr workflow, handling both sync and async tasks."""
-                wf_ctx = WorkflowActivityContext(ctx)
-
-                try:
-                    if inspect.iscoroutinefunction(
-                        method
-                    ) or asyncio.iscoroutinefunction(task_instance.__call__):
-                        return run_in_event_loop(task_instance(wf_ctx, *args, **kwargs))
-                    else:
-                        return task_instance(wf_ctx, *args, **kwargs)
-                except Exception as e:
-                    raise RuntimeError(f"Task '{task_name}' execution failed: {e}")
-
-            return task_name, task_wrapper  # Return both name and wrapper
-
-        for method in all_functions.values():
-            # Ensure function reference is properly preserved inside a function scope
-            task_name, task_wrapper = make_task_wrapper(method)
-
-            # Register the task with Dapr Workflow using the correct task name
-            activity_decorator = self.wf_runtime.activity(name=task_name)
-            registered_activity = activity_decorator(task_wrapper)
-
-            # Store task reference
-            self.tasks[task_name] = registered_activity
-
-    def register_all_workflows(self):
-        """
-        Registers all workflow functions dynamically with Dapr.
-        """
-        current_module = sys.modules["__main__"]
-
-        all_workflows = {}
-        # Load global-level workflow functions
-        for name, func in inspect.getmembers(current_module, inspect.isfunction):
-            if (
-                hasattr(func, "_is_workflow")
-                and func.__module__ == current_module.__name__
-            ):
-                workflow_name = getattr(func, "_workflow_name", None) or name
-                all_workflows[workflow_name] = func
-
-        # Load instance methods that are workflows
-        workflow_methods = get_callable_decorated_methods(self, "_is_workflow")
-        for method_name, method in workflow_methods.items():
-            workflow_name = getattr(method, "_workflow_name", method_name)
-            all_workflows[workflow_name] = method
-
-        logger.info(f"Discovered workflows: {list(all_workflows.keys())}")
-
-        def make_workflow_wrapper(method):
-            """Creates a wrapper to prevent pointer overwrites during workflow registration."""
-            workflow_name = getattr(method, "_workflow_name", method.__name__)
-
-            @functools.wraps(method)
-            def workflow_wrapper(*args, **kwargs):
-                """Directly calls the method without modifying ctx injection (already handled)."""
-                try:
-                    return method(*args, **kwargs)
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Workflow '{workflow_name}' execution failed: {e}"
-                    )
-
-            return workflow_name, workflow_wrapper
-
-        for method in all_workflows.values():
-            workflow_name, workflow_wrapper = make_workflow_wrapper(method)
-
-            # Register the workflow with Dapr using the correct name
-            workflow_decorator = self.wf_runtime.workflow(name=workflow_name)
-            registered_workflow = workflow_decorator(workflow_wrapper)
-
-            # Store workflow reference
-            self.workflows[workflow_name] = registered_workflow
-
+    
     def resolve_task(self, task: Union[str, Callable]) -> Callable:
         """
         Resolves a registered task function by its name or decorated function.
@@ -390,10 +362,9 @@ class WorkflowApp(BaseModel):
             # Start Workflow Runtime
             if not self.wf_runtime_is_running:
                 self.start_runtime()
-                self.wf_runtime_is_running = True
 
             # Generate unique instance ID
-            instance_id = str(uuid.uuid4()).replace("-", "")
+            instance_id = uuid.uuid4().hex
 
             # Resolve the workflow function
             workflow_func = self.resolve_workflow(workflow)
@@ -470,7 +441,7 @@ class WorkflowApp(BaseModel):
                         f"Output: {json.dumps(state.serialized_output, indent=2)}"
                     )
 
-            elif workflow_status == "FAILED":
+            elif workflow_status in ("FAILED", "ABORTED"):
                 # Ensure `failure_details` exists before accessing attributes
                 error_type = getattr(failure_details, "error_type", "Unknown")
                 message = getattr(failure_details, "message", "No message provided")
@@ -485,6 +456,8 @@ class WorkflowApp(BaseModel):
                     f"Stack Trace:\n{stack_trace}\n"
                     f"Input: {json.dumps(state.serialized_input, indent=2)}"
                 )
+
+                self.terminate_workflow(instance_id)
 
             else:
                 logger.warning(
@@ -503,33 +476,33 @@ class WorkflowApp(BaseModel):
             )
         finally:
             logger.info(f"Finished monitoring workflow '{instance_id}'.")
-
-    def run_and_monitor_workflow(
+    
+    async def run_and_monitor_workflow_async(
         self,
         workflow: Union[str, Callable],
-        input: Optional[Union[str, Dict[str, Any]]] = None,
+        input: Optional[Union[str, Dict[str, Any]]] = None
     ) -> Optional[str]:
         """
-        Runs a workflow synchronously and monitors its completion.
-
+        Runs a workflow asynchronously and monitors its completion.
+        
         Args:
             workflow (Union[str, Callable]): The workflow name or callable.
-            input (Optional[Union[str, Dict[str, Any]]]): The workflow input.
-
+            input (Optional[Union[str, Dict[str, Any]]]): The workflow input payload.
+            
         Returns:
             Optional[str]: The serialized output of the workflow.
         """
         instance_id = None
         try:
-            # Schedule the workflow
-            instance_id = self.run_workflow(workflow, input=input)
-
-            # Ensure we run within a new asyncio event loop
-            state = asyncio.run(self.monitor_workflow_state(instance_id))
-
+            # Off-load the potentially blocking run_workflow call to a thread.
+            instance_id = await asyncio.to_thread(self.run_workflow, workflow, input)
+            
+            # Await the asynchronous monitoring of the workflow state.
+            state = await self.monitor_workflow_state(instance_id)
+            
             if not state:
                 raise RuntimeError(f"Workflow '{instance_id}' not found.")
-
+            
             workflow_status = (
                 DaprWorkflowStatus[state.runtime_status.name]
                 if state.runtime_status.name in DaprWorkflowStatus.__members__
@@ -546,17 +519,34 @@ class WorkflowApp(BaseModel):
 
             # Return the final state output
             return state.serialized_output
-
+        
         except Exception as e:
             logger.error(f"Error during workflow '{instance_id}': {e}")
             raise
         finally:
             logger.info(f"Finished workflow with Instance ID: {instance_id}.")
-            self.stop_runtime()
-
-    def terminate_workflow(
-        self, instance_id: str, *, output: Optional[Any] = None
-    ) -> None:
+            # Off-load the stop_runtime call as it may block.
+            await asyncio.to_thread(self.stop_runtime)
+    
+    def run_and_monitor_workflow_sync(
+        self,
+        workflow: Union[str, Callable],
+        input: Optional[Union[str, Dict[str, Any]]] = None
+    ) -> Optional[str]:
+        """
+        Synchronous wrapper for running and monitoring a workflow.
+        This allows calling code that is not async to still run the workflow.
+        
+        Args:
+            workflow (Union[str, Callable]): The workflow name or callable.
+            input (Optional[Union[str, Dict[str, Any]]]): The workflow input payload.
+        
+        Returns:
+            Optional[str]: The serialized output of the workflow.
+        """
+        return asyncio.run(self.run_and_monitor_workflow_async(workflow, input))
+    
+    def terminate_workflow(self, instance_id: str, *, output: Optional[Any] = None) -> None:
         """
         Terminates a running workflow.
 
@@ -623,7 +613,7 @@ class WorkflowApp(BaseModel):
             state = self.wf_client.wait_for_workflow_completion(
                 instance_id,
                 fetch_payloads=fetch_payloads,
-                timeout_in_seconds=timeout_in_seconds,
+                timeout_in_seconds=timeout_in_seconds
             )
             if state:
                 logger.info(
@@ -740,18 +730,3 @@ class WorkflowApp(BaseModel):
             dtask.WhenAnyTask: A task that completes when the first task finishes.
         """
         return dtask.when_any(tasks)
-
-    def start_runtime(self):
-        """
-        Starts the Dapr workflow runtime
-        """
-
-        logger.info("Starting workflow runtime.")
-        self.wf_runtime.start()
-
-    def stop_runtime(self):
-        """
-        Stops the Dapr workflow runtime.
-        """
-        logger.info("Stopping workflow runtime.")
-        self.wf_runtime.shutdown()

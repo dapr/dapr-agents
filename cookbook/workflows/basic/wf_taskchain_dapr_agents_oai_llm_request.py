@@ -39,5 +39,5 @@ if __name__ == "__main__":
     wfapp = WorkflowApp()
 
     # Run workflow
-    results = wfapp.run_and_monitor_workflow(task_chain_workflow)
+    results = wfapp.run_and_monitor_workflow_sync(task_chain_workflow)
     print(results)

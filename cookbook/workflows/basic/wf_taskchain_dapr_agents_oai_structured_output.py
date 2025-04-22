@@ -1,8 +1,8 @@
+import logging
 from dapr_agents.workflow import WorkflowApp, workflow, task
 from dapr_agents.types import DaprWorkflowContext
 from pydantic import BaseModel
 from dotenv import load_dotenv
-import logging
 
 
 @workflow
@@ -29,5 +29,9 @@ if __name__ == "__main__":
 
     wfapp = WorkflowApp()
 
-    results = wfapp.run_and_monitor_workflow(workflow=question, input="Scooby Doo")
+    results = wfapp.run_and_monitor_workflow_sync(
+        workflow=question,
+        input="Scooby Doo"
+    )
+
     print(results)
