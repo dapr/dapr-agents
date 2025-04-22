@@ -1,9 +1,7 @@
 from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
-from dapr_agents.types import DaprWorkflowContext, BaseMessage, EventMessageMetadata
+from dapr_agents.types import DaprWorkflowContext, BaseMessage
 from dapr_agents.workflow.decorators import workflow, task
 from dapr_agents.workflow.messaging.decorator import message_router
-from fastapi.responses import JSONResponse
-from fastapi import Response, status
 from typing import Any, Optional, Dict, Any
 from datetime import timedelta
 from pydantic import BaseModel, Field
@@ -23,8 +21,9 @@ class TriggerAction(BaseModel):
     """
     Represents a message used to trigger an agent's activity within the workflow.
     """
-    task: Optional[str] = Field(None, description="The specific task to execute. If not provided, the agent can act based on its memory or predefined behavior.")
-    iteration: Optional[int] = Field(default=0, description="The current iteration of the workflow loop.")
+    task: Optional[str] = Field(None, description="The specific task to execute. If not provided, the agent will act based on its memory or predefined behavior.")
+    iteration: Optional[int] = Field(0, description="")
+    workflow_instance_id: Optional[str] = Field(default=None, description="Dapr workflow instance id from source if available")
 
 class RandomOrchestrator(OrchestratorWorkflowBase):
     """
@@ -170,29 +169,35 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
             name (str): Name of the agent to trigger.
             instance_id (str): Workflow instance ID for context.
         """
+        logger.info(f"Triggering agent {name} (Instance ID: {instance_id})")
+
         await self.send_message_to_agent(
             name=name,
-            message=TriggerAction(task=None),
-            workflow_instance_id=instance_id,
+            message=TriggerAction(workflow_instance_id=instance_id),
         )
     
     @message_router
-    async def process_agent_response(self, message: AgentTaskResponse, metadata: EventMessageMetadata) -> Response:
+    async def process_agent_response(self, message: AgentTaskResponse):
         """
         Processes agent response messages sent directly to the agent's topic.
 
         Args:
             message (AgentTaskResponse): The agent's response containing task results.
-            metadata (EventMessageMetadata): Metadata associated with the message, including headers.
-        
+
         Returns:
-            Response: A JSON response confirming the workflow event was successfully triggered.
+            None: The function raises a workflow event with the agent's response.
         """
-        agent_response = (message).model_dump()
-        workflow_instance_id = metadata.headers.get("workflow_instance_id")
-        event_name = metadata.headers.get("event_name", "AgentTaskResponse")
+        try:
+            workflow_instance_id = message.get("workflow_instance_id")
 
-        # Raise a workflow event with the Agent's Task Response!
-        self.raise_workflow_event(instance_id=workflow_instance_id, event_name=event_name, data=agent_response)
+            if not workflow_instance_id:
+                logger.error(f"{self.name} received an agent response without a valid workflow_instance_id. Ignoring.")
+                return
 
-        return JSONResponse(content={"message": "Workflow event triggered successfully."}, status_code=status.HTTP_200_OK)
+            logger.info(f"{self.name} processing agent response for workflow instance '{workflow_instance_id}'.")
+
+            # Raise a workflow event with the Agent's Task Response
+            self.raise_workflow_event(instance_id=workflow_instance_id, event_name="AgentTaskResponse", data=message)
+
+        except Exception as e:
+            logger.error(f"Error processing agent response: {e}", exc_info=True)
