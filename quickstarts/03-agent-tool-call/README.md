@@ -172,6 +172,68 @@ print(AIAgent.chat_history)  # Should be empty now
 ```
 This will show agent interaction history growth and reset.
 
+### Persistent Agent Memory
+
+Dapr Agents allows for agents to retain long-term memory by providing automatic state management of the history. The state can be saved into a wide variety of [Dapr supported state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/).
+
+To configure persistent agent memory, follow these steps:
+
+1. Set up the state store configuration. Here's an example of working with local Redis:
+
+```yaml
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: historystore
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+  - name: redisHost
+    value: localhost:6379
+  - name: redisPassword
+    value: ""
+```
+
+Save the file in a `./components` dir.
+
+2. Enable Dapr memory in code
+
+```python
+import asyncio
+from weather_tools import tools
+from dapr_agents import Agent
+from dotenv import load_dotenv
+from dapr_agents.memory import ConversationDaprStateMemory
+
+load_dotenv()
+
+AIAgent = Agent(
+    name="Stevie",
+    role="Weather Assistant",
+    goal="Assist Humans with weather related tasks.",
+    instructions=[
+        "Get accurate weather information",
+        "From time to time, you can also jump after answering the weather question."
+    ],
+    memory=ConversationDaprStateMemory(store_name="historystore", session_id="some-id"),
+    tools=tools
+)
+
+# Wrap your async call
+async def main():
+    await AIAgent.run("What is the weather in Virginia, New York and Washington DC?")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+3. Run the agent with Dapr
+
+```bash
+dapr run --app-id weatheragent --resources-path ./components -- python weather_agent.py
+```
+
 ## Available Agent Types
 
 Dapr Agents provides several agent implementations, each designed for different use cases:

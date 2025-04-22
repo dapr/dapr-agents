@@ -1,6 +1,7 @@
+import logging
+
 from dapr_agents.workflow import WorkflowApp, workflow, task
 from dapr_agents.types import DaprWorkflowContext
-import logging
 
 @workflow(name='random_workflow')
 def task_chain_workflow(ctx:DaprWorkflowContext, input: int):
@@ -32,6 +33,6 @@ if __name__ == '__main__':
 
     wfapp = WorkflowApp()
 
-    results = wfapp.run_and_monitor_workflow(task_chain_workflow, input=10)
+    results = wfapp.run_and_monitor_workflow_sync(task_chain_workflow, input=10)
 
     print(f"Results: {results}")
