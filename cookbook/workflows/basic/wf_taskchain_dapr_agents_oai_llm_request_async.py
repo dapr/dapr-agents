@@ -1,7 +1,9 @@
+import asyncio
+import logging
+
 from dapr_agents.workflow import WorkflowApp, workflow, task
 from dapr_agents.types import DaprWorkflowContext
 from dotenv import load_dotenv
-import logging
 
 # Define Workflow logic
 @workflow(name='lotr_workflow')
@@ -21,7 +23,7 @@ def get_character() -> str:
 def get_line(character: str) -> str:
     pass
 
-if __name__ == '__main__':
+async def main():
     logging.basicConfig(level=logging.INFO)
 
     # Load environment variables
@@ -29,7 +31,10 @@ if __name__ == '__main__':
 
     # Initialize the WorkflowApp
     wfapp = WorkflowApp()
-
+    
     # Run workflow
-    results = wfapp.run_and_monitor_workflow(task_chain_workflow)
-    print(results)
+    result = await wfapp.run_and_monitor_workflow_async(task_chain_workflow)
+    print(f"Results: {result}")
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -5,8 +5,6 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Initialize the WorkflowApp
-
 # Define Workflow logic
 @workflow(name='task_chain_workflow')
 def task_chain_workflow(ctx: DaprWorkflowContext):
@@ -31,5 +29,5 @@ def get_line(character: str) -> str:
 if __name__ == '__main__':
     wfapp = WorkflowApp()
 
-    results = wfapp.run_and_monitor_workflow(task_chain_workflow)
+    results = wfapp.run_and_monitor_workflow_sync(task_chain_workflow)
     print(f"Results: {results}")

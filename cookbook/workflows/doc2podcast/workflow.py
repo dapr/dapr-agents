@@ -358,4 +358,4 @@ if __name__ == '__main__':
         raise ValueError("PDF URL must be provided via CLI or config file.")
     
     # Run the workflow
-    wfapp.run_and_monitor_workflow(workflow=doc2podcast, input=user_input)
+    wfapp.run_and_monitor_workflow_sync(workflow=doc2podcast, input=user_input)

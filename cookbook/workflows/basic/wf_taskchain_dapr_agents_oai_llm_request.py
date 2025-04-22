@@ -1,12 +1,10 @@
 from dapr_agents.workflow import WorkflowApp, workflow, task
 from dapr_agents.types import DaprWorkflowContext
 from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
+import logging
 
 # Define Workflow logic
-@workflow(name='task_chain_workflow')
+@workflow(name='lotr_workflow')
 def task_chain_workflow(ctx: DaprWorkflowContext):
     result1 = yield ctx.call_activity(get_character)
     result2 = yield ctx.call_activity(get_line, input={"character": result1})
@@ -14,7 +12,7 @@ def task_chain_workflow(ctx: DaprWorkflowContext):
 
 @task(description="""
     Pick a random character from The Lord of the Rings\n
-    and respond with the character's name only
+    and respond with the character's name ONLY
 """)
 def get_character() -> str:
     pass
@@ -24,7 +22,14 @@ def get_line(character: str) -> str:
     pass
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+
+    # Load environment variables
+    load_dotenv()
+
+    # Initialize the WorkflowApp
     wfapp = WorkflowApp()
 
+    # Run workflow
     results = wfapp.run_and_monitor_workflow_sync(task_chain_workflow)
-    print(f"Famous Line: {results}")
+    print(results)

@@ -103,7 +103,7 @@ def get_line(character: str) -> str:
 if __name__ == '__main__':
     wfapp = WorkflowApp()
 
-    results = wfapp.run_and_monitor_workflow(task_chain_workflow)
+    results = wfapp.run_and_monitor_workflow_sync(task_chain_workflow)
     print(f"Famous Line: {results}")
 ```
 
@@ -209,7 +209,7 @@ if __name__ == "__main__":
     research_topic = "The environmental impact of quantum computing"
 
     logging.info(f"Starting research workflow on: {research_topic}")
-    results = wfapp.run_and_monitor_workflow(research_workflow, input=research_topic)
+    results = wfapp.run_and_monitor_workflow_sync(research_workflow, input=research_topic)
     logging.info(f"\nResearch Report:\n{results}")
 ```
 
