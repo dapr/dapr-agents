@@ -54,7 +54,7 @@ if __name__ == '__main__':
 
     wfapp = WorkflowApp()
 
-    results = wfapp.run_and_monitor_workflow(workflow=test_workflow)
+    results = wfapp.run_and_monitor_workflow_sync(workflow=test_workflow)
 
     logging.info("Workflow results: %s", results)
     logging.info("Workflow completed successfully.")
