@@ -70,7 +70,7 @@ if len(response.get_content()) > 0:
     print("Response with prompty: ", response.get_content())
 
 # Chat completion with user input
-llm = HFHubChatClient()
+llm = HFHubChatClient(model="microsoft/Phi-3-mini-4k-instruct")
 response = llm.generate(messages=[UserMessage("hello")])
 
 print("Response with user input: ", response.get_content())
