@@ -1,0 +1,16 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: upload
+spec:
+  type: bindings.aws.s3
+  version: v1
+  metadata:
+  - name: bucket
+    value: <BUCKET>
+  - name: region
+    value: <REGION>
+  - name: accessKey
+    value: <ACCESS-KEY>
+  - name: secretKey
+    value: <SECRET-KEY>
