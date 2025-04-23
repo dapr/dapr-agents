@@ -29,7 +29,7 @@ async def start():
     files = None
 
     # Wait for the user to upload a file
-    while files == None:
+    while files is None:
         files = await cl.AskFileMessage(
             content="Please upload a document to begin!",
             accept=["application/pdf"],
