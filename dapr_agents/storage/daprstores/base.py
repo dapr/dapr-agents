@@ -19,7 +19,6 @@ class DaprStoreBase(BaseModel):
         """
         Post-initialization to set Dapr settings based on provided or environment values for host and port.
         """
-        self.client = DaprClient()
 
         # Complete post-initialization
         super().model_post_init(__context)
