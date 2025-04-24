@@ -10,11 +10,14 @@ import venv
 from pathlib import Path
 from typing import Any, Callable, List, Sequence, Union
 
-from pydantic import Field, PrivateAttr 
+from pydantic import Field, PrivateAttr
 
 from dapr_agents.executors import CodeExecutorBase
 from dapr_agents.executors.sandbox import detect_backend, wrap_command, SandboxType
-from dapr_agents.executors.utils.package_manager import get_install_command, get_project_type
+from dapr_agents.executors.utils.package_manager import (
+    get_install_command,
+    get_project_type,
+)
 from dapr_agents.types.executor import ExecutionRequest, ExecutionResult
 
 logger = logging.getLogger(__name__)
@@ -49,7 +52,6 @@ class LocalCodeExecutor(CodeExecutorBase):
 
     _env_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
     _bootstrapped_root: Path | None = PrivateAttr(default=None)
-
 
     def model_post_init(self, __context: Any) -> None:  # noqa: D401
         """Create ``cache_dir`` after pydantic instantiation."""
@@ -132,13 +134,13 @@ class LocalCodeExecutor(CodeExecutorBase):
         cwd = Path.cwd().resolve()
         if self._bootstrapped_root == cwd:
             return
-        
+
         install_cmd = get_install_command(str(cwd))
         if install_cmd:
             logger.info(
                 "bootstrapping %s project with '%s'",
                 get_project_type(str(cwd)).value,
-                install_cmd
+                install_cmd,
             )
 
             proc = await asyncio.create_subprocess_shell(
@@ -150,11 +152,9 @@ class LocalCodeExecutor(CodeExecutorBase):
             _, err = await proc.communicate()
             if proc.returncode:
                 logger.warning(
-                    "bootstrap failed (%d): %s",
-                    proc.returncode,
-                    err.decode().strip()
+                    "bootstrap failed (%d): %s", proc.returncode, err.decode().strip()
                 )
-        
+
         self._bootstrapped_root = cwd
 
     async def _prepare_python_env(self, code: str) -> Path:
@@ -195,15 +195,16 @@ class LocalCodeExecutor(CodeExecutorBase):
             return []
 
         names = {
-            alias.name.partition('.')[0]
+            alias.name.partition(".")[0]
             for node in ast.walk(tree)
             for alias in getattr(node, "names", [])
             if isinstance(node, (ast.Import, ast.ImportFrom))
         }
-        if any(isinstance(node, ast.ImportFrom) and node.module
-            for node in ast.walk(tree)):
+        if any(
+            isinstance(node, ast.ImportFrom) and node.module for node in ast.walk(tree)
+        ):
             names |= {
-                node.module.partition('.')[0]
+                node.module.partition(".")[0]
                 for node in ast.walk(tree)
                 if isinstance(node, ast.ImportFrom) and node.module
             }
@@ -295,7 +296,9 @@ class LocalCodeExecutor(CodeExecutorBase):
             raise RuntimeError(msg)
         logger.debug("Installed %d package(s)", len(packages))
 
-    async def _run_subprocess(self, cmd: Sequence[str], timeout: int) -> ExecutionResult:
+    async def _run_subprocess(
+        self, cmd: Sequence[str], timeout: int
+    ) -> ExecutionResult:
         """
         Run *cmd* with *timeout* seconds.
 
@@ -308,24 +311,22 @@ class LocalCodeExecutor(CodeExecutorBase):
         """
         try:
             proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             out, err = await asyncio.wait_for(proc.communicate(), timeout)
             status = "success" if proc.returncode == 0 else "error"
             if err:
                 logger.debug("stderr: %s", err.decode().strip())
             return ExecutionResult(
-                status=status,
-                output=out.decode(),
-                exit_code=proc.returncode
+                status=status, output=out.decode(), exit_code=proc.returncode
             )
 
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
-            return ExecutionResult(status="error", output="execution timed out", exit_code=1)
+            return ExecutionResult(
+                status="error", output="execution timed out", exit_code=1
+            )
 
         except Exception as exc:
             return ExecutionResult(status="error", output=str(exc), exit_code=1)

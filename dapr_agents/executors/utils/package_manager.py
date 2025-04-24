@@ -8,6 +8,7 @@ from enum import Enum
 
 class PackageManagerType(str, Enum):
     """Types of package managers that can be detected."""
+
     PIP = "pip"
     POETRY = "poetry"
     PIPENV = "pipenv"
@@ -26,6 +27,7 @@ class PackageManagerType(str, Enum):
 
 class ProjectType(str, Enum):
     """Types of projects that can be detected."""
+
     PYTHON = "python"
     NODE = "node"
     RUST = "rust"
@@ -82,7 +84,7 @@ PACKAGE_MANAGERS: dict[PackageManagerType, PackageManager] = {
         add_cmd="pip install",
         remove_cmd="pip uninstall",
         update_cmd="pip install --upgrade",
-        markers=["requirements.txt", "setup.py", "setup.cfg"]
+        markers=["requirements.txt", "setup.py", "setup.cfg"],
     ),
     PackageManagerType.POETRY: PackageManager(
         name=PackageManagerType.POETRY,
@@ -91,7 +93,7 @@ PACKAGE_MANAGERS: dict[PackageManagerType, PackageManager] = {
         add_cmd="poetry add",
         remove_cmd="poetry remove",
         update_cmd="poetry update",
-        markers=["pyproject.toml", "poetry.lock"]
+        markers=["pyproject.toml", "poetry.lock"],
     ),
     PackageManagerType.PIPENV: PackageManager(
         name=PackageManagerType.PIPENV,
@@ -100,7 +102,7 @@ PACKAGE_MANAGERS: dict[PackageManagerType, PackageManager] = {
         add_cmd="pipenv install",
         remove_cmd="pipenv uninstall",
         update_cmd="pipenv update",
-        markers=["Pipfile", "Pipfile.lock"]
+        markers=["Pipfile", "Pipfile.lock"],
     ),
     PackageManagerType.CONDA: PackageManager(
         name=PackageManagerType.CONDA,
@@ -109,7 +111,7 @@ PACKAGE_MANAGERS: dict[PackageManagerType, PackageManager] = {
         add_cmd="conda install",
         remove_cmd="conda remove",
         update_cmd="conda update",
-        markers=["environment.yml", "environment.yaml"]
+        markers=["environment.yml", "environment.yaml"],
     ),
     # JavaScript package managers
     PackageManagerType.NPM: PackageManager(
@@ -119,7 +121,7 @@ PACKAGE_MANAGERS: dict[PackageManagerType, PackageManager] = {
         add_cmd="npm install",
         remove_cmd="npm uninstall",
         update_cmd="npm update",
-        markers=["package.json", "package-lock.json"]
+        markers=["package.json", "package-lock.json"],
     ),
     PackageManagerType.YARN: PackageManager(
         name=PackageManagerType.YARN,
@@ -128,7 +130,7 @@ PACKAGE_MANAGERS: dict[PackageManagerType, PackageManager] = {
         add_cmd="yarn add",
         remove_cmd="yarn remove",
         update_cmd="yarn upgrade",
-        markers=["package.json", "yarn.lock"]
+        markers=["package.json", "yarn.lock"],
     ),
     PackageManagerType.PNPM: PackageManager(
         name=PackageManagerType.PNPM,
@@ -137,7 +139,7 @@ PACKAGE_MANAGERS: dict[PackageManagerType, PackageManager] = {
         add_cmd="pnpm add",
         remove_cmd="pnpm remove",
         update_cmd="pnpm update",
-        markers=["package.json", "pnpm-lock.yaml"]
+        markers=["package.json", "pnpm-lock.yaml"],
     ),
     PackageManagerType.BUN: PackageManager(
         name=PackageManagerType.BUN,
@@ -146,7 +148,7 @@ PACKAGE_MANAGERS: dict[PackageManagerType, PackageManager] = {
         add_cmd="bun add",
         remove_cmd="bun remove",
         update_cmd="bun update",
-        markers=["package.json", "bun.lockb"]
+        markers=["package.json", "bun.lockb"],
     ),
 }
 
@@ -262,7 +264,11 @@ def get_add_command(directory: str, package: str, dev: bool = False) -> Optional
         PackageManagerType.BUN,
         PackageManagerType.COMPOSER,
     }:
-        flag = "--dev" if pm.name in {PackageManagerType.PIP, PackageManagerType.POETRY} else "--save-dev"
+        flag = (
+            "--dev"
+            if pm.name in {PackageManagerType.PIP, PackageManagerType.POETRY}
+            else "--save-dev"
+        )
         return f"{base} {package} {flag}"
     return f"{base} {package}"
 
@@ -283,21 +289,21 @@ def get_project_type(directory: str) -> ProjectType:
 
     # Fallback by extension scanning
     exts: Set[str] = set()
-    for path in Path(directory).rglob('*'):
+    for path in Path(directory).rglob("*"):
         if path.is_file():
             exts.add(path.suffix.lower())
             if len(exts) > 50:
                 break
-    if '.py' in exts:
+    if ".py" in exts:
         return ProjectType.PYTHON
-    if {'.js', '.ts'} & exts:
+    if {".js", ".ts"} & exts:
         return ProjectType.NODE
-    if '.rs' in exts:
+    if ".rs" in exts:
         return ProjectType.RUST
-    if '.go' in exts:
+    if ".go" in exts:
         return ProjectType.GO
-    if '.java' in exts:
+    if ".java" in exts:
         return ProjectType.JAVA
-    if '.php' in exts:
+    if ".php" in exts:
         return ProjectType.PHP
     return ProjectType.UNKNOWN

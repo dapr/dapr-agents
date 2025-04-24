@@ -58,6 +58,7 @@ _READ_ONLY_SEATBELT_POLICY = r"""
 )
 """
 
+
 def detect_backend() -> SandboxType:  # noqa: D401
     """Return the best-effort sandbox backend for the current host."""
     system = platform.system()
@@ -72,7 +73,7 @@ def _seatbelt_cmd(cmd: Sequence[str], writable_paths: List[Path]) -> List[str]:
     """
     Construct a **macOS seatbelt** command line.
 
-    The resulting list can be passed directly to `asyncio.create_subprocess_exec`.  
+    The resulting list can be passed directly to `asyncio.create_subprocess_exec`.
     It launches the target *cmd* under **sandbox-exec** with an
     *initially-read-only* profile; every directory in *writable_paths* is added
     as an explicit “write-allowed sub-path”.
@@ -82,7 +83,7 @@ def _seatbelt_cmd(cmd: Sequence[str], writable_paths: List[Path]) -> List[str]:
             The *raw* command (program + args) that should run inside the sandbox.
         writable_paths:
             Absolute paths that the child process must be able to modify
-            (e.g. a temporary working directory).  
+            (e.g. a temporary working directory).
             Each entry becomes a param `-D WR<i>=<path>` and a corresponding
             ``file-write*`` rule in the generated profile.
 
@@ -143,8 +144,8 @@ def _firejail_cmd(cmd: Sequence[str], writable_paths: List[Path]) -> List[str]:
     rw_flags = sum([["--whitelist", str(p)] for p in writable_paths], [])
     return [
         "firejail",
-        "--quiet",        # suppress banner
-        "--seccomp",      # enable seccomp filter
+        "--quiet",  # suppress banner
+        "--seccomp",  # enable seccomp filter
         "--nosound",
         "--net=none",
         *rw_flags,
