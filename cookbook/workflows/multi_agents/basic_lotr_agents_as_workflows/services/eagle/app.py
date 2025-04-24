@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import asyncio
 import logging
 
+
 async def main():
     try:
         # Define Eagle Agent
@@ -16,7 +17,7 @@ async def main():
                 "Provide swift and strategic transport for those on critical journeys.",
                 "Offer aerial insights, spotting dangers, tracking movements, and scouting strategic locations.",
                 "Speak with wisdom and authority, as one of the ancient and noble Great Eagles.",
-                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."
+                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task.",
             ],
             message_bus_name="messagepubsub",
             state_store_name="agenticworkflowstate",
@@ -29,9 +30,10 @@ async def main():
     except Exception as e:
         print(f"Error starting service: {e}")
 
+
 if __name__ == "__main__":
     load_dotenv()
 
     logging.basicConfig(level=logging.INFO)
-    
+
     asyncio.run(main())

@@ -18,47 +18,49 @@ agent = Agent(
     name="KnowledgeBase",
     role="Content Expert",
     instructions=instructions,
-    memory=ConversationDaprStateMemory(store_name="conversationstore", session_id="my-unique-id"),
+    memory=ConversationDaprStateMemory(
+        store_name="conversationstore", session_id="my-unique-id"
+    ),
 )
+
 
 @cl.on_chat_start
 async def start():
     files = None
 
     # Wait for the user to upload a file
-    while files == None:
+    while files is None:
         files = await cl.AskFileMessage(
             content="Please upload a document to begin!",
-            accept=["application/pdf"],  
-            max_size_mb=10,            
-            max_files=1
+            accept=["application/pdf"],
+            max_size_mb=10,
+            max_files=1,
         ).send()
 
     text_file = files[0]
     elements = partition_pdf(filename=text_file.path)
 
     # Use extract LLM-ready text and associated metadata
-    document_text = "\n\n".join([
-    f"[{el.category}] {el.text.strip()}"
-    for el in elements
-    if el.text and el.text.strip()
-])
-    
+    document_text = "\n\n".join(
+        [
+            f"[{el.category}] {el.text.strip()}"
+            for el in elements
+            if el.text and el.text.strip()
+        ]
+    )
+
     # upload the file
-    with open(text_file.path, 'rb') as f:
+    with open(text_file.path, "rb") as f:
         file_bytes = f.read()
         upload(file_bytes, text_file.name, "upload")
 
     # give the model the document to learn
-    response = await agent.run("This is a document element to learn: "+ document_text)
+    response = await agent.run("This is a document element to learn: " + document_text)
 
-    await cl.Message(
-        content=f"`{text_file.name}` uploaded."
-    ).send()
-    
-    await cl.Message(
-        content=response
-    ).send()
+    await cl.Message(content=f"`{text_file.name}` uploaded.").send()
+
+    await cl.Message(content=response).send()
+
 
 @cl.on_message
 async def main(message: cl.Message):
@@ -69,11 +71,17 @@ async def main(message: cl.Message):
         content=result,
     ).send()
 
+
 def upload(contents: bytes, filename: str, binding_name: str):
     # upload the file to any storage provider using the same code with Dapr
     try:
         with DaprClient() as d:
-            d.invoke_binding(binding_name=binding_name, operation='create', data=contents, binding_metadata={'key': filename})
+            d.invoke_binding(
+                binding_name=binding_name,
+                operation="create",
+                data=contents,
+                binding_metadata={"key": filename},
+            )
             print(f"Uploaded file to storage: {filename}")
     except Exception as e:
-         print(f"Upload failed: {e}")
+        print(f"Upload failed: {e}")

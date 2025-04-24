@@ -9,6 +9,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class Neo4jGraphStore(GraphStoreBase):
     """
     Neo4j-based graph store implementation using Pydantic.
@@ -20,22 +21,32 @@ class Neo4jGraphStore(GraphStoreBase):
     database: str = Field(default="neo4j", description="The Neo4j database to use.")
     sanitize: bool = Field(default=True, description="Whether to sanitize the results.")
     timeout: int = Field(default=30, description="Query timeout in seconds.")
-    graph_schema: Dict[str, Any] = Field(default_factory=dict, description="Schema of the graph structure.")
+    graph_schema: Dict[str, Any] = Field(
+        default_factory=dict, description="Schema of the graph structure."
+    )
 
     # Client initialized in model_post_init, not during regular initialization
-    client: Optional[Neo4jClient] = Field(default=None, init=False, description="Client for interacting with the Neo4j database.")
-    
+    client: Optional[Neo4jClient] = Field(
+        default=None,
+        init=False,
+        description="Client for interacting with the Neo4j database.",
+    )
+
     def model_post_init(self, __context: Any) -> None:
         """
         Post-initialization to set up the Neo4j client after model instantiation.
         """
-        self.client = Neo4jClient(uri=self.uri, user=self.user, password=self.password, database=self.database)
+        self.client = Neo4jClient(
+            uri=self.uri, user=self.user, password=self.password, database=self.database
+        )
         logger.info(f"Neo4jGraphStore initialized with database {self.database}")
 
         # Complete post-initialization
         super().model_post_init(__context)
 
-    def batch_execute(self, query: str, data: List[Dict[str, Any]], batch_size: int = 1000) -> None:
+    def batch_execute(
+        self, query: str, data: List[Dict[str, Any]], batch_size: int = 1000
+    ) -> None:
         """
         Execute a Cypher query in batches.
 
@@ -51,16 +62,20 @@ class Neo4jGraphStore(GraphStoreBase):
 
         total_batches = (len(data) + batch_size - 1) // batch_size
         for i in range(0, len(data), batch_size):
-            batch = data[i:i + batch_size]
+            batch = data[i : i + batch_size]
             try:
-                with self.client.driver.session(database=self.client.database) as session:
+                with self.client.driver.session(
+                    database=self.client.database
+                ) as session:
                     # Pass the correct parameter name
                     session.run(query, {"data": batch})
-                    logger.info("Processed batch %d/%d", i // batch_size + 1, total_batches)
+                    logger.info(
+                        "Processed batch %d/%d", i // batch_size + 1, total_batches
+                    )
             except Neo4jError as e:
                 logger.error("Batch execution failed: %s", str(e))
                 raise ValueError(f"Batch execution failed: {str(e)}")
-    
+
     def add_node(self, node: Node) -> None:
         """
         Add a single node to the Neo4j database.
@@ -114,11 +129,7 @@ class Neo4jGraphStore(GraphStoreBase):
             # Prepare data for batch processing
             current_time = get_current_time()
             data = [
-                {
-                    **n.model_dump(),
-                    "current_time": current_time
-                }
-                for n in grouped_nodes
+                {**n.model_dump(), "current_time": current_time} for n in grouped_nodes
             ]
 
             # Execute in batches for the current label
@@ -128,7 +139,7 @@ class Neo4jGraphStore(GraphStoreBase):
             except ValueError as e:
                 logger.error(f"Failed to add nodes with label `{label}`: {str(e)}")
                 raise
-    
+
     def add_relationship(self, relationship: Relationship) -> None:
         """
         Create a single relationship between two nodes in the Neo4j database.
@@ -142,8 +153,9 @@ class Neo4jGraphStore(GraphStoreBase):
         # Encapsulate the single relationship in a list and delegate
         self.add_relationships([relationship])
 
-
-    def add_relationships(self, relationships: List[Relationship], batch_size: int = 1000) -> None:
+    def add_relationships(
+        self, relationships: List[Relationship], batch_size: int = 1000
+    ) -> None:
         """
         Create multiple relationships between nodes in the Neo4j database in batches.
 
@@ -173,11 +185,7 @@ class Neo4jGraphStore(GraphStoreBase):
             # Prepare data for batch processing
             current_time = get_current_time()
             data = [
-                {
-                    **rel.model_dump(),
-                    "current_time": current_time
-                }
-                for rel in rel_group
+                {**rel.model_dump(), "current_time": current_time} for rel in rel_group
             ]
 
             # Execute in batches for the current relationship type
@@ -185,7 +193,9 @@ class Neo4jGraphStore(GraphStoreBase):
                 self.batch_execute(query, data, batch_size)
                 logger.info(f"Relationships of type `{rel_type}` added successfully.")
             except ValueError as e:
-                logger.error(f"Failed to add relationships of type `{rel_type}`: {str(e)}")
+                logger.error(
+                    f"Failed to add relationships of type `{rel_type}`: {str(e)}"
+                )
                 raise
 
     def query(
@@ -225,7 +235,9 @@ class Neo4jGraphStore(GraphStoreBase):
                 if pagination_limit:
                     query = f"{query} LIMIT {pagination_limit}"
 
-                result = session.run(Query(text=query, timeout=self.timeout), parameters=params)
+                result = session.run(
+                    Query(text=query, timeout=self.timeout), parameters=params
+                )
                 json_data = [record.data() for record in result]
 
                 # Optional sanitization of results
@@ -247,7 +259,7 @@ class Neo4jGraphStore(GraphStoreBase):
         except Neo4jError as e:
             logger.error("Neo4j error: %s | Query: %s", str(e), query)
             raise ValueError(f"Neo4j error: {str(e)}")
-    
+
     def reset(self):
         """
         Reset the Neo4j database by deleting all nodes and relationships.
@@ -260,7 +272,9 @@ class Neo4jGraphStore(GraphStoreBase):
         try:
             with self.client.driver.session() as session:
                 session.run("CALL apoc.schema.assert({}, {})")
-                session.run("CALL apoc.periodic.iterate('MATCH (n) RETURN n', 'DETACH DELETE n', {batchSize:1000, iterateList:true})")
+                session.run(
+                    "CALL apoc.periodic.iterate('MATCH (n) RETURN n', 'DETACH DELETE n', {batchSize:1000, iterateList:true})"
+                )
                 logger.info("Database reset successfully")
         except Neo4jError as e:
             logger.error("Failed to reset database: %s", str(e))
@@ -290,9 +304,9 @@ class Neo4jGraphStore(GraphStoreBase):
             RETURN label, collect({property: property, type: type}) AS properties
             """
             INDEXES_QUERY = """
-            CALL apoc.schema.nodes() 
-            YIELD label, properties, type, size, valuesSelectivity 
-            WHERE type = 'RANGE' 
+            CALL apoc.schema.nodes()
+            YIELD label, properties, type, size, valuesSelectivity
+            WHERE type = 'RANGE'
             RETURN *, size * valuesSelectivity AS distinctValues
             """
 
@@ -350,16 +364,16 @@ class Neo4jGraphStore(GraphStoreBase):
     def validate_schema(self, expected_schema: BaseModel) -> bool:
         """
         Validate the current graph schema against an expected Pydantic schema model.
-        
+
         Args:
             expected_schema (Type[BaseModel]): The Pydantic schema model to validate against.
-        
+
         Returns:
             bool: True if schema matches, False otherwise.
         """
         # Retrieve the current schema
         current_schema = self.get_schema()
-        
+
         try:
             # Attempt to initialize the expected schema with the current schema
             validated_schema = expected_schema(**current_schema)
@@ -373,11 +387,11 @@ class Neo4jGraphStore(GraphStoreBase):
             return False
 
     def create_vector_index(
-        self, 
-        label: str, 
-        property: str, 
-        dimensions: int, 
-        similarity_function: Literal['cosine', 'dot', 'euclidean'] = 'cosine'
+        self,
+        label: str,
+        property: str,
+        dimensions: int,
+        similarity_function: Literal["cosine", "dot", "euclidean"] = "cosine",
     ) -> None:
         """
         Creates a vector index for a specified label and property in the Neo4j database.
@@ -396,7 +410,7 @@ class Neo4jGraphStore(GraphStoreBase):
         # Ensure label and property are non-empty strings
         if not all([label, property]):
             raise ValueError("Both `label` and `property` must be non-empty strings.")
-        
+
         # Ensure dimensions is valid
         if not isinstance(dimensions, int) or dimensions <= 0:
             raise ValueError("`dimensions` must be a positive integer.")
@@ -420,17 +434,21 @@ class Neo4jGraphStore(GraphStoreBase):
                 session.run(query)
                 logger.info(
                     "Vector index `%s` for label `%s` on property `%s` created successfully.",
-                    index_name, label, property
+                    index_name,
+                    label,
+                    property,
                 )
 
             # Optionally update graph schema
             if "indexes" in self.graph_schema:
-                self.graph_schema["indexes"].append({
-                    "label": label,
-                    "property": property,
-                    "dimensions": dimensions,
-                    "similarity_function": similarity_function
-                })
+                self.graph_schema["indexes"].append(
+                    {
+                        "label": label,
+                        "property": property,
+                        "dimensions": dimensions,
+                        "similarity_function": similarity_function,
+                    }
+                )
 
         except Neo4jError as e:
             logger.error("Failed to create vector index: %s", str(e))

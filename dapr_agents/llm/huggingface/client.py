@@ -8,19 +8,43 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class HFHubInferenceClientBase(LLMClientBase):
     """
     Base class for managing Hugging Face Inference API clients.
     Handles client initialization, configuration, and shared logic.
     """
-    model: Optional[str] = Field(default=None, description="Model ID or URL for the Hugging Face API. Cannot be used with `base_url`. If set, the client will infer a model-specific endpoint.")
-    token: Optional[Union[str, bool]] = Field(default=None, description="Hugging Face token. Defaults to the locally saved token if not provided. Pass `False` to disable authentication.")
-    api_key: Optional[Union[str, bool]] = Field(default=None, description="Alias for `token` for compatibility with OpenAI's client. Cannot be used if `token` is set.")
-    base_url: Optional[str] = Field(default=None, description="Base URL to run inference. Alias for `model`. Cannot be used if `model` is set.")
-    headers: Optional[Dict[str, str]] = Field(default=None, description="Additional headers to send to the server. Overrides the default authorization and user-agent headers.")
-    cookies: Optional[Dict[str, str]] = Field(default=None, description="Additional cookies to send to the server.")
-    proxies: Optional[Any] = Field(default=None, description="Proxies to use for the request.")
-    timeout: Optional[float] = Field(default=None, description="The maximum number of seconds to wait for a response from the server. Loading a new model in Inference. API can take up to several minutes. Defaults to None, meaning it will loop until the server is available.")
+
+    model: Optional[str] = Field(
+        default=None,
+        description="Model ID or URL for the Hugging Face API. Cannot be used with `base_url`. If set, the client will infer a model-specific endpoint.",
+    )
+    token: Optional[Union[str, bool]] = Field(
+        default=None,
+        description="Hugging Face token. Defaults to the locally saved token if not provided. Pass `False` to disable authentication.",
+    )
+    api_key: Optional[Union[str, bool]] = Field(
+        default=None,
+        description="Alias for `token` for compatibility with OpenAI's client. Cannot be used if `token` is set.",
+    )
+    base_url: Optional[str] = Field(
+        default=None,
+        description="Base URL to run inference. Alias for `model`. Cannot be used if `model` is set.",
+    )
+    headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Additional headers to send to the server. Overrides the default authorization and user-agent headers.",
+    )
+    cookies: Optional[Dict[str, str]] = Field(
+        default=None, description="Additional cookies to send to the server."
+    )
+    proxies: Optional[Any] = Field(
+        default=None, description="Proxies to use for the request."
+    )
+    timeout: Optional[float] = Field(
+        default=None,
+        description="The maximum number of seconds to wait for a response from the server. Loading a new model in Inference. API can take up to several minutes. Defaults to None, meaning it will loop until the server is available.",
+    )
 
     @model_validator(mode="before")
     def validate_and_initialize(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -29,40 +53,44 @@ class HFHubInferenceClientBase(LLMClientBase):
         - Normalizes 'token' and 'api_key' to a single field.
         - Validates exclusivity of 'model' and 'base_url'.
         """
-        token = values.get('token')
-        api_key = values.get('api_key')
-        model = values.get('model')
-        base_url = values.get('base_url')
+        token = values.get("token")
+        api_key = values.get("api_key")
+        model = values.get("model")
+        base_url = values.get("base_url")
 
         # Ensure mutual exclusivity of `token` and `api_key`
         if token is not None and api_key is not None:
-            raise ValueError("Provide only one of 'api_key' or 'token'. They are aliases and cannot coexist.")
+            raise ValueError(
+                "Provide only one of 'api_key' or 'token'. They are aliases and cannot coexist."
+            )
 
         # Normalize `token` to `api_key`
         if token is not None:
-            values['api_key'] = token
-            values.pop('token', None)  # Remove `token` for consistency
-        
+            values["api_key"] = token
+            values.pop("token", None)  # Remove `token` for consistency
+
         # Use environment variable if `api_key` is not explicitly provided
         if api_key is None:
             api_key = os.environ.get("HUGGINGFACE_API_KEY")
 
         if api_key is None:
-            raise ValueError("API key is required. Set it explicitly or in the 'HUGGINGFACE_API_KEY' environment variable.")
+            raise ValueError(
+                "API key is required. Set it explicitly or in the 'HUGGINGFACE_API_KEY' environment variable."
+            )
 
-        values['api_key'] = api_key
+        values["api_key"] = api_key
 
         # mutual‑exclusivity
         if model is not None and base_url is not None:
             raise ValueError("Cannot provide both 'model' and 'base_url'.")
-        
+
         # require at least one
         if model is None and base_url is None:
             raise ValueError(
                 "HF Inference needs either `model` or `base_url`. "
                 "E.g. model='gpt2' or base_url='https://…/models/gpt2'."
             )
-        
+
         # auto‑derive model from base_url
         if model is None:
             derived = base_url.rstrip("/").split("/")[-1]
@@ -80,7 +108,7 @@ class HFHubInferenceClientBase(LLMClientBase):
         self._config = self.get_config()
         self._client = self.get_client()
         return super().model_post_init(__context)
-    
+
     def get_config(self) -> HFInferenceClientConfig:
         """
         Returns the appropriate configuration for the Hugging Face Inference API.
@@ -92,7 +120,7 @@ class HFHubInferenceClientBase(LLMClientBase):
             headers=self.headers,
             cookies=self.cookies,
             proxies=self.proxies,
-            timeout=self.timeout
+            timeout=self.timeout,
         )
 
     def get_client(self) -> InferenceClient:
@@ -107,11 +135,13 @@ class HFHubInferenceClientBase(LLMClientBase):
             headers=config.headers,
             cookies=config.cookies,
             proxies=config.proxies,
-            timeout=self.timeout
+            timeout=self.timeout,
         )
-    
+
     @classmethod
-    def from_config(cls, client_options: HFInferenceClientConfig, timeout: float = 1500):
+    def from_config(
+        cls, client_options: HFInferenceClientConfig, timeout: float = 1500
+    ):
         """
         Initializes the HFHubInferenceClientBase using HFInferenceClientConfig.
 

@@ -8,14 +8,29 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class VectorStoreBase(BaseModel, ABC):
     """Base interface for a vector store."""
 
-    client: Any = Field(default=None, init=False, description="The client to interact with the vector store.")
-    embedding_function: EmbedderBase = Field(default=None, init=False, description="Embedding function to use to embed documents.")
-    
+    client: Any = Field(
+        default=None,
+        init=False,
+        description="The client to interact with the vector store.",
+    )
+    embedding_function: EmbedderBase = Field(
+        default=None,
+        init=False,
+        description="Embedding function to use to embed documents.",
+    )
+
     @abstractmethod
-    def add(self, documents: Iterable[str], embeddings: Optional[List[List[float]]] = None, metadatas: Optional[List[dict]] = None, **kwargs: Any) -> List[int]:
+    def add(
+        self,
+        documents: Iterable[str],
+        embeddings: Optional[List[List[float]]] = None,
+        metadatas: Optional[List[dict]] = None,
+        **kwargs: Any,
+    ) -> List[int]:
         """Add documents to the vector store.
 
         Args:
@@ -64,7 +79,12 @@ class VectorStoreBase(BaseModel, ABC):
         pass
 
     @abstractmethod
-    def search_similar(self, query_texts: Optional[Union[List[str], str]] = None, k: int = 4, **kwargs: Any) -> List[Dict]:
+    def search_similar(
+        self,
+        query_texts: Optional[Union[List[str], str]] = None,
+        k: int = 4,
+        **kwargs: Any,
+    ) -> List[Dict]:
         """Search for similar documents and Return metadata of documents most similar to query.
 
         Args:
@@ -84,6 +104,8 @@ class VectorStoreBase(BaseModel, ABC):
             documents (List[Document]): List of `Document` objects to add.
         """
         texts = [doc.text for doc in documents]
-        metadatas = [doc.metadata for doc in documents] if documents[0].metadata else None
+        metadatas = (
+            [doc.metadata for doc in documents] if documents[0].metadata else None
+        )
         ids = [str(uuid.uuid4()) for _ in documents]
         self.add(documents=texts, embeddings=None, metadatas=metadatas, ids=ids)

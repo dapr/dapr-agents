@@ -1,10 +1,12 @@
 from typing import Union
 import httpx
 
+
 class HTTPHelper:
     """
     HTTP operations helper.
     """
+
     @staticmethod
     def configure_timeout(timeout: Union[int, float, dict]) -> httpx.Timeout:
         """

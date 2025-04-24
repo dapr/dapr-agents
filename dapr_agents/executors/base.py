@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from typing import List, ClassVar
 
+
 class CodeExecutorBase(BaseModel, ABC):
     """Abstract base class for executing code in different environments."""
 

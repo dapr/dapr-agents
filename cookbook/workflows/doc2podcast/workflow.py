@@ -22,16 +22,19 @@ load_dotenv()
 # Initialize the WorkflowApp
 wfapp = WorkflowApp()
 
+
 # Define structured output models
 class SpeakerEntry(BaseModel):
     name: str
     text: str
 
+
 class PodcastDialogue(BaseModel):
     participants: List[SpeakerEntry]
 
+
 # Define Workflow logic
-@wfapp.workflow(name='doc2podcast')
+@wfapp.workflow(name="doc2podcast")
 def doc2podcast(ctx: DaprWorkflowContext, input: Dict[str, Any]):
     # Extract pre-validated input
     podcast_name = input["podcast_name"]
@@ -44,10 +47,13 @@ def doc2podcast(ctx: DaprWorkflowContext, input: Dict[str, Any]):
     audio_model = input["audio_model"]
 
     # Step 1: Assign voices to the team
-    team_config = yield ctx.call_activity(assign_podcast_voices, input={
-        "host_config": host_config,
-        "participant_configs": participant_configs,
-    })
+    team_config = yield ctx.call_activity(
+        assign_podcast_voices,
+        input={
+            "host_config": host_config,
+            "participant_configs": participant_configs,
+        },
+    )
 
     # Step 2: Read PDF and get documents
     file_path = yield ctx.call_activity(download_pdf, input=file_input)
@@ -67,7 +73,9 @@ def doc2podcast(ctx: DaprWorkflowContext, input: Dict[str, Any]):
             "context": accumulated_context,
             "participants": [p["name"] for p in team_config["participants"]],
         }
-        generated_prompt = yield ctx.call_activity(generate_prompt, input=document_with_context)
+        generated_prompt = yield ctx.call_activity(
+            generate_prompt, input=document_with_context
+        )
 
         # Use the prompt to generate the structured dialogue
         prompt_parameters = {
@@ -76,7 +84,9 @@ def doc2podcast(ctx: DaprWorkflowContext, input: Dict[str, Any]):
             "prompt": generated_prompt,
             "max_rounds": max_rounds,
         }
-        dialogue_entry = yield ctx.call_activity(generate_transcript, input=prompt_parameters)
+        dialogue_entry = yield ctx.call_activity(
+            generate_transcript, input=prompt_parameters
+        )
 
         # Update context and transcript parts
         conversations = dialogue_entry["participants"]
@@ -85,18 +95,30 @@ def doc2podcast(ctx: DaprWorkflowContext, input: Dict[str, Any]):
             transcript_parts.append(participant)
 
     # Step 4: Write the final transcript to a file
-    yield ctx.call_activity(write_transcript_to_file, input={"podcast_dialogue": transcript_parts, "output_path": output_transcript_path})
+    yield ctx.call_activity(
+        write_transcript_to_file,
+        input={
+            "podcast_dialogue": transcript_parts,
+            "output_path": output_transcript_path,
+        },
+    )
 
     # Step 5: Convert transcript to audio using team_config
-    yield ctx.call_activity(convert_transcript_to_audio, input={
-        "transcript_parts": transcript_parts,
-        "output_path": output_audio_path,
-        "voices": team_config,
-        "model": audio_model,
-    })
+    yield ctx.call_activity(
+        convert_transcript_to_audio,
+        input={
+            "transcript_parts": transcript_parts,
+            "output_path": output_audio_path,
+            "voices": team_config,
+            "model": audio_model,
+        },
+    )
+
 
 @wfapp.task
-def assign_podcast_voices(host_config: Dict[str, Any], participant_configs: List[Dict[str, Any]]) -> Dict[str, Any]:
+def assign_podcast_voices(
+    host_config: Dict[str, Any], participant_configs: List[Dict[str, Any]]
+) -> Dict[str, Any]:
     """
     Assign voices to the podcast host and participants.
 
@@ -112,7 +134,9 @@ def assign_podcast_voices(host_config: Dict[str, Any], participant_configs: List
 
     # Assign voice to the host if not already specified
     if "voice" not in host_config:
-        host_config["voice"] = next(voice for voice in allowed_voices if voice not in assigned_voices)
+        host_config["voice"] = next(
+            voice for voice in allowed_voices if voice not in assigned_voices
+        )
     assigned_voices.add(host_config["voice"])
 
     # Assign voices to participants, ensuring no duplicates
@@ -131,6 +155,7 @@ def assign_podcast_voices(host_config: Dict[str, Any], participant_configs: List
         "participants": updated_participants,
     }
 
+
 @wfapp.task
 def download_pdf(pdf_url: str, local_directory: str = ".") -> str:
     """
@@ -142,7 +167,7 @@ def download_pdf(pdf_url: str, local_directory: str = ".") -> str:
 
         if not filename:
             raise ValueError("Invalid URL: Cannot determine filename from the URL.")
-        
+
         filename = filename.replace(" ", "_")
         local_directory_path = Path(local_directory).resolve()
         local_directory_path.mkdir(parents=True, exist_ok=True)
@@ -163,6 +188,7 @@ def download_pdf(pdf_url: str, local_directory: str = ".") -> str:
         logger.error(f"Error downloading PDF: {e}")
         raise
 
+
 @wfapp.task
 def read_pdf(file_path: str) -> List[dict]:
     """
@@ -176,8 +202,15 @@ def read_pdf(file_path: str) -> List[dict]:
         logger.error(f"Error reading document: {e}")
         raise
 
+
 @wfapp.task
-def generate_prompt(text: str, iteration_index: int, total_iterations: int, context: str, participants: List[str]) -> str:
+def generate_prompt(
+    text: str,
+    iteration_index: int,
+    total_iterations: int,
+    context: str,
+    participants: List[str],
+) -> str:
     """
     Generate a prompt dynamically for the chunk.
     """
@@ -189,7 +222,7 @@ def generate_prompt(text: str, iteration_index: int, total_iterations: int, cont
     """
 
     if participants:
-        participant_names = ', '.join(participants)
+        participant_names = ", ".join(participants)
         instructions += f"\nPARTICIPANTS: {participant_names}"
     else:
         instructions += "\nPARTICIPANTS: None (Host-only conversation)"
@@ -214,7 +247,7 @@ def generate_prompt(text: str, iteration_index: int, total_iterations: int, cont
         - Follow up on the previous discussion points and introduce the next topic naturally.
         """
 
-    instructions += f"""
+    instructions += """
     TASK:
     - Use the provided TEXT to guide this part of the conversation.
     - Alternate between speakers, ensuring a natural conversational flow.
@@ -222,7 +255,9 @@ def generate_prompt(text: str, iteration_index: int, total_iterations: int, cont
     """
     return f"{instructions}\nTEXT:\n{text.strip()}"
 
-@wfapp.task("""
+
+@wfapp.task(
+    """
     Generate a structured podcast dialogue based on the context and text provided.
     The podcast is titled '{podcast_name}' and is hosted by {host_name}.
     If participants are available, each speaker is limited to a maximum of {max_rounds} turns per iteration.
@@ -231,26 +266,39 @@ def generate_prompt(text: str, iteration_index: int, total_iterations: int, cont
     If participants are not available, the host drives the conversation alone.
     Keep the dialogue concise and ensure a natural conversational flow.
     {prompt}
-""")
-def generate_transcript(podcast_name: str, host_name: str, prompt: str, max_rounds: int) -> PodcastDialogue:
+"""
+)
+def generate_transcript(
+    podcast_name: str, host_name: str, prompt: str, max_rounds: int
+) -> PodcastDialogue:
     pass
 
+
 @wfapp.task
-def write_transcript_to_file(podcast_dialogue: List[Dict[str, Any]], output_path: str) -> None:
+def write_transcript_to_file(
+    podcast_dialogue: List[Dict[str, Any]], output_path: str
+) -> None:
     """
     Write the final structured transcript to a file.
     """
     try:
         with open(output_path, "w", encoding="utf-8") as file:
             import json
+
             json.dump(podcast_dialogue, file, ensure_ascii=False, indent=4)
         logger.info(f"Podcast dialogue successfully written to {output_path}")
     except Exception as e:
         logger.error(f"Error writing podcast dialogue to file: {e}")
         raise
 
+
 @wfapp.task
-def convert_transcript_to_audio(transcript_parts: List[Dict[str, Any]], output_path: str, voices: Dict[str, Any], model: str = "tts-1") -> None:
+def convert_transcript_to_audio(
+    transcript_parts: List[Dict[str, Any]],
+    output_path: str,
+    voices: Dict[str, Any],
+    model: str = "tts-1",
+) -> None:
     """
     Converts a transcript into a single audio file using the OpenAI Audio Client and pydub for concatenation.
 
@@ -271,24 +319,30 @@ def convert_transcript_to_audio(transcript_parts: List[Dict[str, Any]], output_p
         for part in transcript_parts:
             speaker_name = part["name"]
             speaker_text = part["text"]
-            assigned_voice = voice_mapping.get(speaker_name, "alloy")  # Default to "alloy" if not found
+            assigned_voice = voice_mapping.get(
+                speaker_name, "alloy"
+            )  # Default to "alloy" if not found
 
             # Log assigned voice for debugging
-            logger.info(f"Generating audio for {speaker_name} using voice '{assigned_voice}'.")
+            logger.info(
+                f"Generating audio for {speaker_name} using voice '{assigned_voice}'."
+            )
 
             # Create TTS request
             tts_request = AudioSpeechRequest(
                 model=model,
                 input=speaker_text,
                 voice=assigned_voice,
-                response_format="mp3"
+                response_format="mp3",
             )
 
             # Generate the audio
             audio_bytes = client.create_speech(request=tts_request)
 
             # Create an AudioSegment from the audio bytes
-            audio_chunk = AudioSegment.from_file(io.BytesIO(audio_bytes), format=tts_request.response_format)
+            audio_chunk = AudioSegment.from_file(
+                io.BytesIO(audio_bytes), format=tts_request.response_format
+            )
 
             # Append the audio to the combined segment
             combined_audio += audio_chunk + AudioSegment.silent(duration=300)
@@ -301,17 +355,18 @@ def convert_transcript_to_audio(transcript_parts: List[Dict[str, Any]], output_p
         logger.error(f"Error during audio generation: {e}")
         raise
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import argparse
     import json
     import yaml
 
     def load_config(file_path: str) -> dict:
         """Load configuration from a JSON or YAML file."""
-        with open(file_path, 'r') as file:
-            if file_path.endswith('.yaml') or file_path.endswith('.yml'):
+        with open(file_path, "r") as file:
+            if file_path.endswith(".yaml") or file_path.endswith(".yml"):
                 return yaml.safe_load(file)
-            elif file_path.endswith('.json'):
+            elif file_path.endswith(".json"):
                 return json.load(file)
             else:
                 raise ValueError("Unsupported file format. Use JSON or YAML.")
@@ -323,11 +378,21 @@ if __name__ == '__main__':
     parser.add_argument("--podcast_name", type=str, help="Name of the podcast.")
     parser.add_argument("--host_name", type=str, help="Name of the host.")
     parser.add_argument("--host_voice", type=str, help="Voice for the host.")
-    parser.add_argument("--participants", type=str, nargs='+', help="List of participant names.")
-    parser.add_argument("--max_rounds", type=int, default=4, help="Number of turns per round.")
-    parser.add_argument("--output_transcript_path", type=str, help="Path to save the output transcript.")
-    parser.add_argument("--output_audio_path", type=str, help="Path to save the final audio file.")
-    parser.add_argument("--audio_model", type=str, default="tts-1", help="Audio model for TTS.")
+    parser.add_argument(
+        "--participants", type=str, nargs="+", help="List of participant names."
+    )
+    parser.add_argument(
+        "--max_rounds", type=int, default=4, help="Number of turns per round."
+    )
+    parser.add_argument(
+        "--output_transcript_path", type=str, help="Path to save the output transcript."
+    )
+    parser.add_argument(
+        "--output_audio_path", type=str, help="Path to save the final audio file."
+    )
+    parser.add_argument(
+        "--audio_model", type=str, default="tts-1", help="Audio model for TTS."
+    )
 
     args = parser.parse_args()
 
@@ -337,15 +402,18 @@ if __name__ == '__main__':
     # Merge CLI and Config inputs
     user_input = {
         "pdf_url": args.pdf_url or config.get("pdf_url"),
-        "podcast_name": args.podcast_name or config.get("podcast_name", "Default Podcast"),
+        "podcast_name": args.podcast_name
+        or config.get("podcast_name", "Default Podcast"),
         "host": {
             "name": args.host_name or config.get("host", {}).get("name", "Host"),
             "voice": args.host_voice or config.get("host", {}).get("voice", "alloy"),
         },
         "participants": config.get("participants", []),
         "max_rounds": args.max_rounds or config.get("max_rounds", 4),
-        "output_transcript_path": args.output_transcript_path or config.get("output_transcript_path", "podcast_dialogue.json"),
-        "output_audio_path": args.output_audio_path or config.get("output_audio_path", "final_podcast.mp3"),
+        "output_transcript_path": args.output_transcript_path
+        or config.get("output_transcript_path", "podcast_dialogue.json"),
+        "output_audio_path": args.output_audio_path
+        or config.get("output_audio_path", "final_podcast.mp3"),
         "audio_model": args.audio_model or config.get("audio_model", "tts-1"),
     }
 
@@ -356,6 +424,6 @@ if __name__ == '__main__':
     # Validate inputs
     if not user_input["pdf_url"]:
         raise ValueError("PDF URL must be provided via CLI or config file.")
-    
+
     # Run the workflow
     wfapp.run_and_monitor_workflow_sync(workflow=doc2podcast, input=user_input)

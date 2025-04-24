@@ -5,13 +5,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class VectorToolStore(BaseModel):
     """
-    Manages tool information within a vector store, providing methods for adding tools and 
+    Manages tool information within a vector store, providing methods for adding tools and
     retrieving similar tools based on queries.
     """
 
-    vector_store: VectorStoreBase = Field(..., description="The vector store instance for tool data storage.")
+    vector_store: VectorStoreBase = Field(
+        ..., description="The vector store instance for tool data storage."
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -24,23 +27,23 @@ class VectorToolStore(BaseModel):
                 definitions and optional metadata for each tool.
         """
         logger.info("Adding tools to Vector Tool Store.")
-        
+
         documents = []
         metadatas = []
-        
+
         for tool in tools:
-            func_name = tool['definition']['function']['name']
-            description = tool['definition']['function']['description']
-            parameters = tool['definition']['function']['parameters']
-            
+            func_name = tool["definition"]["function"]["name"]
+            description = tool["definition"]["function"]["description"]
+            parameters = tool["definition"]["function"]["parameters"]
+
             # Prepare the document for each tool
             documents.append(f"{func_name}: {description}. Args schema: {parameters}")
-            
+
             # Prepare metadata, ensuring 'name' is always set
-            metadata = tool.get('metadata', {}).copy()
-            metadata.setdefault('name', func_name)  # Ensure name is set in metadata
+            metadata = tool.get("metadata", {}).copy()
+            metadata.setdefault("name", func_name)  # Ensure name is set in metadata
             metadatas.append(metadata)
-        
+
         self.vector_store.add(documents=documents, metadatas=metadatas)
 
     def get_similar_tools(self, query_texts: str, k: int = 4) -> List[Dict[str, Any]]:

@@ -1,5 +1,11 @@
-from dapr_agents.prompt.utils.jinja import render_jinja_template, extract_jinja_variables
-from dapr_agents.prompt.utils.fstring import render_fstring_template, extract_fstring_variables
+from dapr_agents.prompt.utils.jinja import (
+    render_jinja_template,
+    extract_jinja_variables,
+)
+from dapr_agents.prompt.utils.fstring import (
+    render_fstring_template,
+    extract_fstring_variables,
+)
 from typing import Any, Dict
 
 DEFAULT_FORMATTER_MAPPING = {
@@ -12,9 +18,10 @@ DEFAULT_VARIABLE_EXTRACTOR_MAPPING = {
     "jinja2": extract_jinja_variables,
 }
 
+
 class StringPromptHelper:
     """
-    Utility class for handling string-based operations, such as template formatting, 
+    Utility class for handling string-based operations, such as template formatting,
     extracting variables, and normalizing input data.
     """
 
