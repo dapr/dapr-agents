@@ -1,227 +1,331 @@
-from dapr_agents.executors import CodeExecutorBase
-from dapr_agents.types.executor import ExecutionRequest, ExecutionResult
-from typing import List, Union, Any, Callable
-from pydantic import Field
-from pathlib import Path
+"""Local executor that runs Python or shell snippets in cached virtual-envs."""
+
 import asyncio
-import venv
-import logging
+import ast
 import hashlib
 import inspect
+import logging
 import time
-import ast
+import venv
+from pathlib import Path
+from typing import Any, Callable, List, Sequence, Union
+
+from pydantic import Field, PrivateAttr 
+
+from dapr_agents.executors import CodeExecutorBase
+from dapr_agents.executors.sandbox import detect_backend, wrap_command, SandboxType
+from dapr_agents.executors.utils.package_manager import get_install_command, get_project_type
+from dapr_agents.types.executor import ExecutionRequest, ExecutionResult
 
 logger = logging.getLogger(__name__)
 
-class LocalCodeExecutor(CodeExecutorBase):
-    """Executes code locally in an optimized virtual environment with caching, 
-    user-defined functions, and enhanced security.
 
-    Supports Python and shell execution with real-time logging, 
-    efficient dependency management, and reduced file I/O.
+class LocalCodeExecutor(CodeExecutorBase):
+    """
+    Run snippets locally with **optional OS-level sandboxing** and
+    per-snippet virtual-env caching.
     """
 
-    cache_dir: Path = Field(default_factory=lambda: Path.cwd() / ".dapr_agents_cached_envs", description="Directory for cached virtual environments and execution artifacts.")
-    user_functions: List[Callable] = Field(default_factory=list, description="List of user-defined functions available during execution.")
-    cleanup_threshold: int = Field(default=604800, description="Time (in seconds) before cached virtual environments are considered for cleanup.")
+    cache_dir: Path = Field(
+        default_factory=lambda: Path.cwd() / ".dapr_agents_cached_envs",
+        description="Directory that stores cached virtual environments.",
+    )
+    user_functions: List[Callable] = Field(
+        default_factory=list,
+        description="Functions whose source is prepended to every Python snippet.",
+    )
+    sandbox: SandboxType = Field(
+        default="auto",
+        description="'seatbelt' | 'firejail' | 'none' | 'auto' (best available)",
+    )
+    writable_paths: List[Path] = Field(
+        default_factory=list,
+        description="Extra paths the sandboxed process may write to.",
+    )
+    cleanup_threshold: int = Field(
+        default=604_800,  # one week
+        description="Seconds before a cached venv is considered stale.",
+    )
 
-    _env_lock = asyncio.Lock()
+    _env_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
+    _bootstrapped_root: Path | None = PrivateAttr(default=None)
 
-    def model_post_init(self, __context: Any) -> None:
-        """Ensures the cache directory is created after model initialization."""
+
+    def model_post_init(self, __context: Any) -> None:  # noqa: D401
+        """Create ``cache_dir`` after pydantic instantiation."""
         super().model_post_init(__context)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("Cache directory set.")
-        logger.debug(f"{self.cache_dir}")
+        logger.debug("venv cache directory: %s", self.cache_dir)
 
-    async def execute(self, request: Union[ExecutionRequest, dict]) -> List[ExecutionResult]:
-        """Executes Python or shell code securely in a persistent virtual environment with caching and real-time logging.
+    async def execute(
+        self, request: Union[ExecutionRequest, dict]
+    ) -> List[ExecutionResult]:
+        """
+        Run the snippets in *request* and return their results.
 
         Args:
-            request (Union[ExecutionRequest, dict]): The execution request containing code snippets.
+            request: ``ExecutionRequest`` instance or a raw mapping that can
+                be unpacked into one.
 
         Returns:
-            List[ExecutionResult]: A list of execution results for each snippet.
+            A list with one ``ExecutionResult`` for every snippet in the
+            original request.
         """
         if isinstance(request, dict):
             request = ExecutionRequest(**request)
 
+        await self._bootstrap_project()
         self.validate_snippets(request.snippets)
-        results = []
-    
-        for snippet in request.snippets:
-            start_time = time.time()
 
+        #  Resolve sandbox once
+        eff_backend: SandboxType = (
+            detect_backend() if self.sandbox == "auto" else self.sandbox
+        )
+        if eff_backend != "none":
+            logger.info(
+                "Sandbox backend enabled: %s%s",
+                eff_backend,
+                f" (writable: {', '.join(map(str, self.writable_paths))})"
+                if self.writable_paths
+                else "",
+            )
+        else:
+            logger.info("Sandbox disabled - running commands directly.")
+
+        # Main loop
+        results: list[ExecutionResult] = []
+        for snip_idx, snippet in enumerate(request.snippets, start=1):
+            start = time.perf_counter()
+
+            # Assemble the *raw* command
             if snippet.language == "python":
-                required_packages = self._extract_imports(snippet.code)
-                logger.info(f"Packages Required: {required_packages}")
-                venv_path = await self._get_or_create_cached_env(required_packages)
-
-                # Load user-defined functions dynamically in memory
-                function_code = "\n".join(inspect.getsource(f) for f in self.user_functions) if self.user_functions else ""
-                exec_script = f"{function_code}\n{snippet.code}" if function_code else snippet.code
-
-                python_executable = venv_path / "bin" / "python3"
-                command = [str(python_executable), "-c", exec_script]
+                env = await self._prepare_python_env(snippet.code)
+                python_bin = env / "bin" / "python3"
+                prelude = "\n".join(inspect.getsource(fn) for fn in self.user_functions)
+                script = f"{prelude}\n{snippet.code}" if prelude else snippet.code
+                raw_cmd: Sequence[str] = [str(python_bin), "-c", script]
             else:
-                command = ["sh", "-c", snippet.code]
+                raw_cmd = ["sh", "-c", snippet.code]
 
-            logger.info("Executing command")
-            logger.debug(f"{' '.join(command)}")
+            # Wrap for sandbox
+            final_cmd = wrap_command(raw_cmd, eff_backend, self.writable_paths)
+            logger.debug(
+                "Snippet %s - launch command: %s",
+                snip_idx,
+                " ".join(final_cmd),
+            )
 
-            try:
-                # Start subprocess execution with explicit timeout
-                process = await asyncio.create_subprocess_exec(
-                    *command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    close_fds=True
-                )
+            # Run it
+            snip_timeout = getattr(snippet, "timeout", request.timeout)
+            results.append(await self._run_subprocess(final_cmd, snip_timeout))
 
-                # Wait for completion with timeout enforcement
-                stdout_output, stderr_output = await asyncio.wait_for(process.communicate(), timeout=request.timeout)
-
-                status = "success" if process.returncode == 0 else "error"
-                execution_time = time.time() - start_time
-
-                logger.info(f"Execution completed in {execution_time:.2f} seconds.")
-                if stderr_output:
-                    logger.error(f"STDERR: {stderr_output.decode()}")
-
-                results.append(ExecutionResult(
-                    status=status,
-                    output=stdout_output.decode(),
-                    exit_code=process.returncode
-                ))
-
-            except asyncio.TimeoutError:
-                process.terminate()  # Ensure subprocess is killed if it times out
-                results.append(ExecutionResult(status="error", output="Execution timed out", exit_code=1))
-            except Exception as e:
-                results.append(ExecutionResult(status="error", output=str(e), exit_code=1))
+            logger.info(
+                "Snippet %s finished in %.3fs",
+                snip_idx,
+                time.perf_counter() - start,
+            )
 
         return results
 
-    def _extract_imports(self, code: str) -> List[str]:
-        """Parses a Python script and extracts top-level module imports.
+    async def _bootstrap_project(self) -> None:
+        """Install top-level dependencies once per executor instance."""
+        cwd = Path.cwd().resolve()
+        if self._bootstrapped_root == cwd:
+            return
+        
+        install_cmd = get_install_command(str(cwd))
+        if install_cmd:
+            logger.info(
+                "bootstrapping %s project with '%s'",
+                get_project_type(str(cwd)).value,
+                install_cmd
+            )
+
+            proc = await asyncio.create_subprocess_shell(
+                install_cmd,
+                cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, err = await proc.communicate()
+            if proc.returncode:
+                logger.warning(
+                    "bootstrap failed (%d): %s",
+                    proc.returncode,
+                    err.decode().strip()
+                )
+        
+        self._bootstrapped_root = cwd
+
+    async def _prepare_python_env(self, code: str) -> Path:
+        """
+        Ensure a virtual-env exists that satisfies *code* imports.
 
         Args:
-            code (str): The Python code snippet to analyze.
+            code: User-supplied Python source.
 
         Returns:
-            List[str]: A list of imported module names found in the code.
+            Path to the virtual-env directory.
+        """
+        imports = self._extract_imports(code)
+        env = await self._get_or_create_cached_env(imports)
+        missing = await self._get_missing_packages(imports, env)
+        if missing:
+            await self._install_missing_packages(missing, env)
+        return env
+
+    @staticmethod
+    def _extract_imports(code: str) -> List[str]:
+        """
+        Return all top-level imported module names in *code*.
+
+        Args:
+            code: Python source to scan.
+
+        Returns:
+            Unique list of first-segment module names.
 
         Raises:
-            SyntaxError: If the code has invalid syntax and cannot be parsed.
+            SyntaxError: If *code* cannot be parsed.
         """
         try:
-            parsed_code = ast.parse(code)
-        except SyntaxError as e:
-            logger.error(f"Syntax error while parsing code: {e}")
+            tree = ast.parse(code)
+        except SyntaxError:
+            logger.error("cannot parse user code, assuming no imports")
             return []
 
-        modules = set()
-        for node in ast.walk(parsed_code):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    modules.add(alias.name.split('.')[0])  # Get the top-level package
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                modules.add(node.module.split('.')[0])
+        names = {
+            alias.name.partition('.')[0]
+            for node in ast.walk(tree)
+            for alias in getattr(node, "names", [])
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+        }
+        if any(isinstance(node, ast.ImportFrom) and node.module
+            for node in ast.walk(tree)):
+            names |= {
+                node.module.partition('.')[0]
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom) and node.module
+            }
+        return sorted(names)
 
-        return list(modules)
-
-    async def _get_missing_packages(self, packages: List[str], env_path: Path) -> List[str]:
-        """Determines which packages are missing inside a given virtual environment.
-
-        Args:
-            packages (List[str]): A list of package names to check.
-            env_path (Path): Path to the virtual environment.
-
-        Returns:
-            List[str]: A list of packages that are missing from the virtual environment.
+    async def _get_missing_packages(
+        self, packages: List[str], env_path: Path
+    ) -> List[str]:
         """
-        python_bin = env_path / "bin" / "python3"
-
-        async def check_package(pkg):
-            process = await asyncio.create_subprocess_exec(
-                str(python_bin), "-c", f"import {pkg}",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            await process.wait()
-            return pkg if process.returncode != 0 else None  # Return package name if missing
-
-        tasks = [check_package(pkg) for pkg in packages]
-        results = await asyncio.gather(*tasks)
-
-        return [pkg for pkg in results if pkg]  # Filter out installed packages
-
-
-    async def _get_or_create_cached_env(self, dependencies: List[str]) -> Path:
-        """Creates or retrieves a cached virtual environment based on dependencies.
-
-        This function checks if a suitable cached virtual environment exists.
-        If it does not, it creates a new one and installs missing dependencies.
+        Identify which *packages* are not importable from *env_path*.
 
         Args:
-            dependencies (List[str]): List of required package names.
+            packages: Candidate import names.
+            env_path: Path to the virtual-env.
 
         Returns:
-            Path: Path to the virtual environment directory.
+            Subset of *packages* that need installation.
+        """
+        python = env_path / "bin" / "python3"
+
+        async def probe(pkg: str) -> str | None:
+            proc = await asyncio.create_subprocess_exec(
+                str(python),
+                "- <<PY\nimport importlib.util, sys;"
+                f"sys.exit(importlib.util.find_spec('{pkg}') is None)\nPY",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
+            return pkg if proc.returncode else None
+
+        missing = await asyncio.gather(*(probe(p) for p in packages))
+        return [m for m in missing if m]
+
+    async def _get_or_create_cached_env(self, deps: List[str]) -> Path:
+        """
+        Return a cached venv path keyed by the sorted list *deps*.
+
+        Args:
+            deps: Import names required by user code.
+
+        Returns:
+            Path to the virtual-env directory.
 
         Raises:
-            RuntimeError: If virtual environment creation or package installation fails.
+            RuntimeError: If venv creation fails.
         """
-        async with self._env_lock:
-            env_hash = hashlib.md5(",".join(sorted(dependencies)).encode()).hexdigest()
-            env_path = self.cache_dir / f"env_{env_hash}"
+        digest = hashlib.sha1(",".join(sorted(deps)).encode()).hexdigest()
+        env_path = self.cache_dir / f"env_{digest}"
 
+        async with self._env_lock:
             if env_path.exists():
                 logger.info("Reusing cached virtual environment.")
             else:
-                logger.info("Setting up a new virtual environment.")
                 try:
-                    venv.create(str(env_path), with_pip=True)
-                except Exception as e:
-                    logger.error(f"Failed to create virtual environment: {e}")
-                    raise RuntimeError(f"Virtual environment creation failed: {e}")
+                    venv.create(env_path, with_pip=True)
+                    logger.info("Created a new virtual environment")
+                    logger.debug("venv %s created", env_path)
+                except Exception as exc:  # noqa: BLE001
+                    raise RuntimeError("virtual-env creation failed") from exc
+        return env_path
 
-            # Identify missing packages
-            missing_packages = await self._get_missing_packages(dependencies, env_path)
-
-            if missing_packages:
-                await self._install_missing_packages(missing_packages, env_path)
-
-            return env_path
-
-
-    async def _install_missing_packages(self, packages: List[str], env_dir: Path):
-        """Installs missing Python packages inside the virtual environment.
+    async def _install_missing_packages(
+        self, packages: List[str], env_dir: Path
+    ) -> None:
+        """
+        ``pip install`` *packages* inside *env_dir*.
 
         Args:
-            packages (List[str]): A list of package names to install.
-            env_dir (Path): Path to the virtual environment where packages should be installed.
+            packages: Package names to install.
+            env_dir: Target virtual-env directory.
 
         Raises:
-            RuntimeError: If the package installation process fails.
+            RuntimeError: If installation returns non-zero exit code.
         """
-        if not packages:
-            return
+        python = env_dir / "bin" / "python3"
+        cmd = [str(python), "-m", "pip", "install", *packages]
+        logger.info("Installing %s", ", ".join(packages))
 
-        python_bin = env_dir / "bin" / "python3"
-        command = [str(python_bin), "-m", "pip", "install", *packages]
-
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.DEVNULL,  # Suppresses stdout since it's not used
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            close_fds=True
         )
-        _, stderr = await process.communicate()  # Capture only stderr
+        _, err = await proc.communicate()
+        if proc.returncode != 0:
+            msg = err.decode().strip()
+            logger.error("pip install failed: %s", msg)
+            raise RuntimeError(msg)
+        logger.debug("Installed %d package(s)", len(packages))
 
-        if process.returncode != 0:
-            error_msg = stderr.decode().strip()
-            logger.error(f"Package installation failed: {error_msg}")
-            raise RuntimeError(f"Package installation failed: {error_msg}")
+    async def _run_subprocess(self, cmd: Sequence[str], timeout: int) -> ExecutionResult:
+        """
+        Run *cmd* with *timeout* seconds.
 
-        logger.info(f"Installed dependencies: {', '.join(packages)}")
+        Args:
+            cmd: Command list to execute.
+            timeout: Maximum runtime in seconds.
+
+        Returns:
+            ``ExecutionResult`` with captured output.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            out, err = await asyncio.wait_for(proc.communicate(), timeout)
+            status = "success" if proc.returncode == 0 else "error"
+            if err:
+                logger.debug("stderr: %s", err.decode().strip())
+            return ExecutionResult(
+                status=status,
+                output=out.decode(),
+                exit_code=proc.returncode
+            )
+
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return ExecutionResult(status="error", output="execution timed out", exit_code=1)
+
+        except Exception as exc:
+            return ExecutionResult(status="error", output=str(exc), exit_code=1)
