@@ -1,3 +1,4 @@
+from dapr.ext.workflow import DaprWorkflowContext
 from enum import Enum
 
 
