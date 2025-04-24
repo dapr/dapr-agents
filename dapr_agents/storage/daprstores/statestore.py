@@ -75,11 +75,11 @@ class DaprStateStore(DaprStoreBase):
 
         with DaprClient() as client:
             response: BulkStatesResponse = client.get_bulk_state(
-                    store_name=self.store_name,
-                    keys=keys,
-                    parallelism=parallelism,
-                    states_metadata=states_metadata,
-                )
+                store_name=self.store_name,
+                keys=keys,
+                parallelism=parallelism,
+                states_metadata=states_metadata,
+            )
 
             if response and response.items:
                 return response.items
@@ -101,11 +101,11 @@ class DaprStateStore(DaprStoreBase):
         """
         with DaprClient() as client:
             client.save_state(
-                    store_name=self.store_name,
-                    key=key,
-                    value=value,
-                    state_metadata=state_metadata,
-                )
+                store_name=self.store_name,
+                key=key,
+                value=value,
+                state_metadata=state_metadata,
+            )
 
     def save_bulk_state(
         self, states: List[StateItem], metadata: Optional[Dict[str, str]] = None
