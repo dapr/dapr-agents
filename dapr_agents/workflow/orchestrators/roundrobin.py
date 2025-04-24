@@ -1,6 +1,7 @@
 from dapr_agents.workflow.messaging.decorator import message_router
 from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
-from dapr_agents.types import DaprWorkflowContext, BaseMessage
+from dapr.ext.workflow import DaprWorkflowContext
+from dapr_agents.types import BaseMessage
 from dapr_agents.workflow.decorators import workflow, task
 from typing import Any, Optional, Dict
 from pydantic import BaseModel, Field

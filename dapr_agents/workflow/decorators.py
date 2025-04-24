@@ -5,7 +5,7 @@ import logging
 
 from pydantic import BaseModel, ValidationError
 
-from dapr_agents.types import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext
 
 
 def route(path: str, method: str = "GET", **kwargs):

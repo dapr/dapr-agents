@@ -1,5 +1,5 @@
 from dapr_agents.workflow import WorkflowApp, workflow, task
-from dapr_agents.types import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext
 from dotenv import load_dotenv
 import logging
 

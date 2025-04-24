@@ -1,5 +1,5 @@
 from dapr_agents import OpenAIChatClient, NVIDIAChatClient
-from dapr_agents.types import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext
 from dapr_agents.workflow import WorkflowApp, task, workflow
 from dotenv import load_dotenv
 import os

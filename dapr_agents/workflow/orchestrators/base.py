@@ -3,7 +3,7 @@ from dapr_agents.workflow.agentic import AgenticWorkflow
 from pydantic import Field, model_validator
 import logging
 from typing import Any, Optional
-from dapr_agents.types import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext
 
 logger = logging.getLogger(__name__)
 
