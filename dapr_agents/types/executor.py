@@ -26,6 +26,7 @@ class CodeSnippet(BaseModel):
         description="The programming language of the code snippet (e.g., 'python', 'javascript').",
     )
     code: str = Field(..., description="The actual source code to be executed.")
+    timeout: int = Field(5, description="Per-snippet timeout (seconds). Executor falls back to the request-level timeout if omitted.")
 
 
 class ExecutionRequest(BaseModel):
