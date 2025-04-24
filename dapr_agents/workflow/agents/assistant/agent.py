@@ -5,10 +5,11 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import Field
 
+from dapr.ext.workflow import DaprWorkflowContext
+
 from dapr_agents.types import (
     AgentError,
     ChatCompletion,
-    DaprWorkflowContext,
     ToolMessage,
 )
 from dapr_agents.workflow.agents.assistant.schemas import (

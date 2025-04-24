@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from dapr_agents.types import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext
 from dapr_agents.workflow.decorators import task, workflow
 from dapr_agents.workflow.messaging.decorator import message_router
 from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase

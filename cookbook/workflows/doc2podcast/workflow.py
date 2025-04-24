@@ -1,5 +1,5 @@
 from dapr_agents.document.reader.pdf.pypdf import PyPDFReader
-from dapr_agents.types import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext
 from dapr_agents import WorkflowApp
 from urllib.parse import urlparse, unquote
 from dotenv import load_dotenv
