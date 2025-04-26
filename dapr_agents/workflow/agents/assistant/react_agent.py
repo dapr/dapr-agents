@@ -13,40 +13,40 @@ class ReActAssistantAgent(AssistantAgent):
     """
 
     def construct_system_prompt(self) -> str:
-      """
-      Constructs a system prompt in the ReAct reasoning-action format based on the agent's attributes and tools.
+        """
+        Constructs a system prompt in the ReAct reasoning-action format based on the agent's attributes and tools.
 
-      Returns:
-          str: The structured system message content.
-      """
-      # Initialize prompt parts with the current date as the first entry
-      prompt_parts = [f"# Today's date is: {datetime.now().strftime('%B %d, %Y')}"]
+        Returns:
+            str: The structured system message content.
+        """
+        # Initialize prompt parts with the current date as the first entry
+        prompt_parts = [f"# Today's date is: {datetime.now().strftime('%B %d, %Y')}"]
 
-      # Append name if provided
-      if self.name:
-          prompt_parts.append("## Name\nYour name is {{name}}.")
+        # Append name if provided
+        if self.name:
+            prompt_parts.append("## Name\nYour name is {{name}}.")
 
-      # Append role and goal with default values if not set
-      prompt_parts.append("## Role\nYour role is {{role}}.")
-      prompt_parts.append("## Goal\n{{goal}}.")
+        # Append role and goal with default values if not set
+        prompt_parts.append("## Role\nYour role is {{role}}.")
+        prompt_parts.append("## Goal\n{{goal}}.")
 
-      # Append instructions if provided
-      if self.instructions:
-          prompt_parts.append("## Instructions\n{{instructions}}")
+        # Append instructions if provided
+        if self.instructions:
+            prompt_parts.append("## Instructions\n{{instructions}}")
 
-      # Tools section with schema details
-      tools_section = "## Tools\nYou have access ONLY to the following tools:\n"
-      for tool in self.tools:
-          tools_section += (
-              f"{tool.name}: {tool.description}. Args schema: {tool.args_schema}\n"
-          )
-      prompt_parts.append(
-          tools_section.rstrip()
-      )  # Trim any trailing newlines from tools_section
+        # Tools section with schema details
+        tools_section = "## Tools\nYou have access ONLY to the following tools:\n"
+        for tool in self.tools:
+            tools_section += (
+                f"{tool.name}: {tool.description}. Args schema: {tool.args_schema}\n"
+            )
+        prompt_parts.append(
+            tools_section.rstrip()
+        )  # Trim any trailing newlines from tools_section
 
-      # Additional Guidelines
-      additional_guidelines = textwrap.dedent(
-          """
+        # Additional Guidelines
+        additional_guidelines = textwrap.dedent(
+            """
       If you think about using tool, it must use the correct tool JSON blob format as shown below:
       ```
       {
@@ -55,12 +55,12 @@ class ReActAssistantAgent(AssistantAgent):
       }
       ```
       """
-      ).strip()
-      prompt_parts.append(additional_guidelines)
+        ).strip()
+        prompt_parts.append(additional_guidelines)
 
-      # ReAct specific guidelines
-      react_guidelines = textwrap.dedent(
-          """
+        # ReAct specific guidelines
+        react_guidelines = textwrap.dedent(
+            """
       ## ReAct Format
       Thought: Reflect on the current state of the conversation or task. If additional information is needed, determine if using a tool is necessary. When a tool is required, briefly explain why it is needed for the specific step at hand, and immediately follow this with an `Action:` statement to address that specific requirement. Avoid combining multiple tool requests in a single `Thought`. If no tools are needed, proceed directly to an `Answer:` statement.
       Action:
@@ -99,7 +99,7 @@ class ReActAssistantAgent(AssistantAgent):
       ## Chat History
       The chat history is provided to avoid repeating information and to ensure accurate references when summarizing past interactions.
       """
-      ).strip()
-      prompt_parts.append(react_guidelines)
+        ).strip()
+        prompt_parts.append(react_guidelines)
 
-      return "\n\n".join(prompt_parts)
+        return "\n\n".join(prompt_parts)
