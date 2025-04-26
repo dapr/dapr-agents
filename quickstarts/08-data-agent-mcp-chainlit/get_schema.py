@@ -51,5 +51,5 @@ def get_table_schema_as_dict():
 
                     return schema_data
 
-    except Exception as e:
+    except Exception:
         return False
