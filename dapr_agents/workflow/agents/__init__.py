@@ -1,2 +1,2 @@
 from .base import AgentWorkflowBase
-from .assistant import AssistantAgent
+from .assistant import AssistantAgent, ReActAssistantAgent

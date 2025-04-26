@@ -21,5 +21,6 @@ from dapr_agents.workflow import (
     RandomOrchestrator,
     RoundRobinOrchestrator,
     AssistantAgent,
+    ReActAssistantAgent,
 )
 from dapr_agents.executors import LocalCodeExecutor, DockerCodeExecutor
