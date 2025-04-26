@@ -16,13 +16,14 @@ agent = {}
 
 table_info = {}
 
+
 @cl.on_chat_start
 async def start():
     client = MCPClient()
     await client.connect_sse(
         server_name="local",  # Unique name you assign to this server
         url="http://0.0.0.0:8000/sse",  # MCP SSE endpoint
-        headers=None  # Optional HTTP headers if needed
+        headers=None,  # Optional HTTP headers if needed
     )
 
     # See what tools were loaded
@@ -44,10 +45,8 @@ async def start():
             content="Database connection successful. Ask me anything."
         ).send()
     else:
-        await cl.Message(
-            content="Database connection failed."
-        ).send()
-        
+        await cl.Message(content="Database connection failed.").send()
+
 
 @cl.on_message
 async def main(message: cl.Message):
@@ -59,7 +58,10 @@ async def main(message: cl.Message):
         content=result,
     ).send()
 
-    result_set = await agent.run("Execute the following sql query and always return a table format unless instructed otherwise. If the user asks a question regarding the data, return the result and formalize an answer based on inspecting the data: " + result)
+    result_set = await agent.run(
+        "Execute the following sql query and always return a table format unless instructed otherwise. If the user asks a question regarding the data, return the result and formalize an answer based on inspecting the data: "
+        + result
+    )
     await cl.Message(
         content=result_set,
     ).send()
@@ -67,13 +69,13 @@ async def main(message: cl.Message):
 
 def create_prompt_for_llm(schema_data, user_question):
     prompt = "Here is the schema for the tables in the database:\n\n"
-    
+
     # Add schema information to the prompt
     for table, columns in schema_data.items():
         prompt += f"Table {table}:\n"
         for col in columns:
             prompt += f"  - {col['column_name']} ({col['data_type']}), Nullable: {col['is_nullable']}, Default: {col['column_default']}\n"
-    
+
     # Add the user's question for context
     prompt += f"\nUser's question: {user_question}\n"
     prompt += "Generate the postgres SQL query to answer the user's question. Return only the query string and nothing else."
