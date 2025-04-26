@@ -143,7 +143,7 @@ class OpenAIModelConfig(OpenAIClientConfig):
     type: Literal["openai"] = Field(
         "openai", description="Type of the model, must always be 'openai'"
     )
-    name: str = Field(default=None, description="Name of the OpenAI model")
+    name: str = Field(default="", description="Name of the OpenAI model")
 
 
 class AzureOpenAIModelConfig(AzureOpenAIClientConfig):
@@ -157,7 +157,7 @@ class HFHubModelConfig(HFInferenceClientConfig):
         "huggingface", description="Type of the model, must always be 'huggingface'"
     )
     name: str = Field(
-        default=None, description="Name of the model available through Hugging Face"
+        default="", description="Name of the model available through Hugging Face"
     )
 
 
@@ -166,7 +166,7 @@ class NVIDIAModelConfig(NVIDIAClientConfig):
         "nvidia", description="Type of the model, must always be 'nvidia'"
     )
     name: str = Field(
-        default=None, description="Name of the model available through NVIDIA"
+        default="", description="Name of the model available through NVIDIA"
     )
 
 
