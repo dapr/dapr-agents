@@ -5,6 +5,7 @@ on:
     branches:
       - feature/*
       - feat/*
+      - chore/*
       - bugfix/*
       - hotfix/*
       - fix/*
