@@ -8,14 +8,13 @@ load_dotenv()
 client = OpenAIAudioClient()
 
 # Define the text to convert to speech
-text_to_speech = "Dapr Agents is an open-source framework for researchers and developers"
+text_to_speech = (
+    "Dapr Agents is an open-source framework for researchers and developers"
+)
 
 # Create a request for TTS
 tts_request = AudioSpeechRequest(
-    model="tts-1",
-    input=text_to_speech,
-    voice="fable",
-    response_format="mp3"
+    model="tts-1", input=text_to_speech, voice="fable", response_format="mp3"
 )
 
 # Generate the audio - returns a byte string
@@ -33,4 +32,3 @@ print(f"Audio saved to {output_path}")
 
 os.remove(output_path)
 print(f"File {output_path} has been deleted.")
-

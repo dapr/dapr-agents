@@ -1,4 +1,6 @@
-import json, logging, requests
+import json
+import logging
+import requests
 from urllib.parse import urlparse
 from typing import Any, Dict, Optional, List
 
@@ -42,7 +44,10 @@ def _fmt_candidate(doc: str, meta: Dict[str, Any]) -> str:
 
 class GetDefinitionInput(BaseModel):
     """Free-form query describing *one* desired operation (e.g. "multiply two numbers")."""
-    user_input: str = Field(..., description="Natural-language description of ONE desired API operation.")
+
+    user_input: str = Field(
+        ..., description="Natural-language description of ONE desired API operation."
+    )
 
 
 def generate_get_openapi_definition(store: VectorToolStore):
@@ -65,17 +70,29 @@ def generate_get_openapi_definition(store: VectorToolStore):
 
 
 class OpenAPIExecutorInput(BaseModel):
-    path_template: str = Field(..., description="Path template, may contain `{placeholder}` segments.")
+    path_template: str = Field(
+        ..., description="Path template, may contain `{placeholder}` segments."
+    )
     method: str = Field(..., description="HTTP verb, upper‑case.")
-    path_params: Dict[str, Any] = Field(default_factory=dict, description="Replacements for path placeholders.")
-    data: Dict[str, Any] = Field(default_factory=dict, description="JSON body for POST/PUT/PATCH.")
-    headers: Optional[Dict[str, Any]] = Field(default=None, description="Extra request headers.")
-    params: Optional[Dict[str, Any]] = Field(default=None, description="Query params (?key=value).")
+    path_params: Dict[str, Any] = Field(
+        default_factory=dict, description="Replacements for path placeholders."
+    )
+    data: Dict[str, Any] = Field(
+        default_factory=dict, description="JSON body for POST/PUT/PATCH."
+    )
+    headers: Optional[Dict[str, Any]] = Field(
+        default=None, description="Extra request headers."
+    )
+    params: Optional[Dict[str, Any]] = Field(
+        default=None, description="Query params (?key=value)."
+    )
 
     model_config = ConfigDict(extra="allow")
 
 
-def generate_api_call_executor(spec: OpenAPISpecParser, auth_header: Optional[Dict[str, str]] = None):
+def generate_api_call_executor(
+    spec: OpenAPISpecParser, auth_header: Optional[Dict[str, str]] = None
+):
     base_url = spec.spec.servers[0].url  # assumes at least one server entry
 
     @tool(args_model=OpenAPIExecutorInput)
@@ -106,28 +123,36 @@ def generate_api_call_executor(spec: OpenAPISpecParser, auth_header: Optional[Di
             final_headers.update(headers)
 
         # redact auth key in debug logs
-        safe_hdrs = {k: ("***" if "auth" in k.lower() or "key" in k.lower() else v)
-                     for k, v in final_headers.items()}
-        
+        safe_hdrs = {
+            k: ("***" if "auth" in k.lower() or "key" in k.lower() else v)
+            for k, v in final_headers.items()
+        }
+
         # Only convert data to JSON if we're doing a request that requires a body
         # and there's actually data to send
         body = None
         if method.upper() in ["POST", "PUT", "PATCH"] and data:
             body = json.dumps(data)
-        
+
         # Add more detailed logging similar to old implementation
-        logger.debug("→ %s %s | headers=%s params=%s data=%s", 
-                    method, url, safe_hdrs, params, 
-                    "***" if body else None)
-        
+        logger.debug(
+            "→ %s %s | headers=%s params=%s data=%s",
+            method,
+            url,
+            safe_hdrs,
+            params,
+            "***" if body else None,
+        )
+
         # For debugging purposes, similar to the old implementation
         print(f"Base Url: {base_url}")
         print(f"Requested Url: {url}")
         print(f"Requested Method: {method}")
         print(f"Requested Parameters: {params}")
-        
-        resp = requests.request(method, url, headers=final_headers,
-                                params=params, data=body, **req_kwargs)
+
+        resp = requests.request(
+            method, url, headers=final_headers, params=params, data=body, **req_kwargs
+        )
         resp.raise_for_status()
         return resp.json()
 

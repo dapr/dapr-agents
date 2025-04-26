@@ -2,6 +2,7 @@ from dapr_agents.types import BaseMessage
 from typing import List
 from pydantic import ValidationError
 
+
 def messages_to_string(messages: List[BaseMessage]) -> str:
     """
     Converts messages into a single string with roles and content.

@@ -9,7 +9,9 @@ class PyPDFReader(ReaderBase):
     Reader for PDF documents using PyPDF.
     """
 
-    def load(self, file_path: Path, additional_metadata: Optional[Dict] = None) -> List[Document]:
+    def load(
+        self, file_path: Path, additional_metadata: Optional[Dict] = None
+    ) -> List[Document]:
         """
         Load content from a PDF file using PyPDF.
 

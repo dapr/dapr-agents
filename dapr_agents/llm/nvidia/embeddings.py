@@ -6,6 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class NVIDIAEmbeddingClient(NVIDIAClientBase):
     """
     Client for handling NVIDIA's embedding functionalities.
@@ -19,11 +20,24 @@ class NVIDIAEmbeddingClient(NVIDIAClientBase):
             'passage' for generating embeddings during indexing.
         truncate (Optional[Literal["NONE", "START", "END"]]): Specifies handling for inputs exceeding the model's max token length. Defaults to 'NONE'.
     """
-    model: str = Field("nvidia/nv-embedqa-e5-v5", description="ID of the model to use for embedding.")
-    encoding_format: Optional[Literal["float", "base64"]] = Field("float", description="Format for the embeddings. Defaults to 'float'.")
-    dimensions: Optional[int] = Field(None, description="Number of dimensions for the output embeddings. Not supported by all models.")
-    input_type: Optional[Literal["query", "passage"]] = Field("passage", description="Mode of operation: 'query' or 'passage'.")
-    truncate: Optional[Literal["NONE", "START", "END"]] = Field("NONE", description="Handling for inputs exceeding max token length. Defaults to 'NONE'.")
+
+    model: str = Field(
+        "nvidia/nv-embedqa-e5-v5", description="ID of the model to use for embedding."
+    )
+    encoding_format: Optional[Literal["float", "base64"]] = Field(
+        "float", description="Format for the embeddings. Defaults to 'float'."
+    )
+    dimensions: Optional[int] = Field(
+        None,
+        description="Number of dimensions for the output embeddings. Not supported by all models.",
+    )
+    input_type: Optional[Literal["query", "passage"]] = Field(
+        "passage", description="Mode of operation: 'query' or 'passage'."
+    )
+    truncate: Optional[Literal["NONE", "START", "END"]] = Field(
+        "NONE",
+        description="Handling for inputs exceeding max token length. Defaults to 'NONE'.",
+    )
 
     def model_post_init(self, __context: Any) -> None:
         """
@@ -45,7 +59,7 @@ class NVIDIAEmbeddingClient(NVIDIAClientBase):
         truncate: Optional[Literal["NONE", "START", "END"]] = None,
         encoding_format: Optional[Literal["float", "base64"]] = None,
         dimensions: Optional[int] = None,
-        extra_body: Optional[Dict[str, Any]] = None
+        extra_body: Optional[Dict[str, Any]] = None,
     ) -> CreateEmbeddingResponse:
         """
         Generate embeddings for the given input text(s).
@@ -77,7 +91,7 @@ class NVIDIAEmbeddingClient(NVIDIAClientBase):
             "model": model,
             "input": input,
             "encoding_format": encoding_format or self.encoding_format,
-            "extra_body": extra_body or {}
+            "extra_body": extra_body or {},
         }
 
         # Add optional parameters if provided

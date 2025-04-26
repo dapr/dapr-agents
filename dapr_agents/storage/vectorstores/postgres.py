@@ -16,16 +16,37 @@ class PostgresVectorStore(VectorStoreBase):
     """
 
     connection_string: str = Field(..., description="PostgreSQL connection string.")
-    table_name: str = Field("vector_store", description="The table name for storing vectors.")
-    embedding_dim: Optional[int] = Field(None, description="Fixed dimensionality of embedding vectors (optional).")
-    embedding_function: Optional[EmbedderBase] = Field(default_factory=SentenceTransformerEmbedder, description="Embedding function for embedding generation.")
-    pool_config: Dict = Field(default_factory=lambda: {"min_size": 1, "max_size": 10, "timeout": 30}, description="Connection pool settings.")
-    index_type: Literal["hnsw", "ivfflat", "flat"] = Field("ivfflat", description="The type of index to use for vector search.")
-    index_params: Dict = Field(default_factory=lambda: {"lists": 100, "m": 16, "ef_construction": 64}, description="Parameters for the vector index.")
+    table_name: str = Field(
+        "vector_store", description="The table name for storing vectors."
+    )
+    embedding_dim: Optional[int] = Field(
+        None, description="Fixed dimensionality of embedding vectors (optional)."
+    )
+    embedding_function: Optional[EmbedderBase] = Field(
+        default_factory=SentenceTransformerEmbedder,
+        description="Embedding function for embedding generation.",
+    )
+    pool_config: Dict = Field(
+        default_factory=lambda: {"min_size": 1, "max_size": 10, "timeout": 30},
+        description="Connection pool settings.",
+    )
+    index_type: Literal["hnsw", "ivfflat", "flat"] = Field(
+        "ivfflat", description="The type of index to use for vector search."
+    )
+    index_params: Dict = Field(
+        default_factory=lambda: {"lists": 100, "m": 16, "ef_construction": 64},
+        description="Parameters for the vector index.",
+    )
 
-    pool: Optional[Any] = Field(default=None, init=False, description="Connection pool for PostgreSQL.")
-    tracked_dimensions: set = Field(default_factory=set, init=False, description="Set of tracked vector dimensions for partial indexing.")
-    
+    pool: Optional[Any] = Field(
+        default=None, init=False, description="Connection pool for PostgreSQL."
+    )
+    tracked_dimensions: set = Field(
+        default_factory=set,
+        init=False,
+        description="Set of tracked vector dimensions for partial indexing.",
+    )
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context: Any) -> None:
@@ -44,7 +65,9 @@ class PostgresVectorStore(VectorStoreBase):
             ) from e
 
         try:
-            self.pool: ConnectionPool = ConnectionPool(self.connection_string, **self.pool_config)
+            self.pool: ConnectionPool = ConnectionPool(
+                self.connection_string, **self.pool_config
+            )
             with self.pool.connection() as conn:
                 # Enable the pgvector extension if not already enabled
                 with conn.cursor() as cursor:
@@ -56,15 +79,21 @@ class PostgresVectorStore(VectorStoreBase):
 
                 # Create the table
                 with conn.cursor() as cursor:
-                    embedding_column = f"VECTOR({self.embedding_dim})" if self.embedding_dim else "VECTOR"
-                    cursor.execute(f"""
+                    embedding_column = (
+                        f"VECTOR({self.embedding_dim})"
+                        if self.embedding_dim
+                        else "VECTOR"
+                    )
+                    cursor.execute(
+                        f"""
                         CREATE TABLE IF NOT EXISTS {self.table_name} (
                             id UUID PRIMARY KEY,
                             document TEXT,
                             metadata JSONB,
                             embedding {embedding_column}
                         );
-                    """)
+                    """
+                    )
                     logger.info(f"Table '{self.table_name}' ensured.")
 
                 # Create global index for fixed-dimension embeddings
@@ -77,9 +106,13 @@ class PostgresVectorStore(VectorStoreBase):
                             WITH ({", ".join(f"{k}={v}" for k, v in self.index_params.items())});
                             """
                         )
-                        logger.info(f"Global index created for fixed-dimension embeddings.")
+                        logger.info(
+                            "Global index created for fixed-dimension embeddings."
+                        )
                 else:
-                    logger.info(f"No fixed dimension specified; relying on dynamic partial indexing.")
+                    logger.info(
+                        "No fixed dimension specified; relying on dynamic partial indexing."
+                    )
         except Exception as e:
             logger.error(f"Failed to initialize PostgresVectorStore: {e}")
             raise
@@ -101,10 +134,14 @@ class PostgresVectorStore(VectorStoreBase):
                         WHERE vector_dims(embedding) = {dimension};
                         """
                     )
-                    logger.info(f"Partial index created for embedding dimension {dimension}.")
+                    logger.info(
+                        f"Partial index created for embedding dimension {dimension}."
+                    )
             self.tracked_dimensions.add(dimension)
         except Exception as e:
-            logger.error(f"Failed to create partial index for dimension {dimension}: {e}")
+            logger.error(
+                f"Failed to create partial index for dimension {dimension}: {e}"
+            )
 
     def add(
         self,
@@ -112,7 +149,7 @@ class PostgresVectorStore(VectorStoreBase):
         embeddings: Optional[List[List[float]]] = None,
         metadatas: Optional[List[Dict]] = None,
         ids: Optional[List[str]] = None,
-        upsert: bool = False
+        upsert: bool = False,
     ) -> List[str]:
         """
         Adds or upserts documents into the vector store.
@@ -132,11 +169,13 @@ class PostgresVectorStore(VectorStoreBase):
             from psycopg.types.json import Jsonb
         except ImportError as e:
             raise ImportError("Required library 'psycopg' is missing.") from e
-        
+
         try:
             if embeddings is None:
                 embeddings = self.embedding_function(list(documents))
-                logger.info("Generated embeddings using the provided embedding function.")
+                logger.info(
+                    "Generated embeddings using the provided embedding function."
+                )
 
             if ids is None:
                 ids = [str(uuid.uuid4()) for _ in documents]
@@ -165,16 +204,15 @@ class PostgresVectorStore(VectorStoreBase):
                         VALUES (%s, %s, %s, %s)
                         ON CONFLICT (id) {on_conflict_action};
                         """
-                        cursor.execute(
-                            query,
-                            (ids[i], doc, metadata, embeddings[i])
-                        )
-            logger.info(f"{'Upserted' if upsert else 'Added'} {len(documents)} documents.")
+                        cursor.execute(query, (ids[i], doc, metadata, embeddings[i]))
+            logger.info(
+                f"{'Upserted' if upsert else 'Added'} {len(documents)} documents."
+            )
             return ids
         except Exception as e:
             logger.error(f"Failed to {'upsert' if upsert else 'add'} documents: {e}")
             raise
-    
+
     def update(
         self,
         ids: List[str],
@@ -198,11 +236,12 @@ class PostgresVectorStore(VectorStoreBase):
             from psycopg.types.json import Jsonb
         except ImportError as e:
             raise ImportError("Required library 'psycopg' is missing.") from e
-        
-        try:
 
+        try:
             if not any([embeddings, metadatas, documents]):
-                raise ValueError("At least one of embeddings, metadatas, or documents must be provided for update.")
+                raise ValueError(
+                    "At least one of embeddings, metadatas, or documents must be provided for update."
+                )
 
             with self.pool.connection() as conn:
                 with conn.cursor() as cursor:
@@ -263,8 +302,10 @@ class PostgresVectorStore(VectorStoreBase):
         except Exception as e:
             logger.error(f"Failed to delete documents: {e}")
             return False
-    
-    def get(self, ids: Optional[List[str]] = None, with_embedding: bool = False) -> List[Dict]:
+
+    def get(
+        self, ids: Optional[List[str]] = None, with_embedding: bool = False
+    ) -> List[Dict]:
         """
         Retrieves items from the PostgreSQL vector store by IDs. If no IDs are provided, retrieves all items.
 
@@ -295,14 +336,11 @@ class PostgresVectorStore(VectorStoreBase):
                     colnames = [desc[0] for desc in cursor.description]
                     rows = cursor.fetchall()
 
-            return [
-                dict(zip(colnames, row))
-                for row in rows
-            ]
+            return [dict(zip(colnames, row)) for row in rows]
         except Exception as e:
             logger.error(f"Failed to retrieve documents: {e}")
             raise
-    
+
     def search_similar(
         self,
         query_texts: Optional[Union[str, List[str]]] = None,
@@ -315,18 +353,18 @@ class PostgresVectorStore(VectorStoreBase):
         Perform a similarity search in the vector store with optional metadata filtering.
 
         Args:
-            query_texts (Optional[Union[str, List[str]]]): Text queries to embed and search. 
+            query_texts (Optional[Union[str, List[str]]]): Text queries to embed and search.
                 If provided, embeddings are generated using the configured embedding function.
-            query_embeddings (Optional[Union[List[float], List[List[float]]]]): Precomputed embeddings 
+            query_embeddings (Optional[Union[List[float], List[List[float]]]]): Precomputed embeddings
                 for similarity search. Provide either `query_texts` or `query_embeddings`, not both.
             k (int): Number of top results to return. Defaults to 4.
-            distance_metric (str): Distance metric to use for similarity computation. 
+            distance_metric (str): Distance metric to use for similarity computation.
                 Supported values are:
                     - "cosine": Cosine similarity.
                     - "l2": Euclidean distance.
                     - "inner_product": Inner product similarity.
                 Defaults to "cosine".
-            metadata_filter (Optional[Dict]): Metadata conditions for filtering results. 
+            metadata_filter (Optional[Dict]): Metadata conditions for filtering results.
                 Keys are metadata fields, and values are the required values for those fields.
 
         Returns:
@@ -343,9 +381,13 @@ class PostgresVectorStore(VectorStoreBase):
         try:
             # Validate inputs
             if not query_texts and not query_embeddings:
-                raise ValueError("Either `query_texts` or `query_embeddings` must be provided.")
+                raise ValueError(
+                    "Either `query_texts` or `query_embeddings` must be provided."
+                )
             if query_texts and query_embeddings:
-                raise ValueError("Provide either `query_texts` or `query_embeddings`, not both.")
+                raise ValueError(
+                    "Provide either `query_texts` or `query_embeddings`, not both."
+                )
 
             # Generate embeddings if query_texts is provided
             if query_texts:
@@ -360,7 +402,7 @@ class PostgresVectorStore(VectorStoreBase):
             # Map distance metrics to PostgreSQL operators
             operator_map = {
                 "cosine": "<=>",  # Cosine similarity
-                "l2": "<->",      # Euclidean distance
+                "l2": "<->",  # Euclidean distance
                 "inner_product": "<#>",  # Inner product
             }
             operator = operator_map.get(distance_metric, "<=>")
@@ -383,10 +425,12 @@ class PostgresVectorStore(VectorStoreBase):
                         params = []
                         if metadata_filter:
                             filter_conditions = " AND ".join(
-                                [f"metadata ->> %s = %s" for _ in metadata_filter]
+                                ["metadata ->> %s = %s" for _ in metadata_filter]
                             )
                             query += f" WHERE {filter_conditions}"
-                            params.extend(sum(([k, v] for k, v in metadata_filter.items()), []))
+                            params.extend(
+                                sum(([k, v] for k, v in metadata_filter.items()), [])
+                            )
 
                         # Add ordering and limit
                         query += " ORDER BY similarity DESC LIMIT %s"
@@ -428,7 +472,7 @@ class PostgresVectorStore(VectorStoreBase):
         except Exception as e:
             logger.error(f"Failed to reset table: {e}")
             raise
-    
+
     def count(self) -> int:
         """
         Counts the number of documents in the vector store.

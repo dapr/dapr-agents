@@ -8,15 +8,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class OpenAPIReActAgent(ReActAgent):
     """
     Extends ReActAgent with OpenAPI handling capabilities, including tools for managing API calls.
     """
 
-    role: str = Field(default="OpenAPI Expert", description="The agent's role in the interaction.")
+    role: str = Field(
+        default="OpenAPI Expert", description="The agent's role in the interaction."
+    )
     goal: str = Field(
         default="Help users work with OpenAPI specifications and API integrations.",
-        description="The main objective of the agent."
+        description="The main objective of the agent.",
     )
     instructions: List[str] = Field(
         default=[
@@ -25,15 +28,23 @@ class OpenAPIReActAgent(ReActAgent):
             "You must first help users explore potential APIs by analyzing OpenAPI definitions, then assist in making authenticated API requests.",
             "Ensure that all API calls are executed with the correct parameters, authentication, and methods.",
             "Your responses should be concise, clear, and focus on guiding the user through the steps of working with APIs, including retrieving API definitions, understanding endpoint parameters, and handling errors.",
-            "You only respond to questions directly related to your role."
+            "You only respond to questions directly related to your role.",
         ],
-        description="Instructions to guide the agent's behavior."
+        description="Instructions to guide the agent's behavior.",
     )
-    spec_parser: OpenAPISpecParser = Field(..., description="Parser for handling OpenAPI specifications.")
-    api_vector_store: VectorStoreBase = Field(..., description="Vector store for storing API definitions.")
-    auth_header: Optional[Dict] = Field(None, description="Authentication headers for executing API calls.")
-    
-    tool_vector_store: Optional[VectorToolStore] = Field(default=None, init=False, description="Internal vector store for OpenAPI tools.")
+    spec_parser: OpenAPISpecParser = Field(
+        ..., description="Parser for handling OpenAPI specifications."
+    )
+    api_vector_store: VectorStoreBase = Field(
+        ..., description="Vector store for storing API definitions."
+    )
+    auth_header: Optional[Dict] = Field(
+        None, description="Authentication headers for executing API calls."
+    )
+
+    tool_vector_store: Optional[VectorToolStore] = Field(
+        default=None, init=False, description="Internal vector store for OpenAPI tools."
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -52,9 +63,10 @@ class OpenAPIReActAgent(ReActAgent):
 
         # Generate OpenAPI-specific tools
         from .tools import generate_api_call_executor, generate_get_openapi_definition
+
         openapi_tools = [
             generate_get_openapi_definition(self.tool_vector_store),
-            generate_api_call_executor(self.spec_parser, self.auth_header)
+            generate_api_call_executor(self.spec_parser, self.auth_header),
         ]
 
         # Extend tools with OpenAPI tools

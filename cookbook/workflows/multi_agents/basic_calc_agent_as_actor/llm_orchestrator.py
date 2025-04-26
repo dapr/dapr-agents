@@ -6,10 +6,8 @@ import logging
 
 async def main():
     try:
- 
         workflow_service = LLMOrchestrator(
             name="LLMOrchestrator",
-       
             message_bus_name="pubsub",
             state_store_name="workflowstatestore",
             state_key="workflow_state",
@@ -28,4 +26,4 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
 
-    asyncio.run(main()) 
+    asyncio.run(main())

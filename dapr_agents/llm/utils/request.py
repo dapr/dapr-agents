@@ -9,13 +9,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class RequestHandler:
     """
     Handles the preparation of requests for language models.
     """
 
     @staticmethod
-    def process_prompty_messages(prompty: Prompty, inputs: Dict[str, Any] = {}) -> List[Dict[str, Any]]:
+    def process_prompty_messages(
+        prompty: Prompty, inputs: Dict[str, Any] = {}
+    ) -> List[Dict[str, Any]]:
         """
         Process and format messages based on Prompty template and provided inputs.
 
@@ -28,18 +31,29 @@ class RequestHandler:
         """
         # Prepare inputs and generate messages from Prompty content
         api_type = prompty.model.api
-        prepared_inputs = PromptyHelper.prepare_inputs(inputs, prompty.inputs, prompty.sample)
-        messages = PromptyHelper.to_prompt(prompty.content, prepared_inputs, api_type=api_type)
+        prepared_inputs = PromptyHelper.prepare_inputs(
+            inputs, prompty.inputs, prompty.sample
+        )
+        messages = PromptyHelper.to_prompt(
+            prompty.content, prepared_inputs, api_type=api_type
+        )
 
         return messages
-    
+
     @staticmethod
-    def normalize_chat_messages(messages: Union[str, Dict[str, Any], BaseMessage, Iterable[Union[Dict[str, Any], BaseMessage]]]) -> List[Dict[str, Any]]:
+    def normalize_chat_messages(
+        messages: Union[
+            str,
+            Dict[str, Any],
+            BaseMessage,
+            Iterable[Union[Dict[str, Any], BaseMessage]],
+        ],
+    ) -> List[Dict[str, Any]]:
         """
         Normalize and validate the input messages into a list of dictionaries.
 
         Args:
-            messages (Union[str, Dict[str, Any], BaseMessage, Iterable[Union[Dict[str, Any], BaseMessage]]]): 
+            messages (Union[str, Dict[str, Any], BaseMessage, Iterable[Union[Dict[str, Any], BaseMessage]]]):
                 Input messages in various formats (string, dict, BaseMessage, or an iterable).
 
         Returns:
@@ -63,14 +77,16 @@ class RequestHandler:
             elif isinstance(msg, dict):
                 role = msg.get("role")
                 if role not in {"user", "assistant", "tool", "system"}:
-                    raise ValueError(f"Unrecognized role '{role}'. Supported roles are 'user', 'assistant', 'tool', or 'system'.")
+                    raise ValueError(
+                        f"Unrecognized role '{role}'. Supported roles are 'user', 'assistant', 'tool', or 'system'."
+                    )
                 normalized_messages.append(msg)
             elif isinstance(msg, Iterable) and not isinstance(msg, (str, dict)):
                 queue.extend(msg)
             else:
                 raise ValueError(f"Unsupported message format: {type(msg)}")
         return normalized_messages
-    
+
     @staticmethod
     def process_params(
         params: Dict[str, Any],
@@ -96,7 +112,9 @@ class RequestHandler:
         """
         if tools:
             logger.info("Tools are available in the request.")
-            params['tools'] = [ToolHelper.format_tool(tool, tool_format=llm_provider) for tool in tools]
+            params["tools"] = [
+                ToolHelper.format_tool(tool, tool_format=llm_provider) for tool in tools
+            ]
 
         if response_format:
             logger.info(f"Structured Mode Activated! Mode={structured_mode}.")
@@ -104,13 +122,15 @@ class RequestHandler:
                 response_format=response_format,
                 llm_provider=llm_provider,
                 structured_mode=structured_mode,
-                **params
+                **params,
             )
-        
+
         return params
-    
+
     @staticmethod
-    def validate_request(request: Union[BaseModel, Dict[str, Any]], request_class: Type[BaseModel]) -> BaseModel:
+    def validate_request(
+        request: Union[BaseModel, Dict[str, Any]], request_class: Type[BaseModel]
+    ) -> BaseModel:
         """
         Validate and transform a dictionary into a Pydantic object.
 
@@ -134,5 +154,5 @@ class RequestHandler:
             validated_request = request_class.model_validate(request)
         except ValidationError as e:
             raise ValueError(f"Validation error: {e}")
-        
+
         return validated_request

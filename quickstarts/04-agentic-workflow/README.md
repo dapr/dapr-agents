@@ -74,7 +74,7 @@ This example demonstrates the Chaining Pattern by executing two activities in se
 
 ```python
 from dapr_agents.workflow import WorkflowApp, workflow, task
-from dapr_agents.types import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -141,7 +141,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from dapr_agents.workflow import WorkflowApp, workflow, task
-from dapr_agents.types import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext
 
 # Load environment variables
 load_dotenv()
