@@ -441,9 +441,17 @@ class PromptyModelConfig(BaseModel):
         if configuration and parameters:
             # Check if 'name' or 'azure_deployment' is explicitly set
             if "name" in configuration.model_fields_set:
-                parameters.model = configuration.name if not isinstance(configuration, AzureOpenAIModelConfig) else None
+                parameters.model = (
+                    configuration.name
+                    if not isinstance(configuration, AzureOpenAIModelConfig)
+                    else None
+                )
             elif "azure_deployment" in configuration.model_fields_set:
-                parameters.model = configuration.azure_deployment if isinstance(configuration, AzureOpenAIModelConfig) else None
+                parameters.model = (
+                    configuration.azure_deployment
+                    if isinstance(configuration, AzureOpenAIModelConfig)
+                    else None
+                )
 
         values["configuration"] = configuration
         values["parameters"] = parameters
