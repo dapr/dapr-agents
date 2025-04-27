@@ -68,7 +68,7 @@ First, install Postgres on your machine.
 #### Option 1: Using Docker
 
 ```bash
-docker run --name sampledb -e POSTGRES_PASSWORD=mypassword -e POSTGRES_USER=admin -e POSTGRES_DB=userdb -p 5432:5432 -d postgres`
+docker run --name sampledb -e POSTGRES_PASSWORD=mypassword -e POSTGRES_USER=admin -e POSTGRES_DB=userdb -p 5432:5432 -d postgres
 ```
 
 #### Option 2: Using Brew
@@ -108,6 +108,8 @@ DB_PASSWORD=mypassword
 
 To get the Dapr Agent to connect to our Postgres database, we'll use a Postgres MCP server.
 Change the settings below based on your Postgres configuration:
+
+*Note: If you're running Postgres in a Docker container, change `<HOST>` to `localhost`.*
 
 ```bash
 docker run -p 8000:8000 \
