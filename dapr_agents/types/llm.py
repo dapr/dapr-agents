@@ -1,4 +1,4 @@
-from typing import List, Union, Optional, Dict, Any, Literal, IO, Tuple
+from typing import List, Union, Optional, Dict, Any, Literal, IO, Tuple, cast
 from pydantic import BaseModel, Field, model_validator, field_validator, ConfigDict
 from pydantic_core import PydanticUseDefault
 from pathlib import Path
@@ -412,6 +412,14 @@ class PromptyModelConfig(BaseModel):
             elif configuration.get("type") == "nvidia":
                 configuration = NVIDIAModelConfig(**configuration)
 
+        configuration = cast(
+            OpenAIModelConfig
+            | AzureOpenAIModelConfig
+            | HFHubModelConfig
+            | NVIDIAModelConfig,
+            configuration,
+        )
+
         # Ensure 'parameters' is properly validated as a model, not a dict
         if isinstance(parameters, dict):
             if configuration and isinstance(configuration, OpenAIModelConfig):
@@ -422,6 +430,13 @@ class PromptyModelConfig(BaseModel):
                 parameters = HFHubChatCompletionParams(**parameters)
             elif configuration and isinstance(configuration, NVIDIAModelConfig):
                 parameters = NVIDIAChatCompletionParams(**parameters)
+
+        parameters = cast(
+            OpenAIChatCompletionParams
+            | HFHubChatCompletionParams
+            | NVIDIAChatCompletionParams,
+            parameters,
+        )
 
         if configuration and parameters:
             # Check if 'name' or 'azure_deployment' is explicitly set
