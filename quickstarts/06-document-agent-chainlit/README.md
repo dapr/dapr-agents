@@ -4,7 +4,7 @@ This quickstart demonstrates how to build a fully functional, enterprise-ready a
 
 ## Key Benefits
 
-- **File Upload**: Users can upload documents and have them parsed, contextualized and be made chattable
+- **Converse With Unstructured Data**: Users can upload documents and have them parsed, contextualized and be made chattable
 - **Conversational Memory**: The agent maintains context across interactions in the user's [database of choice](https://docs.dapr.io/reference/components-reference/supported-state-stores/)
 - **UI Interface**: Use an out-of-the-box, LLM-ready chat interface using [Chainlit](https://github.com/Chainlit/chainlit)
 - **Cloud agnostic**: Uploads are handled automatically by Dapr and can be configured to target [different backends](https://docs.dapr.io/reference/components-reference/supported-bindings)
