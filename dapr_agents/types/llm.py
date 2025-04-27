@@ -565,7 +565,7 @@ class AudioTranscriptionRequest(BaseModel):
         elif isinstance(value, BufferedReader) or (
             hasattr(value, "read") and callable(value.read)
         ):
-            if value.closed:
+            if hasattr(value, "closed") and value.closed:
                 raise ValueError("File-like object must remain open during request.")
             return value
         elif isinstance(value, tuple):
@@ -629,7 +629,7 @@ class AudioTranslationRequest(BaseModel):
         elif isinstance(value, BufferedReader) or (
             hasattr(value, "read") and callable(value.read)
         ):
-            if value.closed:  # Reopen if closed
+            if hasattr(value, "closed") and value.closed:  # Reopen if closed
                 raise ValueError("File-like object must remain open during request.")
             return value
         elif isinstance(value, tuple):
