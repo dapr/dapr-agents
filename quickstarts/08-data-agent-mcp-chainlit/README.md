@@ -67,11 +67,28 @@ First, install Postgres on your machine.
 
 #### Option 1: Using Docker
 
+Create the following direcotry and copy the sql files there:
+
 ```bash
-docker run --name sampledb -e POSTGRES_PASSWORD=mypassword -e POSTGRES_USER=admin -e POSTGRES_DB=userdb -p 5432:5432 -d postgres
+mkdir docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+cp schema.sql users.sql ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+```
+
+Run the database container:
+
+```bash
+docker run --rm --name sampledb \               
+  -e POSTGRES_PASSWORD=mypassword \
+  -e POSTGRES_USER=admin \
+  -e POSTGRES_DB=userdb \
+  -p 5432:5432 \
+  -v $(pwd)/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d \
+  -d postgres
 ```
 
 #### Option 2: Using Brew
+
+Install Postgres:
 
 ```bash
 brew install postgresql
@@ -82,8 +99,6 @@ psql postgres
 > CREATE DATABASE userdb 
 > GRANT ALL PRIVILEGES ON DATABASE userdb TO admin;
 ```
-
-#### Create the table and data
 
 Next, create the users table and seed data:
 
