@@ -123,7 +123,7 @@ class DaprHTTPClient(BaseModel):
             url = f"{self._base_url}/{self.dapr_http_endpoint}/method{self.method if method == '' else method}"
         elif self.http_endpoint != "":
             # FQDN URL
-            url = f"{self.http_endpoint}/method{self.method if method == '' else method}"
+            url = f"{self._base_url}/{self.http_endpoint}/method{self.method if method == '' else method}"
         elif endpoint != "":
             # Fallback to default
             url = f"{self._base_url}/{self.endpoint}/method{self.method if method == '' else method}"
