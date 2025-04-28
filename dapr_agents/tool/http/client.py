@@ -65,7 +65,7 @@ class DaprHTTPClient(BaseModel):
         url = self._validate_endpoint_type(endpoint=endpoint, method=method)
 
         logger.debug(
-            f"Sending POST request to '{url}' with input '{payload}' and headers '{self.headers}"
+            f"[HTTP] Sending POST request to '{url}' with input '{payload}' and headers '{self.headers}"
         )
 
         response = requests.post(url=url, headers=self.headers, data=payload)
@@ -95,10 +95,12 @@ class DaprHTTPClient(BaseModel):
         Returns:
             A tuple with the http status code and respose or a ToolError.
         """
-                
+
         url = self._validate_endpoint_type(endpoint=endpoint, method=method)
 
-        logger.debug(f"Sending GET request to '{url}' with headers '{self.headers}")
+        logger.debug(
+            f"[HTTP] Sending GET request to '{url}' with headers '{self.headers}"
+        )
 
         response = requests.get(url=url, headers=self.headers)
 
@@ -126,7 +128,7 @@ class DaprHTTPClient(BaseModel):
             url = f"{self._base_url}/{self.http_endpoint}/method{self.method if method == '' else method}"
         elif endpoint != "":
             # Fallback to default
-            url = f"{self._base_url}/{self.endpoint}/method{self.method if method == '' else method}"
+            url = f"{self._base_url}/{endpoint}/method{self.method if method == '' else method}"
         else:
             raise ToolError(
                 "No endpoint provided. Please provide a valid dapr-app-id, HTTPEndpoint or endpoint."
@@ -141,7 +143,7 @@ class DaprHTTPClient(BaseModel):
         """
         Valides URL for HTTP requests
         """
-        logger.info(f"##### Url: {url}")
+        logger.debug(f"[HTTP] Url to be validated: {url}")
         try:
             parsed_url = urlparse(url=url)
             return all([parsed_url.scheme, parsed_url.netloc])
