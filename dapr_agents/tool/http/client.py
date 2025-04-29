@@ -57,7 +57,7 @@ class DaprHTTPClient(BaseModel):
         trace.set_tracer_provider(tracer)
 
         otel_logger = otel_client.create_and_instrument_logging_provider(
-            logger=logger, otlp_endpoint="http://otelcol.default.svc.cluster.local:4318"
+            logger=logger,
         )
         set_logger_provider(otel_logger)
 
