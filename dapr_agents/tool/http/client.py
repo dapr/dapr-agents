@@ -62,13 +62,18 @@ class DaprHTTPClient(BaseModel):
             A tuple with the http status code and respose or a ToolError.
         """
 
-        url = self._validate_endpoint_type(endpoint=endpoint, method=method)
+        try:
+            url = self._validate_endpoint_type(endpoint=endpoint, method=method)
+        except ToolError as e:
+            logger.error(f"Error validating endpoint: {e}")
+            raise e
 
         logger.debug(
             f"[HTTP] Sending POST request to '{url}' with input '{payload}' and headers '{self.headers}"
         )
 
-        response = requests.post(url=url, headers=self.headers, data=payload)
+        # We can safely typecast the url to str, since we caught the possible ToolError 
+        response = requests.post(url=str(url), headers=self.headers, data=payload)
 
         logger.debug(
             f"Request returned status code '{response.status_code}' and '{response.text}'"
@@ -96,13 +101,18 @@ class DaprHTTPClient(BaseModel):
             A tuple with the http status code and respose or a ToolError.
         """
 
-        url = self._validate_endpoint_type(endpoint=endpoint, method=method)
+        try:
+            url = self._validate_endpoint_type(endpoint=endpoint, method=method)
+        except ToolError as e:
+            logger.error(f"Error validating endpoint: {e}")
+            raise e
 
         logger.debug(
             f"[HTTP] Sending GET request to '{url}' with headers '{self.headers}"
         )
 
-        response = requests.get(url=url, headers=self.headers)
+        # We can safely typecast the url to str, since we caught the possible ToolError 
+        response = requests.get(url=str(url), headers=self.headers)
 
         if not response.ok:
             raise ToolError(
