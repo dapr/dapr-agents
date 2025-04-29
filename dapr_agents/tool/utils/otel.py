@@ -126,19 +126,19 @@ class DaprAgentOTel:
         """
 
         if endpoint == "":
-            if f"/v1/{telemetry_type}" not in endpoint[:-11]:
-                endpoint += f"/v1/{telemetry_type}"
-        else:
             raise ValueError(
                 "OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
             )
-
-        if "https://" not in endpoint[:7]:
+        if endpoint.startswith("https://"):
             raise NotImplementedError(
                 "OTLP over HTTPS is not supported. Please use HTTP."
             )
-        if "http://" not in endpoint[:6]:
-            # Explicit set http
-            endpoint = f"http://{endpoint}"
+
+        endpoint = (
+            endpoint
+            if endpoint.endswith(f"/v1/{telemetry_type}")
+            else f"{endpoint}/v1/{telemetry_type}"
+        )
+        endpoint = endpoint if endpoint.startswith("http://") else f"http://{endpoint}"
 
         return endpoint
