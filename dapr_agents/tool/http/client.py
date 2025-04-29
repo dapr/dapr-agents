@@ -51,8 +51,9 @@ class DaprHTTPClient(BaseModel):
             service_name=os.getenv("OTEL_SERVICE_NAME", "dapr-http-client"),
             otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
         )
-        tracer = otel_client.create_and_instrument_tracer_provider()
-        RequestsInstrumentor().instrument(tracer)
+        _ = otel_client.create_and_instrument_tracer_provider()
+        _ = otel_client.create_and_instrument_logging_provider(logger=logger)
+        RequestsInstrumentor().instrument()
 
         super().model_post_init(__context)
 
