@@ -40,6 +40,7 @@ class DaprAgentOTel:
 
     def create_and_instrument_meter_provider(
         self,
+        otlp_endpoint: str = "",
     ) -> MeterProvider:
         """
         Returns a `MeterProvider` that is configured to export metrics using the `PeriodicExportingMetricReader`
@@ -49,7 +50,9 @@ class DaprAgentOTel:
         Also sets the global OpenTelemetry meter provider to the returned meter provider.
         """
 
-        metric_exporter = OTLPMetricExporter(endpoint=self.otlp_endpoint)
+        metric_exporter = OTLPMetricExporter(
+            endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint
+        )
         metric_reader = PeriodicExportingMetricReader(metric_exporter)
         meter_provider = MeterProvider(
             resource=self._resource, metric_readers=[metric_reader]
@@ -59,6 +62,7 @@ class DaprAgentOTel:
 
     def create_and_instrument_tracer_provider(
         self,
+        otlp_endpoint: str = "",
     ) -> TracerProvider:
         """
         Returns a `TracerProvider` that is configured to export traces using the `BatchSpanProcessor`
@@ -67,7 +71,9 @@ class DaprAgentOTel:
         Also sets the global OpenTelemetry tracer provider to the returned tracer provider.
         """
 
-        trace_exporter = OTLPSpanExporter(endpoint=self.otlp_endpoint)
+        trace_exporter = OTLPSpanExporter(
+            endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint
+        )
         tracer_processor = BatchSpanProcessor(trace_exporter)
         tracer_provider = TracerProvider(resource=self._resource)
         tracer_provider.add_span_processor(tracer_processor)
@@ -77,6 +83,7 @@ class DaprAgentOTel:
     def create_and_instrument_logging_provider(
         self,
         logger: Logger,
+        otlp_endpoint: str = "",
     ) -> LoggerProvider:
         """
         Returns a `LoggingProvider` that is configured to export logs using the `BatchLogProcessor`
@@ -85,7 +92,9 @@ class DaprAgentOTel:
         Also sets the global OpenTelemetry logging provider to the returned logging provider.
         """
 
-        log_exporter = OTLPLogExporter(endpoint=self.otlp_endpoint)
+        log_exporter = OTLPLogExporter(
+            endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint
+        )
         logging_provider = LoggerProvider(resource=self._resource)
         logging_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
         set_logger_provider(logging_provider)
