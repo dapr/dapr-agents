@@ -50,6 +50,15 @@ class DaprAgentOTel:
         Also sets the global OpenTelemetry meter provider to the returned meter provider.
         """
 
+        if otlp_endpoint == "":
+            # We have the endpoint in self.otlp_endpoint
+            if "/v1/metrics" not in self.otlp_endpoint[:-8]:
+                self.otlp_endpoint += "/v1/metrics"
+        else:
+            # We have the endpoint in the parameter
+            if "/v1/metrics" not in otlp_endpoint[:-8]:
+              otlp_endpoint += "/v1/metrics"
+
         metric_exporter = OTLPMetricExporter(
             endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint
         )
@@ -71,6 +80,15 @@ class DaprAgentOTel:
         Also sets the global OpenTelemetry tracer provider to the returned tracer provider.
         """
 
+        if otlp_endpoint == "":
+            # We have the endpoint in self.otlp_endpoint
+            if "/v1/traces" not in self.otlp_endpoint[:-8]:
+                self.otlp_endpoint += "/v1/traces"
+        else:
+            # We have the endpoint in the parameter
+            if "/v1/traces" not in otlp_endpoint[:-8]:
+              otlp_endpoint += "/v1/traces"
+
         trace_exporter = OTLPSpanExporter(
             endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint
         )
@@ -91,6 +109,19 @@ class DaprAgentOTel:
         the environment variable `OTEL_LOGS_EXPORT_BATCH_SIZE`. The default value is 512.
         Also sets the global OpenTelemetry logging provider to the returned logging provider.
         """
+
+        if otlp_endpoint == "" and self.otlp_endpoint == "":
+            raise ValueError(
+                "OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
+            )
+        if otlp_endpoint == "":
+            # We have the endpoint in self.otlp_endpoint
+            if "/v1/logs" not in self.otlp_endpoint[:-8]:
+                self.otlp_endpoint += "/v1/logs"
+        else:
+            # We have the endpoint in the parameter
+            if "/v1/logs" not in otlp_endpoint[:-8]:
+              otlp_endpoint += "/v1/logs"
 
         log_exporter = OTLPLogExporter(
             endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint
