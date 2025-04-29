@@ -11,7 +11,7 @@ from opentelemetry import trace
 from opentelemetry._logs import set_logger_provider
 
 
-from dapr_agents.tools.utils.otel import DaprAgentOTel  # type: ignore[import-not-found]
+from dapr_agents.tool.utils.otel import DaprAgentOTel  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
