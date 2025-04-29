@@ -1,11 +1,14 @@
-from typing import Dict, Optional, Set, Any, Union
+import os
+from typing import Dict, Optional, Any, Union
 import logging
 import requests
 
 from pydantic import BaseModel, Field, PrivateAttr
 from dapr_agents.types import ToolError
 from urllib.parse import urlparse
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
+from otel import DaprAgentOTel  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,14 @@ class DaprHTTPClient(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         """Initialize the client after the model is created."""
         logger.debug("Initializing DaprHTTPClient client")
+
+        otel_client = DaprAgentOTel(
+            service_name=os.getenv("OTEL_SERVICE_NAME", "dapr-http-client"),
+            otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+        )
+        tracer = otel_client.create_and_instrument_tracer_provider()
+        RequestsInstrumentor().instrument(tracer)
+
         super().model_post_init(__context)
 
     def post(
