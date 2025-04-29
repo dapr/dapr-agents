@@ -1,5 +1,5 @@
 from logging import Logger
-from typing import Optional, Union
+from typing import Union
 
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.metrics import set_meter_provider
