@@ -11,7 +11,7 @@ from opentelemetry import trace
 from opentelemetry._logs import set_logger_provider
 
 
-from .otel import DaprAgentOTel  # type: ignore[import-not-found]
+from dapr_agents.tools.utils.otel import DaprAgentOTel  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +72,7 @@ class DaprHTTPClient(BaseModel):
 
         RequestsInstrumentor().instrument()
 
-        # logger.debug(
-        logger.info("Initializing DaprHTTPClient client")
+        logger.debug("Initializing DaprHTTPClient client")
 
         super().model_post_init(__context)
 
@@ -100,16 +99,14 @@ class DaprHTTPClient(BaseModel):
             logger.error(f"Error validating endpoint: {e}")
             raise e
 
-        # logger.debug(
-        logger.info(
+        logger.debug(
             f"[HTTP] Sending POST request to '{url}' with input '{payload}' and headers '{self.headers}"
         )
 
         # We can safely typecast the url to str, since we caught the possible ToolError
         response = requests.post(url=str(url), headers=self.headers, json=payload)
 
-        # logger.debug(
-        logger.info(
+        logger.debug(
             f"Request returned status code '{response.status_code}' and '{response.text}'"
         )
 
@@ -141,8 +138,7 @@ class DaprHTTPClient(BaseModel):
             logger.error(f"Error validating endpoint: {e}")
             raise e
 
-        # logger.debug(
-        logger.info(
+        logger.debug(
             f"[HTTP] Sending GET request to '{url}' with headers '{self.headers}"
         )
 
@@ -188,8 +184,7 @@ class DaprHTTPClient(BaseModel):
         """
         Valides URL for HTTP requests
         """
-        # logger.debug(
-        logger.info(f"[HTTP] Url to be validated: {url}")
+        logger.debug(f"[HTTP] Url to be validated: {url}")
         try:
             parsed_url = urlparse(url=url)
             return all([parsed_url.scheme, parsed_url.netloc])
