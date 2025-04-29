@@ -8,7 +8,7 @@ from dapr_agents.types import ToolError
 from urllib.parse import urlparse
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
-from otel import DaprAgentOTel  # type: ignore[import-not-found]
+from dapr_agents.tool.http import DaprAgentOTel  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class DaprHTTPClient(BaseModel):
 
         otel_client = DaprAgentOTel(
             service_name=os.getenv("OTEL_SERVICE_NAME", "dapr-http-client"),
-            otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+            otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
         )
         tracer = otel_client.create_and_instrument_tracer_provider()
         RequestsInstrumentor().instrument(tracer)
