@@ -1,4 +1,5 @@
 from logging import Logger
+from typing import Optional, Union
 
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.metrics import set_meter_provider
@@ -50,22 +51,13 @@ class DaprAgentOTel:
         Also sets the global OpenTelemetry meter provider to the returned meter provider.
         """
 
-        if otlp_endpoint == "" and self.otlp_endpoint == "":
-            raise ValueError(
-                "OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
-            )
-        if otlp_endpoint == "":
-            # We have the endpoint in self.otlp_endpoint
-            if "/v1/metrics" not in self.otlp_endpoint[:-11]:
-                self.otlp_endpoint += "/v1/metrics"
-        else:
-            # We have the endpoint in the parameter
-            if "/v1/metrics" not in otlp_endpoint[:-11]:
-                otlp_endpoint += "/v1/metrics"
-
-        metric_exporter = OTLPMetricExporter(
-            endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint
+        # Ensure the endpoint is set correctly
+        endpoint = self._endpoint_validator(
+            endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint,
+            telemetry_type="metrics",
         )
+
+        metric_exporter = OTLPMetricExporter(endpoint=endpoint)
         metric_reader = PeriodicExportingMetricReader(metric_exporter)
         meter_provider = MeterProvider(
             resource=self._resource, metric_readers=[metric_reader]
@@ -84,22 +76,13 @@ class DaprAgentOTel:
         Also sets the global OpenTelemetry tracer provider to the returned tracer provider.
         """
 
-        if otlp_endpoint == "" and self.otlp_endpoint == "":
-            raise ValueError(
-                "OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
-            )
-        if otlp_endpoint == "":
-            # We have the endpoint in self.otlp_endpoint
-            if "/v1/traces" not in self.otlp_endpoint[-10:]:
-                self.otlp_endpoint += "/v1/traces"
-        else:
-            # We have the endpoint in the parameter
-            if "/v1/traces" not in otlp_endpoint[-10:]:
-                otlp_endpoint += "/v1/traces"
-
-        trace_exporter = OTLPSpanExporter(
-            endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint
+        # Ensure the endpoint is set correctly
+        endpoint = self._endpoint_validator(
+            endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint,
+            telemetry_type="traces",
         )
+
+        trace_exporter = OTLPSpanExporter(endpoint=endpoint)
         tracer_processor = BatchSpanProcessor(trace_exporter)
         tracer_provider = TracerProvider(resource=self._resource)
         tracer_provider.add_span_processor(tracer_processor)
@@ -118,22 +101,13 @@ class DaprAgentOTel:
         Also sets the global OpenTelemetry logging provider to the returned logging provider.
         """
 
-        if otlp_endpoint == "" and self.otlp_endpoint == "":
-            raise ValueError(
-                "OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
-            )
-        if otlp_endpoint == "":
-            # We have the endpoint in self.otlp_endpoint
-            if "/v1/logs" not in self.otlp_endpoint[-8:]:
-                self.otlp_endpoint += "/v1/logs"
-        else:
-            # We have the endpoint in the parameter
-            if "/v1/logs" not in otlp_endpoint[-8:]:
-                otlp_endpoint += "/v1/logs"
-
-        log_exporter = OTLPLogExporter(
-            endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint
+        # Ensure the endpoint is set correctly
+        endpoint = self._endpoint_validator(
+            endpoint=self.otlp_endpoint if otlp_endpoint == "" else otlp_endpoint,
+            telemetry_type="logs",
         )
+
+        log_exporter = OTLPLogExporter(endpoint=endpoint)
         logging_provider = LoggerProvider(resource=self._resource)
         logging_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
         set_logger_provider(logging_provider)
@@ -141,3 +115,35 @@ class DaprAgentOTel:
         handler = LoggingHandler(logger_provider=logging_provider)
         logger.addHandler(handler)
         return logging_provider
+
+    def _endpoint_validator(
+        self,
+        endpoint: str,
+        telemetry_type: str,
+    ) -> Union[str | Exception]:
+        """
+        Validates the endpoint and method.
+        """
+
+        if endpoint == "" and self.otlp_endpoint == "":
+            raise ValueError(
+                "OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
+            )
+
+        if otlp_endpoint == "":
+            if f"/v1/{telemetry_type}" not in otlp_endpoint[:-11]:
+                otlp_endpoint += f"/v1/{telemetry_type}"
+        else:
+            raise ValueError(
+                f"OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
+            )
+
+        if "https://" not in endpoint[:7]:
+            raise NotImplementedError(
+                "OTLP over HTTPS is not supported. Please use HTTP."
+            )
+        if "http://" not in endpoint[:6]:
+            # Explicit set http
+            endpoint = f"http://{endpoint}"
+
+        return endpoint
