@@ -130,9 +130,9 @@ class DaprAgentOTel:
                 "OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
             )
 
-        if otlp_endpoint == "":
-            if f"/v1/{telemetry_type}" not in otlp_endpoint[:-11]:
-                otlp_endpoint += f"/v1/{telemetry_type}"
+        if endpoint == "":
+            if f"/v1/{telemetry_type}" not in endpoint[:-11]:
+                endpoint += f"/v1/{telemetry_type}"
         else:
             raise ValueError(
                 f"OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
