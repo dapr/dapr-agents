@@ -34,7 +34,7 @@ class DaprAgentOTel:
 
         self._resource = Resource.create(
             attributes={
-                SERVICE_NAME: str(self.service_name).capitalize(),
+                SERVICE_NAME: str(self.service_name),
             }
         )
 
