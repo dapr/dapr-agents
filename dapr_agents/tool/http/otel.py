@@ -1,6 +1,4 @@
-from pydantic import Field
 from logging import Logger
-from typing import Optional
 
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.metrics import set_meter_provider
@@ -22,17 +20,11 @@ class DaprAgentOTel:
     OpenTelemetry configuration for Dapr agents.
     """
 
-    service_name: Optional[str] = Field(
-        default="", description="Service name for Agent."
-    )
-
-    otlp_endpoint: Optional[str] = Field(
-        default="localhost:4317",
-        description="OTLP endpoint for OpenTelemetry. Defaults to localhost:4317.",
-    )
-
-    def __init__(self):
+    def __init__(self, service_name: str = "", otlp_endpoint: str = ""):
         # Configure OpenTelemetry
+        self.service_name = service_name
+        self.otlp_endpoint = otlp_endpoint
+
         self.setup_resources()
 
     def setup_resources(self):
