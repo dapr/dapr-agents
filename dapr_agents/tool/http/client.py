@@ -96,7 +96,7 @@ class DaprHTTPClient(BaseModel):
         )
 
         # We can safely typecast the url to str, since we caught the possible ToolError
-        response = requests.post(url=str(url), headers=self.headers, data=payload)
+        response = requests.post(url=str(url), headers=self.headers, json=payload)
 
         # logger.debug(
         logger.info(
