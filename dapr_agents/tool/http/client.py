@@ -49,18 +49,9 @@ class DaprHTTPClient(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         """Initialize the client after the model is created."""
 
-        endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-
-        # This http tracer needs to use http
-        if "https://" not in endpoint[:7]:
-            # If the endpoint is not https, we need to ensure it's http
-            if "http://" not in endpoint[:6]:
-                # Explicit set http
-                endpoint = f"http://{endpoint}"
-
         otel_client = DaprAgentOTel(
             service_name=os.getenv("OTEL_SERVICE_NAME", "dapr-http-client"),
-            otlp_endpoint=endpoint,
+            otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
         )
         tracer = otel_client.create_and_instrument_tracer_provider()
         trace.set_tracer_provider(tracer)
