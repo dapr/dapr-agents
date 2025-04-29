@@ -135,7 +135,7 @@ class DaprAgentOTel:
                 endpoint += f"/v1/{telemetry_type}"
         else:
             raise ValueError(
-                f"OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
+                "OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
             )
 
         if "https://" not in endpoint[:7]:
