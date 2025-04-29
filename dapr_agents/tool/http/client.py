@@ -8,7 +8,7 @@ from dapr_agents.types import ToolError
 from urllib.parse import urlparse
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
-from dapr_agents.tool.http import DaprAgentOTel  # type: ignore[import-not-found]
+from .otel import DaprAgentOTel  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
