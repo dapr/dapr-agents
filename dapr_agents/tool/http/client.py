@@ -85,7 +85,9 @@ class DaprHTTPClient(BaseModel):
         """
 
         try:
-            url = self._validate_endpoint_type(endpoint=endpoint, method=method)
+            url = self._validate_endpoint_type(
+                endpoint=endpoint, method=self.method if method == "" else method
+            )
         except ToolError as e:
             logger.error(f"Error validating endpoint: {e}")
             raise e
@@ -124,7 +126,9 @@ class DaprHTTPClient(BaseModel):
         """
 
         try:
-            url = self._validate_endpoint_type(endpoint=endpoint, method=method)
+            url = self._validate_endpoint_type(
+                endpoint=endpoint, method=self.method if method == "" else method
+            )
         except ToolError as e:
             logger.error(f"Error validating endpoint: {e}")
             raise e
@@ -144,26 +148,52 @@ class DaprHTTPClient(BaseModel):
         return (response.status_code, response.text)
 
     def _validate_endpoint_type(
-        self, endpoint: str, method: str
+        self, endpoint: str, method: Optional[str | None]
     ) -> Union[str | ToolError]:
-        if method == "" and self.method == "":
+        if method == "":
             raise ToolError("No method provided. Please provide a valid method.")
 
-        if self.dapr_app_id != "":
-            # Prefered option
-            url = f"{self._base_url}/{self.dapr_app_id}/method{self.method if method == '' else method}"
-        elif self.dapr_http_endpoint != "":
-            # Dapr HTTPEndpoint
-            url = f"{self._base_url}/{self.dapr_http_endpoint}/method{self.method if method == '' else method}"
-        elif self.http_endpoint != "":
-            # FQDN URL
-            url = f"{self._base_url}/{self.http_endpoint}/method{self.method if method == '' else method}"
-        elif endpoint != "":
-            # Fallback to default
-            url = f"{self._base_url}/{endpoint}/method{self.method if method == '' else method}"
-        else:
+        if isinstance(method, str) and method.startswith("/"):
+            # Remove leading slash
+            method = method[1:]
+
+        try:
+            if self.dapr_app_id != "":
+                # Prefered option
+                if isinstance(self.dapr_app_id, str) and self.dapr_app_id.endswith("/"):
+                    # Remove trailing slash
+                    self.dapr_app_id = self.dapr_app_id[:-1]
+                url = f"{self._base_url}/{self.dapr_app_id}/method/{self.method if method == '' else method}"
+            elif self.dapr_http_endpoint != "":
+                # Dapr HTTPEndpoint
+                if isinstance(
+                    self.dapr_http_endpoint, str
+                ) and self.dapr_http_endpoint.endswith("/"):
+                    # Remove trailing slash
+                    self.dapr_http_endpoint = self.dapr_http_endpoint[:-1]
+                url = f"{self._base_url}/{self.dapr_http_endpoint}/method/{self.method if method == '' else method}"
+            elif self.http_endpoint != "":
+                # FQDN URL
+                if isinstance(self.http_endpoint, str) and self.http_endpoint.endswith(
+                    "/"
+                ):
+                    # Remove trailing slash
+                    self.http_endpoint = self.http_endpoint[:-1]
+                url = f"{self._base_url}/{self.http_endpoint}/method/{self.method if method == '' else method}"
+            elif endpoint != "":
+                # Fallback to default
+                if isinstance(endpoint, str) and endpoint.endswith("/"):
+                    # Remove trailing slash
+                    endpoint = endpoint[:-1]
+                url = f"{self._base_url}/{endpoint}/method/{self.method if method == '' else method}"
+            else:
+                raise ToolError(
+                    "No endpoint provided. Please provide a valid dapr-app-id, HTTPEndpoint or endpoint."
+                )
+        except Exception as e:
+            logger.error(f"Error validating endpoint: {e}")
             raise ToolError(
-                "No endpoint provided. Please provide a valid dapr-app-id, HTTPEndpoint or endpoint."
+                "Error occured while validating the endpoint. Please check the provided values."
             )
 
         if not self._validate_url(url):
