@@ -125,11 +125,6 @@ class DaprAgentOTel:
         Validates the endpoint and method.
         """
 
-        if endpoint == "" and self.otlp_endpoint == "":
-            raise ValueError(
-                "OTLP endpoint must be set either in the environment variable OTEL_EXPORTER_OTLP_ENDPOINT or in the constructor."
-            )
-
         if endpoint == "":
             if f"/v1/{telemetry_type}" not in endpoint[:-11]:
                 endpoint += f"/v1/{telemetry_type}"
