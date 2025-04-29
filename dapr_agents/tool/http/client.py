@@ -8,6 +8,7 @@ from dapr_agents.types import ToolError
 from urllib.parse import urlparse
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry import trace
+from opentelemetry._logs import set_logger_provider
 
 
 from .otel import DaprAgentOTel  # type: ignore[import-not-found]
@@ -47,7 +48,6 @@ class DaprHTTPClient(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         """Initialize the client after the model is created."""
-        
 
         otel_client = DaprAgentOTel(
             service_name=os.getenv("OTEL_SERVICE_NAME", "dapr-http-client"),
@@ -55,10 +55,12 @@ class DaprHTTPClient(BaseModel):
         )
         tracer = otel_client.create_and_instrument_tracer_provider()
         trace.set_tracer_provider(tracer)
-        self.otel_logger = otel_client.create_and_instrument_logging_provider(logger=logger)
+        otel_logger = otel_client.create_and_instrument_logging_provider(logger=logger)
+        set_logger_provider(otel_logger)
+
         RequestsInstrumentor().instrument()
 
-        #logger.debug(
+        # logger.debug(
         logger.info("Initializing DaprHTTPClient client")
 
         super().model_post_init(__context)
@@ -86,7 +88,7 @@ class DaprHTTPClient(BaseModel):
             logger.error(f"Error validating endpoint: {e}")
             raise e
 
-        #logger.debug(
+        # logger.debug(
         logger.info(
             f"[HTTP] Sending POST request to '{url}' with input '{payload}' and headers '{self.headers}"
         )
@@ -94,7 +96,7 @@ class DaprHTTPClient(BaseModel):
         # We can safely typecast the url to str, since we caught the possible ToolError
         response = requests.post(url=str(url), headers=self.headers, data=payload)
 
-        #logger.debug(
+        # logger.debug(
         logger.info(
             f"Request returned status code '{response.status_code}' and '{response.text}'"
         )
@@ -127,7 +129,7 @@ class DaprHTTPClient(BaseModel):
             logger.error(f"Error validating endpoint: {e}")
             raise e
 
-        #logger.debug(
+        # logger.debug(
         logger.info(
             f"[HTTP] Sending GET request to '{url}' with headers '{self.headers}"
         )
@@ -174,7 +176,7 @@ class DaprHTTPClient(BaseModel):
         """
         Valides URL for HTTP requests
         """
-        #logger.debug(
+        # logger.debug(
         logger.info(f"[HTTP] Url to be validated: {url}")
         try:
             parsed_url = urlparse(url=url)
