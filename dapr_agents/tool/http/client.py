@@ -72,7 +72,7 @@ class DaprHTTPClient(BaseModel):
             f"[HTTP] Sending POST request to '{url}' with input '{payload}' and headers '{self.headers}"
         )
 
-        # We can safely typecast the url to str, since we caught the possible ToolError 
+        # We can safely typecast the url to str, since we caught the possible ToolError
         response = requests.post(url=str(url), headers=self.headers, data=payload)
 
         logger.debug(
@@ -111,7 +111,7 @@ class DaprHTTPClient(BaseModel):
             f"[HTTP] Sending GET request to '{url}' with headers '{self.headers}"
         )
 
-        # We can safely typecast the url to str, since we caught the possible ToolError 
+        # We can safely typecast the url to str, since we caught the possible ToolError
         response = requests.get(url=str(url), headers=self.headers)
 
         if not response.ok:
