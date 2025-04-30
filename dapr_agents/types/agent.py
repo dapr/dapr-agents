@@ -70,13 +70,15 @@ class AgentActorState(BaseModel):
     """Represents the state of an agent, tracking message history, task history, and overall status."""
 
     messages: Optional[List[AgentActorMessage]] = Field(
-        default_factory=list, description="History of messages exchanged by the agent"
+        default_factory=list[AgentActorMessage],
+        description="History of messages exchanged by the agent",
     )
     message_count: int = Field(
         0, description="Total number of messages exchanged by the agent"
     )
     task_history: Optional[List[AgentTaskEntry]] = Field(
-        default_factory=list, description="History of tasks the agent has performed"
+        default_factory=list[AgentTaskEntry],
+        description="History of tasks the agent has performed",
     )
     overall_status: AgentStatus = Field(
         AgentStatus.IDLE, description="Current operational status of the agent"

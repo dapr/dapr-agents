@@ -1,4 +1,4 @@
-from typing import List, Union, Optional, Dict, Any, Literal, IO, Tuple
+from typing import List, Union, Optional, Dict, Any, Literal, IO, Tuple, cast
 from pydantic import BaseModel, Field, model_validator, field_validator, ConfigDict
 from pydantic_core import PydanticUseDefault
 from pathlib import Path
@@ -143,7 +143,7 @@ class OpenAIModelConfig(OpenAIClientConfig):
     type: Literal["openai"] = Field(
         "openai", description="Type of the model, must always be 'openai'"
     )
-    name: str = Field(default=None, description="Name of the OpenAI model")
+    name: str = Field(default="", description="Name of the OpenAI model")
 
 
 class AzureOpenAIModelConfig(AzureOpenAIClientConfig):
@@ -157,7 +157,7 @@ class HFHubModelConfig(HFInferenceClientConfig):
         "huggingface", description="Type of the model, must always be 'huggingface'"
     )
     name: str = Field(
-        default=None, description="Name of the model available through Hugging Face"
+        default="", description="Name of the model available through Hugging Face"
     )
 
 
@@ -166,7 +166,7 @@ class NVIDIAModelConfig(NVIDIAClientConfig):
         "nvidia", description="Type of the model, must always be 'nvidia'"
     )
     name: str = Field(
-        default=None, description="Name of the model available through NVIDIA"
+        default="", description="Name of the model available through NVIDIA"
     )
 
 
@@ -412,6 +412,14 @@ class PromptyModelConfig(BaseModel):
             elif configuration.get("type") == "nvidia":
                 configuration = NVIDIAModelConfig(**configuration)
 
+        configuration = cast(
+            OpenAIModelConfig
+            | AzureOpenAIModelConfig
+            | HFHubModelConfig
+            | NVIDIAModelConfig,
+            configuration,
+        )
+
         # Ensure 'parameters' is properly validated as a model, not a dict
         if isinstance(parameters, dict):
             if configuration and isinstance(configuration, OpenAIModelConfig):
@@ -423,12 +431,27 @@ class PromptyModelConfig(BaseModel):
             elif configuration and isinstance(configuration, NVIDIAModelConfig):
                 parameters = NVIDIAChatCompletionParams(**parameters)
 
+        parameters = cast(
+            OpenAIChatCompletionParams
+            | HFHubChatCompletionParams
+            | NVIDIAChatCompletionParams,
+            parameters,
+        )
+
         if configuration and parameters:
             # Check if 'name' or 'azure_deployment' is explicitly set
             if "name" in configuration.model_fields_set:
-                parameters.model = configuration.name
+                parameters.model = (
+                    configuration.name
+                    if not isinstance(configuration, AzureOpenAIModelConfig)
+                    else None
+                )
             elif "azure_deployment" in configuration.model_fields_set:
-                parameters.model = configuration.azure_deployment
+                parameters.model = (
+                    configuration.azure_deployment
+                    if isinstance(configuration, AzureOpenAIModelConfig)
+                    else None
+                )
 
         values["configuration"] = configuration
         values["parameters"] = parameters
@@ -550,7 +573,7 @@ class AudioTranscriptionRequest(BaseModel):
         elif isinstance(value, BufferedReader) or (
             hasattr(value, "read") and callable(value.read)
         ):
-            if value.closed:
+            if hasattr(value, "closed") and value.closed:
                 raise ValueError("File-like object must remain open during request.")
             return value
         elif isinstance(value, tuple):
@@ -614,7 +637,7 @@ class AudioTranslationRequest(BaseModel):
         elif isinstance(value, BufferedReader) or (
             hasattr(value, "read") and callable(value.read)
         ):
-            if value.closed:  # Reopen if closed
+            if hasattr(value, "closed") and value.closed:  # Reopen if closed
                 raise ValueError("File-like object must remain open during request.")
             return value
         elif isinstance(value, tuple):

@@ -1,3 +1,4 @@
+from typing import Any
 from pydantic import (
     BaseModel,
     field_validator,
@@ -183,7 +184,7 @@ class ChatCompletion(BaseModel):
     object: Optional[str] = None
     usage: dict
 
-    def get_message(self) -> Optional[str]:
+    def get_message(self) -> Optional[Dict[str, Any]]:
         """
         Retrieve the main message content from the first choice.
         """
