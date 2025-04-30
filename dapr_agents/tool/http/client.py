@@ -49,7 +49,9 @@ class DaprHTTPClient(BaseModel):
         """Initialize the client after the model is created."""
 
         try:
-            otel_enabled: bool = bool(strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True")))
+            otel_enabled: bool = bool(
+                strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True"))
+            )
         except ValueError:
             otel_enabled = False
 
