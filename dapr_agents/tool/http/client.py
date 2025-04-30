@@ -1,5 +1,6 @@
 import os
-from typing import Dict, Optional, Any, Union
+from typing import Dict, Literal, Optional, Any, Union
+from distutils.util import strtobool
 import logging
 import requests
 
@@ -10,8 +11,6 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry import trace
 from opentelemetry._logs import set_logger_provider
 
-
-from dapr_agents.tool.utils.otel import DaprAgentOTel  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -49,19 +48,27 @@ class DaprHTTPClient(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         """Initialize the client after the model is created."""
 
-        otel_client = DaprAgentOTel(
-            service_name=os.getenv("OTEL_SERVICE_NAME", "dapr-http-client"),
-            otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-        )
-        tracer = otel_client.create_and_instrument_tracer_provider()
-        trace.set_tracer_provider(tracer)
+        try:
+            otel_enabled: bool = bool(strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True")))
+        except ValueError:
+            otel_enabled = False
 
-        otel_logger = otel_client.create_and_instrument_logging_provider(
-            logger=logger,
-        )
-        set_logger_provider(otel_logger)
+        if otel_enabled:
+            from dapr_agents.tool.utils.otel import DaprAgentOTel  # type: ignore[import-not-found]
 
-        RequestsInstrumentor().instrument()
+            otel_client = DaprAgentOTel(
+                service_name=os.getenv("OTEL_SERVICE_NAME", "dapr-http-client"),
+                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            )
+            tracer = otel_client.create_and_instrument_tracer_provider()
+            trace.set_tracer_provider(tracer)
+
+            otel_logger = otel_client.create_and_instrument_logging_provider(
+                logger=logger,
+            )
+            set_logger_provider(otel_logger)
+
+            RequestsInstrumentor().instrument()
 
         logger.debug("Initializing DaprHTTPClient client")
 
