@@ -67,7 +67,7 @@ First, install Postgres on your machine.
 
 #### Option 1: Using Docker
 
-Create the following direcotry and copy the sql files there:
+Create the following directory and copy the sql files there:
 
 ```bash
 mkdir docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
