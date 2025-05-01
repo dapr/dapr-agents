@@ -107,7 +107,7 @@ class DaprHTTPClient(BaseModel):
             f"[HTTP] Sending POST request to '{url}' with input '{payload}' and headers '{self.headers}"
         )
 
-        match verb.capitalize():
+        match verb.upper():
             case "GET":
                 response = requests.get(url=str(url), headers=self.headers)
             case "POST":
