@@ -62,7 +62,7 @@ Once running, access the Redis Insight interface at `http://localhost:5540/`
 
 * Port: 6379
 * Host (Linux): 172.17.0.1
-* Host (Windows/Mac): docker.host.internal
+* Host (Windows/Mac): host.docker.internal (example `host.docker.internal:6379`)
 
 Redis Insight makes it easy to visualize and manage the data powering your agentic workflows, ensuring efficient debugging, monitoring, and optimization.
 
@@ -83,7 +83,7 @@ AZURE_OPENAI_API_VERSION="azure_openai_api_version"
 
 **NB!** the `AZURE_OPENAI_DEPLOYMENT` refers to the _model_, e.g., `gpt-4o`. `AZURE_OPENAI_API_VERSION` has been tested to work against `2024-08-01-preview`.
 
-Then instansiate the agent(s) as well as the orchestrator as follows:
+Then instantiate the agent(s) as well as the orchestrator as follows:
 
 ```python
 from dapr_agents import AssistantAgent, OpenAIChatClient

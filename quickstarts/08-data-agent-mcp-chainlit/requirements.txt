@@ -1,0 +1,5 @@
+dapr-agents>=0.5.1
+python-dotenv
+chainlit
+psycopg
+psycopg[binary]

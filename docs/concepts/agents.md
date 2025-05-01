@@ -44,7 +44,7 @@ In Dapr Agents, Agent Patterns define the built-in loops that allow agents to dy
 
 ### Tool Calling
 
-Tool Calling is an essential pattern in autonomous agent design, allowing AI agents to interact dynamically with external tools based on user input. One reliable method for enabling this is through [OpenAI's Function Calling](https://platform.openai.com/docs/guides/function-calling?ref=blog.openthreatresearch.com) capabilities, introduced on [June 13, 2023](https://openai.com/index/function-calling-and-other-api-updates/?ref=blog.openthreatresearch.com). This feature allows developers to describe functions to models trained to generate structured JSON objects containing the necessary arguments for tool execution, based on user queries.
+Tool Calling is an essential pattern in autonomous agent design, allowing AI agents to interact dynamically with external tools based on user input. One reliable method for enabling this is through [OpenAI's Function Calling](https://platform.openai.com/docs/guides/function-calling) capability. This feature allows developers to describe functions to models trained to generate structured JSON objects containing the necessary arguments for tool execution, based on user queries.
 
 #### How It Works
 
