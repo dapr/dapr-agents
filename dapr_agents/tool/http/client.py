@@ -76,11 +76,12 @@ class DaprHTTPClient(BaseModel):
 
         super().model_post_init(__context)
 
-    def post(
+    def do_http_request(
         self,
         payload: dict[str, str],
         endpoint: str = "",
         method: str = "",
+        verb: str = "GET",
     ) -> Union[tuple[int, str] | ToolError]:
         """
         Send a POST request to the specified endpoint with the given input.
@@ -89,6 +90,7 @@ class DaprHTTPClient(BaseModel):
             endpoint_url (str): The URL of the endpoint to send the request to.
             payload (dict[str, str]): The payload to include in the request.
             method (str): The method to invoke.
+            verb (str): The HTTP verb. Either GET or POST.
         Returns:
             A tuple with the http status code and respose or a ToolError.
         """
@@ -105,49 +107,21 @@ class DaprHTTPClient(BaseModel):
             f"[HTTP] Sending POST request to '{url}' with input '{payload}' and headers '{self.headers}"
         )
 
-        # We can safely typecast the url to str, since we caught the possible ToolError
-        response = requests.post(url=str(url), headers=self.headers, json=payload)
+        match verb.capitalize():
+            case "GET":
+                response = requests.get(url=str(url), headers=self.headers)
+            case "POST":
+                response = requests.post(
+                    url=str(url), headers=self.headers, json=payload
+                )
+            case _:
+                raise ValueError(
+                    f"Value for 'verb' not in expected format ['GET'|'POST']: {verb}"
+                )
 
         logger.debug(
             f"Request returned status code '{response.status_code}' and '{response.text}'"
         )
-
-        if not response.ok:
-            raise ToolError(
-                f"Error occured sending the request. Received '{response.status_code}' - '{response.text}'"
-            )
-
-        return (response.status_code, response.text)
-
-    def get(
-        self,
-        endpoint: str = "",
-        method: str = "",
-    ) -> Union[tuple[int, str] | ToolError]:
-        """
-        Send a GET request to the specified endpoint.
-
-        Args:
-            endpoint_url (str): The URL of the endpoint to send the request to.
-            method (str): The method to invoke.
-        Returns:
-            A tuple with the http status code and respose or a ToolError.
-        """
-
-        try:
-            url = self._validate_endpoint_type(
-                endpoint=endpoint, method=self.method if method == "" else method
-            )
-        except ToolError as e:
-            logger.error(f"Error validating endpoint: {e}")
-            raise e
-
-        logger.debug(
-            f"[HTTP] Sending GET request to '{url}' with headers '{self.headers}"
-        )
-
-        # We can safely typecast the url to str, since we caught the possible ToolError
-        response = requests.get(url=str(url), headers=self.headers)
 
         if not response.ok:
             raise ToolError(
