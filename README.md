@@ -1,5 +1,13 @@
 # Dapr Agents: A Framework for Agentic AI Systems
 
+[![PyPI - Version](https://img.shields.io/pypi/v/dapr-agents?style=flat&logo=pypi&logoColor=white&label=Latest%20version)](https://pypi.org/project/dapr-agents/) 
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/dapr-agents?style=flat&logo=pypi&logoColor=white&label=Downloads)](https://pypi.org/project/dapr-agents/) 
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/dapr/dapr-agents/.github%2Fworkflows%2Fbuild.yaml?branch=main&label=Build&logo=github)](https://github.com/dapr/dapr-agents/actions/workflows/build.yaml) 
+[![GitHub License](https://img.shields.io/github/license/dapr/dapr-agents?style=flat&label=License&logo=github)](https://github.com/dapr/dapr-agents/blob/main/LICENSE) 
+[![Discord](https://img.shields.io/discord/778680217417809931?label=Discord&style=flat&logo=discord)](http://bit.ly/dapr-discord) 
+[![YouTube Channel Views](https://img.shields.io/youtube/channel/views/UCtpSQ9BLB_3EXdWAUQYwnRA?style=flat&label=YouTube%20views&logo=youtube)](https://youtube.com/@daprdev)
+[![X (formerly Twitter) Follow](https://img.shields.io/twitter/follow/daprdev?logo=x&style=flat)](https://twitter.com/daprdev)
+
 Dapr Agents is a developer framework designed to build production-grade resilient AI agent systems that operate at scale. Built on top of the battle-tested Dapr project, it enables software developers to create AI agents that reason, act, and collaborate using Large Language Models (LLMs), while leveraging built-in observability and stateful workflow execution to guarantee agentic workflows complete successfully, no matter how complex.
 
 ![](./docs/img/logo-workflows.png)
@@ -60,8 +68,8 @@ As a part of **CNCF**, Dapr Agents is vendor-neutral, eliminating concerns about
 
 Here are some of the major features we're working on for the current quarter:
 
-### Q2 2024
-- **MCP Support** - Integration with Anthropic's MCP platform ([#50](https://github.com/dapr/dapr-agents/issues/50))
+### Q2 2025
+- **MCP Support** - Integration with Anthropic's MCP platform ([#50](https://github.com/dapr/dapr-agents/issues/50) ✅ )
 - **Agent Interaction Tracing** - Enhanced observability of agent interactions with LLMs and tools ([#79](https://github.com/dapr/dapr-agents/issues/79))
 - **Streaming LLM Output** - Real-time streaming capabilities for LLM responses ([#80](https://github.com/dapr/dapr-agents/issues/80))
 - **HTTP Endpoint Tools** - Support for using Dapr's HTTP endpoint capabilities for tool calling ([#81](https://github.com/dapr/dapr-agents/issues/81))

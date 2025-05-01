@@ -147,7 +147,7 @@ You can find the agent page at http://localhost:8001.
 
 ### Ask Questions
 
-Now you can start talking to your data. If using the sample database, ask questons like `Show me all churned users from the past month` and `Can you identify the problematic area in our product that led to users churning?`.
+Now you can start talking to your data. If using the sample database, ask questions like `Show me all churned users from the past month` and `Can you identify the problematic area in our product that led to users churning?`.
 
 #### Testing the agent's memory
 
