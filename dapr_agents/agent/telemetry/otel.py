@@ -16,7 +16,7 @@ from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExp
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
 
-class DaprAgentOTel:
+class DaprAgentsOTel:
     """
     OpenTelemetry configuration for Dapr agents.
     """
@@ -57,7 +57,7 @@ class DaprAgentOTel:
             telemetry_type="metrics",
         )
 
-        metric_exporter = OTLPMetricExporter(endpoint=endpoint)
+        metric_exporter = OTLPMetricExporter(endpoint=str(endpoint))
         metric_reader = PeriodicExportingMetricReader(metric_exporter)
         meter_provider = MeterProvider(
             resource=self._resource, metric_readers=[metric_reader]
@@ -82,7 +82,7 @@ class DaprAgentOTel:
             telemetry_type="traces",
         )
 
-        trace_exporter = OTLPSpanExporter(endpoint=endpoint)
+        trace_exporter = OTLPSpanExporter(endpoint=str(endpoint))
         tracer_processor = BatchSpanProcessor(trace_exporter)
         tracer_provider = TracerProvider(resource=self._resource)
         tracer_provider.add_span_processor(tracer_processor)
@@ -107,7 +107,7 @@ class DaprAgentOTel:
             telemetry_type="logs",
         )
 
-        log_exporter = OTLPLogExporter(endpoint=endpoint)
+        log_exporter = OTLPLogExporter(endpoint=str(endpoint))
         logging_provider = LoggerProvider(resource=self._resource)
         logging_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
         set_logger_provider(logging_provider)
