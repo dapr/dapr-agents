@@ -34,8 +34,8 @@ class DaprHTTPClient(BaseModel):
         default="", description="Optional FQDN URL to request to."
     )
 
-    method: Optional[str] = Field(
-        default="", description="Optional name of the method to invoke."
+    path: Optional[str] = Field(
+        default="", description="Optional name of the path to invoke."
     )
 
     headers: Optional[Dict[str, str]] = Field(
@@ -82,16 +82,16 @@ class DaprHTTPClient(BaseModel):
         self,
         payload: dict[str, str],
         endpoint: str = "",
-        method: str = "",
+        path: str = "",
         verb: str = "GET",
     ) -> Union[tuple[int, str] | ToolError]:
         """
         Send a POST request to the specified endpoint with the given input.
 
         Args:
-            endpoint_url (str): The URL of the endpoint to send the request to.
+            endpoint_url (str): The host of the URI to send the request to.
             payload (dict[str, str]): The payload to include in the request.
-            method (str): The method to invoke.
+            path (str): The path of the URI to invoke including any query strings appended.
             verb (str): The HTTP verb. Either GET or POST.
         Returns:
             A tuple with the http status code and respose or a ToolError.
@@ -99,7 +99,7 @@ class DaprHTTPClient(BaseModel):
 
         try:
             url = self._validate_endpoint_type(
-                endpoint=endpoint, method=self.method if method == "" else method
+                endpoint=endpoint, path=self.path if path == "" else path
             )
         except ToolError as e:
             logger.error(f"Error validating endpoint: {e}")
@@ -133,14 +133,14 @@ class DaprHTTPClient(BaseModel):
         return (response.status_code, response.text)
 
     def _validate_endpoint_type(
-        self, endpoint: str, method: Optional[str | None]
+        self, endpoint: str, path: Optional[str | None]
     ) -> Union[str | ToolError]:
-        if method == "":
-            raise ToolError("No method provided. Please provide a valid method.")
+        if path == "":
+            raise ToolError("No path provided. Please provide a valid path.")
 
-        if isinstance(method, str) and method.startswith("/"):
+        if isinstance(path, str) and path.startswith("/"):
             # Remove leading slash
-            method = method[1:]
+            path = path[1:]
 
         try:
             if self.dapr_app_id != "":
@@ -148,7 +148,7 @@ class DaprHTTPClient(BaseModel):
                 if isinstance(self.dapr_app_id, str) and self.dapr_app_id.endswith("/"):
                     # Remove trailing slash
                     self.dapr_app_id = self.dapr_app_id[:-1]
-                url = f"{self._base_url}/{self.dapr_app_id}/method/{self.method if method == '' else method}"
+                url = f"{self._base_url}/{self.dapr_app_id}/method/{self.path if path == '' else path}"
             elif self.dapr_http_endpoint != "":
                 # Dapr HTTPEndpoint
                 if isinstance(
@@ -156,7 +156,7 @@ class DaprHTTPClient(BaseModel):
                 ) and self.dapr_http_endpoint.endswith("/"):
                     # Remove trailing slash
                     self.dapr_http_endpoint = self.dapr_http_endpoint[:-1]
-                url = f"{self._base_url}/{self.dapr_http_endpoint}/method/{self.method if method == '' else method}"
+                url = f"{self._base_url}/{self.dapr_http_endpoint}/method/{self.path if path == '' else path}"
             elif self.http_endpoint != "":
                 # FQDN URL
                 if isinstance(self.http_endpoint, str) and self.http_endpoint.endswith(
@@ -164,13 +164,13 @@ class DaprHTTPClient(BaseModel):
                 ):
                     # Remove trailing slash
                     self.http_endpoint = self.http_endpoint[:-1]
-                url = f"{self._base_url}/{self.http_endpoint}/method/{self.method if method == '' else method}"
+                url = f"{self._base_url}/{self.http_endpoint}/method/{self.path if path == '' else path}"
             elif endpoint != "":
                 # Fallback to default
                 if isinstance(endpoint, str) and endpoint.endswith("/"):
                     # Remove trailing slash
                     endpoint = endpoint[:-1]
-                url = f"{self._base_url}/{endpoint}/method/{self.method if method == '' else method}"
+                url = f"{self._base_url}/{endpoint}/method/{self.path if path == '' else path}"
             else:
                 raise ToolError(
                     "No endpoint provided. Please provide a valid dapr-app-id, HTTPEndpoint or endpoint."
