@@ -1,1 +1,1 @@
-from .client import DaprHTTPClient, do_http_request
+from .client import DaprHTTPClient

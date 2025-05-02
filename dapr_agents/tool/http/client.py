@@ -125,9 +125,9 @@ class DaprHTTPClient(BaseModel):
         )
 
         if not response.ok:
-           raise ToolError(
-               f"Error occured sending the request. Received '{response.status_code}' - '{response.text}'"
-           )
+            raise ToolError(
+                f"Error occured sending the request. Received '{response.status_code}' - '{response.text}'"
+            )
 
         return (response.status_code, response.text)
 
