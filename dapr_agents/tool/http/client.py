@@ -77,7 +77,6 @@ class DaprHTTPClient(BaseModel):
 
         super().model_post_init(__context)
 
-    @tool
     def do_http_request(
         self,
         payload: dict[str, str],
@@ -125,10 +124,10 @@ class DaprHTTPClient(BaseModel):
             f"Request returned status code '{response.status_code}' and '{response.text}'"
         )
 
-        # if not response.ok:
-        #    raise ToolError(
-        #        f"Error occured sending the request. Received '{response.status_code}' - '{response.text}'"
-        #    )
+        if not response.ok:
+           raise ToolError(
+               f"Error occured sending the request. Received '{response.status_code}' - '{response.text}'"
+           )
 
         return (response.status_code, response.text)
 
