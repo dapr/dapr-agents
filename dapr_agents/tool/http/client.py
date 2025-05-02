@@ -82,7 +82,7 @@ class DaprHTTPClient(BaseModel):
         endpoint: str = "",
         method: str = "",
         verb: str = "GET",
-    ) -> Union[tuple[int, Any] | ToolError]:
+    ) -> Union[tuple[int, str] | ToolError]:
         """
         Send a POST request to the specified endpoint with the given input.
 
@@ -120,7 +120,7 @@ class DaprHTTPClient(BaseModel):
                 )
 
         logger.debug(
-            f"Request returned status code '{response.status_code}' and '{response.json()}'"
+            f"Request returned status code '{response.status_code}' and '{response.text}'"
         )
 
         # if not response.ok:
@@ -128,7 +128,7 @@ class DaprHTTPClient(BaseModel):
         #        f"Error occured sending the request. Received '{response.status_code}' - '{response.text}'"
         #    )
 
-        return (response.status_code, response.json())
+        return (response.status_code, response.text)
 
     def _validate_endpoint_type(
         self, endpoint: str, method: Optional[str | None]
