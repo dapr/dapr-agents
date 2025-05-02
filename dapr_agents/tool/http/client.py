@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Literal, Optional, Any, Union
+from typing import Dict, Optional, Any, Union
 from distutils.util import strtobool
 import logging
 import requests
