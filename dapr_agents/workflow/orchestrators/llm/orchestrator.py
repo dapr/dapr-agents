@@ -35,6 +35,7 @@ from dapr_agents.workflow.orchestrators.llm.utils import (
 )
 
 from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import span_decorator, async_span_decorator
 
 from opentelemetry.sdk import trace
 from opentelemetry.sdk.trace import Tracer
@@ -69,7 +70,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
     @message_router
     @workflow(name="LLMWorkflow")
-    @_tracer.start_as_current_span("main_workflow")
+    @span_decorator("main_workflow")
     def main_workflow(self, ctx: DaprWorkflowContext, message: TriggerAction):
         """
         Executes an LLM-driven agentic workflow where the next agent is dynamically selected
@@ -334,7 +335,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         return agent_list
 
     @task(description=TASK_PLANNING_PROMPT)
-    @_tracer.start_as_current_span("generate_plan")
+    @async_span_decorator("generate_plan")
     async def generate_plan(
         self, task: str, agents: str, plan_schema: str
     ) -> List[PlanStep]:
@@ -352,7 +353,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         pass
 
     @task
-    @_tracer.start_as_current_span("prepare_init_msg")
+    @async_span_decorator("prepare_init_msg")
     async def prepare_initial_message(
         self, instance_id: str, task: str, agents: str, plan: List[Dict[str, Any]]
     ) -> str:
@@ -377,7 +378,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         return formatted_message
 
     @task
-    @_tracer.start_as_current_span("broadcast_msg_to_agents")
+    @async_span_decorator("broadcast_msg_to_agents")
     async def broadcast_message_to_agents(self, instance_id: str, task: str):
         """
         Saves message to workflow state and broadcasts it to all registered agents.
@@ -403,7 +404,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         await self.broadcast_message(message=task_message, exclude_orchestrator=True)
 
     @task(description=NEXT_STEP_PROMPT, include_chat_history=True)
-    @_tracer.start_as_current_span("generate_next_step")
+    @async_span_decorator("generate_next_step")
     async def generate_next_step(
         self, task: str, agents: str, plan: str, next_step_schema: str
     ) -> NextStep:
@@ -422,7 +423,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         pass
 
     @task
-    @_tracer.start_as_current_span("validate_next_step")
+    @async_span_decorator("validate_next_step")
     async def validate_next_step(
         self,
         instance_id: str,
@@ -451,7 +452,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         return True
 
     @task
-    @_tracer.start_as_current_span("trigger_agent")
+    @async_span_decorator("trigger_agent")
     async def trigger_agent(
         self, instance_id: str, name: str, step: int, substep: Optional[float]
     ) -> List[dict[str, Any]]:
@@ -579,7 +580,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         pass
 
     @task
-    @_tracer.start_as_current_span("update_plan")
+    @async_span_decorator("update_plan")
     async def update_plan(
         self,
         instance_id: str,
@@ -634,7 +635,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         logger.info(f"Plan successfully updated for instance {instance_id}")
 
     @task(description=SUMMARY_GENERATION_PROMPT, include_chat_history=True)
-    @_tracer.start_as_current_span("generate_summary")
+    @async_span_decorator("generate_summary")
     async def generate_summary(
         self,
         task: str,
@@ -663,7 +664,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         pass
 
     @task
-    @_tracer.start_as_current_span("finish_workload")
+    @async_span_decorator("finish_workload")
     async def finish_workflow(
         self,
         instance_id: str,
@@ -729,7 +730,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         # Store the final summary and verdict in workflow state
         await self.update_workflow_state(instance_id=instance_id, final_output=summary)
 
-    @_tracer.start_as_current_span("update_workflow_state")
+    @async_span_decorator("update_workflow_state")
     async def update_workflow_state(
         self,
         instance_id: str,
@@ -776,7 +777,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         self.save_state()
 
     @message_router
-    @_tracer.start_as_current_span("process_agent_response")
+    @async_span_decorator("process_agent_response")
     async def process_agent_response(self, message: AgentTaskResponse):
         """
         Processes agent response messages sent directly to the agent's topic.
