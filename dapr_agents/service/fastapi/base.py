@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from distutils.util import strtobool
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, PrivateAttr
 from typing import List, Optional, Any
 from dapr_agents.service import APIServerBase
 import uvicorn
@@ -46,6 +46,8 @@ class FastAPIServerBase(APIServerBase):
         description="Server handle for running the FastAPI app.",
     )
 
+    _otel_enabled: Optional[bool] = PrivateAttr(default=True)
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context: Any) -> None:
@@ -54,13 +56,13 @@ class FastAPIServerBase(APIServerBase):
         """
 
         try:
-            self.otel_enabled: bool = bool(
+            self._otel_enabled: bool = bool(
                 strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True"))
             )
         except ValueError:
-            self.otel_enabled = False
+            self._otel_enabled = False
 
-        if self.otel_enabled:
+        if self._otel_enabled:
             from dapr_agents.agent import DaprAgentsOTel
             from opentelemetry import trace
             from opentelemetry._logs import set_logger_provider

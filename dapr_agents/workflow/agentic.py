@@ -102,18 +102,19 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
     _topic_handlers: Dict[
         Tuple[str, str], Dict[Type[BaseModel], Callable]
     ] = PrivateAttr(default_factory=dict)
+    _otel_enabled: Optional[bool] = PrivateAttr(default=True)
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the workflow service, messaging, and metadata storage."""
 
         try:
-            self.otel_enabled: bool = bool(
+            self._otel_enabled: bool = bool(
                 strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True"))
             )
         except ValueError:
-            self.otel_enabled = False
+            self._otel_enabled = False
 
-        if self.otel_enabled:
+        if self._otel_enabled:
             from dapr_agents.agent import DaprAgentsOTel
             from opentelemetry import trace
             from opentelemetry._logs import set_logger_provider
