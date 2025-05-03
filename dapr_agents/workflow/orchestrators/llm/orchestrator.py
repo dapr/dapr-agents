@@ -110,9 +110,9 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
         # Step 0: Retrieve iteration messages
         task = message.get("task")
-        span.set_attribute["message.task", str(task)]
+        span.set_attribute("message.task", task)
         iteration = message.get("iteration")
-        span.set_attribute["workflow.iteration", str(iteration)]
+        span.set_attribute("workflow.iteration", iteration)
 
         # Step 1:
         # Ensure 'instances' and the instance_id entry exist
