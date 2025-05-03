@@ -3,6 +3,7 @@ import functools
 import inspect
 import json
 import logging
+import os
 import sys
 import time
 import uuid
@@ -30,6 +31,12 @@ from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.workflow.task import WorkflowTask
 from dapr_agents.workflow.utils import get_decorated_methods
+
+from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import DaprAgentsOTel, async_span_decorator, span_decorator
+
+from opentelemetry._logs import set_logger_provider
+from opentelemetry.trace import Tracer, set_tracer_provider
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +78,8 @@ class WorkflowApp(BaseModel):
         description="Dictionary of registered workflows.",
     )
 
+    _tracer: Optional[Tracer] = PrivateAttr(default=None)
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context: Any) -> None:
@@ -89,6 +98,25 @@ class WorkflowApp(BaseModel):
         self._register_tasks(discovered_tasks)
         discovered_wfs = self._discover_workflows()
         self._register_workflows(discovered_wfs)
+
+        try:
+            otel_client = DaprAgentsOTel(
+                service_name=self.name,
+                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            )
+            provider = otel_client.create_and_instrument_tracer_provider()
+            set_tracer_provider(provider)
+
+            self._tracer = provider.get_tracer("wf_tracer")
+
+            otel_logger = otel_client.create_and_instrument_logging_provider(
+                logger=logger,
+            )
+            set_logger_provider(otel_logger)
+
+        except Exception as e:
+            logger.warning(f"OpenTelemetry initialization failed: {e}. Continuing without telemetry.")
+            self._tracer = None
 
         super().model_post_init(__context)
 
@@ -225,6 +253,7 @@ class WorkflowApp(BaseModel):
         else:
             logger.debug("Workflow runtime already stopped; skipping.")
 
+    @span_decorator("register_agent")
     def register_agent(
         self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict
     ) -> None:
@@ -364,6 +393,7 @@ class WorkflowApp(BaseModel):
 
         return workflow_func
 
+    @span_decorator("run_workflow")
     def run_workflow(
         self, workflow: Union[str, Callable], input: Union[str, Dict[str, Any]] = None
     ) -> str:

@@ -58,7 +58,7 @@ class FastAPIServerBase(APIServerBase):
         Post-initialization to configure core FastAPI app and CORS settings.
         """
         
-        self._logger = _logs.get_logger("fastapi_logger")
+        #self._logger = _logs.get_logger("fastapi_logger")
 
         # Initialize FastAPI app with title and description
         self.app = FastAPI(
