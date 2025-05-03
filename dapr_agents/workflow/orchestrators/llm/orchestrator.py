@@ -69,10 +69,10 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
             self._tracer = provider.get_tracer(f"{self.name}_tracer")
 
-            otel_logger = otel_client.create_and_instrument_logging_provider(
-                logger=logger,
-            )
-            set_logger_provider(otel_logger)
+            # otel_logger = otel_client.create_and_instrument_logging_provider(
+            #     logger=logger,
+            # )
+            # set_logger_provider(otel_logger)
 
         except Exception as e:
             logger.warning(f"OpenTelemetry initialization failed: {e}. Continuing without telemetry.")
@@ -88,7 +88,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
     @message_router
     @workflow(name="LLMWorkflow")
-    @async_span_decorator("main_workflow")
+    @span_decorator("main_workflow")
     def main_workflow(self, ctx: DaprWorkflowContext, message: TriggerAction):
         """
         Executes an LLM-driven agentic workflow where the next agent is dynamically selected
