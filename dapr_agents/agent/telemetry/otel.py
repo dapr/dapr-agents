@@ -169,7 +169,7 @@ def async_span_decorator(name):
         async def wrapper(self, *args, **kwargs):
             tracer = getattr(self, "_tracer", None)
             if tracer:
-                with tracer.start_as_current_span(name):
+                async with tracer.start_as_current_span(name):
                     return await func(self, *args, **kwargs)
             else:
                 return await func(self, *args, **kwargs)
