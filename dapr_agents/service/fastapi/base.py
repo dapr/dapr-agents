@@ -71,10 +71,12 @@ class FastAPIServerBase(APIServerBase):
         )
 
         if self._otel_enabled:
+            from opentelemetry.instrumentation.starlette import StarletteInstrumentor
             from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-            # We can instrument FastAPI automatically
+            # We can instrument FastAPI and Starlette automatically
             FastAPIInstrumentor.instrument_app(self.app)
+            StarletteInstrumentor.instrument_app(self.app)
 
         # Configure CORS settings
         self.app.add_middleware(

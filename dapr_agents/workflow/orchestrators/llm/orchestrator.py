@@ -2,6 +2,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from pydantic import PrivateAttr
+
 from dapr.ext.workflow import DaprWorkflowContext
 from dapr_agents.workflow.decorators import task, workflow
 from dapr_agents.workflow.messaging.decorator import message_router
@@ -44,6 +46,8 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
     Uses the `continue_as_new` pattern to restart the workflow with updated input at each iteration.
     """
+
+    _otel_enabled: Optional[bool] = PrivateAttr(default=True)
 
     def model_post_init(self, __context: Any) -> None:
         """

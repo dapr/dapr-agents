@@ -783,7 +783,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         """
         with self._tracer.start_as_current_span(
             "Workflow Run"
-        ) if self.otel_enabled else None as span:
+        ) if self._otel_enabled else None as span:
             try:
                 # Extract workflow name from query parameters or use default
                 workflow_name = request.query_params.get("name") or self._workflow_name
