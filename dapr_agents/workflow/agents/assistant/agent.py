@@ -4,7 +4,7 @@ from datetime import datetime
 import os
 from typing import Any, Dict, List, Optional, Union
 
-from dapr_agents.types.exceptions import ToolError
+from dapr_agents.types.exceptions import AgentToolExecutorError, ToolError
 from pydantic import Field
 
 from dapr.ext.workflow import DaprWorkflowContext
@@ -398,7 +398,7 @@ class AssistantAgent(AgentWorkflowBase):
                 instance_id=instance_id, tool_message=workflow_tool_message
             )
 
-        except ToolError as e:
+        except (ToolError, AgentToolExecutorError) as e:
             logger.info(f"####### '{e}'")
             logger.info(f"####### '{result}'")
             workflow_tool_message = {
