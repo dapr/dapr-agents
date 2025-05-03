@@ -730,6 +730,11 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             agent_metadata = agents_metadata[name]
             logger.info(f"{self.name} sending message to agent '{name}'.")
 
+            span = trace.get_current_span()
+            span.set_attribute["message.receiver", agent_metadata["topic_name"]]
+            span.set_attribute["message.sender", self.name]
+            span.set_attribute["message.message", message]
+
             await self.publish_event_message(
                 topic_name=agent_metadata["topic_name"],
                 pubsub_name=agent_metadata["pubsub_name"],
