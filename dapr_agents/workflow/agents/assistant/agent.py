@@ -37,7 +37,7 @@ from dapr_agents.agent.telemetry import (
 )
 
 from opentelemetry import trace
-from opentelemetry.trace import Tracer, set_tracer_provider
+from opentelemetry.trace import Tracer, set_tracer_provider, Status, StatusCode
 
 logger = logging.getLogger(__name__)
 
@@ -399,7 +399,12 @@ class AssistantAgent(AgentWorkflowBase):
             )
 
         except (ToolError, AgentToolExecutorError) as e:
-            logger.info(f"####### '{e}'")
+            logger.info(e)
+
+            span = trace.get_current_span()
+            span.set_status(Status(StatusCode.ERROR))
+            span.record_exception(e)
+
             workflow_tool_message = {
                 "tool_call_id": tool_call.get("id"),
                 "function_name": function_name,
