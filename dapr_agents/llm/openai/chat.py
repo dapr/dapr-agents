@@ -1,3 +1,4 @@
+import os
 from dapr_agents.types.llm import AzureOpenAIModelConfig, OpenAIModelConfig
 from dapr_agents.llm.utils import RequestHandler, ResponseHandler
 from dapr_agents.llm.openai.client.base import OpenAIClientBase
@@ -22,6 +23,15 @@ from pydantic import BaseModel, Field, model_validator
 from pathlib import Path
 import logging
 
+from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import (
+    DaprAgentsOTel,
+    async_span_decorator,
+    span_decorator,
+)
+
+from opentelemetry.trace import Tracer, set_tracer_provider
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,6 +42,8 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
     """
 
     model: str = Field(default=None, description="Model name to use, e.g., 'gpt-4'.")
+
+    _tracer: Optional[Tracer] = PrivateAttr(default=None)
 
     SUPPORTED_STRUCTURED_MODES: ClassVar[set] = {"json", "function_call"}
 
@@ -49,6 +61,23 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
         """
         Initializes chat-specific attributes after validation.
         """
+
+        try:
+            otel_client = DaprAgentsOTel(
+                service_name=self.name,
+                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            )
+            provider = otel_client.create_and_instrument_tracer_provider()
+            set_tracer_provider(provider)
+
+            self._tracer = provider.get_tracer(f"openai_tracer")
+
+        except Exception as e:
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
+            self._tracer = None
+            
         self._api = "chat"
         super().model_post_init(__context)
 
@@ -114,6 +143,7 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
                 f"Unsupported model configuration type: {type(model_config.configuration)}"
             )
 
+    @span_decorator("generate_chat")
     def generate(
         self,
         messages: Union[
