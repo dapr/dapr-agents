@@ -34,7 +34,11 @@ from dapr_agents.workflow.messaging.routing import MessageRoutingMixin
 from dapr_agents.storage.daprstores.statestore import DaprStateStore
 from dapr_agents.workflow import WorkflowApp
 from opentelemetry.sdk.trace import Tracer
-from dapr_agents.agent.telemetry import DaprAgentsOTel, async_span_decorator, span_decorator
+from dapr_agents.agent.telemetry import (
+    DaprAgentsOTel,
+    async_span_decorator,
+    span_decorator,
+)
 from opentelemetry import trace
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.instrumentation.asyncio import AsyncioInstrumentor
@@ -110,7 +114,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the workflow service, messaging, and metadata storage."""
-        
+
         try:
             otel_client = DaprAgentsOTel(
                 service_name=self.name,
@@ -129,9 +133,11 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             # We can instrument Asyncio automatically
             AsyncioInstrumentor().instrument()
         except Exception as e:
-            logger.warning(f"OpenTelemetry initialization failed: {e}. Continuing without telemetry.")
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
             self._tracer = None
-            
+
         # Set up color formatter for logging and CLI printing
         self._text_formatter = ColorTextFormatter()
 
@@ -819,12 +825,8 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             except Exception:
                 input_data = await request.json()
 
-            logger.info(
-                f"Starting workflow '{workflow_name}' with input: {input_data}"
-            )
-            instance_id = self.run_workflow(
-                workflow=workflow_name, input=input_data
-            )
+            logger.info(f"Starting workflow '{workflow_name}' with input: {input_data}")
+            instance_id = self.run_workflow(workflow=workflow_name, input=input_data)
 
             asyncio.create_task(self.monitor_workflow_completion(instance_id))
 

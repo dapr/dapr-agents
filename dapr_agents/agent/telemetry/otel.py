@@ -145,8 +145,10 @@ class DaprAgentsOTel:
 
         return endpoint
 
+
 def span_decorator(name):
     """Decorator that creates an OpenTelemetry span for a method."""
+
     def decorator(func):
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
@@ -158,12 +160,16 @@ def span_decorator(name):
             else:
                 # Fallback if no tracer is available
                 return func(self, *args, **kwargs)
+
         return wrapper
+
     return decorator
+
 
 # For async methods
 def async_span_decorator(name):
     """Decorator that creates an OpenTelemetry span for an async method."""
+
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(self, *args, **kwargs):
@@ -173,5 +179,7 @@ def async_span_decorator(name):
                     return await func(self, *args, **kwargs)
             else:
                 return await func(self, *args, **kwargs)
+
         return wrapper
+
     return decorator

@@ -36,7 +36,11 @@ from dapr_agents.workflow.orchestrators.llm.utils import (
 )
 
 from pydantic import PrivateAttr
-from dapr_agents.agent.telemetry import DaprAgentsOTel, async_span_decorator, span_decorator
+from dapr_agents.agent.telemetry import (
+    DaprAgentsOTel,
+    async_span_decorator,
+    span_decorator,
+)
 
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.trace import Tracer, set_tracer_provider
@@ -75,7 +79,9 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             # set_logger_provider(otel_logger)
 
         except Exception as e:
-            logger.warning(f"OpenTelemetry initialization failed: {e}. Continuing without telemetry.")
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
             self._tracer = None
 
         # Initializes local LLM Orchestrator State
