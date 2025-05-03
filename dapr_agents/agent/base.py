@@ -17,7 +17,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 import logging
 
-from pydantic import PrivateAttr
 from dapr_agents.agent.telemetry import (
     DaprAgentsOTel,
     async_span_decorator,
