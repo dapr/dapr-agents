@@ -400,12 +400,11 @@ class AssistantAgent(AgentWorkflowBase):
 
         except (ToolError, AgentToolExecutorError) as e:
             logger.info(f"####### '{e}'")
-            logger.info(f"####### '{result}'")
             workflow_tool_message = {
                 "tool_call_id": tool_call.get("id"),
                 "function_name": function_name,
                 "function_args": function_args,
-                "content": str(result),
+                "content": str(e),
             }
             # Update workflow state and agent tool history
             await self.update_workflow_state(
