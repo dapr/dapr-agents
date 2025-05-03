@@ -4,6 +4,7 @@ from datetime import datetime
 import os
 from typing import Any, Dict, List, Optional, Union
 
+from dapr_agents.types.exceptions import ToolError
 from pydantic import Field
 
 from dapr.ext.workflow import DaprWorkflowContext
@@ -397,6 +398,23 @@ class AssistantAgent(AgentWorkflowBase):
                 instance_id=instance_id, tool_message=workflow_tool_message
             )
 
+        except ToolError as e:
+            logger.info(
+                f"####### '{e}'"
+            )
+            logger.info(
+                f"####### '{result}'"
+            )
+            workflow_tool_message = {
+                "tool_call_id": tool_call.get("id"),
+                "function_name": function_name,
+                "function_args": function_args,
+                "content": str(result),
+            }
+            # Update workflow state and agent tool history
+            await self.update_workflow_state(
+                instance_id=instance_id, tool_message=workflow_tool_message
+            )
         except json.JSONDecodeError:
             logger.error(
                 f"Invalid JSON in tool arguments for function '{function_name}'"
