@@ -175,7 +175,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                     path, method, methods=[method_type], **extra_kwargs
                 )
 
-    @async_span_decorator("start_as_service")
+    @span_decorator("start_as_service")
     def as_service(self, port: int, host: str = "0.0.0.0"):
         """
         Enables FastAPI-based service mode for the agent by initializing a FastAPI server instance.
