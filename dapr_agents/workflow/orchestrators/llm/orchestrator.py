@@ -42,7 +42,6 @@ from dapr_agents.agent.telemetry import (
     span_decorator,
 )
 
-from opentelemetry._logs import set_logger_provider
 from opentelemetry.trace import Tracer, set_tracer_provider
 
 logger = logging.getLogger(__name__)
