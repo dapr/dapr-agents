@@ -27,6 +27,16 @@ from dapr_agents.workflow.agents.base import AgentWorkflowBase
 from dapr_agents.workflow.decorators import task, workflow
 from dapr_agents.workflow.messaging.decorator import message_router
 
+from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import (
+    DaprAgentsOTel,
+    async_span_decorator,
+    span_decorator,
+)
+
+from opentelemetry import trace
+from opentelemetry.trace import Tracer, set_tracer_provider
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,8 +59,26 @@ class AssistantAgent(AgentWorkflowBase):
         description="Strategy for selecting tools ('auto', 'required', 'none'). Defaults to 'auto' if tools are provided.",
     )
 
+    _tracer: Optional[Tracer] = PrivateAttr(default=None)
+
     def model_post_init(self, __context: Any) -> None:
         """Initializes the workflow with agentic execution capabilities."""
+
+        try:
+            otel_client = DaprAgentsOTel(
+                service_name=self.name,
+                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            )
+            provider = otel_client.create_and_instrument_tracer_provider()
+            set_tracer_provider(provider)
+
+            self._tracer = provider.get_tracer(f"{self.name}_tracer")
+
+        except Exception as e:
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
+            self._tracer = None
 
         # Initialize Agent State
         self.state = AssistantWorkflowState()
@@ -65,6 +93,7 @@ class AssistantAgent(AgentWorkflowBase):
 
     @message_router
     @workflow(name="ToolCallingWorkflow")
+    @span_decorator("exec_tool_calling_wf")
     def tool_calling_workflow(self, ctx: DaprWorkflowContext, message: TriggerAction):
         """
         Executes a tool-calling workflow, determining the task source (either an agent or an external user).
@@ -210,6 +239,7 @@ class AssistantAgent(AgentWorkflowBase):
         ctx.continue_as_new(message)
 
     @task
+    @async_span_decorator("generate_response")
     async def generate_response(
         self, instance_id: str, task: Union[str, Dict[str, Any]] = None
     ) -> ChatCompletion:
@@ -246,6 +276,7 @@ class AssistantAgent(AgentWorkflowBase):
         return response.model_dump()
 
     @task
+    @span_decorator("get_response_message")
     def get_response_message(self, response: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extracts the response message from the first choice in the LLM response.
@@ -262,6 +293,7 @@ class AssistantAgent(AgentWorkflowBase):
         return response_message
 
     @task
+    @span_decorator("get_finish_reason")
     def get_finish_reason(self, response: Dict[str, Any]) -> str:
         """
         Extracts the finish reason from the LLM response, indicating why generation stopped.
@@ -291,6 +323,7 @@ class AssistantAgent(AgentWorkflowBase):
         return choice
 
     @task
+    @span_decorator("get_tool_calls")
     def get_tool_calls(
         self, response: Dict[str, Any]
     ) -> Optional[List[Dict[str, Any]]]:
@@ -324,6 +357,7 @@ class AssistantAgent(AgentWorkflowBase):
         return tool_calls
 
     @task
+    @async_span_decorator("exec_tool")
     async def execute_tool(self, instance_id: str, tool_call: Dict[str, Any]):
         """
         Executes a tool call by invoking the specified function with the provided arguments.
@@ -375,6 +409,7 @@ class AssistantAgent(AgentWorkflowBase):
             raise AgentError(f"Error executing tool '{function_name}': {e}") from e
 
     @task
+    @async_span_decorator("broadcast_msg_to_agents")
     async def broadcast_message_to_agents(self, message: Dict[str, Any]):
         """
         Broadcasts it to all registered agents.
@@ -391,6 +426,7 @@ class AssistantAgent(AgentWorkflowBase):
         await self.broadcast_message(message=response_message)
 
     @task
+    @async_span_decorator("respond_to_agent")
     async def send_response_back(
         self, response: Dict[str, Any], target_agent: str, target_instance_id: str
     ):
@@ -415,6 +451,7 @@ class AssistantAgent(AgentWorkflowBase):
         await self.send_message_to_agent(name=target_agent, message=agent_response)
 
     @task
+    @async_span_decorator("finish_workflow")
     async def finish_workflow(self, instance_id: str, message: Dict[str, Any]):
         """
         Finalizes the workflow by storing the provided message as the final output.
@@ -431,6 +468,7 @@ class AssistantAgent(AgentWorkflowBase):
             instance_id=instance_id, final_output=message["content"]
         )
 
+    @async_span_decorator("update_wf_state")
     async def update_workflow_state(
         self,
         instance_id: str,
@@ -493,6 +531,7 @@ class AssistantAgent(AgentWorkflowBase):
         self.save_state()
 
     @message_router(broadcast=True)
+    @async_span_decorator("process_broadcast_msg")
     async def process_broadcast_message(self, message: BroadcastMessage):
         """
         Processes a broadcast message, filtering out messages sent by the same agent
