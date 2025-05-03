@@ -77,7 +77,7 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
                 f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
             )
             self._tracer = None
-            
+
         self._api = "chat"
         super().model_post_init(__context)
 
