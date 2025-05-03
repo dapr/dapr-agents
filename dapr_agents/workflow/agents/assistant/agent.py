@@ -399,12 +399,8 @@ class AssistantAgent(AgentWorkflowBase):
             )
 
         except ToolError as e:
-            logger.info(
-                f"####### '{e}'"
-            )
-            logger.info(
-                f"####### '{result}'"
-            )
+            logger.info(f"####### '{e}'")
+            logger.info(f"####### '{result}'")
             workflow_tool_message = {
                 "tool_call_id": tool_call.get("id"),
                 "function_name": function_name,
