@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from pydantic import Field, ConfigDict, PrivateAttr
 from typing import List, Optional, Any
 from dapr_agents.service import APIServerBase
+from opentelemetry import _logs, trace
 import uvicorn
 import asyncio
 import signal
@@ -63,22 +64,7 @@ class FastAPIServerBase(APIServerBase):
             self._otel_enabled = False
 
         if self._otel_enabled:
-            from dapr_agents.agent import DaprAgentsOTel
-            from opentelemetry import trace
-            from opentelemetry._logs import set_logger_provider
             from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-
-            otel_client = DaprAgentsOTel(
-                service_name="FastAPI Server",
-                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-            )
-            tracer = otel_client.create_and_instrument_tracer_provider()
-            trace.set_tracer_provider(tracer)
-
-            otel_logger = otel_client.create_and_instrument_logging_provider(
-                logger=logger,
-            )
-            set_logger_provider(otel_logger)
 
             # We can instrument FastAPI automatically
             FastAPIInstrumentor.instrument_app(self.app)
