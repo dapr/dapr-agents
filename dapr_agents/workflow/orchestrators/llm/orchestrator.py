@@ -42,6 +42,7 @@ from dapr_agents.agent.telemetry import (
     span_decorator,
 )
 
+from opentelemetry import trace
 from opentelemetry.trace import Tracer, set_tracer_provider
 
 logger = logging.getLogger(__name__)
@@ -71,11 +72,6 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             set_tracer_provider(provider)
 
             self._tracer = provider.get_tracer(f"{self.name}_tracer")
-
-            # otel_logger = otel_client.create_and_instrument_logging_provider(
-            #     logger=logger,
-            # )
-            # set_logger_provider(otel_logger)
 
         except Exception as e:
             logger.warning(
@@ -110,9 +106,13 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         Raises:
             RuntimeError: If the LLM determines the task is `failed`.
         """
+        span = trace.get_current_span()
+
         # Step 0: Retrieve iteration messages
         task = message.get("task")
+        span.set_attribute["message.task", task]
         iteration = message.get("iteration")
+        span.set_attribute["workflow.iteration", iteration]
 
         # Step 1:
         # Ensure 'instances' and the instance_id entry exist
