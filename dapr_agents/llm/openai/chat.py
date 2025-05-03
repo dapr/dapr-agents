@@ -70,7 +70,7 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
             provider = otel_client.create_and_instrument_tracer_provider()
             set_tracer_provider(provider)
 
-            self._tracer = provider.get_tracer(f"openai_tracer")
+            self._tracer = provider.get_tracer("openai_tracer")
 
         except Exception as e:
             logger.warning(
