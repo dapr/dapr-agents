@@ -1,6 +1,4 @@
-import os
 from fastapi.middleware.cors import CORSMiddleware
-from distutils.util import strtobool
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import Field, ConfigDict, PrivateAttr
@@ -60,7 +58,7 @@ class FastAPIServerBase(APIServerBase):
         Post-initialization to configure core FastAPI app and CORS settings.
         """
         
-        self._logger = _logs.get_logger(f"fastapi_logger")
+        self._logger = _logs.get_logger("fastapi_logger")
 
         # Initialize FastAPI app with title and description
         self.app = FastAPI(
