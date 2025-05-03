@@ -33,7 +33,7 @@ from dapr_agents.workflow.messaging import DaprPubSub
 from dapr_agents.workflow.messaging.routing import MessageRoutingMixin
 from dapr_agents.storage.daprstores.statestore import DaprStateStore
 from dapr_agents.workflow import WorkflowApp
-from opentelemetry.sdk.trace import Tracer, get_tracer
+from opentelemetry.sdk.trace import Tracer
 from dapr_agents.agent.telemetry import DaprAgentsOTel
 from opentelemetry import trace
 from opentelemetry._logs import set_logger_provider
@@ -118,7 +118,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         provider = otel_client.create_and_instrument_tracer_provider()
         trace.set_tracer_provider(provider)
 
-        self._tracer = get_tracer(f"{self.name}_tracer")
+        self._tracer = trace.get_tracer(f"{self.name}_tracer")
 
         otel_logger = otel_client.create_and_instrument_logging_provider(
             logger=logger,

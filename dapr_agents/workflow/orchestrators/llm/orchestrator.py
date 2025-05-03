@@ -36,7 +36,8 @@ from dapr_agents.workflow.orchestrators.llm.utils import (
 
 from pydantic import PrivateAttr
 
-from opentelemetry.sdk.trace import Tracer, get_tracer
+from opentelemetry.sdk import trace
+from opentelemetry.sdk.trace import Tracer
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         Initializes and configures the LLM-based workflow service.
         """
 
-        self._tracer = get_tracer(f"{self.name}_tracer")
+        self._tracer = trace.get_tracer(f"{self.name}_tracer")
 
         # Initializes local LLM Orchestrator State
         self.state = LLMWorkflowState()
