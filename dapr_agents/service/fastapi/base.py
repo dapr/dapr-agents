@@ -63,18 +63,18 @@ class FastAPIServerBase(APIServerBase):
         except ValueError:
             self._otel_enabled = False
 
-        if self._otel_enabled:
-            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-
-            # We can instrument FastAPI automatically
-            FastAPIInstrumentor.instrument_app(self.app)
-
         # Initialize FastAPI app with title and description
         self.app = FastAPI(
             title=f"{self.service_name} API Server",
             description=self.description or self.service_name,
             lifespan=self.lifespan,
         )
+
+        if self._otel_enabled:
+            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+            # We can instrument FastAPI automatically
+            FastAPIInstrumentor.instrument_app(self.app)
 
         # Configure CORS settings
         self.app.add_middleware(
