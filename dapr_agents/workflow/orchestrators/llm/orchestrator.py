@@ -39,7 +39,7 @@ from pydantic import PrivateAttr
 from dapr_agents.agent.telemetry import DaprAgentsOTel, async_span_decorator, span_decorator
 
 from opentelemetry._logs import set_logger_provider
-from opentelemetry.sdk.trace import Tracer, set_tracer_provider
+from opentelemetry.trace import Tracer, set_tracer_provider
 
 logger = logging.getLogger(__name__)
 
