@@ -88,7 +88,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
     @message_router
     @workflow(name="LLMWorkflow")
-    @span_decorator("main_workflow")
+    @async_span_decorator("main_workflow")
     def main_workflow(self, ctx: DaprWorkflowContext, message: TriggerAction):
         """
         Executes an LLM-driven agentic workflow where the next agent is dynamically selected
