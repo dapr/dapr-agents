@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry import trace
 from opentelemetry._logs import set_logger_provider
+from dapr_agents.agent.telemetry.otel import DaprAgentsOTel  # type: ignore[import-not-found]
 
 
 logger = logging.getLogger(__name__)
@@ -49,29 +50,19 @@ class DaprHTTPClient(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         """Initialize the client after the model is created."""
 
-        try:
-            otel_enabled: bool = bool(
-                strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True"))
-            )
-        except ValueError:
-            otel_enabled = False
+        otel_client = DaprAgentsOTel(
+            service_name=os.getenv("OTEL_SERVICE_NAME", "dapr-http-client"),
+            otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+        )
+        tracer = otel_client.create_and_instrument_tracer_provider()
+        trace.set_tracer_provider(tracer)
 
-        if otel_enabled:
-            from dapr_agents.agent.telemetry.otel import DaprAgentsOTel  # type: ignore[import-not-found]
+        otel_logger = otel_client.create_and_instrument_logging_provider(
+            logger=logger,
+        )
+        set_logger_provider(otel_logger)
 
-            otel_client = DaprAgentsOTel(
-                service_name=os.getenv("OTEL_SERVICE_NAME", "dapr-http-client"),
-                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-            )
-            tracer = otel_client.create_and_instrument_tracer_provider()
-            trace.set_tracer_provider(tracer)
-
-            otel_logger = otel_client.create_and_instrument_logging_provider(
-                logger=logger,
-            )
-            set_logger_provider(otel_logger)
-
-            RequestsInstrumentor().instrument()
+        RequestsInstrumentor().instrument()
 
         logger.debug("Initializing DaprHTTPClient client")
 
