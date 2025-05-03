@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta
+import os
 from typing import Any, Dict, List, Optional
 
 from dapr.ext.workflow import DaprWorkflowContext
@@ -35,10 +36,10 @@ from dapr_agents.workflow.orchestrators.llm.utils import (
 )
 
 from pydantic import PrivateAttr
-from dapr_agents.agent.telemetry import span_decorator, async_span_decorator
+from dapr_agents.agent.telemetry import DaprAgentsOTel, async_span_decorator, span_decorator
 
-from opentelemetry.sdk import trace
-from opentelemetry.sdk.trace import Tracer
+from opentelemetry.sdk._logs import set_logger_provider
+from opentelemetry.sdk.trace import Tracer, set_tracer_provider
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,24 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         Initializes and configures the LLM-based workflow service.
         """
 
-        self._tracer = trace.get_tracer(f"{self.name}_tracer")
+        try:
+            otel_client = DaprAgentsOTel(
+                service_name=self.name,
+                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            )
+            provider = otel_client.create_and_instrument_tracer_provider()
+            set_tracer_provider(provider)
+
+            self._tracer = provider.get_tracer(f"{self.name}_tracer")
+
+            otel_logger = otel_client.create_and_instrument_logging_provider(
+                logger=logger,
+            )
+            set_logger_provider(otel_logger)
+
+        except Exception as e:
+            logger.warning(f"OpenTelemetry initialization failed: {e}. Continuing without telemetry.")
+            self._tracer = None
 
         # Initializes local LLM Orchestrator State
         self.state = LLMWorkflowState()

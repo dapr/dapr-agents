@@ -119,7 +119,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             provider = otel_client.create_and_instrument_tracer_provider()
             trace.set_tracer_provider(provider)
 
-            self._tracer = trace.get_tracer(f"{self.name}_tracer")
+            self._tracer = provider.get_tracer(f"{self.name}_tracer")
 
             otel_logger = otel_client.create_and_instrument_logging_provider(
                 logger=logger,
