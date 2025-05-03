@@ -48,6 +48,7 @@ dependencies = [
     "opentelemetry-instrumentation-requests == 0.53b1",
     "opentelemetry-instrumentation-fastapi == 0.53b1",
     "opentelemetry-instrumentation-starlette == 0.53b1",
+    "opentelemetry-instrumentation-asyncio == 0.53b1",
 ]
 
 [project.urls]
