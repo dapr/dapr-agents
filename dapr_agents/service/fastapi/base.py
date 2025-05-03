@@ -69,16 +69,16 @@ class FastAPIServerBase(APIServerBase):
             from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
             otel_client = DaprAgentsOTel(
-                service_name=self.name,
+                service_name="FastAPI Server",
                 otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
             )
-            self.tracer = otel_client.create_and_instrument_tracer_provider()
-            trace.set_tracer_provider(self.tracer)
+            tracer = otel_client.create_and_instrument_tracer_provider()
+            trace.set_tracer_provider(tracer)
 
-            self.otel_logger = otel_client.create_and_instrument_logging_provider(
+            otel_logger = otel_client.create_and_instrument_logging_provider(
                 logger=logger,
             )
-            set_logger_provider(self.otel_logger)
+            set_logger_provider(otel_logger)
 
             # We can instrument FastAPI automatically
             FastAPIInstrumentor.instrument_app(self.app)
