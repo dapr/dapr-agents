@@ -171,7 +171,6 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                     path, method, methods=[method_type], **extra_kwargs
                 )
 
-    @_tracer.start_as_current_span("run_as_service")
     def as_service(self, port: int, host: str = "0.0.0.0"):
         """
         Enables FastAPI-based service mode for the agent by initializing a FastAPI server instance.
@@ -676,6 +675,10 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             logger.info(
                 f"{self.name} broadcasting message to {self.broadcast_topic_name}."
             )
+
+            span = trace.get_current_span()
+            span.set_attribute("message.destination", self.broadcast_topic_name)
+            span.set_attribute("message.recipients_count", len(agents_metadata))
 
             await self.publish_event_message(
                 topic_name=self.broadcast_topic_name,
