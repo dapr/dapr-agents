@@ -34,7 +34,7 @@ from dapr_agents.workflow.messaging.routing import MessageRoutingMixin
 from dapr_agents.storage.daprstores.statestore import DaprStateStore
 from dapr_agents.workflow import WorkflowApp
 from opentelemetry.sdk.trace import Tracer
-from dapr_agents.agent.telemetry import DaprAgentsOTel
+from dapr_agents.agent.telemetry import DaprAgentsOTel, async_span_decorator, span_decorator
 from opentelemetry import trace
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.instrumentation.asyncio import AsyncioInstrumentor
@@ -110,24 +110,28 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the workflow service, messaging, and metadata storage."""
+        
+        try:
+            otel_client = DaprAgentsOTel(
+                service_name=self.name,
+                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            )
+            provider = otel_client.create_and_instrument_tracer_provider()
+            trace.set_tracer_provider(provider)
 
-        otel_client = DaprAgentsOTel(
-            service_name=self.name,
-            otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-        )
-        provider = otel_client.create_and_instrument_tracer_provider()
-        trace.set_tracer_provider(provider)
+            self._tracer = trace.get_tracer(f"{self.name}_tracer")
 
-        self._tracer = trace.get_tracer(f"{self.name}_tracer")
+            otel_logger = otel_client.create_and_instrument_logging_provider(
+                logger=logger,
+            )
+            set_logger_provider(otel_logger)
 
-        otel_logger = otel_client.create_and_instrument_logging_provider(
-            logger=logger,
-        )
-        set_logger_provider(otel_logger)
-
-        # We can instrument Asyncio automatically
-        AsyncioInstrumentor().instrument()
-
+            # We can instrument Asyncio automatically
+            AsyncioInstrumentor().instrument()
+        except Exception as e:
+            logger.warning(f"OpenTelemetry initialization failed: {e}. Continuing without telemetry.")
+            self._tracer = None
+            
         # Set up color formatter for logging and CLI printing
         self._text_formatter = ColorTextFormatter()
 
@@ -171,6 +175,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                     path, method, methods=[method_type], **extra_kwargs
                 )
 
+    @async_span_decorator("start_as_service")
     def as_service(self, port: int, host: str = "0.0.0.0"):
         """
         Enables FastAPI-based service mode for the agent by initializing a FastAPI server instance.
@@ -195,13 +200,13 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
         return self
 
-    @_tracer.start_as_current_span("handle_shutdown")
+    @span_decorator("handle_shutdown")
     def handle_shutdown_signal(self, sig):
         logger.info(f"Shutdown signal {sig} received. Stopping service gracefully...")
         self._shutdown_event.set()
         asyncio.create_task(self.stop())
 
-    @_tracer.start_as_current_span("start")
+    @async_span_decorator("start")
     async def start(self):
         """
         Starts the agent workflow service, optionally as a FastAPI server if .as_service() was called.
@@ -253,7 +258,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         finally:
             await self.stop()
 
-    @_tracer.start_as_current_span("stop")
+    @async_span_decorator("stop")
     async def stop(self):
         """
         Gracefully stops the agent service by unsubscribing and stopping the HTTP server if present.
@@ -290,7 +295,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         self._is_running = False
         logger.info("Agent Workflow Service stopped successfully.")
 
-    @_tracer.start_as_current_span("get_chat_history")
+    @span_decorator("get_chat_history")
     def get_chat_history(self, task: Optional[str] = None) -> List[dict]:
         """
         Retrieves and validates the agent's chat history.
@@ -591,7 +596,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             logger.error(f"Failed to save state for key '{self.state_key}': {e}")
             raise
 
-    @_tracer.start_as_current_span("get_agents_metadata")
+    @span_decorator("get_agents_metadata")
     def get_agents_metadata(
         self, exclude_self: bool = True, exclude_orchestrator: bool = False
     ) -> dict:
@@ -647,7 +652,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             logger.error(f"Failed to retrieve agents metadata: {e}", exc_info=True)
             raise RuntimeError(f"Error retrieving agents metadata: {str(e)}") from e
 
-    @_tracer.start_as_current_span("broadcast_message")
+    @async_span_decorator("broadcast_message")
     async def broadcast_message(
         self,
         message: Union[BaseModel, dict],
@@ -676,9 +681,12 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                 f"{self.name} broadcasting message to {self.broadcast_topic_name}."
             )
 
-            span = trace.get_current_span()
-            span.set_attribute("message.destination", self.broadcast_topic_name)
-            span.set_attribute("message.recipients_count", len(agents_metadata))
+            # Add attributes to current span if tracer exists
+            if self._tracer and trace.get_current_span():
+                span = trace.get_current_span()
+                span.set_attribute("message.destination", self.broadcast_topic_name)
+                span.set_attribute("message.recipients_count", len(agents_metadata))
+                span.set_attribute("message.type", type(message).__name__)
 
             await self.publish_event_message(
                 topic_name=self.broadcast_topic_name,
@@ -692,7 +700,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         except Exception as e:
             logger.error(f"Failed to broadcast message: {e}", exc_info=True)
 
-    @_tracer.start_as_current_span("send_message_to_agent")
+    @async_span_decorator("send_message_to_agent")
     async def send_message_to_agent(
         self, name: str, message: Union[BaseModel, dict], **kwargs
     ) -> None:
@@ -771,7 +779,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             logger.error(f"Failed to register metadata for agent {self.name}: {e}")
             raise e
 
-    @_tracer.start_as_current_span("run_workflow_from_request")
+    @async_span_decorator("run_workflow_from_request")
     async def run_workflow_from_request(self, request: Request) -> JSONResponse:
         """
         Run a workflow instance triggered by an incoming HTTP POST request.

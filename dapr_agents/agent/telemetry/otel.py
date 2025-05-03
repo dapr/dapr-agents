@@ -1,6 +1,8 @@
 from logging import Logger
 from typing import Union
 
+import functools
+
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.metrics import set_meter_provider
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
@@ -142,3 +144,34 @@ class DaprAgentsOTel:
         endpoint = endpoint if endpoint.startswith("http://") else f"http://{endpoint}"
 
         return endpoint
+
+def span_decorator(name):
+    """Decorator that creates an OpenTelemetry span for a method."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            # Access tracer from instance at runtime
+            tracer = getattr(self, "_tracer", None)
+            if tracer:
+                with tracer.start_as_current_span(name):
+                    return func(self, *args, **kwargs)
+            else:
+                # Fallback if no tracer is available
+                return func(self, *args, **kwargs)
+        return wrapper
+    return decorator
+
+# For async methods
+def async_span_decorator(name):
+    """Decorator that creates an OpenTelemetry span for an async method."""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            tracer = getattr(self, "_tracer", None)
+            if tracer:
+                with tracer.start_as_current_span(name):
+                    return await func(self, *args, **kwargs)
+            else:
+                return await func(self, *args, **kwargs)
+        return wrapper
+    return decorator
