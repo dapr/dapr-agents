@@ -1,3 +1,4 @@
+import os
 from dapr_agents.memory import (
     MemoryBase,
     ConversationListMemory,
@@ -15,6 +16,16 @@ from pydantic import BaseModel, Field, PrivateAttr, model_validator, ConfigDict
 from abc import ABC, abstractmethod
 from datetime import datetime
 import logging
+
+from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import (
+    DaprAgentsOTel,
+    async_span_decorator,
+    span_decorator,
+)
+
+from opentelemetry import trace
+from opentelemetry.trace import Tracer, set_tracer_provider
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +77,8 @@ class AgentBase(BaseModel, ABC):
         description="The format used for rendering the prompt template.",
     )
 
+    _tracer: Optional[Tracer] = PrivateAttr(default=None)
+
     # Private attributes
     _tool_executor: AgentToolExecutor = PrivateAttr()
     _text_formatter: ColorTextFormatter = PrivateAttr(
@@ -108,6 +121,7 @@ class AgentBase(BaseModel, ABC):
         return self.memory.get_messages()
 
     @abstractmethod
+    @span_decorator("agent_run")
     def run(self, input_data: Union[str, Dict[str, Any]]) -> Any:
         """
         Executes the agent's main logic based on provided inputs.
@@ -122,6 +136,23 @@ class AgentBase(BaseModel, ABC):
         Sets up the prompt template based on system_prompt or attributes like name, role, goal, and instructions.
         Confirms the source of prompt_template post-initialization.
         """
+
+        try:
+            otel_client = DaprAgentsOTel(
+                service_name=self.name,
+                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            )
+            provider = otel_client.create_and_instrument_tracer_provider()
+            set_tracer_provider(provider)
+
+            self._tracer = provider.get_tracer(f"{self.name}_tracer")
+
+        except Exception as e:
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
+            self._tracer = None
+
         # Initialize tool executor with provided tools
         self._tool_executor = AgentToolExecutor(tools=self.tools)
 
@@ -267,6 +298,7 @@ class AgentBase(BaseModel, ABC):
             template_format=self.template_format,
         )
 
+    @span_decorator("agent_construct_msg")
     def construct_messages(
         self, input_data: Union[str, Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
