@@ -109,10 +109,10 @@ class WorkflowApp(BaseModel):
 
             self._tracer = provider.get_tracer("wf_tracer")
 
-            otel_logger = otel_client.create_and_instrument_logging_provider(
-                logger=logger,
-            )
-            set_logger_provider(otel_logger)
+            # otel_logger = otel_client.create_and_instrument_logging_provider(
+            #     logger=logger,
+            # )
+            # set_logger_provider(otel_logger)
 
         except Exception as e:
             logger.warning(f"OpenTelemetry initialization failed: {e}. Continuing without telemetry.")
