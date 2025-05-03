@@ -21,6 +21,7 @@ from typing import (
     Type,
     Union,
 )
+from distutils.util import strtobool
 from pydantic import BaseModel, Field, ValidationError, PrivateAttr
 from dapr.clients import DaprClient
 from dapr_agents.agent.utils.text_printer import ColorTextFormatter
@@ -104,6 +105,34 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the workflow service, messaging, and metadata storage."""
+
+        try:
+            self.otel_enabled: bool = bool(
+                strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True"))
+            )
+        except ValueError:
+            self.otel_enabled = False
+
+        if self.otel_enabled:
+            from dapr_agents.agent import DaprAgentsOTel
+            from opentelemetry import trace
+            from opentelemetry._logs import set_logger_provider
+            from opentelemetry.instrumentation.asyncio import AsyncioInstrumentor
+
+            otel_client = DaprAgentsOTel(
+                service_name=self.name,
+                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            )
+            self.tracer = otel_client.create_and_instrument_tracer_provider()
+            trace.set_tracer_provider(self.tracer)
+
+            self.otel_logger = otel_client.create_and_instrument_logging_provider(
+                logger=logger,
+            )
+            set_logger_provider(self.otel_logger)
+
+            # We can instrument Asyncio automatically
+            AsyncioInstrumentor().instrument()
 
         # Set up color formatter for logging and CLI printing
         self._text_formatter = ColorTextFormatter()
@@ -749,49 +778,56 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             JSONResponse: A 202 Accepted response with the workflow instance ID if successful,
                         or a 400/500 error response if the request fails validation or execution.
         """
-        try:
-            # Extract workflow name from query parameters or use default
-            workflow_name = request.query_params.get("name") or self._workflow_name
-            if not workflow_name:
-                return JSONResponse(
-                    content={"error": "No workflow name specified."},
-                    status_code=status.HTTP_400_BAD_REQUEST,
+        with self.tracer.start_as_current_span(
+            "Workflow Run"
+        ) if self.otel_enabled else None as span:
+            try:
+                # Extract workflow name from query parameters or use default
+                workflow_name = request.query_params.get("name") or self._workflow_name
+                if not workflow_name:
+                    return JSONResponse(
+                        content={"error": "No workflow name specified."},
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Validate workflow name against registered workflows
+                if workflow_name not in self.workflows:
+                    return JSONResponse(
+                        content={
+                            "error": f"Unknown workflow '{workflow_name}'. Available: {list(self.workflows.keys())}"
+                        },
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Parse body as CloudEvent or fallback to JSON
+                try:
+                    event: CloudEvent = from_http(
+                        dict(request.headers), await request.body()
+                    )
+                    input_data = event.data
+                except Exception:
+                    input_data = await request.json()
+
+                logger.info(
+                    f"Starting workflow '{workflow_name}' with input: {input_data}"
+                )
+                instance_id = self.run_workflow(
+                    workflow=workflow_name, input=input_data
                 )
 
-            # Validate workflow name against registered workflows
-            if workflow_name not in self.workflows:
+                asyncio.create_task(self.monitor_workflow_completion(instance_id))
+
                 return JSONResponse(
                     content={
-                        "error": f"Unknown workflow '{workflow_name}'. Available: {list(self.workflows.keys())}"
+                        "message": "Workflow initiated successfully.",
+                        "workflow_instance_id": instance_id,
                     },
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_202_ACCEPTED,
                 )
 
-            # Parse body as CloudEvent or fallback to JSON
-            try:
-                event: CloudEvent = from_http(
-                    dict(request.headers), await request.body()
+            except Exception as e:
+                logger.error(f"Error starting workflow: {str(e)}", exc_info=True)
+                return JSONResponse(
+                    content={"error": "Failed to start workflow", "details": str(e)},
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
-                input_data = event.data
-            except Exception:
-                input_data = await request.json()
-
-            logger.info(f"Starting workflow '{workflow_name}' with input: {input_data}")
-            instance_id = self.run_workflow(workflow=workflow_name, input=input_data)
-
-            asyncio.create_task(self.monitor_workflow_completion(instance_id))
-
-            return JSONResponse(
-                content={
-                    "message": "Workflow initiated successfully.",
-                    "workflow_instance_id": instance_id,
-                },
-                status_code=status.HTTP_202_ACCEPTED,
-            )
-
-        except Exception as e:
-            logger.error(f"Error starting workflow: {str(e)}", exc_info=True)
-            return JSONResponse(
-                content={"error": "Failed to start workflow", "details": str(e)},
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )

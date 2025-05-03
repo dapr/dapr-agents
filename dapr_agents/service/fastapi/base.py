@@ -1,4 +1,6 @@
+import os
 from fastapi.middleware.cors import CORSMiddleware
+from distutils.util import strtobool
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import Field, ConfigDict
@@ -50,6 +52,34 @@ class FastAPIServerBase(APIServerBase):
         """
         Post-initialization to configure core FastAPI app and CORS settings.
         """
+
+        try:
+            self.otel_enabled: bool = bool(
+                strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True"))
+            )
+        except ValueError:
+            self.otel_enabled = False
+
+        if self.otel_enabled:
+            from dapr_agents.agent import DaprAgentsOTel
+            from opentelemetry import trace
+            from opentelemetry._logs import set_logger_provider
+            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+            otel_client = DaprAgentsOTel(
+                service_name=self.name,
+                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            )
+            self.tracer = otel_client.create_and_instrument_tracer_provider()
+            trace.set_tracer_provider(self.tracer)
+
+            self.otel_logger = otel_client.create_and_instrument_logging_provider(
+                logger=logger,
+            )
+            set_logger_provider(self.otel_logger)
+
+            # We can instrument FastAPI automatically
+            FastAPIInstrumentor.instrument_app(self.app)
 
         # Initialize FastAPI app with title and description
         self.app = FastAPI(
