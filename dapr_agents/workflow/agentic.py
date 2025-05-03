@@ -34,6 +34,7 @@ from dapr_agents.workflow.messaging import DaprPubSub
 from dapr_agents.workflow.messaging.routing import MessageRoutingMixin
 from dapr_agents.storage.daprstores.statestore import DaprStateStore
 from dapr_agents.workflow import WorkflowApp
+from opentelemetry.sdk.trace import TracerProvider
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -103,6 +104,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         Tuple[str, str], Dict[Type[BaseModel], Callable]
     ] = PrivateAttr(default_factory=dict)
     _otel_enabled: Optional[bool] = PrivateAttr(default=True)
+    _tracer: Optional[TracerProvider] = PrivateAttr(default=None)
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the workflow service, messaging, and metadata storage."""
@@ -124,13 +126,13 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                 service_name=self.name,
                 otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
             )
-            self.tracer = otel_client.create_and_instrument_tracer_provider()
-            trace.set_tracer_provider(self.tracer)
+            self._tracer = otel_client.create_and_instrument_tracer_provider()
+            trace.set_tracer_provider(self._tracer)
 
-            self.otel_logger = otel_client.create_and_instrument_logging_provider(
+            otel_logger = otel_client.create_and_instrument_logging_provider(
                 logger=logger,
             )
-            set_logger_provider(self.otel_logger)
+            set_logger_provider(otel_logger)
 
             # We can instrument Asyncio automatically
             AsyncioInstrumentor().instrument()
@@ -779,7 +781,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             JSONResponse: A 202 Accepted response with the workflow instance ID if successful,
                         or a 400/500 error response if the request fails validation or execution.
         """
-        with self.tracer.start_as_current_span(
+        with self._tracer.start_as_current_span(
             "Workflow Run"
         ) if self.otel_enabled else None as span:
             try:
