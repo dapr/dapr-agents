@@ -21,7 +21,6 @@ from typing import (
     Type,
     Union,
 )
-from distutils.util import strtobool
 from pydantic import BaseModel, Field, ValidationError, PrivateAttr
 from dapr.clients import DaprClient
 from dapr_agents.agent.utils.text_printer import ColorTextFormatter
@@ -34,7 +33,11 @@ from dapr_agents.workflow.messaging import DaprPubSub
 from dapr_agents.workflow.messaging.routing import MessageRoutingMixin
 from dapr_agents.storage.daprstores.statestore import DaprStateStore
 from dapr_agents.workflow import WorkflowApp
-from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace import Tracer
+from dapr_agents.agent import DaprAgentsOTel
+from opentelemetry import trace
+from opentelemetry._logs import set_logger_provider
+from opentelemetry.instrumentation.asyncio import AsyncioInstrumentor
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -103,39 +106,27 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
     _topic_handlers: Dict[
         Tuple[str, str], Dict[Type[BaseModel], Callable]
     ] = PrivateAttr(default_factory=dict)
-    _otel_enabled: Optional[bool] = PrivateAttr(default=True)
-    _tracer: Optional[TracerProvider] = PrivateAttr(default=None)
+    _tracer: Optional[Tracer] = PrivateAttr(default=None)
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the workflow service, messaging, and metadata storage."""
 
-        try:
-            self._otel_enabled: bool = bool(
-                strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True"))
-            )
-        except ValueError:
-            self._otel_enabled = False
+        otel_client = DaprAgentsOTel(
+            service_name=self.name,
+            otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+        )
+        provider = otel_client.create_and_instrument_tracer_provider()
+        trace.set_tracer_provider(provider)
 
-        if self._otel_enabled:
-            from dapr_agents.agent import DaprAgentsOTel
-            from opentelemetry import trace
-            from opentelemetry._logs import set_logger_provider
-            from opentelemetry.instrumentation.asyncio import AsyncioInstrumentor
+        self._tracer = trace.get_tracer(f"{self.name}_tracer")
 
-            otel_client = DaprAgentsOTel(
-                service_name=self.name,
-                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-            )
-            self._tracer = otel_client.create_and_instrument_tracer_provider()
-            trace.set_tracer_provider(self._tracer)
+        otel_logger = otel_client.create_and_instrument_logging_provider(
+            logger=logger,
+        )
+        set_logger_provider(otel_logger)
 
-            otel_logger = otel_client.create_and_instrument_logging_provider(
-                logger=logger,
-            )
-            set_logger_provider(otel_logger)
-
-            # We can instrument Asyncio automatically
-            AsyncioInstrumentor().instrument()
+        # We can instrument Asyncio automatically
+        AsyncioInstrumentor().instrument()
 
         # Set up color formatter for logging and CLI printing
         self._text_formatter = ColorTextFormatter()
@@ -180,6 +171,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                     path, method, methods=[method_type], **extra_kwargs
                 )
 
+    @_tracer.start_as_current_span("run_as_service")
     def as_service(self, port: int, host: str = "0.0.0.0"):
         """
         Enables FastAPI-based service mode for the agent by initializing a FastAPI server instance.
@@ -204,11 +196,13 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
         return self
 
+    @_tracer.start_as_current_span("handle_shutdown")
     def handle_shutdown_signal(self, sig):
         logger.info(f"Shutdown signal {sig} received. Stopping service gracefully...")
         self._shutdown_event.set()
         asyncio.create_task(self.stop())
 
+    @_tracer.start_as_current_span("start")
     async def start(self):
         """
         Starts the agent workflow service, optionally as a FastAPI server if .as_service() was called.
@@ -260,6 +254,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         finally:
             await self.stop()
 
+    @_tracer.start_as_current_span("stop")
     async def stop(self):
         """
         Gracefully stops the agent service by unsubscribing and stopping the HTTP server if present.
@@ -296,6 +291,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         self._is_running = False
         logger.info("Agent Workflow Service stopped successfully.")
 
+    @_tracer.start_as_current_span("get_chat_history")
     def get_chat_history(self, task: Optional[str] = None) -> List[dict]:
         """
         Retrieves and validates the agent's chat history.
@@ -596,6 +592,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             logger.error(f"Failed to save state for key '{self.state_key}': {e}")
             raise
 
+    @_tracer.start_as_current_span("get_agents_metadata")
     def get_agents_metadata(
         self, exclude_self: bool = True, exclude_orchestrator: bool = False
     ) -> dict:
@@ -651,6 +648,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             logger.error(f"Failed to retrieve agents metadata: {e}", exc_info=True)
             raise RuntimeError(f"Error retrieving agents metadata: {str(e)}") from e
 
+    @_tracer.start_as_current_span("broadcast_message")
     async def broadcast_message(
         self,
         message: Union[BaseModel, dict],
@@ -691,6 +689,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         except Exception as e:
             logger.error(f"Failed to broadcast message: {e}", exc_info=True)
 
+    @_tracer.start_as_current_span("send_message_to_agent")
     async def send_message_to_agent(
         self, name: str, message: Union[BaseModel, dict], **kwargs
     ) -> None:
@@ -769,6 +768,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             logger.error(f"Failed to register metadata for agent {self.name}: {e}")
             raise e
 
+    @_tracer.start_as_current_span("run_workflow_from_request")
     async def run_workflow_from_request(self, request: Request) -> JSONResponse:
         """
         Run a workflow instance triggered by an incoming HTTP POST request.
@@ -781,56 +781,53 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             JSONResponse: A 202 Accepted response with the workflow instance ID if successful,
                         or a 400/500 error response if the request fails validation or execution.
         """
-        with self._tracer.start_as_current_span(
-            "Workflow Run"
-        ) if self._otel_enabled else None as span:
-            try:
-                # Extract workflow name from query parameters or use default
-                workflow_name = request.query_params.get("name") or self._workflow_name
-                if not workflow_name:
-                    return JSONResponse(
-                        content={"error": "No workflow name specified."},
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                # Validate workflow name against registered workflows
-                if workflow_name not in self.workflows:
-                    return JSONResponse(
-                        content={
-                            "error": f"Unknown workflow '{workflow_name}'. Available: {list(self.workflows.keys())}"
-                        },
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                # Parse body as CloudEvent or fallback to JSON
-                try:
-                    event: CloudEvent = from_http(
-                        dict(request.headers), await request.body()
-                    )
-                    input_data = event.data
-                except Exception:
-                    input_data = await request.json()
-
-                logger.info(
-                    f"Starting workflow '{workflow_name}' with input: {input_data}"
-                )
-                instance_id = self.run_workflow(
-                    workflow=workflow_name, input=input_data
+        try:
+            # Extract workflow name from query parameters or use default
+            workflow_name = request.query_params.get("name") or self._workflow_name
+            if not workflow_name:
+                return JSONResponse(
+                    content={"error": "No workflow name specified."},
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-                asyncio.create_task(self.monitor_workflow_completion(instance_id))
-
+            # Validate workflow name against registered workflows
+            if workflow_name not in self.workflows:
                 return JSONResponse(
                     content={
-                        "message": "Workflow initiated successfully.",
-                        "workflow_instance_id": instance_id,
+                        "error": f"Unknown workflow '{workflow_name}'. Available: {list(self.workflows.keys())}"
                     },
-                    status_code=status.HTTP_202_ACCEPTED,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-            except Exception as e:
-                logger.error(f"Error starting workflow: {str(e)}", exc_info=True)
-                return JSONResponse(
-                    content={"error": "Failed to start workflow", "details": str(e)},
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            # Parse body as CloudEvent or fallback to JSON
+            try:
+                event: CloudEvent = from_http(
+                    dict(request.headers), await request.body()
                 )
+                input_data = event.data
+            except Exception:
+                input_data = await request.json()
+
+            logger.info(
+                f"Starting workflow '{workflow_name}' with input: {input_data}"
+            )
+            instance_id = self.run_workflow(
+                workflow=workflow_name, input=input_data
+            )
+
+            asyncio.create_task(self.monitor_workflow_completion(instance_id))
+
+            return JSONResponse(
+                content={
+                    "message": "Workflow initiated successfully.",
+                    "workflow_instance_id": instance_id,
+                },
+                status_code=status.HTTP_202_ACCEPTED,
+            )
+
+        except Exception as e:
+            logger.error(f"Error starting workflow: {str(e)}", exc_info=True)
+            return JSONResponse(
+                content={"error": "Failed to start workflow", "details": str(e)},
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

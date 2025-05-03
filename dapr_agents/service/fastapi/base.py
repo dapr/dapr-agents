@@ -12,6 +12,10 @@ import asyncio
 import signal
 import logging
 
+from opentelemetry._logs import get_logger, Logger
+from opentelemetry.instrumentation.starlette import StarletteInstrumentor
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,7 +51,7 @@ class FastAPIServerBase(APIServerBase):
         description="Server handle for running the FastAPI app.",
     )
 
-    _otel_enabled: Optional[bool] = PrivateAttr(default=True)
+    _logger: Optional[Logger] = PrivateAttr(default=True)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -55,13 +59,8 @@ class FastAPIServerBase(APIServerBase):
         """
         Post-initialization to configure core FastAPI app and CORS settings.
         """
-
-        try:
-            self._otel_enabled: bool = bool(
-                strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True"))
-            )
-        except ValueError:
-            self._otel_enabled = False
+        
+        self._logger = get_logger(f"{self.name}_logger")
 
         # Initialize FastAPI app with title and description
         self.app = FastAPI(
@@ -70,13 +69,9 @@ class FastAPIServerBase(APIServerBase):
             lifespan=self.lifespan,
         )
 
-        if self._otel_enabled:
-            from opentelemetry.instrumentation.starlette import StarletteInstrumentor
-            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-
-            # We can instrument FastAPI and Starlette automatically
-            FastAPIInstrumentor.instrument_app(self.app)
-            StarletteInstrumentor.instrument_app(self.app)
+        # We can instrument FastAPI and Starlette automatically
+        FastAPIInstrumentor.instrument_app(self.app)
+        StarletteInstrumentor.instrument_app(self.app)
 
         # Configure CORS settings
         self.app.add_middleware(
