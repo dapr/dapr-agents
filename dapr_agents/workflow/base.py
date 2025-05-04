@@ -35,11 +35,9 @@ from dapr_agents.workflow.utils import get_decorated_methods
 from pydantic import PrivateAttr
 from dapr_agents.agent.telemetry import (
     DaprAgentsOTel,
-    async_span_decorator,
     span_decorator,
 )
 
-from opentelemetry._logs import set_logger_provider
 from opentelemetry.trace import Tracer, set_tracer_provider
 
 logger = logging.getLogger(__name__)
@@ -112,11 +110,6 @@ class WorkflowApp(BaseModel):
             set_tracer_provider(provider)
 
             self._tracer = provider.get_tracer("wf_tracer")
-
-            # otel_logger = otel_client.create_and_instrument_logging_provider(
-            #     logger=logger,
-            # )
-            # set_logger_provider(otel_logger)
 
         except Exception as e:
             logger.warning(
