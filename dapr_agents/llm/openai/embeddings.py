@@ -77,7 +77,7 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
             )
             provider = otel_client.create_and_instrument_tracer_provider()
 
-            self._tracer = provider.get_tracer("wf_tracer")
+            self._tracer = provider.get_tracer("openai_embed_tracer")
 
         except Exception as e:
             logger.warning(
