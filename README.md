@@ -70,9 +70,9 @@ Here are some of the major features we're working on for the current quarter:
 
 ### Q2 2025
 - **MCP Support** - Integration with Anthropic's MCP platform ([#50](https://github.com/dapr/dapr-agents/issues/50) ✅ )
-- **Agent Interaction Tracing** - Enhanced observability of agent interactions with LLMs and tools ([#79](https://github.com/dapr/dapr-agents/issues/79))
+- **Agent Interaction Tracing** - Enhanced observability of agent interactions with LLMs and tools ([#79](https://github.com/dapr/dapr-agents/issues/79) ✅ )
 - **Streaming LLM Output** - Real-time streaming capabilities for LLM responses ([#80](https://github.com/dapr/dapr-agents/issues/80))
-- **HTTP Endpoint Tools** - Support for using Dapr's HTTP endpoint capabilities for tool calling ([#81](https://github.com/dapr/dapr-agents/issues/81))
+- **HTTP Endpoint Tools** - Support for using Dapr's HTTP endpoint capabilities for tool calling ([#81](https://github.com/dapr/dapr-agents/issues/81) ✅ )
 - **DSL Cleanup** - Streamlining the domain-specific language and removing actor dependencies ([#65](https://github.com/dapr/dapr-agents/issues/65))
 - **Samples Registry** - A dedicated repository for Dapr Agents examples and use cases
 
