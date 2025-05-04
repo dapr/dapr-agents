@@ -12,7 +12,7 @@ from dapr_agents.agent.telemetry import (
 )
 
 from opentelemetry import trace
-from opentelemetry.trace import Tracer, set_tracer_provider
+from opentelemetry.trace import Tracer
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,6 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
                 otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
             )
             provider = otel_client.create_and_instrument_tracer_provider()
-            set_tracer_provider(provider)
 
             self._tracer = provider.get_tracer("wf_tracer")
 

@@ -34,11 +34,11 @@ from dapr_agents.workflow.utils import get_decorated_methods
 
 from pydantic import PrivateAttr
 from dapr_agents.agent.telemetry import (
-    DaprAgentsOTel,
     span_decorator,
 )
 
-from opentelemetry.trace import Tracer, set_tracer_provider
+from opentelemetry import trace
+from opentelemetry.trace import Tracer
 
 logger = logging.getLogger(__name__)
 
@@ -102,13 +102,7 @@ class WorkflowApp(BaseModel):
         self._register_workflows(discovered_wfs)
 
         try:
-            otel_client = DaprAgentsOTel(
-                service_name=self.name,
-                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-            )
-            provider = otel_client.create_and_instrument_tracer_provider()
-            set_tracer_provider(provider)
-
+            provider = trace.get_tracer_provider()
             self._tracer = provider.get_tracer("wf_tracer")
 
         except Exception as e:
