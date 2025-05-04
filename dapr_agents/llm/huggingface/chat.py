@@ -20,6 +20,14 @@ from pydantic import BaseModel
 from pathlib import Path
 import logging
 
+from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import (
+    span_decorator,
+)
+
+from opentelemetry import trace
+from opentelemetry.trace import Tracer
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,12 +37,26 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
     This class extends the ChatClientBase and provides the necessary configurations for Hugging Face models.
     """
 
+    _tracer: Optional[Tracer] = PrivateAttr(default=None)
+
     SUPPORTED_STRUCTURED_MODES: ClassVar[set] = {"function_call"}
 
     def model_post_init(self, __context: Any) -> None:
         """
         Initializes private attributes for provider, api, config, and client after validation.
         """
+
+        try:
+            provider = provider = trace.get_tracer_provider()
+
+            self._tracer = provider.get_tracer("huggingface_chat_tracer")
+
+        except Exception as e:
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
+            self._tracer = None
+
         # Set the private provider and api attributes
         self._api = "chat"
         return super().model_post_init(__context)
@@ -80,6 +102,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             }
         )
 
+    @span_decorator("generate_chat")
     def generate(
         self,
         messages: Union[
@@ -111,6 +134,11 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             Union[Iterator[Dict[str, Any]], Dict[str, Any]]: The chat completion response(s).
         """
 
+        # Add Semantic Conventions for GenAI
+        span = trace.get_current_span()
+        span.set_attribute("gen_ai.operation.name", "chat")
+        span.set_attribute("gen_ai.system", "huggingface")
+
         if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
             raise ValueError(
                 f"Invalid structured_mode '{structured_mode}'. Must be one of {self.SUPPORTED_STRUCTURED_MODES}."
@@ -141,6 +169,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
 
         # If a model is provided, override the default model
         params["model"] = model or self.model
+        span.set_attribute("gen_ai.request.model", params["model"])
 
         # Prepare request parameters
         params = RequestHandler.process_params(
@@ -165,4 +194,5 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             )
         except Exception as e:
             logger.error(f"An error occurred during the ChatCompletion API call: {e}")
+            span.set_attribute("error.type", type(e).__name__)
             raise
