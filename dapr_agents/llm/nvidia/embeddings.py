@@ -4,6 +4,14 @@ from typing import Union, Dict, Any, Literal, List, Optional
 from pydantic import Field
 import logging
 
+from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import (
+    span_decorator,
+)
+
+from opentelemetry import trace
+from opentelemetry.trace import Tracer
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +47,8 @@ class NVIDIAEmbeddingClient(NVIDIAClientBase):
         description="Handling for inputs exceeding max token length. Defaults to 'NONE'.",
     )
 
+    _tracer: Optional[Tracer] = PrivateAttr(default=None)
+
     def model_post_init(self, __context: Any) -> None:
         """
         Post-initialization setup for private attributes.
@@ -48,9 +58,22 @@ class NVIDIAEmbeddingClient(NVIDIAClientBase):
         Args:
             __context (Any): Context provided during model initialization.
         """
+
+        try:
+            provider = trace.get_tracer_provider()
+
+            self._tracer = provider.get_tracer("nvidia_embed_tracer")
+
+        except Exception as e:
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
+            self._tracer = None
+
         self._api = "embeddings"
         return super().model_post_init(__context)
 
+    @span_decorator("create_embedding")
     def create_embedding(
         self,
         input: Union[str, List[str]],
@@ -83,8 +106,14 @@ class NVIDIAEmbeddingClient(NVIDIAClientBase):
         """
         logger.info(f"Using model '{self.model}' for embedding generation.")
 
+        # Add Semantic Conventions for GenAI
+        span = trace.get_current_span()
+        span.set_attribute("gen_ai.operation.name", "embeddings")
+        span.set_attribute("gen_ai.system", "nvidia")
+
         # If a model is provided, override the default model
         model = model or self.model
+        span.set_attribute("gen_ai.request.model", model)
 
         # Prepare request parameters
         body = {
@@ -111,4 +140,5 @@ class NVIDIAEmbeddingClient(NVIDIAClientBase):
             return response
         except Exception as e:
             logger.error(f"An error occurred while generating embeddings: {e}")
+            span.set_attribute("error.type", type(e).__name__)
             raise ValueError(f"Failed to generate embeddings: {e}")

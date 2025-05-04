@@ -21,6 +21,14 @@ from pydantic import BaseModel, Field
 from pathlib import Path
 import logging
 
+from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import (
+    span_decorator,
+)
+
+from opentelemetry import trace
+from opentelemetry.trace import Tracer
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,6 +58,18 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
         Args:
             __context (Any): Additional context for post-initialization (not used here).
         """
+
+        try:
+            provider = trace.get_tracer_provider()
+
+            self._tracer = provider.get_tracer("nvdia_chat_tracer")
+
+        except Exception as e:
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
+            self._tracer = None
+
         self._api = "chat"
         super().model_post_init(__context)
 
@@ -85,6 +105,7 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
             }
         )
 
+    @span_decorator("generate_chat")
     def generate(
         self,
         messages: Union[
@@ -118,6 +139,11 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
             Union[Iterator[Dict[str, Any]], Dict[str, Any]]: The chat completion response(s).
         """
 
+        # Add Semantic Conventions for GenAI
+        span = trace.get_current_span()
+        span.set_attribute("gen_ai.operation.name", "chat")
+        span.set_attribute("gen_ai.system", "nvidia")
+
         if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
             raise ValueError(
                 f"Invalid structured_mode '{structured_mode}'. Must be one of {self.SUPPORTED_STRUCTURED_MODES}."
@@ -148,6 +174,7 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
 
         # If a model is provided, override the default model
         params["model"] = model or self.model
+        span.set_attribute("gen_ai.request.model", params["model"])
 
         # Apply max_tokens if provided
         params["max_tokens"] = max_tokens or self.max_tokens
@@ -178,4 +205,5 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
             )
         except Exception as e:
             logger.error(f"An error occurred during the ChatCompletion API call: {e}")
+            span.set_attribute("error.type", type(e).__name__)
             raise
