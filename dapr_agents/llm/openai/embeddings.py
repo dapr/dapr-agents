@@ -7,7 +7,6 @@ import logging
 
 from pydantic import PrivateAttr
 from dapr_agents.agent.telemetry import (
-    DaprAgentsOTel,
     span_decorator,
 )
 
@@ -71,11 +70,7 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
         """
 
         try:
-            otel_client = DaprAgentsOTel(
-                service_name=self.name,
-                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-            )
-            provider = otel_client.create_and_instrument_tracer_provider()
+            provider = trace.get_tracer_provider()
 
             self._tracer = provider.get_tracer("openai_embed_tracer")
 
