@@ -204,7 +204,7 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
 
         # If a model is provided, override the default model
         params["model"] = model or self.model
-        span.set_attribute("gen_ai.request.model", model)
+        span.set_attribute("gen_ai.request.model", params["model"])
 
         # Prepare request parameters
         params = RequestHandler.process_params(
