@@ -1,16 +1,14 @@
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from pydantic import Field, ConfigDict, PrivateAttr
+from pydantic import Field, ConfigDict
 from typing import List, Optional, Any
 from dapr_agents.service import APIServerBase
-from opentelemetry import _logs
 import uvicorn
 import asyncio
 import signal
 import logging
 
-from opentelemetry._logs import Logger
 from opentelemetry.instrumentation.starlette import StarletteInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
@@ -49,16 +47,12 @@ class FastAPIServerBase(APIServerBase):
         description="Server handle for running the FastAPI app.",
     )
 
-    _logger: Optional[Logger] = PrivateAttr(default=True)
-
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context: Any) -> None:
         """
         Post-initialization to configure core FastAPI app and CORS settings.
         """
-
-        # self._logger = _logs.get_logger("fastapi_logger")
 
         # Initialize FastAPI app with title and description
         self.app = FastAPI(

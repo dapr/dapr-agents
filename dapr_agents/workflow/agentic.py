@@ -40,7 +40,6 @@ from dapr_agents.agent.telemetry import (
     span_decorator,
 )
 from opentelemetry import trace
-from opentelemetry._logs import set_logger_provider
 from opentelemetry.instrumentation.asyncio import AsyncioInstrumentor
 
 if TYPE_CHECKING:
@@ -116,19 +115,9 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         """Initializes the workflow service, messaging, and metadata storage."""
 
         try:
-            otel_client = DaprAgentsOTel(
-                service_name=self.name,
-                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-            )
-            provider = otel_client.create_and_instrument_tracer_provider()
-            trace.set_tracer_provider(provider)
+            provider = trace.get_tracer_provider()
 
             self._tracer = provider.get_tracer(f"{self.name}_tracer")
-
-            # otel_logger = otel_client.create_and_instrument_logging_provider(
-            #     logger=logger,
-            # )
-            # set_logger_provider(otel_logger)
 
             # We can instrument Asyncio automatically
             AsyncioInstrumentor().instrument()
