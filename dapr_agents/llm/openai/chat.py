@@ -26,10 +26,10 @@ import logging
 from pydantic import PrivateAttr
 from dapr_agents.agent.telemetry import (
     DaprAgentsOTel,
-    async_span_decorator,
     span_decorator,
 )
 
+from opentelemetry import trace
 from opentelemetry.trace import Tracer, set_tracer_provider
 
 logger = logging.getLogger(__name__)
@@ -175,6 +175,11 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
             Union[Iterator[Dict[str, Any]], Dict[str, Any]]: The chat completion response(s).
         """
 
+        # Add Semantic Conventions for GenAI
+        span = trace.get_current_span()
+        span.set_attribute("gen_ai.operation.name", "chat")
+        span.set_attribute("gen_ai.system", "openai")
+
         if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
             raise ValueError(
                 f"Invalid structured_mode '{structured_mode}'. Must be one of {self.SUPPORTED_STRUCTURED_MODES}."
@@ -205,6 +210,7 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
 
         # If a model is provided, override the default model
         params["model"] = model or self.model
+        span.set_attribute("gen_ai.request.model", model)
 
         # Prepare request parameters
         params = RequestHandler.process_params(
@@ -232,4 +238,5 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
             )
         except Exception as e:
             logger.error(f"An error occurred during the ChatCompletion API call: {e}")
+            span.set_attribute("error.type", type(e).__name__)
             raise
