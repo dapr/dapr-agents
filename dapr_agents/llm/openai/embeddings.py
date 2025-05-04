@@ -1,8 +1,18 @@
+import os
 from openai.types.create_embedding_response import CreateEmbeddingResponse
 from dapr_agents.llm.openai.client.base import OpenAIClientBase
 from typing import Union, Dict, Any, Literal, List, Optional
 from pydantic import Field, model_validator
 import logging
+
+from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import (
+    DaprAgentsOTel,
+    span_decorator,
+)
+
+from opentelemetry import trace
+from opentelemetry.trace import Tracer, set_tracer_provider
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +42,8 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
         None, description="Unique identifier representing the end-user."
     )
 
+    _tracer: Optional[Tracer] = PrivateAttr(default=None)
+
     @model_validator(mode="before")
     def validate_and_initialize(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -57,9 +69,27 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
         Args:
             __context (Any): Context provided during model initialization.
         """
+
+        try:
+            otel_client = DaprAgentsOTel(
+                service_name=self.name,
+                otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            )
+            provider = otel_client.create_and_instrument_tracer_provider()
+            set_tracer_provider(provider)
+
+            self._tracer = provider.get_tracer("wf_tracer")
+
+        except Exception as e:
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
+            self._tracer = None
+
         self._api = "embeddings"
         return super().model_post_init(__context)
 
+    @span_decorator("create_embedding")
     def create_embedding(
         self,
         input: Union[str, List[Union[str, List[int]]]],
@@ -82,8 +112,14 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
         """
         logger.info(f"Using model '{self.model}' for embedding generation.")
 
+        # Add Semantic Conventions for GenAI
+        span = trace.get_current_span()
+        span.set_attribute("gen_ai.operation.name", "embeddings")
+        span.set_attribute("gen_ai.system", "openai")
+
         # If a model is provided, override the default model
         model = model or self.model
+        span.set_attribute("gen_ai.request.model", model)
 
         response = self.client.embeddings.create(
             model=model,
@@ -92,4 +128,7 @@ class OpenAIEmbeddingClient(OpenAIClientBase):
             dimensions=self.dimensions,
             user=self.user,
         )
+
+        span.set_attribute("gen_ai.response.models", response.model)
+
         return response
