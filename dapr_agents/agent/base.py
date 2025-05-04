@@ -19,7 +19,6 @@ import logging
 
 from dapr_agents.agent.telemetry import (
     DaprAgentsOTel,
-    async_span_decorator,
     span_decorator,
 )
 
