@@ -396,10 +396,10 @@ class MCPClient(BaseModel):
             ToolError: If the result indicates an error
         """
         # Extract text content from result
-        if hasattr(result, 'content') and result.content:
+        if hasattr(result, "content") and result.content:
             text_contents = []
             for content in result.content:
-                if hasattr(content, 'text'):
+                if hasattr(content, "text"):
                     text_contents.append(content.text)
 
             # Return single string if only one content item
@@ -407,11 +407,11 @@ class MCPClient(BaseModel):
                 return text_contents[0]
             elif text_contents:
                 return text_contents
-            
-        if hasattr(result, 'isError') and result.isError:
+
+        if hasattr(result, "isError") and result.isError:
             # This will only trigger if the above if didn't contain content.text
             raise ToolError(f"MCP tool error: {result}")
-                
+
         # Fallback for unexpected formats
         return str(result)
 
