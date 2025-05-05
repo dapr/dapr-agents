@@ -391,7 +391,7 @@ class AssistantAgent(AgentWorkflowBase):
         try:
             function_args = function_details.get("arguments", "")
             function_args_as_dict = json.loads(function_args) if function_args else {}
-            span.set_attributes("tool.call.args", str(function_args_as_dict))
+            span.set_attribute("tool.call.args", str(function_args_as_dict))
 
             # Execute tool function
             result = await self.tool_executor.run_tool(
