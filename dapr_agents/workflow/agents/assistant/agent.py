@@ -37,7 +37,7 @@ from dapr_agents.agent.telemetry import (
 )
 
 from opentelemetry import trace
-from opentelemetry.trace import Tracer, set_tracer_provider, Status, StatusCode
+from opentelemetry.trace import Tracer, Status, StatusCode
 
 logger = logging.getLogger(__name__)
 
