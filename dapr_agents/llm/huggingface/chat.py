@@ -47,7 +47,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
         """
 
         try:
-            provider = provider = trace.get_tracer_provider()
+            provider = trace.get_tracer_provider()
 
             self._tracer = provider.get_tracer("huggingface_chat_tracer")
 
