@@ -34,6 +34,7 @@ from dapr_agents.agent.telemetry import (
     DaprAgentsOTel,
     async_span_decorator,
     span_decorator,
+    extract_otel_context,
 )
 
 from opentelemetry import trace
@@ -102,6 +103,9 @@ class AssistantAgent(AgentWorkflowBase):
 
         span = trace.get_current_span()
 
+        # Extract context for propagation
+        current_context = extract_otel_context()
+
         # Step 0: Retrieve task and iteration input
         task = message.get("task")
         iteration = message.get("iteration", 0)
@@ -151,10 +155,16 @@ class AssistantAgent(AgentWorkflowBase):
 
         # Step 3: Generate Response
         response = yield ctx.call_activity(
-            self.generate_response, input={"instance_id": instance_id, "task": task}
+            self.generate_response,
+            input={
+                "instance_id": instance_id,
+                "task": task,
+                "otel_context": current_context,
+            },
         )
         response_message = yield ctx.call_activity(
-            self.get_response_message, input={"response": response}
+            self.get_response_message,
+            input={"response": response, "otel_context": current_context},
         )
 
         # Step 4: Extract Finish Reason
@@ -181,7 +191,11 @@ class AssistantAgent(AgentWorkflowBase):
             parallel_tasks = [
                 ctx.call_activity(
                     self.execute_tool,
-                    input={"instance_id": instance_id, "tool_call": tool_call},
+                    input={
+                        "instance_id": instance_id,
+                        "tool_call": tool_call,
+                        "otel_context": current_context,
+                    },
                 )
                 for tool_call in tool_calls
             ]
@@ -249,7 +263,10 @@ class AssistantAgent(AgentWorkflowBase):
     @task
     @async_span_decorator("generate_response")
     async def generate_response(
-        self, instance_id: str, task: Union[str, Dict[str, Any]] = None
+        self,
+        instance_id: str,
+        task: Union[str, Dict[str, Any]] = None,
+        otel_context: Dict[str, Any] = None,
     ) -> ChatCompletion:
         """
         Generates a response using a language model based on the provided task input.
@@ -262,6 +279,10 @@ class AssistantAgent(AgentWorkflowBase):
         Returns:
             ChatCompletion: The generated AI response encapsulated in a ChatCompletion object.
         """
+
+        # TODO: Finish me!!
+        # span = trace.get_current_span()
+
         # Contruct prompt messages
         messages = self.construct_messages(task or {})
 
@@ -276,7 +297,7 @@ class AssistantAgent(AgentWorkflowBase):
         messages += self.tool_history
 
         # Generate Tool Calls
-        response: ChatCompletion = self.llm.generate(
+        response: ChatCompletion = self.llm.generate(  # TODO: Here!
             messages=messages, tools=self.tools, tool_choice=self.tool_choice
         )
 
@@ -285,7 +306,9 @@ class AssistantAgent(AgentWorkflowBase):
 
     @task
     @span_decorator("get_response_message")
-    def get_response_message(self, response: Dict[str, Any]) -> Dict[str, Any]:
+    def get_response_message(
+        self, response: Dict[str, Any], otel_context: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
         """
         Extracts the response message from the first choice in the LLM response.
 
@@ -295,6 +318,7 @@ class AssistantAgent(AgentWorkflowBase):
         Returns:
             Dict[str, Any]: The extracted response message with the agent's name added.
         """
+        # TODO: Finish me!
         choices = response.get("choices", [])
         response_message = choices[0].get("message", {})
 
@@ -366,7 +390,12 @@ class AssistantAgent(AgentWorkflowBase):
 
     @task
     @async_span_decorator("exec_tool")
-    async def execute_tool(self, instance_id: str, tool_call: Dict[str, Any]):
+    async def execute_tool(
+        self,
+        instance_id: str,
+        tool_call: Dict[str, Any],
+        otel_context: Dict[str, Any] = None,
+    ):
         """
         Executes a tool call by invoking the specified function with the provided arguments.
 
@@ -378,7 +407,6 @@ class AssistantAgent(AgentWorkflowBase):
             AgentError: If the tool call is malformed or execution fails.
         """
         span = trace.get_current_span()
-        span.set_attribute("workflow.id", instance_id)
 
         function_details = tool_call.get("function", {})
         function_name = function_details.get("name")
