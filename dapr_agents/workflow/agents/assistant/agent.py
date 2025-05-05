@@ -386,7 +386,6 @@ class AssistantAgent(AgentWorkflowBase):
         span.set_attribute("tool.call.details", str(function_details))
 
         if not function_name:
-            span.set_attribute("error.type", type(e).__name__)
             raise AgentError("Missing function name in tool execution request.")
 
         try:
