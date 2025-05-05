@@ -7,6 +7,14 @@ from rich.console import Console
 from dapr_agents.tool import AgentTool
 from dapr_agents.types import AgentToolExecutorError, ToolError
 
+from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import (
+    async_span_decorator,
+)
+
+from opentelemetry import trace
+from opentelemetry.trace import Tracer, Status, StatusCode
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,12 +30,24 @@ class AgentToolExecutor(BaseModel):
         default_factory=list, description="List of tools to register and manage."
     )
     _tools_map: Dict[str, AgentTool] = PrivateAttr(default_factory=dict)
+    _tracer: Optional[Tracer] = PrivateAttr(default=None)
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the internal tools map after model creation."""
         for tool in self.tools:
             self.register_tool(tool)
         logger.info(f"Tool Executor initialized with {len(self._tools_map)} tool(s).")
+
+        try:
+            provider = provider = trace.get_tracer_provider()
+
+            self._tracer = provider.get_tracer(f"agent_tool_exec_tracer")
+        except Exception as e:
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
+            self._tracer = None
+
         super().model_post_init(__context)
 
     def register_tool(self, tool: AgentTool) -> None:
@@ -88,6 +108,7 @@ class AgentToolExecutor(BaseModel):
             for tool in self._tools_map.values()
         )
 
+    @async_span_decorator("run_tool")
     async def run_tool(self, tool_name: str, *args, **kwargs) -> Any:
         """
         Executes a tool by name, automatically handling both sync and async tools.
@@ -103,6 +124,7 @@ class AgentToolExecutor(BaseModel):
         Raises:
             AgentToolExecutorError: If the tool is not found or execution fails.
         """
+        span = trace.get_current_span()
         tool = self.get_tool(tool_name)
         if not tool:
             logger.error(f"Tool not found: {tool_name}")
@@ -114,9 +136,13 @@ class AgentToolExecutor(BaseModel):
             return tool(*args, **kwargs)
         except ToolError as e:
             logger.error(f"Tool execution error in '{tool_name}': {e}")
+            span.set_status(Status(StatusCode.ERROR))
+            span.record_exception(e)
             raise AgentToolExecutorError(str(e)) from e
         except Exception as e:
             logger.error(f"Unexpected error in '{tool_name}': {e}")
+            span.set_status(Status(StatusCode.ERROR))
+            span.record_exception(e)
             raise AgentToolExecutorError(
                 f"Unexpected error in tool '{tool_name}': {e}"
             ) from e

@@ -377,15 +377,22 @@ class AssistantAgent(AgentWorkflowBase):
         Raises:
             AgentError: If the tool call is malformed or execution fails.
         """
+        span = trace.get_current_span()
+        span.set_attribute("workflow.id", instance_id)
+
         function_details = tool_call.get("function", {})
         function_name = function_details.get("name")
+        span.set_attribute("tool.call.name", function_name)
+        span.set_attribute("tool.call.details", str(function_details))
 
         if not function_name:
+            span.set_attribute("error.type", type(e).__name__)
             raise AgentError("Missing function name in tool execution request.")
 
         try:
             function_args = function_details.get("arguments", "")
             function_args_as_dict = json.loads(function_args) if function_args else {}
+            span.set_attributes("tool.call.args", str(function_args_as_dict))
 
             # Execute tool function
             result = await self.tool_executor.run_tool(
@@ -407,7 +414,6 @@ class AssistantAgent(AgentWorkflowBase):
         except (ToolError, AgentToolExecutorError) as e:
             logger.info(e)
 
-            span = trace.get_current_span()
             span.set_status(Status(StatusCode.ERROR))
             span.record_exception(e)
 
@@ -431,6 +437,7 @@ class AssistantAgent(AgentWorkflowBase):
 
         except Exception as e:
             logger.error(f"Error executing tool '{function_name}': {e}", exc_info=True)
+            span.set_attribute("error.type", type(e).__name__)
             raise AgentError(f"Error executing tool '{function_name}': {e}") from e
 
     @task

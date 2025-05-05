@@ -8,6 +8,15 @@ from dapr_agents.tool.utils.tool import ToolHelper
 from dapr_agents.tool.utils.function_calling import to_function_call_definition
 from dapr_agents.types import ToolError
 
+from pydantic import PrivateAttr
+from dapr_agents.agent.telemetry import (
+    span_decorator,
+    async_span_decorator,
+)
+
+from opentelemetry import trace
+from opentelemetry.trace import Tracer, Status, StatusCode
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +46,7 @@ class AgentTool(BaseModel):
     )
 
     _is_async: bool = PrivateAttr(default=False)
+    _tracer: Optional[Tracer] = PrivateAttr(default=None)
 
     @model_validator(mode="before")
     @classmethod
@@ -76,6 +86,17 @@ class AgentTool(BaseModel):
             self._initialize_from_func(self.func)
         else:
             self._initialize_from_run()
+
+        try:
+            provider = provider = trace.get_tracer_provider()
+
+            self._tracer = provider.get_tracer(f"{self.name}_tracer")
+        except Exception as e:
+            logger.warning(
+                f"OpenTelemetry initialization failed: {e}. Continuing without telemetry."
+            )
+            self._tracer = None
+
         return super().model_post_init(__context)
 
     def _initialize_from_func(self, func: Callable) -> None:
@@ -88,6 +109,7 @@ class AgentTool(BaseModel):
         if self.args_model is None:
             self.args_model = ToolHelper.infer_func_schema(self._run)
 
+    @span_decorator("validate_and_prep_args")
     def _validate_and_prepare_args(
         self, func: Callable, *args, **kwargs
     ) -> Dict[str, Any]:
@@ -138,15 +160,19 @@ class AgentTool(BaseModel):
         except Exception as e:
             self._log_and_raise_error(e)
 
+    @async_span_decorator("arun_tool")
     async def arun(self, *args, **kwargs) -> Any:
         """
         Execute the tool asynchronously (whether it's sync or async under the hood).
         """
+        span = trace.get_current_span()
         try:
             func = self.func or self._run
             kwargs = self._validate_and_prepare_args(func, *args, **kwargs)
             return await func(**kwargs) if self._is_async else func(**kwargs)
         except Exception as e:
+            span.set_status(Status(StatusCode.ERROR))
+            span.record_exception(e)
             self._log_and_raise_error(e)
 
     def _run(self, *args, **kwargs) -> Any:
