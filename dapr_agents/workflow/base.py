@@ -753,6 +753,7 @@ class WorkflowApp(BaseModel):
             logger.error(f"Failed to invoke {service}.{method}: {e}")
             raise e
 
+    @span_decorator("when_all")
     def when_all(self, tasks: List[dtask.Task[T]]) -> dtask.WhenAllTask[T]:
         """
         Waits for all given tasks to complete.
