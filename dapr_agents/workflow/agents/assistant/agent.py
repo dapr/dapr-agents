@@ -99,10 +99,18 @@ class AssistantAgent(AgentWorkflowBase):
         """
         Executes a tool-calling workflow, determining the task source (either an agent or an external user).
         """
+
+        span = trace.get_current_span()
+        
+
         # Step 0: Retrieve task and iteration input
         task = message.get("task")
         iteration = message.get("iteration", 0)
         instance_id = ctx.instance_id
+
+        span.set_attribute("workflow.id", instance_id)
+        span.set_attribute("workflow.iteration", iteration)
+        span.set_attribute("workflow.task", task)
 
         if not ctx.is_replaying:
             logger.info(
