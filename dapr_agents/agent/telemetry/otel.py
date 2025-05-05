@@ -183,11 +183,6 @@ def async_span_decorator(name):
             context = None
 
             if otel_context:
-                # Restore parent context from carrier
-                from opentelemetry.trace.propagation.tracecontext import (
-                    TraceContextTextMapPropagator,
-                )
-
                 carrier = otel_context
                 context = TraceContextTextMapPropagator().extract(carrier=carrier)
 
