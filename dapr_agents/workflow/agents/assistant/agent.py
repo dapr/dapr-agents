@@ -178,15 +178,14 @@ class AssistantAgent(AgentWorkflowBase):
             if not ctx.is_replaying:
                 logger.info(f"Executing {len(tool_calls)} tool call(s)..")
 
-            with trace.get_tracer(f"{self.name}_tracer").start_as_current_span("child"):
-                parallel_tasks = [
-                    ctx.call_activity(
-                        self.execute_tool,
-                        input={"instance_id": instance_id, "tool_call": tool_call},
-                    )
-                    for tool_call in tool_calls
-                ]
-                yield self.when_all(parallel_tasks)
+            parallel_tasks = [
+                ctx.call_activity(
+                    self.execute_tool,
+                    input={"instance_id": instance_id, "tool_call": tool_call},
+                )
+                for tool_call in tool_calls
+            ]
+            yield self.when_all(parallel_tasks)
         else:
             if not ctx.is_replaying:
                 logger.info("Agent generating response without tool execution..")
