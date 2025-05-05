@@ -8,7 +8,6 @@ from dapr_agents.tool.utils.tool import ToolHelper
 from dapr_agents.tool.utils.function_calling import to_function_call_definition
 from dapr_agents.types import ToolError
 
-from pydantic import PrivateAttr
 from dapr_agents.agent.telemetry import (
     span_decorator,
     async_span_decorator,
