@@ -7,7 +7,6 @@ from rich.console import Console
 from dapr_agents.tool import AgentTool
 from dapr_agents.types import AgentToolExecutorError, ToolError
 
-from pydantic import PrivateAttr
 from dapr_agents.agent.telemetry import (
     async_span_decorator,
 )
