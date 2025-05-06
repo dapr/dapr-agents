@@ -154,37 +154,41 @@ _propagator = TraceContextTextMapPropagator()
 
 def async_span_decorator(name):
     """Decorator that creates an OpenTelemetry span for an async method."""
+
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(self, *args, **kwargs):
             tracer = getattr(self, "_tracer", None)
             if not tracer:
                 return await func(self, *args, **kwargs)
-            
+
             # Extract OpenTelemetry context from kwargs if available
             otel_context = kwargs.pop("otel_context", None)
-            
+
             ctx = None
             if otel_context:
                 try:
                     # Convert Dapr-serialized context back to carrier format
                     carrier = {
                         "traceparent": otel_context.get("traceparent", ""),
-                        "tracestate": otel_context.get("tracestate", "")
+                        "tracestate": otel_context.get("tracestate", ""),
                     }
-                    
+
                     # Extract context from carrier
                     ctx = _propagator.extract(carrier=carrier)
-                    logging.debug(f"Restored context for span '{name}': trace={carrier.get('traceparent', '')}")
+                    logging.debug(
+                        f"Restored context for span '{name}': trace={carrier.get('traceparent', '')}"
+                    )
                 except Exception as e:
                     logging.warning(f"Failed to extract context for span '{name}': {e}")
-            
+
             # Start span with context
             with tracer.start_as_current_span(name, context=ctx) as span:
                 span.set_attribute("function.name", func.__name__)
                 return await func(self, *args, **kwargs)
-                
+
         return wrapper
+
     return decorator
 
 
@@ -229,23 +233,23 @@ def extract_otel_context():
     Extract current OpenTelemetry context for cross-boundary propagation.
     Returns a format that can be properly serialized by Dapr workflows.
     """
-    carrier = {}
+    carrier: dict[Any, Any] = {}
     _propagator.inject(carrier)
-    
+
     if "traceparent" not in carrier:
         span = trace.get_current_span()
         if span and span.is_recording():
             context = span.get_span_context()
             # Format according to W3C trace context spec
-            trace_id = format(context.trace_id, '032x')
-            span_id = format(context.span_id, '016x')
-            flags = '01' if context.trace_flags.sampled else '00'
+            trace_id = format(context.trace_id, "032x")
+            span_id = format(context.span_id, "016x")
+            flags = "01" if context.trace_flags.sampled else "00"
             carrier["traceparent"] = f"00-{trace_id}-{span_id}-{flags}"
-    
+
     # Convert to dictionary format expected by Dapr
     serializable_context = {
         "traceparent": carrier.get("traceparent", ""),
-        "tracestate": carrier.get("tracestate", "")
+        "tracestate": carrier.get("tracestate", ""),
     }
-    
+
     return serializable_context
