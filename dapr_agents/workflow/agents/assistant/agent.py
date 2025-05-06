@@ -406,7 +406,9 @@ class AssistantAgent(AgentWorkflowBase):
         Raises:
             AgentError: If the tool call is malformed or execution fails.
         """
+    
         span = trace.get_current_span()
+        span.set_attribute("workflow.id", instance_id)
 
         function_details = tool_call.get("function", {})
         function_name = function_details.get("name")
