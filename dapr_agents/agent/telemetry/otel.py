@@ -149,43 +149,42 @@ class DaprAgentsOTel:
         return endpoint
 
 
-# Global propagator instance
 _propagator = TraceContextTextMapPropagator()
 
 
 def async_span_decorator(name):
     """Decorator that creates an OpenTelemetry span for an async method."""
-
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(self, *args, **kwargs):
             tracer = getattr(self, "_tracer", None)
             if not tracer:
                 return await func(self, *args, **kwargs)
-
+            
             # Extract OpenTelemetry context from kwargs if available
             otel_context = kwargs.pop("otel_context", None)
-
-            # Create new context or use current one
+            
             ctx = None
             if otel_context:
                 try:
-                    # Create new context from carrier
-                    ctx = _propagator.extract(carrier=otel_context)
-                    logging.debug(f"Restored context for span '{name}': {otel_context}")
+                    # Convert Dapr-serialized context back to carrier format
+                    carrier = {
+                        "traceparent": otel_context.get("traceparent", ""),
+                        "tracestate": otel_context.get("tracestate", "")
+                    }
+                    
+                    # Extract context from carrier
+                    ctx = _propagator.extract(carrier=carrier)
+                    logging.debug(f"Restored context for span '{name}': trace={carrier.get('traceparent', '')}")
                 except Exception as e:
                     logging.warning(f"Failed to extract context for span '{name}': {e}")
-
+            
             # Start span with context
             with tracer.start_as_current_span(name, context=ctx) as span:
-                # Add common attributes
                 span.set_attribute("function.name", func.__name__)
-
-                # Execute the function
                 return await func(self, *args, **kwargs)
-
+                
         return wrapper
-
     return decorator
 
 
@@ -226,7 +225,27 @@ def span_decorator(name):
 
 
 def extract_otel_context():
-    """Extract current OpenTelemetry context for cross-boundary propagation"""
-    carrier: dict[Any, Any] = {}
-    TraceContextTextMapPropagator().inject(carrier)
-    return carrier
+    """
+    Extract current OpenTelemetry context for cross-boundary propagation.
+    Returns a format that can be properly serialized by Dapr workflows.
+    """
+    carrier = {}
+    _propagator.inject(carrier)
+    
+    if "traceparent" not in carrier:
+        span = trace.get_current_span()
+        if span and span.is_recording():
+            context = span.get_span_context()
+            # Format according to W3C trace context spec
+            trace_id = format(context.trace_id, '032x')
+            span_id = format(context.span_id, '016x')
+            flags = '01' if context.trace_flags.sampled else '00'
+            carrier["traceparent"] = f"00-{trace_id}-{span_id}-{flags}"
+    
+    # Convert to dictionary format expected by Dapr
+    serializable_context = {
+        "traceparent": carrier.get("traceparent", ""),
+        "tracestate": carrier.get("tracestate", "")
+    }
+    
+    return serializable_context
