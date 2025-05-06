@@ -228,28 +228,33 @@ def span_decorator(name):
     return decorator
 
 
-def extract_otel_context():
+def extract_otel_context() -> dict[str, Any]:
     """
     Extract current OpenTelemetry context for cross-boundary propagation.
     Returns a format that can be properly serialized by Dapr workflows.
     """
-    carrier: dict[Any, Any] = {}
+    carrier: dict[str, Any] = {}
     _propagator.inject(carrier)
 
-    if "traceparent" not in carrier:
-        span = trace.get_current_span()
-        if span and span.is_recording():
-            context = span.get_span_context()
-            # Format according to W3C trace context spec
-            trace_id = format(context.trace_id, "032x")
-            span_id = format(context.span_id, "016x")
-            flags = "01" if context.trace_flags.sampled else "00"
-            carrier["traceparent"] = f"00-{trace_id}-{span_id}-{flags}"
+    span = trace.get_current_span()
+    ctx = span.get_span_context()
 
-    # Convert to dictionary format expected by Dapr
-    serializable_context = {
-        "traceparent": carrier.get("traceparent", ""),
-        "tracestate": carrier.get("tracestate", ""),
-    }
+    # Always extract these values regardless of condition
+    trace_id = format(ctx.trace_id, "032x")
+    span_id = format(ctx.span_id, "016x")
+    flags = "01" if ctx.trace_flags.sampled else "00"
 
-    return serializable_context
+    # If the propagator didn't inject a traceparent, create it manually
+    if "traceparent" not in carrier and span and span.is_recording():
+        carrier["traceparent"] = f"00-{trace_id}-{span_id}-{flags}"
+
+    # Ensure tracestate exists in the carrier (default to empty string if not present)
+    if "tracestate" not in carrier:
+        carrier["tracestate"] = ""
+
+    # Add the extra fields directly to the carrier
+    carrier["trace_id"] = trace_id
+    carrier["span_id"] = span_id
+    carrier["trace_flags"] = flags
+
+    return carrier
