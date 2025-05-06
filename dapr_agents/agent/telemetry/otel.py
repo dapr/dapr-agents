@@ -205,22 +205,26 @@ def span_decorator(name):
             # Extract OpenTelemetry context from kwargs if available
             otel_context = kwargs.pop("otel_context", None)
 
-            # Create new context or use current one
             ctx = None
             if otel_context:
                 try:
-                    # Create new context from carrier
-                    ctx = _propagator.extract(carrier=otel_context)
-                    logging.debug(f"Restored context for span '{name}': {otel_context}")
+                    # Convert Dapr-serialized context back to carrier format
+                    carrier = {
+                        "traceparent": otel_context.get("traceparent", ""),
+                        "tracestate": otel_context.get("tracestate", ""),
+                    }
+
+                    # Extract context from carrier
+                    ctx = _propagator.extract(carrier=carrier)
+                    logging.debug(
+                        f"Restored context for span '{name}': trace={carrier.get('traceparent', '')}"
+                    )
                 except Exception as e:
                     logging.warning(f"Failed to extract context for span '{name}': {e}")
 
             # Start span with context
             with tracer.start_as_current_span(name, context=ctx) as span:
-                # Add common attributes
                 span.set_attribute("function.name", func.__name__)
-
-                # Execute the function
                 return func(self, *args, **kwargs)
 
         return wrapper
