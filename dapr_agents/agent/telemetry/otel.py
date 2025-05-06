@@ -2,7 +2,9 @@ from logging import Logger
 from typing import Any, Union
 
 import functools
+import logging
 
+from opentelemetry import trace
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.metrics import set_meter_provider
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
@@ -147,27 +149,10 @@ class DaprAgentsOTel:
         return endpoint
 
 
-def span_decorator(name):
-    """Decorator that creates an OpenTelemetry span for a method."""
-
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(self, *args, **kwargs):
-            # Access tracer from instance at runtime
-            tracer = getattr(self, "_tracer", None)
-            if tracer:
-                with tracer.start_as_current_span(name):
-                    return func(self, *args, **kwargs)
-            else:
-                # Fallback if no tracer is available
-                return func(self, *args, **kwargs)
-
-        return wrapper
-
-    return decorator
+# Global propagator instance
+_propagator = TraceContextTextMapPropagator()
 
 
-# For async methods
 def async_span_decorator(name):
     """Decorator that creates an OpenTelemetry span for an async method."""
 
@@ -178,17 +163,62 @@ def async_span_decorator(name):
             if not tracer:
                 return await func(self, *args, **kwargs)
 
-            # Extract context from kwargs if available
+            # Extract OpenTelemetry context from kwargs if available
             otel_context = kwargs.pop("otel_context", None)
-            context = None
 
+            # Create new context or use current one
+            ctx = None
             if otel_context:
-                carrier = otel_context
-                context = TraceContextTextMapPropagator().extract(carrier=carrier)
+                try:
+                    # Create new context from carrier
+                    ctx = _propagator.extract(carrier=otel_context)
+                    logging.debug(f"Restored context for span '{name}': {otel_context}")
+                except Exception as e:
+                    logging.warning(f"Failed to extract context for span '{name}': {e}")
 
-            # Start span with parent context if available
-            with tracer.start_as_current_span(name, context=context):
+            # Start span with context
+            with tracer.start_as_current_span(name, context=ctx) as span:
+                # Add common attributes
+                span.set_attribute("function.name", func.__name__)
+
+                # Execute the function
                 return await func(self, *args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def span_decorator(name):
+    """Decorator that creates an OpenTelemetry span for a synchronous method."""
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            tracer = getattr(self, "_tracer", None)
+            if not tracer:
+                return func(self, *args, **kwargs)
+
+            # Extract OpenTelemetry context from kwargs if available
+            otel_context = kwargs.pop("otel_context", None)
+
+            # Create new context or use current one
+            ctx = None
+            if otel_context:
+                try:
+                    # Create new context from carrier
+                    ctx = _propagator.extract(carrier=otel_context)
+                    logging.debug(f"Restored context for span '{name}': {otel_context}")
+                except Exception as e:
+                    logging.warning(f"Failed to extract context for span '{name}': {e}")
+
+            # Start span with context
+            with tracer.start_as_current_span(name, context=ctx) as span:
+                # Add common attributes
+                span.set_attribute("function.name", func.__name__)
+
+                # Execute the function
+                return func(self, *args, **kwargs)
 
         return wrapper
 
@@ -200,9 +230,3 @@ def extract_otel_context():
     carrier: dict[Any, Any] = {}
     TraceContextTextMapPropagator().inject(carrier)
     return carrier
-
-
-def restore_otel_context(carrier):
-    """Restore OpenTelemetry context from carrier"""
-    context = TraceContextTextMapPropagator().extract(carrier)
-    return context
