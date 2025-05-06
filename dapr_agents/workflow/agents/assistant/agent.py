@@ -169,7 +169,8 @@ class AssistantAgent(AgentWorkflowBase):
 
         # Step 4: Extract Finish Reason
         finish_reason = yield ctx.call_activity(
-            self.get_finish_reason, input={"response": response}
+            self.get_finish_reason,
+            input={"response": response, "otel_context": current_context},
         )
 
         # Step 5: Choose execution path based on LLM response
@@ -181,7 +182,8 @@ class AssistantAgent(AgentWorkflowBase):
 
             # Retrieve the list of tool calls extracted from the LLM response
             tool_calls = yield ctx.call_activity(
-                self.get_tool_calls, input={"response": response}
+                self.get_tool_calls,
+                input={"response": response, "otel_context": current_context},
             )
 
             # Execute tool calls in parallel
