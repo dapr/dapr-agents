@@ -1,0 +1,14 @@
+## Key Information
+
+- Dapr is a portable, event-driven runtime for building distributed applications
+- It helps developers build resilient, microservice applications
+- Dapr integrates with any language or framework
+
+## Example Use Cases
+
+1. Building microservices 
+2. Creating event-driven applications
+3. Connecting services across different platforms
+4. Managing application state consistently
+
+For more information, visit https://dapr.io 

@@ -1,0 +1,7 @@
+dapr-agents>=0.5.0
+python-dotenv
+langchain>=0.1.0
+langchain-community>=0.0.10
+duckduckgo-search>=3.8.0
+crewai>=0.28.0
+crewai-tools>=0.1.0
