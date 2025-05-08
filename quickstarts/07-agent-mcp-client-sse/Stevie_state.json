@@ -1,0 +1,46 @@
+{
+    "instances": {
+        "5d29bf0f6b90420fb4fbda02ea8f3abd": {
+            "input": "What is the weather in New York",
+            "output": "The current temperature in New York is 63\u00b0F. If you need any more information or have other questions, feel free to ask!",
+            "start_time": "2025-05-02T20:30:21.825508",
+            "end_time": "2025-05-02T20:30:23.623042",
+            "messages": [
+                {
+                    "id": "d908b272-55bd-4374-b7ab-f6c69e394709",
+                    "role": "user",
+                    "content": "What is the weather in New York",
+                    "timestamp": "2025-05-02T20:30:21.831930",
+                    "name": null
+                },
+                {
+                    "id": "53da56c6-f149-45c5-a712-d2f8f9e4ec90",
+                    "role": "assistant",
+                    "content": "The current temperature in New York is 63\u00b0F. If you need any more information or have other questions, feel free to ask!",
+                    "timestamp": "2025-05-02T20:30:23.620126",
+                    "name": null
+                }
+            ],
+            "last_message": {
+                "id": "53da56c6-f149-45c5-a712-d2f8f9e4ec90",
+                "role": "assistant",
+                "content": "The current temperature in New York is 63\u00b0F. If you need any more information or have other questions, feel free to ask!",
+                "timestamp": "2025-05-02T20:30:23.620126",
+                "name": null
+            },
+            "tool_history": [
+                {
+                    "content": "New York: 63F.",
+                    "role": "tool",
+                    "tool_call_id": "call_qc2s8yGF5clDeEEmwzwIXVvG",
+                    "id": "aebc3147-4ca6-4747-9ef8-03c1eb526f70",
+                    "function_name": "LocalGetWeather",
+                    "function_args": "{\"location\":\"New York\"}",
+                    "timestamp": "2025-05-02T20:30:22.632999"
+                }
+            ],
+            "source": null,
+            "source_workflow_instance_id": null
+        }
+    }
+}
