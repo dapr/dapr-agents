@@ -3,19 +3,19 @@ services:
     image: localhost:5001/workflow-llm:latest
     build:
       context: ../
-      dockerfile: ./07-k8s-multi-agent-workflow/services/workflow-llm/Dockerfile
+      dockerfile: ./05-multi-agent-workflow-k8s/services/workflow-llm/Dockerfile
   elf:
     image: localhost:5001/elf:latest
     build:
       context: ../
-      dockerfile: ./07-k8s-multi-agent-workflow/services/elf/Dockerfile
+      dockerfile: ./05-multi-agent-workflow-k8s/services/elf/Dockerfile
   hobbit:
     image: localhost:5001/hobbit:latest
     build:
       context: ../
-      dockerfile: ./07-k8s-multi-agent-workflow/services/hobbit/Dockerfile
+      dockerfile: ./05-multi-agent-workflow-k8s/services/hobbit/Dockerfile
   wizard:
     image: localhost:5001/wizard:latest
     build:
       context: ../
-      dockerfile: ./07-k8s-multi-agent-workflow/services/wizard/Dockerfile
+      dockerfile: ./05-multi-agent-workflow-k8s/services/wizard/Dockerfile

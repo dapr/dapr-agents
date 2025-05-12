@@ -1,0 +1,6 @@
+dapr-agents>=0.5.0
+python-dotenv
+mcp
+starlette
+uvicorn
+requests 
