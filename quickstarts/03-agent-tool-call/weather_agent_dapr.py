@@ -16,7 +16,7 @@ AIAgent = Agent(
     ],
     memory=ConversationDaprStateMemory(store_name="historystore", session_id="some-id"),
     pattern="toolcalling",
-    tools=tools
+    tools=tools,
 )
 
 

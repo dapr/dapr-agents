@@ -14,14 +14,17 @@ from dapr_agents import tool, AssistantAgent
 from dapr_agents.memory import ConversationDaprStateMemory
 from dotenv import load_dotenv
 
+
 # Define tool output model
 class FlightOption(BaseModel):
     airline: str = Field(description="Airline name")
     price: float = Field(description="Price in USD")
 
+
 # Define tool input model
 class DestinationSchema(BaseModel):
     destination: str = Field(description="Destination city name")
+
 
 # Define flight search tool
 @tool(args_model=DestinationSchema)
@@ -30,8 +33,9 @@ def search_flights(destination: str) -> List[FlightOption]:
     # Mock flight data (would be an external API call in a real app)
     return [
         FlightOption(airline="SkyHighAir", price=450.00),
-        FlightOption(airline="GlobalWings", price=375.50)
+        FlightOption(airline="GlobalWings", price=375.50),
     ]
+
 
 async def main():
     try:
@@ -43,7 +47,7 @@ async def main():
             instructions=[
                 "Find flights to destinations",
                 "Remember user preferences",
-                "Provide clear flight info"
+                "Provide clear flight info",
             ],
             tools=[search_flights],
             message_bus_name="messagepubsub",
@@ -53,7 +57,7 @@ async def main():
             agents_registry_key="agents_registry",
             memory=ConversationDaprStateMemory(
                 store_name="conversationstore", session_id="my-unique-id"
-            )
+            ),
         )
 
         travel_planner.as_service(port=8001)
@@ -62,6 +66,7 @@ async def main():
 
     except Exception as e:
         print(f"Error starting service: {e}")
+
 
 if __name__ == "__main__":
     load_dotenv()
