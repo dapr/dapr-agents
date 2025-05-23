@@ -14,6 +14,7 @@ except ImportError:
     class CrewAIBaseTool:
         pass
 
+
 class CrewAITool(AgentTool):
     """
     Adapter for using CrewAI tools with dapr-agents.
@@ -36,23 +37,23 @@ class CrewAITool(AgentTool):
         # Extract metadata from CrewAI tool
         name = kwargs.get("name", "")
         description = kwargs.get("description", "")
-        
+
         # If name/description not provided via kwargs, extract from tool
         if not name:
             # Get name from the tool and format it (CrewAI tools often have spaces)
             raw_name = getattr(tool, "name", tool.__class__.__name__)
             name = raw_name.replace(" ", "_").title()
-            
+
         if not description:
             # Get description from the tool
             description = getattr(tool, "description", tool.__doc__ or "")
-        
+
         # Initialize the AgentTool with the CrewAI tool's metadata
         super().__init__(name=name, description=description)
-        
+
         # Set the tool after parent initialization
         self.tool = tool
-        
+
     @model_validator(mode="before")
     @classmethod
     def populate_name(cls, data: Any) -> Any:
@@ -62,16 +63,16 @@ class CrewAITool(AgentTool):
     def _run(self, *args: Any, **kwargs: Any) -> str:
         """
         Execute the wrapped CrewAI tool.
-        
+
         Attempts to call the tool's run method or _execute method, depending on what's available.
-        
+
         Args:
             *args: Positional arguments to pass to the tool
             **kwargs: Keyword arguments to pass to the tool
-            
+
         Returns:
             str: The result of the tool execution
-            
+
         Raises:
             ToolError: If the tool execution fails
         """
@@ -87,25 +88,27 @@ class CrewAITool(AgentTool):
                 raise ToolError(f"Cannot execute CrewAI tool: {self.tool}")
         except Exception as e:
             raise ToolError(f"Error executing CrewAI tool: {str(e)}")
-            
+
     def model_post_init(self, __context: Any) -> None:
         """Initialize args_model from the CrewAI tool schema if available."""
         super().model_post_init(__context)
-        
+
         # Try to use the CrewAI tool's schema if available
         if hasattr(self.tool, "args_schema"):
             self.args_model = self.tool.args_schema
 
-    def to_function_call(self, format_type: str = "openai", use_deprecated: bool = False) -> Dict:
+    def to_function_call(
+        self, format_type: str = "openai", use_deprecated: bool = False
+    ) -> Dict:
         """
         Converts the tool to a function call definition based on its schema.
-        
+
         If the CrewAI tool has an args_schema, use it directly.
-        
+
         Args:
             format_type (str): The format type (e.g., 'openai').
             use_deprecated (bool): Whether to use deprecated format.
-            
+
         Returns:
             Dict: The function call representation.
         """
@@ -113,12 +116,12 @@ class CrewAITool(AgentTool):
         if hasattr(self.tool, "args_schema") and self.tool.args_schema:
             # For CrewAI tools, we have their schema model directly
             return to_function_call_definition(
-                self.name, 
-                self.description, 
-                self.args_model, 
-                format_type, 
-                use_deprecated
+                self.name,
+                self.description,
+                self.args_model,
+                format_type,
+                use_deprecated,
             )
         else:
             # Fallback to the regular AgentTool implementation
-            return super().to_function_call(format_type, use_deprecated) 
+            return super().to_function_call(format_type, use_deprecated)
