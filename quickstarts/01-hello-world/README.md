@@ -183,13 +183,134 @@ if __name__ == "__main__":
 
 **Expected output:** The agent will first check the weather in London, find it's rainy, and then recommend visiting museums.
 
-### 4. Simple Workflow
+### 4. Stateful Assistant Agent
 
 Make sure Dapr is initialized on your system:
 
 ```bash
 dapr init
 ```
+
+Run the assistant agent example to see how to create a stateful agent with persistent memory:
+
+```bash
+dapr run --app-id stateful-llm --app-port 8001 --dapr-http-port 3500 --resources-path components/ -- python 04_assistant_agent.py
+```
+
+This example demonstrates a stateful travel planning assistant that:
+1. Remembers user context persistently (across restarts)
+2. Uses a tool to search for flight options
+3. Exposes a REST API for workflow interaction
+4. Stores execution state in Dapr workflow state stores
+
+```python
+#!/usr/bin/env python3
+"""
+Stateful Augmented LLM Pattern demonstrates:
+1. Memory - remembering user preferences
+2. Tool use - accessing external data
+3. LLM abstraction
+4. Durable execution of tools as workflow actions
+"""
+import asyncio
+import logging
+from typing import List
+from pydantic import BaseModel, Field
+from dapr_agents import tool, AssistantAgent
+from dapr_agents.memory import ConversationDaprStateMemory
+from dotenv import load_dotenv
+
+# Define tool output model
+class FlightOption(BaseModel):
+    airline: str = Field(description="Airline name")
+    price: float = Field(description="Price in USD")
+
+# Define tool input model
+class DestinationSchema(BaseModel):
+    destination: str = Field(description="Destination city name")
+
+# Define flight search tool
+@tool(args_model=DestinationSchema)
+def search_flights(destination: str) -> List[FlightOption]:
+    """Search for flights to the specified destination."""
+    # Mock flight data (would be an external API call in a real app)
+    return [
+        FlightOption(airline="SkyHighAir", price=450.00),
+        FlightOption(airline="GlobalWings", price=375.50)
+    ]
+
+async def main():
+    try:
+        # Initialize TravelBuddy agent
+        travel_planner = AssistantAgent(
+            name="TravelBuddy",
+            role="Travel Planner",
+            goal="Help users find flights and remember preferences",
+            instructions=[
+                "Find flights to destinations",
+                "Remember user preferences",
+                "Provide clear flight info"
+            ],
+            tools=[search_flights],
+            message_bus_name="messagepubsub",
+            state_store_name="workflowstatestore",
+            state_key="workflow_state",
+            agents_registry_store_name="registrystatestore",
+            agents_registry_key="agents_registry",
+            memory=ConversationDaprStateMemory(
+                store_name="conversationstore", session_id="my-unique-id"
+            )
+        )
+
+        travel_planner.as_service(port=8001)
+        await travel_planner.start()
+        print("Travel Planner Agent is running")
+
+    except Exception as e:
+        print(f"Error starting service: {e}")
+
+if __name__ == "__main__":
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())
+
+### Interacting with the Agent
+
+Unlike simpler agents, this stateful agent exposes a REST API for workflow interactions:
+
+#### Start a new workflow:
+
+```bash
+curl -i -X POST http://localhost:8001/start-workflow \
+  -H "Content-Type: application/json" \
+  -d '{"task": "I want to find flights to Paris"}'
+```
+
+You'll receive a workflow ID in response, which you can use to track progress.
+
+#### Check workflow status:
+
+```bash
+# Replace WORKFLOW_ID with the ID from the previous response
+curl -i -X GET http://localhost:3500/v1.0/workflows/durableTaskHub/WORKFLOW_ID
+```
+
+### How It Works
+
+The key components of this implementation are:
+
+1. **Persistent Memory**: The agent stores conversation state in Dapr's state store, enabling it to remember context across sessions and system restarts.
+
+2. **Workflow Orchestration**: Long-running tasks are managed through Dapr's workflow system, providing:
+    - Durability - workflows survive process crashes
+    - Observability - track status and progress
+    - Recoverability - automatic retry on failures
+
+3. **Tool Integration**: A flight search tool is defined using the `@tool` decorator, which automatically handles input validation and type conversion.
+
+4. **Service Exposure**: The agent exposes REST endpoints to start and manage workflows.
+
+### 5. Simple Workflow
 
 Run the workflow example to see how to create a multi-step LLM process:
 
@@ -202,7 +323,7 @@ expected_stdout_lines:
 output_match_mode: substring
 -->
 ```bash
-dapr run --app-id dapr-agent-wf -- python 04_chain_tasks.py
+dapr run --app-id dapr-agent-wf -- python 05_chain_tasks.py
 ```
 <!-- END_STEP -->
 
