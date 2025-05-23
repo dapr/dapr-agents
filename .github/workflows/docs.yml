@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Review changed files
     outputs:
-      docs_any_changed: NaN
+      docs_any_changed: ${{ steps.changed-files.outputs.docs_any_changed }}
     steps:
       - uses: actions/checkout@v4
       - name: Get changed files
