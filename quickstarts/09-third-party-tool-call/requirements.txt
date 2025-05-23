@@ -1,4 +1,4 @@
-dapr-agents>=0.5.0
+dapr-agents>=0.5.1
 python-dotenv
 langchain>=0.1.0
 langchain-community>=0.0.10
