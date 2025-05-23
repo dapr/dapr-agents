@@ -14,7 +14,7 @@ pyyaml==6.0.2
 rich==13.9.4
 huggingface_hub==0.30.2
 numpy==2.2.2
-mcp==1.6.0
+mcp==1.7.1
 opentelemetry-distro==0.53b1
 opentelemetry-exporter-otlp==1.32.1
 opentelemetry-instrumentation-requests==0.53b1
