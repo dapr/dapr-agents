@@ -6,9 +6,8 @@ from dotenv import load_dotenv
 from langchain_community.tools import DuckDuckGoSearchRun
 
 from dapr_agents.agent import Agent
-from dapr_agents.tool import LangchainTool, tool
-from dapr_agents.tool.third_party import LangchainTool
 from dapr_agents.tool import tool
+from dapr_agents.tool.third_party import LangchainTool
 from pydantic import BaseModel, Field
 
 load_dotenv()

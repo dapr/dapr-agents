@@ -36,7 +36,7 @@ async def main():
     # Create a dapr agent with both tools - CrewAI wrapped tool and native tool
     agent = Agent(
         """You are a helpful assistant that can read files and analyze text.
-        The ReadFile tool is already configured to read from a specific sample file, 
+        The ReadFile tool is already configured to read from a specific sample file,
         so you can just use it without arguments.
         After getting the content, you can use the CountWords tool to analyze the text statistics.""",
         tools=[file_tool, count_words],
