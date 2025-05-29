@@ -231,7 +231,7 @@ if __name__ == "__main__":
 3. Run the agent with Dapr
 
 ```bash
-dapr run --app-id weatheragent --resources-path ./components -- python weather_agent.py
+dapr run --app-id weatheragent --resources-path ./components -- python weather_agent_dapr.py
 ```
 
 ## Available Agent Types
