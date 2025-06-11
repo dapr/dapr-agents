@@ -30,7 +30,6 @@ def get_character() -> str:
     description="What is a famous line by {character}",
 )
 def get_line(character: str) -> str:
-    print(f"Character: {character}")
     pass
 
 

@@ -43,11 +43,7 @@ dapr init
 
 4. Create the workflow state store component:
 
-```bash
-mkdir -p components
-```
-
-Look at the `workflowstate.yaml` file in the components' directory:
+Look at the `workflowstate.yaml` file in the `components` directory:
 
 ```yaml
 apiVersion: dapr.io/v1alpha1
