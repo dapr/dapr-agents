@@ -51,7 +51,7 @@ jobs:
         run: mkdocs build
 
   deploy:
-    if: github.ref == 'refs/heads/main' && needs.changed_files.outputs.docs_any_changed == 'true'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     needs: documentation_validation
     steps:
