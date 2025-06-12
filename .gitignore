@@ -167,3 +167,5 @@ cython_debug/
 .idea
 
 .ruff_cache/
+
+quickstarts/05-multi-agent-workflow-dapr-workflows/services/**/*_state.json
