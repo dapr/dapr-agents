@@ -184,7 +184,7 @@ class WorkflowApp(BaseModel):
 
     # TODO: can workflow discovery simply come from the runtime?
     # Python workflows can be registered in a variety of ways, and we need to support all of them.
-    # This supports decorator-based registration; 
+    # This supports decorator-based registration;
     # however, there is also manual registration approach.
     # See example below:
     #     def setup_workflow_runtime():
@@ -252,7 +252,7 @@ class WorkflowApp(BaseModel):
             key (str): The key to update.
             data (dict): The data to update the store with.
         """
-        # retry the entire operation up to ten times sleeping 1 second between each 
+        # retry the entire operation up to ten times sleeping 1 second between each
         # TODO: rm the custom retry logic here and use the DaprClient retry_policy instead.
         for attempt in range(1, 11):
             try:

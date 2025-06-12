@@ -90,7 +90,6 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
             )
             return task
 
-
         # First iteration: Process input and broadcast
         if iteration == 0:
             message = yield ctx.call_activity(self.process_input, input={"task": task})

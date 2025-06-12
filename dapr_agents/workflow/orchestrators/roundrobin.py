@@ -107,8 +107,7 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
 
         # Trigger agent
         yield ctx.call_activity(
-            self.trigger_agent,
-            input={"name": next_speaker, "instance_id": instance_id}
+            self.trigger_agent, input={"name": next_speaker, "instance_id": instance_id}
         )
 
         # Wait for response or timeout
