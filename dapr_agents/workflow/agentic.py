@@ -74,6 +74,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
     agents_registry_key: str = Field(
         default="agents_registry", description="Key for agents registry in state store."
     )
+    # TODO: test this is respected by runtime.
     max_iterations: int = Field(
         default=20, description="Maximum iterations for workflows.", ge=1
     )
@@ -109,6 +110,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         self._text_formatter = ColorTextFormatter()
 
         # Initialize state store client (used for persisting workflow state to Dapr)
+        # Why make a state store client and dapr_client here?
         self._state_store_client = DaprStateStore(store_name=self.state_store_name)
         logger.info(f"State store '{self.state_store_name}' initialized.")
 

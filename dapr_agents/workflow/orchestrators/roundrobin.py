@@ -53,6 +53,7 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
         super().model_post_init(__context)
 
     @workflow(name="RoundRobinWorkflow")
+    # TODO: add retry policies on activities.
     def main_workflow(self, ctx: DaprWorkflowContext, input: TriggerAction):
         """
         Executes a round-robin workflow where agents interact iteratively.
@@ -106,7 +107,8 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
 
         # Trigger agent
         yield ctx.call_activity(
-            self.trigger_agent, input={"name": next_speaker, "instance_id": instance_id}
+            self.trigger_agent,
+            input={"name": next_speaker, "instance_id": instance_id}
         )
 
         # Wait for response or timeout
@@ -127,11 +129,20 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
             task_results = yield event_data
             logger.info(f"{task_results['name']} -> {self.name}")
 
+        # Check Iteration
+        next_iteration_count = iteration + 1
+        if next_iteration_count > self.max_iterations:
+            logger.info(
+                f"Max iterations reached. Ending round-robin workflow (Instance ID: {instance_id})."
+            )
+            return task_results["content"]
+
         # Update for next iteration
         input["task"] = task_results["content"]
-        input["iteration"] = iteration + 1
+        input["iteration"] = next_iteration_count
 
         # Restart workflow with updated state
+        # TODO: would we want this updated to preserve agent state between iterations?
         ctx.continue_as_new(input)
 
     @task

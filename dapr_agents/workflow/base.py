@@ -44,6 +44,7 @@ class WorkflowApp(BaseModel):
     llm: Optional[ChatClientBase] = Field(
         default=None, description="The default LLM client for all LLM-based tasks."
     )
+    # TODO: I think this should be within the wf client or wf runtime...?
     timeout: int = Field(
         default=300,
         description="Default timeout duration in seconds for workflow tasks.",
@@ -181,6 +182,21 @@ class WorkflowApp(BaseModel):
 
         return wrapper
 
+    # TODO: can workflow discovery simply come from the runtime?
+    # Python workflows can be registered in a variety of ways, and we need to support all of them.
+    # This supports decorator-based registration; 
+    # however, there is also manual registration approach.
+    # See example below:
+    #     def setup_workflow_runtime():
+    #       wf_runtime = WorkflowRuntime()
+    #       wf_runtime.register_workflow(order_processing_workflow)
+    #       wf_runtime.register_workflow(fulfillment_workflow)
+    #       wf_runtime.register_activity(process_payment)
+    #       wf_runtime.register_activity(send_notification)
+    #     return wf_runtime
+
+    # runtime = setup_workflow_runtime()
+    # runtime.start()
     def _discover_workflows(self) -> Dict[str, Callable]:
         """Gather all @workflow-decorated functions and methods."""
         module = sys.modules["__main__"]
@@ -236,7 +252,8 @@ class WorkflowApp(BaseModel):
             key (str): The key to update.
             data (dict): The data to update the store with.
         """
-        # retry the entire operation up to ten times sleeping 1 second between each attempt
+        # retry the entire operation up to ten times sleeping 1 second between each 
+        # TODO: rm the custom retry logic here and use the DaprClient retry_policy instead.
         for attempt in range(1, 11):
             try:
                 response: StateResponse = self.client.get_state(

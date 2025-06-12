@@ -78,6 +78,6 @@ class AgentActorState(BaseModel):
     task_history: Optional[List[AgentTaskEntry]] = Field(
         default_factory=list, description="History of tasks the agent has performed"
     )
-    overall_status: AgentStatus = Field(
+    status: AgentStatus = Field(
         AgentStatus.IDLE, description="Current operational status of the agent"
     )
