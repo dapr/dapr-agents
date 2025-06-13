@@ -83,13 +83,6 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
                 f"Random workflow iteration {iteration + 1} started (Instance ID: {instance_id})."
             )
 
-        # Check Termination Condition
-        if iteration >= self.max_iterations:
-            logger.info(
-                f"Max iterations reached. Ending round-robin workflow (Instance ID: {instance_id})."
-            )
-            return task
-
         # First iteration: Process input and broadcast
         if iteration == 0:
             message = yield ctx.call_activity(self.process_input, input={"task": task})

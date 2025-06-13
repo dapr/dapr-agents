@@ -38,7 +38,7 @@ class AgentActorBase(Actor, AgentActorInterface):
         if not has_state:
             # Initialize state with default values if it doesn't exist
             logger.info(f"Initializing state for {self.actor_id}")
-            self.agent_state = AgentActorState(overall_status=AgentStatus.IDLE)
+            self.agent_state = AgentActorState(status=AgentStatus.IDLE)
             await self._state_manager.set_state(
                 self.agent_state_key, self.agent_state.model_dump()
             )
