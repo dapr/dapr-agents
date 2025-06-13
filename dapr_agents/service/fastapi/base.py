@@ -58,7 +58,6 @@ class FastAPIServerBase(APIServerBase):
             lifespan=self.lifespan,
         )
 
-        # Configure CORS settings
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=self.cors_origins,

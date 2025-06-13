@@ -36,6 +36,8 @@ class ReActAgent(AgentBase):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    # TODO: build this from a template file
+    # TODO: tool for evaluating prompt updates here and catching err drift
     def construct_system_prompt(self) -> str:
         """
         Constructs a system prompt in the ReAct reasoning-action format based on the agent's attributes and tools.
@@ -54,7 +56,6 @@ class ReActAgent(AgentBase):
         prompt_parts.append("## Role\nYour role is {{role}}.")
         prompt_parts.append("## Goal\n{{goal}}.")
 
-        # Append instructions if provided
         if self.instructions:
             prompt_parts.append("## Instructions\n{{instructions}}")
 
@@ -68,7 +69,7 @@ class ReActAgent(AgentBase):
             tools_section.rstrip()
         )  # Trim any trailing newlines from tools_section
 
-        # Additional Guidelines
+        # TODO: move this to a separate file
         additional_guidelines = textwrap.dedent(
             """
         If you think about using tool, it must use the correct tool JSON blob format as shown below:
@@ -83,6 +84,7 @@ class ReActAgent(AgentBase):
         prompt_parts.append(additional_guidelines)
 
         # ReAct specific guidelines
+        # TODO: move this to a separate file
         react_guidelines = textwrap.dedent(
             """
         ## ReAct Format
@@ -157,7 +159,6 @@ class ReActAgent(AgentBase):
         if user_message:
             self.text_formatter.print_message(user_message)
 
-        # Get Tool Names to validate tool selection
         available_tools = self.tool_executor.get_tool_names()
 
         # Initialize react_loop for iterative reasoning
@@ -215,12 +216,11 @@ class ReActAgent(AgentBase):
                         "No action specified; continuing with further reasoning."
                     )
                     react_loop += f"Thought:{thought_action}\n"
-                    continue  # Proceed to the next iteration
+                    continue
 
                 action_name = action["name"]
                 action_args = action["arguments"]
 
-                # Print Action
                 self.text_formatter.print_react_part("Action", json.dumps(action))
 
                 if action_name not in available_tools:
@@ -229,7 +229,6 @@ class ReActAgent(AgentBase):
                 logger.info(f"Executing {action_name} with arguments {action_args}")
                 result = await self.tool_executor.run_tool(action_name, **action_args)
 
-                # Print Observation
                 self.text_formatter.print_react_part("Observation", result)
                 react_loop += f"Thought:{thought_action}\nAction:{json.dumps(action)}\nObservation:{result}\n"
 

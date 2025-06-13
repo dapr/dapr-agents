@@ -38,16 +38,16 @@ class AgentActorBase(Actor, AgentActorInterface):
         if not has_state:
             # Initialize state with default values if it doesn't exist
             logger.info(f"Initializing state for {self.actor_id}")
-            self.state = AgentActorState(overall_status=AgentStatus.IDLE)
+            self.agent_state = AgentActorState(status=AgentStatus.IDLE)
             await self._state_manager.set_state(
-                self.agent_state_key, self.state.model_dump()
+                self.agent_state_key, self.agent_state.model_dump()
             )
             await self._state_manager.save_state()
         else:
             # Load existing state
             logger.info(f"Loading existing state for {self.actor_id}")
             logger.debug(f"Existing state for {self.actor_id}: {state_data}")
-            self.state = AgentActorState(**state_data)
+            self.agent_state = AgentActorState(**state_data)
 
     async def _on_deactivate(self) -> None:
         """
@@ -61,9 +61,9 @@ class AgentActorBase(Actor, AgentActorInterface):
         """
         Sets the current operational status of the agent and saves the state.
         """
-        self.state.overall_status = status
+        self.agent_state.status = status
         await self._state_manager.set_state(
-            self.agent_state_key, self.state.model_dump()
+            self.agent_state_key, self.agent_state.model_dump()
         )
         await self._state_manager.save_state()
 
@@ -101,11 +101,11 @@ class AgentActorBase(Actor, AgentActorInterface):
             input=task_entry_input,
             status=AgentTaskStatus.IN_PROGRESS,
         )
-        self.state.task_history.append(task_entry)
+        self.agent_state.task_history.append(task_entry)
 
         # Save initial task state with IN_PROGRESS status
         await self._state_manager.set_state(
-            self.agent_state_key, self.state.model_dump()
+            self.agent_state_key, self.agent_state.model_dump()
         )
         await self._state_manager.save_state()
 
@@ -134,7 +134,7 @@ class AgentActorBase(Actor, AgentActorInterface):
         finally:
             # Ensure the final state of the task is saved
             await self._state_manager.set_state(
-                self.agent_state_key, self.state.model_dump()
+                self.agent_state_key, self.agent_state.model_dump()
             )
             await self._state_manager.save_state()
             # Revert the agent's status to idle
@@ -152,12 +152,12 @@ class AgentActorBase(Actor, AgentActorInterface):
             message = AgentActorMessage(**message)
 
         # Add the new message to the state
-        self.state.messages.append(message)
-        self.state.message_count += 1
+        self.agent_state.messages.append(message)
+        self.agent_state.message_count += 1
 
         # Save state back to Dapr
         await self._state_manager.set_state(
-            self.agent_state_key, self.state.model_dump()
+            self.agent_state_key, self.agent_state.model_dump()
         )
         await self._state_manager.save_state()
 
@@ -178,7 +178,6 @@ class AgentActorBase(Actor, AgentActorInterface):
                 # Return the list of messages as dictionaries (timestamp will be automatically serialized to ISO format)
                 return [message.model_dump() for message in state.messages]
             except ValidationError as e:
-                # Handle validation errors
                 print(f"Validation error: {e}")
                 return []
         return []

@@ -60,6 +60,8 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
     @message_router
     @workflow(name="LLMWorkflow")
+    # TODO: set retry policies on the activities!
+    # TODO: utilize prompt verdict value of failed as we do not currently use.
     def main_workflow(self, ctx: DaprWorkflowContext, message: TriggerAction):
         """
         Executes an LLM-driven agentic workflow where the next agent is dynamically selected
@@ -710,6 +712,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         # Store the final summary and verdict in workflow state
         await self.update_workflow_state(instance_id=instance_id, final_output=summary)
 
+    # TODO: this should be a compensating activity called in the event of an error from any other activity.
     async def update_workflow_state(
         self,
         instance_id: str,

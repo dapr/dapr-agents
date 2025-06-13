@@ -60,6 +60,7 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
         super().model_post_init(__context)
 
     @workflow(name="RandomWorkflow")
+    # TODO: add retry policies on activities.
     def main_workflow(self, ctx: DaprWorkflowContext, input: TriggerAction):
         """
         Executes a random workflow where agents are selected randomly for interactions.
@@ -131,9 +132,10 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
 
         # Update ChatLoop for next iteration
         input["task"] = task_results["content"]
-        input["iteration"] = iteration + 1
+        input["iteration"] = next_iteration_count
 
         # Restart workflow with updated state
+        # TODO: would we want this updated to preserve agent state between iterations?
         ctx.continue_as_new(input)
 
     @task
