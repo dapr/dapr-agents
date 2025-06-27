@@ -20,7 +20,6 @@ class AgentFactory:
         "react": ReActAgent,
         "toolcalling": ToolCallAgent,
         "openapireact": OpenAPIReActAgent,
-        # TODO: where is the assistant agent? are there others??
     }
 
     @staticmethod
