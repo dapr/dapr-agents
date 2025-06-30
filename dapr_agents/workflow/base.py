@@ -182,7 +182,7 @@ class WorkflowApp(BaseModel):
 
         return wrapper
 
-    # TODO: can workflow discovery simply come from the runtime?
+    # TODO: workflow discovery can also come from dapr runtime
     # Python workflows can be registered in a variety of ways, and we need to support all of them.
     # This supports decorator-based registration;
     # however, there is also manual registration approach.

@@ -62,6 +62,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
     @workflow(name="LLMWorkflow")
     # TODO: set retry policies on the activities!
     # TODO: utilize prompt verdict value of failed as we do not currently use.
+    # https://github.com/dapr/dapr-agents/pull/136#discussion_r2175751545
     def main_workflow(self, ctx: DaprWorkflowContext, message: TriggerAction):
         """
         Executes an LLM-driven agentic workflow where the next agent is dynamically selected
