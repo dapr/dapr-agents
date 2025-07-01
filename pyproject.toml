@@ -69,6 +69,9 @@ Source = "https://github.com/dapr/python-sdk"
 include = ["dapr_agents"]
 exclude = ["tests"]
 
+[tool.setuptools.package-data]
+dapr_agents = ["py.typed"]
+
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
 local_scheme = "node-and-date"
