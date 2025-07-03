@@ -1,6 +1,6 @@
 # Agents
 
-Agents in `Dapr Agents` are autonomous systems powered by Large Language Models (LLMs), designed to execute tasks, reason through problems, and collaborate within workflows. Acting as intelligent building blocks, agents seamlessly combine LLM-driven reasoning with tool integration, memory, and collaboration features to enable scalable, agentic systems.
+Agents in `Dapr Agents` are autonomous systems powered by Large Language Models (LLMs), designed to execute tasks, reason through problems, and collaborate within workflows. Acting as intelligent building blocks, agents seamlessly combine LLM-driven reasoning with tool integration, memory, and collaboration features to enable scalable, production-grade agentic systems.
 
 ![](../img/concepts-agents.png)
 
@@ -26,7 +26,7 @@ Once connected, the MCP client fetches all available tools from the server and p
 
 ### 5. Memory
 
-Agents retain context across interactions, enhancing their ability to provide coherent and adaptive responses. Memory options range from simple in-memory lists for managing chat history to vector databases for semantic search and retrieval. Dapr Agents also integrates with [Dapr state stores](https://docs.dapr.io/developing-applications/building-blocks/state-management/howto-get-save-state/), enabling scalable and persistent memory for advanced use cases.
+Agents retain context across interactions, enhancing their ability to provide coherent and adaptive responses. Memory options range from simple in-memory lists for managing chat history to vector databases for semantic search and retrieval. Dapr Agents also integrates with [Dapr state stores](https://docs.dapr.io/developing-applications/building-blocks/state-management/howto-get-save-state/), enabling scalable and persistent memory for advanced use cases from 28 different state store providers.
 
 ### 6. Prompt Flexibility
 
@@ -43,6 +43,103 @@ Agents collaborate through [Pub/Sub messaging](https://docs.dapr.io/developing-a
 ### 9. Workflow Orchestration
 
 Dapr Agents supports both deterministic and event-driven workflows to manage multi-agent systems via [Dapr Workflows](https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-overview/). Deterministic workflows provide clear, repeatable processes, while event-driven workflows allow for dynamic, adaptive collaboration between agents in centralized or decentralized architectures.
+
+## Agent Types
+
+Dapr Agents provides two agent types, each designed for different use cases:
+
+### Agent
+
+The `Agent` class is a conversational agent that manages tool calls and conversations using a language model. It provides immediate, synchronous execution with built-in conversation memory and tool integration capabilities.
+
+**Key Characteristics:**
+- Synchronous execution with immediate responses
+- Built-in conversation memory and tool history tracking
+- Iterative conversation processing with max iteration limits
+- Direct tool execution and result processing
+- Graceful shutdown support with cancellation handling
+
+**When to use:**
+- Building conversational assistants that need immediate responses
+- Scenarios requiring real-time tool execution and conversation flow
+- When you need direct control over the conversation loop
+- Quick prototyping and development of agent interactions
+
+**Example Usage:**
+```python
+from dapr_agents import Agent
+from dapr_agents.llm.dapr import DaprChatClient
+from dapr_agents.memory import ConversationDaprStateMemory
+
+# Create an incident intake agent
+agent = Agent(
+    name="IncidentIntakeBot",
+    role="Incident Reporting Assistant",
+    instructions=[
+        "Collect detailed operational incident information",
+        "Retain user inputs across sessions for audit and recovery",
+        "Use memory to guide follow-up questions based on previous input",
+        "Update incident records as new details are provided",
+    ],
+    tools=[incident_lookup_tool, escalate_incident_tool, update_incident_tool],
+)
+
+# Conversation history is preserved across calls
+agent.run("first input")
+agent.run("second input")
+```
+
+### DurableAgent
+
+The `DurableAgent` class is a workflow-based agent that extends the standard Agent with Dapr Workflows for long-running, fault-tolerant, and durable execution. It provides persistent state management, automatic retry mechanisms, and deterministic execution across failures.
+
+**Key Characteristics:**
+- Workflow-based execution using Dapr Workflows
+- Persistent workflow state management across sessions and failures
+- Automatic retry and recovery mechanisms
+- Deterministic execution with checkpointing
+- Built-in message routing and agent communication
+- Supports complex orchestration patterns and multi-agent collaboration
+
+**When to use:**
+- Multi-step workflows that span time or systems
+- Tasks requiring guaranteed progress tracking and state persistence
+- Scenarios where operations may pause, fail, or need recovery without data loss
+- Complex agent orchestration and multi-agent collaboration
+- Production systems requiring fault tolerance and scalability
+
+**Example Usage:**
+```python
+from dapr_agents import DurableAgent
+from dapr_agents.llm.dapr import DaprChatClient
+from dapr_agents.memory import ConversationDaprStateMemory
+
+
+# Create an onboarding workflow agent
+durable_agent = DurableAgent(
+    name="OnboardingWorkflowBot",
+    role="Employee Onboarding Coordinator",
+    instructions=[
+        "Guide and automate multi-step onboarding processes",
+        "Track progress and retain state across sessions and failures",
+        "Coordinate with tools to provision accounts, access, and resources",
+    ],
+    llm=OpenAIChatClient(),
+    tools=[
+        provision_email_account,
+        setup_github_access,
+        assign_kubernetes_namespace,
+        configure_slack_workspace,
+        request_hardware_kit,
+    ],
+    message_bus_name="messagepubsub",
+    state_store_name="workflowstatestore",
+    state_key="workflow_state",
+    agents_registry_store_name="agentstatestore",
+    agents_registry_key="agents_registry",
+    ),
+)
+```
 
 ## Agent Patterns
 
@@ -89,7 +186,7 @@ The ReAct pattern gives the agent the flexibility to adapt based on task complex
 
 ReAct empowers agents to navigate complex, real-world environments efficiently, making them better suited for scenarios that require both deep reasoning and timely actions.
 
-## Workflows for Collaboration
+## Agent Collaboration using Workflows
 
 While patterns empower individual agents, workflows enable the coordination of multiple agents to achieve shared goals. In Dapr Agents, workflows serve as a higher-level framework for organizing how agents collaborate and distribute tasks.
 
