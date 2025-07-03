@@ -1,4 +1,4 @@
-from dapr_agents import AssistantAgent
+from dapr_agents import DurableAgent
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -7,7 +7,7 @@ import logging
 async def main():
     try:
         # Define Agent
-        hobbit_agent = AssistantAgent(
+        hobbit_agent = DurableAgent(
             name="Frodo",
             role="Hobbit",
             goal="Carry the One Ring to Mount Doom, resisting its corruptive power while navigating danger and uncertainty.",

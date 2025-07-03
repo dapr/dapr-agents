@@ -3,6 +3,7 @@ from .message import (
     BaseMessage,
     MessageContent,
     ChatCompletion,
+    Choice,
     SystemMessage,
     UserMessage,
     AssistantMessage,
@@ -23,3 +24,4 @@ from .exceptions import (
 )
 from .graph import Node, Relationship
 from .schemas import OAIJSONSchema, OAIResponseFormatSchema
+from .agent import AgentStatus, AgentTaskStatus, AgentTaskEntry

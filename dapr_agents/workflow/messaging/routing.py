@@ -169,6 +169,7 @@ class MessageRoutingMixin:
             target=stream_messages, args=(subscription,), daemon=True
         ).start()
 
+    # TODO: retry setup should be configurable
     async def _route_message(
         self, pubsub_name: str, topic_name: str, message: SubscriptionMessage
     ) -> TopicEventResponse:

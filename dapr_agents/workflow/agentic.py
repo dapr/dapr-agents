@@ -10,6 +10,7 @@ from fastapi import status, Request
 from fastapi.responses import JSONResponse
 from cloudevents.http.conversion import from_http
 from cloudevents.http.event import CloudEvent
+from dapr_agents.agents.utils.text_printer import ColorTextFormatter
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -23,7 +24,6 @@ from typing import (
 )
 from pydantic import BaseModel, Field, ValidationError, PrivateAttr
 from dapr.clients import DaprClient
-from dapr_agents.agent.utils.text_printer import ColorTextFormatter
 from dapr_agents.memory import (
     ConversationListMemory,
     ConversationVectorMemory,
@@ -76,7 +76,7 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
     )
     # TODO: test this is respected by runtime.
     max_iterations: int = Field(
-        default=20, description="Maximum iterations for workflows.", ge=1
+        default=10, description="Maximum iterations for workflows.", ge=1
     )
     memory: MemoryBase = Field(
         default_factory=ConversationListMemory,
@@ -86,12 +86,12 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
         default=True, description="Whether to save workflow state locally."
     )
     local_state_path: Optional[str] = Field(
-        default=None, description="Path for saving local state."
+        default=None, description="Local path for saving state files."
     )
 
     # Private internal attributes (not schema/validated)
     _state_store_client: Optional[DaprStateStore] = PrivateAttr(default=None)
-    _text_formatter: Optional[ColorTextFormatter] = PrivateAttr(default=None)
+    _text_formatter: [ColorTextFormatter] = PrivateAttr(default=ColorTextFormatter)
     _agent_metadata: Optional[Dict[str, Any]] = PrivateAttr(default=None)
     _workflow_name: str = PrivateAttr(default=None)
     _dapr_client: Optional[DaprClient] = PrivateAttr(default=None)
@@ -105,6 +105,8 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the workflow service, messaging, and metadata storage."""
+        if not self._is_dapr_available():
+            self._raise_dapr_required_error()
 
         # Set up color formatter for logging and CLI printing
         self._text_formatter = ColorTextFormatter()
@@ -150,12 +152,22 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                     path, method, methods=[method_type], **extra_kwargs
                 )
 
-    def as_service(self, port: int, host: str = "0.0.0.0"):
+    def as_service(self, port: Optional[int] = None, host: str = "0.0.0.0"):
         """
         Enables FastAPI-based service mode for the agent by initializing a FastAPI server instance.
         Must be called before `start()` if you want to expose HTTP endpoints.
+
+        Args:
+            port: Required port number.
+            host: Host address to bind to. Defaults to "0.0.0.0".
+
+        Raises:
+            ValueError: If port is not provided.
         """
         from dapr_agents.service.fastapi import FastAPIServerBase
+
+        if port is None:
+            raise ValueError("Port must be provided as a parameter")
 
         self._http_server = FastAPIServerBase(
             service_name=self.name,
@@ -329,7 +341,6 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             self.save_state()
 
         except Exception as e:
-            logger.error(f"Failed to initialize workflow state: {e}")
             raise RuntimeError(f"Error initializing workflow state: {e}") from e
 
     def validate_state(self, state_data: dict) -> dict:
@@ -363,7 +374,6 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             return validated_state.model_dump()  # Convert validated model to dict
 
         except ValidationError as e:
-            logger.error(f"State validation failed: {e}")
             raise ValidationError(f"Invalid workflow state: {e.errors()}") from e
 
     def load_state(self) -> dict:
@@ -797,3 +807,59 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
                 content={"error": "Failed to start workflow", "details": str(e)},
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    def _is_dapr_available(self) -> bool:
+        """
+        Check if Dapr is available by attempting to connect to the Dapr sidecar.
+        This provides better DX for users who don't have dapr running to see a nice error message.
+
+        Returns:
+            bool: True if Dapr is available, False otherwise
+        """
+        try:
+            import socket
+            import os
+
+            def check_tcp_port(port: int, timeout: int = 2) -> bool:
+                """Check if a TCP port is open and accepting connections."""
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(timeout)
+                    result = sock.connect_ex(("localhost", port))
+                    sock.close()
+                    return result == 0
+                except Exception:
+                    return False
+
+            ports_to_check = []
+            for env_var in ["DAPR_HTTP_PORT", "DAPR_GRPC_PORT"]:
+                port = os.environ.get(env_var)
+                if port:
+                    ports_to_check.append(int(port))
+
+            # Fallback ports
+            ports_to_check.extend([3500, 3501, 3502])
+            for port in ports_to_check:
+                if check_tcp_port(port):
+                    return True
+
+            return False
+        except Exception:
+            return False
+
+    def _raise_dapr_required_error(self):
+        """
+        Raise a helpful error message when Dapr is required but not available.
+        """
+        error_msg = """🚫 Dapr Required for Durable Agent
+
+This agent requires Dapr to be running because it uses stateful, durable workflows.
+
+To run this agent, you need to:
+
+1. Install Dapr CLI: https://docs.dapr.io/getting-started/install-dapr-cli/
+2. Initialize Dapr: dapr init
+3. Run with Dapr: dapr run --app-id your-app-id --app-port 8001 --resources-path components/ -- python your_script.py
+
+For more information, see the README.md in the quickstart directory."""
+        raise RuntimeError(error_msg)

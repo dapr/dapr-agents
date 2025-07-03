@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from dapr.ext.workflow import WorkflowActivityContext
 
-from dapr_agents.agent.base import AgentBase
+from dapr_agents.agents.base import AgentBase
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.openai import OpenAIChatClient
 from dapr_agents.llm.utils import StructureHandler

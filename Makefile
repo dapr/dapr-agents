@@ -1,6 +1,26 @@
 # Get all directories within quickstarts
 QUICKSTART_DIRS := $(shell find quickstarts -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
 
+# Test targets
+.PHONY: test
+test:
+	@echo "Running tests..."
+	python -m pytest tests/ -v --tb=short
+
+.PHONY: test-cov
+test-cov:
+	@echo "Running tests with coverage..."
+	python -m pytest tests/ -v --cov=dapr_agents --cov-report=term-missing --cov-report=html
+
+.PHONY: test-install
+test-install:
+	@echo "Installing test dependencies..."
+	pip install install -e .[test]
+
+.PHONY: test-all
+test-all: test-install test-cov
+	@echo "All tests completed!"
+
 # Main target to validate all quickstarts
 .PHONY: validate-quickstarts
 validate-quickstarts:

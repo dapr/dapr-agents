@@ -4,6 +4,7 @@ from dapr_agents.prompt.prompty import Prompty
 from pydantic import BaseModel, Field
 from abc import ABC, abstractmethod
 from pathlib import Path
+from dapr_agents.tool.base import AgentTool
 
 
 class ChatClientBase(BaseModel, ABC):
@@ -46,7 +47,7 @@ class ChatClientBase(BaseModel, ABC):
         ] = None,
         input_data: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
-        tools: Optional[List[Union[Dict[str, Any]]]] = None,
+        tools: Optional[List[Union[AgentTool, Dict[str, Any]]]] = None,
         response_format: Optional[Type[BaseModel]] = None,
         structured_mode: Optional[str] = None,
         **kwargs,
@@ -58,7 +59,7 @@ class ChatClientBase(BaseModel, ABC):
             messages (Optional): Either pre-set messages or None if using input_data.
             input_data (Optional[Dict[str, Any]]): Input variables for prompt templates.
             model (Optional[str]): Specific model to use for the request, overriding the default.
-            tools (Optional[List[Union[Dict[str, Any]]]]): List of tools for the request.
+            tools (Optional[List[Union[AgentTool, Dict[str, Any]]]]): List of tools for the request.
             response_format (Optional[Type[BaseModel]]): Optional Pydantic model for structured response parsing.
             structured_mode (Optional[str]): Mode for structured output.
             **kwargs: Additional parameters for the chat completion API.

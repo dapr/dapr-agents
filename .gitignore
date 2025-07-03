@@ -169,7 +169,11 @@ cython_debug/
 
 .ruff_cache/
 
-quickstarts/05-multi-agent-workflow-dapr-workflows/services/**/*_state.json
+# Quickstart outputs
+*_state.json
+quickstarts/**/*_state.json
+chroma_db/
+db/
 
 # Requirements files since we use pyproject.toml instead
 requirements.txt

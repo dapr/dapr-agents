@@ -2,7 +2,7 @@ import asyncio
 import logging
 from dotenv import load_dotenv
 
-from dapr_agents import AssistantAgent
+from dapr_agents import DurableAgent
 from dapr_agents.tool.mcp import MCPClient
 
 
@@ -16,7 +16,7 @@ async def main():
         tools = client.get_all_tools()
 
         # Create the Weather Agent using those tools
-        weather_agent = AssistantAgent(
+        weather_agent = DurableAgent(
             role="Weather Assistant",
             name="Stevie",
             goal="Help humans get weather and location info using smart tools.",

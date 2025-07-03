@@ -6,7 +6,7 @@ It’s a minimal, Python-based setup for:
 
 - Exploring how MCP tools work
 - Testing stdio and SSE transport
-- Running tool-calling agents (like ToolCallingAgent or ReActAgent)
+- Running tool-calling agents
 - Experimenting **without** durable workflows or Dapr dependencies
 
 > 🧠 Looking for something more robust?  
@@ -84,5 +84,5 @@ After testing these lightweight agents, you can try:
 
 * Running the full dapr_agents workflow system
 * Registering more complex MCP tools
-* Using other agent types (e.g., ReActAgent, AssistantAgent)
+* Using other agent types (Agent or DurableAgent)
 * Testing stateful, durable workflows using Dapr + MCP tools

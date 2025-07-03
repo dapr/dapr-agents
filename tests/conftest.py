@@ -2,8 +2,14 @@
 import pytest
 import asyncio
 import sys
+import os
+import tempfile
+import shutil
 from typing import Generator
 from unittest.mock import MagicMock
+
+# Add the project root to the Python path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def create_mock_module(name: str) -> MagicMock:
@@ -20,6 +26,7 @@ mock_dapr.common.pubsub = MagicMock()
 mock_dapr.common.pubsub.subscription = MagicMock()
 mock_dapr.common.pubsub.subscription.StreamCancelledError = Exception
 mock_dapr.common.pubsub.subscription.SubscriptionMessage = MagicMock
+
 
 # Register the mock modules
 sys.modules["dapr"] = mock_dapr
@@ -63,6 +70,18 @@ class MockDaprWorkflowClient:
     pass
 
 
+class MockDaprWorkflowContext:
+    """Mock DaprWorkflowContext for testing."""
+
+    def __init__(self):
+        self.instance_id = "test-instance"
+        self.is_replaying = False
+        self.call_activity = MagicMock()
+        self.wait_for_external_event = MagicMock()
+        self.create_timer = MagicMock()
+        self.continue_as_new = MagicMock()
+
+
 class MockWorkflowActivityContext:
     pass
 
@@ -93,6 +112,7 @@ class StreamInactiveError(Exception):
 
 mock_dapr.ext.workflow.WorkflowRuntime = MockWorkflowRuntime
 mock_dapr.ext.workflow.DaprWorkflowClient = MockDaprWorkflowClient
+mock_dapr.ext.workflow.DaprWorkflowContext = MockDaprWorkflowContext
 mock_dapr.ext.workflow.WorkflowActivityContext = MockWorkflowActivityContext
 mock_dapr.ext.workflow.workflow_state.WorkflowState = MockWorkflowState
 mock_dapr.clients.DaprClient = MockDaprClient
@@ -135,6 +155,14 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     loop.close()
 
 
+@pytest.fixture(scope="session")
+def temp_dir():
+    """Create a temporary directory for tests."""
+    temp_dir = tempfile.mkdtemp()
+    yield temp_dir
+    shutil.rmtree(temp_dir)
+
+
 # Mark all tests in this directory as asyncio tests
 def pytest_collection_modifyitems(items):
     """Add asyncio marker to all test items."""
@@ -145,6 +173,22 @@ def pytest_collection_modifyitems(items):
             and item.function.__code__.co_flags & 0x80
         ):
             item.add_marker(pytest.mark.asyncio)
+
+
+@pytest.fixture(autouse=True)
+def patch_openai_client(monkeypatch):
+    monkeypatch.setattr("openai.OpenAI", MagicMock())
+
+
+@pytest.fixture(autouse=True)
+def set_llm_component_default_env(monkeypatch):
+    """Ensure DAPR_LLM_COMPONENT_DEFAULT is set for all tests."""
+    monkeypatch.setenv("DAPR_LLM_COMPONENT_DEFAULT", "openai")
+
+
+@pytest.fixture(autouse=True)
+def set_openai_api_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
 
 
 # Cleanup after all tests

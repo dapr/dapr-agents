@@ -60,6 +60,7 @@ class DaprPubSub(BaseModel):
         try:
             json_message = await self.serialize_message(message)
 
+            # TODO: retry publish should be configurable
             async with DaprClient() as client:
                 await client.publish_event(
                     pubsub_name=pubsub_name or self.message_bus_name,

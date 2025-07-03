@@ -6,7 +6,6 @@ import requests
 
 from pydantic import BaseModel, Field, PrivateAttr
 from dapr_agents.types import ToolError
-from dapr_agents import tool
 from urllib.parse import urlparse
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry import trace
@@ -43,7 +42,6 @@ class DaprHTTPClient(BaseModel):
         description="Default headers to include in all requests.",
     )
 
-    # Private attributes not exposed in model schema
     _base_url: str = PrivateAttr(default="http://localhost:3500/v1.0/invoke")
 
     def model_post_init(self, __context: Any) -> None:
@@ -57,7 +55,7 @@ class DaprHTTPClient(BaseModel):
             otel_enabled = False
 
         if otel_enabled:
-            from dapr_agents.agent.telemetry.otel import DaprAgentsOTel  # type: ignore[import-not-found]
+            from dapr_agents.agents.telemetry.otel import DaprAgentsOTel  # type: ignore[import-not-found]
 
             otel_client = DaprAgentsOTel(
                 service_name=os.getenv("OTEL_SERVICE_NAME", "dapr-http-client"),

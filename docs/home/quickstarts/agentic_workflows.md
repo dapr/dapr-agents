@@ -12,70 +12,13 @@ In `Dapr Agents`, agentic workflows leverage LLM-based tasks, reasoning loop pat
 !!! tip
     We will demonstrate this concept using the [Multi-Agent Workflow Guide](https://github.com/dapr/dapr-agents/tree/main/cookbook/workflows/multi_agents/basic_lotr_agents_as_workflows) from our Cookbook, which outlines a step-by-step guide to implementing a basic agentic workflow.
 
-## Agents as Services: Dapr Actors and Dapr Workflows
+## Agents as Services: Dapr Workflows
 
-In `Dapr Agents`, agents can be implemented using [Dapr Actors](https://docs.dapr.io/developing-applications/building-blocks/actors/actors-overview/) or [Dapr Workflows](https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-overview/), both of which are exposed as microservices via [FastAPI servers](https://docs.dapr.io/developing-applications/sdks/python/python-sdk-extensions/python-fastapi/).
+In `Dapr Agents`, agents can be implemented using [Dapr Workflows](https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-overview/), both of which are exposed as microservices via [FastAPI servers](https://docs.dapr.io/developing-applications/sdks/python/python-sdk-extensions/python-fastapi/).
 
-### 1. Agents as Dapr Actors (Encapsulating Agent Logic)
 
-Agents in dapr_agents can be wrapped in Dapr Virtual Actors, providing stateful, autonomous, and event-driven execution.
-
-✅ Encapsulates agent logic as an isolated, stateful entity.
-✅ Maintains its own identity and state across invocations.
-✅ Interacts via event-driven messaging using Dapr’s pub/sub.
-✅ Can be triggered on demand or listen for specific events.
-
-In `Dapr Agents`, agents are typically wrapped as [Dapr Actors](https://docs.dapr.io/developing-applications/building-blocks/actors/actors-overview/) to modularize agent logic while keeping state persistence.
-
-**Example: Wrapping an Agent as a Dapr Actor**
-
-```python
-from dapr agents import Agent, AgentActor
-from dotenv import load_dotenv
-import asyncio
-import logging
-
-async def main():
-    try:
-        # Define Agent
-        hobbit_agent = Agent(
-            role="Hobbit",
-            name="Frodo",
-            goal="Carry the One Ring to Mount Doom, resisting its corruptive power while navigating danger and uncertainty.",
-            instructions=[
-                "Speak like Frodo, with humility, determination, and a growing sense of resolve.",
-                "Endure hardships and temptations, staying true to the mission even when faced with doubt.",
-                "Seek guidance and trust allies, but bear the ultimate burden alone when necessary.",
-                "Move carefully through enemy-infested lands, avoiding unnecessary risks.",
-                "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."
-            ]
-        )
-        
-        # Expose Agent as an Actor over a Service
-        hobbit_service = AgentActor(
-            agent=hobbit_agent,
-            message_bus_name="messagepubsub",
-            agents_registry_store_name="agentsregistrystore",
-            agents_registry_key="agents_registry",
-            service_port=8001,
-        )
-
-        await hobbit_service.start()
-    except Exception as e:
-        print(f"Error starting service: {e}")
-
-if __name__ == "__main__":
-    load_dotenv()
-
-    logging.basicConfig(level=logging.INFO)
-
-    asyncio.run(main())
-```
-
-In this approach, each agent is independently stateful, and can react to events, maintain context, and interact with the message bus dynamically.
-
-### 2. Agents as Dapr Workflows (Orchestration, Complex Execution)
-Instead of wrapping an agent inside an actor, [Dapr Workflows](https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-overview/) define the structured execution of agent behaviors, reasoning loops, and tool selection. Workflows allow agents to:
+### Agents as Dapr Workflows (Orchestration, Complex Execution)
+[Dapr Workflows](https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-overview/) define the structured execution of agent behaviors, reasoning loops, and tool selection. Workflows allow agents to:
 
 ✅ Define complex execution sequences instead of just reacting to events.
 ✅ Integrate with message buses to listen and act on real-time inputs.
@@ -87,7 +30,7 @@ Instead of wrapping an agent inside an actor, [Dapr Workflows](https://docs.dapr
 **Example: An Agent as a Dapr Workflow**
 
 ```python
-from dapr_agents import AssistantAgent
+from dapr_agents import DurableAgent
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -95,7 +38,7 @@ import logging
 async def main():
     try:
         # Define Agent
-        wizard_service = AssistantAgent(
+        wizard_service = DurableAgent(
             name="Gandalf",
             role="Wizard",
             goal="Guide the Fellowship with wisdom and strategy, using magic and insight to ensure the downfall of Sauron.",
@@ -125,16 +68,16 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Here, `Gandalf` is an `AssistantAgent` implemented as a workflow, meaning it executes structured reasoning, plans actions, and integrates tools within a managed workflow execution loop.
+Here, `Gandalf` is an `DurableAgent` implemented as a workflow, meaning it executes structured reasoning, plans actions, and integrates tools within a managed workflow execution loop.
 
-### 3. How We Use Dapr Workflows for Orchestration
-While Dapr Workflows build on Dapr Actors, they provide an abstraction for orchestrating multiple agents and interactions. In dapr agents, the orchestrator itself is a Dapr Workflow, which:
+### How We Use Dapr Workflows for Orchestration
+ In dapr agents, the orchestrator itself is a Dapr Workflow, which:
 
 ✅ Coordinates execution of agentic workflows (LLM-driven or rule-based).
-✅ Delegates tasks to agents implemented as either Dapr Actors or other workflows.
+✅ Delegates tasks to agents implemented as either other workflows.
 ✅ Manages reasoning loops, plan adaptation, and error handling dynamically.
 
-🚀 The LLM default orchestrator is a Dapr Workflow that interacts with both agent actors and agent workflows.
+🚀 The LLM default orchestrator is a Dapr Workflow that interacts with agent workflows.
 
 **Example: The Orchestrator as a Dapr Workflow**
 
@@ -168,7 +111,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-This orchestrator acts as a central controller, ensuring that agentic workflows and actors communicate effectively, execute tasks in order, and handle iterative reasoning loops.
+This orchestrator acts as a central controller, ensuring that agentic workflows communicate effectively, execute tasks in order, and handle iterative reasoning loops.
 
 ## Structuring A Multi-Agent Project
 
@@ -212,15 +155,15 @@ services/                  # Directory for agent services
 Create the `app.py` script and provide the following information.
 
 ```python
-from dapr_agents import Agent, AgentActor
+from dapr_agents import DurableAgent
 from dotenv import load_dotenv
 import asyncio
 import logging
 
 async def main():
     try:
-        # Define Agent
-        hobbit_agent = Agent(
+        # Define Agent and expose it as a service
+        hobbit_agent = DurableAgent(
             role="Hobbit",
             name="Frodo",
             goal="Carry the One Ring to Mount Doom, resisting its corruptive power while navigating danger and uncertainty.",
@@ -230,17 +173,11 @@ async def main():
                 "Seek guidance and trust allies, but bear the ultimate burden alone when necessary.",
                 "Move carefully through enemy-infested lands, avoiding unnecessary risks.",
                 "Respond concisely, accurately, and relevantly, ensuring clarity and strict alignment with the task."
-            ]
-        )
-        
-        # Expose Agent as an Actor over a Service
-        hobbit_service = AgentActor(
-            agent=hobbit_agent,
+            ],
             message_bus_name="messagepubsub",
             agents_registry_store_name="agentsregistrystore",
             agents_registry_key="agents_registry",
-            service_port=8001,
-        )
+        ).as_service(8001_)
 
         await hobbit_service.start()
     except Exception as e:

@@ -26,10 +26,11 @@ from dapr.ext.workflow import (
 )
 from dapr.ext.workflow.workflow_state import WorkflowState
 
-from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.workflow.task import WorkflowTask
 from dapr_agents.workflow.utils import get_decorated_methods
+from dapr_agents.agents.base import ChatClientType
+from dapr_agents.llm.openai import OpenAIChatClient
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +42,9 @@ class WorkflowApp(BaseModel):
     A Pydantic-based class to encapsulate a Dapr Workflow runtime and manage workflows and tasks.
     """
 
-    llm: Optional[ChatClientBase] = Field(
-        default=None, description="The default LLM client for all LLM-based tasks."
+    llm: ChatClientType = Field(
+        default_factory=OpenAIChatClient,
+        description="The default LLM client for all LLM-based tasks.",
     )
     # TODO: I think this should be within the wf client or wf runtime...?
     timeout: int = Field(
@@ -100,7 +102,7 @@ class WorkflowApp(BaseModel):
         logger.debug("Fetching chat history (default stub)")
         return []
 
-    def _choose_llm_for(self, method: Callable) -> Optional[ChatClientBase]:
+    def _choose_llm_for(self, method: Callable) -> Optional[ChatClientType]:
         """
         Encapsulate LLM selection logic.
           1. Use per-task override if provided on decorator.

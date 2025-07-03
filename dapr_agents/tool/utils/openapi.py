@@ -14,7 +14,7 @@ from openapi_pydantic import (
     RequestBody as RequestBody_3_1_0,
 )
 
-from openapi_pydantic.v3.v3_0 import (
+from openapi_pydantic.v3.v3_0_3 import (
     OpenAPI as OpenAPI_3_0,
     Operation as Operation_3_0,
     Reference as Reference_3_0,

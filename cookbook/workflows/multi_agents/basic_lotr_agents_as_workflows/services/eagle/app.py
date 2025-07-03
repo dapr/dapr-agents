@@ -1,4 +1,4 @@
-from dapr_agents import AssistantAgent
+from dapr_agents import DurableAgent
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -7,7 +7,7 @@ import logging
 async def main():
     try:
         # Define Eagle Agent
-        eagle_service = AssistantAgent(
+        eagle_service = DurableAgent(
             role="Eagle",
             name="Gwaihir",
             goal="Provide unmatched aerial transport, carrying anyone anywhere, overcoming any obstacle, and offering strategic reconnaissance to aid in epic quests.",

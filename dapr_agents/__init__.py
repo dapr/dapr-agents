@@ -1,9 +1,5 @@
-from dapr_agents.agent import (
-    Agent,
-    ReActAgent,
-    ToolCallAgent,
-    OpenAPIReActAgent,
-)
+from dapr_agents.agents.agent import Agent
+from dapr_agents.agents.durableagent import DurableAgent
 from dapr_agents.llm.openai import (
     OpenAIChatClient,
     OpenAIAudioClient,
@@ -19,6 +15,5 @@ from dapr_agents.workflow import (
     LLMOrchestrator,
     RandomOrchestrator,
     RoundRobinOrchestrator,
-    AssistantAgent,
 )
 from dapr_agents.executors import LocalCodeExecutor, DockerCodeExecutor

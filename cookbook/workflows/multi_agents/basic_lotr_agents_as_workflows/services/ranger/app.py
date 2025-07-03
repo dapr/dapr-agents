@@ -1,4 +1,4 @@
-from dapr_agents import AssistantAgent
+from dapr_agents import DurableAgent
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -7,7 +7,7 @@ import logging
 async def main():
     try:
         # Define Agent
-        ranger_service = AssistantAgent(
+        ranger_service = DurableAgent(
             name="Aragorn",
             role="Ranger",
             goal="Lead and protect the Fellowship, ensuring Frodo reaches his destination while uniting the Free Peoples against Sauron.",

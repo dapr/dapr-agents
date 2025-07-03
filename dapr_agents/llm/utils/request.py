@@ -4,6 +4,7 @@ from dapr_agents.types.message import BaseMessage
 from dapr_agents.llm.utils import StructureHandler
 from dapr_agents.tool.utils.tool import ToolHelper
 from pydantic import BaseModel, ValidationError
+from dapr_agents.tool.base import AgentTool
 
 import logging
 
@@ -91,7 +92,7 @@ class RequestHandler:
     def process_params(
         params: Dict[str, Any],
         llm_provider: str,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        tools: Optional[List[Union[AgentTool, Dict[str, Any]]]] = None,
         response_format: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
         structured_mode: Literal["json", "function_call"] = "json",
     ) -> Dict[str, Any]:
@@ -112,9 +113,18 @@ class RequestHandler:
         """
         if tools:
             logger.info("Tools are available in the request.")
-            params["tools"] = [
-                ToolHelper.format_tool(tool, tool_format=llm_provider) for tool in tools
-            ]
+            # Convert AgentTool objects to dict format for the provider
+            tool_dicts = []
+            for tool in tools:
+                if isinstance(tool, AgentTool):
+                    tool_dicts.append(
+                        ToolHelper.format_tool(tool, tool_format=llm_provider)
+                    )
+                else:
+                    tool_dicts.append(
+                        ToolHelper.format_tool(tool, tool_format=llm_provider)
+                    )
+            params["tools"] = tool_dicts
 
         if response_format:
             logger.info(f"Structured Mode Activated! Mode={structured_mode}.")

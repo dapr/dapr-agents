@@ -12,3 +12,5 @@ spec:
     value: ""
   - name: actorStateStore
     value: "true"
+  - name: keyPrefix
+    value: none

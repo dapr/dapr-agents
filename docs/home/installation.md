@@ -86,7 +86,7 @@ AZURE_OPENAI_API_VERSION="azure_openai_api_version"
 Then instantiate the agent(s) as well as the orchestrator as follows:
 
 ```python
-from dapr_agents import AssistantAgent, OpenAIChatClient
+from dapr_agents import DurableAgent, OpenAIChatClient
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -101,7 +101,7 @@ async def main():
     )
     
     try:
-        elf_service = AssistantAgent(
+        elf_service = DurableAgent(
             name="Legolas", role="Elf",
             goal="Act as a scout, marksman, and protector, using keen senses and deadly accuracy to ensure the success of the journey.",
             instructions=[

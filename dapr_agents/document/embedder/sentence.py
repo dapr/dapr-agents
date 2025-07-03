@@ -139,3 +139,13 @@ class SentenceTransformerEmbedder(EmbedderBase):
             Union[List[float], List[List[float]]]: Embedding vector(s) for the input(s).
         """
         return self.embed(input)
+
+    # Note: this is required for ChromaDB compatibility
+    def name(self) -> str:
+        """
+        Return the name of the embedder for ChromaDB compatibility.
+
+        Returns:
+            str: The name of the embedder model.
+        """
+        return f"sentence-transformer-{self.model}"

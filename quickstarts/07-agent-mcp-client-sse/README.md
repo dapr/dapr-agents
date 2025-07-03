@@ -65,7 +65,7 @@ await client.connect_sse("local", url="http://localhost:8000/sse")
 tools = client.get_all_tools()
 
 # Create the Weather Agent using MCP tools
-weather_agent = AssistantAgent(
+weather_agent = DurableAgent(
     role="Weather Assistant",
     name="Stevie",
     goal="Help humans get weather and location info using smart tools.",
@@ -116,7 +116,7 @@ curl -X POST http://localhost:8001/start-workflow \
 - Allows multiple agents to connect to the same tool server
 
 ### Dapr Integration
-- The `AssistantAgent` class creates a service that runs inside a Dapr workflow
+- The `DurableAgent` class creates a service that runs inside a Dapr workflow
 - Dapr components (pubsub, state stores) manage message routing and state persistence
 - The agent's conversation history and tool calls are saved in Dapr state stores
 

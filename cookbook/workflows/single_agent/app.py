@@ -1,4 +1,4 @@
-from dapr_agents import AssistantAgent
+from dapr_agents import DurableAgent
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -7,7 +7,7 @@ import logging
 async def main():
     try:
         # Create the Weather Agent using those tools
-        weather_agent = AssistantAgent(
+        weather_agent = DurableAgent(
             role="Weather Assistant",
             name="Stevie",
             goal="Help humans get weather and location info using smart tools.",

@@ -15,20 +15,35 @@ authors = [
 ]
 dependencies = [
     "dapr>=1.15.0",
+    "dapr-ext-fastapi>=1.15.0",
+    "dapr-ext-workflow>=1.15.0",
+    "durabletask-dapr>=0.2.0a7",
     "pydantic>=2.11.3,<3.0.0",
-    "jinja2>=3.1.0",
-    "pyyaml>=6.0",
-    "requests>=2.31.0",
-    "openapi-pydantic>=0.3.0",
-    "rich==13.9.4",
-    "openai==1.75.0",
-    "azure-identity==1.21.0",
-    "huggingface_hub==0.30.2",
-    "colorama>=0.4.6",
-    "regex>=2023.0.0",
-    "fastapi>=0.110.0",
-    "uvicorn>=0.27.0",
-    "aiohttp>=3.9.0",
+    "jinja2>=3.1.0,<4.0.0",
+    "pyyaml>=6.0,<7.0.0",
+    "requests>=2.31.0,<3.0.0",
+    "openapi-pydantic>=0.3.0,<0.4.0",
+    "openapi-schema-pydantic>=1.2.4,<2.0.0",
+    "rich>=13.9.4,<14.0.0",
+    "openai>=1.75.0,<2.0.0",
+    "azure-identity>=1.21.0,<2.0.0",
+    "huggingface_hub>=0.30.2,<1.0.0",
+    "colorama>=0.4.6,<1.0.0",
+    "regex>=2023.0.0,<2025.0.0",
+    "fastapi>=0.110.0,<1.0.0",
+    "uvicorn>=0.27.0,<1.0.0",
+    "aiohttp>=3.9.0,<4.0.0",
+    "cloudevents>=1.11.0,<2.0.0",
+    "numpy>=2.2.2,<3.0.0",
+    "mcp>=1.7.1,<2.0.0",
+    "opentelemetry-api>=1.12.0,<1.35.0",
+    "opentelemetry-distro>=0.53b1,<0.56b0",
+    "opentelemetry-exporter-otlp>=1.32.1,<1.35.0",
+    "opentelemetry-instrumentation-requests>=0.53b1,<0.56b0",
+    "pip-tools>=7.4.1,<8.0.0",
+    "sentence-transformers>=4.1.0,<5.0.0",
+    "chromadb>=1.0.13,<2.0.0",
+    "posthog<6.0.0",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -44,21 +59,20 @@ classifiers = [
 
 [project.optional-dependencies]
 test = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=4.1.0",
-    "pytest-mock>=3.12.0",
-    "httpx>=0.27.0",  # For testing FastAPI endpoints
+    "pytest>=7.0.0,<8.0.0",
+    "pytest-asyncio>=0.23.0,<1.0.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-mock>=3.12.0,<4.0.0",
+    "httpx>=0.27.0,<1.0.0",  # For testing FastAPI endpoints
 ]
 dev = [
-    "mypy==1.15.0",
-    "mcp==1.7.1",
-    "opentelemetry-distro==0.53b1",
-    "opentelemetry-exporter-otlp==1.32.1",
-    "opentelemetry-instrumentation-requests==0.53b1",
-    "dapr-ext-fastapi==1.15.0",
-    "dapr-ext-workflow==1.15.0",
-    "cloudevents==1.11.0",
+    "mypy>=1.15.0,<2.0.0",
+    "tox>=4.0.0,<5.0.0",
+]
+vectorstore = [
+    "sentence-transformers>=4.1.0,<5.0.0",
+    "chromadb>=0.4.22,<2.0.0",
+    "posthog<6.0.0",
 ]
 
 [project.urls]
