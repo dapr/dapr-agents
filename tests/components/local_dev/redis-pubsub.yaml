@@ -1,0 +1,16 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  labels:
+    scenario: local_full
+  name: messagepubsub
+spec:
+  metadata:
+  - name: redisHost
+    value: localhost:6379
+  - name: redisPassword
+    value: ''
+  - name: keyPrefix
+    value: pubsub
+  type: pubsub.redis
+  version: v1

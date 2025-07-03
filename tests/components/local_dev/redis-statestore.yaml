@@ -1,0 +1,18 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  labels:
+    scenario: local_full
+  name: workflowstatestore
+spec:
+  metadata:
+  - name: redisHost
+    value: localhost:6379
+  - name: redisPassword
+    value: ''
+  - name: actorStateStore
+    value: 'true'
+  - name: keyPrefix
+    value: workflow
+  type: state.redis
+  version: v1

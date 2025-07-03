@@ -98,6 +98,29 @@ def to_claude_function_call_definition(
     return function_definition.model_dump()
 
 
+def to_dapr_function_call_definition(
+    name: str, description: str, args_schema: BaseModel, use_deprecated: bool = False
+) -> Dict[str, Any]:
+    """
+    Generates a dictionary representing a function call specification for Dapr components.
+    Since Dapr components typically expect OpenAI-compatible tool definitions, this function
+    delegates to the OpenAI format.
+
+    Args:
+        name (str): The name of the function.
+        description (str): A brief description of what the function does.
+        args_schema (BaseModel): The Pydantic schema representing the function's parameters.
+        use_deprecated (bool): Flag to use the deprecated function format.
+
+    Returns:
+        Dict[str, Any]: A dictionary containing the function's specification in OpenAI format.
+    """
+    # Dapr components typically expect OpenAI-compatible tool definitions
+    return to_openai_function_call_definition(
+        name, description, args_schema, use_deprecated
+    )
+
+
 def to_gemini_function_call_definition(
     name: str, description: str, args_schema: BaseModel
 ) -> Dict[str, Any]:
@@ -158,6 +181,10 @@ def to_function_call_definition(
                 f"'use_deprecated' flag is ignored for the '{format_type}' format."
             )
         return to_claude_function_call_definition(name, description, args_schema)
+    elif format_type.lower() == "dapr":
+        return to_dapr_function_call_definition(
+            name, description, args_schema, use_deprecated
+        )
     else:
         logger.error(f"Unsupported format type: {format_type}")
         raise FunCallBuilderError(f"Unsupported format type: {format_type}")
@@ -182,7 +209,7 @@ def validate_and_format_tool(
         ValidationError: If the tool doesn't pass validation.
     """
     try:
-        if tool_format in ["openai", "azure_openai", "nvidia"]:
+        if tool_format in ["openai", "azure_openai", "nvidia", "dapr"]:
             validated_tool = (
                 OAIFunctionDefinition(**tool)
                 if use_deprecated

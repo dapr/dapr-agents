@@ -1,0 +1,12 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: echo
+spec:
+  type: conversation.echo
+  version: v1
+  metadata:
+  - name: key
+    value: testkey
+  - name: timeout
+    value: 30s

@@ -1,0 +1,17 @@
+# DEPRECATED: This file is deprecated in favor of pyproject.toml dependency management
+# 
+# For local development with local python-sdk, use:
+#   pip install -r requirements-dev-local.txt
+#
+# For regular development, use:
+#   pip install .[dev-complete]
+#
+# For testing only, use:
+#   pip install .[test-all]
+#
+# See DEVELOPMENT_SETUP.md for detailed instructions.
+
+# Legacy dependencies (now in pyproject.toml):
+# python-dotenv==1.0.0  -> moved to core dependencies
+# requests==2.31.0      -> already in core dependencies  
+# -e ../python-sdk      -> now in requirements-dev-local.txt

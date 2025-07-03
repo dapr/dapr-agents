@@ -1,0 +1,16 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  labels:
+    scenario: local_full
+  name: openai
+spec:
+  metadata:
+  - name: key
+    value: ${OPENAI_API_KEY}
+  - name: temperature
+    value: '0.7'
+  - name: timeout
+    value: 60s
+  type: conversation.openai
+  version: v1

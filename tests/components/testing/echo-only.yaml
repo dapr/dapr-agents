@@ -1,0 +1,12 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: echo-tools
+  labels:
+    scenario: testing
+spec:
+  type: conversation.echo
+  version: v1
+  metadata:
+    - name: timeout
+      value: "30s"

@@ -106,3 +106,29 @@ This quickstart demonstrates a Lord of the Rings themed multi-agent system where
 *Note: To see Actor-based workflow see [Multi-Agent Actors](./05-multi-agent-workflow-actors).*
 
 [Go to Multi-Agent Workflows](./05-multi-agent-workflow-dapr-workflows)
+
+### Dapr Streaming
+
+Learn how to use streaming responses with different LLM providers through Dapr:
+
+- **Real-time Streaming**: Token-by-token response processing
+- **Provider Flexibility**: Streaming with OpenAI, Anthropic, and other providers
+- **Performance Monitoring**: Measuring streaming latency and throughput
+- **Error Resilience**: Handling streaming failures gracefully
+
+This quickstart demonstrates how to implement streaming responses for real-time user experiences using Dapr's conversation components.
+
+[Go to Dapr Streaming](./09-dapr-streaming)
+
+### Dapr Tool Calling
+
+Master tool calling (function calling) with Dapr's conversation components:
+
+- **Tool Definition**: Creating tools with the @tool decorator
+- **Intelligent Tool Selection**: LLM automatically chooses appropriate tools
+- **Streaming Integration**: Real-time streaming combined with tool execution
+- **Multi-Provider Support**: Tool calling with OpenAI, Anthropic, and other providers
+
+This quickstart shows how to build sophisticated agents that can execute functions and interact with external systems through Dapr.
+
+[Go to Dapr Tool Calling](./10-dapr-tool-calling)

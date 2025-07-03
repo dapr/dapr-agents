@@ -1,19 +1,21 @@
+import logging
 from typing import (
-    Dict,
     Any,
+    Dict,
+    Iterable,
     Iterator,
+    Optional,
     Type,
     TypeVar,
     Union,
-    Optional,
-    Iterable,
     get_args,
 )
-from dapr_agents.llm.utils import StructureHandler
-from dapr_agents.types import ToolCall
+
 from openai.types.chat import ChatCompletionChunk
 from pydantic import BaseModel, ValidationError
-import logging
+
+from .structure import StructureHandler
+from dapr_agents.types import ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,8 @@ class StreamHandler:
         try:
             if llm_provider == "openai":
                 yield from StreamHandler._process_openai_stream(stream, response_format)
+            elif llm_provider == "dapr":
+                yield from StreamHandler._process_dapr_stream(stream, response_format)
             else:
                 yield from stream
         except Exception as e:
@@ -192,6 +196,81 @@ class StreamHandler:
             return {}
         except Exception as e:
             logger.error(f"Error handling OpenAI chat completion chunk: {e}")
+            raise
+
+    @staticmethod
+    def _process_dapr_stream(
+        stream: Iterator[Dict[str, Any]],
+        response_format: Optional[Union[Type[T], Type[Iterable[T]]]] = None,
+    ) -> Iterator[Dict[str, Any]]:
+        """
+        Process Dapr stream for chat completion.
+
+        Args:
+            stream: The response stream from the Dapr API.
+            response_format: The optional Pydantic model or iterable model for validating the response.
+
+        Yields:
+            dict: Each processed and validated chunk from the chat completion response.
+        """
+        content_accumulator = ""
+        final_usage = None
+
+        for chunk in stream:
+            processed_chunk = StreamHandler._process_dapr_chunk(chunk)
+            chunk_type = processed_chunk["type"]
+            chunk_data = processed_chunk["data"]
+
+            if chunk_type == "content":
+                content_accumulator += chunk_data
+                yield processed_chunk
+            elif chunk_type == "usage":
+                final_usage = chunk_data
+            elif chunk_type == "context_id":
+                yield processed_chunk
+
+        # Yield final content and usage if available
+        if content_accumulator:
+            yield {"type": "final_content", "data": content_accumulator}
+
+        if final_usage:
+            yield {"type": "final_usage", "data": final_usage}
+
+    @staticmethod
+    def _process_dapr_chunk(chunk: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process Dapr chat completion chunk.
+
+        Args:
+            chunk: The chunk from the Dapr API.
+
+        Returns:
+            dict: Processed chunk.
+        """
+        try:
+            # Handle content chunks
+            if chunk.get("choices") and len(chunk["choices"]) > 0:
+                choice = chunk["choices"][0]
+                delta = choice.get("delta", {})
+
+                if delta.get("content") is not None:
+                    return {"type": "content", "data": delta["content"], "chunk": chunk}
+
+            # Handle usage information
+            if chunk.get("usage"):
+                return {"type": "usage", "data": chunk["usage"], "chunk": chunk}
+
+            # Handle context ID
+            if chunk.get("context_id"):
+                return {
+                    "type": "context_id",
+                    "data": chunk["context_id"],
+                    "chunk": chunk,
+                }
+
+            return {"type": "unknown", "data": chunk, "chunk": chunk}
+        except Exception as e:
+            logger.error(f"Error handling Dapr chat completion chunk: {e}")
             raise
 
     @staticmethod

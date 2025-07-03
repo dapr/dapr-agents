@@ -1,0 +1,17 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  labels:
+    scenario: local_full
+  name: anthropic
+spec:
+  metadata:
+  - name: key
+    value: ${ANTHROPIC_API_KEY}
+  - name: cacheTTL
+    value: 10m
+  - name: temperature
+    value: '0.7'
+  - name: timeout
+    value: 60s
+  type: conversation.anthropic

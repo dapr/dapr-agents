@@ -41,8 +41,9 @@ class AssistantAgent(AgentWorkflowBase):
     and refining outputs through iterative feedback loops.
     """
 
-    tool_history: List[ToolMessage] = Field(
-        default_factory=list, description="Executed tool calls during the conversation."
+    tool_history: List[Union[Dict[str, Any], ToolMessage]] = Field(
+        default_factory=list,
+        description="Tool calling conversation history (assistant messages with tool calls and tool results).",
     )
     tool_choice: Optional[str] = Field(
         default=None,
@@ -234,8 +235,21 @@ class AssistantAgent(AgentWorkflowBase):
                 instance_id=instance_id, message=task_message
             )
 
-        # Process conversation iterations
-        messages += self.tool_history
+        # Process conversation iterations - convert tool_history to message format
+        for tool_msg in self.tool_history:
+            if isinstance(tool_msg, dict):
+                # Handle dictionary format (assistant messages with tool calls)
+                messages.append(tool_msg)
+            else:
+                # Handle ToolMessage objects (tool results)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_msg.tool_call_id,
+                        "name": tool_msg.name,
+                        "content": tool_msg.content,
+                    }
+                )
 
         # Generate Tool Calls
         response: ChatCompletion = self.llm.generate(
@@ -310,7 +324,7 @@ class AssistantAgent(AgentWorkflowBase):
             logger.warning("No choices found in LLM response.")
             return None
 
-        # Save Tool Call Response Message
+        # Save Tool Call Response Message as assistant message with tool calls
         response_message = choices[0].get("message", {})
         self.tool_history.append(response_message)
 

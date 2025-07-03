@@ -1,0 +1,13 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: anthropic
+spec:
+  type: conversation.anthropic
+  metadata:
+    - name: key
+      value: "${ANTHROPIC_API_KEY}"
+    - name: cacheTTL
+      value: "10m"
+    - name: temperature
+      value: "0.7"

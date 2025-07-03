@@ -122,7 +122,9 @@ class ToolCallAgent(AgentBase):
 
                 if response.get_reason() == "tool_calls":
                     self.tool_history.append(response_message)
-                    await self.process_response(response.get_tool_calls())
+                    tool_calls = response.get_tool_calls()
+                    if tool_calls:
+                        await self.process_response(tool_calls)
                 else:
                     self.memory.add_message(AssistantMessage(response.get_content()))
                     self.tool_history.clear()

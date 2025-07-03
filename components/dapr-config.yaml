@@ -1,0 +1,17 @@
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: dapr-config
+spec:
+  features:
+    - name: SchedulerReminders
+      enabled: false
+  tracing:
+    samplingRate: "1"
+  metric:
+    enabled: true
+  actorConfig:
+    actorIdleTimeout: "1h"
+    actorScanInterval: "30s"
+    drainOngoingCallTimeout: "30s"
+    drainRebalancedActors: true 

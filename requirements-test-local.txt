@@ -1,0 +1,13 @@
+# Local Testing Requirements
+# This file is for running tests in local development environment
+# with local editable dependencies.
+
+# Install this package with all test dependencies
+-e .[test-all]
+
+# Local editable dependencies required for testing
+-e ../python-sdk
+
+# Note: This file is used for local testing where you have
+# the python-sdk repository checked out locally.
+# For CI/CD or regular testing, use: pip install .[test-all] 

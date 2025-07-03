@@ -3,6 +3,7 @@ from .message import (
     BaseMessage,
     MessageContent,
     ChatCompletion,
+    Choice,
     SystemMessage,
     UserMessage,
     AssistantMessage,

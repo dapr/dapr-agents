@@ -1,0 +1,15 @@
+# Local Development Requirements
+# This file is for local development only and includes editable installs
+# from parallel repositories.
+
+# Install this package with all development dependencies
+-e .[dev-local]
+
+# Local editable dependencies for development
+# These point to parallel repositories that must be checked out locally
+-e ../python-sdk
+
+# Additional local development tools (optional)
+# Uncomment if you want these for local development
+# -e ../dapr  # If you're also developing Dapr runtime locally
+# -e ../components-contrib  # If you're developing components locally 
