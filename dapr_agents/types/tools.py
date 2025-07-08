@@ -79,6 +79,7 @@ class GeminiToolDefinition(BaseModel):
 
     function_declarations: List[GeminiFunctionDefinition]
 
+
 class SseServerParameters(BaseModel):
     """
     Configuration for Server-Sent Events (SSE) transport.

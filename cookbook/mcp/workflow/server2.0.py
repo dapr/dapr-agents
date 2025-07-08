@@ -55,16 +55,27 @@ class MCPServer:
         )
         uvicorn.run(app, host=host, port=port)
 
-    def run_streamable_http(self, host="127.0.0.1", port=8000, stateless=False, resumable=False, json_response=False):
+    def run_streamable_http(
+        self,
+        host="127.0.0.1",
+        port=8000,
+        stateless=False,
+        resumable=False,
+        json_response=False,
+    ):
         from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
         event_store = None
         if resumable:
             try:
                 from cookbook.mcp.basic.servers.event_store import InMemoryEventStore
+
                 event_store = InMemoryEventStore()
                 logger.warning("⚠️ Using in-memory event store. Not for production use!")
             except ImportError:
-                logger.warning("Resumability requested but event_store module not found. Proceeding without resumability.")
+                logger.warning(
+                    "Resumability requested but event_store module not found. Proceeding without resumability."
+                )
 
         session_manager = StreamableHTTPSessionManager(
             self.mcp._mcp_server,
@@ -72,7 +83,9 @@ class MCPServer:
             json_response=json_response,
             stateless=stateless,
         )
-        logger.info(f"Starting MCP server in streamable HTTP mode (stateless={stateless}, json_response={json_response}, resumable={resumable})")
+        logger.info(
+            f"Starting MCP server in streamable HTTP mode (stateless={stateless}, json_response={json_response}, resumable={resumable})"
+        )
 
         async def handle_streamable_http(scope, receive, send):
             logger.info("🔌 Streamable HTTP connection established")
@@ -92,7 +105,9 @@ class MCPServer:
                 await server.serve()
 
         import asyncio
+
         asyncio.run(serve())
+
 
 # ─────────────────────────────────────────────
 # CLI Argument Parsing
@@ -115,13 +130,22 @@ def parse_args():
         "--port", type=int, default=8000, help="Port to bind to (SSE/HTTP only)"
     )
     parser.add_argument(
-        "--stateless", action="store_true", default=False, help="Enable stateless (ephemeral) HTTP mode"
+        "--stateless",
+        action="store_true",
+        default=False,
+        help="Enable stateless (ephemeral) HTTP mode",
     )
     parser.add_argument(
-        "--json_response", action="store_true", default=False, help="Enable JSON response mode for HTTP"
+        "--json_response",
+        action="store_true",
+        default=False,
+        help="Enable JSON response mode for HTTP",
     )
     parser.add_argument(
-        "--resumable", action="store_true", default=False, help="Enable resumability (event store) for HTTP"
+        "--resumable",
+        action="store_true",
+        default=False,
+        help="Enable resumability (event store) for HTTP",
     )
     return parser.parse_args()
 
