@@ -42,7 +42,7 @@ class MCPClient(BaseModel):
     )
     persistent_connections: bool = Field(
         default=False,
-        description="If True, keep persistent connections to all MCP servers for both tool calls and metadata. This is the recommended and robust mode for all transports except stateless HTTP. If False, ephemeral (per-call) sessions are used. Ephemeral is only safe for stateless HTTP."
+        description="If True, keep persistent connections to all MCP servers for both tool calls and metadata. This is the recommended and robust mode for all transports except stateless HTTP. If False, ephemeral (per-call) sessions are used. Ephemeral is only safe for stateless HTTP.",
     )
 
     # Private attributes
@@ -54,7 +54,9 @@ class MCPClient(BaseModel):
     _server_configs: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict)
 
     @asynccontextmanager
-    async def create_ephemeral_session(self, server_name: str) -> AsyncIterator[ClientSession]:
+    async def create_ephemeral_session(
+        self, server_name: str
+    ) -> AsyncIterator[ClientSession]:
         """
         Context manager: yield a fresh, initialized session for a single tool call.
         Ensures proper cleanup after use.
@@ -77,7 +79,9 @@ class MCPClient(BaseModel):
                 yield session
             except Exception as e:
                 logger.error(f"Failed to create ephemeral session: {e}")
-                raise ToolError(f"Could not create session for '{server_name}': {e}") from e
+                raise ToolError(
+                    f"Could not create session for '{server_name}': {e}"
+                ) from e
 
     async def connect(self, config: dict) -> None:
         """
@@ -109,11 +113,15 @@ class MCPClient(BaseModel):
                 await self._load_tools_from_session(server_name, session)
                 await self._load_prompts_from_session(server_name, session)
                 self._sessions[server_name] = session
-                logger.info(f"Successfully connected to MCP server '{server_name}' (persistent mode)")
+                logger.info(
+                    f"Successfully connected to MCP server '{server_name}' (persistent mode)"
+                )
             else:
                 # Ephemeral: use a temporary AsyncExitStack for initial tool/prompt loading
                 async with AsyncExitStack() as ephemeral_stack:
-                    session = await start_transport_session(transport, config, ephemeral_stack)
+                    session = await start_transport_session(
+                        transport, config, ephemeral_stack
+                    )
                     await session.initialize()
                     self._server_configs[server_name] = {
                         "transport": transport,
@@ -124,7 +132,9 @@ class MCPClient(BaseModel):
                     )
                     await self._load_tools_from_session(server_name, session)
                     await self._load_prompts_from_session(server_name, session)
-                logger.info(f"Successfully connected to MCP server '{server_name}' (ephemeral mode)")
+                logger.info(
+                    f"Successfully connected to MCP server '{server_name}' (ephemeral mode)"
+                )
         except Exception as e:
             logger.error(f"Failed to connect to MCP server '{server_name}': {str(e)}")
             self._sessions.pop(server_name, None)
@@ -166,7 +176,7 @@ class MCPClient(BaseModel):
         headers: Optional[dict] = None,
         timeout: Optional[float] = None,
         sse_read_timeout: Optional[float] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         """
         Convenience method to connect to an MCP server using SSE transport.
@@ -200,7 +210,7 @@ class MCPClient(BaseModel):
         args: Optional[list] = None,
         env: Optional[dict] = None,
         cwd: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         """
         Convenience method to connect to an MCP server using stdio transport.
@@ -226,7 +236,7 @@ class MCPClient(BaseModel):
             config["cwd"] = cwd
         config.update(kwargs)
         await self.connect(config)
-    
+
     async def connect_streamable_http(
         self,
         server_name: str,
@@ -235,7 +245,7 @@ class MCPClient(BaseModel):
         timeout: Optional[float] = None,
         sse_read_timeout: Optional[float] = None,
         terminate_on_close: Optional[bool] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         """
         Convenience method to connect to an MCP server using streamable HTTP transport.
@@ -373,14 +383,21 @@ class MCPClient(BaseModel):
                 """
                 logger.debug(f"Executing tool '{tool_name}' with args: {kwargs}")
                 try:
-                    if client.persistent_connections and server_name in client._sessions:
+                    if (
+                        client.persistent_connections
+                        and server_name in client._sessions
+                    ):
                         session = client._sessions[server_name]
                         result = await session.call_tool(tool_name, kwargs)
                         logger.debug(f"Used persistent session for tool '{tool_name}'")
                     else:
-                        async with client.create_ephemeral_session(server_name) as session:
+                        async with client.create_ephemeral_session(
+                            server_name
+                        ) as session:
                             result = await session.call_tool(tool_name, kwargs)
-                            logger.debug(f"Used ephemeral session for tool '{tool_name}'")
+                            logger.debug(
+                                f"Used ephemeral session for tool '{tool_name}'"
+                            )
                     return client._process_tool_result(result)
                 except Exception as e:
                     logger.exception(f"Execution failed for '{tool_name}'")

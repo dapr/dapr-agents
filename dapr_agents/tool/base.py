@@ -102,6 +102,7 @@ class AgentTool(BaseModel):
                 else:
                     logger.debug(f"Starting transport session for tool '{tool_name}'")
                     from dapr_agents.tool.mcp.transport import start_transport_session
+
                     async with start_transport_session(connection) as tool_session:
                         await tool_session.initialize()
                         result = await tool_session.call_tool(tool_name, kwargs)
@@ -117,7 +118,9 @@ class AgentTool(BaseModel):
                                 break
                     raise ToolError(f"MCP tool error: {error_message}")
                 if hasattr(result, "content") and result.content:
-                    text_contents = [c.text for c in result.content if hasattr(c, "text")]
+                    text_contents = [
+                        c.text for c in result.content if hasattr(c, "text")
+                    ]
                     if len(text_contents) == 1:
                         return text_contents[0]
                     elif text_contents:
@@ -130,7 +133,10 @@ class AgentTool(BaseModel):
         tool_args_model = None
         if getattr(mcp_tool, "inputSchema", None):
             try:
-                from dapr_agents.tool.mcp.schema import create_pydantic_model_from_schema
+                from dapr_agents.tool.mcp.schema import (
+                    create_pydantic_model_from_schema,
+                )
+
                 tool_args_model = create_pydantic_model_from_schema(
                     mcp_tool.inputSchema, f"{tool_name}Args"
                 )
@@ -165,12 +171,19 @@ class AgentTool(BaseModel):
             List[AgentTool]: List of ready-to-use AgentTool objects.
         """
         return [
-            cls.from_mcp(tool, session=session, connection=connection, process_result_fn=process_result_fn)
+            cls.from_mcp(
+                tool,
+                session=session,
+                connection=connection,
+                process_result_fn=process_result_fn,
+            )
             for tool in mcp_tools
         ]
 
     @classmethod
-    async def from_mcp_session(cls, session: "ClientSession", process_result_fn=None) -> list:
+    async def from_mcp_session(
+        cls, session: "ClientSession", process_result_fn=None
+    ) -> list:
         """
         Fetch all tools and wrap them as AgentTool objects.
 
@@ -182,7 +195,11 @@ class AgentTool(BaseModel):
             List[AgentTool]: List of ready-to-use AgentTool objects.
         """
         mcp_tools_response = await session.list_tools()
-        return cls.from_mcp_many(mcp_tools_response.tools, session=session, process_result_fn=process_result_fn)
+        return cls.from_mcp_many(
+            mcp_tools_response.tools,
+            session=session,
+            process_result_fn=process_result_fn,
+        )
 
     def model_post_init(self, __context: Any) -> None:
         """
