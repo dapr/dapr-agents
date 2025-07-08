@@ -1,9 +1,13 @@
-from dapr_agents.tool.utils.function_calling import validate_and_format_tool
-from typing import Any, Union, Dict, Callable, Optional, Type
-from inspect import signature, Parameter
-from pydantic import BaseModel, create_model, Field
-from dapr_agents.types import ToolError
 import logging
+from inspect import Parameter, signature
+from typing import Any, Callable, Dict, Optional, Type, Union
+
+from mcp.types import Tool as MCPTool
+from pydantic import BaseModel, Field, create_model
+
+from dapr_agents.tool.utils.function_calling import validate_and_format_tool
+from dapr_agents.types import ToolError
+from dapr_agents.types.tools import GeminiFunctionDefinition, OAIFunctionDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +68,14 @@ class ToolHelper:
         func: Callable, name: Optional[str] = None
     ) -> Type[BaseModel]:
         """
-        Generates a Pydantic schema based on the function’s signature and type hints.
+        Generates a Pydantic schema based on the function's signature and type hints.
 
         Args:
             func (Callable): The function from which to derive the schema.
             name (Optional[str]): An optional name for the generated Pydantic model.
 
         Returns:
-            Type[BaseModel]: A Pydantic model representing the function’s parameters.
+            Type[BaseModel]: A Pydantic model representing the function's parameters.
         """
         sig = signature(func)
         fields = {}
@@ -99,3 +103,63 @@ class ToolHelper:
             if fields
             else create_model(model_name, __base__=BaseModel)
         )
+
+    @staticmethod
+    def mcp_to_openai(mcp_tool: MCPTool) -> OAIFunctionDefinition:
+        """
+        Convert an MCPTool to an OAIFunctionDefinition (OpenAI format).
+
+        Args:
+            mcp_tool (MCPTool): The MCP tool object to convert.
+
+        Returns:
+            OAIFunctionDefinition: An OpenAI function definition object.
+        """
+        return OAIFunctionDefinition(
+            name=mcp_tool.name,
+            description=mcp_tool.description or "",
+            parameters=getattr(mcp_tool, "inputSchema", {}) or {},
+        )
+
+    @staticmethod
+    def mcp_to_gemini(mcp_tool: MCPTool) -> GeminiFunctionDefinition:
+        """
+        Convert an MCPTool to a GeminiFunctionDefinition (Gemini format).
+
+        Args:
+            mcp_tool (MCPTool): The MCP tool object to convert.
+
+        Returns:
+            GeminiFunctionDefinition: A Gemini function definition object.
+        """
+        return GeminiFunctionDefinition(
+            name=mcp_tool.name,
+            description=mcp_tool.description or "",
+            parameters=getattr(mcp_tool, "inputSchema", {}) or {},
+        )
+
+    @staticmethod
+    def mcp_tools_to_openai(mcp_tools: list) -> list:
+        """
+        Convert a list of MCPTool objects to OAIFunctionDefinition list.
+
+        Args:
+            mcp_tools (List[MCPTool]): List of MCP tool objects to convert.
+
+        Returns:
+            List[OAIFunctionDefinition]: List of OpenAI function definition objects.
+        """
+        return [ToolHelper.mcp_to_openai(tool) for tool in mcp_tools]
+
+    @staticmethod
+    def mcp_tools_to_gemini(mcp_tools: list) -> list:
+        """
+        Convert a list of MCPTool objects to GeminiFunctionDefinition list.
+
+        Args:
+            mcp_tools (List[MCPTool]): List of MCP tool objects to convert.
+
+        Returns:
+            List[GeminiFunctionDefinition]: List of Gemini function definition objects.
+        """
+        return [ToolHelper.mcp_to_gemini(tool) for tool in mcp_tools]
