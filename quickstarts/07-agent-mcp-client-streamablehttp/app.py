@@ -10,7 +10,9 @@ async def main():
     try:
         # Load MCP tools from server (streamable HTTP transport)
         client = MCPClient()
-        await client.connect_streamable_http(server_name="local", url="http://localhost:8000/mcp/")
+        await client.connect_streamable_http(
+            server_name="local", url="http://localhost:8000/mcp/"
+        )
 
         # Convert MCP tools to AgentTool list
         tools = client.get_all_tools()

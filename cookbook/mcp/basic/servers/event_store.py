@@ -23,14 +23,17 @@ from mcp.types import JSONRPCMessage
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass(frozen=True)
 class EventEntry:
     """
     Represents an event entry in the event store.
     """
+
     event_id: EventId
     stream_id: StreamId
     message: JSONRPCMessage
+
 
 class InMemoryEventStore(EventStore):
     """
@@ -39,20 +42,27 @@ class InMemoryEventStore(EventStore):
     Thread-safe for concurrent access.
     Not for production use—use persistent storage for real deployments.
     """
+
     def __init__(self, max_events_per_stream: int = 100):
         """
         Args:
             max_events_per_stream: Maximum number of events to keep per stream.
         """
         self.max_events_per_stream: int = max_events_per_stream
-        self.streams: Dict[StreamId, Deque[EventEntry]] = defaultdict(lambda: deque(maxlen=self.max_events_per_stream))
+        self.streams: Dict[StreamId, Deque[EventEntry]] = defaultdict(
+            lambda: deque(maxlen=self.max_events_per_stream)
+        )
         self.event_index: Dict[EventId, EventEntry] = {}
         self._lock = Lock()
 
-    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage) -> EventId:
+    async def store_event(
+        self, stream_id: StreamId, message: JSONRPCMessage
+    ) -> EventId:
         """Store an event and return its event ID."""
         event_id = str(uuid4())
-        event_entry = EventEntry(event_id=event_id, stream_id=stream_id, message=message)
+        event_entry = EventEntry(
+            event_id=event_id, stream_id=stream_id, message=message
+        )
         with self._lock:
             stream = self.streams[stream_id]
             if len(stream) == self.max_events_per_stream:
