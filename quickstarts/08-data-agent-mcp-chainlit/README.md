@@ -70,8 +70,8 @@ First, install Postgres on your machine.
 Create the following directory and copy the sql files there:
 
 ```bash
-mkdir docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
-cp schema.sql users.sql ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+mkdir docker-entrypoint-initdb.d
+cp schema.sql users.sql ./docker-entrypoint-initdb.d
 ```
 
 Run the database container:
@@ -127,9 +127,7 @@ Change the settings below based on your Postgres configuration:
 *Note: If you're running Postgres in a Docker container, change `<HOST>` to `localhost`.*
 
 ```bash
-docker run -p 8000:8000 \
-  -e DATABASE_URI=postgresql://<USERNAME>:<PASSWORD>@<HOST>:5432/userdb \
-  crystaldba/postgres-mcp --access-mode=unrestricted --transport=sse
+docker run -p 8000:8000 -e DATABASE_URI=postgresql://<USERNAME>:<PASSWORD>@<HOST>:5432/userdb crystaldba/postgres-mcp --access-mode=unrestricted --transport=sse
 ```
 
 ## Examples

@@ -8,14 +8,9 @@ from dapr_agents.tool.mcp import MCPClient
 
 async def main():
     try:
-        # Load MCP tools from server (stdio or sse)
+        # Load MCP tools from server (streamable HTTP transport)
         client = MCPClient()
-        config = {
-            "server_name": "WeatherServer",  # Name of the server
-            "transport": "sse",  # or "stdio" if using stdio transport
-            "url": "http://localhost:8000/sse",  # URL for the SSE server
-        }
-        await client.connect(config)
+        await client.connect_streamable_http(server_name="local", url="http://localhost:8000/mcp/")
 
         # Convert MCP tools to AgentTool list
         tools = client.get_all_tools()
