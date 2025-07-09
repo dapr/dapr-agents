@@ -100,8 +100,6 @@ def mock_mcp_session():
     import json
 
     async def fake_call_tool(*args, **kwargs):
-        import json
-
         a = b = 0
         # Handle all possible argument patterns for tool execution
         if len(args) >= 2:
