@@ -7,7 +7,7 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 from mcp.server.sse import SseServerTransport
-from toolsB import mcp
+from weather_tools import mcp
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
