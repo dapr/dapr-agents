@@ -11,9 +11,9 @@ async def main():
         # Load MCP tools from server (stdio or sse)
         client = MCPClient()
         config = {
-            "server_name": "WeatherServer",  # Name of the server
+            "server_name": "WeatherServer",
             "transport": "sse",  # or "stdio" if using stdio transport
-            "url": "http://localhost:8000/sse",  # URL for the SSE server
+            "url": "http://localhost:8000/sse",
         }
         await client.connect(config)
 
