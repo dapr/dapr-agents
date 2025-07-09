@@ -13,7 +13,7 @@ class ElevenLabsSpeechClient(ElevenLabsClientBase):
     """
 
     voice: Optional[str] = Field(
-        default="JBFqnCBsd6RMkjVDRZzb", # George
+        default="JBFqnCBsd6RMkjVDRZzb",  # George
         description="Default voice (ID, name) for speech generation.",
     )
     model: Optional[str] = Field(
