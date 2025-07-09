@@ -1,6 +1,6 @@
 # 🧪 Basic MCP Agent Playground
 
-This demo shows how to use a **lightweight agent** to call tools served via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction). The agent uses a simple pattern from `dapr_agents` — but **without running inside Dapr**.
+This demo shows how to use a **lightweight agent** to call tools served via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction). The agent uses a simple pattern from `dapr_agents` — but **without a dependency on the Dapr runtime**.
 
 It’s a minimal, Python-based setup for:
 
@@ -20,8 +20,8 @@ It’s a minimal, Python-based setup for:
 .
 ├── tools.py         # Registers two tools via FastMCP
 ├── server.py        # Starts the MCP server in stdio or SSE mode
-├── stdio.ipynb      # Example using ToolCallingAgent over stdio
-├── sse.ipynb        # Example using ToolCallingAgent over SSE
+├── stdio.ipynb      # Example using Agent over stdio
+├── sse.ipynb        # Example using Agent over SSE
 ├── requirements.txt
 └── README.md
 ```
@@ -58,7 +58,7 @@ You can run the server in two modes:
 - **You must run the server manually in a separate terminal** before running the notebook:
 
 ```bash
-python serverA.py --server_type sse --host 127.0.0.1 --port 8000
+python weather_server.py --server_type sse --host 127.0.0.1 --port 8000
 ```
 
 - The server exposes:
@@ -74,10 +74,10 @@ There are two notebooks in this repo that show basic agent behavior using MCP to
 
 | Notebook      | Description                                      | Transport |
 |--------------|--------------------------------------------------|-----------|
-| stdio.ipynb  | Uses ToolCallingAgent via stdio (server in-proc)  | STDIO     |
-| sse.ipynb    | Uses ToolCallingAgent with external SSE server    | SSE       |
+| stdio.ipynb  | Uses Agent via stdio (server in-proc)  | STDIO     |
+| sse.ipynb    | Uses Agent with external SSE server    | SSE       |
 
-Each notebook runs a basic `ToolCallingAgent`, using tools served via MCP. These agents are not managed via Dapr or durable workflows — it's pure Python execution with async support.
+Each notebook runs a basic `Agent`, using tools served via MCP. These agents are not managed via Dapr or durable workflows — it's pure Python execution with async support.
 
 ## 🔄 What’s Next?
 
