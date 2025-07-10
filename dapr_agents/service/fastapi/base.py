@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from pydantic import Field, ConfigDict
 from typing import List, Optional, Any
 from dapr_agents.service import APIServerBase
+from dapr_agents.utils import add_signal_handlers_cross_platform
 import uvicorn
 import asyncio
 import signal
@@ -103,10 +104,9 @@ class FastAPIServerBase(APIServerBase):
         )
         self.server: uvicorn.Server = uvicorn.Server(config)
 
-        # Add signal handlers
+        # Add signal handlers using cross-platform approach for graceful shutdown
         loop = asyncio.get_event_loop()
-        for s in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(s, lambda: asyncio.create_task(self.stop()))
+        add_signal_handlers_cross_platform(loop, self.stop)
 
         # Start in background so we can inspect the actual port
         server_task = asyncio.create_task(self.server.serve())

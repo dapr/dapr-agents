@@ -32,7 +32,7 @@ jobs:
       run: |
         tox -e ruff
         statusResult=$(git status -u --porcelain)
-        if [ -z $statusResult ]
+        if [ -z "$statusResult" ]
         then
             exit 0
         else

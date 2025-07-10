@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-import signal
 import tempfile
 import threading
 import inspect
@@ -11,6 +10,7 @@ from fastapi.responses import JSONResponse
 from cloudevents.http.conversion import from_http
 from cloudevents.http.event import CloudEvent
 from dapr_agents.agents.utils.text_printer import ColorTextFormatter
+from dapr_agents.utils import add_signal_handlers_cross_platform
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -209,20 +209,10 @@ class AgenticWorkflow(WorkflowApp, DaprPubSub, MessageRoutingMixin):
             # Headless mode (no HTTP server)
             if not hasattr(self, "_http_server") or self._http_server is None:
                 logger.info("Running in headless mode.")
-                loop = asyncio.get_running_loop()
 
-                for sig in (signal.SIGINT, signal.SIGTERM):
-                    try:
-                        loop.add_signal_handler(
-                            sig,
-                            lambda s=sig: asyncio.create_task(
-                                self.handle_shutdown_signal(s)
-                            ),
-                        )
-                    except NotImplementedError:
-                        logger.warning(
-                            f"Signal {sig} not supported in this environment."
-                        )
+                # Add signal handlers using cross-platform approach for graceful shutdown
+                loop = asyncio.get_event_loop()
+                add_signal_handlers_cross_platform(loop, self.handle_shutdown_signal)
 
                 self.register_message_routes()
 
