@@ -3,6 +3,7 @@ import logging
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
+from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 from mcp.server.sse import SseServerTransport
@@ -40,6 +41,7 @@ def create_starlette_app():
                 mcp._mcp_server.create_initialization_options(),
             )
             logger.debug("MCP run loop completed")
+        return Response(status_code=200)
 
     return Starlette(
         debug=False,

@@ -1,12 +1,16 @@
 import inspect
 import logging
-from typing import Callable, Type, Optional, Any, Dict
+from typing import Callable, Type, Optional, Any, Dict, TYPE_CHECKING
 from inspect import signature, Parameter
 from pydantic import BaseModel, Field, ValidationError, model_validator, PrivateAttr
 
 from dapr_agents.tool.utils.tool import ToolHelper
 from dapr_agents.tool.utils.function_calling import to_function_call_definition
 from dapr_agents.types import ToolError
+
+if TYPE_CHECKING:
+    from mcp.types import Tool as MCPTool
+    from mcp import ClientSession
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +68,142 @@ class AgentTool(BaseModel):
         ToolHelper.check_docstring(func)
         return cls(func=func)
 
+    @classmethod
+    def from_mcp(
+        cls,
+        mcp_tool: "MCPTool",
+        session: "ClientSession" = None,
+        connection: Any = None,
+        process_result_fn=None,
+    ) -> "AgentTool":
+        """
+        Create an AgentTool from an MCPTool and a session or connection.
+
+        Args:
+            mcp_tool: The MCPTool object to wrap.
+            session: An active MCP ClientSession (preferred).
+            connection: Optional connection config (if no session provided).
+            process_result_fn: Optional function to process the tool result.
+
+        Returns:
+            AgentTool: A ready-to-use AgentTool instance.
+        """
+        if session is None and connection is None:
+            raise ValueError("Either a session or a connection config must be provided")
+
+        tool_name = mcp_tool.name
+        tool_docs = mcp_tool.description or ""
+
+        async def executor(**kwargs: Any) -> Any:
+            try:
+                logger.debug(f"Calling MCP tool '{tool_name}' with args: {kwargs}")
+                if session is not None:
+                    result = await session.call_tool(tool_name, kwargs)
+                else:
+                    logger.debug(f"Starting transport session for tool '{tool_name}'")
+                    from dapr_agents.tool.mcp.transport import start_transport_session
+
+                    async with start_transport_session(connection) as tool_session:
+                        await tool_session.initialize()
+                        result = await tool_session.call_tool(tool_name, kwargs)
+                if process_result_fn:
+                    return process_result_fn(result)
+                # Default: extract text content
+                if hasattr(result, "isError") and result.isError:
+                    error_message = "Unknown error"
+                    if hasattr(result, "content") and result.content:
+                        for content in result.content:
+                            if hasattr(content, "text"):
+                                error_message = content.text
+                                break
+                    raise ToolError(f"MCP tool error: {error_message}")
+                if hasattr(result, "content") and result.content:
+                    text_contents = [
+                        c.text for c in result.content if hasattr(c, "text")
+                    ]
+                    if len(text_contents) == 1:
+                        return text_contents[0]
+                    elif text_contents:
+                        return text_contents
+                return str(result)
+            except Exception as e:
+                raise ToolError(f"Error executing tool '{tool_name}': {str(e)}") from e
+
+        # Optionally generate args model from input schema
+        tool_args_model = None
+        if getattr(mcp_tool, "inputSchema", None):
+            try:
+                from dapr_agents.tool.mcp.schema import (
+                    create_pydantic_model_from_schema,
+                )
+
+                tool_args_model = create_pydantic_model_from_schema(
+                    mcp_tool.inputSchema, f"{tool_name}Args"
+                )
+            except Exception:
+                pass
+
+        return cls(
+            name=tool_name,
+            description=tool_docs,
+            func=executor,
+            args_model=tool_args_model,
+        )
+
+    @classmethod
+    def from_mcp_many(
+        cls,
+        mcp_tools: list,
+        session: "ClientSession" = None,
+        connection: Any = None,
+        process_result_fn=None,
+    ) -> list:
+        """
+        Batch-create AgentTool objects from a list of MCPTool objects.
+
+        Args:
+            mcp_tools (List[MCPTool]): List of MCP tool objects to convert.
+            session: An active MCP ClientSession (preferred).
+            connection: Optional connection config (if no session provided).
+            process_result_fn: Optional function to process the tool result.
+
+        Returns:
+            List[AgentTool]: List of ready-to-use AgentTool objects.
+        """
+        return [
+            cls.from_mcp(
+                tool,
+                session=session,
+                connection=connection,
+                process_result_fn=process_result_fn,
+            )
+            for tool in mcp_tools
+        ]
+
+    @classmethod
+    async def from_mcp_session(
+        cls, session: "ClientSession", process_result_fn=None
+    ) -> list:
+        """
+        Fetch all tools and wrap them as AgentTool objects.
+
+        Args:
+            session: An active MCP ClientSession.
+            process_result_fn: Optional function to process the tool result.
+
+        Returns:
+            List[AgentTool]: List of ready-to-use AgentTool objects.
+        """
+        mcp_tools_response = await session.list_tools()
+        return cls.from_mcp_many(
+            mcp_tools_response.tools,
+            session=session,
+            process_result_fn=process_result_fn,
+        )
+
     def model_post_init(self, __context: Any) -> None:
         """
         Handles post-initialization logic for both class-based and function-based tools.
-        Ensures `name` formatting and infers `args_model` if necessary.
         """
         self.name = self.name.replace(" ", "_").title().replace("_", "")
 
