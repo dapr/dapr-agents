@@ -23,7 +23,7 @@ async def main():
         tools = client.get_all_tools()
         print("🔧 Available tools:", [t.name for t in tools])
 
-    # Create the Weather Agent using MCP tools
+        # Create the Weather Agent using MCP tools
         weather_agent = Agent(
             name="Stevie",
             role="Weather Assistant",
@@ -36,7 +36,7 @@ async def main():
             tools=tools,
         )
 
-    # Run a sample query
+        # Run a sample query
         result = await weather_agent.run("What is the weather in New York?")
         print(result)
 
