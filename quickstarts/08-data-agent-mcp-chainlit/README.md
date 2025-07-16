@@ -91,13 +91,16 @@ docker run --rm --name sampledb \
 Install Postgres:
 
 ```bash
+# Install and start PostgreSQL
 brew install postgresql
 brew services start postgresql
 
-psql postgres
-> CREATE USER admin WITH PASSWORD 'mypassword';
-> CREATE DATABASE userdb 
-> GRANT ALL PRIVILEGES ON DATABASE userdb TO admin;
+# Create user and database (safe to re-run)
+psql postgres <<EOF
+CREATE USER admin WITH PASSWORD 'mypassword';
+CREATE DATABASE userdb OWNER admin;
+GRANT ALL PRIVILEGES ON DATABASE userdb TO admin;
+EOF
 ```
 
 Next, create the users table and seed data:

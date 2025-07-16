@@ -236,17 +236,14 @@ dapr run --app-id weatheragent --resources-path ./components -- python weather_a
 
 ## Available Agent Types
 
-Dapr Agents provides several agent implementations, each designed for different use cases:
+Dapr Agents provides two agent implementations, each designed for different use cases:
 
-### 1. Standard Agent (ToolCallAgent)
+### 1. Agent
 The default agent type, designed for tool execution and straightforward interactions. It receives your input, determines which tools to use, executes them directly, and provides the final answer. The reasoning process is mostly hidden from you, focusing instead on delivering concise responses.
 
-### 2. ReActAgent
-Implements the Reasoning-Action framework for more complex problem-solving with explicit thought processes.
-When you interact with it, you'll see explicit "Thought", "Action", and "Observation" steps as it works through your request, providing transparency into how it reaches conclusions.
+### 2. DurableAgent
+The DurableAgent class is a workflow-based agent that extends the standard Agent with Dapr Workflows for long-running, fault-tolerant, and durable execution. It provides persistent state management, automatic retry mechanisms, and deterministic execution across failures. We will see this agent in the next example.
 
-### 3. OpenAPIReActAgent
-There is one more agent that we didn't run in this quickstart. OpenAPIReActAgent specialized agent for working with OpenAPI specifications and API integrations. When you ask about working with an API, it will methodically identify relevant endpoints, construct proper requests with parameters, handle authentication, and execute API calls on your behalf.
 
 ```python
 from dapr_agents import Agent
