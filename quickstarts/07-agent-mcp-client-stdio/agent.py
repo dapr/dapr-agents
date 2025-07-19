@@ -19,29 +19,33 @@ async def main():
         args=["tools.py"],  # Run tools.py directly
     )
 
-    # Get available tools from the MCP instance
-    tools = client.get_all_tools()
-    print("🔧 Available tools:", [t.name for t in tools])
+    try:
+        tools = client.get_all_tools()
+        print("🔧 Available tools:", [t.name for t in tools])
 
-    # Create the Weather Agent using MCP tools
-    weather_agent = Agent(
-        name="Stevie",
-        role="Weather Assistant",
-        goal="Help humans get weather and location info using MCP tools.",
-        instructions=[
-            "Respond clearly and helpfully to weather-related questions.",
-            "Use tools when appropriate to fetch or simulate weather data.",
-            "You may sometimes jump after answering the weather question.",
-        ],
-        tools=tools,
-    )
+        # Create the Weather Agent using MCP tools
+        weather_agent = Agent(
+            name="Stevie",
+            role="Weather Assistant",
+            goal="Help humans get weather and location info using MCP tools.",
+            instructions=[
+                "Respond clearly and helpfully to weather-related questions.",
+                "Use tools when appropriate to fetch or simulate weather data.",
+                "You may sometimes jump after answering the weather question.",
+            ],
+            tools=tools,
+        )
 
-    # Run a sample query
-    result = await weather_agent.run("What is the weather in New York?")
-    print(result)
+        # Run a sample query
+        result = await weather_agent.run("What is the weather in New York?")
+        print(result)
 
-    # Clean up resources
-    await client.close()
+    finally:
+        try:
+            await client.close()
+        except RuntimeError as e:
+            if "Attempted to exit cancel scope" not in str(e):
+                raise
 
 
 if __name__ == "__main__":

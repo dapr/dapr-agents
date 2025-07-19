@@ -1,2 +1,2 @@
--e ../../ # Import the local dapr agents package
+dapr-agents>=0.6.0
 python-dotenv

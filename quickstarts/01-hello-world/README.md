@@ -10,7 +10,7 @@ This quickstart provides a hands-on introduction to Dapr Agents through simple e
 
 ## Environment Setup
 
-### Option 1: Using pip (Traditional)
+### Option 1: Using pip (Recommended)
 
 ```bash
 # Create a virtual environment
@@ -23,14 +23,11 @@ python3.10 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip-compile pyproject.toml
 pip install -r requirements.txt
 
-# For vectorstore functionality (optional)
-pip install sentence-transformers chromadb 'posthog<6.0.0'
 ```
 
-### Option 2: Using uv (Recommended)
+### Option 2: Using uv 
 
 ```bash
 # Create and activate virtual environment
@@ -39,20 +36,6 @@ source .venv/bin/activate
 
 # Install core dependencies
 uv pip install -r requirements.txt
-
-# For vectorstore functionality (optional)
-uv add sentence-transformers chromadb 'posthog<6.0.0'
-```
-
-### Option 3: Install with extras (uv only)
-
-```bash
-# Create and activate virtual environment
-uv venv .venv
-source .venv/bin/activate
-
-# Install with vectorstore extras
-uv pip install -e ".[vectorstore]"
 ```
 
 ## Configuration
@@ -243,6 +226,7 @@ if __name__ == "__main__":
     load_dotenv()
     logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
+```
 
 ### Interacting with the Agent
 
@@ -338,14 +322,14 @@ if __name__ == '__main__':
 
 **Prerequisites:** This example requires vectorstore dependencies. Install them using one of these methods:
 
-**Using uv (recommended):**
-```bash
-uv add sentence-transformers chromadb 'posthog<6.0.0'
-```
-
-**Using pip:**
+**Using pip (recommended):**
 ```bash
 pip install sentence-transformers chromadb 'posthog<6.0.0'
+```
+
+**Using uv:**
+```bash
+uv add sentence-transformers chromadb 'posthog<6.0.0'
 ```
 
 **Or install with extras (uv only):**
