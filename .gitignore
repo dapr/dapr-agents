@@ -176,5 +176,4 @@ chroma_db/
 db/
 
 # Requirements files since we use pyproject.toml instead
-requirements.txt
 dev-requirements.txt
