@@ -10,8 +10,9 @@ AIAgent = Agent(
     role="Weather Assistant",
     goal="Assist Humans with weather related tasks.",
     instructions=[
-        "Get accurate weather information",
-        "From time to time, you can also jump after answering the weather question.",
+        "Always answer the user's main weather question directly and clearly.",
+        "If you perform any additional actions (like jumping), summarize those actions and their results.",
+        "At the end, provide a concise summary that combines the weather information for all requested locations and any other actions you performed.",
     ],
     tools=tools,
 )
