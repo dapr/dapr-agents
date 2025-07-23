@@ -1,6 +1,7 @@
-# Agentic Workflow Patterns
 
-This quickstart demonstrates how to orchestrate sequential and parallel tasks using Dapr Agents' workflow capabilities.
+# LLM-based Workflow Patterns
+
+This quickstart demonstrates how to orchestrate sequential and parallel tasks using Dapr Agents' workflow capabilities powered by Language Models (LLMs). You'll learn how to build resilient, stateful workflows that leverage LLMs for reasoning, decision-making, and automation.
 
 ## Prerequisites
 
@@ -230,18 +231,6 @@ This fan-out/fan-in pattern combines sequential and parallel execution:
 3. The workflow waits for all parallel tasks to complete
 4. Finally, `synthesize_results()` executes with all gathered data
 
-## Additional Workflow Patterns
-
-Beyond the patterns demonstrated in the examples, Dapr Agents supports other workflow patterns:
-
-### Monitor Pattern
-
-The **Monitor Pattern** periodically executes tasks in a loop at specified intervals. It's useful for scheduled jobs, polling external systems, or resource cleanup operations.
-
-### External System Interaction Pattern
-
-The **External System Interaction Pattern** allows workflows to wait for events from external systems before continuing. This pattern is ideal for approval workflows, integrating with external services, or implementing human-in-the-loop processes.
-
 ## Integration with Dapr
 
 Dapr Agents workflows leverage Dapr's core capabilities:
@@ -250,7 +239,6 @@ Dapr Agents workflows leverage Dapr's core capabilities:
 - **State Management**: Workflow state is persisted in a distributed state store
 - **Actor Model**: Tasks run as reliable, stateful actors within the workflow
 - **Event Handling**: Workflows can react to external events
-
 
 ## Troubleshooting
 
@@ -261,4 +249,4 @@ Dapr Agents workflows leverage Dapr's core capabilities:
 
 ## Next Steps
 
-After completing this quickstart, move on to the [Multi-Agent Workflow quickstart](../05-multi-agent-workflow-dapr-workflows/README.md) to learn how to create distributed systems of collaborating agents.
+After completing this quickstart, move on to the [Multi-Agent Workflow quickstart](../05-multi-agent-workflows/README.md) to learn how to create distributed systems of collaborating agents.
