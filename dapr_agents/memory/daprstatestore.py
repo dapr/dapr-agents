@@ -102,7 +102,7 @@ class ConversationDaprStateMemory(MemoryBase):
         existing.append(message)
 
         logger.debug(
-            f"Adding message with key {message_key} to session {self.session_id}"
+            f"Adding message {message} with key {message_key} to session {self.session_id}"
         )
         self.dapr_store.save_state(
             self.session_id, json.dumps(existing), {"contentType": "application/json"}
@@ -147,7 +147,7 @@ class ConversationDaprStateMemory(MemoryBase):
             message_data = message_data.decode("utf-8")
         return json.loads(message_data)
 
-    def get_messages(self, limit: int = 100) -> List[Dict[str, str]]:
+    def get_messages(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
         Retrieves messages stored in the state store for the current session_id, with an optional limit.
 
@@ -155,17 +155,13 @@ class ConversationDaprStateMemory(MemoryBase):
             limit (int): The maximum number of messages to retrieve. Defaults to 100.
 
         Returns:
-            List[Dict[str, str]]: A list containing the 'content' and 'role' fields of the messages.
+            List[Dict[str, Any]]: A list of message dicts with all fields.
         """
         response = self.query_messages(session_id=self.session_id)
         if response and response.data:
             raw_messages = json.loads(response.data)
             if raw_messages:
-                messages = [
-                    {"content": msg.get("content"), "role": msg.get("role")}
-                    for msg in raw_messages
-                ]
-
+                messages = raw_messages[:limit]
                 logger.info(
                     f"Retrieved {len(messages)} messages for session {self.session_id}"
                 )
