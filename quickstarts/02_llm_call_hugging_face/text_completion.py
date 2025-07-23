@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Basic chat completion
-llm = HFHubChatClient(model="microsoft/Phi-3-mini-4k-instruct")
+llm = HFHubChatClient(model="HuggingFaceTB/SmolLM3-3B")
 response = llm.generate("Name a famous dog!")
 
 if len(response.get_content()) > 0:
@@ -20,7 +20,7 @@ if len(response.get_content()) > 0:
     print("Response with prompty: ", response.get_content())
 
 # Chat completion with user input
-llm = HFHubChatClient(model="microsoft/Phi-3-mini-4k-instruct")
+llm = HFHubChatClient(model="HuggingFaceTB/SmolLM3-3B")
 response = llm.generate(messages=[UserMessage("hello")])
 
 

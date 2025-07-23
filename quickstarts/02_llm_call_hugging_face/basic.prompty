@@ -5,7 +5,7 @@ model:
     api: chat
     configuration:
         type: huggingface
-        name: microsoft/Phi-3-mini-4k-instruct
+        name: HuggingFaceTB/SmolLM3-3B
     parameters:
         max_tokens: 128
         temperature: 0.2
