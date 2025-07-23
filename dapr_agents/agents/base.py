@@ -3,7 +3,6 @@ from dapr_agents.memory import (
     ConversationListMemory,
     ConversationVectorMemory,
 )
-from dapr_agents.storage import VectorStoreBase
 from dapr_agents.agents.utils.text_printer import ColorTextFormatter
 from dapr_agents.types import (
     MessageContent,

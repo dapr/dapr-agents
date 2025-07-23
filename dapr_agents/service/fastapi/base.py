@@ -7,7 +7,6 @@ from dapr_agents.service import APIServerBase
 from dapr_agents.utils import add_signal_handlers_cross_platform
 import uvicorn
 import asyncio
-import signal
 import logging
 
 logger = logging.getLogger(__name__)

@@ -2,7 +2,6 @@ import logging
 import json
 import asyncio
 import inspect
-import logging
 import threading
 import functools
 from dataclasses import is_dataclass, asdict
