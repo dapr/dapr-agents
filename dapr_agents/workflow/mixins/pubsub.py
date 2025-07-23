@@ -21,8 +21,9 @@ from dapr_agents.workflow.utils.messaging import (
 from dapr_agents.workflow.utils.core import (
     get_decorated_methods,
     is_pydantic_model,
-    is_valid_routable_model
+    is_valid_routable_model,
 )
+
 logger = logging.getLogger(__name__)
 
 
@@ -163,7 +164,7 @@ class PubSubMixin:
         )
 
         logger.info(f"{source} published '{message_type}' to topic '{topic_name}'.")
-    
+
     def register_message_routes(self) -> None:
         """
         Registers message handlers dynamically by subscribing once per topic.
@@ -273,9 +274,7 @@ class PubSubMixin:
         return wrapped_method
 
     def _subscribe_with_router(self, pubsub_name: str, topic_name: str):
-        subscription: Subscription = self.client.subscribe(
-            pubsub_name, topic_name
-        )
+        subscription: Subscription = self.client.subscribe(pubsub_name, topic_name)
         loop = asyncio.get_running_loop()
 
         def stream_messages(sub: Subscription):

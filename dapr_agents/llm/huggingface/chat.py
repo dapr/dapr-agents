@@ -154,15 +154,21 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
 
         try:
             logger.info("Invoking Hugging Face ChatCompletion API.")
-            response: ChatCompletionOutput = self.client.chat.completions.create(**params)
+            response: ChatCompletionOutput = self.client.chat.completions.create(
+                **params
+            )
             logger.info("Chat completion retrieved successfully.")
 
             # Hugging Face error handling
             status = getattr(response, "statuscode", 200)
             code = getattr(response, "code", 200)
             if code != 200:
-                logger.error(f"❌ Status Code:{status} - Code:{code} Error: {getattr(response, 'message', response)}")
-                raise RuntimeError(f"{status}/{code} Error: {getattr(response, 'message', response)}")
+                logger.error(
+                    f"❌ Status Code:{status} - Code:{code} Error: {getattr(response, 'message', response)}"
+                )
+                raise RuntimeError(
+                    f"{status}/{code} Error: {getattr(response, 'message', response)}"
+                )
 
             return ResponseHandler.process_response(
                 response,

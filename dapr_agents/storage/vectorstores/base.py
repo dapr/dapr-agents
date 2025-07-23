@@ -111,5 +111,7 @@ class VectorStoreBase(BaseModel, ABC):
             [doc.metadata for doc in documents] if documents[0].metadata else None
         )
         ids = [str(uuid.uuid4()) for _ in documents]
-        result = self.add(documents=texts, embeddings=None, metadatas=metadatas, ids=ids)
+        result = self.add(
+            documents=texts, embeddings=None, metadatas=metadatas, ids=ids
+        )
         return result if result is not None else ids

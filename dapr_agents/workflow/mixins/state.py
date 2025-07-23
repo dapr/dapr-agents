@@ -60,7 +60,9 @@ class StateManagementMixin:
         """
         try:
             if not self.state_format:
-                logger.warning("No schema (state_format) provided; returning state as-is.")
+                logger.warning(
+                    "No schema (state_format) provided; returning state as-is."
+                )
                 return state_data
 
             logger.info("Validating workflow state against schema.")
@@ -93,10 +95,14 @@ class StateManagementMixin:
                 )
 
             if self.state:
-                logger.info("Using existing in-memory state. Skipping load from storage.")
+                logger.info(
+                    "Using existing in-memory state. Skipping load from storage."
+                )
                 return self.state
 
-            has_state, state_data = self._state_store_client.try_get_state(self.state_key)
+            has_state, state_data = self._state_store_client.try_get_state(
+                self.state_key
+            )
             if has_state and state_data:
                 logger.info(
                     f"Existing state found for key '{self.state_key}'. Validating it."
@@ -105,7 +111,9 @@ class StateManagementMixin:
                     raise TypeError(
                         f"Invalid state type retrieved: {type(state_data)}. Expected dict."
                     )
-                return self.validate_state(state_data) if self.state_format else state_data
+                return (
+                    self.validate_state(state_data) if self.state_format else state_data
+                )
 
             logger.info(
                 f"No existing state found for key '{self.state_key}'. Initializing empty state."
@@ -126,7 +134,9 @@ class StateManagementMixin:
         os.makedirs(directory, exist_ok=True)
         return os.path.join(directory, f"{self.state_key}.json")
 
-    def save_state_to_disk(self, state_data: str, filename: Optional[str] = None) -> None:
+    def save_state_to_disk(
+        self, state_data: str, filename: Optional[str] = None
+    ) -> None:
         """
         Safely save the workflow state to a local JSON file.
 
@@ -143,7 +153,9 @@ class StateManagementMixin:
             filename = filename or f"{self.name}_state.json"
             file_path = os.path.join(save_directory, filename)
 
-            with tempfile.NamedTemporaryFile("w", dir=save_directory, delete=False) as tmp_file:
+            with tempfile.NamedTemporaryFile(
+                "w", dir=save_directory, delete=False
+            ) as tmp_file:
                 tmp_file.write(state_data)
                 temp_path = tmp_file.name
 
@@ -154,9 +166,15 @@ class StateManagementMixin:
                         try:
                             existing_state = json.load(file)
                         except json.JSONDecodeError:
-                            logger.warning("Existing state file is corrupt or empty. Overwriting.")
+                            logger.warning(
+                                "Existing state file is corrupt or empty. Overwriting."
+                            )
 
-                new_state = json.loads(state_data) if isinstance(state_data, str) else state_data
+                new_state = (
+                    json.loads(state_data)
+                    if isinstance(state_data, str)
+                    else state_data
+                )
                 merged_state = {**existing_state, **new_state}
 
                 with open(temp_path, "w", encoding="utf-8") as file:

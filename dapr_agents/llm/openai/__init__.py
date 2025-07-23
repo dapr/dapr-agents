@@ -8,5 +8,5 @@ __all__ = [
     "AzureOpenAIClient",
     "OpenAIChatClient",
     "OpenAIAudioClient",
-    "OpenAIEmbeddingClient"
+    "OpenAIEmbeddingClient",
 ]

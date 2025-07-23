@@ -4,6 +4,7 @@ from weather_tools import tools
 import asyncio
 import logging
 
+
 async def main():
     load_dotenv()
     logging.basicConfig(level=logging.INFO)
@@ -15,7 +16,7 @@ async def main():
         goal="Help humans get weather and location info using smart tools.",
         instructions=[
             "Respond clearly and helpfully to weather-related questions.",
-            "Use tools when appropriate to fetch weather data."
+            "Use tools when appropriate to fetch weather data.",
         ],
         message_bus_name="messagepubsub",
         state_store_name="workflowstatestore",
@@ -28,6 +29,6 @@ async def main():
     # 2️⃣ Start the agent service
     await weather_agent.run("What's the weather in Boston tomorrow?")
 
+
 if __name__ == "__main__":
     asyncio.run(main())
-

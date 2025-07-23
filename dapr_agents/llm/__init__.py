@@ -26,5 +26,5 @@ __all__ = [
     "NVIDIAChatClient",
     "NVIDIAEmbeddingClient",
     "ElevenLabsSpeechClient",
-    "DaprChatClient"
+    "DaprChatClient",
 ]

@@ -15,6 +15,7 @@ class DurableAgentMessage(MessageContent):
         description="Timestamp when the message was created",
     )
 
+
 class DurableAgentToolHistoryEntry(DurableAgentMessage):
     role: str = Field(
         default="tool",
@@ -48,7 +49,7 @@ class DurableAgentWorkflowEntry(BaseModel):
     )
     messages: List[DurableAgentMessage] = Field(
         default_factory=list,
-        description="Messages exchanged during the workflow (user, assistant, or tool messages)."
+        description="Messages exchanged during the workflow (user, assistant, or tool messages).",
     )
     last_message: Optional[DurableAgentMessage] = Field(
         default=None, description="Last processed message in the workflow"

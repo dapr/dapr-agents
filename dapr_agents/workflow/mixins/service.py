@@ -47,7 +47,9 @@ class ServiceMixin:
                 method_type = getattr(method, "_route_method", "GET")
                 extra_kwargs = getattr(method, "_route_kwargs", {})
                 logger.info(f"Registering route {method_type} {path} -> {name}")
-                self.app.add_api_route(path, method, methods=[method_type], **extra_kwargs)
+                self.app.add_api_route(
+                    path, method, methods=[method_type], **extra_kwargs
+                )
 
     def as_service(self, port: Optional[int] = None, host: str = "0.0.0.0"):
         """
@@ -75,7 +77,9 @@ class ServiceMixin:
         )
 
         self.app.add_api_route("/status", lambda: {"ok": True})
-        self.app.add_api_route("/start-workflow", self.run_workflow_from_request, methods=["POST"])
+        self.app.add_api_route(
+            "/start-workflow", self.run_workflow_from_request, methods=["POST"]
+        )
 
         self.register_routes()
         return self
@@ -98,7 +102,9 @@ class ServiceMixin:
         This method starts the FastAPI server or runs in headless mode.
         """
         if self._is_running:
-            logger.warning("Service is already running. Ignoring duplicate start request.")
+            logger.warning(
+                "Service is already running. Ignoring duplicate start request."
+            )
             return
 
         logger.info("Starting Agent Workflow Service...")
@@ -135,7 +141,9 @@ class ServiceMixin:
 
         for (pubsub_name, topic_name), close_fn in self._subscriptions.items():
             try:
-                logger.info(f"Unsubscribing from pubsub '{pubsub_name}' topic '{topic_name}'")
+                logger.info(
+                    f"Unsubscribing from pubsub '{pubsub_name}' topic '{topic_name}'"
+                )
                 close_fn()
             except Exception as e:
                 logger.error(f"Failed to unsubscribe from topic '{topic_name}': {e}")

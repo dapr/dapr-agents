@@ -52,43 +52,41 @@ class DaprInferenceClientConfig:
 class HFInferenceClientConfig(BaseModel):
     model: Optional[str] = Field(
         None,
-        description="Model ID on Hugging Face Hub or a URL to a deployed endpoint. If not set, a recommended model may be chosen by your wrapper."
+        description="Model ID on Hugging Face Hub or a URL to a deployed endpoint. If not set, a recommended model may be chosen by your wrapper.",
     )
     hf_provider: Optional[str] = Field(
         "auto",
-        description="Inference provider to use. Defaults to automatic selection based on available providers. Ignored if a custom endpoint URL is provided."
+        description="Inference provider to use. Defaults to automatic selection based on available providers. Ignored if a custom endpoint URL is provided.",
     )
     token: Optional[Union[str, bool]] = Field(
         None,
-        description="Hugging Face access token for authentication. If None, uses the locally saved token. Set to False to skip sending a token. Mutually exclusive with api_key."
+        description="Hugging Face access token for authentication. If None, uses the locally saved token. Set to False to skip sending a token. Mutually exclusive with api_key.",
     )
     api_key: Optional[Union[str, bool]] = Field(
-        None,
-        description="Alias for token. Use only one of token or api_key."
+        None, description="Alias for token. Use only one of token or api_key."
     )
     base_url: Optional[str] = Field(
         None,
-        description="Custom endpoint URL for inference. Used for private deployments or TGI endpoints. Cannot be set if 'model' is a Hub ID."
+        description="Custom endpoint URL for inference. Used for private deployments or TGI endpoints. Cannot be set if 'model' is a Hub ID.",
     )
     timeout: Optional[float] = Field(
         None,
-        description="Maximum seconds to wait for a response. If None, waits indefinitely. Useful for slow model loading."
+        description="Maximum seconds to wait for a response. If None, waits indefinitely. Useful for slow model loading.",
     )
     headers: Optional[Dict[str, str]] = Field(
         default_factory=dict,
-        description="Extra HTTP headers to send with requests. Overrides defaults like authorization and user-agent."
+        description="Extra HTTP headers to send with requests. Overrides defaults like authorization and user-agent.",
     )
     cookies: Optional[Dict[str, str]] = Field(
-        default_factory=dict,
-        description="Extra cookies to send with requests."
+        default_factory=dict, description="Extra cookies to send with requests."
     )
     proxies: Optional[Any] = Field(
         None,
-        description="Proxy settings for HTTP requests. Use standard requests format."
+        description="Proxy settings for HTTP requests. Use standard requests format.",
     )
     bill_to: Optional[str] = Field(
         None,
-        description="Billing account for requests. Only used for enterprise/organization billing."
+        description="Billing account for requests. Only used for enterprise/organization billing.",
     )
 
     @field_validator("*", mode="before")

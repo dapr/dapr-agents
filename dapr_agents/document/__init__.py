@@ -10,5 +10,5 @@ __all__ = [
     "TextSplitter",
     "OpenAIEmbedder",
     "SentenceTransformerEmbedder",
-    "NVIDIAEmbedder"
+    "NVIDIAEmbedder",
 ]

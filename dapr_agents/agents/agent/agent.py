@@ -1,7 +1,10 @@
 from dapr_agents.types import (
-    AgentError, AssistantMessage,
-    ChatCompletion, UserMessage,
-    ToolCall, ToolMessage
+    AgentError,
+    AssistantMessage,
+    ChatCompletion,
+    UserMessage,
+    ToolCall,
+    ToolMessage,
 )
 from dapr_agents.agents.base import AgentBase
 from typing import List, Optional, Dict, Any, Union
@@ -12,12 +15,14 @@ import asyncio
 
 logger = logging.getLogger(__name__)
 
+
 class FinishReason(str, Enum):
     STOP = "stop"
     LENGTH = "length"
     CONTENT_FILTER = "content_filter"
     TOOL_CALLS = "tool_calls"
     FUNCTION_CALL = "function_call"  # deprecated
+
 
 class Agent(AgentBase):
     """
@@ -27,7 +32,8 @@ class Agent(AgentBase):
 
     # Persistent audit log for all tool executions and results
     tool_history: List[ToolMessage] = Field(
-        default_factory=list, description="Audit log of all tool executions and results."
+        default_factory=list,
+        description="Audit log of all tool executions and results.",
     )
     tool_choice: Optional[str] = Field(
         default=None,
@@ -97,7 +103,7 @@ class Agent(AgentBase):
         """
         Internal method for running the agent logic.
         Formats messages, updates memory, and drives the conversation loop.
-        
+
         Args:
             input_data (Optional[Union[str, Dict[str, Any]]]): Input for the agent, can be a string or dict.
         Returns:
@@ -111,7 +117,9 @@ class Agent(AgentBase):
         messages: List[Dict[str, Any]] = self.construct_messages(input_data or {})
         user_message = self.get_last_user_message(messages)
         # Always work with a copy of the user message for safety
-        user_message_copy: Optional[Dict[str, Any]] = dict(user_message) if user_message else None
+        user_message_copy: Optional[Dict[str, Any]] = (
+            dict(user_message) if user_message else None
+        )
 
         if input_data and user_message_copy:
             # Add the new user message to memory only if input_data is provided and user message exists
@@ -165,13 +173,15 @@ class Agent(AgentBase):
                         name="<missing>",
                         content=error_msg,
                         role="tool",
-                        status="error"
+                        status="error",
                     )
                     self.tool_history.append(tool_message)
                     raise AgentError(error_msg)
 
                 try:
-                    logger.debug(f"Executing {function_name} with arguments {function_args}")
+                    logger.debug(
+                        f"Executing {function_name} with arguments {function_args}"
+                    )
                     result = await self.run_tool(function_name, **function_args)
                     tool_message = ToolMessage(
                         tool_call_id=tool_id, name=function_name, content=str(result)
@@ -183,7 +193,9 @@ class Agent(AgentBase):
                     return tool_message
                 except Exception as e:
                     logger.error(f"Error executing tool {function_name}: {e}")
-                    raise AgentError(f"Error executing tool '{function_name}': {e}") from e
+                    raise AgentError(
+                        f"Error executing tool '{function_name}': {e}"
+                    ) from e
 
         # Run all tool calls concurrently, but bounded by max_concurrent
         return await asyncio.gather(*(run_and_record(tc) for tc in tool_calls))
@@ -239,8 +251,12 @@ class Agent(AgentBase):
                     return msg.content
                 # Handle Function call response
                 elif reason == FinishReason.FUNCTION_CALL:
-                    logger.warning("LLM returned a deprecated function_call. Function calls are not processed by this agent.")
-                    msg = AssistantMessage(content="Function calls are not supported or processed by this agent.")
+                    logger.warning(
+                        "LLM returned a deprecated function_call. Function calls are not processed by this agent."
+                    )
+                    msg = AssistantMessage(
+                        content="Function calls are not supported or processed by this agent."
+                    )
                     self.memory.add_message(msg)
                     return msg.content
                 else:

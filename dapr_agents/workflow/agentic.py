@@ -49,7 +49,8 @@ class AgenticWorkflow(
 
     name: str = Field(..., description="The name of the agentic system.")
     message_bus_name: str = Field(
-        ..., description="The name of the message bus component, defining the pub/sub base."
+        ...,
+        description="The name of the message bus component, defining the pub/sub base.",
     )
     broadcast_topic_name: Optional[str] = Field(
         "beacon_channel", description="Default topic for broadcasting messages."
@@ -152,7 +153,7 @@ class AgenticWorkflow(
                 f"Error retrieving data for key '{key}' from store '{store_name}'"
             )
             return None
-    
+
     def get_agents_metadata(
         self, exclude_self: bool = True, exclude_orchestrator: bool = False
     ) -> Dict[str, Any]:
@@ -171,7 +172,9 @@ class AgenticWorkflow(
         """
         try:
             agents_metadata = (
-                self.get_data_from_store(self.agents_registry_store_name, self.agents_registry_key)
+                self.get_data_from_store(
+                    self.agents_registry_store_name, self.agents_registry_key
+                )
                 or {}
             )
 
@@ -183,7 +186,9 @@ class AgenticWorkflow(
                     name: metadata
                     for name, metadata in agents_metadata.items()
                     if not (exclude_self and name == self.name)
-                    and not (exclude_orchestrator and metadata.get("orchestrator", False))
+                    and not (
+                        exclude_orchestrator and metadata.get("orchestrator", False)
+                    )
                 }
                 if not filtered:
                     logger.info("No other agents found after filtering.")
@@ -196,8 +201,10 @@ class AgenticWorkflow(
         except Exception as e:
             logger.error(f"Failed to retrieve agents metadata: {e}", exc_info=True)
             raise RuntimeError(f"Error retrieving agents metadata: {str(e)}") from e
-    
-    def print_interaction(self, sender_agent_name: str, recipient_agent_name: str, message: str) -> None:
+
+    def print_interaction(
+        self, sender_agent_name: str, recipient_agent_name: str, message: str
+    ) -> None:
         """
         Pretty-print an interaction between two agents.
 
@@ -215,7 +222,7 @@ class AgenticWorkflow(
             (separator + "\n", "dapr_agents_teal"),
         ]
         self._text_formatter.print_colored_text(interaction_text)
-    
+
     def register_agent(
         self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict
     ) -> None:
@@ -280,7 +287,7 @@ class AgenticWorkflow(
         raise Exception(
             f"Failed to update state store key: {store_key} after 10 attempts."
         )
-    
+
     def register_agentic_system(self) -> None:
         """
         Register this agent's metadata in the Dapr state store.
@@ -298,7 +305,7 @@ class AgenticWorkflow(
         except Exception as e:
             logger.error(f"Failed to register metadata for agent {self.name}: {e}")
             raise e
-    
+
     def get_chat_history(self, task: Optional[str] = None) -> List[dict]:
         """
         Retrieve and validate the agent's chat history.
@@ -325,7 +332,7 @@ class AgenticWorkflow(
             for msg in chat_history
         ]
         return chat_history_messages
-    
+
     async def run_workflow_from_request(self, request: Request) -> JSONResponse:
         """
         Run a workflow instance triggered by an HTTP POST request.
@@ -346,12 +353,16 @@ class AgenticWorkflow(
 
             if workflow_name not in self.workflows:
                 return JSONResponse(
-                    content={"error": f"Unknown workflow '{workflow_name}'. Available: {list(self.workflows.keys())}"},
+                    content={
+                        "error": f"Unknown workflow '{workflow_name}'. Available: {list(self.workflows.keys())}"
+                    },
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
             try:
-                event: CloudEvent = from_http(dict(request.headers), await request.body())
+                event: CloudEvent = from_http(
+                    dict(request.headers), await request.body()
+                )
                 input_data = event.data
             except Exception:
                 input_data = await request.json()
@@ -361,7 +372,10 @@ class AgenticWorkflow(
             asyncio.create_task(self.monitor_workflow_completion(instance_id))
 
             return JSONResponse(
-                content={"message": "Workflow initiated successfully.", "workflow_instance_id": instance_id},
+                content={
+                    "message": "Workflow initiated successfully.",
+                    "workflow_instance_id": instance_id,
+                },
                 status_code=status.HTTP_202_ACCEPTED,
             )
         except Exception as e:

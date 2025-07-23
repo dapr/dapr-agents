@@ -1,5 +1,3 @@
 from .vectorstore import VectorToolStore
 
-__all__ = [
-    "VectorToolStore"
-]
+__all__ = ["VectorToolStore"]

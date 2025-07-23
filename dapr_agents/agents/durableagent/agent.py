@@ -32,6 +32,7 @@ from .state import (
 
 logger = logging.getLogger(__name__)
 
+
 class FinishReason(str, Enum):
     UNKNOWN = "unknown"
     STOP = "stop"
@@ -39,6 +40,7 @@ class FinishReason(str, Enum):
     CONTENT_FILTER = "content_filter"
     TOOL_CALLS = "tool_calls"
     FUNCTION_CALL = "function_call"  # deprecated
+
 
 # TODO(@Sicoyle): Clear up the lines between DurableAgent and AgentWorkflow
 class DurableAgent(AgenticWorkflow, AgentBase):
@@ -53,8 +55,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
     """
 
     tool_history: List[ToolMessage] = Field(
-        default_factory=list,
-        description="Executed tool calls during the conversation."
+        default_factory=list, description="Executed tool calls during the conversation."
     )
     tool_choice: Optional[str] = Field(
         default=None,
@@ -107,7 +108,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         }
         self.register_agentic_system()
 
-    async def run(self, input_data: Union[str, Dict[str,Any]]) -> Any:
+    async def run(self, input_data: Union[str, Dict[str, Any]]) -> Any:
         """
         Fire up the workflow, wait for it to complete, then return the final serialized_output.
 
@@ -185,7 +186,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         workflow_entry = self.state["instances"][instance_id]
         source = workflow_entry.get("source")
         source_workflow_instance_id = workflow_entry.get("source_workflow_instance_id")
-            
+
         # Step 3: Generate Response via LLM
         response = yield ctx.call_activity(
             self.generate_response, input={"task": task, "instance_id": instance_id}
@@ -204,15 +205,13 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Step 6:Add the assistant's response message to the chat history
         yield ctx.call_activity(
             self.append_assistant_message,
-            input={"instance_id": instance_id, "message": response_message}
+            input={"instance_id": instance_id, "message": response_message},
         )
 
         # Step 7: Handle tool calls response
         if finish_reason == FinishReason.TOOL_CALLS:
             if not ctx.is_replaying:
-                logger.info(
-                    "Tool calls detected in LLM response."
-                )
+                logger.info("Tool calls detected in LLM response.")
             # Retrieve the list of tool calls extracted from the LLM response
             tool_calls = yield ctx.call_activity(
                 self.get_tool_calls, input={"response": response}
@@ -246,11 +245,12 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 response_message[
                     "content"
                 ] += "\n\nThe workflow was terminated because it reached the maximum iteration limit. The task may not be fully complete."
-            
+
             # Broadcast the final response if a broadcast topic is set
             if self.broadcast_topic_name:
                 yield ctx.call_activity(
-                    self.broadcast_message_to_agents, input={"message": response_message}
+                    self.broadcast_message_to_agents,
+                    input={"message": response_message},
                 )
 
             # Respond to source agent if available
@@ -261,7 +261,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                         "response": response_message,
                         "target_agent": source,
                         "target_instance_id": source_workflow_instance_id,
-                    }
+                    },
                 )
 
             # Share Final Message
@@ -269,8 +269,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 self.finalize_workflow,
                 input={
                     "instance_id": instance_id,
-                    "final_output": response_message["content"]
-                }
+                    "final_output": response_message["content"],
+                },
             )
             # Log the finalization of the workflow
             if not ctx.is_replaying:
@@ -311,10 +311,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             output=output,
             end_time=end_time,
         )
-        self.state.setdefault("instances", {})[instance_id] = entry.model_dump(mode="json")
-    
+        self.state.setdefault("instances", {})[instance_id] = entry.model_dump(
+            mode="json"
+        )
+
     @task
-    async def generate_response(self, instance_id: str, task: Optional[Union[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+    async def generate_response(
+        self, instance_id: str, task: Optional[Union[str, Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
         """
         Ask the LLM for the assistant's next message.
 
@@ -332,7 +336,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         user_message = self.get_last_message_if_user(messages)
 
         # Always work with a copy of the user message for safety
-        user_message_copy: Optional[Dict[str, Any]] = dict(user_message) if user_message else None
+        user_message_copy: Optional[Dict[str, Any]] = (
+            dict(user_message) if user_message else None
+        )
 
         if task and user_message_copy:
             # Add the new user message to memory only if input_data is provided and user message exists
@@ -344,16 +350,20 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             msg_object = DurableAgentMessage(**user_message_copy)
             if isinstance(self.state, dict):
                 inst = self.state["instances"][instance_id]
-                inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
+                inst.setdefault("messages", []).append(
+                    msg_object.model_dump(mode="json")
+                )
                 inst["last_message"] = msg_object.model_dump(mode="json")
-                self.state.setdefault("chat_history", []).append(msg_object.model_dump(mode="json"))
+                self.state.setdefault("chat_history", []).append(
+                    msg_object.model_dump(mode="json")
+                )
             else:
                 self.state.instances[instance_id].messages.append(msg_object)
                 self.state.instances[instance_id].last_message = msg_object
                 self.state.chat_history.append(msg_object)
             # Save the state after appending the user message
             self.save_state()
-        
+
         # Always print the last user message for context, even if no input_data is provided
         if user_message_copy:
             self.text_formatter.print_message(user_message_copy)
@@ -413,7 +423,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             return FinishReason.UNKNOWN
 
     @task
-    def get_tool_calls(self, response: Dict[str, Any]
+    def get_tool_calls(
+        self, response: Dict[str, Any]
     ) -> Optional[List[Dict[str, Any]]]:
         """
         Extracts tool calls from the first choice in the LLM response, if available.
@@ -448,14 +459,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         Returns:
             Dict[str, Any]: A dictionary containing the tool call ID, function name, function arguments
-        
+
         Raises:
             AgentError: If the tool call is malformed or execution fails.
         """
         # Extract function name and raw args
         fn_name = tool_call["function"]["name"]
         raw_args = tool_call["function"].get("arguments", "")
-        
+
         # Parse JSON arguments (or empty dict)
         try:
             args = json.loads(raw_args) if raw_args else {}
@@ -463,9 +474,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             raise AgentError(f"Invalid JSON in tool args: {e}")
 
         # Run the tool
-        logger.info(
-                f"Executing tool '{fn_name}' with args: {args}"
-            )
+        logger.info(f"Executing tool '{fn_name}' with args: {args}")
         try:
             result = await self.tool_executor.run_tool(fn_name, **args)
         except Exception as e:
@@ -521,7 +530,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         await self.send_message_to_agent(name=target_agent, message=agent_response)
 
     @task
-    def append_assistant_message(self, instance_id: str, message: Dict[str, Any]) -> None:
+    def append_assistant_message(
+        self, instance_id: str, message: Dict[str, Any]
+    ) -> None:
         """
         Append an assistant message into the workflow state.
 
@@ -536,7 +547,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             inst: dict = self.state["instances"][instance_id]
             inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
             inst["last_message"] = msg_object.model_dump(mode="json")
-            self.state.setdefault("chat_history", []).append(msg_object.model_dump(mode="json"))
+            self.state.setdefault("chat_history", []).append(
+                msg_object.model_dump(mode="json")
+            )
         else:
             self.state.instances[instance_id].messages.append(msg_object)
             self.state.instances[instance_id].last_message = msg_object
@@ -549,7 +562,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         self.text_formatter.print_message(message)
 
     @task
-    def append_tool_message(self, instance_id: str, tool_result: Dict[str, Any]) -> None:
+    def append_tool_message(
+        self, instance_id: str, tool_result: Dict[str, Any]
+    ) -> None:
         """
         Append a tool-execution record to both the per-instance history and the agent's tool_history.
         """
@@ -567,8 +582,12 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         if isinstance(self.state, dict):
             inst: dict = self.state["instances"][instance_id]
             inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
-            inst.setdefault("tool_history", []).append(tool_history_entry.model_dump(mode="json"))
-            self.state.setdefault("chat_history", []).append(msg_object.model_dump(mode="json"))
+            inst.setdefault("tool_history", []).append(
+                tool_history_entry.model_dump(mode="json")
+            )
+            self.state.setdefault("chat_history", []).append(
+                msg_object.model_dump(mode="json")
+            )
         else:
             self.state.instances[instance_id].messages.append(msg_object)
             self.state.instances[instance_id].tool_history.append(tool_history_entry)

@@ -31,12 +31,16 @@ class MessagingMixin:
                 logger.info(f"{self.name} has no broadcast topic; skipping broadcast.")
                 return
             # Skip broadcasting if no agents are registered
-            agents_metadata = self.get_agents_metadata(exclude_orchestrator=exclude_orchestrator)
+            agents_metadata = self.get_agents_metadata(
+                exclude_orchestrator=exclude_orchestrator
+            )
             if not agents_metadata:
                 logger.warning("No agents available for broadcast.")
                 return
             # Broadcast the message to all agents
-            logger.info(f"{self.name} broadcasting message to {self.broadcast_topic_name}.")
+            logger.info(
+                f"{self.name} broadcasting message to {self.broadcast_topic_name}."
+            )
             await self.publish_event_message(
                 topic_name=self.broadcast_topic_name,
                 pubsub_name=self.message_bus_name,
@@ -48,7 +52,9 @@ class MessagingMixin:
         except Exception as e:
             logger.error(f"Failed to broadcast message: {e}", exc_info=True)
 
-    async def send_message_to_agent(self, name: str, message: Union[BaseModel, dict], **kwargs) -> None:
+    async def send_message_to_agent(
+        self, name: str, message: Union[BaseModel, dict], **kwargs
+    ) -> None:
         """
         Send a message to a specific agent.
 
@@ -76,4 +82,6 @@ class MessagingMixin:
             )
             logger.debug(f"{self.name} sent message to agent '{name}'.")
         except Exception as e:
-            logger.error(f"Failed to send message to agent '{name}': {e}", exc_info=True)
+            logger.error(
+                f"Failed to send message to agent '{name}': {e}", exc_info=True
+            )

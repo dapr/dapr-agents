@@ -16,6 +16,7 @@ vector_store = ChromaVectorStore(
     path="./chroma_db",
 )
 
+
 @tool
 def search_documents(query: str) -> str:
     """Search for documents in the vector store"""
@@ -37,6 +38,7 @@ def search_documents(query: str) -> str:
 def add_document(content: str, metadata: str = "") -> str:
     """Add a document to the vector store"""
     import json
+
     try:
         meta = json.loads(metadata) if metadata else {}
     except Exception:
@@ -46,6 +48,7 @@ def add_document(content: str, metadata: str = "") -> str:
     ids = vector_store.add_documents(documents=[doc])
     logging.info(f"Added document with ID {ids[0]}")
     return f"Added document with ID {ids[0]}: {content[:50]}..."
+
 
 @tool
 def add_machine_learning_doc() -> str:
@@ -58,7 +61,9 @@ def add_machine_learning_doc() -> str:
     )
     metadata = {"topic": "machine learning", "category": "AI", "level": "beginner"}
     doc = Document(text=content, metadata=metadata)
-    logging.info(f"Adding synthetic ML document: {content[:50]}... with metadata: {metadata}")
+    logging.info(
+        f"Adding synthetic ML document: {content[:50]}... with metadata: {metadata}"
+    )
     ids = vector_store.add_documents(documents=[doc])
     if ids and isinstance(ids, list) and len(ids) > 0:
         logging.info(f"Added ML document with ID {ids[0]}")
@@ -67,21 +72,23 @@ def add_machine_learning_doc() -> str:
         logging.info("Added ML document, but no ID was returned.")
         return "Added machine learning basics document (no ID returned)"
 
+
 async def main():
     # Seed the vector store with initial documents using Document class
     from dapr_agents.types.document import Document
+
     documents = [
         Document(
             text="Gandalf: A wizard is never late, Frodo Baggins. Nor is he early; he arrives precisely when he means to.",
-            metadata={"topic": "wisdom", "location": "The Shire"}
+            metadata={"topic": "wisdom", "location": "The Shire"},
         ),
         Document(
             text="Frodo: I wish the Ring had never come to me. I wish none of this had happened.",
-            metadata={"topic": "destiny", "location": "Moria"}
+            metadata={"topic": "destiny", "location": "Moria"},
         ),
         Document(
             text="Sam: I can't carry it for you, but I can carry you!",
-            metadata={"topic": "friendship", "location": "Mount Doom"}
+            metadata={"topic": "friendship", "location": "Mount Doom"},
         ),
     ]
     logging.info("Seeding vector store with initial documents...")
@@ -106,7 +113,6 @@ async def main():
     logging.info("Starting Vector Database Agent...")
     await agent.run("Add a machine learning basics document")
     logging.info("Add Machine Learning Document Response:")
-
 
     logging.info("Searching for machine learning documents...")
     await agent.run("Search for documents about machine learning")

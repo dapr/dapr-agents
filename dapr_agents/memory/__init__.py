@@ -7,5 +7,5 @@ __all__ = [
     "MemoryBase",
     "ConversationListMemory",
     "ConversationVectorMemory",
-    "ConversationDaprStateMemory"
+    "ConversationDaprStateMemory",
 ]

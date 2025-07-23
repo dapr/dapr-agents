@@ -94,7 +94,6 @@ def workflow(
         Callable: The decorated function with workflow metadata for Dapr compatibility.
     """
 
-
     def decorator(f: Callable) -> Callable:
         """
         Minimal workflow decorator for Dapr workflows.

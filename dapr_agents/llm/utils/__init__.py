@@ -9,5 +9,5 @@ __all__ = [
     "StreamHandler",
     "RequestHandler",
     "ResponseHandler",
-    "HTTPHelper"
+    "HTTPHelper",
 ]

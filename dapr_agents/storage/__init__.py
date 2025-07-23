@@ -6,5 +6,5 @@ __all__ = [
     "Neo4jGraphStore",
     "VectorStoreBase",
     "ChromaVectorStore",
-    "PostgresVectorStore"
+    "PostgresVectorStore",
 ]

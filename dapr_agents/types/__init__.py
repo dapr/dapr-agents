@@ -56,5 +56,5 @@ __all__ = [
     "OAIResponseFormatSchema",
     "ClaudeToolDefinition",
     "OAIFunctionDefinition",
-    "OAIToolDefinition"
+    "OAIToolDefinition",
 ]

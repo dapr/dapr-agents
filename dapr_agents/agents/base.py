@@ -42,6 +42,7 @@ ChatClientType = Union[
     OpenAIChatClient, HFHubChatClient, NVIDIAChatClient, DaprChatClient
 ]
 
+
 class AgentBase(BaseModel, ABC):
     """
     Base class for agents that interact with language models and manage tools for task execution.
@@ -198,7 +199,7 @@ Your role is {role}.
 
         logger.debug("⚙️ Building ChatPromptTemplate from system_prompt")
         return self.construct_prompt_template()
-    
+
     def _collect_template_attrs(self) -> tuple[Dict[str, str], List[str]]:
         """
         Collect agent attributes for prompt template pre-filling and warn about unused ones.
@@ -225,7 +226,7 @@ Your role is {role}.
             else:
                 unused.append(attr)
         return valid, unused
-    
+
     def _setup_signal_handlers(self):
         """Set up signal handlers for graceful shutdown"""
         try:
@@ -282,16 +283,17 @@ Your role is {role}.
         Returns:
             List[MessageContent]: The chat history.
         """
-        if (
-            isinstance(self.memory, ConversationVectorMemory)
-            and task
-        ):
+        if isinstance(self.memory, ConversationVectorMemory) and task:
             if (
                 hasattr(self.memory.vector_store, "embedding_function")
                 and self.memory.vector_store.embedding_function
-                and hasattr(self.memory.vector_store.embedding_function, "embed_documents")
+                and hasattr(
+                    self.memory.vector_store.embedding_function, "embed_documents"
+                )
             ):
-                query_embeddings = self.memory.vector_store.embedding_function.embed(task)
+                query_embeddings = self.memory.vector_store.embedding_function.embed(
+                    task
+                )
                 return self.memory.get_messages(
                     query_embeddings=query_embeddings
                 )  # returns List[MessageContent]
@@ -320,7 +322,7 @@ Your role is {role}.
         Always returns the full list of MessageContent from memory.
         """
         return self.get_chat_history()
-    
+
     @abstractmethod
     def run(self, input_data: Union[str, Dict[str, Any]]) -> Any:
         """
@@ -349,7 +351,9 @@ Your role is {role}.
             )
 
         if valid_attrs:
-            self.prompt_template = self.prompt_template.pre_fill_variables(**valid_attrs)
+            self.prompt_template = self.prompt_template.pre_fill_variables(
+                **valid_attrs
+            )
             logger.debug(f"Pre-filled template with: {list(valid_attrs.keys())}")
         else:
             logger.debug("No prompt_template variables needed pre-filling.")
@@ -420,7 +424,9 @@ Your role is {role}.
         chat_history = self.get_chat_history()  # List[MessageContent]
 
         if isinstance(input_data, str):
-            formatted_messages = self.prompt_template.format_prompt(chat_history=chat_history)
+            formatted_messages = self.prompt_template.format_prompt(
+                chat_history=chat_history
+            )
             if isinstance(formatted_messages, list):
                 user_message = {"role": "user", "content": input_data}
                 return formatted_messages + [user_message]
@@ -485,7 +491,7 @@ Your role is {role}.
                 msg_copy["content"] = msg_copy["content"].strip()
                 return msg_copy
         return None
-    
+
     def get_last_message_if_user(
         self, messages: List[Dict[str, Any]]
     ) -> Optional[Dict[str, Any]]:

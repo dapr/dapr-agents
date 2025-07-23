@@ -207,7 +207,7 @@ class WorkflowApp(BaseModel):
 
             decorator = self.wf_runtime.workflow(name=wf_name)
             self.workflows[wf_name] = decorator(make_wrapped(method))
-    
+
     def _is_dapr_available(self) -> bool:
         """
         Check if Dapr is available by attempting to connect to the Dapr sidecar.
@@ -327,7 +327,7 @@ class WorkflowApp(BaseModel):
             raise AttributeError(f"Workflow '{workflow_name}' not found.")
 
         return workflow_func
-    
+
     def start_runtime(self):
         """Idempotently start the Dapr workflow runtime."""
         if not self.wf_runtime_is_running:
@@ -345,7 +345,7 @@ class WorkflowApp(BaseModel):
             self.wf_runtime_is_running = False
         else:
             logger.debug("Workflow runtime already stopped; skipping.")
-    
+
     def run_workflow(
         self, workflow: Union[str, Callable], input: Union[str, Dict[str, Any]] = None
     ) -> str:
@@ -673,7 +673,7 @@ class WorkflowApp(BaseModel):
             raise Exception(
                 f"Failed to raise workflow event '{event_name}' for instance '{instance_id}': {str(e)}"
             )
-    
+
     def when_all(self, tasks: List[dtask.Task[T]]) -> dtask.WhenAllTask[T]:
         """
         Waits for all given tasks to complete.

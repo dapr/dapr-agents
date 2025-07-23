@@ -9,5 +9,5 @@ __all__ = [
     "ChatPromptTemplate",
     "StringPromptTemplate",
     "Prompty",
-    "PromptyHelper"
+    "PromptyHelper",
 ]
