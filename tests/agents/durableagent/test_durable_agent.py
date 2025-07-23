@@ -72,7 +72,7 @@ def patch_dapr_check(monkeypatch):
 
     def mock_agentic_post_init(self, __context: Any) -> None:
         self._text_formatter = Mock()
-        self._dapr_client = Mock()
+        self.client = Mock()
         self._state_store_client = Mock()
         self._agent_metadata = {
             "name": getattr(self, "name", "TestAgent"),
@@ -167,6 +167,7 @@ class TestDurableAgent:
             state_store_name="teststatestore",
             message_bus_name="testpubsub",
             agents_registry_store_name="testregistry",
+            broadcast_topic_name=None,
         )
 
     @pytest.fixture
@@ -184,6 +185,7 @@ class TestDurableAgent:
             state_store_name="teststatestore",
             message_bus_name="testpubsub",
             agents_registry_store_name="testregistry",
+            broadcast_topic_name=None,
         )
 
     def test_durable_agent_initialization(self, mock_llm):
@@ -197,6 +199,7 @@ class TestDurableAgent:
             state_store_name="teststatestore",
             message_bus_name="testpubsub",
             agents_registry_store_name="testregistry",
+            broadcast_topic_name=None,
         )
 
         assert agent.name == "TestDurableAgent"
@@ -222,6 +225,7 @@ class TestDurableAgent:
             state_store_name="teststatestore",
             message_bus_name="testpubsub",
             agents_registry_store_name="testregistry",
+            broadcast_topic_name=None,
         )
 
         assert agent.agent_topic_name == "custom-topic"
@@ -235,6 +239,7 @@ class TestDurableAgent:
             state_store_name="teststatestore",
             message_bus_name="testpubsub",
             agents_registry_store_name="testregistry",
+            broadcast_topic_name=None,
         )
 
         assert agent.name == "Test Durable Assistant"

@@ -148,7 +148,7 @@ class WorkflowTask(BaseModel):
         Returns:
             The function's return value.
         """
-        logger.info("Invoking regular Python function")
+        logger.debug("Invoking regular Python function")
         if asyncio.iscoroutinefunction(self.func):
             return await self.func(**data)
         else:
@@ -165,7 +165,7 @@ class WorkflowTask(BaseModel):
         Returns:
             Raw result from the AI path.
         """
-        logger.info(f"Invoking task via {executor.upper()}")
+        logger.debug(f"Invoking task via {executor.upper()}")
         logger.debug(f"Invoking task with prompt: {prompt!r}")
         if executor == "agent":
             result = await self.agent.run(prompt)
