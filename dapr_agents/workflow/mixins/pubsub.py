@@ -1,44 +1,170 @@
+import logging
+import json
 import asyncio
 import inspect
 import logging
 import threading
 import functools
-from typing import Callable
+from dataclasses import is_dataclass, asdict
+from typing import Optional, Any, Dict, Union, Callable
 
+from pydantic import BaseModel
+
+from dapr.aio.clients import DaprClient
 from dapr.aio.clients.grpc.subscription import Subscription
 from dapr.clients.grpc._response import TopicEventResponse
 from dapr.clients.grpc.subscription import StreamInactiveError
 from dapr.common.pubsub.subscription import StreamCancelledError, SubscriptionMessage
-from dapr_agents.workflow.messaging.parser import (
+from dapr_agents.workflow.utils.messaging import (
     extract_cloudevent_data,
     validate_message_model,
 )
-from dapr_agents.workflow.messaging.utils import is_valid_routable_model
-from dapr_agents.workflow.utils import get_decorated_methods
-
+from dapr_agents.workflow.utils.core import (
+    get_decorated_methods,
+    is_pydantic_model,
+    is_valid_routable_model
+)
 logger = logging.getLogger(__name__)
 
 
-class MessageRoutingMixin:
+class PubSubMixin:
     """
-    Mixin class providing dynamic message routing capabilities for agentic services using Dapr pub/sub.
+    Mixin providing Dapr-based pub/sub messaging, event publishing, and dynamic message routing.
 
-    This mixin enables:
-    - Auto-registration of message handlers via the `@message_router` decorator.
-    - CloudEvent-based dispatch to appropriate handlers based on `type`.
-    - Topic subscription management and graceful shutdown.
-    - Support for both synchronous and asynchronous handler methods.
-    - Workflow-aware message handling for registered workflow entrypoints.
-
-    Expected attributes provided by the consuming service:
-    - `self._dapr_client`: A configured Dapr client instance.
-    - `self.name`: The agent's name (used for default topic routing).
-    - `self.message_bus_name`: Pub/Sub component name in Dapr.
-    - `self.broadcast_topic_name`: Optional default topic name for broadcasts.
-    - `self._topic_handlers`: Dict storing routing info by (pubsub, topic).
-    - `self._subscriptions`: Dict storing unsubscribe functions for active subscriptions.
+    Features:
+        - Publishes messages and events to Dapr topics with optional CloudEvent metadata.
+        - Registers message handlers dynamically using decorated methods.
+        - Routes incoming messages to handlers based on CloudEvent `type` and message schema.
+        - Supports Pydantic models, dataclasses, and dictionaries as message payloads.
+        - Handles asynchronous message processing and workflow invocation.
+        - Manages topic subscriptions and message dispatch via Dapr client.
     """
 
+    async def serialize_message(self, message: Any) -> str:
+        """
+        Serializes a message to JSON format.
+
+        Args:
+            message (Any): The message content to serialize.
+
+        Returns:
+            str: JSON string of the message.
+
+        Raises:
+            ValueError: If the message is not serializable.
+        """
+        try:
+            return json.dumps(message if message is not None else {})
+        except TypeError as te:
+            logger.error(f"Failed to serialize message: {message}. Error: {te}")
+            raise ValueError(f"Message contains non-serializable data: {te}")
+
+    async def publish_message(
+        self,
+        pubsub_name: str,
+        topic_name: str,
+        message: Any,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Publishes a message to a specific topic with optional metadata.
+
+        Args:
+            pubsub_name (str): The pub/sub component to use.
+            topic_name (str): The topic to publish the message to.
+            message (Any): The message content, can be None or any JSON-serializable type.
+            metadata (Optional[Dict[str, Any]]): Additional metadata to include in the publish event.
+
+        Raises:
+            ValueError: If the message contains non-serializable data.
+            Exception: If publishing the message fails.
+        """
+        try:
+            json_message = await self.serialize_message(message)
+
+            # TODO: retry publish should be configurable
+            async with DaprClient() as client:
+                await client.publish_event(
+                    pubsub_name=pubsub_name or self.message_bus_name,
+                    topic_name=topic_name,
+                    data=json_message,
+                    data_content_type="application/json",
+                    publish_metadata=metadata or {},
+                )
+
+            logger.debug(
+                f"Message successfully published to topic '{topic_name}' on pub/sub '{pubsub_name}'."
+            )
+            logger.debug(f"Serialized Message: {json_message}, Metadata: {metadata}")
+        except Exception as e:
+            logger.error(
+                f"Error publishing message to topic '{topic_name}' on pub/sub '{pubsub_name}'. "
+                f"Message: {message}, Metadata: {metadata}, Error: {e}"
+            )
+            raise Exception(
+                f"Failed to publish message to topic '{topic_name}' on pub/sub '{pubsub_name}': {str(e)}"
+            )
+
+    async def publish_event_message(
+        self,
+        topic_name: str,
+        pubsub_name: str,
+        source: str,
+        message: Union[BaseModel, dict, Any],
+        message_type: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """
+        Publishes an event message to a specified topic with dynamic metadata.
+
+        Args:
+            topic_name (str): The topic to publish the message to.
+            pubsub_name (str): The pub/sub component to use.
+            source (str): The source of the message (e.g., service or agent name).
+            message (Union[BaseModel, dict, dataclass, Any]): The message content, as a Pydantic model, dictionary, or dataclass instance.
+            message_type (Optional[str]): The type of the message. Required if `message` is a dictionary.
+            **kwargs: Additional metadata fields to include in the message.
+        """
+        if isinstance(message, BaseModel):
+            message_type = message_type or message.__class__.__name__
+            message_dict = message.model_dump()
+
+        elif isinstance(message, dict):
+            if not message_type:
+                raise ValueError(
+                    "message_type must be provided when message is a dictionary."
+                )
+            message_dict = message
+
+        elif is_dataclass(message):
+            message_type = message_type or message.__class__.__name__
+            message_dict = asdict(message)
+
+        else:
+            raise ValueError(
+                "Message must be a Pydantic BaseModel, a dictionary, or a dataclass instance."
+            )
+
+        metadata = {
+            "cloudevent.type": message_type,
+            "cloudevent.source": source,
+        }
+        metadata.update(kwargs)
+
+        logger.debug(
+            f"{source} preparing to publish '{message_type}' to topic '{topic_name}'."
+        )
+        logger.debug(f"Message: {message_dict}, Metadata: {metadata}")
+
+        await self.publish_message(
+            topic_name=topic_name,
+            pubsub_name=pubsub_name or self.message_bus_name,
+            message=message_dict,
+            metadata=metadata,
+        )
+
+        logger.info(f"{source} published '{message_type}' to topic '{topic_name}'.")
+    
     def register_message_routes(self) -> None:
         """
         Registers message handlers dynamically by subscribing once per topic.
@@ -102,7 +228,9 @@ class MessageRoutingMixin:
 
         # Subscribe once per topic
         for pubsub_name, topic_name in self._topic_handlers.keys():
-            self._subscribe_with_router(pubsub_name, topic_name)
+            if topic_name:
+                # Prevent subscribing to empty or None topics
+                self._subscribe_with_router(pubsub_name, topic_name)
 
         logger.info("All message routes registered.")
 
@@ -117,6 +245,17 @@ class MessageRoutingMixin:
             try:
                 if getattr(method, "_is_workflow", False):
                     workflow_name = getattr(method, "_workflow_name", method.__name__)
+                    # If the message is a Pydantic model, extract metadata and convert to dict
+                    if is_pydantic_model(type(message)):
+                        # Extract metadata if available
+                        metadata = getattr(message, "_message_metadata", None)
+                        # Convert to dict for workflow input
+                        message_dict = message.model_dump()
+                        if metadata is not None:
+                            # Include metadata in the message dict
+                            message_dict["_message_metadata"] = metadata
+                        message = message_dict
+                    # Invoke the workflow
                     instance_id = self.run_workflow(workflow_name, input=message)
                     asyncio.create_task(self.monitor_workflow_completion(instance_id))
                     return None
@@ -135,7 +274,7 @@ class MessageRoutingMixin:
         return wrapped_method
 
     def _subscribe_with_router(self, pubsub_name: str, topic_name: str):
-        subscription: Subscription = self._dapr_client.subscribe(
+        subscription: Subscription = self.client.subscribe(
             pubsub_name, topic_name
         )
         loop = asyncio.get_running_loop()
@@ -196,8 +335,10 @@ class MessageRoutingMixin:
             event_data, metadata = extract_cloudevent_data(message)
             event_type = metadata.get("type")
 
+            # Step 2: Find the handler for the event type
             route_entry = handler_map.get(event_type)
             if not route_entry:
+                # If no handler matches the event type, log and drop the message
                 logger.warning(
                     f"No handler matched CloudEvent type '{event_type}' on topic '{topic_name}'"
                 )
@@ -207,12 +348,18 @@ class MessageRoutingMixin:
             handler = route_entry["handler"]
 
             try:
+                # Step 3: Validate the message against the schema
                 parsed_message = validate_message_model(schema, event_data)
-                parsed_message["_message_metadata"] = metadata
+                # Step 4: Attach metadata to the parsed message
+                if isinstance(parsed_message, dict):
+                    parsed_message["_message_metadata"] = metadata
+                else:
+                    setattr(parsed_message, "_message_metadata", metadata)
 
                 logger.info(
                     f"Dispatched to handler '{handler.__name__}' for event type '{event_type}'"
                 )
+                # Step 5: Call the handler with the parsed message
                 result = await handler(parsed_message)
                 if result is not None:
                     return TopicEventResponse("success"), result
