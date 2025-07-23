@@ -1,37 +1,24 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
-from dapr_agents.types import ToolMessage
+from dapr_agents.types import MessageContent
 from datetime import datetime
 import uuid
 
 
-class AssistantWorkflowMessage(BaseModel):
-    """Represents a message exchanged within the workflow."""
-
+class DurableAgentMessage(MessageContent):
     id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
         description="Unique identifier for the message",
     )
-    role: str = Field(
-        ..., description="The role of the message sender, e.g., 'user' or 'assistant'"
-    )
-    content: str = Field(..., description="Content of the message")
     timestamp: datetime = Field(
         default_factory=datetime.now,
         description="Timestamp when the message was created",
     )
-    name: Optional[str] = Field(
-        default=None,
-        description="Optional name of the assistant or user sending the message",
-    )
 
-
-class AssistantWorkflowToolMessage(ToolMessage):
-    """Represents a Tool message exchanged within the workflow."""
-
-    id: str = Field(
-        default_factory=lambda: str(uuid.uuid4()),
-        description="Unique identifier for the message",
+class DurableAgentToolHistoryEntry(DurableAgentMessage):
+    role: str = Field(
+        default="tool",
+        description="Role of the message.",
     )
     function_name: str = Field(
         ...,
@@ -41,13 +28,9 @@ class AssistantWorkflowToolMessage(ToolMessage):
         None,
         description="Tool arguments suggested by the model to run for a specific task.",
     )
-    timestamp: datetime = Field(
-        default_factory=datetime.now,
-        description="Timestamp when the message was created",
-    )
 
 
-class AssistantWorkflowEntry(BaseModel):
+class DurableAgentWorkflowEntry(BaseModel):
     """Represents a workflow and its associated data, including metadata on the source of the task request."""
 
     input: str = Field(
@@ -63,13 +46,14 @@ class AssistantWorkflowEntry(BaseModel):
     end_time: Optional[datetime] = Field(
         None, description="Timestamp when the workflow was completed or failed"
     )
-    messages: List[AssistantWorkflowMessage] = Field(
-        default_factory=list, description="Messages exchanged during the workflow"
+    messages: List[DurableAgentMessage] = Field(
+        default_factory=list,
+        description="Messages exchanged during the workflow (user, assistant, or tool messages)."
     )
-    last_message: Optional[AssistantWorkflowMessage] = Field(
+    last_message: Optional[DurableAgentMessage] = Field(
         default=None, description="Last processed message in the workflow"
     )
-    tool_history: List[AssistantWorkflowToolMessage] = Field(
+    tool_history: List[DurableAgentToolHistoryEntry] = Field(
         default_factory=list, description="Tool message exchanged during the workflow"
     )
     source: Optional[str] = Field(None, description="Entity that initiated the task.")
@@ -79,10 +63,10 @@ class AssistantWorkflowEntry(BaseModel):
     )
 
 
-class AssistantWorkflowState(BaseModel):
-    """Represents the state of multiple Assistant workflows."""
+class DurableAgentWorkflowState(BaseModel):
+    """Represents the state of multiple Agent workflows."""
 
-    instances: Dict[str, AssistantWorkflowEntry] = Field(
+    instances: Dict[str, DurableAgentWorkflowEntry] = Field(
         default_factory=dict,
         description="Workflow entries indexed by their instance_id.",
     )
