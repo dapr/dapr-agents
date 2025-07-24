@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, Mock
 from dapr_agents.agents.durableagent.agent import DurableAgent
-from dapr_agents.agents.durableagent.state import AssistantWorkflowEntry
+from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
 from dapr_agents.agents.durableagent.state import AssistantWorkflowState
 from dapr_agents.tool.base import AgentTool
 
@@ -167,7 +167,7 @@ def durable_agent_with_mcp_tool(mock_mcp_tool, mock_mcp_session):
 async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     # Test the mocked MCP tool (add) with DurableAgent
     instance_id = "test-instance-123"
-    workflow_entry = AssistantWorkflowEntry(
+    workflow_entry = DurableAgentWorkflowEntry(
         input="What is 2 plus 2?",
         source=None,
         source_workflow_instance_id=None,
@@ -266,7 +266,7 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
     )
     agent.__pydantic_private__["_tool_executor"] = tool_executor
     instance_id = "test-instance-456"
-    workflow_entry = AssistantWorkflowEntry(
+    workflow_entry = DurableAgentWorkflowEntry(
         input="What is 2 plus 2?",
         source=None,
         source_workflow_instance_id=None,

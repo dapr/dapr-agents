@@ -285,11 +285,11 @@ class TestDurableAgent:
         ]
 
         # Manually insert a mock instance to ensure the state is populated for the assertion
-        from dapr_agents.agents.durableagent.state import AssistantWorkflowEntry
+        from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
 
         basic_durable_agent.state.instances[
             "test-instance-123"
-        ] = AssistantWorkflowEntry(
+        ] = DurableAgentWorkflowEntry(
             input="Test task",
             source=None,
             source_workflow_instance_id="parent-instance-123",
@@ -327,10 +327,10 @@ class TestDurableAgent:
         }
         basic_durable_agent.llm.generate = Mock(return_value=mock_response)
 
-        from dapr_agents.agents.durableagent.state import AssistantWorkflowEntry
+        from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
 
         instance_id = "test-instance-123"
-        workflow_entry = AssistantWorkflowEntry(
+        workflow_entry = DurableAgentWorkflowEntry(
             input="Test task", source="test_source", source_workflow_instance_id=None
         )
         basic_durable_agent.state.instances = {instance_id: workflow_entry}
@@ -414,10 +414,10 @@ class TestDurableAgent:
             "id": "call_123",
             "function": {"name": "test_tool", "arguments": '{"arg1": "value1"}'},
         }
-        from dapr_agents.agents.durableagent.state import AssistantWorkflowEntry
+        from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
 
         instance_id = "test-instance-123"
-        workflow_entry = AssistantWorkflowEntry(
+        workflow_entry = DurableAgentWorkflowEntry(
             input="Test task", source="test_source", source_workflow_instance_id=None
         )
         durable_agent_with_tools.state.instances = {instance_id: workflow_entry}
@@ -515,9 +515,9 @@ class TestDurableAgent:
         }
         final_output = "Final output"
 
-        from dapr_agents.agents.durableagent.state import AssistantWorkflowEntry
+        from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
 
-        workflow_entry = AssistantWorkflowEntry(
+        workflow_entry = DurableAgentWorkflowEntry(
             input="Test task", source="test_source", source_workflow_instance_id=None
         )
         basic_durable_agent.state.instances = {instance_id: workflow_entry}
