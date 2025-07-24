@@ -38,14 +38,14 @@ class DurableAgentWorkflowEntry(BaseModel):
         ..., description="The input or description of the Workflow to be performed"
     )
     output: Optional[str] = Field(
-        None, description="The output or result of the Workflow, if completed"
+        default=None, description="The output or result of the Workflow, if completed"
     )
     start_time: datetime = Field(
         default_factory=datetime.now,
         description="Timestamp when the workflow was started",
     )
     end_time: Optional[datetime] = Field(
-        None, description="Timestamp when the workflow was completed or failed"
+        default_factory=datetime.now, description="Timestamp when the workflow was completed or failed"
     )
     messages: List[DurableAgentMessage] = Field(
         default_factory=list,
@@ -59,7 +59,7 @@ class DurableAgentWorkflowEntry(BaseModel):
     )
     source: Optional[str] = Field(None, description="Entity that initiated the task.")
     source_workflow_instance_id: Optional[str] = Field(
-        None,
+        default=None,
         description="The workflow instance ID associated with the original request.",
     )
 

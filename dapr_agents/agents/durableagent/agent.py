@@ -323,15 +323,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             output=output,
         )
         if isinstance(self.state, dict):
-            self.state.setdefault("instances", {})[instance_id] = entry.model_dump(
-                mode="json"
-            )
-        elif self.state is not None:
+            self.state.setdefault("instances", {})[instance_id] = entry.model_dump(mode="json")
+        elif isinstance(self.state, BaseModel):
+            # Defensive: ensure 'instances' exists
+            if not hasattr(self.state, "instances"):
+                raise AgentError("Agent state model missing 'instances' attribute.")
             self.state.instances[instance_id] = entry
         else:
-            raise AgentError(
-                "Agent state is None or not valid in record_initial_entry."
-            )
+            raise AgentError("Agent state is None or not valid in record_initial_entry.")
 
     @task
     def get_workflow_entry_info(self, instance_id: str) -> Dict[str, Any]:
@@ -351,8 +350,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         """
         if isinstance(self.state, dict):
             workflow_entry = self.state.get("instances", {}).get(instance_id)
-        elif self.state is not None:
-            workflow_entry = getattr(self.state.instances, instance_id, None)
+        elif isinstance(self.state, BaseModel):
+            if not hasattr(self.state, "instances"):
+                raise AgentError("Agent state model missing 'instances' attribute.")
+            workflow_entry = self.state.instances.get(instance_id, None)
         else:
             raise AgentError(
                 f"Agent state is None or not valid for workflow entry lookup (instance_id={instance_id})"
@@ -414,9 +415,13 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 self.state.setdefault("chat_history", []).append(
                     msg_object.model_dump(mode="json")
                 )
-            elif self.state is not None:
+            elif isinstance(self.state, BaseModel):
+                if not hasattr(self.state, "instances"):
+                    raise AgentError("Agent state model missing 'instances' attribute.")
                 self.state.instances[instance_id].messages.append(msg_object)
                 self.state.instances[instance_id].last_message = msg_object
+                if not hasattr(self.state, "chat_history"):
+                    raise AgentError("Agent state model missing 'chat_history' attribute.")
                 self.state.chat_history.append(msg_object)
             else:
                 raise AgentError(
@@ -619,20 +624,23 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Convert the message to a DurableAgentMessage object
         msg_object = DurableAgentMessage(**message)
         # Defensive: check self.state is not None
-        if self.state is not None:
-            if isinstance(self.state, dict):
-                inst: dict = self.state["instances"][instance_id]
-                inst.setdefault("messages", []).append(
-                    msg_object.model_dump(mode="json")
-                )
-                inst["last_message"] = msg_object.model_dump(mode="json")
-                self.state.setdefault("chat_history", []).append(
-                    msg_object.model_dump(mode="json")
-                )
-            else:
-                self.state.instances[instance_id].messages.append(msg_object)
-                self.state.instances[instance_id].last_message = msg_object
-                self.state.chat_history.append(msg_object)
+        if isinstance(self.state, dict):
+            inst: dict = self.state["instances"][instance_id]
+            inst.setdefault("messages", []).append(
+                msg_object.model_dump(mode="json")
+            )
+            inst["last_message"] = msg_object.model_dump(mode="json")
+            self.state.setdefault("chat_history", []).append(
+                msg_object.model_dump(mode="json")
+            )
+        elif isinstance(self.state, BaseModel):
+            if not hasattr(self.state, "instances"):
+                raise AgentError("Agent state model missing 'instances' attribute.")
+            self.state.instances[instance_id].messages.append(msg_object)
+            self.state.instances[instance_id].last_message = msg_object
+            if not hasattr(self.state, "chat_history"):
+                raise AgentError("Agent state model missing 'chat_history' attribute.")
+            self.state.chat_history.append(msg_object)
         # Add the assistant message to the tool history
         self.memory.add_message(AssistantMessage(**message))
         # Save the state after appending the assistant message
@@ -659,24 +667,25 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # to store the tool execution details in the workflow state
         tool_history_entry = DurableAgentToolHistoryEntry(**tool_result)
         # Defensive: check self.state is not None
-        if self.state is not None:
-            if isinstance(self.state, dict):
-                inst: dict = self.state["instances"][instance_id]
-                inst.setdefault("messages", []).append(
-                    msg_object.model_dump(mode="json")
-                )
-                inst.setdefault("tool_history", []).append(
-                    tool_history_entry.model_dump(mode="json")
-                )
-                self.state.setdefault("chat_history", []).append(
-                    msg_object.model_dump(mode="json")
-                )
-            else:
-                self.state.instances[instance_id].messages.append(msg_object)
-                self.state.instances[instance_id].tool_history.append(
-                    tool_history_entry
-                )
-                self.state.chat_history.append(msg_object)
+        if isinstance(self.state, dict):
+            inst: dict = self.state["instances"][instance_id]
+            inst.setdefault("messages", []).append(
+                msg_object.model_dump(mode="json")
+            )
+            inst.setdefault("tool_history", []).append(
+                tool_history_entry.model_dump(mode="json")
+            )
+            self.state.setdefault("chat_history", []).append(
+                msg_object.model_dump(mode="json")
+            )
+        elif isinstance(self.state, BaseModel):
+            if not hasattr(self.state, "instances"):
+                raise AgentError("Agent state model missing 'instances' attribute.")
+            self.state.instances[instance_id].messages.append(msg_object)
+            self.state.instances[instance_id].tool_history.append(tool_history_entry)
+            if not hasattr(self.state, "chat_history"):
+                raise AgentError("Agent state model missing 'chat_history' attribute.")
+            self.state.chat_history.append(msg_object)
         # Update tool history and memory of agent
         self.tool_history.append(tool_history_entry)
         # Add the tool message to the agent's memory
@@ -694,17 +703,22 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         end_time = datetime.now(timezone.utc)
         end_time_str = end_time.isoformat()
         # Defensive: check self.state is not None
-        if self.state is not None:
-            if isinstance(self.state, dict):
-                inst = self.state["instances"][instance_id]
-                inst["output"] = final_output
-                inst["end_time"] = end_time_str
-            else:
-                entry = self.state.instances[instance_id]
-                entry.output = final_output
-                entry.end_time = end_time_str
+        if isinstance(self.state, dict):
+            inst = self.state["instances"][instance_id]
+            inst["output"] = final_output
+            inst["end_time"] = end_time_str
             self.save_state()
-        # If state is None, do nothing (or optionally log)
+        elif isinstance(self.state, BaseModel):
+            if not hasattr(self.state, "instances"):
+                raise AgentError("Agent state model missing 'instances' attribute.")
+            entry = self.state.instances[instance_id]
+            entry.output = final_output
+            entry.end_time = end_time_str
+            self.save_state()
+        else:
+            raise AgentError(
+                "Agent state is None or not valid in finalize_workflow."
+            )
 
     @message_router(broadcast=True)
     async def process_broadcast_message(self, message: BroadcastMessage):
@@ -763,7 +777,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                     )
                 else:
                     if not hasattr(self.state, "chat_history"):
-                        self.state.chat_history = []
+                        raise AgentError("Agent state model missing 'chat_history' attribute.")
                     self.state.chat_history.append(msg_object)
                 # Save the state after processing the broadcast message
                 self.save_state()
