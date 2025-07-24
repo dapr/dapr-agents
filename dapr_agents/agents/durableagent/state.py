@@ -45,7 +45,8 @@ class DurableAgentWorkflowEntry(BaseModel):
         description="Timestamp when the workflow was started",
     )
     end_time: Optional[datetime] = Field(
-        default_factory=datetime.now, description="Timestamp when the workflow was completed or failed"
+        default_factory=datetime.now,
+        description="Timestamp when the workflow was completed or failed",
     )
     messages: List[DurableAgentMessage] = Field(
         default_factory=list,
