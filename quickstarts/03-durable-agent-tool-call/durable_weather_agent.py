@@ -27,7 +27,7 @@ async def main():
         tools=tools,
     )
     # 2️⃣ Start the agent service
-    await weather_agent.run("What's the weather in Boston tomorrow?")
+    await weather_agent.run("What's the weather in Boston?")
 
 
 if __name__ == "__main__":

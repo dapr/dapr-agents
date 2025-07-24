@@ -1,10 +1,13 @@
-from typing import Union, Dict, Any, Optional, Iterable, List, Iterator, Type
-from dapr_agents.prompt.base import PromptTemplateBase
-from dapr_agents.prompt.prompty import Prompty
-from pydantic import BaseModel, Field
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Type, Union
+
+from pydantic import BaseModel, Field
+
+from dapr_agents.prompt.base import PromptTemplateBase
+from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.tool.base import AgentTool
+from dapr_agents.types.message import ChatCompletion
 
 
 class ChatClientBase(BaseModel, ABC):
@@ -51,7 +54,7 @@ class ChatClientBase(BaseModel, ABC):
         response_format: Optional[Type[BaseModel]] = None,
         structured_mode: Optional[str] = None,
         **kwargs,
-    ) -> Union[Iterator[Dict[str, Any]], Dict[str, Any]]:
+    ) -> Union[Iterator[Dict[str, Any]], ChatCompletion]:
         """
         Abstract method to generate chat completions.
 
@@ -65,6 +68,6 @@ class ChatClientBase(BaseModel, ABC):
             **kwargs: Additional parameters for the chat completion API.
 
         Returns:
-            Union[Iterator[Dict[str, Any]], Dict[str, Any]]: The chat completion response(s).
+            Union[Iterator[Dict[str, Any]], ChatCompletion]: The chat completion response(s).
         """
         pass

@@ -5,13 +5,12 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from dapr.ext.workflow import DaprWorkflowContext  # type: ignore
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, BaseModel
 
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.types import (
     AgentError,
     AssistantMessage,
-    ChatCompletion,
     ToolMessage,
     UserMessage,
 )
@@ -54,7 +53,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
     and refining outputs through iterative feedback loops.
     """
 
-    tool_history: List[ToolMessage] = Field(
+    tool_history: List[DurableAgentToolHistoryEntry] = Field(
         default_factory=list, description="Executed tool calls during the conversation."
     )
     tool_choice: Optional[str] = Field(
@@ -149,10 +148,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             Dict[str, Any]: The final response message when the workflow completes, or None if continuing to the next iteration.
         """
         # Step 0: Retrieve task, iteration, and sourceworkflow instance ID from the message
-        task = message.get("task")
-        iteration = message.get("iteration", 0)
-        # This is the workflow instance ID of the source workflow that triggered this agent
-        source_workflow_instance_id = message.get("workflow_instance_id")
+        if isinstance(message, dict):
+            task = message.get("task", None)
+            iteration = message.get("iteration", 0)
+            source_workflow_instance_id = message.get("workflow_instance_id")
+        else:
+            task = getattr(message, "task", None)
+            iteration = getattr(message, "iteration", 0)
+            source_workflow_instance_id = getattr(message, "workflow_instance_id", None)
         # This is the instance ID of the current workflow execution
         instance_id = ctx.instance_id
 
@@ -164,7 +167,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Step 1: Initialize workflow entry and state if this is the first iteration
         if iteration == 0:
             # Get metadata from the message, if available
-            metadata = message.get("_message_metadata", {})
+            if isinstance(message, dict):
+                metadata = message.get("_message_metadata", {})
+            else:
+                metadata = getattr(message, "_message_metadata", {})
             source = metadata.get("source", None)
             # Use activity to record initial entry for replay safety
             yield ctx.call_activity(
@@ -175,17 +181,17 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                     "source": source,
                     "source_workflow_instance_id": source_workflow_instance_id,
                     "output": "",
-                    "end_time": None,
                 },
             )
 
             if not ctx.is_replaying:
                 logger.info(f"Initial message from {source} -> {self.name}")
 
-        # Step 2: Retrieve workflow entry for this instance
-        workflow_entry = self.state["instances"][instance_id]
-        source = workflow_entry.get("source")
-        source_workflow_instance_id = workflow_entry.get("source_workflow_instance_id")
+        # Step 2: Retrieve workflow entry info for this instance
+        entry_info = yield ctx.call_activity(self.get_workflow_entry_info, input={"instance_id": instance_id})
+
+        source = entry_info.get("source")
+        source_workflow_instance_id = entry_info.get("source_workflow_instance_id")
 
         # Step 3: Generate Response via LLM
         response = yield ctx.call_activity(
@@ -196,7 +202,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         response_message = yield ctx.call_activity(
             self.get_response_message, input={"response": response}
         )
-
+        
         # Step 5: Extract Finish Reason from LLM Response
         finish_reason = yield ctx.call_activity(
             self.get_finish_reason, input={"response": response}
@@ -281,8 +287,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             return response_message
 
         # Step 9: Continue Workflow Execution
-        message.update({"task": None, "iteration": next_iteration_count})
-        ctx.continue_as_new(message)
+        if isinstance(message, dict):
+            message.update({"task": None, "iteration": next_iteration_count})
+            next_message = message
+        else:
+            # For Pydantic model, create a new dict with updated fields
+            next_message = message.model_dump()
+            next_message.update({"task": None, "iteration": next_iteration_count})
+        ctx.continue_as_new(next_message)
 
     @task
     def record_initial_entry(
@@ -292,7 +304,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         source: Optional[str],
         source_workflow_instance_id: Optional[str],
         output: str = "",
-        end_time: Optional[str] = None,
     ):
         """
         Records the initial workflow entry for a new workflow instance.
@@ -302,18 +313,54 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             source (Optional[str]): The source of the workflow trigger.
             source_workflow_instance_id (Optional[str]): The workflow instance ID of the source.
             output (str): The output for the workflow entry (default: "").
-            end_time (Optional[str]): The end time for the workflow entry (default: None).
         """
         entry = DurableAgentWorkflowEntry(
             input=input,
             source=source,
             source_workflow_instance_id=source_workflow_instance_id,
             output=output,
-            end_time=end_time,
         )
-        self.state.setdefault("instances", {})[instance_id] = entry.model_dump(
-            mode="json"
-        )
+        if isinstance(self.state, dict):
+            self.state.setdefault("instances", {})[instance_id] = entry.model_dump(mode="json")
+        elif self.state is not None:
+            self.state.instances[instance_id] = entry
+        else:
+            raise AgentError("Agent state is None or not valid in record_initial_entry.")
+
+    @task
+    def get_workflow_entry_info(self, instance_id: str) -> Dict[str, Any]:
+        """
+        Retrieves the 'source' and 'source_workflow_instance_id' for a given workflow instance.
+
+        Args:
+            instance_id (str): The workflow instance ID to look up.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing:
+                - 'source': The source of the workflow trigger (str or None).
+                - 'source_workflow_instance_id': The workflow instance ID of the source (str or None).
+
+        Raises:
+            AgentError: If the entry is not found or invalid.
+        """
+        if isinstance(self.state, dict):
+            workflow_entry = self.state.get("instances", {}).get(instance_id)
+        elif self.state is not None:
+            workflow_entry = getattr(self.state.instances, instance_id, None)
+        else:
+            raise AgentError(f"Agent state is None or not valid for workflow entry lookup (instance_id={instance_id})")
+        if workflow_entry is not None:
+            if isinstance(workflow_entry, dict):
+                return {
+                    "source": workflow_entry.get("source"),
+                    "source_workflow_instance_id": workflow_entry.get("source_workflow_instance_id"),
+                }
+            else:
+                return {
+                    "source": getattr(workflow_entry, "source", None),
+                    "source_workflow_instance_id": getattr(workflow_entry, "source_workflow_instance_id", None),
+                }
+        raise AgentError(f"No workflow entry found for instance_id={instance_id}")
 
     @task
     async def generate_response(
@@ -344,43 +391,44 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             # Add the new user message to memory only if input_data is provided and user message exists
             user_msg = UserMessage(content=user_message_copy.get("content", ""))
             self.memory.add_message(user_msg)
-
-        if user_message_copy:
             # Define DurableAgentMessage object for state persistence
             msg_object = DurableAgentMessage(**user_message_copy)
             if isinstance(self.state, dict):
                 inst = self.state["instances"][instance_id]
-                inst.setdefault("messages", []).append(
-                    msg_object.model_dump(mode="json")
-                )
+                inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
                 inst["last_message"] = msg_object.model_dump(mode="json")
-                self.state.setdefault("chat_history", []).append(
-                    msg_object.model_dump(mode="json")
-                )
-            else:
+                self.state.setdefault("chat_history", []).append(msg_object.model_dump(mode="json"))
+            elif self.state is not None:
                 self.state.instances[instance_id].messages.append(msg_object)
                 self.state.instances[instance_id].last_message = msg_object
                 self.state.chat_history.append(msg_object)
+            else:
+                raise AgentError("Agent state is None or not valid in generate_response.")
             # Save the state after appending the user message
             self.save_state()
 
         # Always print the last user message for context, even if no input_data is provided
-        if user_message_copy:
-            self.text_formatter.print_message(user_message_copy)
+        if user_message_copy is not None:
+            # Ensure keys are str for mypy
+            self.text_formatter.print_message({str(k): v for k, v in user_message_copy.items()})
 
         # Generate response using the LLM
         try:
-            response: ChatCompletion = self.llm.generate(
+            response = self.llm.generate(
                 messages=messages,
                 tools=self.get_llm_tools(),
                 tool_choice=self.tool_choice,
             )
+            if isinstance(response, BaseModel):
+                return response.model_dump()
+            elif isinstance(response, dict):
+                return response
+            else:
+                # Defensive: raise error for unexpected type
+                raise AgentError(f"Unexpected response type: {type(response)}")
         except Exception as e:
             logger.error(f"Error during chat generation: {e}")
             raise AgentError(f"Failed during chat generation: {e}") from e
-
-        # Serialize the response to a plain dict
-        return response.model_dump()
 
     @task
     def get_response_message(self, response: Dict[str, Any]) -> Dict[str, Any]:
@@ -392,11 +440,16 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         Returns:
             Dict[str, Any]: The extracted response message with the agent's name added.
+
+        Raises:
+            AgentError: If no response message is found.
         """
         choices = response.get("choices", [])
-        response_message = choices[0].get("message", {})
-
-        return response_message
+        if choices:
+            response_message = choices[0].get("message", {})
+            if response_message:
+                return response_message
+        raise AgentError("No response message found in LLM response.")
 
     @task
     def get_finish_reason(self, response: Dict[str, Any]) -> str:
@@ -418,6 +471,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 except ValueError:
                     logger.warning(f"Unrecognized finish reason: {reason_str}")
                     return FinishReason.UNKNOWN
+            # If choices is empty, return UNKNOWN
+            return FinishReason.UNKNOWN
         except Exception as e:
             logger.error(f"Error extracting finish reason: {e}")
             return FinishReason.UNKNOWN
@@ -543,17 +598,19 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         message["name"] = self.name
         # Convert the message to a DurableAgentMessage object
         msg_object = DurableAgentMessage(**message)
-        if isinstance(self.state, dict):
-            inst: dict = self.state["instances"][instance_id]
-            inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
-            inst["last_message"] = msg_object.model_dump(mode="json")
-            self.state.setdefault("chat_history", []).append(
-                msg_object.model_dump(mode="json")
-            )
-        else:
-            self.state.instances[instance_id].messages.append(msg_object)
-            self.state.instances[instance_id].last_message = msg_object
-            self.state.chat_history.append(msg_object)
+        # Defensive: check self.state is not None
+        if self.state is not None:
+            if isinstance(self.state, dict):
+                inst: dict = self.state["instances"][instance_id]
+                inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
+                inst["last_message"] = msg_object.model_dump(mode="json")
+                self.state.setdefault("chat_history", []).append(
+                    msg_object.model_dump(mode="json")
+                )
+            else:
+                self.state.instances[instance_id].messages.append(msg_object)
+                self.state.instances[instance_id].last_message = msg_object
+                self.state.chat_history.append(msg_object)
         # Add the assistant message to the tool history
         self.memory.add_message(AssistantMessage(**message))
         # Save the state after appending the assistant message
@@ -579,19 +636,21 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Define a DurableAgentToolHistoryEntry object
         # to store the tool execution details in the workflow state
         tool_history_entry = DurableAgentToolHistoryEntry(**tool_result)
-        if isinstance(self.state, dict):
-            inst: dict = self.state["instances"][instance_id]
-            inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
-            inst.setdefault("tool_history", []).append(
-                tool_history_entry.model_dump(mode="json")
-            )
-            self.state.setdefault("chat_history", []).append(
-                msg_object.model_dump(mode="json")
-            )
-        else:
-            self.state.instances[instance_id].messages.append(msg_object)
-            self.state.instances[instance_id].tool_history.append(tool_history_entry)
-            self.state.chat_history.append(msg_object)
+        # Defensive: check self.state is not None
+        if self.state is not None:
+            if isinstance(self.state, dict):
+                inst: dict = self.state["instances"][instance_id]
+                inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
+                inst.setdefault("tool_history", []).append(
+                    tool_history_entry.model_dump(mode="json")
+                )
+                self.state.setdefault("chat_history", []).append(
+                    msg_object.model_dump(mode="json")
+                )
+            else:
+                self.state.instances[instance_id].messages.append(msg_object)
+                self.state.instances[instance_id].tool_history.append(tool_history_entry)
+                self.state.chat_history.append(msg_object)
         # Update tool history and memory of agent
         self.tool_history.append(tool_history_entry)
         # Add the tool message to the agent's memory
@@ -608,16 +667,18 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         """
         end_time = datetime.now(timezone.utc)
         end_time_str = end_time.isoformat()
-        if isinstance(self.state, dict):
-            inst = self.state["instances"][instance_id]
-            inst["output"] = final_output
-            inst["end_time"] = end_time_str
-        else:
-            entry = self.state.instances[instance_id]
-            entry.output = final_output
-            entry.end_time = end_time_str
-
-        self.save_state()
+        # Defensive: check self.state is not None
+        if self.state is not None:
+            if isinstance(self.state, dict):
+                inst = self.state["instances"][instance_id]
+                inst["output"] = final_output
+                inst["end_time"] = end_time_str
+            else:
+                entry = self.state.instances[instance_id]
+                entry.output = final_output
+                entry.end_time = end_time_str
+            self.save_state()
+        # If state is None, do nothing (or optionally log)
 
     @message_router(broadcast=True)
     async def process_broadcast_message(self, message: BroadcastMessage):
@@ -668,16 +729,16 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             msg_object = DurableAgentMessage(**message.model_dump())
 
             # Persist to global chat history
-            if isinstance(self.state, dict):
-                self.state.setdefault("chat_history", [])
-                self.state["chat_history"].append(msg_object.model_dump(mode="json"))
-            else:
-                if not hasattr(self.state, "chat_history"):
-                    self.state.chat_history = []
-                self.state.chat_history.append(msg_object)
-
-            # Save the state after processing the broadcast message
-            self.save_state()
+            if self.state is not None:
+                if isinstance(self.state, dict):
+                    self.state.setdefault("chat_history", [])
+                    self.state["chat_history"].append(msg_object.model_dump(mode="json"))
+                else:
+                    if not hasattr(self.state, "chat_history"):
+                        self.state.chat_history = []
+                    self.state.chat_history.append(msg_object)
+                # Save the state after processing the broadcast message
+                self.save_state()
 
         except Exception as e:
             logger.error(f"Error processing broadcast message: {e}", exc_info=True)

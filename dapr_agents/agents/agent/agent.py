@@ -127,8 +127,9 @@ class Agent(AgentBase):
             self.memory.add_message(user_msg)
 
         # Always print the last user message for context, even if no input_data is provided
-        if user_message_copy:
-            self.text_formatter.print_message(user_message_copy)
+        if user_message_copy is not None:
+            # Ensure keys are str for mypy
+            self.text_formatter.print_message({str(k): v for k, v in user_message_copy.items()})
 
         # Process conversation iterations and return the result
         return await self.process_iterations(messages)
@@ -172,8 +173,7 @@ class Agent(AgentBase):
                         tool_call_id=tool_id,
                         name="<missing>",
                         content=error_msg,
-                        role="tool",
-                        status="error",
+                        role="tool"
                     )
                     self.tool_history.append(tool_message)
                     raise AgentError(error_msg)
@@ -218,15 +218,21 @@ class Agent(AgentBase):
 
             try:
                 # Generate response using the LLM
-                response: ChatCompletion = self.llm.generate(
+                response = self.llm.generate(
                     messages=messages,
                     tools=self.get_llm_tools(),
                     tool_choice=self.tool_choice,
                 )
-
+                # If response is a dict, convert to ChatCompletion
+                if isinstance(response, dict):
+                    response = ChatCompletion(**response)
+                elif not isinstance(response, ChatCompletion):
+                    # If response is an iterator (stream), raise TypeError
+                    raise TypeError(f"Expected ChatCompletion, got {type(response)}")
                 # Get the response message and print it
                 response_message = response.get_message()
-                self.text_formatter.print_message(response_message)
+                if response_message is not None:
+                    self.text_formatter.print_message(response_message)
 
                 # Get Reason for the response
                 reason = FinishReason(response.get_reason())
@@ -236,11 +242,12 @@ class Agent(AgentBase):
                     tool_calls = response.get_tool_calls()
                     if tool_calls:
                         # Add the assistant message with tool calls to the conversation
-                        messages.append(response_message)
+                        if response_message is not None:
+                            messages.append({str(k): v for k, v in response_message.items()})
                         # Execute tools and collect results for this iteration only
                         tool_messages = await self.execute_tools(tool_calls)
                         # Add tool results to messages for the next iteration
-                        messages.extend(tool_messages)
+                        messages.extend([tm.model_dump() for tm in tool_messages])
                         # Continue to next iteration to let LLM process tool results
                         continue
                 # Handle stop response

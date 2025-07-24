@@ -22,6 +22,8 @@ class ServiceMixin:
         - Provides property access to the FastAPI app instance.
     """
 
+    wf_runtime_is_running: Optional[bool] = None
+
     @property
     def app(self):
         """
@@ -154,7 +156,7 @@ class ServiceMixin:
             logger.info("Stopping FastAPI server...")
             await self._http_server.stop()
 
-        if self.wf_runtime_is_running:
+        if getattr(self, "_wf_runtime_is_running", False):
             logger.info("Shutting down workflow runtime.")
             self.stop_runtime()
             self.wf_runtime_is_running = False

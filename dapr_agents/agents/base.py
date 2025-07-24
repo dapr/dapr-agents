@@ -5,7 +5,6 @@ from dapr_agents.memory import (
 )
 from dapr_agents.agents.utils.text_printer import ColorTextFormatter
 from dapr_agents.types import (
-    MessageContent,
     MessagePlaceHolder,
     BaseMessage,
 )
@@ -211,6 +210,8 @@ Your role is {role}.
         attrs = ["name", "role", "goal", "instructions"]
         valid: Dict[str, str] = {}
         unused: List[str] = []
+        if not self.prompt_template or not hasattr(self.prompt_template, "input_variables"):
+            return valid, attrs  # No template, all attrs are unused
         original = set(self.prompt_template.input_variables)
 
         for attr in attrs:
@@ -273,15 +274,15 @@ Your role is {role}.
         """Returns the text formatter for the agent."""
         return self._text_formatter
 
-    def get_chat_history(self, task: Optional[str] = None) -> List[MessageContent]:
+    def get_chat_history(self, task: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Retrieves the chat history from memory based on the memory type.
+        Retrieves the chat history from memory as a list of dictionaries.
 
         Args:
-            task (Optional[str]): The task or query provided by the user.
+            task (Optional[str]): The task or query provided by the user (used for vector search).
 
         Returns:
-            List[MessageContent]: The chat history.
+            List[Dict[str, Any]]: The chat history as dictionaries.
         """
         if isinstance(self.memory, ConversationVectorMemory) and task:
             if (
@@ -291,35 +292,21 @@ Your role is {role}.
                     self.memory.vector_store.embedding_function, "embed_documents"
                 )
             ):
-                query_embeddings = self.memory.vector_store.embedding_function.embed(
-                    task
-                )
-                return self.memory.get_messages(
-                    query_embeddings=query_embeddings
-                )  # returns List[MessageContent]
+                query_embeddings = self.memory.vector_store.embedding_function.embed(task)
+                messages = self.memory.get_messages(query_embeddings=query_embeddings)
             else:
-                return self.memory.get_messages()  # returns List[MessageContent]
+                messages = self.memory.get_messages()
         else:
-            messages = (
-                self.memory.get_messages()
-            )  # returns List[BaseMessage] or List[Dict]
-            converted_messages: List[MessageContent] = []
-            for msg in messages:
-                if isinstance(msg, MessageContent):
-                    converted_messages.append(msg)
-                elif isinstance(msg, BaseMessage):
-                    converted_messages.append(MessageContent(**msg.model_dump()))
-                elif isinstance(msg, dict):
-                    converted_messages.append(MessageContent(**msg))
-                else:
-                    # Fallback: try to convert to dict and then to MessageContent
-                    converted_messages.append(MessageContent(**dict(msg)))
-            return converted_messages
+            messages = self.memory.get_messages()
+        return messages
 
     @property
-    def chat_history(self) -> List[MessageContent]:
+    def chat_history(self) -> List[Dict[str, Any]]:
         """
-        Always returns the full list of MessageContent from memory.
+        Returns the full chat history as a list of dictionaries.
+
+        Returns:
+            List[Dict[str, Any]]: The chat history.
         """
         return self.get_chat_history()
 
@@ -421,7 +408,7 @@ Your role is {role}.
                 "Prompt template must be initialized before constructing messages."
             )
 
-        chat_history = self.get_chat_history()  # List[MessageContent]
+        chat_history = self.get_chat_history()  # List[Dict[str, Any]]
 
         if isinstance(input_data, str):
             formatted_messages = self.prompt_template.format_prompt(
@@ -453,21 +440,18 @@ Your role is {role}.
         """Clears all messages stored in the agent's memory."""
         self.memory.reset_memory()
 
-    def get_last_message(self) -> Optional[MessageContent]:
+    def get_last_message(self) -> Optional[Dict[str, Any]]:
         """
         Retrieves the last message from the chat history.
 
         Returns:
-            Optional[MessageContent]: The last message in the history, or None if none exist.
+            Optional[Dict[str, Any]]: The last message in the history as a dictionary, or None if none exist.
         """
         chat_history = self.get_chat_history()
         if chat_history:
             last_msg = chat_history[-1]
-            # Ensure we return MessageContent type
-            if isinstance(last_msg, BaseMessage) and not isinstance(
-                last_msg, MessageContent
-            ):
-                return MessageContent(**last_msg.model_dump())
+            if isinstance(last_msg, BaseMessage):
+                return last_msg.model_dump()
             return last_msg
         return None
 

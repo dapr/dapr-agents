@@ -1,7 +1,9 @@
+from typing import Any, Dict, List, Union
+
+from pydantic import Field
+
 from dapr_agents.memory import MemoryBase
 from dapr_agents.types import BaseMessage
-from pydantic import Field
-from typing import List, Dict, Union
 
 
 class ConversationListMemory(MemoryBase):
@@ -10,12 +12,12 @@ class ConversationListMemory(MemoryBase):
     retrieve, and manage messages during a conversation session.
     """
 
-    messages: List[BaseMessage] = Field(
+    messages: List[Dict[str, Any]] = Field(
         default_factory=list,
-        description="List of messages stored in conversation memory.",
+        description="List of messages stored in conversation memory as dictionaries.",
     )
 
-    def add_message(self, message: Union[Dict, BaseMessage]):
+    def add_message(self, message: Union[Dict[str, Any], BaseMessage]):
         """
         Adds a single message to the end of the memory list.
 
@@ -24,7 +26,7 @@ class ConversationListMemory(MemoryBase):
         """
         self.messages.append(self._convert_to_dict(message))
 
-    def add_messages(self, messages: List[Union[Dict, BaseMessage]]):
+    def add_messages(self, messages: List[Union[Dict[str, Any], BaseMessage]]):
         """
         Adds multiple messages to the memory by appending each message from the provided list to the end of the memory list.
 
@@ -45,28 +47,15 @@ class ConversationListMemory(MemoryBase):
         """
         self.add_messages([user_message, assistant_message])
 
-    def get_messages(self) -> List[BaseMessage]:
+    def get_messages(self) -> List[Dict[str, Any]]:
         """
         Retrieves a copy of all messages stored in the memory.
 
         Returns:
-            List[BaseMessage]: A list containing copies of all stored messages.
+            List[Dict[str, Any]]: A list containing copies of all stored messages as dictionaries.
         """
         return self.messages.copy()
 
     def reset_memory(self):
         """Clears all messages stored in the memory, resetting the memory to an empty state."""
         self.messages.clear()
-
-    @staticmethod
-    def _convert_to_dict(message: Union[Dict, BaseMessage]) -> Dict:
-        """
-        Converts a BaseMessage to a dictionary if necessary.
-
-        Args:
-            message (Union[Dict, BaseMessage]): The message to potentially convert.
-
-        Returns:
-            Dict: The message as a dictionary.
-        """
-        return message.model_dump() if isinstance(message, BaseMessage) else message

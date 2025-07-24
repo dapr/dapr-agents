@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Type, Union, List
 
 from cloudevents.http.conversion import from_http
 from cloudevents.http.event import CloudEvent
@@ -24,7 +24,7 @@ from dapr_agents.memory import (
     MemoryBase,
 )
 from dapr_agents.storage.daprstores.statestore import DaprStateStore
-from dapr_agents.workflow import WorkflowApp
+from dapr_agents.workflow.base import WorkflowApp
 from dapr_agents.workflow.mixins import (
     MessagingMixin,
     PubSubMixin,
@@ -131,6 +131,42 @@ class AgenticWorkflow(
         self.initialize_state()
         super().model_post_init(__context)
 
+    def get_chat_history(self, task: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves the chat history from memory as a list of dictionaries.
+
+        Args:
+            task (Optional[str]): The task or query provided by the user (used for vector search).
+
+        Returns:
+            List[Dict[str, Any]]: The chat history as dictionaries.
+        """
+        if isinstance(self.memory, ConversationVectorMemory) and task:
+            if (
+                hasattr(self.memory.vector_store, "embedding_function")
+                and self.memory.vector_store.embedding_function
+                and hasattr(
+                    self.memory.vector_store.embedding_function, "embed_documents"
+                )
+            ):
+                query_embeddings = self.memory.vector_store.embedding_function.embed(task)
+                messages = self.memory.get_messages(query_embeddings=query_embeddings)
+            else:
+                messages = self.memory.get_messages()
+        else:
+            messages = self.memory.get_messages()
+        return messages
+
+    @property
+    def chat_history(self) -> List[Dict[str, Any]]:
+        """
+        Returns the full chat history as a list of dictionaries.
+
+        Returns:
+            List[Dict[str, Any]]: The chat history.
+        """
+        return self.get_chat_history()
+    
     def get_data_from_store(self, store_name: str, key: str) -> Optional[dict]:
         """
         Retrieves data from the Dapr state store using the given key.
@@ -305,33 +341,6 @@ class AgenticWorkflow(
         except Exception as e:
             logger.error(f"Failed to register metadata for agent {self.name}: {e}")
             raise e
-
-    def get_chat_history(self, task: Optional[str] = None) -> List[dict]:
-        """
-        Retrieve and validate the agent's chat history.
-
-        Fetches messages stored in the agent's memory, optionally filtering them based on the given
-        task using vector similarity. The retrieved messages are validated using Pydantic (if applicable)
-        and returned as a list of dictionaries.
-
-        Args:
-            task (Optional[str]): A specific task description to filter relevant messages using vector embeddings.
-                If not provided, retrieves the full chat history.
-
-        Returns:
-            List[dict]: A list of chat history messages, each represented as a dictionary. If a message is a
-                Pydantic model, it is serialized using `model_dump()`.
-        """
-        if isinstance(self.memory, ConversationVectorMemory) and task:
-            query_embeddings = self.memory.vector_store.embedding_function.embed(task)
-            chat_history = self.memory.get_messages(query_embeddings=query_embeddings)
-        else:
-            chat_history = self.memory.get_messages()
-        chat_history_messages = [
-            msg.model_dump() if isinstance(msg, BaseModel) else msg
-            for msg in chat_history
-        ]
-        return chat_history_messages
 
     async def run_workflow_from_request(self, request: Request) -> JSONResponse:
         """
