@@ -149,7 +149,9 @@ class AgenticWorkflow(
                     self.memory.vector_store.embedding_function, "embed_documents"
                 )
             ):
-                query_embeddings = self.memory.vector_store.embedding_function.embed(task)
+                query_embeddings = self.memory.vector_store.embedding_function.embed(
+                    task
+                )
                 messages = self.memory.get_messages(query_embeddings=query_embeddings)
             else:
                 messages = self.memory.get_messages()
@@ -166,7 +168,7 @@ class AgenticWorkflow(
             List[Dict[str, Any]]: The chat history.
         """
         return self.get_chat_history()
-    
+
     def get_data_from_store(self, store_name: str, key: str) -> Optional[dict]:
         """
         Retrieves data from the Dapr state store using the given key.

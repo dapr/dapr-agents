@@ -188,7 +188,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 logger.info(f"Initial message from {source} -> {self.name}")
 
         # Step 2: Retrieve workflow entry info for this instance
-        entry_info = yield ctx.call_activity(self.get_workflow_entry_info, input={"instance_id": instance_id})
+        entry_info = yield ctx.call_activity(
+            self.get_workflow_entry_info, input={"instance_id": instance_id}
+        )
 
         source = entry_info.get("source")
         source_workflow_instance_id = entry_info.get("source_workflow_instance_id")
@@ -202,7 +204,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         response_message = yield ctx.call_activity(
             self.get_response_message, input={"response": response}
         )
-        
+
         # Step 5: Extract Finish Reason from LLM Response
         finish_reason = yield ctx.call_activity(
             self.get_finish_reason, input={"response": response}
@@ -321,11 +323,15 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             output=output,
         )
         if isinstance(self.state, dict):
-            self.state.setdefault("instances", {})[instance_id] = entry.model_dump(mode="json")
+            self.state.setdefault("instances", {})[instance_id] = entry.model_dump(
+                mode="json"
+            )
         elif self.state is not None:
             self.state.instances[instance_id] = entry
         else:
-            raise AgentError("Agent state is None or not valid in record_initial_entry.")
+            raise AgentError(
+                "Agent state is None or not valid in record_initial_entry."
+            )
 
     @task
     def get_workflow_entry_info(self, instance_id: str) -> Dict[str, Any]:
@@ -348,17 +354,23 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         elif self.state is not None:
             workflow_entry = getattr(self.state.instances, instance_id, None)
         else:
-            raise AgentError(f"Agent state is None or not valid for workflow entry lookup (instance_id={instance_id})")
+            raise AgentError(
+                f"Agent state is None or not valid for workflow entry lookup (instance_id={instance_id})"
+            )
         if workflow_entry is not None:
             if isinstance(workflow_entry, dict):
                 return {
                     "source": workflow_entry.get("source"),
-                    "source_workflow_instance_id": workflow_entry.get("source_workflow_instance_id"),
+                    "source_workflow_instance_id": workflow_entry.get(
+                        "source_workflow_instance_id"
+                    ),
                 }
             else:
                 return {
                     "source": getattr(workflow_entry, "source", None),
-                    "source_workflow_instance_id": getattr(workflow_entry, "source_workflow_instance_id", None),
+                    "source_workflow_instance_id": getattr(
+                        workflow_entry, "source_workflow_instance_id", None
+                    ),
                 }
         raise AgentError(f"No workflow entry found for instance_id={instance_id}")
 
@@ -395,22 +407,30 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             msg_object = DurableAgentMessage(**user_message_copy)
             if isinstance(self.state, dict):
                 inst = self.state["instances"][instance_id]
-                inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
+                inst.setdefault("messages", []).append(
+                    msg_object.model_dump(mode="json")
+                )
                 inst["last_message"] = msg_object.model_dump(mode="json")
-                self.state.setdefault("chat_history", []).append(msg_object.model_dump(mode="json"))
+                self.state.setdefault("chat_history", []).append(
+                    msg_object.model_dump(mode="json")
+                )
             elif self.state is not None:
                 self.state.instances[instance_id].messages.append(msg_object)
                 self.state.instances[instance_id].last_message = msg_object
                 self.state.chat_history.append(msg_object)
             else:
-                raise AgentError("Agent state is None or not valid in generate_response.")
+                raise AgentError(
+                    "Agent state is None or not valid in generate_response."
+                )
             # Save the state after appending the user message
             self.save_state()
 
         # Always print the last user message for context, even if no input_data is provided
         if user_message_copy is not None:
             # Ensure keys are str for mypy
-            self.text_formatter.print_message({str(k): v for k, v in user_message_copy.items()})
+            self.text_formatter.print_message(
+                {str(k): v for k, v in user_message_copy.items()}
+            )
 
         # Generate response using the LLM
         try:
@@ -602,7 +622,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         if self.state is not None:
             if isinstance(self.state, dict):
                 inst: dict = self.state["instances"][instance_id]
-                inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
+                inst.setdefault("messages", []).append(
+                    msg_object.model_dump(mode="json")
+                )
                 inst["last_message"] = msg_object.model_dump(mode="json")
                 self.state.setdefault("chat_history", []).append(
                     msg_object.model_dump(mode="json")
@@ -640,7 +662,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         if self.state is not None:
             if isinstance(self.state, dict):
                 inst: dict = self.state["instances"][instance_id]
-                inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
+                inst.setdefault("messages", []).append(
+                    msg_object.model_dump(mode="json")
+                )
                 inst.setdefault("tool_history", []).append(
                     tool_history_entry.model_dump(mode="json")
                 )
@@ -649,7 +673,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 )
             else:
                 self.state.instances[instance_id].messages.append(msg_object)
-                self.state.instances[instance_id].tool_history.append(tool_history_entry)
+                self.state.instances[instance_id].tool_history.append(
+                    tool_history_entry
+                )
                 self.state.chat_history.append(msg_object)
         # Update tool history and memory of agent
         self.tool_history.append(tool_history_entry)
@@ -732,7 +758,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             if self.state is not None:
                 if isinstance(self.state, dict):
                     self.state.setdefault("chat_history", [])
-                    self.state["chat_history"].append(msg_object.model_dump(mode="json"))
+                    self.state["chat_history"].append(
+                        msg_object.model_dump(mode="json")
+                    )
                 else:
                     if not hasattr(self.state, "chat_history"):
                         self.state.chat_history = []

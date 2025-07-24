@@ -114,7 +114,9 @@ class ConversationDaprStateMemory(MemoryBase):
             self.add_message(message)
 
     def add_interaction(
-        self, user_message: Union[Dict[str, Any], BaseMessage], assistant_message: Union[Dict[str, Any], BaseMessage]
+        self,
+        user_message: Union[Dict[str, Any], BaseMessage],
+        assistant_message: Union[Dict[str, Any], BaseMessage],
     ) -> None:
         """
         Adds a user-assistant interaction to the memory storage and saves it to the state store.

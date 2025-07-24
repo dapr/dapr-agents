@@ -35,9 +35,13 @@ class ConversationVectorMemory(MemoryBase):
             "message_id": str(uuid.uuid4()),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        self.vector_store.add(documents=[message_dict.get("content")], metadatas=[metadata])
+        self.vector_store.add(
+            documents=[message_dict.get("content")], metadatas=[metadata]
+        )
 
-    def add_messages(self, messages: List[Union[Dict[str, Any], MessageContent]]) -> None:
+    def add_messages(
+        self, messages: List[Union[Dict[str, Any], MessageContent]]
+    ) -> None:
         """
         Adds multiple messages to the vector store.
 
@@ -49,18 +53,20 @@ class ConversationVectorMemory(MemoryBase):
         for msg in messages:
             msg_dict = self._convert_to_dict(msg)
             contents.append(msg_dict.get("content"))
-            metadatas.append({
-                "role": msg_dict.get("role"),
-                f"{msg_dict.get('role')}_message": msg_dict.get("content"),
-                "message_id": str(uuid.uuid4()),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            metadatas.append(
+                {
+                    "role": msg_dict.get("role"),
+                    f"{msg_dict.get('role')}_message": msg_dict.get("content"),
+                    "message_id": str(uuid.uuid4()),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         self.vector_store.add(contents, metadatas)
 
     def add_interaction(
         self,
         user_message: Union[Dict[str, Any], UserMessage],
-        assistant_message: Union[Dict[str, Any], AssistantMessage]
+        assistant_message: Union[Dict[str, Any], AssistantMessage],
     ) -> None:
         """
         Adds a user-assistant interaction to the vector store as a single document.
@@ -72,9 +78,7 @@ class ConversationVectorMemory(MemoryBase):
         user_msg_dict = self._convert_to_dict(user_message)
         assistant_msg_dict = self._convert_to_dict(assistant_message)
         conversation_id = str(uuid.uuid4())
-        conversation_text = (
-            f"User: {user_msg_dict.get('content')}\nAssistant: {assistant_msg_dict.get('content')}"
-        )
+        conversation_text = f"User: {user_msg_dict.get('content')}\nAssistant: {assistant_msg_dict.get('content')}"
         conversation_embeddings = self.vector_store.embed_documents([conversation_text])
         metadata = {
             "user_message": user_msg_dict.get("content"),
@@ -122,7 +126,9 @@ class ConversationVectorMemory(MemoryBase):
                 and "assistant_message" in metadata
             ):
                 messages.append({"role": "user", "content": metadata["user_message"]})
-                messages.append({"role": "assistant", "content": metadata["assistant_message"]})
+                messages.append(
+                    {"role": "assistant", "content": metadata["assistant_message"]}
+                )
         return messages
 
     def reset_memory(self) -> None:
@@ -156,7 +162,9 @@ class ConversationVectorMemory(MemoryBase):
         messages: List[Dict[str, Any]] = []
 
         if not results or not results["ids"][0]:
-            return messages  # Return an empty list if no similar conversations are found
+            return (
+                messages  # Return an empty list if no similar conversations are found
+            )
 
         for idx, distance in enumerate(results["distances"][0]):
             if distance <= distance_threshold:
@@ -164,12 +172,36 @@ class ConversationVectorMemory(MemoryBase):
                 if metadata:
                     timestamp = metadata.get("timestamp")
                     if "user_message" in metadata and "assistant_message" in metadata:
-                        messages.append({"role": "user", "content": metadata["user_message"], "timestamp": timestamp})
-                        messages.append({"role": "assistant", "content": metadata["assistant_message"], "timestamp": timestamp})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": metadata["user_message"],
+                                "timestamp": timestamp,
+                            }
+                        )
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": metadata["assistant_message"],
+                                "timestamp": timestamp,
+                            }
+                        )
                     elif "user_message" in metadata:
-                        messages.append({"role": "user", "content": metadata["user_message"], "timestamp": timestamp})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": metadata["user_message"],
+                                "timestamp": timestamp,
+                            }
+                        )
                     elif "assistant_message" in metadata:
-                        messages.append({"role": "assistant", "content": metadata["assistant_message"], "timestamp": timestamp})
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": metadata["assistant_message"],
+                                "timestamp": timestamp,
+                            }
+                        )
 
         messages.sort(key=lambda x: x.get("timestamp"))
         return messages

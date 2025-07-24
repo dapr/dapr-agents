@@ -210,7 +210,9 @@ Your role is {role}.
         attrs = ["name", "role", "goal", "instructions"]
         valid: Dict[str, str] = {}
         unused: List[str] = []
-        if not self.prompt_template or not hasattr(self.prompt_template, "input_variables"):
+        if not self.prompt_template or not hasattr(
+            self.prompt_template, "input_variables"
+        ):
             return valid, attrs  # No template, all attrs are unused
         original = set(self.prompt_template.input_variables)
 
@@ -292,7 +294,9 @@ Your role is {role}.
                     self.memory.vector_store.embedding_function, "embed_documents"
                 )
             ):
-                query_embeddings = self.memory.vector_store.embedding_function.embed(task)
+                query_embeddings = self.memory.vector_store.embedding_function.embed(
+                    task
+                )
                 messages = self.memory.get_messages(query_embeddings=query_embeddings)
             else:
                 messages = self.memory.get_messages()

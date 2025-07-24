@@ -129,7 +129,9 @@ class Agent(AgentBase):
         # Always print the last user message for context, even if no input_data is provided
         if user_message_copy is not None:
             # Ensure keys are str for mypy
-            self.text_formatter.print_message({str(k): v for k, v in user_message_copy.items()})
+            self.text_formatter.print_message(
+                {str(k): v for k, v in user_message_copy.items()}
+            )
 
         # Process conversation iterations and return the result
         return await self.process_iterations(messages)
@@ -173,7 +175,7 @@ class Agent(AgentBase):
                         tool_call_id=tool_id,
                         name="<missing>",
                         content=error_msg,
-                        role="tool"
+                        role="tool",
                     )
                     self.tool_history.append(tool_message)
                     raise AgentError(error_msg)
@@ -243,7 +245,9 @@ class Agent(AgentBase):
                     if tool_calls:
                         # Add the assistant message with tool calls to the conversation
                         if response_message is not None:
-                            messages.append({str(k): v for k, v in response_message.items()})
+                            messages.append(
+                                {str(k): v for k, v in response_message.items()}
+                            )
                         # Execute tools and collect results for this iteration only
                         tool_messages = await self.execute_tools(tool_calls)
                         # Add tool results to messages for the next iteration
