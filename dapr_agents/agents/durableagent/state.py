@@ -72,3 +72,7 @@ class DurableAgentWorkflowState(BaseModel):
         default_factory=dict,
         description="Workflow entries indexed by their instance_id.",
     )
+    chat_history: List[DurableAgentMessage] = Field(
+        default_factory=list,
+        description="Chat history of messages exchanged during the workflow.",
+    )

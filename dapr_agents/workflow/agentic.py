@@ -62,8 +62,8 @@ class AgenticWorkflow(
         default="workflow_state",
         description="Dapr state key for workflow state storage.",
     )
-    state: Optional[Union[BaseModel, dict]] = Field(
-        default=None, description="Current state of the workflow."
+    state: dict = Field(
+        default_factory=dict, description="Current state of the workflow."
     )
     state_format: Optional[Type[BaseModel]] = Field(
         default=None,
