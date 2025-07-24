@@ -14,7 +14,7 @@ from dapr_agents.agents.durableagent.schemas import (
     BroadcastMessage,
 )
 from dapr_agents.agents.durableagent.state import (
-    AssistantWorkflowState,
+    DurableAgentWorkflowState,
 )
 from dapr_agents.memory import ConversationListMemory
 from dapr_agents.llm import OpenAIChatClient
@@ -54,8 +54,8 @@ def patch_dapr_check(monkeypatch):
         base.WorkflowApp, "model_post_init", mock_workflow_app_post_init
     )
 
-    # Patch AssistantWorkflowState class to add __getitem__ and setdefault
-    # TODO(@Sicoyle): in future, the AssistantWorkflowState class should be a Pydantic model,
+    # Patch DurableAgentWorkflowState class to add __getitem__ and setdefault
+    # TODO(@Sicoyle): in future, the DurableAgentWorkflowState class should be a Pydantic model,
     # and so we can not have to patch the class to add __getitem__ and setdefault,
     # because the data will not be a dictionary, but a Pydantic model with proper accessors.
     def _getitem(self, key):
@@ -67,8 +67,8 @@ def patch_dapr_check(monkeypatch):
         setattr(self, key, default)
         return default
 
-    AssistantWorkflowState.__getitem__ = _getitem
-    AssistantWorkflowState.setdefault = _setdefault
+    DurableAgentWorkflowState.__getitem__ = _getitem
+    DurableAgentWorkflowState.setdefault = _setdefault
 
     def mock_agentic_post_init(self, __context: Any) -> None:
         self._text_formatter = Mock()
@@ -92,7 +92,7 @@ def patch_dapr_check(monkeypatch):
         self._topic_handlers = {}
 
         if not hasattr(self, "state") or self.state is None:
-            self.state = AssistantWorkflowState()
+            self.state = DurableAgentWorkflowState()
 
         # Call the WorkflowApp model_post_init which we have mocked above.
         super(agentic.AgenticWorkflow, self).model_post_init(__context)
@@ -212,7 +212,7 @@ class TestDurableAgent:
         assert agent.message_bus_name == "testpubsub"
         assert agent.agent_topic_name == "TestDurableAgent"
         assert agent.state is not None
-        assert isinstance(agent.state, AssistantWorkflowState)
+        assert isinstance(agent.state, DurableAgentWorkflowState)
 
     def test_durable_agent_initialization_with_custom_topic(self, mock_llm):
         """Test durable agent initialization with custom topic name."""
@@ -588,6 +588,6 @@ class TestDurableAgent:
 
     def test_durable_agent_state_initialization(self, basic_durable_agent):
         """Test that the agent state is properly initialized."""
-        assert isinstance(basic_durable_agent.state, AssistantWorkflowState)
+        assert isinstance(basic_durable_agent.state, DurableAgentWorkflowState)
         assert hasattr(basic_durable_agent.state, "instances")
         assert basic_durable_agent.state.instances == {}
