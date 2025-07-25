@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
-from dapr_agents.types import MessageContent
+from dapr_agents.types import MessageContent, ToolExecutionRecord
 from datetime import datetime
 import uuid
 
@@ -13,21 +13,6 @@ class DurableAgentMessage(MessageContent):
     timestamp: datetime = Field(
         default_factory=datetime.now,
         description="Timestamp when the message was created",
-    )
-
-
-class DurableAgentToolHistoryEntry(DurableAgentMessage):
-    role: str = Field(
-        default="tool",
-        description="Role of the message.",
-    )
-    function_name: str = Field(
-        ...,
-        description="Name of tool suggested by the model to run for a specific task.",
-    )
-    function_args: Optional[str] = Field(
-        None,
-        description="Tool arguments suggested by the model to run for a specific task.",
     )
 
 
@@ -55,7 +40,7 @@ class DurableAgentWorkflowEntry(BaseModel):
     last_message: Optional[DurableAgentMessage] = Field(
         default=None, description="Last processed message in the workflow"
     )
-    tool_history: List[DurableAgentToolHistoryEntry] = Field(
+    tool_history: List[ToolExecutionRecord] = Field(
         default_factory=list, description="Tool message exchanged during the workflow"
     )
     source: Optional[str] = Field(None, description="Entity that initiated the task.")

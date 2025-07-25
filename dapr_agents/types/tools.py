@@ -1,5 +1,7 @@
-from typing import Optional, List, Dict, Literal
-from pydantic import BaseModel, field_validator, ValidationInfo
+from typing import Optional, List, Dict, Literal, Any
+from pydantic import BaseModel, field_validator, ValidationInfo, Field
+from datetime import datetime
+import uuid
 from datetime import timedelta
 
 
@@ -119,9 +121,40 @@ class StreamableHTTPServerParameters(BaseModel):
 class WebSocketServerParameters(BaseModel):
     """
     Configuration for websocket transport.
-
-    Attributes:
-        url (str): The websocket endpoint URL.
     """
 
-    url: str
+    url: str = Field(
+        ...,
+        description="The websocket endpoint URL.",
+    )
+
+
+class ToolExecutionRecord(BaseModel):
+    """
+    Represents a record of a tool execution, including the tool name and parameters used.
+    """
+
+    id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        description="Unique identifier for the tool execution record",
+    )
+    timestamp: datetime = Field(
+        default_factory=datetime.now,
+        description="Timestamp when the tool execution record was created",
+    )
+    tool_call_id: str = Field(
+        ...,
+        description="Unique identifier for the tool call",
+    )
+    tool_name: str = Field(
+        ...,
+        description="Name of tool suggested by the model to run for a specific task.",
+    )
+    tool_args: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Tool arguments suggested by the model to run for a specific task.",
+    )
+    execution_result: Optional[str] = Field(
+        None,
+        description="Result of the tool execution, if available.",
+    )

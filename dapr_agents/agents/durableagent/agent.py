@@ -5,12 +5,13 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from dapr.ext.workflow import DaprWorkflowContext  # type: ignore
-from pydantic import Field, model_validator, BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.types import (
     AgentError,
     AssistantMessage,
+    ToolExecutionRecord,
     ToolMessage,
     UserMessage,
 )
@@ -24,7 +25,6 @@ from .schemas import (
 )
 from .state import (
     DurableAgentMessage,
-    DurableAgentToolHistoryEntry,
     DurableAgentWorkflowEntry,
     DurableAgentWorkflowState,
 )
@@ -53,13 +53,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
     and refining outputs through iterative feedback loops.
     """
 
-    tool_history: List[DurableAgentToolHistoryEntry] = Field(
-        default_factory=list, description="Executed tool calls during the conversation."
-    )
-    tool_choice: Optional[str] = Field(
-        default=None,
-        description="Strategy for selecting tools ('auto', 'required', 'none'). Defaults to 'auto' if tools are provided.",
-    )
     agent_topic_name: Optional[str] = Field(
         default=None,
         description="The topic name dedicated to this specific agent, derived from the agent's name if not provided.",
@@ -91,9 +84,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Name of main Workflow
         # TODO: can this be configurable or dynamic? Would that make sense?
         self._workflow_name = "ToolCallingWorkflow"
-        # Set tool_choice to 'auto' if tools are provided, otherwise None
-        if self.tool_choice is None:
-            self.tool_choice = "auto" if self.tools else None
 
         # Register the agentic system
         self._agent_metadata = {
@@ -383,7 +373,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             self.memory.add_message(user_msg)
             # Define DurableAgentMessage object for state persistence
             msg_object = DurableAgentMessage(**user_message_copy)
-            inst = self.state["instances"][instance_id]
+            inst: dict = self.state["instances"][instance_id]
             inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
             inst["last_message"] = msg_object.model_dump(mode="json")
             self.state.setdefault("chat_history", []).append(
@@ -526,9 +516,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Return the plain payload for later persistence
         return {
             "tool_call_id": tool_call["id"],
-            "function_name": fn_name,
-            "function_args": raw_args,
-            "content": str(result),
+            "tool_name": fn_name,
+            "tool_args": args,
+            "execution_result": str(result) if result is not None else "",
         }
 
     @task
@@ -609,14 +599,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Define a ToolMessage object from the tool result
         tool_message = ToolMessage(
             tool_call_id=tool_result["tool_call_id"],
-            name=tool_result["function_name"],
-            content=tool_result["content"],
+            name=tool_result["tool_name"],
+            content=tool_result["execution_result"],
         )
         # Define DurableAgentMessage object for state persistence
         msg_object = DurableAgentMessage(**tool_message.model_dump())
-        # Define a DurableAgentToolHistoryEntry object
+        # Define a ToolExecutionRecord object
         # to store the tool execution details in the workflow state
-        tool_history_entry = DurableAgentToolHistoryEntry(**tool_result)
+        tool_history_entry = ToolExecutionRecord(**tool_result)
         # Defensive: check self.state is not None
         inst: dict = self.state["instances"][instance_id]
         inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
@@ -642,7 +632,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         """
         end_time = datetime.now(timezone.utc)
         end_time_str = end_time.isoformat()
-        inst = self.state["instances"][instance_id]
+        inst: dict = self.state["instances"][instance_id]
         inst["output"] = final_output
         inst["end_time"] = end_time_str
         self.save_state()

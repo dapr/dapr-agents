@@ -1,17 +1,18 @@
+import asyncio
+import logging
+from enum import Enum
+from typing import Any, Dict, List, Optional, Union
+
+from dapr_agents.agents.base import AgentBase
 from dapr_agents.types import (
     AgentError,
     AssistantMessage,
     ChatCompletion,
-    UserMessage,
     ToolCall,
+    ToolExecutionRecord,
     ToolMessage,
+    UserMessage,
 )
-from dapr_agents.agents.base import AgentBase
-from typing import List, Optional, Dict, Any, Union
-from pydantic import Field
-from enum import Enum
-import logging
-import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -29,30 +30,6 @@ class Agent(AgentBase):
     Agent that manages tool calls and conversations using a language model.
     It integrates tools and processes them based on user inputs and task orchestration.
     """
-
-    # Persistent audit log for all tool executions and results
-    tool_history: List[ToolMessage] = Field(
-        default_factory=list,
-        description="Audit log of all tool executions and results.",
-    )
-    tool_choice: Optional[str] = Field(
-        default=None,
-        description="Strategy for selecting tools ('auto', 'required', 'none'). Defaults to 'auto' if tools are provided.",
-    )
-
-    def model_post_init(self, __context: Any) -> None:
-        """
-        Post-initialization hook for Agent.
-        Sets the tool choice strategy based on provided tools and calls the base model setup.
-        Args:
-            __context (Any): Context passed from Pydantic's model initialization.
-        """
-        # Set tool_choice to 'auto' if tools are provided and not explicitly set
-        if self.tool_choice is None:
-            self.tool_choice = "auto" if self.tools else None
-
-        # Proceed with base model setup
-        super().model_post_init(__context)
 
     async def run(self, input_data: Optional[Union[str, Dict[str, Any]]] = None) -> Any:
         """
@@ -170,12 +147,12 @@ class Agent(AgentBase):
                 if not function_name:
                     error_msg = f"Tool call missing function name: {tool_call}"
                     logger.error(error_msg)
-                    # Return a ToolMessage with error status and raise AgentError
-                    tool_message = ToolMessage(
-                        tool_call_id=tool_id,
-                        name="<missing>",
-                        content=error_msg,
-                        role="tool",
+                    # Return a ToolExecutionRecord with error status and raise AgentError
+                    tool_message = ToolExecutionRecord(
+                        tool_call_id="<missing>",
+                        tool_name="<missing>",
+                        tool_args="<missing>",
+                        execution_result=error_msg,
                     )
                     self.tool_history.append(tool_message)
                     raise AgentError(error_msg)
@@ -185,13 +162,22 @@ class Agent(AgentBase):
                         f"Executing {function_name} with arguments {function_args}"
                     )
                     result = await self.run_tool(function_name, **function_args)
+                    result_str = str(result) if result is not None else ""
                     tool_message = ToolMessage(
-                        tool_call_id=tool_id, name=function_name, content=str(result)
+                        tool_call_id=tool_id,
+                        name=function_name,
+                        content=result_str,
                     )
                     # Printing the tool message for visibility
                     self.text_formatter.print_message(tool_message)
                     # Append tool message to the persistent audit log
-                    self.tool_history.append(tool_message)
+                    tool_execution_record = ToolExecutionRecord(
+                        tool_call_id=tool_id,
+                        tool_name=function_name,
+                        tool_args=function_args,
+                        execution_result=result_str,
+                    )
+                    self.tool_history.append(tool_execution_record)
                     return tool_message
                 except Exception as e:
                     logger.error(f"Error executing tool {function_name}: {e}")

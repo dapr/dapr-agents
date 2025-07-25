@@ -192,8 +192,8 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     assert len(instance_data.tool_history) == 1
     tool_entry = instance_data.tool_history[0]
     assert tool_entry["tool_call_id"] == "call_123"
-    assert tool_entry["function_name"] == tool_name
-    assert tool_entry["content"] == "4"
+    assert tool_entry["tool_name"] == tool_name
+    assert tool_entry["execution_result"] == "4"
 
 
 # Shared fixture to start the math server with streamable HTTP
@@ -288,5 +288,5 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
     assert len(instance_data.tool_history) == 1
     tool_entry = instance_data.tool_history[0]
     assert tool_entry["tool_call_id"] == "call_456"
-    assert tool_entry["function_name"] == tool_name
-    assert tool_entry["content"] == "4"
+    assert tool_entry["tool_name"] == tool_name
+    assert tool_entry["execution_result"] == "4"

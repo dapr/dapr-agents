@@ -24,7 +24,12 @@ from .message import (
     UserMessage,
 )
 from .schemas import OAIJSONSchema, OAIResponseFormatSchema
-from .tools import ClaudeToolDefinition, OAIFunctionDefinition, OAIToolDefinition
+from .tools import (
+    ClaudeToolDefinition,
+    OAIFunctionDefinition,
+    OAIToolDefinition,
+    ToolExecutionRecord,
+)
 
 __all__ = [
     "AgentStatus",
@@ -57,4 +62,5 @@ __all__ = [
     "ClaudeToolDefinition",
     "OAIFunctionDefinition",
     "OAIToolDefinition",
+    "ToolExecutionRecord",
 ]

@@ -4,10 +4,7 @@ from dapr_agents.memory import (
     ConversationVectorMemory,
 )
 from dapr_agents.agents.utils.text_printer import ColorTextFormatter
-from dapr_agents.types import (
-    MessagePlaceHolder,
-    BaseMessage,
-)
+from dapr_agents.types import MessagePlaceHolder, BaseMessage, ToolExecutionRecord
 from dapr_agents.tool.executor import AgentToolExecutor
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt import ChatPromptTemplate
@@ -88,6 +85,13 @@ class AgentBase(BaseModel, ABC):
         default_factory=list,
         description="Tools available for the agent to assist with tasks.",
     )
+    tool_choice: Optional[str] = Field(
+        default=None,
+        description="Strategy for selecting tools ('auto', 'required', 'none'). Defaults to 'auto' if tools are provided.",
+    )
+    tool_history: List[ToolExecutionRecord] = Field(
+        default_factory=list, description="Executed tool calls during the conversation."
+    )
     # TODO: add a forceFinalAnswer field in case maxIterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
     max_iterations: int = Field(
         default=10, description="Max iterations for conversation cycles."
@@ -156,6 +160,10 @@ Your role is {role}.
             __context (Any): Context passed from Pydantic's model initialization.
         """
         self._tool_executor = AgentToolExecutor(tools=self.tools)
+
+        # Set tool_choice to 'auto' if tools are provided, otherwise None
+        if self.tool_choice is None:
+            self.tool_choice = "auto" if self.tools else None
 
         # Centralize prompt template selection logic
         self.prompt_template = self._initialize_prompt_template()

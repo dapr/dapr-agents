@@ -431,8 +431,8 @@ class TestDurableAgent:
             assert len(instance_data["tool_history"]) == 1
             tool_entry = instance_data["tool_history"][0]
             assert tool_entry["tool_call_id"] == "call_123"
-            assert tool_entry["function_name"] == "test_tool"
-            assert tool_entry["content"] == "test_result"
+            assert tool_entry["tool_name"] == "test_tool"
+            assert tool_entry["execution_result"] == "test_result"
             mock_run_tool.assert_called_once_with("test_tool", arg1="value1")
 
     @pytest.mark.asyncio
@@ -506,10 +506,10 @@ class TestDurableAgent:
         """Test updating workflow state via activities."""
         instance_id = "test-instance-123"
         message = {"content": "Test message", "role": "assistant"}
-        tool_message = {
+        tool_execution_record = {
             "tool_call_id": "call_123",
-            "function_name": "test_tool",
-            "content": "tool_result",
+            "tool_name": "test_tool",
+            "execution_result": "tool_result",
         }
         final_output = "Final output"
 
@@ -524,7 +524,7 @@ class TestDurableAgent:
         basic_durable_agent.state["instances"] = {instance_id: workflow_entry}
 
         basic_durable_agent.append_assistant_message(instance_id, message)
-        basic_durable_agent.append_tool_message(instance_id, tool_message)
+        basic_durable_agent.append_tool_message(instance_id, tool_execution_record)
         basic_durable_agent.finalize_workflow(instance_id, final_output)
 
         instance_data = basic_durable_agent.state["instances"][instance_id]

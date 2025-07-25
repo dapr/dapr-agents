@@ -68,7 +68,7 @@ class MCPServer:
         event_store = None
         if resumable:
             try:
-                from cookbook.mcp.basic.servers.event_store import InMemoryEventStore
+                from event_store import InMemoryEventStore
 
                 event_store = InMemoryEventStore()
                 logger.warning("⚠️ Using in-memory event store. Not for production use!")
