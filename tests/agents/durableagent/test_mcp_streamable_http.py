@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, Mock
 from dapr_agents.agents.durableagent.agent import DurableAgent
-from dapr_agents.agents.durableagent.state import AssistantWorkflowEntry
-from dapr_agents.agents.durableagent.state import AssistantWorkflowState
+from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
+from dapr_agents.agents.durableagent.state import DurableAgentWorkflowState
 from dapr_agents.tool.base import AgentTool
 
 
@@ -11,7 +11,7 @@ def patch_dapr_check(monkeypatch):
     monkeypatch.setattr(DurableAgent, "save_state", lambda self: None)
 
     # The following monkeypatches are for legacy compatibility with dict-like access in tests.
-    # If AssistantWorkflowState supports dict-like access natively, these can be removed.
+    # If DurableAgentWorkflowState supports dict-like access natively, these can be removed.
     def _getitem(self, key):
         return getattr(self, key)
 
@@ -21,8 +21,8 @@ def patch_dapr_check(monkeypatch):
         setattr(self, key, default)
         return default
 
-    AssistantWorkflowState.__getitem__ = _getitem
-    AssistantWorkflowState.setdefault = _setdefault
+    DurableAgentWorkflowState.__getitem__ = _getitem
+    DurableAgentWorkflowState.setdefault = _setdefault
     # Patch DaprStateStore to use a mock DaprClient that supports context manager
     import dapr_agents.storage.daprstores.statestore as statestore
 
@@ -153,7 +153,7 @@ def durable_agent_with_mcp_tool(mock_mcp_tool, mock_mcp_session):
         goal="Help humans do math",
         instructions=["Test math instructions"],
         tools=[agent_tool],
-        state=AssistantWorkflowState(),
+        state=DurableAgentWorkflowState().model_dump(),
         state_store_name="teststatestore",
         message_bus_name="testpubsub",
         agents_registry_store_name="testregistry",
@@ -166,7 +166,7 @@ def durable_agent_with_mcp_tool(mock_mcp_tool, mock_mcp_session):
 async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     # Test the mocked MCP tool (add) with DurableAgent
     instance_id = "test-instance-123"
-    workflow_entry = AssistantWorkflowEntry(
+    workflow_entry = DurableAgentWorkflowEntry(
         input="What is 2 plus 2?",
         source=None,
         source_workflow_instance_id=None,
@@ -186,13 +186,14 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
         "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
     }
 
-    await durable_agent_with_mcp_tool.execute_tool(instance_id, tool_call)
+    result = await durable_agent_with_mcp_tool.run_tool(tool_call)
     instance_data = durable_agent_with_mcp_tool.state["instances"][instance_id]
+    instance_data.tool_history.append(result)
     assert len(instance_data.tool_history) == 1
     tool_entry = instance_data.tool_history[0]
-    assert tool_entry.tool_call_id == "call_123"
-    assert tool_entry.function_name == tool_name
-    assert tool_entry.content == "4"
+    assert tool_entry["tool_call_id"] == "call_123"
+    assert tool_entry["tool_name"] == tool_name
+    assert tool_entry["execution_result"] == "4"
 
 
 # Shared fixture to start the math server with streamable HTTP
@@ -257,14 +258,14 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
         goal="Help humans do math",
         instructions=["Test math instructions"],
         tools=agent_tools,
-        state=AssistantWorkflowState(),
+        state=DurableAgentWorkflowState().model_dump(),
         state_store_name="teststatestore",
         message_bus_name="testpubsub",
         agents_registry_store_name="testregistry",
     )
     agent.__pydantic_private__["_tool_executor"] = tool_executor
     instance_id = "test-instance-456"
-    workflow_entry = AssistantWorkflowEntry(
+    workflow_entry = DurableAgentWorkflowEntry(
         input="What is 2 plus 2?",
         source=None,
         source_workflow_instance_id=None,
@@ -281,10 +282,11 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
         "id": "call_456",
         "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
     }
-    await agent.execute_tool(instance_id, tool_call)
+    result = await agent.run_tool(tool_call)
     instance_data = agent.state["instances"][instance_id]
+    instance_data.tool_history.append(result)
     assert len(instance_data.tool_history) == 1
     tool_entry = instance_data.tool_history[0]
-    assert tool_entry.tool_call_id == "call_456"
-    assert tool_entry.function_name == tool_name
-    assert tool_entry.content == "4"
+    assert tool_entry["tool_call_id"] == "call_456"
+    assert tool_entry["tool_name"] == tool_name
+    assert tool_entry["execution_result"] == "4"

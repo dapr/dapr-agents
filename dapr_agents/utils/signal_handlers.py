@@ -2,7 +2,7 @@ import asyncio
 import signal
 import platform
 import logging
-from typing import Callable, Any, Union
+from typing import Callable, Any
 
 logger = logging.getLogger(__name__)
 

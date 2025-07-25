@@ -1,4 +1,0 @@
-dapr-agents
-python-dotenv
-mcp
-starlette

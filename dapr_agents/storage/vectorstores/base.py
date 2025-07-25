@@ -96,16 +96,22 @@ class VectorStoreBase(BaseModel, ABC):
         """
         pass
 
-    def add_documents(self, documents: List[Document]):
+    def add_documents(self, documents: List[Document]) -> List[str]:
         """
         Adds `Document` objects to the Chroma collection, extracting text and metadata.
 
         Args:
             documents (List[Document]): List of `Document` objects to add.
+
+        Returns:
+            List[str]: List of IDs for the added documents.
         """
         texts = [doc.text for doc in documents]
         metadatas = (
             [doc.metadata for doc in documents] if documents[0].metadata else None
         )
         ids = [str(uuid.uuid4()) for _ in documents]
-        self.add(documents=texts, embeddings=None, metadatas=metadatas, ids=ids)
+        result = self.add(
+            documents=texts, embeddings=None, metadatas=metadatas, ids=ids
+        )
+        return result if result is not None else ids

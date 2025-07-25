@@ -77,7 +77,7 @@ cp schema.sql users.sql ./docker-entrypoint-initdb.d
 Run the database container:
 
 ```bash
-docker run --rm --name sampledb \               
+docker run --rm --name sampledb \
   -e POSTGRES_PASSWORD=mypassword \
   -e POSTGRES_USER=admin \
   -e POSTGRES_DB=userdb \

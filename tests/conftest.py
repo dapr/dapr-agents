@@ -54,7 +54,7 @@ mock_routing.MessageRoutingMixin = MockMessageRoutingMixin
 
 # Register the messaging mocks
 sys.modules["dapr_agents.workflow.messaging"] = mock_messaging
-sys.modules["dapr_agents.workflow.messaging.routing"] = mock_routing
+sys.modules["dapr_agents.workflow.mixins.routing"] = mock_routing
 
 
 class MockWorkflowState:

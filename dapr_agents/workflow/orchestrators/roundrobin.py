@@ -1,8 +1,7 @@
-from dapr_agents.workflow.messaging.decorator import message_router
 from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
 from dapr.ext.workflow import DaprWorkflowContext
 from dapr_agents.types import BaseMessage
-from dapr_agents.workflow.decorators import workflow, task
+from dapr_agents.workflow.decorators import task, workflow, message_router
 from typing import Any, Optional, Dict
 from pydantic import BaseModel, Field
 from datetime import timedelta
@@ -19,6 +18,12 @@ class AgentTaskResponse(BaseMessage):
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
     )
+
+
+class BroadcastMessage(BaseMessage):
+    """
+    Represents a broadcast message from an agent.
+    """
 
 
 class TriggerAction(BaseModel):
@@ -164,9 +169,11 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
         Args:
             message (Dict[str, Any]): The message content and additional metadata.
         """
-        await self.broadcast_message(
-            message=BaseMessage(**message), exclude_orchestrator=True
-        )
+        # Format message for broadcasting
+        task_message = BroadcastMessage(**message)
+
+        # Send broadcast message
+        await self.broadcast_message(message=task_message, exclude_orchestrator=True)
 
     @task
     async def select_next_speaker(self, iteration: int) -> str:
@@ -218,7 +225,7 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
             None: The function raises a workflow event with the agent's response.
         """
         try:
-            workflow_instance_id = message.get("workflow_instance_id")
+            workflow_instance_id = getattr(message, "workflow_instance_id", None)
 
             if not workflow_instance_id:
                 logger.error(

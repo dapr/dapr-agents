@@ -7,7 +7,7 @@ from dapr_agents.types import (
     AgentError,
     AssistantMessage,
     ChatCompletion,
-    ToolMessage,
+    ToolExecutionRecord,
     UserMessage,
     ToolCall,
 )
@@ -190,12 +190,12 @@ class TestAgent:
         agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(
             tools=[echo_tool]
         )
-        await agent_with_tools.process_response([tool_call])
+        await agent_with_tools.execute_tools([tool_call])
         assert len(agent_with_tools.tool_history) == 1
         tool_message = agent_with_tools.tool_history[0]
         assert tool_message.tool_call_id == "call_123"
-        assert tool_message.name == echo_tool.name
-        assert tool_message.content == "value1"
+        assert tool_message.tool_name == echo_tool.name
+        assert tool_message.execution_result == "value1"
 
     @pytest.mark.asyncio
     async def test_process_response_failure(self, agent_with_tools):
@@ -213,7 +213,7 @@ class TestAgent:
         with pytest.raises(
             AgentError, match=f"Error executing tool '{error_tool.name}': .*Tool failed"
         ):
-            await agent_with_tools.process_response([tool_call])
+            await agent_with_tools.execute_tools([tool_call])
 
     @pytest.mark.asyncio
     async def test_process_iterations_max_reached(self, basic_agent):
@@ -287,13 +287,16 @@ class TestAgent:
 
     def test_agent_tool_history_management(self, basic_agent):
         """Test tool history management."""
-        tool_message = ToolMessage(
-            tool_call_id="call_123", name="echo_tool", content="test_result"
+        tool_execution_record = ToolExecutionRecord(
+            tool_call_id="call_123",
+            tool_name="echo_tool",
+            tool_args={"arg1": "value1"},
+            execution_result="test_result",
         )
-        basic_agent.tool_history.append(tool_message)
+        basic_agent.tool_history.append(tool_execution_record)
 
         assert len(basic_agent.tool_history) == 1
-        assert basic_agent.tool_history[0].name == "echo_tool"
+        assert basic_agent.tool_history[0].tool_name == "echo_tool"
 
         basic_agent.tool_history.clear()
         assert len(basic_agent.tool_history) == 0

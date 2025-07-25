@@ -1,7 +1,9 @@
-from dapr_agents.types import BaseMessage
-from pydantic import BaseModel, ConfigDict
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Dict, List, Union, Any
+
+from pydantic import BaseModel, ConfigDict
+
+from dapr_agents.types import BaseMessage
 
 
 class MemoryBase(BaseModel, ABC):
@@ -52,12 +54,12 @@ class MemoryBase(BaseModel, ABC):
         pass
 
     @abstractmethod
-    def get_messages(self) -> List[BaseMessage]:
+    def get_messages(self) -> List[Dict[str, Any]]:
         """
         Retrieves all messages from the memory storage.
 
         Returns:
-            List[BaseMessage]: A list of all stored messages.
+            List[Dict[str, Any]]: A list of all stored messages as dictionaries.
 
         Note:
             This method must be implemented by subclasses.
@@ -73,3 +75,16 @@ class MemoryBase(BaseModel, ABC):
             This method must be implemented by subclasses.
         """
         pass
+
+    @staticmethod
+    def _convert_to_dict(message: Union[Dict, BaseMessage]) -> Dict:
+        """
+        Converts a BaseMessage to a dictionary if necessary.
+
+        Args:
+            message (Union[Dict, BaseMessage]): The message to potentially convert.
+
+        Returns:
+            Dict: The message as a dictionary.
+        """
+        return message.model_dump() if isinstance(message, BaseMessage) else message

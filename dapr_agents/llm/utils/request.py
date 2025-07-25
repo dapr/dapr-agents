@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional, List, Type, Union, Iterable, Literal
 from dapr_agents.prompt.prompty import Prompty, PromptyHelper
 from dapr_agents.types.message import BaseMessage
-from dapr_agents.llm.utils import StructureHandler
+from dapr_agents.llm.utils.structure import StructureHandler
 from dapr_agents.tool.utils.tool import ToolHelper
 from pydantic import BaseModel, ValidationError
 from dapr_agents.tool.base import AgentTool

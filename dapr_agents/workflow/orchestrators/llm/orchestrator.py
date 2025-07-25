@@ -3,8 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from dapr.ext.workflow import DaprWorkflowContext
-from dapr_agents.workflow.decorators import task, workflow
-from dapr_agents.workflow.messaging.decorator import message_router
+from dapr_agents.workflow.decorators import task, workflow, message_router
 from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
 from dapr_agents.workflow.orchestrators.llm.schemas import (
     BroadcastMessage,
@@ -81,7 +80,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         """
         # Step 0: Retrieve iteration messages
         task = message.get("task")
-        iteration = message.get("iteration")
+        iteration = message.get("iteration", 0)
 
         # Step 1:
         # Ensure 'instances' and the instance_id entry exist
@@ -228,6 +227,18 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             status_updates = progress.get("plan_status_update", [])
             plan_updates = progress.get("plan_restructure", [])
 
+            # Step 11: Handle verdict and updates
+            if status_updates or plan_updates:
+                yield ctx.call_activity(
+                    self.update_plan,
+                    input={
+                        "instance_id": instance_id,
+                        "plan": plan,
+                        "status_updates": status_updates,
+                        "plan_updates": plan_updates,
+                    },
+                )
+
         else:
             logger.warning(
                 f"Step {step_id}, Substep {substep_id} not found in plan for instance {instance_id}. Recovering..."
@@ -243,7 +254,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                 "content": f"Step {step_id}, Substep {substep_id} does not exist in the plan. Adjusting workflow...",
             }
 
-        # Step 11: Process progress suggestions and next iteration count
+        # Step 12: Process progress suggestions and next iteration count
         next_iteration_count = iteration + 1
         if verdict != "continue" or next_iteration_count > self.max_iterations:
             if next_iteration_count >= self.max_iterations:
@@ -286,18 +297,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
             return summary
 
-        if status_updates or plan_updates:
-            yield ctx.call_activity(
-                self.update_plan,
-                input={
-                    "instance_id": instance_id,
-                    "plan": plan,
-                    "status_updates": status_updates,
-                    "plan_updates": plan_updates,
-                },
-            )
-
-        # Step 12: Update TriggerAction state and continue workflow
+        # Step 13: Update TriggerAction state and continue workflow
         message["task"] = task_results["content"]
         message["iteration"] = next_iteration_count
 
@@ -771,7 +771,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             None: The function raises a workflow event with the agent's response.
         """
         try:
-            workflow_instance_id = message.get("workflow_instance_id")
+            workflow_instance_id = getattr(message, "workflow_instance_id", None)
 
             if not workflow_instance_id:
                 logger.error(

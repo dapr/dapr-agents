@@ -193,6 +193,11 @@ class ChatPromptHelper:
             return message_class(
                 content=content, tool_call_id=message_data.get("tool_call_id")
             )
+        elif role == "assistant" and message_data.get("tool_calls") is not None:
+            # Pass tool_calls to AssistantMessage if present
+            return message_class(
+                content=content, tool_calls=message_data.get("tool_calls")
+            )
         return message_class(content=content)
 
     @classmethod

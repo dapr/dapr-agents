@@ -1,24 +1,27 @@
+import logging
+from pathlib import Path
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Literal,
+    Optional,
+    Type,
+    Union,
+)
+
+from huggingface_hub import ChatCompletionOutput
+from pydantic import BaseModel
+
+from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.huggingface.client import HFHubInferenceClientBase
 from dapr_agents.llm.utils import RequestHandler, ResponseHandler
 from dapr_agents.prompt.prompty import Prompty
-from dapr_agents.types.message import BaseMessage
-from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.tool import AgentTool
-from typing import (
-    Union,
-    Optional,
-    Iterable,
-    Dict,
-    Any,
-    List,
-    Iterator,
-    Type,
-    Literal,
-    ClassVar,
-)
-from pydantic import BaseModel
-from pathlib import Path
-import logging
+from dapr_agents.types.message import BaseMessage, ChatCompletion
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +97,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
         response_format: Optional[Type[BaseModel]] = None,
         structured_mode: Literal["function_call"] = "function_call",
         **kwargs,
-    ) -> Union[Iterator[Dict[str, Any]], Dict[str, Any]]:
+    ) -> Union[Iterator[Dict[str, Any]], ChatCompletion]:
         """
         Generate chat completions based on provided messages or input_data for prompt templates.
 
@@ -108,7 +111,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             **kwargs: Additional parameters for the language model.
 
         Returns:
-            Union[Iterator[Dict[str, Any]], Dict[str, Any]]: The chat completion response(s).
+            Union[Iterator[Dict[str, Any]], ChatCompletion]: The chat completion response(s).
         """
 
         if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
@@ -153,8 +156,21 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
 
         try:
             logger.info("Invoking Hugging Face ChatCompletion API.")
-            response = self.client.chat_completion(**params)
+            response: ChatCompletionOutput = self.client.chat.completions.create(
+                **params
+            )
             logger.info("Chat completion retrieved successfully.")
+
+            # Hugging Face error handling
+            status = getattr(response, "statuscode", 200)
+            code = getattr(response, "code", 200)
+            if code != 200:
+                logger.error(
+                    f"❌ Status Code:{status} - Code:{code} Error: {getattr(response, 'message', response)}"
+                )
+                raise RuntimeError(
+                    f"{status}/{code} Error: {getattr(response, 'message', response)}"
+                )
 
             return ResponseHandler.process_response(
                 response,

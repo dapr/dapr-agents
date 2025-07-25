@@ -1,14 +1,16 @@
+import logging
+import os
+from typing import Optional, Union
+
 from azure.identity import (
     DefaultAzureCredential,
     ManagedIdentityCredential,
     get_bearer_token_provider,
 )
-from dapr_agents.types.llm import AzureOpenAIClientConfig
-from dapr_agents.llm.utils import HTTPHelper
 from openai import AzureOpenAI
-from typing import Union, Optional
-import logging
-import os
+
+from dapr_agents.llm.utils import HTTPHelper
+from dapr_agents.types.llm import AzureOpenAIClientConfig
 
 logger = logging.getLogger(__name__)
 

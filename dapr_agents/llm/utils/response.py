@@ -4,7 +4,8 @@ from typing import Any, Dict, Iterator, Literal, Optional, Type, Union
 
 from pydantic import BaseModel
 
-from dapr_agents.llm.utils import StreamHandler, StructureHandler
+from dapr_agents.llm.utils.stream import StreamHandler
+from dapr_agents.llm.utils.structure import StructureHandler
 from dapr_agents.types import ChatCompletion
 
 logger = logging.getLogger(__name__)

@@ -6,14 +6,14 @@ from functools import update_wrapper
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from dapr.ext.workflow import WorkflowActivityContext
+from pydantic import BaseModel, ConfigDict, Field
 
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.openai import OpenAIChatClient
 from dapr_agents.llm.utils import StructureHandler
+from dapr_agents.prompt.utils.chat import ChatPromptHelper
 from dapr_agents.types import BaseMessage, ChatCompletion, UserMessage
 
 logger = logging.getLogger(__name__)
@@ -148,7 +148,7 @@ class WorkflowTask(BaseModel):
         Returns:
             The function's return value.
         """
-        logger.info("Invoking regular Python function")
+        logger.debug("Invoking regular Python function")
         if asyncio.iscoroutinefunction(self.func):
             return await self.func(**data)
         else:
@@ -165,7 +165,7 @@ class WorkflowTask(BaseModel):
         Returns:
             Raw result from the AI path.
         """
-        logger.info(f"Invoking task via {executor.upper()}")
+        logger.debug(f"Invoking task via {executor.upper()}")
         logger.debug(f"Invoking task with prompt: {prompt!r}")
         if executor == "agent":
             result = await self.agent.run(prompt)
@@ -187,7 +187,8 @@ class WorkflowTask(BaseModel):
         history: List[BaseMessage] = []
         if self.include_chat_history and self.workflow_app:
             logger.debug("Retrieving chat history")
-            history = self.workflow_app.get_chat_history()
+            history_dicts = self.workflow_app.get_chat_history()
+            history = ChatPromptHelper.normalize_chat_messages(history_dicts)
 
         messages: List[BaseMessage] = history + [UserMessage(prompt)]
         params: Dict[str, Any] = {"messages": messages}

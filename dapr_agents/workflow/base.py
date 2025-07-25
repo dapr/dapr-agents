@@ -4,33 +4,23 @@ import inspect
 import json
 import logging
 import sys
-import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from durabletask import task as dtask
-
-from dapr.clients import DaprClient
-from dapr.clients.grpc._request import (
-    TransactionOperationType,
-    TransactionalStateOperation,
-)
-from dapr.clients.grpc._response import StateResponse
-from dapr.clients.grpc._state import Concurrency, Consistency, StateOptions
 from dapr.ext.workflow import (
     DaprWorkflowClient,
     WorkflowActivityContext,
     WorkflowRuntime,
 )
 from dapr.ext.workflow.workflow_state import WorkflowState
+from durabletask import task as dtask
+from pydantic import BaseModel, ConfigDict, Field
 
-from dapr_agents.types.workflow import DaprWorkflowStatus
-from dapr_agents.workflow.task import WorkflowTask
-from dapr_agents.workflow.utils import get_decorated_methods
 from dapr_agents.agents.base import ChatClientType
 from dapr_agents.llm.openai import OpenAIChatClient
+from dapr_agents.types.workflow import DaprWorkflowStatus
+from dapr_agents.workflow.task import WorkflowTask
+from dapr_agents.workflow.utils.core import get_decorated_methods, is_pydantic_model
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +52,6 @@ class WorkflowApp(BaseModel):
     wf_client: Optional[DaprWorkflowClient] = Field(
         default=None, init=False, description="Workflow client instance."
     )
-    client: Optional[DaprClient] = Field(
-        default=None, init=False, description="Dapr client instance."
-    )
     tasks: Dict[str, Callable] = Field(
         default_factory=dict, init=False, description="Dictionary of registered tasks."
     )
@@ -80,11 +67,14 @@ class WorkflowApp(BaseModel):
         """
         Initialize the Dapr workflow runtime and register tasks & workflows.
         """
+        # Check if Dapr is available before proceeding
+        if not self._is_dapr_available():
+            self._raise_dapr_required_error()
+
         # Initialize clients and runtime
         self.wf_runtime = WorkflowRuntime()
         self.wf_runtime_is_running = False
         self.wf_client = DaprWorkflowClient()
-        self.client = DaprClient()
         logger.info("WorkflowApp initialized; discovering tasks and workflows.")
 
         # Discover and register tasks and workflows
@@ -94,13 +84,6 @@ class WorkflowApp(BaseModel):
         self._register_workflows(discovered_wfs)
 
         super().model_post_init(__context)
-
-    def get_chat_history(self) -> List[Any]:
-        """
-        Stub for fetching past conversation history. Override in subclasses.
-        """
-        logger.debug("Fetching chat history (default stub)")
-        return []
 
     def _choose_llm_for(self, method: Callable) -> Optional[ChatClientType]:
         """
@@ -225,111 +208,73 @@ class WorkflowApp(BaseModel):
             decorator = self.wf_runtime.workflow(name=wf_name)
             self.workflows[wf_name] = decorator(make_wrapped(method))
 
-    def start_runtime(self):
-        """Idempotently start the Dapr workflow runtime."""
-        if not self.wf_runtime_is_running:
-            logger.info("Starting workflow runtime.")
-            self.wf_runtime.start()
-            self.wf_runtime_is_running = True
-        else:
-            logger.debug("Workflow runtime already running; skipping.")
-
-    def stop_runtime(self):
-        """Idempotently stop the Dapr workflow runtime."""
-        if self.wf_runtime_is_running:
-            logger.info("Stopping workflow runtime.")
-            self.wf_runtime.shutdown()
-            self.wf_runtime_is_running = False
-        else:
-            logger.debug("Workflow runtime already stopped; skipping.")
-
-    def register_agent(
-        self, store_name: str, store_key: str, agent_name: str, agent_metadata: dict
-    ) -> None:
+    def _is_dapr_available(self) -> bool:
         """
-        Merges the existing data with the new data and updates the store.
+        Check if Dapr is available by attempting to connect to the Dapr sidecar.
 
-        Args:
-            store_name (str): The name of the Dapr state store component.
-            key (str): The key to update.
-            data (dict): The data to update the store with.
-        """
-        # retry the entire operation up to ten times sleeping 1 second between each
-        # TODO: rm the custom retry logic here and use the DaprClient retry_policy instead.
-        for attempt in range(1, 11):
-            try:
-                response: StateResponse = self.client.get_state(
-                    store_name=store_name, key=store_key
-                )
-                if not response.etag:
-                    # if there is no etag the following transaction won't work as expected
-                    # so we need to save an empty object with a strong consistency to force the etag to be created
-                    self.client.save_state(
-                        store_name=store_name,
-                        key=store_key,
-                        value=json.dumps({}),
-                        state_metadata={"contentType": "application/json"},
-                        options=StateOptions(
-                            concurrency=Concurrency.first_write,
-                            consistency=Consistency.strong,
-                        ),
-                    )
-                    # raise an exception to retry the entire operation
-                    raise Exception(f"No etag found for key: {store_key}")
-                existing_data = json.loads(response.data) if response.data else {}
-                if (agent_name, agent_metadata) in existing_data.items():
-                    logger.debug(f"agent {agent_name} already registered.")
-                    return None
-                agent_data = {agent_name: agent_metadata}
-                merged_data = {**existing_data, **agent_data}
-                logger.debug(f"merged data: {merged_data} etag: {response.etag}")
-                try:
-                    # using the transactional API to be able to later support the Dapr outbox pattern
-                    self.client.execute_state_transaction(
-                        store_name=store_name,
-                        operations=[
-                            TransactionalStateOperation(
-                                key=store_key,
-                                data=json.dumps(merged_data),
-                                etag=response.etag,
-                                operation_type=TransactionOperationType.upsert,
-                            )
-                        ],
-                        transactional_metadata={"contentType": "application/json"},
-                    )
-                except Exception as e:
-                    raise e
-                return None
-            except Exception as e:
-                logger.error(f"Error on transaction attempt: {attempt}: {e}")
-                logger.info("Sleeping for 1 second before retrying transaction...")
-                time.sleep(1)
-        raise Exception(
-            f"Failed to update state store key: {store_key} after 10 attempts."
-        )
-
-    def get_data_from_store(self, store_name: str, key: str) -> Optional[dict]:
-        """
-        Retrieves data from the Dapr state store using the given key.
-
-        Args:
-            store_name (str): The name of the Dapr state store component.
-            key (str): The key to fetch data from.
+        This provides better developer experience for users who don't have Dapr running,
+        by providing a clear error message if Dapr is not available.
 
         Returns:
-            Optional[dict]: the retrieved dictionary or None if not found.
+            bool: True if Dapr is available, False otherwise.
         """
         try:
-            response: StateResponse = self.client.get_state(
-                store_name=store_name, key=key
-            )
-            data = response.data
-            return json.loads(data) if data else None
+            import os
+            import socket
+
+            def check_tcp_port(port: int, timeout: int = 2) -> bool:
+                """
+                Check if a TCP port is open and accepting connections.
+
+                Args:
+                    port (int): The port number to check.
+                    timeout (int): Timeout in seconds for the connection attempt.
+
+                Returns:
+                    bool: True if the port is open, False otherwise.
+                """
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(timeout)
+                    result = sock.connect_ex(("localhost", port))
+                    sock.close()
+                    return result == 0
+                except Exception:
+                    return False
+
+            ports_to_check = []
+            for env_var in ["DAPR_HTTP_PORT", "DAPR_GRPC_PORT"]:
+                port = os.environ.get(env_var)
+                if port:
+                    ports_to_check.append(int(port))
+
+            # Fallback ports
+            ports_to_check.extend([3500, 3501, 3502])
+            for port in ports_to_check:
+                if check_tcp_port(port):
+                    return True
+
+            return False
         except Exception:
-            logger.warning(
-                f"Error retrieving data for key '{key}' from store '{store_name}'"
-            )
-            return None
+            return False
+
+    def _raise_dapr_required_error(self):
+        """
+        Raise a helpful error message when Dapr is required but not available.
+
+        Raises:
+            RuntimeError: Always raised to indicate Dapr is required for this workflow.
+        """
+        error_msg = (
+            "🚫 Dapr Required for Durable Agent\n\n"
+            "This agent requires Dapr to be running because it uses stateful, durable workflows.\n\n"
+            "To run this agent, you need to:\n\n"
+            "1. Install Dapr CLI: https://docs.dapr.io/getting-started/install-dapr-cli/\n"
+            "2. Initialize Dapr: dapr init\n"
+            "3. Run with Dapr: dapr run --app-id your-app-id --app-port 8001 --resources-path components/ -- python your_script.py\n\n"
+            "For more information, see the README.md in the quickstart directory."
+        )
+        raise RuntimeError(error_msg)
 
     def resolve_task(self, task: Union[str, Callable]) -> Callable:
         """
@@ -382,6 +327,24 @@ class WorkflowApp(BaseModel):
             raise AttributeError(f"Workflow '{workflow_name}' not found.")
 
         return workflow_func
+
+    def start_runtime(self):
+        """Idempotently start the Dapr workflow runtime."""
+        if not self.wf_runtime_is_running:
+            logger.info("Starting workflow runtime.")
+            self.wf_runtime.start()
+            self.wf_runtime_is_running = True
+        else:
+            logger.debug("Workflow runtime already running; skipping.")
+
+    def stop_runtime(self):
+        """Idempotently stop the Dapr workflow runtime."""
+        if self.wf_runtime_is_running:
+            logger.info("Stopping workflow runtime.")
+            self.wf_runtime.shutdown()
+            self.wf_runtime_is_running = False
+        else:
+            logger.debug("Workflow runtime already stopped; skipping.")
 
     def run_workflow(
         self, workflow: Union[str, Callable], input: Union[str, Dict[str, Any]] = None
@@ -462,7 +425,7 @@ class WorkflowApp(BaseModel):
             logger.info(f"Monitoring workflow '{instance_id}'...")
 
             # Retrieve workflow state
-            state = await self.monitor_workflow_state(instance_id)
+            state: WorkflowState = await self.monitor_workflow_state(instance_id)
             if not state:
                 return  # Error already logged in monitor_workflow_state
 
@@ -691,6 +654,11 @@ class WorkflowApp(BaseModel):
             logger.info(
                 f"Raising workflow event '{event_name}' for instance '{instance_id}'"
             )
+            # Ensure data is in a serializable format
+            if is_pydantic_model(type(data)):
+                # Convert Pydantic model to dict
+                data = data.model_dump()
+            # Raise the event using the Dapr workflow client with serialized data
             self.wf_client.raise_workflow_event(
                 instance_id=instance_id, event_name=event_name, data=data
             )
@@ -705,50 +673,6 @@ class WorkflowApp(BaseModel):
             raise Exception(
                 f"Failed to raise workflow event '{event_name}' for instance '{instance_id}': {str(e)}"
             )
-
-    def invoke_service(
-        self,
-        service: str,
-        method: str,
-        http_method: str = "POST",
-        input: Optional[Dict[str, Any]] = None,
-        timeout: Optional[int] = None,
-    ) -> Any:
-        """
-        Invokes an external service via Dapr.
-
-        Args:
-            service (str): The service name.
-            method (str): The method to call.
-            http_method (str, optional): The HTTP method (default: "POST").
-            input (Optional[Dict[str, Any]], optional): The request payload.
-            timeout (Optional[int], optional): Timeout in seconds.
-
-        Returns:
-            Any: The response from the service.
-
-        Raises:
-            Exception: If the invocation fails.
-        """
-        try:
-            resp = self.client.invoke_method(
-                app_id=service,
-                method_name=method,
-                http_verb=http_method,
-                data=json.dumps(input) if input else None,
-                timeout=timeout,
-            )
-            if resp.status_code != 200:
-                raise Exception(
-                    f"Error calling {service}.{method}: {resp.status_code}: {resp.text}"
-                )
-
-            agent_response = json.loads(resp.data.decode("utf-8"))
-            logger.info(f"Agent's Response: {agent_response}")
-            return agent_response
-        except Exception as e:
-            logger.error(f"Failed to invoke {service}.{method}: {e}")
-            raise e
 
     def when_all(self, tasks: List[dtask.Task[T]]) -> dtask.WhenAllTask[T]:
         """

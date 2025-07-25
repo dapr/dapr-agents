@@ -28,10 +28,10 @@ async def test_random_orchestrator_initialization(orchestrator_config):
         "dapr_agents.workflow.agentic.AgenticWorkflow._state_store_client"
     ) as mock_state_store, patch(
         "dapr_agents.workflow.agentic.AgenticWorkflow._dapr_client"
-    ) as mock_dapr_client:
+    ) as mockclient:
         mock_dapr_check.return_value = True
         mock_state_store.return_value = MagicMock()
-        mock_dapr_client.return_value = MagicMock()
+        mockclient.return_value = MagicMock()
         orchestrator = RandomOrchestrator(**orchestrator_config)
         assert orchestrator.name == "test_orchestrator"
         assert orchestrator._workflow_name == "RandomWorkflow"
@@ -49,10 +49,10 @@ async def test_process_input(orchestrator_config):
         "dapr_agents.workflow.agentic.AgenticWorkflow._state_store_client"
     ) as mock_state_store, patch(
         "dapr_agents.workflow.agentic.AgenticWorkflow._dapr_client"
-    ) as mock_dapr_client:
+    ) as mockclient:
         mock_dapr_check.return_value = True
         mock_state_store.return_value = MagicMock()
-        mock_dapr_client.return_value = MagicMock()
+        mockclient.return_value = MagicMock()
         orchestrator = RandomOrchestrator(**orchestrator_config)
         task = "test task"
         result = await orchestrator.process_input(task)
@@ -73,14 +73,14 @@ async def test_select_random_speaker(orchestrator_config):
         "dapr_agents.workflow.agentic.AgenticWorkflow._state_store_client"
     ) as mock_state_store, patch(
         "dapr_agents.workflow.agentic.AgenticWorkflow._dapr_client"
-    ) as mock_dapr_client, patch.object(
+    ) as mockclient, patch.object(
         RandomOrchestrator,
         "get_agents_metadata",
         return_value={"agent1": {"name": "agent1"}, "agent2": {"name": "agent2"}},
     ):
         mock_dapr_check.return_value = True
         mock_state_store.return_value = MagicMock()
-        mock_dapr_client.return_value = MagicMock()
+        mockclient.return_value = MagicMock()
         orchestrator = RandomOrchestrator(**orchestrator_config)
 
         speaker = orchestrator.select_random_speaker(iteration=1)

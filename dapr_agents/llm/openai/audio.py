@@ -1,14 +1,15 @@
+import logging
+from typing import Any, Dict, Optional, Union
+
 from dapr_agents.llm.openai.client.base import OpenAIClientBase
 from dapr_agents.llm.utils import RequestHandler
 from dapr_agents.types.llm import (
     AudioSpeechRequest,
     AudioTranscriptionRequest,
-    AudioTranslationRequest,
     AudioTranscriptionResponse,
+    AudioTranslationRequest,
     AudioTranslationResponse,
 )
-from typing import Union, Optional, Dict, Any
-import logging
 
 logger = logging.getLogger(__name__)
 

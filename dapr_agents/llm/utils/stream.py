@@ -9,7 +9,7 @@ from typing import (
     Iterable,
     get_args,
 )
-from dapr_agents.llm.utils import StructureHandler
+from dapr_agents.llm.utils.structure import StructureHandler
 from dapr_agents.types import ToolCall
 from openai.types.chat import ChatCompletionChunk
 from pydantic import BaseModel, ValidationError

@@ -1,8 +1,7 @@
 from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
 from dapr.ext.workflow import DaprWorkflowContext
 from dapr_agents.types import BaseMessage
-from dapr_agents.workflow.decorators import workflow, task
-from dapr_agents.workflow.messaging.decorator import message_router
+from dapr_agents.workflow.decorators import task, workflow, message_router
 from typing import Any, Optional, Dict
 from datetime import timedelta
 from pydantic import BaseModel, Field
@@ -11,6 +10,12 @@ import logging
 
 
 logger = logging.getLogger(__name__)
+
+
+class BroadcastMessage(BaseMessage):
+    """
+    Represents a broadcast message from an agent.
+    """
 
 
 class AgentTaskResponse(BaseMessage):
@@ -75,7 +80,7 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
         """
         # Step 0: Retrieving Loop Context
         task = input.get("task")
-        iteration = input.get("iteration")
+        iteration = input.get("iteration", 0)
         instance_id = ctx.instance_id
 
         if not ctx.is_replaying:
@@ -158,9 +163,11 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
         Args:
             message (Dict[str, Any]): The message content and additional metadata.
         """
-        await self.broadcast_message(
-            message=BaseMessage(**message), exclude_orchestrator=True
-        )
+        # Format message for broadcasting
+        task_message = BroadcastMessage(**message)
+
+        # Send broadcast message
+        await self.broadcast_message(message=task_message, exclude_orchestrator=True)
 
     @task
     def select_random_speaker(self, iteration: int) -> str:
@@ -229,7 +236,7 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
             None: The function raises a workflow event with the agent's response.
         """
         try:
-            workflow_instance_id = message.get("workflow_instance_id")
+            workflow_instance_id = getattr(message, "workflow_instance_id", None)
 
             if not workflow_instance_id:
                 logger.error(

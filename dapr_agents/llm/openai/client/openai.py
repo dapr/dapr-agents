@@ -1,8 +1,10 @@
-from dapr_agents.types.llm import OpenAIClientConfig
-from dapr_agents.llm.utils import HTTPHelper
-from typing import Union, Optional
-from openai import OpenAI
 import logging
+from typing import Optional, Union
+
+from openai import OpenAI
+
+from dapr_agents.llm.utils import HTTPHelper
+from dapr_agents.types.llm import OpenAIClientConfig
 
 logger = logging.getLogger(__name__)
 

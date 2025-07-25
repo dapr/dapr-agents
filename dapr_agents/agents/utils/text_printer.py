@@ -55,7 +55,9 @@ class ColorTextFormatter:
             lines = text.split("\n")
             for i, line in enumerate(lines):
                 formatted_line = self.format_text(line, color)
-                print(formatted_line, end="\n" if i < len(lines) - 1 else "")
+                print(
+                    formatted_line, flush=True, end="\n" if i < len(lines) - 1 else ""
+                )
 
         print(COLORS["reset"])  # Ensure terminal color is reset at the end
 

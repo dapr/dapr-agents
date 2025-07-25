@@ -120,23 +120,25 @@ class ToolCall(BaseModel):
 
 class MessageContent(BaseMessage):
     """
-    Extends BaseMessage to include dynamic optional fields for tool and function calls.
+    Extends BaseMessage to include dynamic optional fields for tool calls, function calls, and tool call IDs.
 
-    Utilizes post-initialization validation to dynamically manage the inclusion of `tool_calls` and `function_call` fields based on their presence in the initialization data. Fields are only retained if they contain data, thus preventing serialization or display of `None` values, which helps maintain clean and concise object representations.
+    Utilizes post-initialization validation to dynamically manage the inclusion of `tool_calls`, `function_call`, and `tool_call_id` fields based on their presence in the initialization data. Fields are only retained if they contain data, thus preventing serialization or display of `None` values, which helps maintain clean and concise object representations.
 
     Attributes:
         tool_calls (List[ToolCall], optional): A list of tool calls added dynamically if provided in the initialization data.
         function_call (FunctionCall, optional): A function call added dynamically if provided in the initialization data.
+        tool_call_id (str, optional): Identifier for the specific tool call associated with the message, added dynamically if provided in the initialization data.
     """
 
     tool_calls: Optional[List[ToolCall]] = None
     function_call: Optional[FunctionCall] = None
+    tool_call_id: Optional[str] = None
 
     @model_validator(mode="after")
     def remove_empty_calls(self):
         attrList = []
         for attribute in self.__dict__:
-            if attribute in ("tool_calls", "function_call"):
+            if attribute in ("tool_calls", "function_call", "tool_call_id"):
                 if self.__dict__[attribute] is None:
                     attrList.append(attribute)
 
@@ -183,7 +185,7 @@ class ChatCompletion(BaseModel):
     object: Optional[str] = None
     usage: dict
 
-    def get_message(self) -> Optional[str]:
+    def get_message(self) -> Optional[dict]:
         """
         Retrieve the main message content from the first choice.
         """

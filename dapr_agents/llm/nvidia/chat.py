@@ -1,25 +1,27 @@
-from dapr_agents.llm.utils import RequestHandler, ResponseHandler
-from dapr_agents.llm.nvidia.client import NVIDIAClientBase
-from dapr_agents.types.message import BaseMessage
-from dapr_agents.llm.chat import ChatClientBase
-from dapr_agents.prompt.prompty import Prompty
-from dapr_agents.tool import AgentTool
+import logging
+from pathlib import Path
 from typing import (
-    Union,
-    Optional,
-    Iterable,
-    Dict,
     Any,
-    List,
-    Iterator,
-    Type,
-    Literal,
     ClassVar,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Literal,
+    Optional,
+    Type,
+    Union,
 )
+
 from openai.types.chat import ChatCompletionMessage
 from pydantic import BaseModel, Field
-from pathlib import Path
-import logging
+
+from dapr_agents.llm.chat import ChatClientBase
+from dapr_agents.llm.nvidia.client import NVIDIAClientBase
+from dapr_agents.llm.utils import RequestHandler, ResponseHandler
+from dapr_agents.prompt.prompty import Prompty
+from dapr_agents.tool import AgentTool
+from dapr_agents.types.message import BaseMessage, ChatCompletion
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +102,7 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
         max_tokens: Optional[int] = None,
         structured_mode: Literal["function_call"] = "function_call",
         **kwargs,
-    ) -> Union[Iterator[Dict[str, Any]], Dict[str, Any]]:
+    ) -> Union[Iterator[Dict[str, Any]], ChatCompletion]:
         """
         Generate chat completions based on provided messages or input_data for prompt templates.
 
@@ -115,7 +117,7 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
             **kwargs: Additional parameters for the language model.
 
         Returns:
-            Union[Iterator[Dict[str, Any]], Dict[str, Any]]: The chat completion response(s).
+            Union[Iterator[Dict[str, Any]], ChatCompletion]: The chat completion response(s).
         """
 
         if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
