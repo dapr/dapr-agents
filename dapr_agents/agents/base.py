@@ -353,19 +353,20 @@ Your role is {role}.
         """
         Build the system prompt for the agent using a single template string.
         - Fills in the current date.
-        - Leaves placeholders for name, role, goal, and instructions as variables.
+        - Leaves placeholders for name, role, goal, and instructions as variables (instructions only if set).
         - Converts placeholders to Jinja2 syntax if requested.
 
         Returns:
             str: The formatted system prompt string.
         """
         # Only fill in the date; leave all other placeholders as variables
+        instructions_placeholder = "{instructions}" if self.instructions else ""
         filled = self.DEFAULT_SYSTEM_PROMPT.format(
             date=datetime.now().strftime("%B %d, %Y"),
             name="{name}",
             role="{role}",
             goal="{goal}",
-            instructions="{instructions}",
+            instructions=instructions_placeholder,
         )
 
         # If using Jinja2, swap braces for all placeholders

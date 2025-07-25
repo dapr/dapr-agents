@@ -245,9 +245,7 @@ class Agent(AgentBase):
                     if tool_calls:
                         # Add the assistant message with tool calls to the conversation
                         if response_message is not None:
-                            messages.append(
-                                {str(k): v for k, v in response_message.items()}
-                            )
+                            messages.append(response_message)
                         # Execute tools and collect results for this iteration only
                         tool_messages = await self.execute_tools(tool_calls)
                         # Add tool results to messages for the next iteration
