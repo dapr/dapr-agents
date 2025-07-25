@@ -190,7 +190,7 @@ class TestAgent:
         agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(
             tools=[echo_tool]
         )
-        await agent_with_tools.process_response([tool_call])
+        await agent_with_tools.execute_tools([tool_call])
         assert len(agent_with_tools.tool_history) == 1
         tool_message = agent_with_tools.tool_history[0]
         assert tool_message.tool_call_id == "call_123"
@@ -213,7 +213,7 @@ class TestAgent:
         with pytest.raises(
             AgentError, match=f"Error executing tool '{error_tool.name}': .*Tool failed"
         ):
-            await agent_with_tools.process_response([tool_call])
+            await agent_with_tools.execute_tools([tool_call])
 
     @pytest.mark.asyncio
     async def test_process_iterations_max_reached(self, basic_agent):
