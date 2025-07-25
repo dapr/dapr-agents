@@ -115,7 +115,7 @@ class Agent(AgentBase):
 
     async def execute_tools(self, tool_calls: List[ToolCall]) -> List[ToolMessage]:
         """
-        Executes a batch of tool calls in parallel, bounded by max_concurrent, using asyncio.gather (Python 3.10+ compatible).
+        Executes a batch of tool calls in parallel, bounded by max_concurrent, using asyncio.gather.
         Each tool call is executed asynchronously using run_tool, and results are appended to the persistent audit log (tool_history).
         If any tool call fails, the error is propagated and other tasks continue unless you set return_exceptions=True.
 
@@ -148,13 +148,13 @@ class Agent(AgentBase):
                     error_msg = f"Tool call missing function name: {tool_call}"
                     logger.error(error_msg)
                     # Return a ToolExecutionRecord with error status and raise AgentError
-                    tool_message = ToolExecutionRecord(
+                    tool_execution_record = ToolExecutionRecord(
                         tool_call_id="<missing>",
                         tool_name="<missing>",
-                        tool_args="<missing>",
+                        tool_args={},
                         execution_result=error_msg,
                     )
-                    self.tool_history.append(tool_message)
+                    self.tool_history.append(tool_execution_record)
                     raise AgentError(error_msg)
 
                 try:
