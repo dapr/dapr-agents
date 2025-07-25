@@ -71,7 +71,6 @@ async def main():
         state_key="workflow_state",
         agents_registry_store_name="agentstatestore",
         agents_registry_key="agents_registry",
-        broadcast_topic_name=None,
         tools=tools,
     )
     await weather_agent.run("What's the weather in Boston tomorrow?")

@@ -53,7 +53,8 @@ class AgenticWorkflow(
         description="The name of the message bus component, defining the pub/sub base.",
     )
     broadcast_topic_name: Optional[str] = Field(
-        "beacon_channel", description="Default topic for broadcasting messages."
+        default=None,
+        description="Default topic for broadcasting messages. Set explicitly for multi-agent setups.",
     )
     state_store_name: str = Field(
         ..., description="Dapr state store for workflow state."
@@ -102,6 +103,7 @@ class AgenticWorkflow(
     _text_formatter: ColorTextFormatter = PrivateAttr(default=ColorTextFormatter)
     _agent_metadata: Optional[Dict[str, Any]] = PrivateAttr(default=None)
     _workflow_name: str = PrivateAttr(default=None)
+    _dapr_client: Optional[DaprClient] = PrivateAttr(default=None)
     _is_running: bool = PrivateAttr(default=False)
     _shutdown_event: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
     _http_server: Optional[Any] = PrivateAttr(default=None)
@@ -124,7 +126,7 @@ class AgenticWorkflow(
         Raises:
             RuntimeError: If Dapr is not available in the current environment.
         """
-        self.client = DaprClient()
+        self._dapr_client = DaprClient()
         self._text_formatter = ColorTextFormatter()
         self._state_store_client = DaprStateStore(store_name=self.state_store_name)
         logger.info(f"State store '{self.state_store_name}' initialized.")
@@ -181,7 +183,7 @@ class AgenticWorkflow(
             Optional[dict]: the retrieved dictionary or None if not found.
         """
         try:
-            response: StateResponse = self.client.get_state(
+            response: StateResponse = self._dapr_client.get_state(
                 store_name=store_name, key=key
             )
             data = response.data
@@ -276,13 +278,13 @@ class AgenticWorkflow(
         # TODO: rm the custom retry logic here and use the DaprClient retry_policy instead.
         for attempt in range(1, 11):
             try:
-                response: StateResponse = self.client.get_state(
+                response: StateResponse = self._dapr_client.get_state(
                     store_name=store_name, key=store_key
                 )
                 if not response.etag:
                     # if there is no etag the following transaction won't work as expected
                     # so we need to save an empty object with a strong consistency to force the etag to be created
-                    self.client.save_state(
+                    self._dapr_client.save_state(
                         store_name=store_name,
                         key=store_key,
                         value=json.dumps({}),
@@ -303,7 +305,7 @@ class AgenticWorkflow(
                 logger.debug(f"merged data: {merged_data} etag: {response.etag}")
                 try:
                     # using the transactional API to be able to later support the Dapr outbox pattern
-                    self.client.execute_state_transaction(
+                    self._dapr_client.execute_state_transaction(
                         store_name=store_name,
                         operations=[
                             TransactionalStateOperation(

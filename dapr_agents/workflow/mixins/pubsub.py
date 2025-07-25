@@ -274,7 +274,9 @@ class PubSubMixin:
         return wrapped_method
 
     def _subscribe_with_router(self, pubsub_name: str, topic_name: str):
-        subscription: Subscription = self.client.subscribe(pubsub_name, topic_name)
+        subscription: Subscription = self._dapr_client.subscribe(
+            pubsub_name, topic_name
+        )
         loop = asyncio.get_running_loop()
 
         def stream_messages(sub: Subscription):

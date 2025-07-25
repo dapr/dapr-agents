@@ -55,7 +55,6 @@ async def main():
             state_key="workflow_state",
             agents_registry_store_name="registrystatestore",
             agents_registry_key="agents_registry",
-            broadcast_topic_name=None,
             memory=ConversationDaprStateMemory(
                 store_name="conversationstore", session_id="my-unique-id"
             ),
