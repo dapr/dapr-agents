@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 class AgentTool(BaseModel):
     """
     Base class for agent tools, supporting both synchronous and asynchronous execution.
+    This class can be used by the Agent and DurableAgent types to define tools that can be executed
 
     Attributes:
         name (str): The tool's name.
