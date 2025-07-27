@@ -12,8 +12,6 @@ from .message import (
     AssistantFinalMessage,
     AssistantMessage,
     BaseMessage,
-    ChatCompletion,
-    Choice,
     EventMessageMetadata,
     FunctionCall,
     MessageContent,
@@ -22,6 +20,8 @@ from .message import (
     ToolCall,
     ToolMessage,
     UserMessage,
+    LLMChatResponse,
+    LLMChatCandidate,
 )
 from .schemas import OAIJSONSchema, OAIResponseFormatSchema
 from .tools import (
@@ -47,8 +47,8 @@ __all__ = [
     "AssistantFinalMessage",
     "AssistantMessage",
     "BaseMessage",
-    "ChatCompletion",
-    "Choice",
+    "LLMChatResponse",
+    "LLMChatCandidate",
     "EventMessageMetadata",
     "FunctionCall",
     "MessageContent",
