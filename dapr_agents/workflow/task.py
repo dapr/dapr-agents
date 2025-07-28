@@ -14,7 +14,7 @@ from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.openai import OpenAIChatClient
 from dapr_agents.llm.utils import StructureHandler
 from dapr_agents.prompt.utils.chat import ChatPromptHelper
-from dapr_agents.types import BaseMessage, ChatCompletion, UserMessage
+from dapr_agents.types import BaseMessage, UserMessage, LLMChatResponse
 
 logger = logging.getLogger(__name__)
 
@@ -261,23 +261,35 @@ class WorkflowTask(BaseModel):
         Unwrap AI return types into plain Python.
 
         Args:
-            result: ChatCompletion, BaseModel, or list of BaseModel.
+            result: One of:
+                - LLMChatResponse
+                - BaseModel (Pydantic)
+                - List[BaseModel]
+                - primitive (str/int/etc) or dict
 
         Returns:
-            A primitive, dict, or list of dicts.
+            • str (assistant content) when `LLMChatResponse`
+            • dict when a single BaseModel
+            • List[dict] when a list of BaseModels
+            • otherwise, the raw `result`
         """
-        # Unwrap ChatCompletion
-        if isinstance(result, ChatCompletion):
-            logger.debug("Extracted message content from ChatCompletion.")
-            return result.get_content()
-        # Pydantic → dict
+        # 1) Unwrap our unified LLMChatResponse → return the assistant's text
+        if isinstance(result, LLMChatResponse):
+            logger.debug("Extracted message content from LLMChatResponse.")
+            msg = result.get_message()
+            return getattr(msg, "content", None)
+
+        # 2) Single Pydantic model → dict
         if isinstance(result, BaseModel):
             logger.debug("Converting Pydantic model to dictionary.")
             return result.model_dump()
+
+        # 3) List of Pydantic models → list of dicts
         if isinstance(result, list) and all(isinstance(x, BaseModel) for x in result):
             logger.debug("Converting list of Pydantic models to list of dictionaries.")
             return [x.model_dump() for x in result]
-        # If no specific conversion is necessary, return as-is
+
+        # 4) Fallback: primitive, dict, etc.
         logger.info("Returning final task result.")
         return result
 

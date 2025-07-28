@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 from dapr_agents import Agent
 from dapr_agents.tool.mcp import MCPClient
+from dapr_agents.types import AssistantMessage
 
 load_dotenv()
 
@@ -37,8 +38,10 @@ async def main():
         )
 
         # Run a sample query
-        result = await weather_agent.run("What is the weather in New York?")
-        print(result)
+        result: AssistantMessage = await weather_agent.run(
+            "What is the weather in New York?"
+        )
+        print(result.content)
 
     finally:
         try:

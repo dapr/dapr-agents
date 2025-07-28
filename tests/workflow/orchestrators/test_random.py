@@ -83,6 +83,6 @@ async def test_select_random_speaker(orchestrator_config):
         mockclient.return_value = MagicMock()
         orchestrator = RandomOrchestrator(**orchestrator_config)
 
-        speaker = orchestrator.select_random_speaker(iteration=1)
+        speaker = orchestrator.select_random_speaker()
         assert speaker in ["agent1", "agent2"]
         assert orchestrator.current_speaker == speaker

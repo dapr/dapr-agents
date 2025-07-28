@@ -1,13 +1,14 @@
-from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
-from dapr.ext.workflow import DaprWorkflowContext
-from dapr_agents.types import BaseMessage
-from dapr_agents.workflow.decorators import task, workflow, message_router
-from typing import Any, Optional, Dict
-from datetime import timedelta
-from pydantic import BaseModel, Field
-import random
 import logging
+import random
+from datetime import timedelta
+from typing import Any, Dict, Optional
 
+from dapr.ext.workflow import DaprWorkflowContext
+from pydantic import BaseModel, Field
+
+from dapr_agents.types import BaseMessage
+from dapr_agents.workflow.decorators import message_router, task, workflow
+from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,9 @@ class TriggerAction(BaseModel):
 
     task: Optional[str] = Field(
         None,
-        description="The specific task to execute. If not provided, the agent will act based on its memory or predefined behavior.",
+        description="The specific task to execute. If not provided, the agent will act "
+        "based on its memory or predefined behavior.",
     )
-    iteration: Optional[int] = Field(0, description="")
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
     )
@@ -48,177 +49,153 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
     Implements a random workflow where agents are selected randomly to perform tasks.
     The workflow iterates through conversations, selecting a random agent at each step.
 
-    Uses `continue_as_new` to persist iteration state.
+    Runs in a single for-loop, breaking when max_iterations is reached.
     """
 
     current_speaker: Optional[str] = Field(
-        default=None, init=False, description="Current speaker in the conversation."
+        default=None,
+        init=False,
+        description="Current speaker in the conversation, to avoid immediate repeats when possible.",
     )
 
     def model_post_init(self, __context: Any) -> None:
         """
         Initializes and configures the random workflow service.
-        Registers tasks and workflows, then starts the workflow runtime.
         """
         self._workflow_name = "RandomWorkflow"
-
         super().model_post_init(__context)
 
     @workflow(name="RandomWorkflow")
     # TODO: add retry policies on activities.
     def main_workflow(self, ctx: DaprWorkflowContext, input: TriggerAction):
         """
-        Executes a random workflow where agents are selected randomly for interactions.
-        Uses `continue_as_new` to persist iteration state.
+        Executes the random workflow in up to `self.max_iterations` turns, selecting
+        a different (or same) agent at random each turn.
 
         Args:
-            ctx (DaprWorkflowContext): The workflow execution context.
-            input (TriggerAction): The current workflow state containing `message` and `iteration`.
+            ctx (DaprWorkflowContext): Workflow context.
+            input (TriggerAction): Contains `task`.
 
         Returns:
-            str: The last processed message when the workflow terminates.
+            str: The final message content when the workflow terminates.
         """
-        # Step 0: Retrieving Loop Context
+        # Step 1: Gather initial task and instance ID
         task = input.get("task")
-        iteration = input.get("iteration", 0)
         instance_id = ctx.instance_id
+        final_output: Optional[str] = None
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Random workflow iteration {iteration + 1} started (Instance ID: {instance_id})."
-            )
+        # Single loop from turn 1 to max_iterations inclusive
+        for turn in range(1, self.max_iterations + 1):
+            if not ctx.is_replaying:
+                logger.info(
+                    f"Random workflow turn {turn}/{self.max_iterations} "
+                    f"(Instance ID: {instance_id})"
+                )
 
-        # First iteration: Process input and broadcast
-        if iteration == 0:
-            message = yield ctx.call_activity(self.process_input, input={"task": task})
-            logger.info(f"Initial message from {message['role']} -> {self.name}")
+            # Step 2: On turn 1, process initial task and broadcast
+            if turn == 1:
+                message = yield ctx.call_activity(
+                    self.process_input, input={"task": task}
+                )
+                logger.info(f"Initial message from {message['role']} -> {self.name}")
+                yield ctx.call_activity(
+                    self.broadcast_message_to_agents, input={"message": message}
+                )
 
-            # Step 1: Broadcast initial message
+            # Step 3: Select a random speaker
+            random_speaker = yield ctx.call_activity(self.select_random_speaker)
+            if not ctx.is_replaying:
+                logger.info(f"{self.name} selected {random_speaker} (Turn {turn}).")
+
+            # Step 4: Trigger the agent
             yield ctx.call_activity(
-                self.broadcast_message_to_agents, input={"message": message}
+                self.trigger_agent,
+                input={"name": random_speaker, "instance_id": instance_id},
             )
 
-        # Step 2: Select a random speaker
-        random_speaker = yield ctx.call_activity(
-            self.select_random_speaker, input={"iteration": iteration}
-        )
+            # Step 5: Await for agent response or timeout
+            if not ctx.is_replaying:
+                logger.debug("Waiting for agent response...")
+            event_data = ctx.wait_for_external_event("AgentTaskResponse")
+            timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
+            any_results = yield self.when_any([event_data, timeout_task])
 
-        # Step 3: Trigger agent
-        yield ctx.call_activity(
-            self.trigger_agent,
-            input={"name": random_speaker, "instance_id": instance_id},
-        )
+            # Step 6: Handle response or timeout
+            if any_results == timeout_task:
+                if not ctx.is_replaying:
+                    logger.warning(
+                        f"Turn {turn}: agent response timed out (Instance ID: {instance_id})."
+                    )
+                result = {
+                    "name": "timeout",
+                    "content": "⏰ Timeout occurred. Continuing...",
+                }
+            else:
+                result = yield event_data
+                if not ctx.is_replaying:
+                    logger.info(f"{result['name']} -> {self.name}")
 
-        # Step 4: Wait for response or timeout
-        logger.info("Waiting for agent response...")
-        event_data = ctx.wait_for_external_event("AgentTaskResponse")
-        timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
-        any_results = yield self.when_any([event_data, timeout_task])
+            # Step 7: If this is the last allowed turn, mark final_output and break
+            if turn == self.max_iterations:
+                if not ctx.is_replaying:
+                    logger.info(
+                        f"Turn {turn}: max iterations reached (Instance ID: {instance_id})."
+                    )
+                final_output = result["content"]
+                break
 
-        if any_results == timeout_task:
-            logger.warning(
-                f"Agent response timed out (Iteration: {iteration + 1}, Instance ID: {instance_id})."
+            # Otherwise, feed into next turn
+            task = result["content"]
+
+        # Sanity check (should never happen)
+        if final_output is None:
+            raise RuntimeError(
+                "RandomWorkflow completed without producing a final_output"
             )
-            task_results = {
-                "name": "timeout",
-                "content": "Timeout occurred. Continuing...",
-            }
-        else:
-            task_results = yield event_data
-            logger.info(f"{task_results['name']} -> {self.name}")
 
-        # Step 5: Check Iteration
-        next_iteration_count = iteration + 1
-        if next_iteration_count > self.max_iterations:
-            logger.info(
-                f"Max iterations reached. Ending random workflow (Instance ID: {instance_id})."
-            )
-            return task_results["content"]
-
-        # Update ChatLoop for next iteration
-        input["task"] = task_results["content"]
-        input["iteration"] = next_iteration_count
-
-        # Restart workflow with updated state
-        # TODO: would we want this updated to preserve agent state between iterations?
-        ctx.continue_as_new(input)
+        # Return the final message content
+        return final_output
 
     @task
-    async def process_input(self, task: str):
+    async def process_input(self, task: str) -> Dict[str, Any]:
         """
-        Processes the input message for the workflow.
-
-        Args:
-            task (str): The user-provided input task.
-        Returns:
-            dict: Serialized UserMessage with the content.
+        Wraps the raw task into a UserMessage dict.
         """
         return {"role": "user", "name": self.name, "content": task}
 
     @task
     async def broadcast_message_to_agents(self, message: Dict[str, Any]):
         """
-        Broadcasts a message to all agents.
-
-        Args:
-            message (Dict[str, Any]): The message content and additional metadata.
+        Broadcasts a message to all agents (excluding orchestrator).
         """
-        # Format message for broadcasting
         task_message = BroadcastMessage(**message)
-
-        # Send broadcast message
         await self.broadcast_message(message=task_message, exclude_orchestrator=True)
 
     @task
-    def select_random_speaker(self, iteration: int) -> str:
+    def select_random_speaker(self) -> str:
         """
-        Selects a random speaker, ensuring that a different agent is chosen if possible.
-
-        Args:
-            iteration (int): The current iteration number.
-        Returns:
-            str: The name of the randomly selected agent.
+        Selects a random speaker, avoiding repeats when possible.
         """
-        agents_metadata = self.get_agents_metadata(exclude_orchestrator=True)
-        if not agents_metadata:
-            logger.warning("No agents available for selection.")
-            raise ValueError(
-                "Agents metadata is empty. Cannot select a random speaker."
-            )
+        agents = self.get_agents_metadata(exclude_orchestrator=True)
+        if not agents:
+            logger.error("No agents available for selection.")
+            raise ValueError("Agents list is empty.")
 
-        agent_names = list(agents_metadata.keys())
+        names = list(agents.keys())
+        # Avoid repeating previous speaker if more than one agent
+        if len(names) > 1 and self.current_speaker in names:
+            names.remove(self.current_speaker)
 
-        # Handle single-agent scenarios
-        if len(agent_names) == 1:
-            random_speaker = agent_names[0]
-            logger.info(
-                f"Only one agent available: {random_speaker}. Using the same agent."
-            )
-            return random_speaker
-
-        # Select a random speaker, avoiding repeating the previous speaker when possible
-        previous_speaker = getattr(self, "current_speaker", None)
-        if previous_speaker in agent_names and len(agent_names) > 1:
-            agent_names.remove(previous_speaker)
-
-        random_speaker = random.choice(agent_names)
-        self.current_speaker = random_speaker
-        logger.info(
-            f"{self.name} randomly selected agent {random_speaker} (Iteration: {iteration})."
-        )
-        return random_speaker
+        choice = random.choice(names)
+        self.current_speaker = choice
+        return choice
 
     @task
     async def trigger_agent(self, name: str, instance_id: str) -> None:
         """
-        Triggers the specified agent to perform its activity.
-
-        Args:
-            name (str): Name of the agent to trigger.
-            instance_id (str): Workflow instance ID for context.
+        Sends a TriggerAction to the selected agent.
         """
         logger.info(f"Triggering agent {name} (Instance ID: {instance_id})")
-
         await self.send_message_to_agent(
             name=name,
             message=TriggerAction(workflow_instance_id=instance_id),
@@ -227,33 +204,20 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
     @message_router
     async def process_agent_response(self, message: AgentTaskResponse):
         """
-        Processes agent response messages sent directly to the agent's topic.
-
-        Args:
-            message (AgentTaskResponse): The agent's response containing task results.
-
-        Returns:
-            None: The function raises a workflow event with the agent's response.
+        Handles incoming AgentTaskResponse events and re-raises them into the workflow.
         """
-        try:
-            workflow_instance_id = getattr(message, "workflow_instance_id", None)
-
-            if not workflow_instance_id:
-                logger.error(
-                    f"{self.name} received an agent response without a valid workflow_instance_id. Ignoring."
-                )
-                return
-
-            logger.info(
-                f"{self.name} processing agent response for workflow instance '{workflow_instance_id}'."
-            )
-
-            # Raise a workflow event with the Agent's Task Response
-            self.raise_workflow_event(
-                instance_id=workflow_instance_id,
-                event_name="AgentTaskResponse",
-                data=message,
-            )
-
-        except Exception as e:
-            logger.error(f"Error processing agent response: {e}", exc_info=True)
+        workflow_instance_id = getattr(message, "workflow_instance_id", None)
+        if not workflow_instance_id:
+            logger.error("Missing workflow_instance_id on AgentTaskResponse; ignoring.")
+            return
+        # Log the received response
+        logger.debug(
+            f"{self.name} received response for workflow {workflow_instance_id}"
+        )
+        logger.debug(f"Full response: {message}")
+        # Raise a workflow event with the Agent's Task Response
+        self.raise_workflow_event(
+            instance_id=workflow_instance_id,
+            event_name="AgentTaskResponse",
+            data=message,
+        )

@@ -1,13 +1,14 @@
+import logging
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, ValidationError
+
 from dapr_agents.types import (
+    ClaudeToolDefinition,
     OAIFunctionDefinition,
     OAIToolDefinition,
-    ClaudeToolDefinition,
 )
 from dapr_agents.types.exceptions import FunCallBuilderError
-from pydantic import BaseModel, ValidationError
-from typing import Dict, Any, Optional
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -130,72 +131,97 @@ def to_function_call_definition(
     args_schema: BaseModel,
     format_type: str = "openai",
     use_deprecated: bool = False,
-) -> Dict:
+) -> Dict[str, Any]:
     """
     Generates a dictionary representing a function call specification, supporting various API formats.
-    The 'use_deprecated' flag is applicable only for the 'openai' format and is ignored for others.
+
+    - For format_type in ("openai", "nvidia", "huggingface"), produces an OpenAI-style
+      tool definition (type="function", function={…}).
+    - For "claude", produces a Claude-style {name, description, input_schema}.
+    - (Gemini omitted here—call to_gemini_function_call_definition if you need it.)
+
+    The 'use_deprecated' flag is only applicable for OpenAI-style definitions.
 
     Args:
         name (str): The name of the function.
         description (str): A brief description of what the function does.
-        args_schema (BaseModel): The Pydantic schema representing the function's parameters.
-        format_type (str, optional): The API format to convert to ('openai', 'claude', or 'gemini'). Defaults to 'openai'.
-        use_deprecated (bool): Flag to use the deprecated function format, only effective for 'openai'.
+        args_schema (BaseModel): The Pydantic model describing the function's parameters.
+        format_type (str, optional): Which API flavor to target:
+            - "openai", "nvidia", or "huggingface" all share the same OpenAI-style schema.
+            - "claude" uses Anthropic's format.
+          Defaults to "openai".
+        use_deprecated (bool): If True and format_type is OpenAI,
+            returns the old function-only schema rather than a tool wrapper.
 
     Returns:
-        Dict: A dictionary containing the function definition in the specified format.
+        Dict[str, Any]: The serialized function/tool definition.
 
     Raises:
-        FunCallBuilderError: If an unsupported format type is specified.
+        FunCallBuilderError: If an unsupported format_type is provided.
     """
-    if format_type.lower() in ("openai", "nvidia"):
+    fmt = format_type.lower()
+
+    # OpenAI‑style wrapper schema:
+    if fmt in ("openai", "nvidia", "huggingface"):
         return to_openai_function_call_definition(
             name, description, args_schema, use_deprecated
         )
-    elif format_type.lower() == "claude":
+
+    # Anthropic Claude needs its own input_schema property
+    if fmt == "claude":
         if use_deprecated:
             logger.warning(
                 f"'use_deprecated' flag is ignored for the '{format_type}' format."
             )
         return to_claude_function_call_definition(name, description, args_schema)
-    else:
-        logger.error(f"Unsupported format type: {format_type}")
-        raise FunCallBuilderError(f"Unsupported format type: {format_type}")
+
+    # Unsupported provider
+    logger.error(f"Unsupported format type: {format_type}")
+    raise FunCallBuilderError(f"Unsupported format type: {format_type}")
 
 
 def validate_and_format_tool(
     tool: Dict[str, Any], tool_format: str = "openai", use_deprecated: bool = False
-) -> dict:
+) -> Dict[str, Any]:
     """
-    Validates and formats a tool (provided as a dictionary) based on the specified API request format.
+    Validates and formats a tool definition dict for the specified API style.
+
+    - For tool_format in ("openai", "azure_openai", "nvidia", "huggingface"),
+      uses OAIToolDefinition (or OAIFunctionDefinition if use_deprecated=True).
+    - For "claude", uses ClaudeToolDefinition.
+    - For "llama", treats as an OAIFunctionDefinition.
 
     Args:
-        tool: The tool to validate and format.
-        tool_format: The API format to convert to ('openai', 'azure_openai', 'claude', 'llama').
-        use_deprecated: Whether to use deprecated functions format for OpenAI. Defaults to False.
+        tool (Dict[str, Any]): The raw tool definition.
+        tool_format (str): Which API schema to validate against:
+            "openai", "azure_openai", "nvidia", "huggingface", "claude", "llama".
+        use_deprecated (bool): If True and using OpenAI-style, expects an OAIFunctionDefinition.
 
     Returns:
-        dict: The formatted tool dictionary.
+        Dict[str, Any]: The validated, serialized tool definition.
 
     Raises:
-        ValueError: If the tool definition format is invalid.
-        ValidationError: If the tool doesn't pass validation.
+        ValueError: If the format is unsupported or validation fails.
     """
+    fmt = tool_format.lower()
+
     try:
-        if tool_format in ["openai", "azure_openai", "nvidia"]:
-            validated_tool = (
+        if fmt in ("openai", "azure_openai", "nvidia", "huggingface"):
+            validated = (
                 OAIFunctionDefinition(**tool)
                 if use_deprecated
                 else OAIToolDefinition(**tool)
             )
-        elif tool_format == "claude":
-            validated_tool = ClaudeToolDefinition(**tool)
-        elif tool_format == "llama":
-            validated_tool = OAIFunctionDefinition(**tool)
+        elif fmt == "claude":
+            validated = ClaudeToolDefinition(**tool)
+        elif fmt == "llama":
+            validated = OAIFunctionDefinition(**tool)
         else:
             logger.error(f"Unsupported tool format: {tool_format}")
             raise ValueError(f"Unsupported tool format: {tool_format}")
-        return validated_tool.model_dump()
+
+        return validated.model_dump()
+
     except ValidationError as e:
         logger.error(f"Validation error for {tool_format} tool definition: {e}")
         raise ValueError(f"Invalid tool definition format: {tool}")

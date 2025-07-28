@@ -69,13 +69,24 @@ python 01_ask_llm.py
 This example demonstrates the simplest way to use Dapr Agents' OpenAIChatClient:
 
 ```python
-from dapr_agents import OpenAIChatClient
 from dotenv import load_dotenv
 
+from dapr_agents import OpenAIChatClient
+from dapr_agents.types.message import LLMChatResponse
+
+# load environment variables from .env file
 load_dotenv()
+
+# Initialize the OpenAI chat client
 llm = OpenAIChatClient()
-response = llm.generate("Tell me a joke")
-print("Got response:", response.get_content())
+
+# Generate a response from the LLM
+response: LLMChatResponse = llm.generate("Tell me a joke")
+
+# Print the Message content if it exists
+if response.get_message() is not None:
+    content = response.get_message().content
+    print("Got response:", content)
 ```
 
 **Expected output:** The LLM will respond with a joke.
@@ -356,6 +367,9 @@ This example demonstrates how to create an agent with vector store capabilities,
 
 ```python
 import logging
+
+from dotenv import load_dotenv
+
 from dapr_agents import Agent
 from dapr_agents.document.embedder.sentence import SentenceTransformerEmbedder
 from dapr_agents.storage.vectorstores import ChromaVectorStore
@@ -480,8 +494,6 @@ if __name__ == "__main__":
         print("\nInterrupted by user. Exiting gracefully...")
     except Exception as e:
         print(f"\nError occurred: {e}")
-        print("Make sure you have the required dependencies installed:")
-        print(" pip install sentence-transformers chromadb")
 ```
 
 ## Key Concepts

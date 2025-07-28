@@ -18,7 +18,12 @@ from typing import (
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError, create_model
 
 from dapr_agents.tool.utils.function_calling import to_function_call_definition
-from dapr_agents.types import OAIJSONSchema, OAIResponseFormatSchema, StructureError
+from dapr_agents.types import (
+    AssistantMessage,
+    OAIJSONSchema,
+    OAIResponseFormatSchema,
+    StructureError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +213,7 @@ class StructureHandler:
 
     @staticmethod
     def extract_structured_response(
-        response: Any,
+        message: AssistantMessage,
         llm_provider: str,
         structured_mode: Literal["json", "function_call"] = "json",
     ) -> Union[str, Dict[str, Any]]:
@@ -216,7 +221,7 @@ class StructureHandler:
         Extracts the structured JSON string or content from the response.
 
         Args:
-            response (Any): The API response data to extract.
+            message (AssistantMessage): The API response data to extract.
             llm_provider (str): The LLM provider (e.g., 'openai').
             structured_mode (Literal["json", "function_call"]): The structured response mode.
 
@@ -228,17 +233,7 @@ class StructureHandler:
         """
         try:
             logger.debug(f"Processing structured response for mode: {structured_mode}")
-            if llm_provider in ("openai", "nvidia"):
-                # Extract the `choices` list from the response
-                choices = getattr(response, "choices", None)
-                if not choices or not isinstance(choices, list):
-                    raise StructureError("Response does not contain valid 'choices'.")
-
-                # Extract the message object
-                message = getattr(choices[0], "message", None)
-                if not message:
-                    raise StructureError("Response message is missing.")
-
+            if llm_provider in ("openai", "nvidia", "huggingface"):
                 if structured_mode == "function_call":
                     tool_calls = getattr(message, "tool_calls", None)
                     if tool_calls:

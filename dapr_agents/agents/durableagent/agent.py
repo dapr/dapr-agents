@@ -1,16 +1,16 @@
 import json
 import logging
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from dapr.ext.workflow import DaprWorkflowContext  # type: ignore
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.types import (
     AgentError,
     AssistantMessage,
+    LLMChatResponse,
     ToolExecutionRecord,
     ToolMessage,
     UserMessage,
@@ -30,15 +30,6 @@ from .state import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class FinishReason(str, Enum):
-    UNKNOWN = "unknown"
-    STOP = "stop"
-    LENGTH = "length"
-    CONTENT_FILTER = "content_filter"
-    TOOL_CALLS = "tool_calls"
-    FUNCTION_CALL = "function_call"  # deprecated
 
 
 # TODO(@Sicoyle): Clear up the lines between DurableAgent and AgentWorkflow
@@ -137,156 +128,150 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         Returns:
             Dict[str, Any]: The final response message when the workflow completes, or None if continuing to the next iteration.
         """
-        # Step 0: Retrieve task, iteration, and sourceworkflow instance ID from the message
+        # Step 1: pull out task + metadata
         if isinstance(message, dict):
             task = message.get("task", None)
-            iteration = message.get("iteration", 0)
             source_workflow_instance_id = message.get("workflow_instance_id")
+            metadata = message.get("_message_metadata", {}) or {}
         else:
             task = getattr(message, "task", None)
-            iteration = getattr(message, "iteration", 0)
             source_workflow_instance_id = getattr(message, "workflow_instance_id", None)
-        # This is the instance ID of the current workflow execution
+            metadata = getattr(message, "_message_metadata", {}) or {}
+
         instance_id = ctx.instance_id
+        source = metadata.get("source")
+        final_message: Optional[Dict[str, Any]] = None
 
         if not ctx.is_replaying:
-            logger.info(
-                f"Workflow iteration {iteration + 1} started (Instance ID: {instance_id})."
-            )
+            logger.debug(f"Initial message from {source} -> {self.name}")
 
-        # Step 1: Initialize workflow entry and state if this is the first iteration
-        if iteration == 0:
-            # Get metadata from the message, if available
-            if isinstance(message, dict):
-                metadata = message.get("_message_metadata", {})
-            else:
-                metadata = getattr(message, "_message_metadata", {})
-            source = metadata.get("source", None)
-            # Use activity to record initial entry for replay safety
-            yield ctx.call_activity(
-                self.record_initial_entry,
-                input={
-                    "instance_id": instance_id,
-                    "input": task or "Triggered without input.",
-                    "source": source,
-                    "source_workflow_instance_id": source_workflow_instance_id,
-                    "output": "",
-                },
-            )
-
-            if not ctx.is_replaying:
-                logger.info(f"Initial message from {source} -> {self.name}")
-
-        # Step 2: Retrieve workflow entry info for this instance
-        entry_info = yield ctx.call_activity(
-            self.get_workflow_entry_info, input={"instance_id": instance_id}
-        )
-
-        source = entry_info.get("source")
-        source_workflow_instance_id = entry_info.get("source_workflow_instance_id")
-
-        # Step 3: Generate Response via LLM
-        response = yield ctx.call_activity(
-            self.generate_response, input={"task": task, "instance_id": instance_id}
-        )
-
-        # Step 4: Extract Response Message from LLM Response
-        response_message = yield ctx.call_activity(
-            self.get_response_message, input={"response": response}
-        )
-
-        # Step 5: Extract Finish Reason from LLM Response
-        finish_reason = yield ctx.call_activity(
-            self.get_finish_reason, input={"response": response}
-        )
-
-        # Step 6:Add the assistant's response message to the chat history
-        yield ctx.call_activity(
-            self.append_assistant_message,
-            input={"instance_id": instance_id, "message": response_message},
-        )
-
-        # Step 7: Handle tool calls response
-        if finish_reason == FinishReason.TOOL_CALLS:
-            if not ctx.is_replaying:
-                logger.info("Tool calls detected in LLM response.")
-            # Retrieve the list of tool calls extracted from the LLM response
-            tool_calls = yield ctx.call_activity(
-                self.get_tool_calls, input={"response": response}
-            )
-            if tool_calls:
+        try:
+            # Loop up to max_iterations
+            for turn in range(1, self.max_iterations + 1):
                 if not ctx.is_replaying:
-                    logger.debug(f"Executing {len(tool_calls)} tool call(s)..")
-                # Run the tool calls in parallel
-                parallel = [
-                    ctx.call_activity(self.run_tool, input={"tool_call": tc})
-                    for tc in tool_calls
-                ]
-                tool_results = yield self.when_all(parallel)
-                # Add tool results for the next iteration
-                for tr in tool_results:
+                    logger.info(
+                        f"Workflow turn {turn}/{self.max_iterations} (Instance ID: {instance_id})"
+                    )
+
+                # Step 2: On turn 1, record the initial entry
+                if turn == 1:
                     yield ctx.call_activity(
-                        self.append_tool_message,
-                        input={"instance_id": instance_id, "tool_result": tr},
+                        self.record_initial_entry,
+                        input={
+                            "instance_id": instance_id,
+                            "input": task or "Triggered without input.",
+                            "source": source,
+                            "source_workflow_instance_id": source_workflow_instance_id,
+                            "output": "",
+                        },
                     )
-        # Step 8: Process iteration count and finish reason
-        next_iteration_count = iteration + 1
-        max_iterations_reached = next_iteration_count > self.max_iterations
-        if finish_reason == FinishReason.STOP or max_iterations_reached:
-            # Process max iterations reached
-            if max_iterations_reached:
-                if not ctx.is_replaying:
-                    logger.warning(
-                        f"Workflow {instance_id} reached the max iteration limit ({self.max_iterations}) before finishing naturally."
-                    )
-                # Modify the response message to indicate forced stop
-                response_message[
-                    "content"
-                ] += "\n\nThe workflow was terminated because it reached the maximum iteration limit. The task may not be fully complete."
 
-            # Broadcast the final response if a broadcast topic is set
-            if self.broadcast_topic_name:
-                yield ctx.call_activity(
-                    self.broadcast_message_to_agents,
-                    input={"message": response_message},
+                # Step 3: Retrieve workflow entry info for this instance
+                entry_info: dict = yield ctx.call_activity(
+                    self.get_workflow_entry_info, input={"instance_id": instance_id}
+                )
+                source = entry_info.get("source")
+                source_workflow_instance_id = entry_info.get(
+                    "source_workflow_instance_id"
                 )
 
-            # Respond to source agent if available
-            if source and source_workflow_instance_id:
-                yield ctx.call_activity(
-                    self.send_response_back,
-                    input={
-                        "response": response_message,
-                        "target_agent": source,
-                        "target_instance_id": source_workflow_instance_id,
-                    },
+                # Step 4: Generate Response with LLM
+                response_message: dict = yield ctx.call_activity(
+                    self.generate_response,
+                    input={"task": task, "instance_id": instance_id},
                 )
 
-            # Share Final Message
+                # Step 5: Add the assistant's response message to the chat history
+                yield ctx.call_activity(
+                    self.append_assistant_message,
+                    input={"instance_id": instance_id, "message": response_message},
+                )
+
+                # Step 6: Handle tool calls response
+                tool_calls = response_message.get("tool_calls") or []
+                if tool_calls:
+                    if not ctx.is_replaying:
+                        logger.info(
+                            f"Turn {turn}: executing {len(tool_calls)} tool call(s)"
+                        )
+                    # fan‑out parallel tool executions
+                    parallel = [
+                        ctx.call_activity(self.run_tool, input={"tool_call": tc})
+                        for tc in tool_calls
+                    ]
+                    tool_results: List[Dict[str, Any]] = yield self.when_all(parallel)
+                    # Add tool results for the next iteration
+                    for tr in tool_results:
+                        yield ctx.call_activity(
+                            self.append_tool_message,
+                            input={"instance_id": instance_id, "tool_result": tr},
+                        )
+                    # 🔴 If this was the last turn, stop here—even though there were tool calls
+                    if turn == self.max_iterations:
+                        final_message = response_message
+                        final_message[
+                            "content"
+                        ] += "\n\n⚠️ Stopped: reached max iterations."
+                        break
+
+                    # Otherwise, prepare for next turn: clear task so that generate_response() uses memory/history
+                    task = None
+                    continue  # bump to next turn
+
+                # No tool calls → this is your final answer
+                final_message = response_message
+
+                # 🔴 If it happened to be the last turn, banner it
+                if turn == self.max_iterations:
+                    final_message["content"] += "\n\n⚠️ Stopped: reached max iterations."
+
+                break  # exit loop with final_message
+            else:
+                raise AgentError("Workflow ended without producing a final response")
+
+        except Exception as e:
+            logger.exception("Workflow error", exc_info=e)
+            final_message = {
+                "role": "assistant",
+                "content": f"⚠️ Unexpected error: {e}",
+            }
+
+        # Step 7: Broadcast the final response if a broadcast topic is set
+        if self.broadcast_topic_name:
             yield ctx.call_activity(
-                self.finalize_workflow,
+                self.broadcast_message_to_agents,
+                input={"message": final_message},
+            )
+
+        # Respond to source agent if available
+        if source and source_workflow_instance_id:
+            yield ctx.call_activity(
+                self.send_response_back,
                 input={
-                    "instance_id": instance_id,
-                    "final_output": response_message["content"],
+                    "response": final_message,
+                    "target_agent": source,
+                    "target_instance_id": source_workflow_instance_id,
                 },
             )
-            # Log the finalization of the workflow
-            if not ctx.is_replaying:
-                verdict = "max_iterations_reached" if max_iterations_reached else "stop"
-                logger.info(
-                    f"Workflow {instance_id} has been finalized with verdict: {verdict}"
-                )
-            return response_message
 
-        # Step 9: Continue Workflow Execution
-        if isinstance(message, dict):
-            message.update({"task": None, "iteration": next_iteration_count})
-            next_message = message
-        else:
-            # For Pydantic model, create a new dict with updated fields
-            next_message = message.model_dump()
-            next_message.update({"task": None, "iteration": next_iteration_count})
-        ctx.continue_as_new(next_message)
+        # Save final output to workflow state
+        yield ctx.call_activity(
+            self.finalize_workflow,
+            input={
+                "instance_id": instance_id,
+                "final_output": final_message["content"],
+            },
+        )
+
+        # Set verdict for the workflow instance
+        if not ctx.is_replaying:
+            verdict = (
+                "max_iterations_reached" if turn == self.max_iterations else "completed"
+            )
+            logger.info(f"Workflow {instance_id} finalized: {verdict}")
+
+        # Return the final response message
+        return final_message
 
     @task
     def record_initial_entry(
@@ -391,95 +376,22 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         # Generate response using the LLM
         try:
-            response = self.llm.generate(
+            response: LLMChatResponse = self.llm.generate(
                 messages=messages,
                 tools=self.get_llm_tools(),
                 tool_choice=self.tool_choice,
             )
-            if isinstance(response, BaseModel):
-                return response.model_dump()
-            elif isinstance(response, dict):
-                return response
-            else:
-                # Defensive: raise error for unexpected type
-                raise AgentError(f"Unexpected response type: {type(response)}")
+            # Get the first candidate from the response
+            response_message = response.get_message()
+            # Check if the response contains an assistant message
+            if response_message is None:
+                raise AgentError("LLM returned no assistant message")
+            # Convert the response message to a dict to work with JSON serialization
+            assistant_message = response_message.model_dump()
+            return assistant_message
         except Exception as e:
             logger.error(f"Error during chat generation: {e}")
             raise AgentError(f"Failed during chat generation: {e}") from e
-
-    @task
-    def get_response_message(self, response: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Extracts the response message from the first choice in the LLM response.
-
-        Args:
-            response (Dict[str, Any]): The response dictionary from the LLM, expected to contain a "choices" key.
-
-        Returns:
-            Dict[str, Any]: The extracted response message with the agent's name added.
-
-        Raises:
-            AgentError: If no response message is found.
-        """
-        choices = response.get("choices", [])
-        if choices:
-            response_message = choices[0].get("message", {})
-            if response_message:
-                return response_message
-        raise AgentError("No response message found in LLM response.")
-
-    @task
-    def get_finish_reason(self, response: Dict[str, Any]) -> str:
-        """
-        Extracts the finish reason from the LLM response, indicating why generation stopped.
-
-        Args:
-            response (Dict[str, Any]): The response dictionary from the LLM, expected to contain a "choices" key.
-
-        Returns:
-            FinishReason: The reason the model stopped generating tokens as an enum value.
-        """
-        try:
-            choices = response.get("choices", [])
-            if choices and len(choices) > 0:
-                reason_str = choices[0].get("finish_reason", FinishReason.UNKNOWN.value)
-                try:
-                    return FinishReason(reason_str)
-                except ValueError:
-                    logger.warning(f"Unrecognized finish reason: {reason_str}")
-                    return FinishReason.UNKNOWN
-            # If choices is empty, return UNKNOWN
-            return FinishReason.UNKNOWN
-        except Exception as e:
-            logger.error(f"Error extracting finish reason: {e}")
-            return FinishReason.UNKNOWN
-
-    @task
-    def get_tool_calls(
-        self, response: Dict[str, Any]
-    ) -> Optional[List[Dict[str, Any]]]:
-        """
-        Extracts tool calls from the first choice in the LLM response, if available.
-
-        Args:
-            response (Dict[str, Any]): The response dictionary from the LLM, expected to contain "choices"
-                                    and potentially tool call information.
-
-        Returns:
-            Optional[List[Dict[str, Any]]]: A list of tool calls if present, otherwise None.
-        """
-        choices = response.get("choices", [])
-        if not choices:
-            logger.warning("No choices found in LLM response.")
-            return None
-
-        tool_calls = choices[0].get("message", {}).get("tool_calls")
-        if tool_calls:
-            return tool_calls
-
-        # Only log if choices exist but no tool_calls
-        logger.info("No tool calls found in the first LLM response choice.")
-        return None
 
     @task
     async def run_tool(self, tool_call: Dict[str, Any]) -> Dict[str, Any]:

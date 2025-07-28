@@ -4,43 +4,40 @@ from typing import List, Dict, Any, Optional
 def update_step_statuses(plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Ensures step and sub-step statuses follow logical progression:
-    - A step is marked "completed" if all substeps are "completed".
-    - If any sub-step is "in_progress", the parent step must also be "in_progress".
-    - If a sub-step is "completed" but the parent step is "not_started", update it to "in_progress".
-    - If a parent step is "completed" but a substep is still "in_progress", downgrade it to "in_progress".
-    - Steps without substeps should still progress logically.
-
-    Args:
-        plan (List[Dict[str, Any]]): The current execution plan.
-
-    Returns:
-        List[Dict[str, Any]]: The updated execution plan with correct statuses.
+      • Parent completes if all substeps complete.
+      • Parent goes in_progress if any substep is in_progress.
+      • If substeps start completing, parent moves in_progress.
+      • If parent was completed but a substep reverts to in_progress, parent downgrades.
+      • Standalone steps (no substeps) are only updated via explicit status_updates.
     """
     for step in plan:
-        # Case 0: Handle steps that have NO substeps
-        if "substeps" not in step or not step["substeps"]:
-            if step["status"] == "not_started":
-                step[
-                    "status"
-                ] = "in_progress"  # Independent steps should start when execution begins
-            continue  # Skip further processing if no substeps exist
+        subs = step.get("substeps", None)
 
-        substep_statuses = {ss["status"] for ss in step["substeps"]}
+        # --- NO substeps: do nothing here (explicit updates only) ---
+        if subs is None:
+            continue
 
-        # Case 1: If ALL substeps are "completed", parent step must be "completed".
-        if all(status == "completed" for status in substep_statuses):
+        # If substeps is not a list or is an empty list, treat as no‐substeps too:
+        if not isinstance(subs, list) or len(subs) == 0:
+            continue
+
+        # Collect child statuses
+        statuses = {ss["status"] for ss in subs}
+
+        # 1. All done → parent done
+        if statuses == {"completed"}:
             step["status"] = "completed"
 
-        # Case 2: If ANY substep is "in_progress", parent step must also be "in_progress".
-        elif "in_progress" in substep_statuses:
+        # 2. Any in_progress → parent in_progress
+        elif "in_progress" in statuses:
             step["status"] = "in_progress"
 
-        # Case 3: If a sub-step was completed but the step is still "not_started", update it.
-        elif "completed" in substep_statuses and step["status"] == "not_started":
+        # 3. Some done, parent not yet started → bump to in_progress
+        elif "completed" in statuses and step["status"] == "not_started":
             step["status"] = "in_progress"
 
-        # Case 4: If the step is already marked as "completed" but a substep is still "in_progress", downgrade it.
-        elif step["status"] == "completed" and "in_progress" in substep_statuses:
+        # 4. If parent was completed but a child is in_progress, downgrade
+        elif step["status"] == "completed" and any(s != "completed" for s in statuses):
             step["status"] = "in_progress"
 
     return plan

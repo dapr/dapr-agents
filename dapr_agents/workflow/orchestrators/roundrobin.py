@@ -1,11 +1,13 @@
-from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
-from dapr.ext.workflow import DaprWorkflowContext
-from dapr_agents.types import BaseMessage
-from dapr_agents.workflow.decorators import task, workflow, message_router
-from typing import Any, Optional, Dict
-from pydantic import BaseModel, Field
-from datetime import timedelta
 import logging
+from datetime import timedelta
+from typing import Any, Dict, Optional
+
+from dapr.ext.workflow import DaprWorkflowContext
+from pydantic import BaseModel, Field
+
+from dapr_agents.types import BaseMessage
+from dapr_agents.workflow.decorators import message_router, task, workflow
+from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +35,9 @@ class TriggerAction(BaseModel):
 
     task: Optional[str] = Field(
         None,
-        description="The specific task to execute. If not provided, the agent will act based on its memory or predefined behavior.",
+        description="The specific task to execute. If not provided, the agent will act "
+        "based on its memory or predefined behavior.",
     )
-    iteration: Optional[int] = Field(0, description="")
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
     )
@@ -44,110 +46,110 @@ class TriggerAction(BaseModel):
 class RoundRobinOrchestrator(OrchestratorWorkflowBase):
     """
     Implements a round-robin workflow where agents take turns performing tasks.
-    The workflow iterates through conversations by selecting agents in a circular order.
-
-    Uses `continue_as_new` to persist iteration state.
+    Iterates for up to `self.max_iterations` turns, then returns the last reply.
     """
 
     def model_post_init(self, __context: Any) -> None:
         """
-        Initializes and configures the round-robin workflow service.
-        Registers tasks and workflows, then starts the workflow runtime.
+        Initializes and configures the round-robin workflow.
         """
         self._workflow_name = "RoundRobinWorkflow"
         super().model_post_init(__context)
 
     @workflow(name="RoundRobinWorkflow")
     # TODO: add retry policies on activities.
-    def main_workflow(self, ctx: DaprWorkflowContext, input: TriggerAction):
+    def main_workflow(self, ctx: DaprWorkflowContext, input: TriggerAction) -> str:
         """
-        Executes a round-robin workflow where agents interact iteratively.
-
-        Steps:
-        1. Processes input and broadcasts the initial message.
-        2. Iterates through agents, selecting a speaker each round.
-        3. Waits for agent responses or handles timeouts.
-        4. Updates the workflow state and continues the loop.
-        5. Terminates when max iterations are reached.
-
-        Uses `continue_as_new` to persist iteration state.
+        Drives the round-robin loop in up to `max_iterations` turns.
 
         Args:
-            ctx (DaprWorkflowContext): The workflow execution context.
-            input (TriggerAction): The current workflow state containing task and iteration.
+            ctx (DaprWorkflowContext): Workflow context.
+            input (TriggerAction): Contains the initial `task`.
 
         Returns:
-            str: The last processed message when the workflow terminates.
+            str: The final message content when the workflow terminates.
         """
+        # Step 1: Extract task and instance ID from input
         task = input.get("task")
-        iteration = input.get("iteration", 0)
         instance_id = ctx.instance_id
+        final_output: Optional[str] = None
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Round-robin iteration {iteration + 1} started (Instance ID: {instance_id})."
+        # Loop from 1..max_iterations
+        for turn in range(1, self.max_iterations + 1):
+            if not ctx.is_replaying:
+                logger.info(
+                    f"Round-robin turn {turn}/{self.max_iterations} "
+                    f"(Instance ID: {instance_id})"
+                )
+
+            # Step 2: On turn 1, process input and broadcast message
+            if turn == 1:
+                message = yield ctx.call_activity(
+                    self.process_input, input={"task": task}
+                )
+                if not ctx.is_replaying:
+                    logger.info(
+                        f"Initial message from {message['role']} -> {self.name}"
+                    )
+                yield ctx.call_activity(
+                    self.broadcast_message_to_agents, input={"message": message}
+                )
+
+            # Step 3: Select next speaker in round-robin order
+            speaker = yield ctx.call_activity(
+                self.select_next_speaker, input={"turn": turn}
             )
+            if not ctx.is_replaying:
+                logger.info(f"Selected agent {speaker} for turn {turn}")
 
-        # Check Termination Condition
-        if iteration >= self.max_iterations:
-            logger.info(
-                f"Max iterations reached. Ending round-robin workflow (Instance ID: {instance_id})."
-            )
-            return task
-
-        # First iteration: Process input and broadcast
-        if iteration == 0:
-            message = yield ctx.call_activity(self.process_input, input={"task": task})
-            logger.info(f"Initial message from {message['role']} -> {self.name}")
-
-            # Broadcast initial message
+            # Step 4: Trigger that agent
             yield ctx.call_activity(
-                self.broadcast_message_to_agents, input={"message": message}
+                self.trigger_agent,
+                input={"name": speaker, "instance_id": instance_id},
             )
 
-        # Select next speaker
-        next_speaker = yield ctx.call_activity(
-            self.select_next_speaker, input={"iteration": iteration}
-        )
+            # Step 5: Wait for agent response or timeout
+            if not ctx.is_replaying:
+                logger.debug("Waiting for agent response...")
+            event_data = ctx.wait_for_external_event("AgentTaskResponse")
+            timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
+            any_results = yield self.when_any([event_data, timeout_task])
 
-        # Trigger agent
-        yield ctx.call_activity(
-            self.trigger_agent, input={"name": next_speaker, "instance_id": instance_id}
-        )
+            # Step 6: Handle result or timeout
+            if any_results == timeout_task:
+                if not ctx.is_replaying:
+                    logger.warning(
+                        f"Turn {turn}: response timed out "
+                        f"(Instance ID: {instance_id})"
+                    )
+                result = {
+                    "name": "timeout",
+                    "content": "Timeout occurred. Continuing...",
+                }
+            else:
+                result = yield event_data
+                if not ctx.is_replaying:
+                    logger.info(f"{result['name']} -> {self.name}")
 
-        # Wait for response or timeout
-        logger.info("Waiting for agent response...")
-        event_data = ctx.wait_for_external_event("AgentTaskResponse")
-        timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
-        any_results = yield self.when_any([event_data, timeout_task])
+            # Step 7: If this is the last allowed turn, capture and break
+            if turn == self.max_iterations:
+                if not ctx.is_replaying:
+                    logger.info(
+                        f"Turn {turn}: max iterations reached (Instance ID: {instance_id})."
+                    )
+                final_output = result["content"]
+                break
 
-        if any_results == timeout_task:
-            logger.warning(
-                f"Agent response timed out (Iteration: {iteration + 1}, Instance ID: {instance_id})."
+            # Otherwise, feed into next iteration
+            task = result["content"]
+
+        # Sanity check: final_output must be set
+        if final_output is None:
+            raise RuntimeError(
+                "RoundRobinWorkflow completed without producing final_output"
             )
-            task_results = {
-                "name": "timeout",
-                "content": "Timeout occurred. Continuing...",
-            }
-        else:
-            task_results = yield event_data
-            logger.info(f"{task_results['name']} -> {self.name}")
 
-        # Check Iteration
-        next_iteration_count = iteration + 1
-        if next_iteration_count > self.max_iterations:
-            logger.info(
-                f"Max iterations reached. Ending round-robin workflow (Instance ID: {instance_id})."
-            )
-            return task_results["content"]
-
-        # Update for next iteration
-        input["task"] = task_results["content"]
-        input["iteration"] = next_iteration_count
-
-        # Restart workflow with updated state
-        # TODO: would we want this updated to preserve agent state between iterations?
-        ctx.continue_as_new(input)
+        return final_output
 
     @task
     async def process_input(self, task: str) -> Dict[str, Any]:
@@ -171,17 +173,16 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
         """
         # Format message for broadcasting
         task_message = BroadcastMessage(**message)
-
         # Send broadcast message
         await self.broadcast_message(message=task_message, exclude_orchestrator=True)
 
     @task
-    async def select_next_speaker(self, iteration: int) -> str:
+    async def select_next_speaker(self, turn: int) -> str:
         """
         Selects the next speaker in round-robin order.
 
         Args:
-            iteration (int): The current iteration number.
+            turn (int): The current turn number (1-based).
         Returns:
             str: The name of the selected agent.
         """
@@ -191,12 +192,7 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
             raise ValueError("Agents metadata is empty. Cannot select next speaker.")
 
         agent_names = list(agents_metadata.keys())
-
-        # Determine the next agent in the round-robin order
-        next_speaker = agent_names[iteration % len(agent_names)]
-        logger.info(
-            f"{self.name} selected agent {next_speaker} for iteration {iteration}."
-        )
+        next_speaker = agent_names[(turn - 1) % len(agent_names)]
         return next_speaker
 
     @task
@@ -208,6 +204,7 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
             name (str): Name of the agent to trigger.
             instance_id (str): Workflow instance ID for context.
         """
+        logger.info(f"Triggering agent {name} (Instance ID: {instance_id})")
         await self.send_message_to_agent(
             name=name,
             message=TriggerAction(workflow_instance_id=instance_id),
@@ -224,25 +221,21 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
         Returns:
             None: The function raises a workflow event with the agent's response.
         """
-        try:
-            workflow_instance_id = getattr(message, "workflow_instance_id", None)
+        workflow_instance_id = getattr(message, "workflow_instance_id", None)
 
-            if not workflow_instance_id:
-                logger.error(
-                    f"{self.name} received an agent response without a valid workflow_instance_id. Ignoring."
-                )
-                return
-
-            logger.info(
-                f"{self.name} processing agent response for workflow instance '{workflow_instance_id}'."
+        if not workflow_instance_id:
+            logger.error(
+                f"{self.name} received an agent response without a valid workflow_instance_id. Ignoring."
             )
-
-            # Raise a workflow event with the Agent's Task Response
-            self.raise_workflow_event(
-                instance_id=workflow_instance_id,
-                event_name="AgentTaskResponse",
-                data=message,
-            )
-
-        except Exception as e:
-            logger.error(f"Error processing agent response: {e}", exc_info=True)
+            return
+        # Log the received response
+        logger.debug(
+            f"{self.name} received response for workflow {workflow_instance_id}"
+        )
+        logger.debug(f"Full response: {message}")
+        # Raise a workflow event with the Agent's Task Response
+        self.raise_workflow_event(
+            instance_id=workflow_instance_id,
+            event_name="AgentTaskResponse",
+            data=message,
+        )

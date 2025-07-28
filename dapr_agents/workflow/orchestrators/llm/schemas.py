@@ -33,9 +33,6 @@ class TriggerAction(BaseModel):
         None,
         description="The specific task to execute. If not provided, the agent can act based on its memory or predefined behavior.",
     )
-    iteration: Optional[int] = Field(
-        default=0, description="The current iteration of the workflow loop."
-    )
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
     )

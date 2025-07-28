@@ -1,8 +1,10 @@
 import chainlit as cl
-from dapr_agents import Agent
-from dapr_agents.tool.mcp.client import MCPClient
 from dotenv import load_dotenv
 from get_schema import get_table_schema_as_dict
+
+from dapr_agents import Agent
+from dapr_agents.tool.mcp.client import MCPClient
+from dapr_agents.types import AssistantMessage
 
 load_dotenv()
 
@@ -52,18 +54,18 @@ async def start():
 async def main(message: cl.Message):
     # generate the result set and pass back to the user
     prompt = create_prompt_for_llm(table_info, message.content)
-    result = await agent.run(prompt)
+    result: AssistantMessage = await agent.run(prompt)
 
     await cl.Message(
-        content=result,
+        content=result.content,
     ).send()
 
-    result_set = await agent.run(
+    result_set: AssistantMessage = await agent.run(
         "Execute the following sql query and always return a table format unless instructed otherwise. If the user asks a question regarding the data, return the result and formalize an answer based on inspecting the data: "
-        + result
+        + result.content
     )
     await cl.Message(
-        content=result_set,
+        content=result_set.content,
     ).send()
 
 
