@@ -268,9 +268,9 @@ class WorkflowTask(BaseModel):
                 - primitive (str/int/etc) or dict
 
         Returns:
-            • str (assistant content) when `LLMChatResponse`  
-            • dict when a single BaseModel  
-            • List[dict] when a list of BaseModels  
+            • str (assistant content) when `LLMChatResponse`
+            • dict when a single BaseModel
+            • List[dict] when a list of BaseModels
             • otherwise, the raw `result`
         """
         # 1) Unwrap our unified LLMChatResponse → return the assistant's text
@@ -286,9 +286,7 @@ class WorkflowTask(BaseModel):
 
         # 3) List of Pydantic models → list of dicts
         if isinstance(result, list) and all(isinstance(x, BaseModel) for x in result):
-            logger.debug(
-                "Converting list of Pydantic models to list of dictionaries."
-            )
+            logger.debug("Converting list of Pydantic models to list of dictionaries.")
             return [x.model_dump() for x in result]
 
         # 4) Fallback: primitive, dict, etc.

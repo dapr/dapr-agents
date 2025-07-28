@@ -87,13 +87,15 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
         prompt_template = Prompty.to_prompt_template(prompty_instance)
         cfg = prompty_instance.model.configuration
 
-        return cls.model_validate({
-            "model":           cfg.name,
-            "api_key":         cfg.api_key,
-            "base_url":        cfg.base_url,
-            "prompty":         prompty_instance,
-            "prompt_template": prompt_template,
-        })
+        return cls.model_validate(
+            {
+                "model": cfg.name,
+                "api_key": cfg.api_key,
+                "base_url": cfg.base_url,
+                "prompty": prompty_instance,
+                "prompt_template": prompt_template,
+            }
+        )
 
     def generate(
         self,
@@ -114,9 +116,9 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
         **kwargs: Any,
     ) -> Union[
         Iterator[LLMChatCandidateChunk],  # streaming
-        LLMChatResponse,                  # non‑stream + no format
-        BaseModel,                        # non‑stream + single structured format
-        List[BaseModel],                  # non‑stream + list structured format
+        LLMChatResponse,  # non‑stream + no format
+        BaseModel,  # non‑stream + single structured format
+        List[BaseModel],  # non‑stream + list structured format
     ]:
         """
         Issue a chat completion to NVIDIA.
@@ -150,9 +152,7 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
         # 2) If input_data is provided, format messages via Prompty
         if input_data:
             if not self.prompt_template:
-                raise ValueError(
-                    "input_data provided but no prompt_template is set."
-                )
+                raise ValueError("input_data provided but no prompt_template is set.")
             logger.info("Formatting messages via prompt_template.")
             messages = self.prompt_template.format_prompt(**input_data)
 
@@ -185,9 +185,7 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
         try:
             logger.info("Calling NVIDIA ChatCompletion API.")
             logger.debug(f"Parameters: {params}")
-            resp = self.client.chat.completions.create(
-                **params, stream=stream
-            )
+            resp = self.client.chat.completions.create(**params, stream=stream)
             return ResponseHandler.process_response(
                 response=resp,
                 llm_provider=self.provider,

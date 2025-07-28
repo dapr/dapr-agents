@@ -38,7 +38,9 @@ async def main():
         )
 
         # Run a sample query
-        result: AssistantMessage = await weather_agent.run("What is the weather in New York?")
+        result: AssistantMessage = await weather_agent.run(
+            "What is the weather in New York?"
+        )
         print(result.content)
 
     finally:

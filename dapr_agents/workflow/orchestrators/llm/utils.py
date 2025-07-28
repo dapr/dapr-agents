@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 
+
 def update_step_statuses(plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Ensures step and sub-step statuses follow logical progression:
@@ -21,7 +22,7 @@ def update_step_statuses(plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             continue
 
         # Collect child statuses
-        statuses = { ss["status"] for ss in subs }
+        statuses = {ss["status"] for ss in subs}
 
         # 1. All done → parent done
         if statuses == {"completed"}:

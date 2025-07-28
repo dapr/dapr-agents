@@ -76,11 +76,13 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         """
         prompty_instance = Prompty.load(prompty_source)
         prompt_template = Prompty.to_prompt_template(prompty_instance)
-        return cls.model_validate({
-            "timeout": timeout,
-            "prompty": prompty_instance,
-            "prompt_template": prompt_template,
-        })
+        return cls.model_validate(
+            {
+                "timeout": timeout,
+                "prompty": prompty_instance,
+                "prompt_template": prompt_template,
+            }
+        )
 
     def translate_response(self, response: dict, model: str) -> dict:
         """
@@ -159,7 +161,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             **kwargs:        Other Dapr API parameters.
 
         Returns:
-            • `LLMChatResponse` if no `response_format`  
+            • `LLMChatResponse` if no `response_format`
             • Pydantic model (or `List[...]`) when `response_format` is set
 
         Raises:
@@ -186,7 +188,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             raise ValueError("Either 'messages' or 'input_data' must be provided.")
 
         # 4) Normalize + merge defaults
-        params: Dict[str, Any] = {"inputs": RequestHandler.normalize_chat_messages(messages)}
+        params: Dict[str, Any] = {
+            "inputs": RequestHandler.normalize_chat_messages(messages)
+        }
         if self.prompty:
             params = {**self.prompty.model.parameters.model_dump(), **params, **kwargs}
         else:
@@ -211,7 +215,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                 scrub_pii=scrubPII,
                 temperature=temperature,
             )
-            normalized = self.translate_response(raw, llm_component or self._llm_component)
+            normalized = self.translate_response(
+                raw, llm_component or self._llm_component
+            )
             logger.info("Chat completion retrieved successfully.")
         except Exception as e:
             logger.error(

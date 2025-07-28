@@ -166,7 +166,9 @@ class TestAgent:
 
         agent_with_tools.llm.generate.side_effect = [first_response, second_response]
         agent_with_tools.tools = [echo_tool]
-        agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(tools=[echo_tool])
+        agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(
+            tools=[echo_tool]
+        )
 
         result = await agent_with_tools._run_agent("Use the tool")
         assert isinstance(result, AssistantMessage)
@@ -183,7 +185,9 @@ class TestAgent:
         tool_call.id = "call_123"
         tool_call.function = mock_function
         agent_with_tools.tools = [echo_tool]
-        agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(tools=[echo_tool])
+        agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(
+            tools=[echo_tool]
+        )
         await agent_with_tools.execute_tools([tool_call])
         assert len(agent_with_tools.tool_history) == 1
         tool_message = agent_with_tools.tool_history[0]
@@ -201,7 +205,9 @@ class TestAgent:
         tool_call.id = "call_123"
         tool_call.function = mock_function
         agent_with_tools.tools = [error_tool]
-        agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(tools=[error_tool])
+        agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(
+            tools=[error_tool]
+        )
         with pytest.raises(
             AgentError, match=f"Error executing tool '{error_tool.name}': .*Tool failed"
         ):
@@ -222,7 +228,6 @@ class TestAgent:
         assert result.content == "Using tool"
         assert basic_agent.llm.generate.call_count == 1
 
-
     @pytest.mark.asyncio
     async def test_process_iterations_with_llm_error(self, basic_agent):
         """Test handling of LLM errors during iterations."""
@@ -237,7 +242,9 @@ class TestAgent:
     async def test_run_tool_success(self, agent_with_tools):
         """Test successful tool execution via run_tool method."""
         agent_with_tools.tools = [echo_tool]
-        agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(tools=[echo_tool])
+        agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(
+            tools=[echo_tool]
+        )
         result = await agent_with_tools.run_tool(echo_tool.name, arg1="value1")
         assert result == "value1"
 
@@ -245,7 +252,9 @@ class TestAgent:
     async def test_run_tool_failure(self, agent_with_tools):
         """Test tool execution failure via run_tool method."""
         agent_with_tools.tools = [error_tool]
-        agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(tools=[error_tool])
+        agent_with_tools._tool_executor = agent_with_tools._tool_executor.__class__(
+            tools=[error_tool]
+        )
         with pytest.raises(
             AgentError, match=f"Failed to run tool '{error_tool.name}': .*Tool failed"
         ):

@@ -16,6 +16,7 @@ class AgentTaskResponse(BaseMessage):
     """
     Represents a response message from an agent after completing a task.
     """
+
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
     )
@@ -31,10 +32,11 @@ class TriggerAction(BaseModel):
     """
     Represents a message used to trigger an agent's activity within the workflow.
     """
+
     task: Optional[str] = Field(
         None,
         description="The specific task to execute. If not provided, the agent will act "
-                    "based on its memory or predefined behavior.",
+        "based on its memory or predefined behavior.",
     )
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
@@ -79,27 +81,27 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
                     f"Round-robin turn {turn}/{self.max_iterations} "
                     f"(Instance ID: {instance_id})"
                 )
-            
+
             # Step 2: On turn 1, process input and broadcast message
             if turn == 1:
                 message = yield ctx.call_activity(
                     self.process_input, input={"task": task}
                 )
                 if not ctx.is_replaying:
-                    logger.info(f"Initial message from {message['role']} -> {self.name}")
+                    logger.info(
+                        f"Initial message from {message['role']} -> {self.name}"
+                    )
                 yield ctx.call_activity(
-                    self.broadcast_message_to_agents,
-                    input={"message": message}
+                    self.broadcast_message_to_agents, input={"message": message}
                 )
-            
+
             # Step 3: Select next speaker in round-robin order
             speaker = yield ctx.call_activity(
-                self.select_next_speaker,
-                input={"turn": turn}
+                self.select_next_speaker, input={"turn": turn}
             )
             if not ctx.is_replaying:
                 logger.info(f"Selected agent {speaker} for turn {turn}")
-            
+
             # Step 4: Trigger that agent
             yield ctx.call_activity(
                 self.trigger_agent,
@@ -120,12 +122,15 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
                         f"Turn {turn}: response timed out "
                         f"(Instance ID: {instance_id})"
                     )
-                result = {"name": "timeout", "content": "Timeout occurred. Continuing..."}
+                result = {
+                    "name": "timeout",
+                    "content": "Timeout occurred. Continuing...",
+                }
             else:
                 result = yield event_data
                 if not ctx.is_replaying:
                     logger.info(f"{result['name']} -> {self.name}")
-            
+
             # Step 7: If this is the last allowed turn, capture and break
             if turn == self.max_iterations:
                 if not ctx.is_replaying:
@@ -140,7 +145,9 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
 
         # Sanity check: final_output must be set
         if final_output is None:
-            raise RuntimeError("RoundRobinWorkflow completed without producing final_output")
+            raise RuntimeError(
+                "RoundRobinWorkflow completed without producing final_output"
+            )
 
         return final_output
 
@@ -168,7 +175,7 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
         task_message = BroadcastMessage(**message)
         # Send broadcast message
         await self.broadcast_message(message=task_message, exclude_orchestrator=True)
-    
+
     @task
     async def select_next_speaker(self, turn: int) -> str:
         """
@@ -222,7 +229,9 @@ class RoundRobinOrchestrator(OrchestratorWorkflowBase):
             )
             return
         # Log the received response
-        logger.info(f"{self.name} received response for workflow {workflow_instance_id}")
+        logger.info(
+            f"{self.name} received response for workflow {workflow_instance_id}"
+        )
         logger.debug(f"Full response: {message}")
         # Raise a workflow event with the Agent's Task Response
         self.raise_workflow_event(

@@ -233,7 +233,7 @@ class StructureHandler:
         """
         try:
             logger.debug(f"Processing structured response for mode: {structured_mode}")
-            if llm_provider in ("openai", "nvidia", 'huggingface'):
+            if llm_provider in ("openai", "nvidia", "huggingface"):
                 if structured_mode == "function_call":
                     tool_calls = getattr(message, "tool_calls", None)
                     if tool_calls:

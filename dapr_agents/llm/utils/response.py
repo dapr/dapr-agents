@@ -38,9 +38,9 @@ class ResponseHandler:
         on_chunk: Optional[Callable[[LLMChatCandidateChunk], None]] = None,
     ) -> Union[
         Iterator[LLMChatCandidateChunk],  # when streaming
-        LLMChatResponse,                   # non‑stream + no format
-        T,                                 # non‑stream + single structured format
-        list[T],                           # non‑stream + list structured format
+        LLMChatResponse,  # non‑stream + no format
+        T,  # non‑stream + single structured format
+        list[T],  # non‑stream + list structured format
     ]:
         """
         Process a chat completion.
@@ -62,9 +62,9 @@ class ResponseHandler:
             on_chunk:         Callback on every partial `LLMChatCandidateChunk`.
 
         Returns:
-            • **streaming**: `Iterator[LLMChatCandidateChunk]`  
-            • **non-stream + no format**: full `LLMChatResponse`  
-            • **non-stream + format**: validated Pydantic model instance or `List[...]`  
+            • **streaming**: `Iterator[LLMChatCandidateChunk]`
+            • **non-stream + no format**: full `LLMChatResponse`
+            • **non-stream + format**: validated Pydantic model instance or `List[...]`
         """
         provider = llm_provider.lower()
 
@@ -80,12 +80,15 @@ class ResponseHandler:
             # 1) Normalize full response → LLMChatResponse
             if provider in ("openai", "nvidia"):
                 from dapr_agents.llm.openai.utils import process_openai_chat_response
+
                 llm_resp: LLMChatResponse = process_openai_chat_response(response)
             elif provider == "huggingface":
                 from dapr_agents.llm.huggingface.utils import process_hf_chat_response
+
                 llm_resp = process_hf_chat_response(response)
             elif provider == "dapr":
                 from dapr_agents.llm.dapr.utils import process_dapr_chat_response
+
                 llm_resp = process_dapr_chat_response(response)
             else:
                 # if you add more providers, handle them here
@@ -113,7 +116,9 @@ class ResponseHandler:
             # 3c) Ensure exactly one Pydantic model inside
             model_cls = StructureHandler.resolve_response_model(fmt)
             if model_cls is None:
-                raise TypeError(f"Cannot resolve a Pydantic model from {response_format!r}")
+                raise TypeError(
+                    f"Cannot resolve a Pydantic model from {response_format!r}"
+                )
 
             # 3d) Validate JSON/dict → Pydantic
             validated = StructureHandler.validate_response(raw, fmt)

@@ -134,7 +134,7 @@ class FunctionCallChunk(BaseModel):
 class ToolCallChunk(BaseModel):
     """
     Represents a tool call chunk in a streaming response, containing the index, ID, type, and function call details.
-    
+
     Attributes:
         index (int): The index of the tool call in the response.
         id (str): Unique identifier for the tool call.
@@ -176,6 +176,7 @@ class MessageContent(BaseMessage):
             delattr(self, item)
 
         return self
+
 
 class SystemMessage(BaseMessage):
     """
@@ -227,7 +228,7 @@ class AssistantMessage(BaseMessage):
             delattr(self, item)
 
         return self
-    
+
     def get_tool_calls(self) -> Optional[List[ToolCall]]:
         """
         Retrieve tool calls from the message if available.
@@ -238,7 +239,7 @@ class AssistantMessage(BaseMessage):
             return self.tool_calls
         if isinstance(self.tool_calls, ToolCall):
             return [self.tool_calls]
-    
+
     def has_tool_calls(self) -> bool:
         """
         Check if the message has tool calls.
@@ -263,6 +264,7 @@ class ToolMessage(BaseMessage):
     role: str = "tool"
     tool_call_id: str
 
+
 class LLMChatCandidate(BaseModel):
     """
     Represents a single candidate (output) from an LLM chat response.
@@ -273,6 +275,7 @@ class LLMChatCandidate(BaseModel):
         finish_reason (Optional[str]): Why the model stopped generating text.
         [Any other provider-specific fields, e.g., index, logprobs, etc.]
     """
+
     message: AssistantMessage
     finish_reason: Optional[str] = None
 
@@ -288,6 +291,7 @@ class LLMChatResponse(BaseModel):
         results (List[LLMChatCandidate]): List of candidate outputs.
         metadata (dict): Provider/model metadata (id, model, usage, etc.).
     """
+
     results: List[LLMChatCandidate]
     metadata: dict = {}
 
@@ -302,11 +306,12 @@ class LLMChatCandidateChunk(BaseModel):
     """
     Represents a partial (streamed) candidate from an LLM provider, for real-time streaming.
     """
+
     content: Optional[str] = None
     function_call: Optional[Dict[str, Any]] = None
     refusal: Optional[str] = None
     role: Optional[str] = None
-    tool_calls: Optional[List['ToolCallChunk']] = None
+    tool_calls: Optional[List["ToolCallChunk"]] = None
     finish_reason: Optional[str] = None
     index: Optional[int] = None
     logprobs: Optional[dict] = None
@@ -316,6 +321,7 @@ class LLMChatResponseChunk(BaseModel):
     """
     Represents a partial (streamed) response from an LLM provider, for real-time streaming.
     """
+
     result: LLMChatCandidateChunk
     metadata: Optional[dict] = None
 

@@ -57,7 +57,9 @@ async def start():
         upload(file_bytes, text_file.name, "upload")
 
     # give the model the document to learn
-    response: AssistantMessage = await agent.run("This is a document element to learn: " + document_text)
+    response: AssistantMessage = await agent.run(
+        "This is a document element to learn: " + document_text
+    )
 
     await cl.Message(content=f"`{text_file.name}` uploaded.").send()
 

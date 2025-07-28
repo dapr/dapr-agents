@@ -17,11 +17,14 @@ from dapr_agents.types.message import (
 
 logger = logging.getLogger(__name__)
 
+
 # Helper function to handle metadata extraction
-def _get_packet_metadata(pkt: Dict[str, Any], enrich_metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _get_packet_metadata(
+    pkt: Dict[str, Any], enrich_metadata: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
     """
     Extract metadata from HuggingFace packet and merge with enrich_metadata.
-    
+
     Args:
         pkt (Dict[str, Any]): The HuggingFace packet from which to extract metadata.
         enrich_metadata (Optional[Dict[str, Any]]): Additional metadata to merge with the extracted metadata.
@@ -44,53 +47,52 @@ def _get_packet_metadata(pkt: Dict[str, Any], enrich_metadata: Optional[Dict[str
         logger.error(f"Failed to parse packet: {e}", exc_info=True)
         return {}
 
+
 # Helper function to process each choice delta (content, function call, tool call, finish reason)
 def _process_choice_delta(
-        choice: Dict[str, Any],
-        overall_meta: Dict[str, Any],
-        on_chunk: Optional[Callable],
-        first_chunk_flag: bool) -> Iterator[LLMChatResponseChunk]:
+    choice: Dict[str, Any],
+    overall_meta: Dict[str, Any],
+    on_chunk: Optional[Callable],
+    first_chunk_flag: bool,
+) -> Iterator[LLMChatResponseChunk]:
     """
     Process each choice delta and yield corresponding chunks.
-    
+
     Args:
         choice (Dict[str, Any]): The choice delta from HuggingFace response.
         overall_meta (Dict[str, Any]): Overall metadata to include in chunks.
         on_chunk (Optional[Callable]): Callback for each chunk.
         first_chunk_flag (bool): Flag indicating if this is the first chunk.
-    
+
     Yields:
         LLMChatResponseChunk: The processed chunk with content, function call, tool calls,
     """
     # Make an immutable snapshot for this single chunk
     meta = {**overall_meta}
-    
+
     # mark first_chunk exactly once
     if first_chunk_flag and "first_chunk" not in meta:
         meta["first_chunk"] = True
-    
+
     # Extract initial properties from choice
     delta: dict = choice.get("delta", {})
     idx = choice.get("index")
     finish_reason = choice.get("finish_reason", None)
     logprobs = choice.get("logprobs", None)
-    
+
     # Set additional metadata
     if finish_reason in ("stop", "tool_calls"):
         meta["last_chunk"] = True
-    
+
     # Process content delta
     content = delta.get("content", None)
     function_call = delta.get("function_call", None)
     refusal = delta.get("refusal", None)
     role = delta.get("role", None)
-    
+
     # Process tool calls
-    chunk_tool_calls = [
-        ToolCallChunk(**tc)
-        for tc in (delta.get("tool_calls") or [])
-    ]
-    
+    chunk_tool_calls = [ToolCallChunk(**tc) for tc in (delta.get("tool_calls") or [])]
+
     # Initialize LLMChatResponseChunk
     response_chunk = LLMChatResponseChunk(
         result=LLMChatCandidateChunk(
@@ -110,6 +112,7 @@ def _process_choice_delta(
         on_chunk(response_chunk)
     # Yield LLMChatResponseChunk
     yield response_chunk
+
 
 # Main function to process HuggingFace streaming response
 def process_hf_stream(
@@ -146,18 +149,22 @@ def process_hf_stream(
             pkt = dataclasses.asdict(packet)
         else:
             raise TypeError(f"Cannot serialize packet of type {type(packet)}")
-        
+
         # Capture overall metadata from the packet
         overall_meta = _get_packet_metadata(pkt, enrich_metadata)
 
         # Process each choice in this packet
         if choices := pkt.get("choices"):
             if len(choices) == 0:
-                logger.warning("Received empty 'choices' in HuggingFace packet, skipping.")
+                logger.warning(
+                    "Received empty 'choices' in HuggingFace packet, skipping."
+                )
                 continue
             # Process the first choice in the packet
             choice = choices[0]
-            yield from _process_choice_delta(choice, overall_meta, on_chunk, first_chunk_flag)
+            yield from _process_choice_delta(
+                choice, overall_meta, on_chunk, first_chunk_flag
+            )
             # Set first_chunk_flag to False after processing the first choice
             first_chunk_flag = False
         else:
@@ -166,9 +173,8 @@ def process_hf_stream(
             final_response_chunk = LLMChatResponseChunk(metadata=overall_meta)
             yield final_response_chunk
 
-def process_hf_chat_response(
-    response: ChatCompletionOutput
-) -> LLMChatResponse:
+
+def process_hf_chat_response(response: ChatCompletionOutput) -> LLMChatResponse:
     """
     Convert a non-streaming Hugging Face ChatCompletionOutput into our unified LLMChatResponse.
 
@@ -218,7 +224,9 @@ def process_hf_chat_response(
         if msg.get("tool_call_id") and not tool_calls:
             # HF only sent you an ID; we turn that into a zero‑arg function_call
             fc = FunctionCall(name=msg["tool_call_id"], arguments="")
-            tool_calls = [ToolCall(id=msg["tool_call_id"], type="function", function=fc)]
+            tool_calls = [
+                ToolCall(id=msg["tool_call_id"], type="function", function=fc)
+            ]
 
         # 3) promote first tool_call into function_call if desired
         function_call = tool_calls[0].function if tool_calls else None

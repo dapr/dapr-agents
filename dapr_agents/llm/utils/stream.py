@@ -40,6 +40,7 @@ class StreamHandler:
 
         if llm_provider in ("openai", "nvidia"):
             from dapr_agents.llm.openai.utils import process_openai_stream
+
             yield from process_openai_stream(
                 raw_stream=stream,
                 enrich_metadata={"provider": llm_provider},
@@ -47,6 +48,7 @@ class StreamHandler:
             )
         elif llm_provider == "huggingface":
             from dapr_agents.llm.huggingface.utils import process_hf_stream
+
             yield from process_hf_stream(
                 raw_stream=stream,
                 enrich_metadata={"provider": llm_provider},

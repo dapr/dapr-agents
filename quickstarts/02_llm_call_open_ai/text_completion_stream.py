@@ -13,7 +13,9 @@ load_dotenv()
 # Basic chat completion
 llm = OpenAIChatClient()
 
-response: Iterator[LLMChatResponseChunk] = llm.generate("Name a famous dog!", stream=True)
+response: Iterator[LLMChatResponseChunk] = llm.generate(
+    "Name a famous dog!", stream=True
+)
 
 for chunk in response:
     if chunk.result.content:

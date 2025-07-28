@@ -181,9 +181,7 @@ def to_function_call_definition(
 
 
 def validate_and_format_tool(
-    tool: Dict[str, Any],
-    tool_format: str = "openai",
-    use_deprecated: bool = False
+    tool: Dict[str, Any], tool_format: str = "openai", use_deprecated: bool = False
 ) -> Dict[str, Any]:
     """
     Validates and formats a tool definition dict for the specified API style.

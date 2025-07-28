@@ -37,7 +37,7 @@ class TriggerAction(BaseModel):
     task: Optional[str] = Field(
         None,
         description="The specific task to execute. If not provided, the agent will act "
-                    "based on its memory or predefined behavior.",
+        "based on its memory or predefined behavior.",
     )
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
@@ -99,18 +99,15 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
                 )
                 logger.info(f"Initial message from {message['role']} -> {self.name}")
                 yield ctx.call_activity(
-                    self.broadcast_message_to_agents,
-                    input={"message": message}
+                    self.broadcast_message_to_agents, input={"message": message}
                 )
 
             # Step 3: Select a random speaker
-            random_speaker = yield ctx.call_activity(
-                self.select_random_speaker 
-            )
+            random_speaker = yield ctx.call_activity(self.select_random_speaker)
             if not ctx.is_replaying:
                 logger.info(f"{self.name} selected {random_speaker} (Turn {turn}).")
 
-            # Step 4: Trigger the agent    
+            # Step 4: Trigger the agent
             yield ctx.call_activity(
                 self.trigger_agent,
                 input={"name": random_speaker, "instance_id": instance_id},
@@ -129,7 +126,10 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
                     logger.warning(
                         f"Turn {turn}: agent response timed out (Instance ID: {instance_id})."
                     )
-                result = {"name": "timeout", "content": "⏰ Timeout occurred. Continuing..."}
+                result = {
+                    "name": "timeout",
+                    "content": "⏰ Timeout occurred. Continuing...",
+                }
             else:
                 result = yield event_data
                 if not ctx.is_replaying:
@@ -149,7 +149,9 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
 
         # Sanity check (should never happen)
         if final_output is None:
-            raise RuntimeError("RandomWorkflow completed without producing a final_output")
+            raise RuntimeError(
+                "RandomWorkflow completed without producing a final_output"
+            )
 
         # Return the final message content
         return final_output
@@ -209,11 +211,13 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
             logger.error("Missing workflow_instance_id on AgentTaskResponse; ignoring.")
             return
         # Log the received response
-        logger.info(f"{self.name} received response for workflow {workflow_instance_id}")
+        logger.info(
+            f"{self.name} received response for workflow {workflow_instance_id}"
+        )
         logger.debug(f"Full response: {message}")
         # Raise a workflow event with the Agent's Task Response
         self.raise_workflow_event(
             instance_id=workflow_instance_id,
             event_name="AgentTaskResponse",
-            data=message
+            data=message,
         )

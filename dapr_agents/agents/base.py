@@ -31,6 +31,7 @@ from dapr_agents.llm.openai import OpenAIChatClient
 
 logger = logging.getLogger(__name__)
 
+
 class AgentBase(BaseModel, ABC):
     """
     Base class for agents that interact with language models and manage tools for task execution.

@@ -9,7 +9,7 @@ from dapr_agents.types import (
     ToolExecutionRecord,
     ToolMessage,
     UserMessage,
-    LLMChatResponse
+    LLMChatResponse,
 )
 
 logger = logging.getLogger(__name__)

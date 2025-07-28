@@ -60,7 +60,9 @@ class ChatClientBase(ABC):
     @overload
     def generate(
         self,
-        messages: Union[str, Dict[str, Any], Any, Iterable[Union[Dict[str, Any], Any]]]=None,
+        messages: Union[
+            str, Dict[str, Any], Any, Iterable[Union[Dict[str, Any], Any]]
+        ] = None,
         *,
         input_data: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
@@ -69,13 +71,17 @@ class ChatClientBase(ABC):
         structured_mode: Optional[str] = None,
         stream: Literal[False] = False,
         **kwargs: Any,
-    ) -> LLMChatResponse: ...
+    ) -> LLMChatResponse:
+        ...
+
     """If `stream=False` and no `response_format`, returns raw LLMChatResponse."""
 
     @overload
     def generate(
         self,
-        messages: Union[str, Dict[str, Any], Any, Iterable[Union[Dict[str, Any], Any]]]=None,
+        messages: Union[
+            str, Dict[str, Any], Any, Iterable[Union[Dict[str, Any], Any]]
+        ] = None,
         *,
         input_data: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
@@ -84,13 +90,17 @@ class ChatClientBase(ABC):
         structured_mode: Optional[str] = None,
         stream: Literal[False] = False,
         **kwargs: Any,
-    ) -> Union[T, List[T]]: ...
+    ) -> Union[T, List[T]]:
+        ...
+
     """If `stream=False` and `response_format=SomeModel`, returns that model or a list thereof."""
 
     @overload
     def generate(
         self,
-        messages: Union[str, Dict[str, Any], Any, Iterable[Union[Dict[str, Any], Any]]]=None,
+        messages: Union[
+            str, Dict[str, Any], Any, Iterable[Union[Dict[str, Any], Any]]
+        ] = None,
         *,
         input_data: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
@@ -99,13 +109,17 @@ class ChatClientBase(ABC):
         structured_mode: Optional[str] = None,
         stream: Literal[True],
         **kwargs: Any,
-    ) -> Iterator[LLMChatCandidateChunk]: ...
+    ) -> Iterator[LLMChatCandidateChunk]:
+        ...
+
     """If `stream=True`, returns a streaming iterator of chunks."""
 
     @abstractmethod
     def generate(
         self,
-        messages: Union[str, Dict[str, Any], Any, Iterable[Union[Dict[str, Any], Any]]]=None,
+        messages: Union[
+            str, Dict[str, Any], Any, Iterable[Union[Dict[str, Any], Any]]
+        ] = None,
         *,
         input_data: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,

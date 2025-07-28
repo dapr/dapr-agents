@@ -24,5 +24,8 @@ if response.get_message() is not None:
 llm = DaprChatClient()
 response: LLMChatResponse = llm.generate(messages=[UserMessage("hello")])
 
-if response.get_message() is not None and "hello" in response.get_message().content.lower():
+if (
+    response.get_message() is not None
+    and "hello" in response.get_message().content.lower()
+):
     print("Response with user input: ", response.get_message().content)

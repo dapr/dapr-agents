@@ -96,36 +96,41 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
         }
 
         if isinstance(cfg, OpenAIModelConfig):
-            return cls.model_validate({
-                **common,
-                "model":        cfg.name,
-                "api_key":      cfg.api_key,
-                "base_url":     cfg.base_url,
-                "organization": cfg.organization,
-                "project":      cfg.project,
-            })
+            return cls.model_validate(
+                {
+                    **common,
+                    "model": cfg.name,
+                    "api_key": cfg.api_key,
+                    "base_url": cfg.base_url,
+                    "organization": cfg.organization,
+                    "project": cfg.project,
+                }
+            )
         elif isinstance(cfg, AzureOpenAIModelConfig):
-            return cls.model_validate({
-                **common,
-                "model":            cfg.azure_deployment,
-                "api_key":          cfg.api_key,
-                "azure_endpoint":   cfg.azure_endpoint,
-                "azure_deployment": cfg.azure_deployment,
-                "api_version":      cfg.api_version,
-                "organization":     cfg.organization,
-                "project":          cfg.project,
-                "azure_ad_token":   cfg.azure_ad_token,
-                "azure_client_id":  cfg.azure_client_id,
-            })
+            return cls.model_validate(
+                {
+                    **common,
+                    "model": cfg.azure_deployment,
+                    "api_key": cfg.api_key,
+                    "azure_endpoint": cfg.azure_endpoint,
+                    "azure_deployment": cfg.azure_deployment,
+                    "api_version": cfg.api_version,
+                    "organization": cfg.organization,
+                    "project": cfg.project,
+                    "azure_ad_token": cfg.azure_ad_token,
+                    "azure_client_id": cfg.azure_client_id,
+                }
+            )
         else:
             raise ValueError(f"Unsupported model config: {type(cfg)}")
 
     def generate(
         self,
         messages: Union[
-            str, Dict[str, Any],
+            str,
+            Dict[str, Any],
             BaseMessage,
-            Iterable[Union[Dict[str, Any], BaseMessage]]
+            Iterable[Union[Dict[str, Any], BaseMessage]],
         ] = None,
         *,
         input_data: Optional[Dict[str, Any]] = None,
@@ -160,7 +165,7 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
             **kwargs:        any other LLM params (temperature, top_p, stream, etc.).
 
         Returns:
-            • `Iterator[LLMChatCandidateChunk]` if streaming  
+            • `Iterator[LLMChatCandidateChunk]` if streaming
             • `LLMChatResponse` or Pydantic instance(s) if non-streaming
 
         Raises:

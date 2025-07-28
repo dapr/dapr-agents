@@ -137,7 +137,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             task = getattr(message, "task", None)
             source_workflow_instance_id = getattr(message, "workflow_instance_id", None)
             metadata = getattr(message, "_message_metadata", {}) or {}
-        
+
         instance_id = ctx.instance_id
         source = metadata.get("source")
         final_message: Optional[Dict[str, Any]] = None
@@ -149,7 +149,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             # Loop up to max_iterations
             for turn in range(1, self.max_iterations + 1):
                 if not ctx.is_replaying:
-                    logger.info(f"Workflow turn {turn}/{self.max_iterations} (Instance ID: {instance_id})")
+                    logger.info(
+                        f"Workflow turn {turn}/{self.max_iterations} (Instance ID: {instance_id})"
+                    )
 
                 # Step 2: On turn 1, record the initial entry
                 if turn == 1:
@@ -169,11 +171,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                     self.get_workflow_entry_info, input={"instance_id": instance_id}
                 )
                 source = entry_info.get("source")
-                source_workflow_instance_id = entry_info.get("source_workflow_instance_id")
+                source_workflow_instance_id = entry_info.get(
+                    "source_workflow_instance_id"
+                )
 
                 # Step 4: Generate Response with LLM
                 response_message: dict = yield ctx.call_activity(
-                    self.generate_response, input={"task": task, "instance_id": instance_id}
+                    self.generate_response,
+                    input={"task": task, "instance_id": instance_id},
                 )
 
                 # Step 5: Add the assistant's response message to the chat history
@@ -186,7 +191,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 tool_calls = response_message.get("tool_calls") or []
                 if tool_calls:
                     if not ctx.is_replaying:
-                        logger.info(f"Turn {turn}: executing {len(tool_calls)} tool call(s)")
+                        logger.info(
+                            f"Turn {turn}: executing {len(tool_calls)} tool call(s)"
+                        )
                     # fan‑out parallel tool executions
                     parallel = [
                         ctx.call_activity(self.run_tool, input={"tool_call": tc})
@@ -202,16 +209,18 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                     # 🔴 If this was the last turn, stop here—even though there were tool calls
                     if turn == self.max_iterations:
                         final_message = response_message
-                        final_message["content"] += "\n\n⚠️ Stopped: reached max iterations."
+                        final_message[
+                            "content"
+                        ] += "\n\n⚠️ Stopped: reached max iterations."
                         break
 
                     # Otherwise, prepare for next turn: clear task so that generate_response() uses memory/history
                     task = None
                     continue  # bump to next turn
-                    
+
                 # No tool calls → this is your final answer
                 final_message = response_message
-                
+
                 # 🔴 If it happened to be the last turn, banner it
                 if turn == self.max_iterations:
                     final_message["content"] += "\n\n⚠️ Stopped: reached max iterations."
@@ -219,7 +228,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 break  # exit loop with final_message
             else:
                 raise AgentError("Workflow ended without producing a final response")
-            
+
         except Exception as e:
             logger.exception("Workflow error", exc_info=e)
             final_message = {
@@ -257,15 +266,12 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Set verdict for the workflow instance
         if not ctx.is_replaying:
             verdict = (
-                "max_iterations_reached"
-                if turn == self.max_iterations
-                else "completed"
+                "max_iterations_reached" if turn == self.max_iterations else "completed"
             )
             logger.info(f"Workflow {instance_id} finalized: {verdict}")
-        
+
         # Return the final response message
         return final_message
-
 
     @task
     def record_initial_entry(

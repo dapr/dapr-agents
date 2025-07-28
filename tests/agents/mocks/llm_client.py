@@ -1,9 +1,14 @@
-
 from dapr_agents.llm import OpenAIChatClient
-from dapr_agents.types.message import LLMChatResponse, LLMChatCandidate, AssistantMessage
+from dapr_agents.types.message import (
+    LLMChatResponse,
+    LLMChatCandidate,
+    AssistantMessage,
+)
+
 
 class MockLLMClient(OpenAIChatClient):
     """Mock LLM client for testing that passes type validation."""
+
     def __init__(self, **kwargs):
         super().__init__(model=kwargs.get("model", "gpt-4o"), api_key="mock-api-key")
         self.prompt_template = kwargs.get("prompt_template", None)
@@ -21,10 +26,12 @@ class MockLLMClient(OpenAIChatClient):
         **kwargs,
     ):
         return LLMChatResponse(
-            results=[LLMChatCandidate(
-                message=AssistantMessage(
-                    content="This is a mock response from the LLM client."
-                ),
-                finish_reason="stop",
-            )]
+            results=[
+                LLMChatCandidate(
+                    message=AssistantMessage(
+                        content="This is a mock response from the LLM client."
+                    ),
+                    finish_reason="stop",
+                )
+            ]
         )

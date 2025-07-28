@@ -293,10 +293,7 @@ class TestDurableAgent:
         instance_data = basic_durable_agent.state["instances"]["test-instance-123"]
         assert instance_data.input == "Test task"
         assert instance_data.source is None
-        assert (
-            instance_data.source_workflow_instance_id
-            == "parent-instance-123"
-        )
+        assert instance_data.source_workflow_instance_id == "parent-instance-123"
 
     @pytest.mark.asyncio
     async def test_generate_response_activity(self, basic_durable_agent):
@@ -315,7 +312,7 @@ class TestDurableAgent:
                     finish_reason="stop",
                 )
             ],
-            metadata={}
+            metadata={},
         )
         basic_durable_agent.llm.generate = Mock(return_value=fake_response)
 
@@ -349,7 +346,9 @@ class TestDurableAgent:
             "sender": "TestDurableAgent",
         }
 
-        with patch.object(type(basic_durable_agent), "broadcast_message") as mock_broadcast:
+        with patch.object(
+            type(basic_durable_agent), "broadcast_message"
+        ) as mock_broadcast:
             await basic_durable_agent.broadcast_message_to_agents(message)
             mock_broadcast.assert_called_once()
 
@@ -360,7 +359,9 @@ class TestDurableAgent:
         target_agent = "TargetAgent"
         target_instance_id = "target-instance-123"
 
-        with patch.object(type(basic_durable_agent), "send_message_to_agent") as mock_send:
+        with patch.object(
+            type(basic_durable_agent), "send_message_to_agent"
+        ) as mock_send:
             await basic_durable_agent.send_response_back(
                 response, target_agent, target_instance_id
             )

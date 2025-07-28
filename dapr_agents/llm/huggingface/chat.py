@@ -49,7 +49,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
     )
 
     SUPPORTED_STRUCTURED_MODES: ClassVar[set[str]] = {"function_call"}
-    
+
     def model_post_init(self, __context: Any) -> None:
         """
         After Pydantic __init__, set the internal API type to "chat".
@@ -80,15 +80,15 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
 
         return cls.model_validate(
             {
-                "model":            cfg.name,
-                "api_key":          cfg.api_key,
-                "base_url":         cfg.base_url,
-                "headers":          cfg.headers,
-                "cookies":          cfg.cookies,
-                "proxies":          cfg.proxies,
-                "timeout":          timeout,
-                "prompty":          prompty_instance,
-                "prompt_template":  prompt_template,
+                "model": cfg.name,
+                "api_key": cfg.api_key,
+                "base_url": cfg.base_url,
+                "headers": cfg.headers,
+                "cookies": cfg.cookies,
+                "proxies": cfg.proxies,
+                "timeout": timeout,
+                "prompty": prompty_instance,
+                "prompt_template": prompt_template,
             }
         )
 
@@ -107,7 +107,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
         response_format: Optional[Type[BaseModel]] = None,
         structured_mode: Literal["function_call"] = "function_call",
         stream: bool = False,
-        **kwargs: Any,                  # accept any extra params, even if unused
+        **kwargs: Any,  # accept any extra params, even if unused
     ) -> Union[
         Iterator[LLMChatCandidateChunk],
         LLMChatResponse,
@@ -133,7 +133,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             **kwargs:        Any other LLM params (temperature, top_p, stream, etc.).
 
         Returns:
-            • `Iterator[LLMChatCandidateChunk]` if streaming  
+            • `Iterator[LLMChatCandidateChunk]` if streaming
             • `LLMChatResponse` or Pydantic instance(s) if non-streaming
 
         Raises:
@@ -178,9 +178,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
         try:
             logger.info("Calling HF ChatCompletion Inference API...")
             logger.debug(f"HF params: {params}")
-            response = self.client.chat.completions.create(
-                **params, stream=stream
-            )
+            response = self.client.chat.completions.create(**params, stream=stream)
             logger.info("HF ChatCompletion response received.")
 
             # HF-specific error‐code handling

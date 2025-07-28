@@ -81,8 +81,8 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         # Step 1: Retrieve initial task and ensure state entry exists
         task = message.get("task")
         instance_id = ctx.instance_id
-        self.state.setdefault("instances", {})\
-            .setdefault(instance_id, LLMWorkflowEntry(input=task).model_dump(mode="json")
+        self.state.setdefault("instances", {}).setdefault(
+            instance_id, LLMWorkflowEntry(input=task).model_dump(mode="json")
         )
         plan = self.state["instances"][instance_id].get("plan", [])
         final_summary: Optional[str] = None
@@ -90,11 +90,13 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         # Single loop from turn 1 to max_iterations
         for turn in range(1, self.max_iterations + 1):
             if not ctx.is_replaying:
-                logger.info(f"Workflow turn {turn}/{self.max_iterations} (Instance ID: {instance_id})")
-            
+                logger.info(
+                    f"Workflow turn {turn}/{self.max_iterations} (Instance ID: {instance_id})"
+                )
+
             # Step 2: Get available agents
             agents = yield ctx.call_activity(self.get_agents_metadata_as_string)
-            
+
             # Step 3: On turn 1, generate plan and broadcast task
             if turn == 1:
                 if not ctx.is_replaying:
@@ -106,17 +108,27 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                 )
                 initial_message = yield ctx.call_activity(
                     self.prepare_initial_message,
-                    input={"instance_id": instance_id, "task": task, "agents": agents, "plan": plan},
+                    input={
+                        "instance_id": instance_id,
+                        "task": task,
+                        "agents": agents,
+                        "plan": plan,
+                    },
                 )
                 yield ctx.call_activity(
                     self.broadcast_message_to_agents,
                     input={"instance_id": instance_id, "task": initial_message},
                 )
-            
+
             # Step 4: Determine next step and dispatch
             next_step = yield ctx.call_activity(
                 self.generate_next_step,
-                input={"task": task, "agents": agents, "plan": plan, "next_step_schema": schemas.next_step},
+                input={
+                    "task": task,
+                    "agents": agents,
+                    "plan": plan,
+                    "next_step_schema": schemas.next_step,
+                },
             )
             # Additional Properties from NextStep
             next_agent = next_step["next_agent"]
@@ -238,7 +250,11 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             # Step 12: Process progress suggestions and next iteration count
             if verdict != "continue" or turn == self.max_iterations:
                 if not ctx.is_replaying:
-                    finale = "max_iterations_reached" if turn == self.max_iterations else verdict
+                    finale = (
+                        "max_iterations_reached"
+                        if turn == self.max_iterations
+                        else verdict
+                    )
                     logger.info(f"Ending workflow with verdict: {finale}")
 
                 # Generate summary & finish
@@ -754,7 +770,9 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                 )
                 return
             # Log the received response
-            logger.info(f"{self.name} received response for workflow {workflow_instance_id}")
+            logger.info(
+                f"{self.name} received response for workflow {workflow_instance_id}"
+            )
             logger.debug(f"Full response: {message}")
             # Raise a workflow event with the Agent's Task Response
             self.raise_workflow_event(
