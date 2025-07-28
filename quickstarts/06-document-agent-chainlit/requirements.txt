@@ -1,4 +1,4 @@
-dapr-agents>=0.6.1
+dapr-agents>=0.7.1
 python-dotenv
 requests
 chainlit
