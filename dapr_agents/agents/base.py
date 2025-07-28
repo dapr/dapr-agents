@@ -121,7 +121,9 @@ Your role is {role}.
 
 ## Goal
 {goal}.
-{instructions}
+
+## Instructions
+{instructions}.
 """.strip()
 
     _tool_executor: AgentToolExecutor = PrivateAttr()
