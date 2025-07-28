@@ -26,17 +26,10 @@ from typing import (
     ClassVar,
 )
 from pydantic import BaseModel, Field, PrivateAttr, model_validator, ConfigDict
+from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.openai import OpenAIChatClient
-from dapr_agents.llm.huggingface import HFHubChatClient
-from dapr_agents.llm.nvidia import NVIDIAChatClient
-from dapr_agents.llm.dapr import DaprChatClient
 
 logger = logging.getLogger(__name__)
-
-# Type alias for all concrete chat client implementations
-ChatClientType = Union[
-    OpenAIChatClient, HFHubChatClient, NVIDIAChatClient, DaprChatClient
-]
 
 
 class AgentBase(BaseModel, ABC):
@@ -73,7 +66,7 @@ class AgentBase(BaseModel, ABC):
         default=None,
         description="A custom system prompt, overriding name, role, goal, and instructions.",
     )
-    llm: ChatClientType = Field(
+    llm: ChatClientBase = Field(
         default_factory=OpenAIChatClient,
         description="Language model client for generating responses.",
     )

@@ -3,34 +3,35 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from dapr.ext.workflow import DaprWorkflowContext
-from dapr_agents.workflow.decorators import task, workflow, message_router
+
+from dapr_agents.workflow.decorators import message_router, task, workflow
 from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
-from dapr_agents.workflow.orchestrators.llm.schemas import (
-    BroadcastMessage,
-    TriggerAction,
-    NextStep,
-    AgentTaskResponse,
-    ProgressCheckOutput,
-    schemas,
-)
 from dapr_agents.workflow.orchestrators.llm.prompts import (
-    TASK_INITIAL_PROMPT,
-    TASK_PLANNING_PROMPT,
     NEXT_STEP_PROMPT,
     PROGRESS_CHECK_PROMPT,
     SUMMARY_GENERATION_PROMPT,
+    TASK_INITIAL_PROMPT,
+    TASK_PLANNING_PROMPT,
+)
+from dapr_agents.workflow.orchestrators.llm.schemas import (
+    AgentTaskResponse,
+    BroadcastMessage,
+    NextStep,
+    ProgressCheckOutput,
+    TriggerAction,
+    schemas,
 )
 from dapr_agents.workflow.orchestrators.llm.state import (
-    LLMWorkflowState,
     LLMWorkflowEntry,
     LLMWorkflowMessage,
+    LLMWorkflowState,
     PlanStep,
     TaskResult,
 )
 from dapr_agents.workflow.orchestrators.llm.utils import (
-    update_step_statuses,
-    restructure_plan,
     find_step_in_plan,
+    restructure_plan,
+    update_step_statuses,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,244 +66,234 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
     def main_workflow(self, ctx: DaprWorkflowContext, message: TriggerAction):
         """
         Executes an LLM-driven agentic workflow where the next agent is dynamically selected
-        based on task progress. The workflow iterates through execution cycles, updating state,
-        handling agent responses, and determining task completion.
+        based on task progress. Runs for up to `self.max_iterations` turns, then summarizes.
 
         Args:
             ctx (DaprWorkflowContext): The workflow execution context.
-            message (TriggerAction): The current workflow state containing `message`, `iteration`, and `verdict`.
+            message (TriggerAction): Contains the current `task`.
 
         Returns:
-            str: The final processed message when the workflow terminates.
+            str: The final summary when the workflow terminates.
 
         Raises:
-            RuntimeError: If the LLM determines the task is `failed`.
+            RuntimeError: If the workflow ends unexpectedly without a final summary.
         """
-        # Step 0: Retrieve iteration messages
+        # Step 1: Retrieve initial task and ensure state entry exists
         task = message.get("task")
-        iteration = message.get("iteration", 0)
-
-        # Step 1:
-        # Ensure 'instances' and the instance_id entry exist
         instance_id = ctx.instance_id
         self.state.setdefault("instances", {}).setdefault(
             instance_id, LLMWorkflowEntry(input=task).model_dump(mode="json")
         )
-        # Retrieve the plan (will always exist after initialization)
         plan = self.state["instances"][instance_id].get("plan", [])
+        final_summary: Optional[str] = None
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Workflow iteration {iteration + 1} started (Instance ID: {instance_id})."
-            )
-
-        # Step 2: Retrieve available agents
-        agents = yield ctx.call_activity(self.get_agents_metadata_as_string)
-
-        # Step 3: First iteration setup
-        if iteration == 0:
+        # Single loop from turn 1 to max_iterations
+        for turn in range(1, self.max_iterations + 1):
             if not ctx.is_replaying:
-                logger.info(f"Initial message from User -> {self.name}")
+                logger.info(
+                    f"Workflow turn {turn}/{self.max_iterations} (Instance ID: {instance_id})"
+                )
 
-            # Generate the plan using a language model
-            plan = yield ctx.call_activity(
-                self.generate_plan,
-                input={"task": task, "agents": agents, "plan_schema": schemas.plan},
-            )
+            # Step 2: Get available agents
+            agents = yield ctx.call_activity(self.get_agents_metadata_as_string)
 
-            # Prepare initial message with task, agents and plan context
-            initial_message = yield ctx.call_activity(
-                self.prepare_initial_message,
+            # Step 3: On turn 1, generate plan and broadcast task
+            if turn == 1:
+                if not ctx.is_replaying:
+                    logger.info(f"Initial message from User -> {self.name}")
+
+                plan = yield ctx.call_activity(
+                    self.generate_plan,
+                    input={"task": task, "agents": agents, "plan_schema": schemas.plan},
+                )
+                initial_message = yield ctx.call_activity(
+                    self.prepare_initial_message,
+                    input={
+                        "instance_id": instance_id,
+                        "task": task,
+                        "agents": agents,
+                        "plan": plan,
+                    },
+                )
+                yield ctx.call_activity(
+                    self.broadcast_message_to_agents,
+                    input={"instance_id": instance_id, "task": initial_message},
+                )
+
+            # Step 4: Determine next step and dispatch
+            next_step = yield ctx.call_activity(
+                self.generate_next_step,
                 input={
-                    "instance_id": instance_id,
                     "task": task,
                     "agents": agents,
                     "plan": plan,
+                    "next_step_schema": schemas.next_step,
                 },
             )
+            # Additional Properties from NextStep
+            next_agent = next_step["next_agent"]
+            instruction = next_step["instruction"]
+            step_id = next_step.get("step", None)
+            substep_id = next_step.get("substep", None)
 
-            # broadcast initial message to all agents
-            yield ctx.call_activity(
-                self.broadcast_message_to_agents,
-                input={"instance_id": instance_id, "task": initial_message},
-            )
-
-        # Step 4: Identify agent and instruction for the next step
-        next_step = yield ctx.call_activity(
-            self.generate_next_step,
-            input={
-                "task": task,
-                "agents": agents,
-                "plan": plan,
-                "next_step_schema": schemas.next_step,
-            },
-        )
-
-        # Extract Additional Properties from NextStep
-        next_agent = next_step["next_agent"]
-        instruction = next_step["instruction"]
-        step_id = next_step.get("step", None)
-        substep_id = next_step.get("substep", None)
-
-        # Step 5: Validate Step Before Proceeding
-        valid_step = yield ctx.call_activity(
-            self.validate_next_step,
-            input={
-                "instance_id": instance_id,
-                "plan": plan,
-                "step": step_id,
-                "substep": substep_id,
-            },
-        )
-
-        if valid_step:
-            # Step 6: Broadcast Task to all Agents
-            yield ctx.call_activity(
-                self.broadcast_message_to_agents,
-                input={"instance_id": instance_id, "task": instruction},
-            )
-
-            # Step 7: Trigger next agent
-            plan = yield ctx.call_activity(
-                self.trigger_agent,
+            # Step 5: Validate Step Before Proceeding
+            valid_step = yield ctx.call_activity(
+                self.validate_next_step,
                 input={
                     "instance_id": instance_id,
-                    "name": next_agent,
-                    "step": step_id,
-                    "substep": substep_id,
-                },
-            )
-
-            # Step 8: Wait for agent response or timeout
-            if not ctx.is_replaying:
-                logger.info(f"Waiting for {next_agent}'s response...")
-
-            event_data = ctx.wait_for_external_event("AgentTaskResponse")
-            timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
-            any_results = yield self.when_any([event_data, timeout_task])
-
-            if any_results == timeout_task:
-                logger.warning(
-                    f"Agent response timed out (Iteration: {iteration + 1}, Instance ID: {instance_id})."
-                )
-                task_results = {
-                    "name": self.name,
-                    "role": "user",
-                    "content": f"Timeout occurred. {next_agent} did not respond on time. We need to try again...",
-                }
-            else:
-                task_results = yield event_data
-                if not ctx.is_replaying:
-                    logger.info(f"{task_results['name']} sent a response.")
-
-            # Step 9: Save the task execution results to chat and task history
-            yield ctx.call_activity(
-                self.update_task_history,
-                input={
-                    "instance_id": instance_id,
-                    "agent": next_agent,
-                    "step": step_id,
-                    "substep": substep_id,
-                    "results": task_results,
-                },
-            )
-
-            # Step 10: Check progress
-            progress = yield ctx.call_activity(
-                self.check_progress,
-                input={
-                    "task": task,
                     "plan": plan,
                     "step": step_id,
                     "substep": substep_id,
-                    "results": task_results["content"],
-                    "progress_check_schema": schemas.progress_check,
                 },
             )
 
-            if not ctx.is_replaying:
-                logger.info(f"Tracking Progress: {progress}")
-
-            verdict = progress["verdict"]
-            status_updates = progress.get("plan_status_update", [])
-            plan_updates = progress.get("plan_restructure", [])
-
-            # Step 11: Handle verdict and updates
-            if status_updates or plan_updates:
+            if valid_step:
+                # Step 6: Broadcast Task to all Agents
                 yield ctx.call_activity(
-                    self.update_plan,
+                    self.broadcast_message_to_agents,
+                    input={"instance_id": instance_id, "task": instruction},
+                )
+
+                # Step 7: Trigger next agent
+                plan = yield ctx.call_activity(
+                    self.trigger_agent,
                     input={
                         "instance_id": instance_id,
-                        "plan": plan,
-                        "status_updates": status_updates,
-                        "plan_updates": plan_updates,
+                        "name": next_agent,
+                        "step": step_id,
+                        "substep": substep_id,
                     },
                 )
 
-        else:
-            logger.warning(
-                f"Step {step_id}, Substep {substep_id} not found in plan for instance {instance_id}. Recovering..."
-            )
+                # Step 8: Wait for agent response or timeout
+                if not ctx.is_replaying:
+                    logger.debug(f"Waiting for {next_agent}'s response...")
 
-            # Recovery Task: No updates, just iterate again
-            verdict = "continue"
-            status_updates = []
-            plan_updates = []
-            task_results = {
-                "name": "orchestrator",
-                "role": "user",
-                "content": f"Step {step_id}, Substep {substep_id} does not exist in the plan. Adjusting workflow...",
-            }
+                event_data = ctx.wait_for_external_event("AgentTaskResponse")
+                timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
+                any_results = yield self.when_any([event_data, timeout_task])
 
-        # Step 12: Process progress suggestions and next iteration count
-        next_iteration_count = iteration + 1
-        if verdict != "continue" or next_iteration_count > self.max_iterations:
-            if next_iteration_count >= self.max_iterations:
-                verdict = "max_iterations_reached"
+                # Step 9: Handle Agent Response or Timeout
+                if any_results == timeout_task:
+                    logger.warning(
+                        f"Agent response timed out (Iteration: {turn}, Instance ID: {instance_id})."
+                    )
+                    task_results = {
+                        "name": self.name,
+                        "role": "user",
+                        "content": f"Timeout occurred. {next_agent} did not respond on time. We need to try again...",
+                    }
+                else:
+                    task_results = yield event_data
+                    if not ctx.is_replaying:
+                        logger.info(f"{task_results['name']} sent a response.")
 
-            if not ctx.is_replaying:
-                logger.info(f"Workflow ending with verdict: {verdict}")
-
-            # Generate final summary based on execution
-            summary = yield ctx.call_activity(
-                self.generate_summary,
-                input={
-                    "task": task,
-                    "verdict": verdict,
-                    "plan": plan,
-                    "step": step_id,
-                    "substep": substep_id,
-                    "agent": next_agent,
-                    "result": task_results["content"],
-                },
-            )
-
-            # Finalize the workflow properly
-            yield ctx.call_activity(
-                self.finish_workflow,
-                input={
-                    "instance_id": instance_id,
-                    "plan": plan,
-                    "step": step_id,
-                    "substep": substep_id,
-                    "verdict": verdict,
-                    "summary": summary,
-                },
-            )
-
-            if not ctx.is_replaying:
-                logger.info(
-                    f"Workflow {instance_id} has been finalized with verdict: {verdict}"
+                # Step 10: Save the task execution results to chat and task history
+                yield ctx.call_activity(
+                    self.update_task_history,
+                    input={
+                        "instance_id": instance_id,
+                        "agent": next_agent,
+                        "step": step_id,
+                        "substep": substep_id,
+                        "results": task_results,
+                    },
                 )
 
-            return summary
+                # Step 11: Check progress
+                progress = yield ctx.call_activity(
+                    self.check_progress,
+                    input={
+                        "task": task,
+                        "plan": plan,
+                        "step": step_id,
+                        "substep": substep_id,
+                        "results": task_results["content"],
+                        "progress_check_schema": schemas.progress_check,
+                    },
+                )
 
-        # Step 13: Update TriggerAction state and continue workflow
-        message["task"] = task_results["content"]
-        message["iteration"] = next_iteration_count
+                # Update verdict and plan based on progress
+                verdict = progress["verdict"]
+                if not ctx.is_replaying:
+                    logger.debug(f"Progress verdict: {verdict}")
+                    logger.debug(f"Tracking Progress: {progress}")
+                status_updates = progress.get("plan_status_update", [])
+                plan_updates = progress.get("plan_restructure", [])
 
-        # Restart workflow with updated TriggerAction state
-        ctx.continue_as_new(message)
+                # Step 12: Handle verdict and updates
+                if status_updates or plan_updates:
+                    yield ctx.call_activity(
+                        self.update_plan,
+                        input={
+                            "instance_id": instance_id,
+                            "plan": plan,
+                            "status_updates": status_updates,
+                            "plan_updates": plan_updates,
+                        },
+                    )
+            else:
+                if not ctx.is_replaying:
+                    logger.warning(
+                        f"Invalid step {step_id}/{substep_id} in plan for instance {instance_id}. Retrying..."
+                    )
+                # Recovery Task: No updates, just iterate again
+                verdict = "continue"
+                status_updates = []
+                plan_updates = []
+                task_results = {
+                    "name": self.name,
+                    "role": "user",
+                    "content": f"Step {step_id}, Substep {substep_id} does not exist in the plan. Adjusting workflow...",
+                }
+
+            # Step 12: Process progress suggestions and next iteration count
+            if verdict != "continue" or turn == self.max_iterations:
+                if not ctx.is_replaying:
+                    finale = (
+                        "max_iterations_reached"
+                        if turn == self.max_iterations
+                        else verdict
+                    )
+                    logger.info(f"Ending workflow with verdict: {finale}")
+
+                # Generate summary & finish
+                final_summary = yield ctx.call_activity(
+                    self.generate_summary,
+                    input={
+                        "task": task,
+                        "verdict": verdict,
+                        "plan": plan,
+                        "step": step_id,
+                        "substep": substep_id,
+                        "agent": next_agent,
+                        "result": task_results["content"],
+                    },
+                )
+
+                # Finalize the workflow properly
+                yield ctx.call_activity(
+                    self.finish_workflow,
+                    input={
+                        "instance_id": instance_id,
+                        "plan": plan,
+                        "step": step_id,
+                        "substep": substep_id,
+                        "verdict": verdict,
+                        "summary": final_summary,
+                    },
+                )
+
+                # Return the final summary
+                if not ctx.is_replaying:
+                    logger.info(f"Workflow {instance_id} finalized.")
+                return final_summary
+
+            # --- PREPARE NEXT TURN ---
+            task = task_results["content"]
+
+        # Should never reach here
+        raise RuntimeError(f"LLMWorkflow {instance_id} exited without summary")
 
     @task
     def get_agents_metadata_as_string(self) -> str:
@@ -778,11 +769,11 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                     f"{self.name} received an agent response without a valid workflow_instance_id. Ignoring."
                 )
                 return
-
-            logger.info(
-                f"{self.name} processing agent response for workflow instance '{workflow_instance_id}'."
+            # Log the received response
+            logger.debug(
+                f"{self.name} received response for workflow {workflow_instance_id}"
             )
-
+            logger.debug(f"Full response: {message}")
             # Raise a workflow event with the Agent's Task Response
             self.raise_workflow_event(
                 instance_id=workflow_instance_id,

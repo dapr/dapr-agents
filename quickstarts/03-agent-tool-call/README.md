@@ -129,6 +129,10 @@ python weather_agent.py
 
 **Expected output:** The agent will identify the locations and use the get_weather tool to fetch weather information for each city.
 
+**Other Examples:** You can also try the following agents with the same tools using `HuggingFace hub` and `NVIDIA` LLM chat clients. Make sure you add the `HUGGINGFACE_API_KEY` and `NVIDIA_API_KEY` to the `.env` file.
+- [HuggingFace Agent](./weather_agent_hf.py)
+- [NVIDIA Agent](./weather_agent_nv.py)
+
 ## Key Concepts
 
 ### Tool Definition
@@ -244,24 +248,7 @@ Dapr Agents provides two agent implementations, each designed for different use 
 The default agent type, designed for tool execution and straightforward interactions. It receives your input, determines which tools to use, executes them directly, and provides the final answer. The reasoning process is mostly hidden from you, focusing instead on delivering concise responses.
 
 ### 2. DurableAgent
-The DurableAgent class is a workflow-based agent that extends the standard Agent with Dapr Workflows for long-running, fault-tolerant, and durable execution. It provides persistent state management, automatic retry mechanisms, and deterministic execution across failures. We will see this agent in the next example.
-
-
-```python
-from dapr_agents import Agent
-from dapr_agents.tool.utils.openapi import OpenAPISpecParser
-from dapr_agents.storage import VectorStore
-
-# This agent type requires additional components
-openapi_agent = Agent(
-    name="APIExpert",
-    role="API Expert",
-    pattern="openapireact",  # Specify OpenAPIReAct pattern
-    spec_parser=OpenAPISpecParser(),
-    api_vector_store=VectorStore(),
-    auth_header={"Authorization": "Bearer token"}
-)
-```
+The DurableAgent class is a workflow-based agent that extends the standard Agent with Dapr Workflows for long-running, fault-tolerant, and durable execution. It provides persistent state management, automatic retry mechanisms, and deterministic execution across failures. We will see this agent in the next example: [Durable Agent](../03-durable-agent-tool-call/).
 
 ## Troubleshooting
 

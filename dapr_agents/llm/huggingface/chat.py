@@ -13,34 +13,49 @@ from typing import (
     Union,
 )
 
-from huggingface_hub import ChatCompletionOutput
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.huggingface.client import HFHubInferenceClientBase
 from dapr_agents.llm.utils import RequestHandler, ResponseHandler
+from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.tool import AgentTool
-from dapr_agents.types.message import BaseMessage, ChatCompletion
+from dapr_agents.types.message import (
+    BaseMessage,
+    LLMChatCandidateChunk,
+    LLMChatResponse,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
     """
-    Concrete class for the Hugging Face Hub's chat completion API using the Inference API.
-    This class extends the ChatClientBase and provides the necessary configurations for Hugging Face models.
+    Chat client for Hugging Face Hub's Inference API.
+
+    Extends:
+      - HFHubInferenceClientBase: manages HF-specific auth, endpoints, retries.
+      - ChatClientBase: provides the `.from_prompty()` and `.generate()` contract.
+
+    Supports only function_call-style structured responses.
     """
 
-    SUPPORTED_STRUCTURED_MODES: ClassVar[set] = {"function_call"}
+    prompty: Optional[Prompty] = Field(
+        default=None, description="Optional Prompty instance for templating."
+    )
+    prompt_template: Optional[PromptTemplateBase] = Field(
+        default=None, description="Optional prompt-template to format inputs."
+    )
+
+    SUPPORTED_STRUCTURED_MODES: ClassVar[set[str]] = {"function_call"}
 
     def model_post_init(self, __context: Any) -> None:
         """
-        Initializes private attributes for provider, api, config, and client after validation.
+        After Pydantic __init__, set the internal API type to "chat".
         """
-        # Set the private provider and api attributes
         self._api = "chat"
-        return super().model_post_init(__context)
+        super().model_post_init(__context)
 
     @classmethod
     def from_prompty(
@@ -49,34 +64,28 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
         timeout: Union[int, float, Dict[str, Any]] = 1500,
     ) -> "HFHubChatClient":
         """
-        Initializes an HFHubChatClient client using a Prompty source, which can be a file path or inline content.
+        Load a Prompty spec (file or inline), extract model config & prompt template,
+        and return a configured HFHubChatClient.
 
         Args:
-            prompty_source (Union[str, Path]): The source of the Prompty file, which can be a path to a file
-                or inline Prompty content as a string.
-            timeout (Union[int, float, Dict[str, Any]], optional): Timeout for requests, defaults to 1500 seconds.
+            prompty_source: Path or inline text of a Prompty YAML/JSON.
+            timeout:        Request timeout (seconds or HTTPX timeout dict).
 
         Returns:
-            HFHubChatClient: An instance of HFHubChatClient configured with the model settings from the Prompty source.
+            HFHubChatClient: client ready for .generate() calls.
         """
-        # Load the Prompty instance from the provided source
         prompty_instance = Prompty.load(prompty_source)
-
-        # Generate the prompt template from the Prompty instance
         prompt_template = Prompty.to_prompt_template(prompty_instance)
+        cfg = prompty_instance.model.configuration
 
-        # Extract the model configuration from Prompty
-        model_config = prompty_instance.model
-
-        # Initialize the HFHubChatClient based on the Prompty model configuration
         return cls.model_validate(
             {
-                "model": model_config.configuration.name,
-                "api_key": model_config.configuration.api_key,
-                "base_url": model_config.configuration.base_url,
-                "headers": model_config.configuration.headers,
-                "cookies": model_config.configuration.cookies,
-                "proxies": model_config.configuration.proxies,
+                "model": cfg.name,
+                "api_key": cfg.api_key,
+                "base_url": cfg.base_url,
+                "headers": cfg.headers,
+                "cookies": cfg.cookies,
+                "proxies": cfg.proxies,
                 "timeout": timeout,
                 "prompty": prompty_instance,
                 "prompt_template": prompt_template,
@@ -91,61 +100,72 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             BaseMessage,
             Iterable[Union[Dict[str, Any], BaseMessage]],
         ] = None,
+        *,
         input_data: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
         tools: Optional[List[Union[AgentTool, Dict[str, Any]]]] = None,
         response_format: Optional[Type[BaseModel]] = None,
         structured_mode: Literal["function_call"] = "function_call",
-        **kwargs,
-    ) -> Union[Iterator[Dict[str, Any]], ChatCompletion]:
+        stream: bool = False,
+        **kwargs: Any,  # accept any extra params, even if unused
+    ) -> Union[
+        Iterator[LLMChatCandidateChunk],
+        LLMChatResponse,
+        BaseModel,
+        List[BaseModel],
+    ]:
         """
-        Generate chat completions based on provided messages or input_data for prompt templates.
+        Issue a chat completion via Hugging Face's Inference API.
+
+        - If `stream=True` in **kwargs**, returns an iterator of `LLMChatCandidateChunk`.
+        - Otherwise returns either:
+            • raw `AssistantMessage` wrapped in `LLMChatResponse`, or
+            • validated Pydantic model(s) per `response_format`.
 
         Args:
-            messages (Optional): Either pre-set messages or None if using input_data.
-            input_data (Optional[Dict[str, Any]]): Input variables for prompt templates.
-            model (str): Specific model to use for the request, overriding the default.
-            tools (List[Union[AgentTool, Dict[str, Any]]]): List of tools for the request.
-            response_format (Type[BaseModel]): Optional Pydantic model for structured response parsing.
-            structured_mode (Literal["function_call"]): Mode for structured output: "function_call" (Limited Support).
-            **kwargs: Additional parameters for the language model.
+            messages:        Pre-built messages or None to use `input_data`.
+            input_data:      Variables for the Prompty template.
+            model:           Override the client's default model name.
+            tools:           List of AgentTool or dict specs.
+            response_format: Pydantic model (or List[Model]) for structured output.
+            structured_mode: Must be `"function_call"` (only supported mode here).
+            stream:          If True, return an iterator of `LLMChatCandidateChunk`.
+            **kwargs:        Any other LLM params (temperature, top_p, stream, etc.).
 
         Returns:
-            Union[Iterator[Dict[str, Any]], ChatCompletion]: The chat completion response(s).
-        """
+            • `Iterator[LLMChatCandidateChunk]` if streaming
+            • `LLMChatResponse` or Pydantic instance(s) if non-streaming
 
+        Raises:
+            ValueError: on invalid `structured_mode`, missing prompts, or API errors.
+        """
+        # 1) Validate structured_mode
         if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
             raise ValueError(
-                f"Invalid structured_mode '{structured_mode}'. Must be one of {self.SUPPORTED_STRUCTURED_MODES}."
+                f"structured_mode must be one of {self.SUPPORTED_STRUCTURED_MODES}"
             )
 
-        # If input_data is provided, check for a prompt_template
+        # 2) If using a prompt template, build messages
         if input_data:
             if not self.prompt_template:
-                raise ValueError(
-                    "Inputs are provided but no 'prompt_template' is set. Please set a 'prompt_template' to use the input_data."
-                )
-
-            logger.info("Using prompt template to generate messages.")
+                raise ValueError("No prompt_template set for input_data usage.")
+            logger.info("Formatting messages via prompt_template.")
             messages = self.prompt_template.format_prompt(**input_data)
 
-        # Ensure we have messages at this point
         if not messages:
-            raise ValueError("Either 'messages' or 'input_data' must be provided.")
+            raise ValueError("Either messages or input_data must be provided.")
 
-        # Process and normalize the messages
+        # 3) Normalize messages + merge client/prompty defaults
         params = {"messages": RequestHandler.normalize_chat_messages(messages)}
-
-        # Merge Prompty parameters if available, then override with any explicit kwargs
         if self.prompty:
             params = {**self.prompty.model.parameters.model_dump(), **params, **kwargs}
         else:
             params.update(kwargs)
 
-        # If a model is provided, override the default model
+        # 4) Override model if given
         params["model"] = model or self.model
 
-        # Prepare request parameters
+        # 5) Inject tools / response_format via RequestHandler
         params = RequestHandler.process_params(
             params,
             llm_provider=self.provider,
@@ -154,31 +174,28 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             structured_mode=structured_mode,
         )
 
+        # 6) Call HF API + delegate parsing to ResponseHandler
         try:
-            logger.info("Invoking Hugging Face ChatCompletion API.")
-            response: ChatCompletionOutput = self.client.chat.completions.create(
-                **params
-            )
-            logger.info("Chat completion retrieved successfully.")
+            logger.info("Calling HF ChatCompletion Inference API...")
+            logger.debug(f"HF params: {params}")
+            response = self.client.chat.completions.create(**params, stream=stream)
+            logger.info("HF ChatCompletion response received.")
 
-            # Hugging Face error handling
-            status = getattr(response, "statuscode", 200)
+            # HF-specific error‐code handling
             code = getattr(response, "code", 200)
             if code != 200:
-                logger.error(
-                    f"❌ Status Code:{status} - Code:{code} Error: {getattr(response, 'message', response)}"
-                )
-                raise RuntimeError(
-                    f"{status}/{code} Error: {getattr(response, 'message', response)}"
-                )
+                msg = getattr(response, "message", response)
+                logger.error(f"❌ HF error {code}: {msg}")
+                raise RuntimeError(f"HuggingFace error {code}: {msg}")
 
             return ResponseHandler.process_response(
-                response,
+                response=response,
                 llm_provider=self.provider,
                 response_format=response_format,
                 structured_mode=structured_mode,
-                stream=params.get("stream", False),
+                stream=stream,
             )
+
         except Exception as e:
-            logger.error(f"An error occurred during the ChatCompletion API call: {e}")
-            raise
+            logger.error("Hugging Face ChatCompletion API error", exc_info=True)
+            raise ValueError("Failed to process HF chat completion") from e

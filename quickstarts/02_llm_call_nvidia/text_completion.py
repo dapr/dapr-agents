@@ -1,28 +1,31 @@
-from dapr_agents import NVIDIAChatClient
-from dapr_agents.types import UserMessage
 from dotenv import load_dotenv
+
+from dapr_agents import NVIDIAChatClient
+from dapr_agents.types import LLMChatResponse, UserMessage
 
 # Load environment variables from .env
 load_dotenv()
 
 # Basic chat completion
 llm = NVIDIAChatClient()
-response = llm.generate("Name a famous dog!")
+response: LLMChatResponse = llm.generate("Name a famous dog!")
 
-if len(response.get_content()) > 0:
-    print("Response: ", response.get_content())
+if response.get_message() is not None:
+    print("Response: ", response.get_message().content)
 
 # Chat completion using a prompty file for context
 llm = NVIDIAChatClient.from_prompty("basic.prompty")
-response = llm.generate(input_data={"question": "What is your name?"})
+response: LLMChatResponse = llm.generate(input_data={"question": "What is your name?"})
 
-if len(response.get_content()) > 0:
-    print("Response with prompty: ", response.get_content())
+if response.get_message() is not None:
+    print("Response with prompty: ", response.get_message().content)
 
 # Chat completion with user input
 llm = NVIDIAChatClient()
-response = llm.generate(messages=[UserMessage("hello")])
+response: LLMChatResponse = llm.generate(messages=[UserMessage("hello")])
 
-
-if len(response.get_content()) > 0 and "hello" in response.get_content().lower():
-    print("Response with user input: ", response.get_content())
+if (
+    response.get_message() is not None
+    and "hello" in response.get_message().content.lower()
+):
+    print("Response with user input: ", response.get_message().content)

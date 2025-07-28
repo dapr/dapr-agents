@@ -137,8 +137,7 @@ durable_agent = DurableAgent(
     state_key="workflow_state",
     agents_registry_store_name="agentstatestore",
     agents_registry_key="agents_registry",
-    ),
-)
+),
 ```
 
 ## Agent Patterns

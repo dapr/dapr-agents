@@ -1,16 +1,16 @@
 {
     "instances": {
-        "e419ad7d06f8480498543e6244b8b3a0": {
+        "047a27d46af2482eac9e9dda8382281b": {
             "input": "What is the weather in New York?",
-            "output": "The weather in New York is currently 79\u00b0F. If you need more information or have other questions, feel free to ask!",
-            "start_time": "2025-07-23T02:35:58.877055",
-            "end_time": "2025-07-23T06:36:00.786049+00:00",
+            "output": "The current weather in New York is 66\u00b0F.",
+            "start_time": "2025-07-27T02:07:07.814621",
+            "end_time": "2025-07-27T06:07:09.682802+00:00",
             "messages": [
                 {
                     "content": "What is the weather in New York?",
                     "role": "user",
-                    "id": "b57d8dcf-a84e-4ed9-b6eb-b27360a6a466",
-                    "timestamp": "2025-07-23T02:35:58.890010"
+                    "id": "0133e81f-a5c6-4d02-ada6-80527292172e",
+                    "timestamp": "2025-07-27T02:07:07.826629"
                 },
                 {
                     "content": null,
@@ -18,7 +18,7 @@
                     "name": "Stevie",
                     "tool_calls": [
                         {
-                            "id": "call_QeSq5TArEZJ67tEzhZXmqAPw",
+                            "id": "call_4cpTh8rI2OzoaGJaJEgmovxG",
                             "type": "function",
                             "function": {
                                 "name": "LocalGetWeather",
@@ -26,42 +26,42 @@
                             }
                         }
                     ],
-                    "id": "7b508dae-d86a-4cb5-9b84-4bf13f5ef3a3",
-                    "timestamp": "2025-07-23T02:35:59.660877"
+                    "id": "ed40c479-55e8-4026-8e73-8c7cba47e291",
+                    "timestamp": "2025-07-27T02:07:08.651564"
                 },
                 {
-                    "content": "New York: 79F.",
+                    "content": "New York: 66F.",
                     "role": "tool",
-                    "tool_call_id": "call_QeSq5TArEZJ67tEzhZXmqAPw",
-                    "id": "4691eabc-1310-4ad7-bac6-7ecade2857a4",
-                    "function_name": "LocalGetWeather",
-                    "function_args": "{\"location\":\"New York\"}",
-                    "timestamp": "2025-07-23T02:35:59.718943"
+                    "name": "LocalGetWeather",
+                    "tool_call_id": "call_4cpTh8rI2OzoaGJaJEgmovxG",
+                    "id": "f89659f6-b908-435b-9017-ee6013e2f519",
+                    "timestamp": "2025-07-27T02:07:08.696208"
                 },
                 {
-                    "content": "The weather in New York is currently 79\u00b0F. If you need more information or have other questions, feel free to ask!",
+                    "content": "The current weather in New York is 66\u00b0F.",
                     "role": "assistant",
                     "name": "Stevie",
-                    "id": "54886dd0-108e-4e07-969c-4d04327768ee",
-                    "timestamp": "2025-07-23T02:36:00.776750"
+                    "id": "a8492536-32b1-433c-93bb-f5987091f5a2",
+                    "timestamp": "2025-07-27T02:07:09.668079"
                 }
             ],
             "last_message": {
-                "content": "The weather in New York is currently 79\u00b0F. If you need more information or have other questions, feel free to ask!",
+                "content": "The current weather in New York is 66\u00b0F.",
                 "role": "assistant",
                 "name": "Stevie",
-                "id": "54886dd0-108e-4e07-969c-4d04327768ee",
-                "timestamp": "2025-07-23T02:36:00.776750"
+                "id": "a8492536-32b1-433c-93bb-f5987091f5a2",
+                "timestamp": "2025-07-27T02:07:09.668079"
             },
             "tool_history": [
                 {
-                    "content": "New York: 79F.",
-                    "role": "tool",
-                    "tool_call_id": "call_QeSq5TArEZJ67tEzhZXmqAPw",
-                    "id": "4691eabc-1310-4ad7-bac6-7ecade2857a4",
-                    "function_name": "LocalGetWeather",
-                    "function_args": "{\"location\":\"New York\"}",
-                    "timestamp": "2025-07-23T02:35:59.718943"
+                    "id": "7f8c100a-1d11-47ee-b517-a6397f62bcba",
+                    "timestamp": "2025-07-27T02:07:08.696235",
+                    "tool_call_id": "call_4cpTh8rI2OzoaGJaJEgmovxG",
+                    "tool_name": "LocalGetWeather",
+                    "tool_args": {
+                        "location": "New York"
+                    },
+                    "execution_result": "New York: 66F."
                 }
             ],
             "source": null,
@@ -72,8 +72,8 @@
         {
             "content": "What is the weather in New York?",
             "role": "user",
-            "id": "b57d8dcf-a84e-4ed9-b6eb-b27360a6a466",
-            "timestamp": "2025-07-23T02:35:58.890010"
+            "id": "0133e81f-a5c6-4d02-ada6-80527292172e",
+            "timestamp": "2025-07-27T02:07:07.826629"
         },
         {
             "content": null,
@@ -81,7 +81,7 @@
             "name": "Stevie",
             "tool_calls": [
                 {
-                    "id": "call_QeSq5TArEZJ67tEzhZXmqAPw",
+                    "id": "call_4cpTh8rI2OzoaGJaJEgmovxG",
                     "type": "function",
                     "function": {
                         "name": "LocalGetWeather",
@@ -89,24 +89,23 @@
                     }
                 }
             ],
-            "id": "7b508dae-d86a-4cb5-9b84-4bf13f5ef3a3",
-            "timestamp": "2025-07-23T02:35:59.660877"
+            "id": "ed40c479-55e8-4026-8e73-8c7cba47e291",
+            "timestamp": "2025-07-27T02:07:08.651564"
         },
         {
-            "content": "New York: 79F.",
+            "content": "New York: 66F.",
             "role": "tool",
-            "tool_call_id": "call_QeSq5TArEZJ67tEzhZXmqAPw",
-            "id": "4691eabc-1310-4ad7-bac6-7ecade2857a4",
-            "function_name": "LocalGetWeather",
-            "function_args": "{\"location\":\"New York\"}",
-            "timestamp": "2025-07-23T02:35:59.718943"
+            "name": "LocalGetWeather",
+            "tool_call_id": "call_4cpTh8rI2OzoaGJaJEgmovxG",
+            "id": "f89659f6-b908-435b-9017-ee6013e2f519",
+            "timestamp": "2025-07-27T02:07:08.696208"
         },
         {
-            "content": "The weather in New York is currently 79\u00b0F. If you need more information or have other questions, feel free to ask!",
+            "content": "The current weather in New York is 66\u00b0F.",
             "role": "assistant",
             "name": "Stevie",
-            "id": "54886dd0-108e-4e07-969c-4d04327768ee",
-            "timestamp": "2025-07-23T02:36:00.776750"
+            "id": "a8492536-32b1-433c-93bb-f5987091f5a2",
+            "timestamp": "2025-07-27T02:07:09.668079"
         }
     ]
 }

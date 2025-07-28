@@ -69,27 +69,34 @@ dapr run --app-id dapr-llm --resources-path ./components -- python text_completi
 The script uses the `DaprChatClient` which connects to Dapr's `echo` LLM component:
 
 ```python
-from dapr_agents.llm import DaprChatClient
-from dapr_agents.types import UserMessage
 from dotenv import load_dotenv
+
+from dapr_agents.llm import DaprChatClient
+from dapr_agents.types import LLMChatResponse, UserMessage
 
 # Load environment variables from .env
 load_dotenv()
 
 # Basic chat completion
 llm = DaprChatClient()
-response = llm.generate("Name a famous dog!")
-print("Response: ", response.get_content())
+response: LLMChatResponse = llm.generate("Name a famous dog!")
+
+if response.get_message() is not None:
+    print("Response: ", response.get_message().content)
 
 # Chat completion using a prompty file for context
-llm = DaprChatClient.from_prompty('basic.prompty')
-response = llm.generate(input_data={"question":"What is your name?"})
-print("Response with prompty: ", response.get_content())
+llm = DaprChatClient.from_prompty("basic.prompty")
+response: LLMChatResponse = llm.generate(input_data={"question": "What is your name?"})
+
+if response.get_message() is not None:
+    print("Response with prompty: ", response.get_message().content)
 
 # Chat completion with user input
 llm = DaprChatClient()
-response = llm.generate(messages=[UserMessage("hello")])
-print("Response with user input: ", response.get_content())
+response: LLMChatResponse = llm.generate(messages=[UserMessage("hello")])
+
+if response.get_message() is not None and "hello" in response.get_message().content.lower():
+    print("Response with user input: ", response.get_message().content)
 ```
 
 **Expected output:** The echo component will simply return the prompts that were sent to it.

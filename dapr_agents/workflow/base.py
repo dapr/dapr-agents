@@ -16,7 +16,7 @@ from dapr.ext.workflow.workflow_state import WorkflowState
 from durabletask import task as dtask
 from pydantic import BaseModel, ConfigDict, Field
 
-from dapr_agents.agents.base import ChatClientType
+from dapr_agents.agents.base import ChatClientBase
 from dapr_agents.llm.openai import OpenAIChatClient
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.workflow.task import WorkflowTask
@@ -32,7 +32,7 @@ class WorkflowApp(BaseModel):
     A Pydantic-based class to encapsulate a Dapr Workflow runtime and manage workflows and tasks.
     """
 
-    llm: ChatClientType = Field(
+    llm: ChatClientBase = Field(
         default_factory=OpenAIChatClient,
         description="The default LLM client for all LLM-based tasks.",
     )
@@ -85,7 +85,7 @@ class WorkflowApp(BaseModel):
 
         super().model_post_init(__context)
 
-    def _choose_llm_for(self, method: Callable) -> Optional[ChatClientType]:
+    def _choose_llm_for(self, method: Callable) -> Optional[ChatClientBase]:
         """
         Encapsulate LLM selection logic.
           1. Use per-task override if provided on decorator.

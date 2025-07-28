@@ -3,7 +3,7 @@ import json
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from dapr_agents import NVIDIAChatClient
+from dapr_agents import HFHubChatClient
 from dapr_agents.types import UserMessage
 
 # Load environment variables from .env
@@ -18,7 +18,7 @@ class Dog(BaseModel):
 
 
 # Initialize the chat client
-llm = NVIDIAChatClient(model="meta/llama-3.1-8b-instruct")
+llm = HFHubChatClient(model="HuggingFaceTB/SmolLM3-3B")
 
 # Get structured response
 response: Dog = llm.generate(

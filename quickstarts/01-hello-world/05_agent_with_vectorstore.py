@@ -1,10 +1,14 @@
 import logging
 
+from dotenv import load_dotenv
+
 from dapr_agents import Agent
 from dapr_agents.document.embedder.sentence import SentenceTransformerEmbedder
 from dapr_agents.storage.vectorstores import ChromaVectorStore
 from dapr_agents.tool import tool
 from dapr_agents.types.document import Document
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
@@ -75,8 +79,6 @@ def add_machine_learning_doc() -> str:
 
 async def main():
     # Seed the vector store with initial documents using Document class
-    from dapr_agents.types.document import Document
-
     documents = [
         Document(
             text="Gandalf: A wizard is never late, Frodo Baggins. Nor is he early; he arrives precisely when he means to.",
@@ -127,5 +129,3 @@ if __name__ == "__main__":
         print("\nInterrupted by user. Exiting gracefully...")
     except Exception as e:
         print(f"\nError occurred: {e}")
-        print("Make sure you have the required dependencies installed:")
-        print(" pip install sentence-transformers chromadb")

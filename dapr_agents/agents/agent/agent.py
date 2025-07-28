@@ -1,28 +1,18 @@
 import asyncio
 import logging
-from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.types import (
     AgentError,
-    AssistantMessage,
-    ChatCompletion,
     ToolCall,
     ToolExecutionRecord,
     ToolMessage,
     UserMessage,
+    LLMChatResponse,
 )
 
 logger = logging.getLogger(__name__)
-
-
-class FinishReason(str, Enum):
-    STOP = "stop"
-    LENGTH = "length"
-    CONTENT_FILTER = "content_filter"
-    TOOL_CALLS = "tool_calls"
-    FUNCTION_CALL = "function_call"  # deprecated
 
 
 class Agent(AgentBase):
@@ -168,8 +158,10 @@ class Agent(AgentBase):
                         name=function_name,
                         content=result_str,
                     )
-                    # Printing the tool message for visibility
+                    # Print the tool message for visibility
                     self.text_formatter.print_message(tool_message)
+                    # Add tool message to memory
+                    self.memory.add_message(tool_message)
                     # Append tool message to the persistent audit log
                     tool_execution_record = ToolExecutionRecord(
                         tool_call_id=tool_id,
@@ -201,69 +193,54 @@ class Agent(AgentBase):
         Raises:
             AgentError: On chat failure or tool issues.
         """
-        for iteration in range(self.max_iterations):
-            logger.info(f"Iteration {iteration + 1}/{self.max_iterations} started.")
-
+        final_reply = None
+        for turn in range(1, self.max_iterations + 1):
+            logger.info(f"Iteration {turn}/{self.max_iterations} started.")
             try:
                 # Generate response using the LLM
-                response = self.llm.generate(
+                response: LLMChatResponse = self.llm.generate(
                     messages=messages,
                     tools=self.get_llm_tools(),
                     tool_choice=self.tool_choice,
                 )
-                # If response is a dict, convert to ChatCompletion
-                if isinstance(response, dict):
-                    response = ChatCompletion(**response)
-                elif not isinstance(response, ChatCompletion):
-                    # If response is an iterator (stream), raise TypeError
-                    raise TypeError(f"Expected ChatCompletion, got {type(response)}")
-                # Get the response message and print it
+                # Get the first candidate from the response
                 response_message = response.get_message()
-                if response_message is not None:
-                    self.text_formatter.print_message(response_message)
-
-                # Get Reason for the response
-                reason = FinishReason(response.get_reason())
+                # Check if the response contains an assistant message
+                if response_message is None:
+                    raise AgentError("LLM returned no assistant message")
+                else:
+                    assistant = response_message
+                    self.text_formatter.print_message(assistant)
+                    self.memory.add_message(assistant)
 
                 # Handle tool calls response
-                if reason == FinishReason.TOOL_CALLS:
-                    tool_calls = response.get_tool_calls()
+                if assistant is not None and assistant.has_tool_calls():
+                    tool_calls = assistant.get_tool_calls()
                     if tool_calls:
-                        # Add the assistant message with tool calls to the conversation
-                        if response_message is not None:
-                            messages.append(response_message)
-                        # Execute tools and collect results for this iteration only
-                        tool_messages = await self.execute_tools(tool_calls)
-                        # Add tool results to messages for the next iteration
-                        messages.extend([tm.model_dump() for tm in tool_messages])
-                        # Continue to next iteration to let LLM process tool results
+                        messages.append(assistant.model_dump())
+                        tool_msgs = await self.execute_tools(tool_calls)
+                        messages.extend([tm.model_dump() for tm in tool_msgs])
+                        if turn == self.max_iterations:
+                            final_reply = assistant
+                            logger.info("Reached max turns after tool calls; stopping.")
+                            break
                         continue
-                # Handle stop response
-                elif reason == FinishReason.STOP:
-                    # Append AssistantMessage to memory
-                    msg = AssistantMessage(content=response.get_content() or "")
-                    self.memory.add_message(msg)
-                    return msg.content
-                # Handle Function call response
-                elif reason == FinishReason.FUNCTION_CALL:
-                    logger.warning(
-                        "LLM returned a deprecated function_call. Function calls are not processed by this agent."
-                    )
-                    msg = AssistantMessage(
-                        content="Function calls are not supported or processed by this agent."
-                    )
-                    self.memory.add_message(msg)
-                    return msg.content
-                else:
-                    logger.error(f"Unknown finish reason: {reason}")
-                    raise AgentError(f"Unknown finish reason: {reason}")
+
+                # No tool calls => done
+                final_reply = assistant
+                break
 
             except Exception as e:
-                logger.error(f"Error during chat generation: {e}")
+                logger.error(f"Error on turn {turn}: {e}")
                 raise AgentError(f"Failed during chat generation: {e}") from e
 
-        logger.info("Max iterations reached. Agent has stopped.")
-        return None
+        # Post-loop
+        if final_reply is None:
+            logger.warning("No reply generated; hitting max iterations.")
+            return None
+
+        logger.info(f"Agent conversation completed after {turn} turns.")
+        return final_reply
 
     async def run_tool(self, tool_name: str, *args, **kwargs) -> Any:
         """
