@@ -9,7 +9,7 @@ async def main():
     load_dotenv()
     logging.basicConfig(level=logging.INFO)
 
-    # 1️⃣ Instantiate your agent (no .as_service())
+    # 1️⃣ Instantiate your agent
     weather_agent = DurableAgent(
         role="Weather Assistant",
         name="Stevie",
