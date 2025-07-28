@@ -185,7 +185,9 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
         try:
             logger.info("Calling NVIDIA ChatCompletion API.")
             logger.debug(f"Parameters: {params}")
-            resp = self.client.chat.completions.create(**params)
+            resp = self.client.chat.completions.create(
+                **params, stream=stream
+            )
             return ResponseHandler.process_response(
                 response=resp,
                 llm_provider=self.provider,

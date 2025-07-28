@@ -179,7 +179,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             logger.info("Calling HF ChatCompletion Inference API...")
             logger.debug(f"HF params: {params}")
             response = self.client.chat.completions.create(
-                **params
+                **params, stream=stream
             )
             logger.info("HF ChatCompletion response received.")
 

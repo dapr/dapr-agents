@@ -206,7 +206,7 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
             logger.info("Calling OpenAI ChatCompletion...")
             logger.debug(f"ChatCompletion params: {params}")
             resp = self.client.chat.completions.create(
-                **params, timeout=self.timeout
+                **params, stream=stream, timeout=self.timeout
             )
             logger.info("ChatCompletion response received.")
             return ResponseHandler.process_response(

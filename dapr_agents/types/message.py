@@ -5,7 +5,7 @@ from pydantic import (
     model_validator,
     ConfigDict,
 )
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import json
 
 
@@ -116,6 +116,36 @@ class ToolCall(BaseModel):
     id: str
     type: str
     function: FunctionCall
+
+
+class FunctionCallChunk(BaseModel):
+    """
+    Represents a function call chunk in a streaming response, containing the function name and arguments.
+
+    Attributes:
+        name (str): The name of the function being called.
+        arguments (str): The JSON string representation of the function's arguments.
+    """
+
+    name: Optional[str] = None
+    arguments: Optional[str] = None
+
+
+class ToolCallChunk(BaseModel):
+    """
+    Represents a tool call chunk in a streaming response, containing the index, ID, type, and function call details.
+    
+    Attributes:
+        index (int): The index of the tool call in the response.
+        id (str): Unique identifier for the tool call.
+        type (str): The type of the tool call.
+        function (FunctionCallChunk): The function call details associated with the tool call.
+    """
+
+    index: int
+    id: Optional[str] = None
+    type: Optional[str] = None
+    function: FunctionCallChunk
 
 
 class MessageContent(BaseMessage):
@@ -249,6 +279,7 @@ class LLMChatCandidate(BaseModel):
     class Config:
         extra = "allow"
 
+
 class LLMChatResponse(BaseModel):
     """
     Unified response for LLM chat completions, supporting multiple providers.
@@ -266,24 +297,26 @@ class LLMChatResponse(BaseModel):
         """
         return self.results[0].message if self.results else None
 
+
 class LLMChatCandidateChunk(BaseModel):
     """
     Represents a partial (streamed) candidate from an LLM provider, for real-time streaming.
     """
     content: Optional[str] = None
+    function_call: Optional[Dict[str, Any]] = None
     refusal: Optional[str] = None
-    tool_calls: Optional[List['ToolCall']] = None
-    function_call: Optional['FunctionCall'] = None
+    role: Optional[str] = None
+    tool_calls: Optional[List['ToolCallChunk']] = None
     finish_reason: Optional[str] = None
     index: Optional[int] = None
     logprobs: Optional[dict] = None
-    metadata: Optional[dict] = None
+
 
 class LLMChatResponseChunk(BaseModel):
     """
     Represents a partial (streamed) response from an LLM provider, for real-time streaming.
     """
-    candidate_chunk: LLMChatCandidateChunk
+    result: LLMChatCandidateChunk
     metadata: Optional[dict] = None
 
 
