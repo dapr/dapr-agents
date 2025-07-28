@@ -87,6 +87,11 @@ start the agent with Dapr:
 dapr run --app-id durableweatherapp --resources-path ./components -- python durable_weather_agent.py
 ```
 
+## Other Durable Agent
+You can also try the following Durable agents with the same tools using `HuggingFace hub` and `NVIDIA` LLM chat clients. Make sure you add the `HUGGINGFACE_API_KEY` and `NVIDIA_API_KEY` to the `.env` file.
+- [HuggingFace Durable Agent](./durable_weather_agent_hf.py)
+- [NVIDIA Durable Agent](./durable_weather_agent_nv.py)
+
 ## About Durable Agents
 
 Durable agents maintain state across runs, enabling workflows that require persistence, recovery, and coordination. This is useful for long-running tasks, multi-step workflows, and agent collaboration.

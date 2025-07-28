@@ -74,7 +74,11 @@ weather_agent = Agent(
     goal="Help humans get weather and location info using MCP tools.",
     instructions=["Instrictions go here"],
     tools=tools,
-)    
+) 
+
+# Run a sample query
+result: AssistantMessage = await weather_agent.run("What is the weather in New York?")
+print(result.content)
 ```
 
 ### Running the Example
