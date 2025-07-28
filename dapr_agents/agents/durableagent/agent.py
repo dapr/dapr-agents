@@ -143,7 +143,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         final_message: Optional[Dict[str, Any]] = None
 
         if not ctx.is_replaying:
-            logger.info(f"Initial message from {source} -> {self.name}")
+            logger.debug(f"Initial message from {source} -> {self.name}")
 
         try:
             # Loop up to max_iterations

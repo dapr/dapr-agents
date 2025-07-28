@@ -167,7 +167,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
                 # Step 8: Wait for agent response or timeout
                 if not ctx.is_replaying:
-                    logger.info(f"Waiting for {next_agent}'s response...")
+                    logger.debug(f"Waiting for {next_agent}'s response...")
 
                 event_data = ctx.wait_for_external_event("AgentTaskResponse")
                 timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
@@ -216,8 +216,8 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                 # Update verdict and plan based on progress
                 verdict = progress["verdict"]
                 if not ctx.is_replaying:
-                    logger.info(f"Progress verdict: {verdict}")
-                    logger.info(f"Tracking Progress: {progress}")
+                    logger.debug(f"Progress verdict: {verdict}")
+                    logger.debug(f"Tracking Progress: {progress}")
                 status_updates = progress.get("plan_status_update", [])
                 plan_updates = progress.get("plan_restructure", [])
 
@@ -242,7 +242,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                 status_updates = []
                 plan_updates = []
                 task_results = {
-                    "name": "orchestrator",
+                    "name": self.name,
                     "role": "user",
                     "content": f"Step {step_id}, Substep {substep_id} does not exist in the plan. Adjusting workflow...",
                 }
@@ -770,7 +770,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                 )
                 return
             # Log the received response
-            logger.info(
+            logger.debug(
                 f"{self.name} received response for workflow {workflow_instance_id}"
             )
             logger.debug(f"Full response: {message}")

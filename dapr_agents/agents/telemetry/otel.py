@@ -16,7 +16,7 @@ from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExp
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
 
-class DaprAgentsOTel:
+class DaprAgentsOtel:
     """
     OpenTelemetry configuration for Dapr agents.
     """

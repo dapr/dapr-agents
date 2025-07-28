@@ -1,3 +1,3 @@
-from .otel import DaprAgentsOTel
+from .otel import DaprAgentsOtel
 
-__all__ = ["DaprAgentsOTel"]
+__all__ = ["DaprAgentsOtel"]

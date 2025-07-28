@@ -115,7 +115,7 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
 
             # Step 5: Await for agent response or timeout
             if not ctx.is_replaying:
-                logger.info("Waiting for agent response...")
+                logger.debug("Waiting for agent response...")
             event_data = ctx.wait_for_external_event("AgentTaskResponse")
             timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
             any_results = yield self.when_any([event_data, timeout_task])
@@ -211,7 +211,7 @@ class RandomOrchestrator(OrchestratorWorkflowBase):
             logger.error("Missing workflow_instance_id on AgentTaskResponse; ignoring.")
             return
         # Log the received response
-        logger.info(
+        logger.debug(
             f"{self.name} received response for workflow {workflow_instance_id}"
         )
         logger.debug(f"Full response: {message}")
