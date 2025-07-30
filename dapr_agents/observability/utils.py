@@ -11,7 +11,7 @@ better tracing data quality in Phoenix UI.
 
 Key Components:
 - Argument Processing: bind_arguments, strip_method_args, get_input_value
-- Span Attributes: flatten_attributes for nested dictionary handling  
+- Span Attributes: flatten_attributes for nested dictionary handling
 - Message Processing: extract_content_from_result, serialize_tools_for_tracing
 - SmolAgents Compatibility: Maintains API compatibility while enhancing functionality
 

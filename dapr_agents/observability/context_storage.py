@@ -12,7 +12,7 @@ tasks using their instance ID.
 
 Architecture:
 - Store W3C context during workflow task creation (in instrumentor.py)
-- Retrieve context during workflow task execution (in workflow_task.py)  
+- Retrieve context during workflow task execution (in workflow_task.py)
 - Use thread-safe storage to handle concurrent workflow executions
 - Automatic cleanup to prevent memory leaks from completed workflows
 """
