@@ -10,6 +10,7 @@ logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
 
+
 async def main():
     from phoenix.otel import register
 
@@ -20,6 +21,7 @@ async def main():
     )
     # Initialize Dapr Agents observability instrumentor
     from dapr_agents.observability import DaprAgentsInstrumentor
+
     instrumentor = DaprAgentsInstrumentor()
     instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
 
@@ -44,8 +46,9 @@ async def main():
 
     print(f"\n🎯 Final result: {result}")
     print("📊 Check Phoenix UI at http://localhost:6006 for traces")
-    
+
     return result
+
 
 if __name__ == "__main__":
     asyncio.run(main())

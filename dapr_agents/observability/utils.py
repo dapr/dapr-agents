@@ -38,33 +38,34 @@ logger = logging.getLogger(__name__)
 # Argument Binding and Processing
 # ============================================================================
 
+
 def bind_arguments(method: Any, *args: Any, **kwargs: Any) -> Dict[str, Any]:
     """
     Bind method arguments using function signature inspection.
-    
+
     This utility extracts method parameters and their values using Python's
     signature inspection, applying defaults where necessary. Follows the
     SmolAgents pattern for consistent argument processing across all
     instrumentation wrappers, ensuring reliable parameter capture.
-    
+
     Args:
         method: Method or function to inspect (callable with signature)
         *args: Positional arguments passed to the method
         **kwargs: Keyword arguments passed to the method
-        
+
     Returns:
         Dict[str, Any]: Bound arguments with parameter names as keys
-        
+
     Error Handling:
         - Signature inspection failures: Falls back to raw args/kwargs dict
         - Missing parameters: Apply defaults from function signature
         - Type inspection errors: Graceful degradation with debug logging
-        
+
     Example:
         >>> def example(a, b=10, c=None): pass
         >>> bind_arguments(example, 1, c=20)
         {'a': 1, 'b': 10, 'c': 20}
-        
+
         >>> bind_arguments(lambda x: x, "hello")  # Lambda functions
         {'x': 'hello'}
     """
@@ -81,50 +82,48 @@ def bind_arguments(method: Any, *args: Any, **kwargs: Any) -> Dict[str, Any]:
 def strip_method_args(arguments: Mapping[str, Any]) -> Dict[str, Any]:
     """
     Remove self/cls arguments from method parameters.
-    
+
     Filters out 'self' and 'cls' parameters from bound arguments to avoid
     including instance/class references in span attributes, following the
     SmolAgents pattern for cleaner tracing data.
-    
+
     Args:
         arguments: Dictionary of bound method arguments
-        
+
     Returns:
         Dict[str, Any]: Filtered arguments without self/cls
-        
+
     Example:
         >>> strip_method_args({'self': obj, 'param': 'value', 'cls': MyClass})
         {'param': 'value'}
     """
     return {
-        key: value 
-        for key, value in arguments.items() 
-        if key not in ("self", "cls")
+        key: value for key, value in arguments.items() if key not in ("self", "cls")
     }
 
 
 def get_input_value(method: Any, *args: Any, **kwargs: Any) -> str:
     """
     Extract and serialize input value for span attributes.
-    
+
     Processes method arguments into a JSON string suitable for OpenTelemetry
     span attributes, using proper serialization and fallback handling.
     Combines argument binding with serialization for complete input capture.
-    
+
     Args:
         method: Method being instrumented (used for signature inspection)
         *args: Method positional arguments to serialize
         **kwargs: Method keyword arguments to serialize
-        
+
     Returns:
         str: JSON-serialized input arguments without self/cls parameters
-        
+
     Processing Flow:
         1. Bind arguments using signature inspection
         2. Strip self/cls parameters for cleaner output
         3. JSON serialize with safe_json_dumps for reliability
         4. Fallback to string representation on serialization failure
-        
+
     Example:
         >>> def my_method(self, query, limit=10): pass
         >>> get_input_value(my_method, obj, "search", limit=5)
@@ -139,30 +138,34 @@ def get_input_value(method: Any, *args: Any, **kwargs: Any) -> str:
         # Fallback to simple string representation
         return str(args[0] if args else kwargs)
 
+
 # ============================================================================
-# Span Attribute Utilities  
+# Span Attribute Utilities
 # ============================================================================
 
-def flatten_attributes(mapping: Optional[Mapping[str, Any]]) -> Iterator[Tuple[str, AttributeValue]]:
+
+def flatten_attributes(
+    mapping: Optional[Mapping[str, Any]],
+) -> Iterator[Tuple[str, AttributeValue]]:
     """
     Flatten nested dictionaries for OpenTelemetry span attributes.
-    
+
     Recursively flattens nested dictionaries and lists into dot-notation
     keys suitable for OpenTelemetry span attributes, following the SmolAgents
     pattern for consistent attribute structure across the instrumentation system.
-    
+
     Args:
         mapping: Dictionary to flatten (can be None for safety)
-        
+
     Yields:
         Tuple[str, AttributeValue]: Flattened key-value pairs with dot-notation keys
-        
+
     Flattening Rules:
         - Nested dicts: {'user': {'name': 'John'}} → ('user.name', 'John')
         - Lists of dicts: [{'id': 1}, {'id': 2}] → ('0.id', 1), ('1.id', 2)
         - None values: Automatically skipped to avoid empty attributes
         - Non-dict lists: Preserved as indexed values
-        
+
     Example:
         >>> data = {'user': {'name': 'John', 'age': 30}, 'tags': [{'type': 'admin'}]}
         >>> list(flatten_attributes(data))
@@ -170,17 +173,19 @@ def flatten_attributes(mapping: Optional[Mapping[str, Any]]) -> Iterator[Tuple[s
     """
     if not mapping:
         return
-        
+
     for key, value in mapping.items():
         if value is None:
             continue
-            
+
         if isinstance(value, Mapping):
             # Recursively flatten nested dictionaries
             for sub_key, sub_value in flatten_attributes(value):
                 yield f"{key}.{sub_key}", sub_value
-                
-        elif isinstance(value, list) and any(isinstance(item, Mapping) for item in value):
+
+        elif isinstance(value, list) and any(
+            isinstance(item, Mapping) for item in value
+        ):
             # Handle lists of dictionaries with indexed keys
             for index, sub_mapping in enumerate(value):
                 if isinstance(sub_mapping, Mapping):
@@ -192,30 +197,32 @@ def flatten_attributes(mapping: Optional[Mapping[str, Any]]) -> Iterator[Tuple[s
             # Direct value assignment
             yield key, value
 
+
 # ============================================================================
 # Message Processing Utilities
 # ============================================================================
 
+
 def extract_content_from_result(result: Any) -> str:
     """
     Extract content string from various result object types.
-    
+
     Handles different response formats including Pydantic models, dictionaries,
     and objects with content attributes to extract the main content for span
     output attributes. Provides fallback serialization for complex objects.
-    
+
     Args:
         result: Result object from agent/LLM execution (Pydantic model, dict, or object)
-        
+
     Returns:
         str: Extracted content string or JSON-serialized representation
-        
+
     Processing Priority:
         1. Direct content attribute access
         2. Pydantic model_dump() with content extraction
         3. Safe JSON serialization of model data
         4. String representation fallback
-        
+
     Example:
         >>> class Response:
         ...     def __init__(self, content): self.content = content
@@ -224,20 +231,20 @@ def extract_content_from_result(result: Any) -> str:
     """
     try:
         # Handle objects with content attribute
-        if hasattr(result, 'content'):
+        if hasattr(result, "content"):
             return str(result.content)
-            
+
         # Handle Pydantic models with model_dump
-        if hasattr(result, 'model_dump') and callable(result.model_dump):
+        if hasattr(result, "model_dump") and callable(result.model_dump):
             output_dict = result.model_dump()
-            if isinstance(output_dict, dict) and 'content' in output_dict:
-                return str(output_dict['content'])
+            if isinstance(output_dict, dict) and "content" in output_dict:
+                return str(output_dict["content"])
             else:
                 return safe_json_dumps(output_dict)
-                
+
         # Fallback to string representation
         return str(result)
-        
+
     except Exception as e:
         logger.debug(f"Could not extract content from result: {e}")
         return str(result)
@@ -246,17 +253,17 @@ def extract_content_from_result(result: Any) -> str:
 def serialize_tools_for_tracing(tools: Any) -> Any:
     """
     Serialize tools for tracing with proper schema extraction.
-    
+
     Converts AgentTool objects to JSON schemas using their built-in
     to_function_call method for proper OpenInference compatibility,
     with fallback to string representation for unsupported tool types.
-    
+
     Args:
         tools: List of AgentTool instances or other tool objects
-        
+
     Returns:
         Any: Serialized tools suitable for span attributes
-        
+
     Example:
         >>> tools = [MyAgentTool(name="search", description="Search tool")]
         >>> serialize_tools_for_tracing(tools)
@@ -264,18 +271,20 @@ def serialize_tools_for_tracing(tools: Any) -> Any:
     """
     if not tools:
         return tools
-        
+
     if not isinstance(tools, list):
         return str(tools)
-        
+
     serialized_tools = []
     for i, tool in enumerate(tools):
         try:
-            if hasattr(tool, 'to_function_call'):
+            if hasattr(tool, "to_function_call"):
                 # Use AgentTool's built-in function call format
                 tool_schema = tool.to_function_call(format_type="openai")
                 serialized_tools.append(tool_schema)
-                logger.debug(f"Extracted schema for tool {i}: {tool_schema.get('name', 'unknown')}")
+                logger.debug(
+                    f"Extracted schema for tool {i}: {tool_schema.get('name', 'unknown')}"
+                )
             else:
                 # Fallback to string representation
                 serialized_tools.append(str(tool))
@@ -283,18 +292,19 @@ def serialize_tools_for_tracing(tools: Any) -> Any:
         except Exception as e:
             logger.debug(f"Error serializing tool {i}: {e}")
             serialized_tools.append(str(tool))
-            
+
     return serialized_tools
+
 
 # ============================================================================
 # Exported Functions
 # ============================================================================
 
 __all__ = [
-    'bind_arguments',
-    'strip_method_args', 
-    'get_input_value',
-    'flatten_attributes',
-    'extract_content_from_result',
-    'serialize_tools_for_tracing',
+    "bind_arguments",
+    "strip_method_args",
+    "get_input_value",
+    "flatten_attributes",
+    "extract_content_from_result",
+    "serialize_tools_for_tracing",
 ]

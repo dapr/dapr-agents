@@ -17,6 +17,7 @@ AIAgent = Agent(
     tools=tools,
 )
 
+
 # Wrap your async call
 async def main():
     from phoenix.otel import register

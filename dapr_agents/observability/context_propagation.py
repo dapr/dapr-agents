@@ -18,7 +18,10 @@ from typing import Any, Dict, Optional
 
 try:
     from opentelemetry import trace
-    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+    from opentelemetry.trace.propagation.tracecontext import (
+        TraceContextTextMapPropagator,
+    )
+
     OPENTELEMETRY_AVAILABLE = True
 except ImportError:
     # OpenTelemetry is not available - context propagation will be disabled
@@ -35,37 +38,40 @@ if OPENTELEMETRY_AVAILABLE:
 else:
     _propagator = None
 
+
 def extract_otel_context() -> Dict[str, Any]:
     """
     Extract current OpenTelemetry context using W3C Trace Context format.
-    
+
     Converts the current OpenTelemetry span context into W3C Trace Context format
     (traceparent/tracestate) that can be properly serialized and transmitted across
     Dapr Workflow boundaries. This ensures distributed trace continuity.
-    
+
     W3C traceparent format: "version-trace_id-parent_id-trace_flags"
     - version: Always "00" (current W3C spec version)
     - trace_id: 32-character hex string (128-bit trace identifier)
-    - parent_id: 16-character hex string (64-bit span identifier)  
+    - parent_id: 16-character hex string (64-bit span identifier)
     - trace_flags: 2-character hex string ("01" if sampled, "00" if not)
-    
+
     Returns:
         Dict[str, Any]: Serializable context data containing:
                        - traceparent: W3C trace context header
                        - tracestate: Vendor-specific trace state (optional)
                        - trace_id, span_id, trace_flags: Individual components for debugging
-                       
+
         If OpenTelemetry is not available, returns empty dict.
         Install with: pip install dapr-agents[observability]
     """
     if not OPENTELEMETRY_AVAILABLE:
         logger.debug("OpenTelemetry not available - cannot extract context")
         return {}
-        
+
     if not _propagator or not trace:
-        logger.debug("OpenTelemetry components not initialized - cannot extract context")
+        logger.debug(
+            "OpenTelemetry components not initialized - cannot extract context"
+        )
         return {}
-    
+
     carrier: Dict[str, Any] = {}
     # Use W3C TraceContext propagator to inject standard headers
     _propagator.inject(carrier)
@@ -75,7 +81,7 @@ def extract_otel_context() -> Dict[str, Any]:
 
     # Extract trace components in W3C format (always extract for consistency)
     trace_id = format(ctx.trace_id, "032x")  # 32-char hex (128-bit)
-    span_id = format(ctx.span_id, "016x")    # 16-char hex (64-bit)
+    span_id = format(ctx.span_id, "016x")  # 16-char hex (64-bit)
     flags = "01" if ctx.trace_flags.sampled else "00"  # W3C sampling flag
 
     # Ensure traceparent exists - create manually if propagator didn't inject
@@ -92,29 +98,32 @@ def extract_otel_context() -> Dict[str, Any]:
     carrier["span_id"] = span_id
     carrier["trace_flags"] = flags
 
-    logger.debug(f"🔗 Extracted W3C context: traceparent={carrier.get('traceparent', '')}")
+    logger.debug(
+        f"🔗 Extracted W3C context: traceparent={carrier.get('traceparent', '')}"
+    )
     return carrier
+
 
 def restore_otel_context(otel_context: Optional[Dict[str, Any]]) -> Optional[object]:
     """
     Restore OpenTelemetry context from W3C Trace Context format.
-    
-    Converts W3C Trace Context headers (traceparent/tracestate) back into 
+
+    Converts W3C Trace Context headers (traceparent/tracestate) back into
     OpenTelemetry context objects that can be used as parent context for
     creating child spans, maintaining distributed trace continuity.
-    
+
     This function is the inverse of extract_otel_context() and enables
     proper trace propagation across Dapr Workflow runtime boundaries.
-    
+
     Args:
         otel_context (Optional[Dict[str, Any]]): Context data from extract_otel_context()
                                                 containing W3C traceparent and tracestate
-        
+
     Returns:
         Optional[object]: OpenTelemetry context object for creating child spans,
-                         or None if restoration fails, context is invalid, or 
+                         or None if restoration fails, context is invalid, or
                          OpenTelemetry is not available
-                         
+
     Note:
         If OpenTelemetry dependencies are not installed, this returns None.
         Install with: pip install dapr-agents[observability]
@@ -122,15 +131,17 @@ def restore_otel_context(otel_context: Optional[Dict[str, Any]]) -> Optional[obj
     if not OPENTELEMETRY_AVAILABLE:
         logger.debug("OpenTelemetry not available - cannot restore context")
         return None
-        
+
     if not _propagator or not trace:
-        logger.debug("OpenTelemetry components not initialized - cannot restore context")
+        logger.debug(
+            "OpenTelemetry components not initialized - cannot restore context"
+        )
         return None
-        
+
     if not otel_context:
         logger.debug("No context provided for restoration")
         return None
-        
+
     try:
         # Reconstruct W3C carrier format from Dapr-serialized context
         # This converts our stored format back to the standard W3C headers
@@ -141,44 +152,54 @@ def restore_otel_context(otel_context: Optional[Dict[str, Any]]) -> Optional[obj
 
         # Use W3C TraceContext propagator to extract OpenTelemetry context
         ctx = _propagator.extract(carrier=carrier)
-        logger.debug(f"🔗 Restored W3C context: traceparent={carrier.get('traceparent', '')}")
+        logger.debug(
+            f"🔗 Restored W3C context: traceparent={carrier.get('traceparent', '')}"
+        )
         return ctx
-        
+
     except Exception as e:
-        logger.warning(f"⚠️ Failed to restore OpenTelemetry context from W3C format: {e}")
+        logger.warning(
+            f"⚠️ Failed to restore OpenTelemetry context from W3C format: {e}"
+        )
         return None
 
-def create_child_span_with_context(tracer: Any, span_name: str, 
-                                 otel_context: Optional[Dict[str, Any]], 
-                                 attributes: Optional[Dict[str, Any]] = None):
+
+def create_child_span_with_context(
+    tracer: Any,
+    span_name: str,
+    otel_context: Optional[Dict[str, Any]],
+    attributes: Optional[Dict[str, Any]] = None,
+):
     """
     Create a child span with restored W3C Trace Context as parent.
-    
+
     This function creates a new OpenTelemetry span that maintains the distributed
     trace hierarchy by using restored W3C Trace Context as the parent context.
     This ensures proper trace continuity across Dapr Workflow boundaries.
-    
+
     The function handles both successful context restoration (creating a proper
     child span) and fallback scenarios (creating a root span) gracefully.
-    
+
     Args:
         tracer (Any): OpenTelemetry tracer instance for creating spans
         span_name (str): Name for the new span (e.g., "WorkflowTask.generate_response")
         otel_context (Optional[Dict[str, Any]]): W3C context data from extract_otel_context()
                                                 containing traceparent/tracestate headers
         attributes (Optional[Dict[str, Any]]): Optional span attributes to set on creation
-        
+
     Returns:
         Span context manager that can be used in 'with' statements for proper
         span lifecycle management with restored parent-child relationships
     """
     # Restore parent context from W3C Trace Context format
     parent_ctx = restore_otel_context(otel_context)
-    
+
     # Create span with proper parent-child relationship if context was restored
     if parent_ctx:
         # Context restored successfully - create child span maintaining trace hierarchy
-        return tracer.start_as_current_span(span_name, context=parent_ctx, attributes=attributes)
+        return tracer.start_as_current_span(
+            span_name, context=parent_ctx, attributes=attributes
+        )
     else:
         # Context restoration failed - create root span (fallback behavior)
         return tracer.start_as_current_span(span_name, attributes=attributes)

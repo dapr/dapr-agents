@@ -12,6 +12,7 @@ try:
     from opentelemetry.instrumentation.requests import RequestsInstrumentor
     from opentelemetry import trace
     from opentelemetry._logs import set_logger_provider
+
     OPENTELEMETRY_AVAILABLE = True
 except ImportError:
     # OpenTelemetry is not available - tracing will be disabled
