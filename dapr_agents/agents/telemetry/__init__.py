@@ -1,3 +1,5 @@
 from .otel import DaprAgentsOtel
 
-__all__ = ["DaprAgentsOtel"]
+__all__ = [
+    "DaprAgentsOtel"
+]
