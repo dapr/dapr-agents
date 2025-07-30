@@ -1,2 +1,3 @@
 dapr-agents>=0.7.1
 python-dotenv
+arize-phoenix-otel

@@ -240,6 +240,171 @@ if __name__ == "__main__":
 dapr run --app-id weatheragent --resources-path ./components -- python weather_agent_dapr.py
 ```
 
+## Observability with Phoenix Arize
+
+This section demonstrates how to add observability to your Dapr Agents using Phoenix Arize for distributed tracing and monitoring. You'll learn how to set up Phoenix with PostgreSQL backend and instrument your agent for comprehensive observability.
+
+### Phoenix Server Setup
+
+First, deploy Phoenix Arize server using Docker Compose with PostgreSQL backend for persistent storage.
+
+#### Prerequisites
+
+- Docker and Docker Compose installed on your system
+- Verify Docker is running: `docker info`
+
+#### Deploy Phoenix with PostgreSQL
+
+1. Create a `docker-compose.yml` file for Phoenix with PostgreSQL backend:
+
+```yaml
+# docker-compose.yml
+services:
+  phoenix:
+    image: arizephoenix/phoenix:latest # Must be version 4.0 or greater
+    depends_on:
+      - db
+    ports:
+      - 6006:6006  # Phoenix UI and OTLP HTTP collector
+      - 4317:4317  # OTLP gRPC collector
+      - 9090:9090  # [Optional] Prometheus port if enabled
+    environment:
+      - PHOENIX_SQL_DATABASE_URL=postgresql://postgres:postgres@db:5432/postgres
+  db:
+    image: postgres:14
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    ports:
+      - 5432:5432
+    volumes:
+      - database_data:/var/lib/postgresql/data
+
+volumes:
+  database_data:
+    driver: local
+```
+
+2. Start the Phoenix server:
+
+```bash
+docker compose up --build
+```
+
+3. Verify Phoenix is running by navigating to [http://localhost:6006](http://localhost:6006)
+
+#### Note on Production Deployment
+For production deployments, ensure you:
+- Use persistent volumes for PostgreSQL data
+- Configure proper authentication and security
+- Pin Phoenix version (e.g., `arizephoenix/phoenix:4.0.0`)
+
+### Agent Observability Setup
+
+#### Install Observability Dependencies
+
+Update your `requirements.txt` to include observability features:
+
+```txt
+dapr-agents[observability]>=0.7.1
+python-dotenv
+arize-phoenix
+```
+
+Install the updated requirements:
+
+```bash
+pip install -r requirements.txt
+```
+
+#### Instrumented Weather Agent
+
+Create `weather_agent_tracing.py` with Phoenix OpenTelemetry integration:
+
+```python
+import asyncio
+from weather_tools import tools
+from dapr_agents import Agent
+from dotenv import load_dotenv
+
+load_dotenv()
+
+AIAgent = Agent(
+    name="Stevie",
+    role="Weather Assistant", 
+    goal="Assist Humans with weather related tasks.",
+    instructions=[
+        "Always answer the user's main weather question directly and clearly.",
+        "If you perform any additional actions (like jumping), summarize those actions and their results.",
+        "At the end, provide a concise summary that combines the weather information for all requested locations and any other actions you performed.",
+    ],
+    tools=tools,
+)
+
+# Wrap your async call
+async def main():
+    from phoenix.otel import register
+    from dapr_agents.observability import DaprAgentsInstrumentor
+
+    # Register Dapr Agents with Phoenix OpenTelemetry
+    tracer_provider = register(
+        project_name="dapr-weather-agents",
+        protocol="http/protobuf",
+    )
+    
+    # Initialize Dapr Agents OpenTelemetry instrumentor
+    instrumentor = DaprAgentsInstrumentor()
+    instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
+
+    await AIAgent.run("What is the weather in Virginia, New York and Washington DC?")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+#### Run with Observability
+
+1. Ensure Phoenix server is running (see setup steps above)
+
+2. Run the instrumented agent:
+
+```bash
+python weather_agent_tracing.py
+```
+
+3. View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
+
+![agent span results](AgentSpanResults.png)
+
+![agent trace chat](AgentChatMessage.png)
+
+### Observability Features
+
+Dapr Agents observability provides:
+
+- **W3C Trace Context**: Standards-compliant distributed tracing
+- **OpenTelemetry Integration**: Industry-standard instrumentation
+- **Phoenix UI Compatibility**: Rich visualization and analysis
+- **Automatic Instrumentation**: Zero-code tracing for agents and tools
+- **Performance Monitoring**: Detailed metrics and performance insights
+- **Error Tracking**: Comprehensive error capture and analysis
+
+### Troubleshooting Observability
+
+1. **Phoenix Connection Issues**: 
+   - Verify Phoenix server is running: `docker compose ps`
+   - Check port availability: `netstat -an | grep 6006`
+
+2. **Missing Traces**:
+   - Ensure `dapr-agents[observability]` is installed
+   - Verify instrumentation is called before agent execution
+
+3. **Docker Issues**:
+   - Check Docker daemon is running: `docker info`
+   - Verify PostgreSQL connectivity: `docker compose logs db`
+
 ## Available Agent Types
 
 Dapr Agents provides two agent implementations, each designed for different use cases:
