@@ -11,7 +11,7 @@ This quickstart demonstrates how to create and orchestrate event-driven workflow
 
 ```bash
 # Create a virtual environment
-python3.10 -m venv .venv
+python -m venv .venv
 
 # Activate the virtual environment
 # On Windows:

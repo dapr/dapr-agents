@@ -67,10 +67,6 @@ class WorkflowApp(BaseModel):
         """
         Initialize the Dapr workflow runtime and register tasks & workflows.
         """
-        # Check if Dapr is available before proceeding
-        if not self._is_dapr_available():
-            self._raise_dapr_required_error()
-
         # Initialize clients and runtime
         self.wf_runtime = WorkflowRuntime()
         self.wf_runtime_is_running = False
@@ -207,74 +203,6 @@ class WorkflowApp(BaseModel):
 
             decorator = self.wf_runtime.workflow(name=wf_name)
             self.workflows[wf_name] = decorator(make_wrapped(method))
-
-    def _is_dapr_available(self) -> bool:
-        """
-        Check if Dapr is available by attempting to connect to the Dapr sidecar.
-
-        This provides better developer experience for users who don't have Dapr running,
-        by providing a clear error message if Dapr is not available.
-
-        Returns:
-            bool: True if Dapr is available, False otherwise.
-        """
-        try:
-            import os
-            import socket
-
-            def check_tcp_port(port: int, timeout: int = 2) -> bool:
-                """
-                Check if a TCP port is open and accepting connections.
-
-                Args:
-                    port (int): The port number to check.
-                    timeout (int): Timeout in seconds for the connection attempt.
-
-                Returns:
-                    bool: True if the port is open, False otherwise.
-                """
-                try:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(timeout)
-                    result = sock.connect_ex(("localhost", port))
-                    sock.close()
-                    return result == 0
-                except Exception:
-                    return False
-
-            ports_to_check = []
-            for env_var in ["DAPR_HTTP_PORT", "DAPR_GRPC_PORT"]:
-                port = os.environ.get(env_var)
-                if port:
-                    ports_to_check.append(int(port))
-
-            # Fallback ports
-            ports_to_check.extend([3500, 3501, 3502])
-            for port in ports_to_check:
-                if check_tcp_port(port):
-                    return True
-
-            return False
-        except Exception:
-            return False
-
-    def _raise_dapr_required_error(self):
-        """
-        Raise a helpful error message when Dapr is required but not available.
-
-        Raises:
-            RuntimeError: Always raised to indicate Dapr is required for this workflow.
-        """
-        error_msg = (
-            "🚫 Dapr Required for Durable Agent\n\n"
-            "This agent requires Dapr to be running because it uses stateful, durable workflows.\n\n"
-            "To run this agent, you need to:\n\n"
-            "1. Install Dapr CLI: https://docs.dapr.io/getting-started/install-dapr-cli/\n"
-            "2. Initialize Dapr: dapr init\n"
-            "3. Run with Dapr: dapr run --app-id your-app-id --app-port 8001 --resources-path components/ -- python your_script.py\n\n"
-            "For more information, see the README.md in the quickstart directory."
-        )
-        raise RuntimeError(error_msg)
 
     def resolve_task(self, task: Union[str, Callable]) -> Callable:
         """
