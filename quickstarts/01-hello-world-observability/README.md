@@ -117,3 +117,7 @@ python 02_agent_otel.py
 <!-- END_STEP -->
 
 **Expected output:** Visit `http://localhost:16686` in your browser and view the traces.
+
+## Next Steps
+
+After completing these examples, move on to the [LLM Call quickstart](../02_llm_call_open_ai/README.md) to learn more about structured outputs from LLMs.
