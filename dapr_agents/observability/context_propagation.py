@@ -191,15 +191,11 @@ def create_child_span_with_context(
         Span context manager that can be used in 'with' statements for proper
         span lifecycle management with restored parent-child relationships
     """
-    # Restore parent context from W3C Trace Context format
     parent_ctx = restore_otel_context(otel_context)
 
-    # Create span with proper parent-child relationship if context was restored
     if parent_ctx:
-        # Context restored successfully - create child span maintaining trace hierarchy
         return tracer.start_as_current_span(
             span_name, context=parent_ctx, attributes=attributes
         )
     else:
-        # Context restoration failed - create root span (fallback behavior)
         return tracer.start_as_current_span(span_name, attributes=attributes)

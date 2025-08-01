@@ -154,14 +154,11 @@ def safe_json_dumps(obj: Any) -> str:
         str: JSON string representation of the object with proper error handling
     """
     if OPENINFERENCE_AVAILABLE and oi_safe_json_dumps:
-        # Use OpenInference implementation if available
         return oi_safe_json_dumps(obj)
     else:
-        # Fallback implementation
         try:
             return json.dumps(obj, default=str)
         except Exception:
-            # Last resort - convert to string
             return str(obj)
 
 
