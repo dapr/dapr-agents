@@ -255,38 +255,7 @@ First, deploy Phoenix Arize server using Docker Compose with PostgreSQL backend 
 
 #### Deploy Phoenix with PostgreSQL
 
-1. Create a `docker-compose.yml` file for Phoenix with PostgreSQL backend:
-
-```yaml
-# docker-compose.yml
-services:
-  phoenix:
-    image: arizephoenix/phoenix:latest # Must be version 4.0 or greater
-    depends_on:
-      - db
-    ports:
-      - 6006:6006  # Phoenix UI and OTLP HTTP collector
-      - 4317:4317  # OTLP gRPC collector
-      - 9090:9090  # [Optional] Prometheus port if enabled
-    environment:
-      - PHOENIX_SQL_DATABASE_URL=postgresql://postgres:postgres@db:5432/postgres
-  db:
-    image: postgres:14
-    restart: always
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=postgres
-    ports:
-      - 5432:5432
-    volumes:
-      - database_data:/var/lib/postgresql/data
-
-volumes:
-  database_data:
-    driver: local
-```
-
+1. Use the provided [docker-compose.yml](./docker-compose.yml) file to set up a Phoenix server locally with PostgreSQL backend.
 2. Start the Phoenix server:
 
 ```bash
@@ -304,14 +273,6 @@ For production deployments, ensure you:
 ### Agent Observability Setup
 
 #### Install Observability Dependencies
-
-Update your `requirements.txt` to include observability features:
-
-```txt
-dapr-agents[observability]>=0.7.1
-python-dotenv
-arize-phoenix
-```
 
 Install the updated requirements:
 
