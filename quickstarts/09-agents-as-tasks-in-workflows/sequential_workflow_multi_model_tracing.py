@@ -35,39 +35,46 @@ planner = Agent(
     name="PlannerAgent",
     role="Outline planner",
     instructions=["Generate a 3-day outline for the destination"],
-    llm=nvidia_llm,  # Use NVIDIA LLM for planning  
+    llm=nvidia_llm,  # Use NVIDIA LLM for planning
 )
 
 expander = Agent(
     name="ItineraryAgent",
     role="Itinerary expander",
     instructions=["Expand the outline into a detailed plan"],
-    llm=hf_llm  # Use Hugging Face LLM for expansion
+    llm=hf_llm,  # Use Hugging Face LLM for expansion
 )
+
 
 # Define tasks
 @task(agent=extractor)
 def extract() -> AssistantMessage:
     pass
 
+
 @task(agent=planner)
 def plan() -> AssistantMessage:
     pass
+
 
 @task(agent=expander)
 def expand() -> AssistantMessage:
     pass
 
+
 # Orchestration
 @workflow(name="chained_planner_workflow")
 def chained_planner_workflow(ctx: DaprWorkflowContext, user_msg: str):
     dest = yield ctx.call_activity(extract, input=user_msg)
-    outline = yield ctx.call_activity(plan, input=dest['content'])
-    itinerary = yield ctx.call_activity(expand, input=outline['content'])
-    return itinerary['content']
+    outline = yield ctx.call_activity(plan, input=dest["content"])
+    itinerary = yield ctx.call_activity(expand, input=outline["content"])
+    return itinerary["content"]
+
 
 if __name__ == "__main__":
     wfapp = WorkflowApp()
 
-    results = wfapp.run_and_monitor_workflow_sync(chained_planner_workflow, input="Plan a trip to Paris")
+    results = wfapp.run_and_monitor_workflow_sync(
+        chained_planner_workflow, input="Plan a trip to Paris"
+    )
     print(f"Trip Itinerary: {results}")

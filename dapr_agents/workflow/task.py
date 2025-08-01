@@ -183,7 +183,9 @@ class WorkflowTask(BaseModel):
         else:
             # LLM expects a string prompt
             if not isinstance(prompt, str):
-                raise ValueError(f"LLM executor requires string prompt, got {type(prompt)}")
+                raise ValueError(
+                    f"LLM executor requires string prompt, got {type(prompt)}"
+                )
             result = await self._invoke_llm(prompt)
         return self._convert_result(result)
 
@@ -329,21 +331,21 @@ class WorkflowTask(BaseModel):
         """
         Format input for natural agent conversation.
         Favors string input over dictionary for better agent interaction.
-        
+
         Args:
             payload: The original raw payload from the workflow
             data: The normalized dictionary version
-            
+
         Returns:
             String input for natural agent conversation
         """
         if payload is None:
             return ""
-            
+
         # If payload is already a simple string/number, use it directly
         if isinstance(payload, (str, int, float, bool)):
             return str(payload)
-            
+
         # If we have function parameters, format them naturally
         if data and len(data) == 1:
             # Single parameter: extract the value
