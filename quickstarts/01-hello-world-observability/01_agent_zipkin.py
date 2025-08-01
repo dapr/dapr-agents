@@ -27,9 +27,7 @@ async def main():
     from dapr_agents.observability import DaprAgentsInstrumentor
 
     # Define the service name using a Resource
-    resource = Resource(attributes={
-        "service.name": "dapr-weather-agents"
-    })
+    resource = Resource(attributes={"service.name": "dapr-weather-agents"})
 
     # Set up the OpenTelemetry TracerProvider with the resource
     tracer_provider = TracerProvider(resource=resource)
@@ -51,8 +49,9 @@ async def main():
     instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
 
     # Run the agent
-    await weather_agent.run("What is the weather in Virginia, New York and Washington DC?")
-
+    await weather_agent.run(
+        "What is the weather in Virginia, New York and Washington DC?"
+    )
 
 
 if __name__ == "__main__":
