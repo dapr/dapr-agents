@@ -338,12 +338,19 @@ if __name__ == '__main__':
 pip install sentence-transformers chromadb 'posthog<6.0.0'
 ```
 
+**Or install with extras:**
+From the root directory,
+```bash
+pip install -e ".[vectorstore]"
+```
+
 **Using uv:**
 ```bash
 uv add sentence-transformers chromadb 'posthog<6.0.0'
 ```
 
-**Or install with extras (uv only):**
+**Or install with extras:**
+From the root directory,
 ```bash
 uv pip install -e ".[vectorstore]"
 ```

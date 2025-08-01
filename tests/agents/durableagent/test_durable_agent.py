@@ -31,11 +31,6 @@ def patch_dapr_check(monkeypatch):
 
     from dapr_agents.workflow import agentic, base
 
-    # Mock the Dapr availability check to always return True
-    monkeypatch.setattr(
-        agentic.AgenticWorkflow, "_is_dapr_available", lambda self: True
-    )
-
     # Mock the WorkflowApp initialization to prevent DaprClient creation which does an internal check for Dapr availability.
     def mock_workflow_app_post_init(self, __context: Any) -> None:
         self.wf_runtime = Mock()
