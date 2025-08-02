@@ -49,15 +49,15 @@ class OpenAIClient:
         # Build kwargs, only including non-None values so SDK can fall back to env vars
         kwargs = {}
         if self.api_key is not None:
-            kwargs['api_key'] = self.api_key
+            kwargs["api_key"] = self.api_key
         if self.base_url is not None:
-            kwargs['base_url'] = self.base_url
+            kwargs["base_url"] = self.base_url
         if self.organization is not None:
-            kwargs['organization'] = self.organization
+            kwargs["organization"] = self.organization
         if self.project is not None:
-            kwargs['project'] = self.project
-        kwargs['timeout'] = self.timeout
-        
+            kwargs["project"] = self.project
+        kwargs["timeout"] = self.timeout
+
         return OpenAI(**kwargs)
 
     @classmethod

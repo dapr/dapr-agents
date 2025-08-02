@@ -213,9 +213,7 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
         try:
             logger.info("Calling OpenAI ChatCompletion...")
             logger.debug(f"ChatCompletion params: {params}")
-            resp = self.client.chat.completions.create(
-                **params, timeout=self.timeout
-            )
+            resp = self.client.chat.completions.create(**params, timeout=self.timeout)
             logger.info("ChatCompletion response received.")
             return ResponseHandler.process_response(
                 response=resp,

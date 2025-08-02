@@ -116,14 +116,14 @@ class WorkflowApp(BaseModel):
     def register_task(self, task_func: Callable, name: Optional[str] = None) -> None:
         """
         Manually register a @task-decorated function, similar to native Dapr pattern.
-        
+
         This allows explicit registration of tasks from other modules or packages.
         The task will be registered immediately with the Dapr runtime.
-        
+
         Args:
             task_func: The @task-decorated function to register
             name: Optional custom name (defaults to function name or _task_name)
-            
+
         Example:
             from tasks.my_tasks import generate_queries
             wfapp.register_task(generate_queries)
@@ -131,55 +131,65 @@ class WorkflowApp(BaseModel):
         """
         # Validate input
         if not callable(task_func):
-            raise ValueError(f"task_func must be callable, got {type(task_func)}: {task_func}")
-            
+            raise ValueError(
+                f"task_func must be callable, got {type(task_func)}: {task_func}"
+            )
+
         if not getattr(task_func, "_is_task", False):
-            raise ValueError(f"Function {getattr(task_func, '__name__', str(task_func))} is not decorated with @task")
-            
-        task_name = name or getattr(task_func, "_task_name", getattr(task_func, "__name__", "unknown_task"))
-        
+            raise ValueError(
+                f"Function {getattr(task_func, '__name__', str(task_func))} is not decorated with @task"
+            )
+
+        task_name = name or getattr(
+            task_func, "_task_name", getattr(task_func, "__name__", "unknown_task")
+        )
+
         # Check if already registered
         if task_name in self.tasks:
             logger.warning(f"Task '{task_name}' is already registered, skipping")
             return
-            
+
         # Register immediately with Dapr runtime using existing registration logic
         llm = self._choose_llm_for(task_func)
         logger.debug(
             f"Manually registering task '{task_name}' with llm={getattr(llm, '__class__', None)}"
         )
-        
+
         kwargs = getattr(task_func, "_task_kwargs", {})
         task_instance = WorkflowTask(
             func=task_func,
             description=getattr(task_func, "_task_description", None),
             agent=getattr(task_func, "_task_agent", None),
             llm=llm,
-            include_chat_history=getattr(task_func, "_task_include_chat_history", False),
+            include_chat_history=getattr(
+                task_func, "_task_include_chat_history", False
+            ),
             workflow_app=self,
             **kwargs,
         )
-        
+
         # Wrap for Dapr invocation
         wrapped = self._make_task_wrapper(task_name, task_func, task_instance)
         self.wf_runtime.register_activity(wrapped)
         self.tasks[task_name] = wrapped
 
-    def register_tasks_from_module(self, module_name_or_object: Union[str, Any]) -> None:
+    def register_tasks_from_module(
+        self, module_name_or_object: Union[str, Any]
+    ) -> None:
         """
         Register all @task-decorated functions from a specific module.
-        
+
         Args:
             module_name_or_object: Module name string (e.g., "tasks.queries") or imported module object
-            
+
         Example:
             # Using string name
             wfapp.register_tasks_from_module("tasks.queries")
-            
+
             # Using imported module
             import tasks.queries
             wfapp.register_tasks_from_module(tasks.queries)
-            
+
             # Using from import
             from tasks import queries
             wfapp.register_tasks_from_module(queries)
@@ -188,13 +198,14 @@ class WorkflowApp(BaseModel):
             # Handle both string names and module objects
             if isinstance(module_name_or_object, str):
                 import importlib
+
                 module = importlib.import_module(module_name_or_object)
                 module_name = module_name_or_object
             else:
                 # Assume it's a module object
                 module = module_name_or_object
-                module_name = getattr(module, '__name__', str(module))
-            
+                module_name = getattr(module, "__name__", str(module))
+
             registered_count = 0
             for name, fn in inspect.getmembers(module, inspect.isfunction):
                 if getattr(fn, "_is_task", False):
@@ -202,58 +213,67 @@ class WorkflowApp(BaseModel):
                     if task_name not in self.tasks:  # Skip if already registered
                         self.register_task(fn)
                         registered_count += 1
-                        
-            logger.info(f"Registered {registered_count} tasks from module '{module_name}'")
-            
+
+            logger.info(
+                f"Registered {registered_count} tasks from module '{module_name}'"
+            )
+
         except ImportError as e:
             raise ImportError(f"Could not import module '{module_name_or_object}': {e}")
         except Exception as e:
-            raise RuntimeError(f"Error registering tasks from module '{module_name_or_object}': {e}")
+            raise RuntimeError(
+                f"Error registering tasks from module '{module_name_or_object}': {e}"
+            )
 
     def register_tasks_from_package(self, package_name: str) -> None:
         """
         Register all @task-decorated functions from all modules in a package.
-        
+
         Args:
             package_name: Name of package to scan (e.g., "tasks")
-            
+
         Example:
             wfapp.register_tasks_from_package("tasks")  # Scans tasks/*.py
         """
         try:
             import importlib
             import pkgutil
+
             package = importlib.import_module(package_name)
-            
+
             # Collect all tasks first, then register using the original _register_tasks method
             discovered_tasks: Dict[str, Callable] = {}
-            
+
             total_tasks = 0
             for importer, modname, ispkg in pkgutil.iter_modules(package.__path__):
                 if not ispkg:  # Only scan modules, not sub-packages
                     full_module_name = f"{package_name}.{modname}"
                     try:
                         module = importlib.import_module(full_module_name)
-                        
+
                         for name, fn in inspect.getmembers(module, inspect.isfunction):
                             if getattr(fn, "_is_task", False):
                                 task_name = getattr(fn, "_task_name", name)
-                                if task_name not in self.tasks:  # Skip if already registered
+                                if (
+                                    task_name not in self.tasks
+                                ):  # Skip if already registered
                                     discovered_tasks[task_name] = fn
                                     total_tasks += 1
-                        
+
                     except Exception as e:
                         logger.warning(f"Failed to scan module {full_module_name}: {e}")
-            
+
             # Now register all discovered tasks using the original _register_tasks method
             if discovered_tasks:
                 self._register_tasks(discovered_tasks)
-            
+
             logger.info(f"Registered {total_tasks} tasks from package '{package_name}'")
         except ImportError as e:
             raise ImportError(f"Could not import package '{package_name}': {e}")
         except Exception as e:
-            raise RuntimeError(f"Error registering tasks from package '{package_name}': {e}")
+            raise RuntimeError(
+                f"Error registering tasks from package '{package_name}': {e}"
+            )
 
     def _register_tasks(self, tasks: Dict[str, Callable]) -> None:
         """Register each discovered task with the Dapr runtime using direct registration."""
@@ -276,7 +296,7 @@ class WorkflowApp(BaseModel):
             )
             # Wrap for Dapr invocation
             wrapped = self._make_task_wrapper(task_name, method, task_instance)
-            
+
             # Use direct registration like official Dapr examples
             self.wf_runtime.register_activity(wrapped)
             self.tasks[task_name] = wrapped
@@ -308,7 +328,7 @@ class WorkflowApp(BaseModel):
             except Exception:
                 logger.exception(f"Task '{task_name}' failed")
                 raise
-        
+
         return wrapper
 
     # TODO: workflow discovery can also come from dapr runtime
@@ -368,7 +388,9 @@ class WorkflowApp(BaseModel):
         if isinstance(task, str):
             task_name = task
         elif callable(task):
-            task_name = getattr(task, "_task_name", getattr(task, "__name__", "unknown_task"))
+            task_name = getattr(
+                task, "_task_name", getattr(task, "__name__", "unknown_task")
+            )
         else:
             raise ValueError(f"Invalid task reference: {task}")
 
@@ -394,7 +416,11 @@ class WorkflowApp(BaseModel):
         if isinstance(workflow, str):
             workflow_name = workflow  # Direct lookup by string name
         elif callable(workflow):
-            workflow_name = getattr(workflow, "_workflow_name", getattr(workflow, "__name__", "unknown_workflow"))
+            workflow_name = getattr(
+                workflow,
+                "_workflow_name",
+                getattr(workflow, "__name__", "unknown_workflow"),
+            )
         else:
             raise ValueError(f"Invalid workflow reference: {workflow}")
 

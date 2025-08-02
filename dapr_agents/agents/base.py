@@ -189,9 +189,12 @@ Your role is {role}.
         """
         try:
             from dapr_agents.llm.openai import OpenAIChatClient
+
             return OpenAIChatClient()
         except Exception as e:
-            logger.warning(f"Failed to create default OpenAI client: {e}. LLM will be None.")
+            logger.warning(
+                f"Failed to create default OpenAI client: {e}. LLM will be None."
+            )
             return None
 
     def _initialize_prompt_template(self) -> PromptTemplateBase:
@@ -210,7 +213,11 @@ Your role is {role}.
             return self.prompt_template
 
         # 2) LLM client has one?
-        if self.llm and hasattr(self.llm, 'prompt_template') and self.llm.prompt_template:
+        if (
+            self.llm
+            and hasattr(self.llm, "prompt_template")
+            and self.llm.prompt_template
+        ):
             logger.debug("🔄 Syncing from llm.prompt_template")
             return self.llm.prompt_template
 

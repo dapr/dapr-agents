@@ -72,7 +72,9 @@ class WorkflowTask(BaseModel):
             try:
                 self.llm = OpenAIChatClient()
             except Exception as e:
-                logger.warning(f"Could not create default OpenAI client: {e}. Task will require explicit LLM.")
+                logger.warning(
+                    f"Could not create default OpenAI client: {e}. Task will require explicit LLM."
+                )
                 self.llm = None
 
         if self.func:
@@ -81,7 +83,9 @@ class WorkflowTask(BaseModel):
                 update_wrapper(self, self.func)
             except AttributeError:
                 # If the function doesn't have the expected attributes, skip update_wrapper
-                logger.debug(f"Could not update wrapper for function {self.func}, skipping")
+                logger.debug(
+                    f"Could not update wrapper for function {self.func}, skipping"
+                )
                 pass
 
         # Capture signature for input / output handling
@@ -109,7 +113,7 @@ class WorkflowTask(BaseModel):
         """
         # Prepare input dict
         data = self._normalize_input(payload) if payload is not None else {}
-        func_name = getattr(self.func, '__name__', 'unknown_function')
+        func_name = getattr(self.func, "__name__", "unknown_function")
         logger.info(f"Executing task '{func_name}'")
         logger.debug(f"Executing task '{func_name}' with input {data!r}")
 
@@ -137,7 +141,7 @@ class WorkflowTask(BaseModel):
             return validated
 
         except Exception:
-            func_name = getattr(self.func, '__name__', 'unknown_function')
+            func_name = getattr(self.func, "__name__", "unknown_function")
             logger.exception(f"Error in task '{func_name}'")
             raise
 

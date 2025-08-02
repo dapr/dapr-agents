@@ -42,8 +42,6 @@ messages = [
     {"role": "user", "content": "Add 5 and 7 and 2 and 2."},
 ]
 
-response: LLMChatResponse = llm.generate(
-    messages=messages, tools=[add_tool]
-)
+response: LLMChatResponse = llm.generate(messages=messages, tools=[add_tool])
 
 print(response)
