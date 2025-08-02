@@ -1,4 +1,4 @@
-dapr-agents>=0.8.0
+dapr-agents>=0.8.1
 python-dotenv
 mcp
 starlette
