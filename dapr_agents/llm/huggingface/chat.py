@@ -162,10 +162,13 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
         else:
             params.update(kwargs)
 
-        # 4) Override model if given
+        # 4) Add the stream parameter explicitly to params
+        params["stream"] = stream
+
+        # 5) Override model if given
         params["model"] = model or self.model
 
-        # 5) Inject tools / response_format via RequestHandler
+        # 6) Inject tools / response_format via RequestHandler
         params = RequestHandler.process_params(
             params,
             llm_provider=self.provider,
@@ -174,11 +177,11 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             structured_mode=structured_mode,
         )
 
-        # 6) Call HF API + delegate parsing to ResponseHandler
+        # 7) Call HF API + delegate parsing to ResponseHandler
         try:
             logger.info("Calling HF ChatCompletion Inference API...")
             logger.debug(f"HF params: {params}")
-            response = self.client.chat.completions.create(**params, stream=stream)
+            response = self.client.chat.completions.create(**params)
             logger.info("HF ChatCompletion response received.")
 
             # HF-specific error‐code handling
@@ -198,4 +201,4 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
 
         except Exception as e:
             logger.error("Hugging Face ChatCompletion API error", exc_info=True)
-            raise ValueError("Failed to process HF chat completion") from e
+            raise ValueError(f"Failed to process HF chat completion: {e}") from e

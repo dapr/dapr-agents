@@ -168,11 +168,14 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
         else:
             params.update(kwargs)
 
-        # 4) Override model & max_tokens if provided
+        # 4) Add the stream parameter explicitly to params
+        params["stream"] = stream
+
+        # 5) Override model & max_tokens if provided
         params["model"] = model or self.model
         params["max_tokens"] = max_tokens or self.max_tokens
 
-        # 5) Inject tools / response_format / structured_mode
+        # 6) Inject tools / response_format / structured_mode
         params = RequestHandler.process_params(
             params,
             llm_provider=self.provider,
@@ -181,11 +184,11 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
             structured_mode=structured_mode,
         )
 
-        # 6) Call NVIDIA API + dispatch to ResponseHandler
+        # 7) Call NVIDIA API + dispatch to ResponseHandler
         try:
             logger.info("Calling NVIDIA ChatCompletion API.")
             logger.debug(f"Parameters: {params}")
-            resp = self.client.chat.completions.create(**params, stream=stream)
+            resp = self.client.chat.completions.create(**params)
             return ResponseHandler.process_response(
                 response=resp,
                 llm_provider=self.provider,
