@@ -422,7 +422,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             raise AgentError(f"Invalid JSON in tool args: {e}")
 
         # Run the tool
-        logger.info(f"Executing tool '{fn_name}' with args: {args}")
+        logger.debug(f"Executing tool '{fn_name}' with args: {args}")
         try:
             result = await self.tool_executor.run_tool(fn_name, **args)
         except Exception as e:
