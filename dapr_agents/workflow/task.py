@@ -69,11 +69,20 @@ class WorkflowTask(BaseModel):
         """
         # Default to OpenAIChatClient if prompt‐based but no llm provided
         if self.description and not self.llm:
-            self.llm = OpenAIChatClient()
+            try:
+                self.llm = OpenAIChatClient()
+            except Exception as e:
+                logger.warning(f"Could not create default OpenAI client: {e}. Task will require explicit LLM.")
+                self.llm = None
 
         if self.func:
             # Preserve name / docs for stack traces
-            update_wrapper(self, self.func)
+            try:
+                update_wrapper(self, self.func)
+            except AttributeError:
+                # If the function doesn't have the expected attributes, skip update_wrapper
+                logger.debug(f"Could not update wrapper for function {self.func}, skipping")
+                pass
 
         # Capture signature for input / output handling
         self.signature = inspect.signature(self.func) if self.func else None
@@ -100,8 +109,9 @@ class WorkflowTask(BaseModel):
         """
         # Prepare input dict
         data = self._normalize_input(payload) if payload is not None else {}
-        logger.info(f"Executing task '{self.func.__name__}'")
-        logger.debug(f"Executing task '{self.func.__name__}' with input {data!r}")
+        func_name = getattr(self.func, '__name__', 'unknown_function')
+        logger.info(f"Executing task '{func_name}'")
+        logger.debug(f"Executing task '{func_name}' with input {data!r}")
 
         try:
             executor = self._choose_executor()
@@ -127,7 +137,8 @@ class WorkflowTask(BaseModel):
             return validated
 
         except Exception:
-            logger.exception(f"Error in task '{self.func.__name__}'")
+            func_name = getattr(self.func, '__name__', 'unknown_function')
+            logger.exception(f"Error in task '{func_name}'")
             raise
 
     def _choose_executor(self) -> Literal["agent", "llm", "python"]:
