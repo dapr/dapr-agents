@@ -1,0 +1,3 @@
+dapr-agents>=0.8.1
+python-dotenv
+arize-phoenix

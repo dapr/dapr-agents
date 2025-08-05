@@ -194,10 +194,13 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
         else:
             params.update(kwargs)
 
-        # 4) Override model if given
+        # 4) Add the stream parameter explicitly to params
+        params["stream"] = stream
+
+        # 5) Override model if given
         params["model"] = model or self.model
 
-        # 5) Let RequestHandler inject tools / response_format / structured_mode
+        # 6) Let RequestHandler inject tools / response_format / structured_mode
         params = RequestHandler.process_params(
             params,
             llm_provider=self.provider,
@@ -206,13 +209,11 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
             structured_mode=structured_mode,
         )
 
-        # 6) Call API + hand off to ResponseHandler
+        # 7) Call API + hand off to ResponseHandler
         try:
             logger.info("Calling OpenAI ChatCompletion...")
             logger.debug(f"ChatCompletion params: {params}")
-            resp = self.client.chat.completions.create(
-                **params, stream=stream, timeout=self.timeout
-            )
+            resp = self.client.chat.completions.create(**params, timeout=self.timeout)
             logger.info("ChatCompletion response received.")
             return ResponseHandler.process_response(
                 response=resp,

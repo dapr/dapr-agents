@@ -36,10 +36,6 @@ dependencies = [
     "cloudevents>=1.11.0,<2.0.0",
     "numpy>=2.2.2,<3.0.0",
     "mcp>=1.7.1,<2.0.0",
-    "opentelemetry-api>=1.12.0,<1.35.0",
-    "opentelemetry-distro>=0.53b1,<0.56b0",
-    "opentelemetry-exporter-otlp>=1.32.1,<1.35.0",
-    "opentelemetry-instrumentation-requests>=0.53b1,<0.56b0",
     "pip-tools>=7.4.1,<8.0.0",
     "sentence-transformers>=4.1.0,<5.0.0",
     "chromadb>=1.0.13,<2.0.0",
@@ -69,7 +65,16 @@ dev = [
     "mypy>=1.15.0,<2.0.0",
     "tox>=4.0.0,<5.0.0",
 ]
+observability = [
+    "opentelemetry-api>=1.12.0,<1.35.0",
+    "opentelemetry-exporter-otlp>=1.32.1,<1.35.0",
+    "opentelemetry-instrumentation-requests>=0.53b1,<0.56b0",
+    "wrapt>=1.14.0,<2.0.0",
+    "openinference-instrumentation>=0.1.0,<1.0.0",
+    "openinference-semantic-conventions>=0.1.0,<1.0.0",
+]
 vectorstore = [
+    "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<5.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "posthog<6.0.0",

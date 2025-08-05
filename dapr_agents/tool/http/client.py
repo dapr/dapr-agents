@@ -7,9 +7,20 @@ import requests
 from pydantic import BaseModel, Field, PrivateAttr
 from dapr_agents.types import ToolError
 from urllib.parse import urlparse
-from opentelemetry.instrumentation.requests import RequestsInstrumentor
-from opentelemetry import trace
-from opentelemetry._logs import set_logger_provider
+
+try:
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+    from opentelemetry import trace
+    from opentelemetry._logs import set_logger_provider
+
+    OPENTELEMETRY_AVAILABLE = True
+except ImportError:
+    # OpenTelemetry is not available - tracing will be disabled
+    # To enable observability features, install: pip install dapr-agents[observability]
+    RequestsInstrumentor = None
+    trace = None
+    set_logger_provider = None
+    OPENTELEMETRY_AVAILABLE = False
 
 
 logger = logging.getLogger(__name__)

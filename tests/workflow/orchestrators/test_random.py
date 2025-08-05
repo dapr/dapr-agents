@@ -23,13 +23,10 @@ async def test_random_orchestrator_initialization(orchestrator_config):
     ) as mock_init, patch(
         "dapr_agents.workflow.agentic.AgenticWorkflow.model_post_init"
     ), patch(
-        "dapr_agents.workflow.agentic.AgenticWorkflow._is_dapr_available"
-    ) as mock_dapr_check, patch(
         "dapr_agents.workflow.agentic.AgenticWorkflow._state_store_client"
     ) as mock_state_store, patch(
         "dapr_agents.workflow.agentic.AgenticWorkflow._dapr_client"
     ) as mockclient:
-        mock_dapr_check.return_value = True
         mock_state_store.return_value = MagicMock()
         mockclient.return_value = MagicMock()
         orchestrator = RandomOrchestrator(**orchestrator_config)
@@ -44,13 +41,10 @@ async def test_process_input(orchestrator_config):
     with patch(
         "dapr_agents.workflow.orchestrators.random.OrchestratorWorkflowBase.model_post_init"
     ), patch("dapr_agents.workflow.agentic.AgenticWorkflow.model_post_init"), patch(
-        "dapr_agents.workflow.agentic.AgenticWorkflow._is_dapr_available"
-    ) as mock_dapr_check, patch(
         "dapr_agents.workflow.agentic.AgenticWorkflow._state_store_client"
     ) as mock_state_store, patch(
         "dapr_agents.workflow.agentic.AgenticWorkflow._dapr_client"
     ) as mockclient:
-        mock_dapr_check.return_value = True
         mock_state_store.return_value = MagicMock()
         mockclient.return_value = MagicMock()
         orchestrator = RandomOrchestrator(**orchestrator_config)
@@ -68,8 +62,6 @@ async def test_select_random_speaker(orchestrator_config):
     with patch(
         "dapr_agents.workflow.orchestrators.random.OrchestratorWorkflowBase.model_post_init"
     ), patch("dapr_agents.workflow.agentic.AgenticWorkflow.model_post_init"), patch(
-        "dapr_agents.workflow.agentic.AgenticWorkflow._is_dapr_available"
-    ) as mock_dapr_check, patch(
         "dapr_agents.workflow.agentic.AgenticWorkflow._state_store_client"
     ) as mock_state_store, patch(
         "dapr_agents.workflow.agentic.AgenticWorkflow._dapr_client"
@@ -78,7 +70,6 @@ async def test_select_random_speaker(orchestrator_config):
         "get_agents_metadata",
         return_value={"agent1": {"name": "agent1"}, "agent2": {"name": "agent2"}},
     ):
-        mock_dapr_check.return_value = True
         mock_state_store.return_value = MagicMock()
         mockclient.return_value = MagicMock()
         orchestrator = RandomOrchestrator(**orchestrator_config)

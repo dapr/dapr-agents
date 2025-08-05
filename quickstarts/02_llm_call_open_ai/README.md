@@ -181,10 +181,10 @@ This will print each partial chunk as it arrives, so you can build up the full a
 
 **2. Streaming with Tool Calls:**
 
-Use `text_completion_with_tools.py` to combine streaming with function‐call “tools”:
+Use `text_completion_stream_with_tools.py` to combine streaming with function‐call “tools”:
 
 ```bash
-python text_completion_with_tools.py
+python text_completion_stream_with_tools.py
 ```
 
 ```python

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Callable, Dict, Optional, Tuple, Type, Union, List
+from typing import Any, Callable, Dict, Optional, Tuple, Type, List
 
 from cloudevents.http.conversion import from_http
 from cloudevents.http.event import CloudEvent

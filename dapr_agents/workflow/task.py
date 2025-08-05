@@ -69,11 +69,24 @@ class WorkflowTask(BaseModel):
         """
         # Default to OpenAIChatClient if prompt‐based but no llm provided
         if self.description and not self.llm:
-            self.llm = OpenAIChatClient()
+            try:
+                self.llm = OpenAIChatClient()
+            except Exception as e:
+                logger.warning(
+                    f"Could not create default OpenAI client: {e}. Task will require explicit LLM."
+                )
+                self.llm = None
 
         if self.func:
             # Preserve name / docs for stack traces
-            update_wrapper(self, self.func)
+            try:
+                update_wrapper(self, self.func)
+            except AttributeError:
+                # If the function doesn't have the expected attributes, skip update_wrapper
+                logger.debug(
+                    f"Could not update wrapper for function {self.func}, skipping"
+                )
+                pass
 
         # Capture signature for input / output handling
         self.signature = inspect.signature(self.func) if self.func else None
@@ -100,15 +113,26 @@ class WorkflowTask(BaseModel):
         """
         # Prepare input dict
         data = self._normalize_input(payload) if payload is not None else {}
-        logger.info(f"Executing task '{self.func.__name__}'")
-        logger.debug(f"Executing task '{self.func.__name__}' with input {data!r}")
+        func_name = getattr(self.func, "__name__", "unknown_function")
+        logger.info(f"Executing task '{func_name}'")
+        logger.debug(f"Executing task '{func_name}' with input {data!r}")
 
         try:
             executor = self._choose_executor()
             if executor in ("agent", "llm"):
-                if not self.description:
-                    raise ValueError("LLM/agent tasks require a description template")
-                prompt = self.format_description(self.description, data)
+                if executor == "llm" and not self.description:
+                    raise ValueError("LLM tasks require a description template")
+                elif executor == "agent":
+                    # For agents, prefer string input for natural conversation
+                    if self.description:
+                        # Use description template with parameter substitution
+                        prompt = self.format_description(self.description, data)
+                    else:
+                        # Pass string input naturally for direct agent conversation
+                        prompt = self._format_natural_agent_input(payload, data)
+                else:
+                    # LLM with description
+                    prompt = self.format_description(self.description, data)
                 raw = await self._run_via_ai(prompt, executor)
             else:
                 raw = await self._run_python(data)
@@ -117,7 +141,8 @@ class WorkflowTask(BaseModel):
             return validated
 
         except Exception:
-            logger.exception(f"Error in task '{self.func.__name__}'")
+            func_name = getattr(self.func, "__name__", "unknown_function")
+            logger.exception(f"Error in task '{func_name}'")
             raise
 
     def _choose_executor(self) -> Literal["agent", "llm", "python"]:
@@ -154,13 +179,13 @@ class WorkflowTask(BaseModel):
         else:
             return self.func(**data)
 
-    async def _run_via_ai(self, prompt: str, executor: Literal["agent", "llm"]) -> Any:
+    async def _run_via_ai(self, prompt: Any, executor: Literal["agent", "llm"]) -> Any:
         """
         Run the prompt through an Agent or LLM.
 
         Args:
-            prompt: The fully formatted prompt string.
-            kind: "agent" or "llm".
+            prompt: The prompt data - string for LLM, string/dict/Any for agent.
+            executor: "agent" or "llm".
 
         Returns:
             Raw result from the AI path.
@@ -168,8 +193,14 @@ class WorkflowTask(BaseModel):
         logger.debug(f"Invoking task via {executor.upper()}")
         logger.debug(f"Invoking task with prompt: {prompt!r}")
         if executor == "agent":
+            # Agents can handle string, dict, or other input types
             result = await self.agent.run(prompt)
         else:
+            # LLM expects a string prompt
+            if not isinstance(prompt, str):
+                raise ValueError(
+                    f"LLM executor requires string prompt, got {type(prompt)}"
+                )
             result = await self._invoke_llm(prompt)
         return self._convert_result(result)
 
@@ -227,8 +258,9 @@ class WorkflowTask(BaseModel):
             return vars(raw_input)
         if not isinstance(raw_input, dict):
             # wrap single argument
-            if not self.signature:
-                raise ValueError("Cannot infer param name without signature")
+            if not self.signature or len(self.signature.parameters) == 0:
+                # No signature or no parameters - return empty dict for consistency
+                return {}
             name = next(iter(self.signature.parameters))
             return {name: raw_input}
         return raw_input
@@ -309,6 +341,41 @@ class WorkflowTask(BaseModel):
             bound.apply_defaults()
             return template.format(**bound.arguments)
         return template.format(**data)
+
+    def _format_natural_agent_input(self, payload: Any, data: dict) -> str:
+        """
+        Format input for natural agent conversation.
+        Favors string input over dictionary for better agent interaction.
+
+        Args:
+            payload: The original raw payload from the workflow
+            data: The normalized dictionary version
+
+        Returns:
+            String input for natural agent conversation
+        """
+        if payload is None:
+            return ""
+
+        # If payload is already a simple string/number, use it directly
+        if isinstance(payload, (str, int, float, bool)):
+            return str(payload)
+
+        # If we have function parameters, format them naturally
+        if data and len(data) == 1:
+            # Single parameter: extract the value
+            value = next(iter(data.values()))
+            return str(value) if value is not None else ""
+        elif data:
+            # Multiple parameters: format as natural text
+            parts = []
+            for key, value in data.items():
+                if value is not None:
+                    parts.append(f"{key}: {value}")
+            return "\n".join(parts)
+        else:
+            # Fallback to string representation of payload
+            return str(payload)
 
 
 class TaskWrapper:

@@ -17,7 +17,6 @@ from durabletask import task as dtask
 from pydantic import BaseModel, ConfigDict, Field
 
 from dapr_agents.agents.base import ChatClientBase
-from dapr_agents.llm.openai import OpenAIChatClient
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.workflow.task import WorkflowTask
 from dapr_agents.workflow.utils.core import get_decorated_methods, is_pydantic_model
@@ -32,9 +31,9 @@ class WorkflowApp(BaseModel):
     A Pydantic-based class to encapsulate a Dapr Workflow runtime and manage workflows and tasks.
     """
 
-    llm: ChatClientBase = Field(
-        default_factory=OpenAIChatClient,
-        description="The default LLM client for all LLM-based tasks.",
+    llm: Optional[ChatClientBase] = Field(
+        default=None,
+        description="The default LLM client for tasks that explicitly require an LLM but don't specify one (optional).",
     )
     # TODO: I think this should be within the wf client or wf runtime...?
     timeout: int = Field(
@@ -67,10 +66,6 @@ class WorkflowApp(BaseModel):
         """
         Initialize the Dapr workflow runtime and register tasks & workflows.
         """
-        # Check if Dapr is available before proceeding
-        if not self._is_dapr_available():
-            self._raise_dapr_required_error()
-
         # Initialize clients and runtime
         self.wf_runtime = WorkflowRuntime()
         self.wf_runtime_is_running = False
@@ -89,13 +84,18 @@ class WorkflowApp(BaseModel):
         """
         Encapsulate LLM selection logic.
           1. Use per-task override if provided on decorator.
-          2. Else if marked as explicitly requiring an LLM, fall back to default app LLM.
+          2. Else if marked as explicitly requiring an LLM, fall back to default app LLM (if available).
           3. Otherwise, returns None.
         """
         per_task = getattr(method, "_task_llm", None)
         if per_task:
             return per_task
         if getattr(method, "_explicit_llm", False):
+            if self.llm is None:
+                logger.warning(
+                    f"Task '{getattr(method, '_task_name', getattr(method, '__name__', str(method)))}' requires an LLM "
+                    "but no default LLM is configured in WorkflowApp and no explicit LLM was provided."
+                )
             return self.llm
         return None
 
@@ -113,8 +113,170 @@ class WorkflowApp(BaseModel):
         logger.debug(f"Discovered tasks: {list(tasks)}")
         return tasks
 
+    def register_task(self, task_func: Callable, name: Optional[str] = None) -> None:
+        """
+        Manually register a @task-decorated function, similar to native Dapr pattern.
+
+        This allows explicit registration of tasks from other modules or packages.
+        The task will be registered immediately with the Dapr runtime.
+
+        Args:
+            task_func: The @task-decorated function to register
+            name: Optional custom name (defaults to function name or _task_name)
+
+        Example:
+            from tasks.my_tasks import generate_queries
+            wfapp.register_task(generate_queries)
+            wfapp.register_task(generate_queries, name="custom_name")
+        """
+        # Validate input
+        if not callable(task_func):
+            raise ValueError(
+                f"task_func must be callable, got {type(task_func)}: {task_func}"
+            )
+
+        if not getattr(task_func, "_is_task", False):
+            raise ValueError(
+                f"Function {getattr(task_func, '__name__', str(task_func))} is not decorated with @task"
+            )
+
+        task_name = name or getattr(
+            task_func, "_task_name", getattr(task_func, "__name__", "unknown_task")
+        )
+
+        # Check if already registered
+        if task_name in self.tasks:
+            logger.warning(f"Task '{task_name}' is already registered, skipping")
+            return
+
+        # Register immediately with Dapr runtime using existing registration logic
+        llm = self._choose_llm_for(task_func)
+        logger.debug(
+            f"Manually registering task '{task_name}' with llm={getattr(llm, '__class__', None)}"
+        )
+
+        kwargs = getattr(task_func, "_task_kwargs", {})
+        task_instance = WorkflowTask(
+            func=task_func,
+            description=getattr(task_func, "_task_description", None),
+            agent=getattr(task_func, "_task_agent", None),
+            llm=llm,
+            include_chat_history=getattr(
+                task_func, "_task_include_chat_history", False
+            ),
+            workflow_app=self,
+            **kwargs,
+        )
+
+        # Wrap for Dapr invocation
+        wrapped = self._make_task_wrapper(task_name, task_func, task_instance)
+        self.wf_runtime.register_activity(wrapped)
+        self.tasks[task_name] = wrapped
+
+    def register_tasks_from_module(
+        self, module_name_or_object: Union[str, Any]
+    ) -> None:
+        """
+        Register all @task-decorated functions from a specific module.
+
+        Args:
+            module_name_or_object: Module name string (e.g., "tasks.queries") or imported module object
+
+        Example:
+            # Using string name
+            wfapp.register_tasks_from_module("tasks.queries")
+
+            # Using imported module
+            import tasks.queries
+            wfapp.register_tasks_from_module(tasks.queries)
+
+            # Using from import
+            from tasks import queries
+            wfapp.register_tasks_from_module(queries)
+        """
+        try:
+            # Handle both string names and module objects
+            if isinstance(module_name_or_object, str):
+                import importlib
+
+                module = importlib.import_module(module_name_or_object)
+                module_name = module_name_or_object
+            else:
+                # Assume it's a module object
+                module = module_name_or_object
+                module_name = getattr(module, "__name__", str(module))
+
+            registered_count = 0
+            for name, fn in inspect.getmembers(module, inspect.isfunction):
+                if getattr(fn, "_is_task", False):
+                    task_name = getattr(fn, "_task_name", name)
+                    if task_name not in self.tasks:  # Skip if already registered
+                        self.register_task(fn)
+                        registered_count += 1
+
+            logger.info(
+                f"Registered {registered_count} tasks from module '{module_name}'"
+            )
+
+        except ImportError as e:
+            raise ImportError(f"Could not import module '{module_name_or_object}': {e}")
+        except Exception as e:
+            raise RuntimeError(
+                f"Error registering tasks from module '{module_name_or_object}': {e}"
+            )
+
+    def register_tasks_from_package(self, package_name: str) -> None:
+        """
+        Register all @task-decorated functions from all modules in a package.
+
+        Args:
+            package_name: Name of package to scan (e.g., "tasks")
+
+        Example:
+            wfapp.register_tasks_from_package("tasks")  # Scans tasks/*.py
+        """
+        try:
+            import importlib
+            import pkgutil
+
+            package = importlib.import_module(package_name)
+
+            # Collect all tasks first, then register using the original _register_tasks method
+            discovered_tasks: Dict[str, Callable] = {}
+
+            total_tasks = 0
+            for importer, modname, ispkg in pkgutil.iter_modules(package.__path__):
+                if not ispkg:  # Only scan modules, not sub-packages
+                    full_module_name = f"{package_name}.{modname}"
+                    try:
+                        module = importlib.import_module(full_module_name)
+
+                        for name, fn in inspect.getmembers(module, inspect.isfunction):
+                            if getattr(fn, "_is_task", False):
+                                task_name = getattr(fn, "_task_name", name)
+                                if (
+                                    task_name not in self.tasks
+                                ):  # Skip if already registered
+                                    discovered_tasks[task_name] = fn
+                                    total_tasks += 1
+
+                    except Exception as e:
+                        logger.warning(f"Failed to scan module {full_module_name}: {e}")
+
+            # Now register all discovered tasks using the original _register_tasks method
+            if discovered_tasks:
+                self._register_tasks(discovered_tasks)
+
+            logger.info(f"Registered {total_tasks} tasks from package '{package_name}'")
+        except ImportError as e:
+            raise ImportError(f"Could not import package '{package_name}': {e}")
+        except Exception as e:
+            raise RuntimeError(
+                f"Error registering tasks from package '{package_name}': {e}"
+            )
+
     def _register_tasks(self, tasks: Dict[str, Callable]) -> None:
-        """Register each discovered task with the Dapr runtime."""
+        """Register each discovered task with the Dapr runtime using direct registration."""
         for task_name, method in tasks.items():
             llm = self._choose_llm_for(method)
             logger.debug(
@@ -134,8 +296,10 @@ class WorkflowApp(BaseModel):
             )
             # Wrap for Dapr invocation
             wrapped = self._make_task_wrapper(task_name, method, task_instance)
-            activity_decorator = self.wf_runtime.activity(name=task_name)
-            self.tasks[task_name] = activity_decorator(wrapped)
+
+            # Use direct registration like official Dapr examples
+            self.wf_runtime.register_activity(wrapped)
+            self.tasks[task_name] = wrapped
 
     def _make_task_wrapper(
         self, task_name: str, method: Callable, task_instance: WorkflowTask
@@ -208,74 +372,6 @@ class WorkflowApp(BaseModel):
             decorator = self.wf_runtime.workflow(name=wf_name)
             self.workflows[wf_name] = decorator(make_wrapped(method))
 
-    def _is_dapr_available(self) -> bool:
-        """
-        Check if Dapr is available by attempting to connect to the Dapr sidecar.
-
-        This provides better developer experience for users who don't have Dapr running,
-        by providing a clear error message if Dapr is not available.
-
-        Returns:
-            bool: True if Dapr is available, False otherwise.
-        """
-        try:
-            import os
-            import socket
-
-            def check_tcp_port(port: int, timeout: int = 2) -> bool:
-                """
-                Check if a TCP port is open and accepting connections.
-
-                Args:
-                    port (int): The port number to check.
-                    timeout (int): Timeout in seconds for the connection attempt.
-
-                Returns:
-                    bool: True if the port is open, False otherwise.
-                """
-                try:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(timeout)
-                    result = sock.connect_ex(("localhost", port))
-                    sock.close()
-                    return result == 0
-                except Exception:
-                    return False
-
-            ports_to_check = []
-            for env_var in ["DAPR_HTTP_PORT", "DAPR_GRPC_PORT"]:
-                port = os.environ.get(env_var)
-                if port:
-                    ports_to_check.append(int(port))
-
-            # Fallback ports
-            ports_to_check.extend([3500, 3501, 3502])
-            for port in ports_to_check:
-                if check_tcp_port(port):
-                    return True
-
-            return False
-        except Exception:
-            return False
-
-    def _raise_dapr_required_error(self):
-        """
-        Raise a helpful error message when Dapr is required but not available.
-
-        Raises:
-            RuntimeError: Always raised to indicate Dapr is required for this workflow.
-        """
-        error_msg = (
-            "🚫 Dapr Required for Durable Agent\n\n"
-            "This agent requires Dapr to be running because it uses stateful, durable workflows.\n\n"
-            "To run this agent, you need to:\n\n"
-            "1. Install Dapr CLI: https://docs.dapr.io/getting-started/install-dapr-cli/\n"
-            "2. Initialize Dapr: dapr init\n"
-            "3. Run with Dapr: dapr run --app-id your-app-id --app-port 8001 --resources-path components/ -- python your_script.py\n\n"
-            "For more information, see the README.md in the quickstart directory."
-        )
-        raise RuntimeError(error_msg)
-
     def resolve_task(self, task: Union[str, Callable]) -> Callable:
         """
         Resolves a registered task function by its name or decorated function.
@@ -292,7 +388,9 @@ class WorkflowApp(BaseModel):
         if isinstance(task, str):
             task_name = task
         elif callable(task):
-            task_name = getattr(task, "_task_name", task.__name__)
+            task_name = getattr(
+                task, "_task_name", getattr(task, "__name__", "unknown_task")
+            )
         else:
             raise ValueError(f"Invalid task reference: {task}")
 
@@ -318,7 +416,11 @@ class WorkflowApp(BaseModel):
         if isinstance(workflow, str):
             workflow_name = workflow  # Direct lookup by string name
         elif callable(workflow):
-            workflow_name = getattr(workflow, "_workflow_name", workflow.__name__)
+            workflow_name = getattr(
+                workflow,
+                "_workflow_name",
+                getattr(workflow, "__name__", "unknown_workflow"),
+            )
         else:
             raise ValueError(f"Invalid workflow reference: {workflow}")
 

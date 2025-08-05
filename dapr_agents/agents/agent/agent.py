@@ -201,7 +201,11 @@ class Agent(AgentBase):
                 response: LLMChatResponse = self.llm.generate(
                     messages=messages,
                     tools=self.get_llm_tools(),
-                    tool_choice=self.tool_choice,
+                    **(
+                        {"tool_choice": self.tool_choice}
+                        if self.tool_choice is not None
+                        else {}
+                    ),
                 )
                 # Get the first candidate from the response
                 response_message = response.get_message()

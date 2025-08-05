@@ -379,7 +379,11 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             response: LLMChatResponse = self.llm.generate(
                 messages=messages,
                 tools=self.get_llm_tools(),
-                tool_choice=self.tool_choice,
+                **(
+                    {"tool_choice": self.tool_choice}
+                    if self.tool_choice is not None
+                    else {}
+                ),
             )
             # Get the first candidate from the response
             response_message = response.get_message()
@@ -418,7 +422,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             raise AgentError(f"Invalid JSON in tool args: {e}")
 
         # Run the tool
-        logger.info(f"Executing tool '{fn_name}' with args: {args}")
+        logger.debug(f"Executing tool '{fn_name}' with args: {args}")
         try:
             result = await self.tool_executor.run_tool(fn_name, **args)
         except Exception as e:
