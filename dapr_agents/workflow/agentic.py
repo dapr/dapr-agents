@@ -288,7 +288,10 @@ class AgenticWorkflow(
                         store_name=store_name,
                         key=store_key,
                         value=json.dumps({}),
-                        state_metadata={"contentType": "application/json"},
+                        state_metadata={
+                            "contentType": "application/json",
+                            "partitionKey": store_key,
+                        },
                         options=StateOptions(
                             concurrency=Concurrency.first_write,
                             consistency=Consistency.strong,
@@ -315,7 +318,10 @@ class AgenticWorkflow(
                                 operation_type=TransactionOperationType.upsert,
                             )
                         ],
-                        transactional_metadata={"contentType": "application/json"},
+                        transactional_metadata={
+                            "contentType": "application/json",
+                            "partitionKey": store_key,
+                        },
                     )
                 except Exception as e:
                     raise e
