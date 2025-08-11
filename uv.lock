@@ -664,7 +664,6 @@ source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "azure-identity" },
-    { name = "chromadb" },
     { name = "cloudevents" },
     { name = "colorama" },
     { name = "dapr" },
@@ -681,13 +680,11 @@ dependencies = [
     { name = "openapi-pydantic" },
     { name = "openapi-schema-pydantic" },
     { name = "pip-tools" },
-    { name = "posthog" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "regex" },
     { name = "requests" },
     { name = "rich" },
-    { name = "sentence-transformers" },
     { name = "uvicorn" },
 ]
 
@@ -715,13 +712,13 @@ vectorstore = [
     { name = "chromadb" },
     { name = "posthog" },
     { name = "sentence-transformers" },
+    { name = "torch" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.9.0,<4.0.0" },
     { name = "azure-identity", specifier = ">=1.21.0,<2.0.0" },
-    { name = "chromadb", specifier = ">=1.0.13,<2.0.0" },
     { name = "chromadb", marker = "extra == 'vectorstore'", specifier = ">=0.4.22,<2.0.0" },
     { name = "cloudevents", specifier = ">=1.11.0,<2.0.0" },
     { name = "colorama", specifier = ">=0.4.6,<1.0.0" },
@@ -745,7 +742,6 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'observability'", specifier = ">=1.32.1,<1.35.0" },
     { name = "opentelemetry-instrumentation-requests", marker = "extra == 'observability'", specifier = ">=0.53b1,<0.56b0" },
     { name = "pip-tools", specifier = ">=7.4.1,<8.0.0" },
-    { name = "posthog", specifier = "<6.0.0" },
     { name = "posthog", marker = "extra == 'vectorstore'", specifier = "<6.0.0" },
     { name = "pydantic", specifier = ">=2.11.3,<3.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0,<8.0.0" },
@@ -756,8 +752,8 @@ requires-dist = [
     { name = "regex", specifier = ">=2023.0.0,<2025.0.0" },
     { name = "requests", specifier = ">=2.31.0,<3.0.0" },
     { name = "rich", specifier = ">=13.9.4,<14.0.0" },
-    { name = "sentence-transformers", specifier = ">=4.1.0,<5.0.0" },
     { name = "sentence-transformers", marker = "extra == 'vectorstore'", specifier = ">=4.1.0,<5.0.0" },
+    { name = "torch", marker = "extra == 'vectorstore'", specifier = ">=2.7.0" },
     { name = "tox", marker = "extra == 'dev'", specifier = ">=4.0.0,<5.0.0" },
     { name = "uvicorn", specifier = ">=0.27.0,<1.0.0" },
     { name = "wrapt", marker = "extra == 'observability'", specifier = ">=1.14.0,<2.0.0" },
