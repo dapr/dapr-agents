@@ -43,7 +43,6 @@ def create_pydantic_model_from_schema(
         required = set(schema.get("required", []))
         fields = {}
 
-
         # Process each property in the schema
         for field_name, field_props in properties.items():
             # --- Handle anyOf/oneOf for nullable/union fields ---
@@ -79,7 +78,10 @@ def create_pydantic_model_from_schema(
             else:
                 default = None
                 # Make optional if not already
-                if not (hasattr(field_type, "__origin__") and field_type.__origin__ is Optional):
+                if not (
+                    hasattr(field_type, "__origin__")
+                    and field_type.__origin__ is Optional
+                ):
                     field_type = Optional[field_type]
 
             field_description = field_props.get("description", "")
