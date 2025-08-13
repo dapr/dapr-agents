@@ -37,6 +37,7 @@ dependencies = [
     "numpy>=2.2.2,<3.0.0",
     "mcp>=1.7.1,<2.0.0",
     "pip-tools>=7.4.1,<8.0.0",
+    "posthog<6.0.0",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -74,7 +75,6 @@ vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<5.0.0",
     "chromadb>=0.4.22,<2.0.0",
-    "posthog<6.0.0",
 ]
 
 [project.urls]
