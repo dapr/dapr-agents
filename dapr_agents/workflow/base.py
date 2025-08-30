@@ -465,10 +465,6 @@ class WorkflowApp(BaseModel):
             Exception: If workflow execution fails.
         """
         try:
-            # Start Workflow Runtime
-            if not self.wf_runtime_is_running:
-                self.start_runtime()
-
             # Generate unique instance ID
             instance_id = uuid.uuid4().hex
 
@@ -631,8 +627,6 @@ class WorkflowApp(BaseModel):
             raise
         finally:
             logger.info(f"Finished workflow with Instance ID: {instance_id}.")
-            # Off-load the stop_runtime call as it may block.
-            await asyncio.to_thread(self.stop_runtime)
 
     def run_and_monitor_workflow_sync(
         self,

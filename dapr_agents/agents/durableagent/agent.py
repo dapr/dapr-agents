@@ -86,7 +86,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             "pubsub_name": self.message_bus_name,
             "orchestrator": False,
         }
+        
         self.register_agentic_system()
+        if not self.wf_runtime_is_running:
+            self.start_runtime()
 
     async def run(self, input_data: Union[str, Dict[str, Any]]) -> Any:
         """
@@ -97,9 +100,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         Returns:
             Any: The final output from the workflow execution.
         """
-        # Make sure the Dapr runtime is running
-        if not self.wf_runtime_is_running:
-            self.start_runtime()
 
         # Prepare input payload for workflow
         if isinstance(input_data, dict):
