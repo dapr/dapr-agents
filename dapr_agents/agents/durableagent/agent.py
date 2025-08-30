@@ -86,7 +86,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             "pubsub_name": self.message_bus_name,
             "orchestrator": False,
         }
-        
+
         self.register_agentic_system()
         if not self.wf_runtime_is_running:
             self.start_runtime()
