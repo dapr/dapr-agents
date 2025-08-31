@@ -1,4 +1,4 @@
-dapr-agents[observability]>=0.8.1
+dapr-agents[observability]>=0.8.3
 arize-phoenix>=11.22.0,<12.0.0
 arize-phoenix-otel>=0.12.0,<0.13.0
 # For local development use local changes by commenting out the dapr-agents line above and uncommenting the line below:

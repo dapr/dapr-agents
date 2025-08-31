@@ -1,4 +1,4 @@
-dapr-agents>=0.8.1
+dapr-agents>=0.8.3
 tiktoken==0.9.0
 # For local development use local changes by commenting out the dapr-agents line above and uncommenting the line below:
 # -e ../../

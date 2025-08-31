@@ -1,4 +1,4 @@
-dapr-agents>=0.8.1
+dapr-agents>=0.8.3
 opentelemetry-sdk>=1.25.0
 opentelemetry-exporter-zipkin-json==1.25.0
 opentelemetry-exporter-otlp>=1.25.0
