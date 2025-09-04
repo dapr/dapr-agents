@@ -44,9 +44,13 @@ class DurableAgentWorkflowEntry(BaseModel):
         default_factory=list, description="Tool message exchanged during the workflow"
     )
     source: Optional[str] = Field(None, description="Entity that initiated the task.")
-    source_workflow_instance_id: Optional[str] = Field(
+    workflow_instance_id: Optional[str] = Field(
         default=None,
-        description="The workflow instance ID associated with the original request.",
+        description="The agent's own workflow instance ID.",
+    )
+    triggering_workflow_instance_id: Optional[str] = Field(
+        default=None,
+        description="The workflow instance ID of the entity that triggered this agent (for multi-agent communication).",
     )
     workflow_name: Optional[str] = Field(
         default=None,
