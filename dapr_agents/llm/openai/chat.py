@@ -223,5 +223,11 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
                 stream=stream,
             )
         except Exception as e:
-            logger.error("ChatCompletion API error", exc_info=True)
-            raise ValueError("Failed to process chat completion") from e
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            logger.error(f"OpenAI ChatCompletion API error: {error_type} - {error_msg}")
+            logger.error("Full error details:", exc_info=True)
+
+            raise ValueError(f"OpenAI API error ({error_type}): {error_msg}") from e
+            

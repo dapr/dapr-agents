@@ -321,7 +321,10 @@ class WorkflowApp(BaseModel):
                 # If no running loop, create one
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                return loop.run_until_complete(coro)
+                try:
+                    return loop.run_until_complete(coro)
+                finally:
+                    loop.close()
 
         @functools.wraps(method)
         def wrapper(ctx: WorkflowActivityContext, *args, **kwargs):
@@ -604,10 +607,11 @@ class WorkflowApp(BaseModel):
         Returns:
             Optional[str]: The serialized output of the workflow.
         """
-        instance_id = None
         try:
             # Off-load the potentially blocking run_workflow call to a thread.
             instance_id = await asyncio.to_thread(self.run_workflow, workflow, input)
+
+            logger.debug(f"Workflow '{workflow}' started with instance ID: {instance_id}")
 
             # Await the asynchronous monitoring of the workflow state.
             state = await self.monitor_workflow_state(instance_id)
