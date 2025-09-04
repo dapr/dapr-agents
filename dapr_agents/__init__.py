@@ -1,3 +1,11 @@
+import os
+if os.getenv("DAPR_GRPC_ENDPOINT") or os.getenv("DAPR_API_TOKEN"):
+    try:
+        from dapr.clients.health import DaprHealth
+        DaprHealth.wait_until_ready = staticmethod(lambda: None)
+    except ImportError:
+        pass
+
 from dapr_agents.agents.agent import Agent
 from dapr_agents.agents.durableagent import DurableAgent
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor

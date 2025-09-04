@@ -2,7 +2,12 @@ import asyncio
 import json
 import logging
 import time
+import os
 from typing import Any, Callable, Dict, Optional, Tuple, Type, List
+
+if os.getenv("DAPR_GRPC_ENDPOINT") or os.getenv("DAPR_API_TOKEN"):
+    from dapr.clients.health import DaprHealth
+    DaprHealth.wait_until_ready = staticmethod(lambda: None)
 
 from cloudevents.http.conversion import from_http
 from cloudevents.http.event import CloudEvent
