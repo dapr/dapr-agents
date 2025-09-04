@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from pydantic import Field, ConfigDict
 from typing import List, Optional, Any
 from dapr_agents.service import APIServerBase
-from dapr_agents.utils import add_signal_handlers_cross_platform
+from dapr_agents.utils import SignalHandlingMixin
 import uvicorn
 import asyncio
 import logging
@@ -12,7 +12,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class FastAPIServerBase(APIServerBase):
+class FastAPIServerBase(APIServerBase, SignalHandlingMixin):
     """
     Abstract base class for FastAPI-based API server services.
     Provides core FastAPI functionality, with support for CORS, lifecycle management, and graceful shutdown.
@@ -103,9 +103,8 @@ class FastAPIServerBase(APIServerBase):
         )
         self.server: uvicorn.Server = uvicorn.Server(config)
 
-        # Add signal handlers using cross-platform approach for graceful shutdown
-        loop = asyncio.get_event_loop()
-        add_signal_handlers_cross_platform(loop, self.stop)
+        # Set up signal handlers using the mixin
+        self.setup_signal_handlers()
 
         # Start in background so we can inspect the actual port
         server_task = asyncio.create_task(self.server.serve())
@@ -124,6 +123,12 @@ class FastAPIServerBase(APIServerBase):
 
         await server_task
 
+    async def graceful_shutdown(self) -> None:
+        """
+        Perform graceful shutdown operations for the FastAPI server.
+        """
+        await self.stop()
+    
     async def stop(self):
         """
         Stop the FastAPI server gracefully.

@@ -387,7 +387,7 @@ class AgenticWorkflow(
                 input_data = await request.json()
 
             logger.info(f"Starting workflow '{workflow_name}' with input: {input_data}")
-            instance_id = self.run_workflow(workflow=workflow_name, input=input_data)
+            instance_id = self.run_workflow(workflow=workflow_name, input=input_data, instance_id=self.workflow_instance_id)
             asyncio.create_task(self.monitor_workflow_completion(instance_id))
 
             return JSONResponse(
