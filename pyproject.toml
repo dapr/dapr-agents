@@ -37,6 +37,7 @@ dependencies = [
     "mcp>=1.7.1,<2.0.0",
     "python-dotenv>=1.1.1,<2.0.0",
     "posthog<6.0.0",
+    "nltk>=3.8.0,<4.0.0",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
