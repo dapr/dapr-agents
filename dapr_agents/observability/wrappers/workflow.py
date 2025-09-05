@@ -74,7 +74,7 @@ class WorkflowRunWrapper:
         if context_api and context_api.get_value(
             context_api._SUPPRESS_INSTRUMENTATION_KEY
         ):
-            return wrapped(*args, **kwargs)
+            return wrapped(instance, *args, **kwargs)
 
         # Extract arguments
         arguments = bind_arguments(wrapped, *args, **kwargs)
@@ -219,7 +219,7 @@ class WorkflowMonitorWrapper:
         if context_api and context_api.get_value(
             context_api._SUPPRESS_INSTRUMENTATION_KEY
         ):
-            return wrapped(*args, **kwargs)
+            return wrapped(instance, *args, **kwargs)
 
         workflow_name = self._extract_workflow_name(args, kwargs)
         # Extract agent name from the instance
@@ -228,34 +228,14 @@ class WorkflowMonitorWrapper:
             workflow_name, agent_name, args, kwargs
         )
 
-        # Store global context immediately when this method is called
-        # This ensures workflow tasks can access it before async execution begins
-        try:
-            from ..context_propagation import extract_otel_context
-            from ..context_storage import store_workflow_context
-
-            captured_context = extract_otel_context()
-            if captured_context.get("traceparent"):
-                logger.debug(
-                    f"Captured traceparent: {captured_context.get('traceparent')}"
-                )
-
-                store_workflow_context("__global_workflow_context__", captured_context)
-            else:
-                logger.warning(
-                    "No traceparent found in captured context during __call__"
-                )
-        except Exception as e:
-            logger.warning(f"Failed to capture/store workflow context in __call__: {e}")
-
         # Handle async vs sync execution
         if asyncio.iscoroutinefunction(wrapped):
             return self._handle_async_execution(
-                wrapped, args, kwargs, attributes, workflow_name, agent_name
+                wrapped, instance, args, kwargs, attributes, workflow_name, agent_name
             )
         else:
             return self._handle_sync_execution(
-                wrapped, args, kwargs, attributes, workflow_name, agent_name
+                wrapped, instance, args, kwargs, attributes, workflow_name, agent_name
             )
 
     def _extract_workflow_name(self, args: Any, kwargs: Any) -> str:
@@ -326,6 +306,7 @@ class WorkflowMonitorWrapper:
     def _handle_async_execution(
         self,
         wrapped: Any,
+        instance: Any,
         args: Any,
         kwargs: Any,
         attributes: Dict[str, Any],
@@ -356,6 +337,23 @@ class WorkflowMonitorWrapper:
                 span_name, attributes=attributes
             ) as span:
                 try:
+                    from ..context_propagation import extract_otel_context
+                    from ..context_storage import store_workflow_context
+
+                    captured_context = extract_otel_context()
+                    if captured_context.get("traceparent") and captured_context.get("trace_id") != "00000000000000000000000000000000":
+                        logger.debug(
+                            f"Captured traceparent: {captured_context.get('traceparent')}"
+                        )
+                        store_workflow_context("__global_workflow_context__", captured_context)
+                    else:
+                        logger.debug(
+                            f"Invalid or empty trace context captured: {captured_context}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to capture/store workflow context: {e}")
+
+                try:
                     # Execute workflow and get result
                     result = await wrapped(*args, **kwargs)
 
@@ -382,6 +380,7 @@ class WorkflowMonitorWrapper:
     def _handle_sync_execution(
         self,
         wrapped: Any,
+        instance: Any,
         args: Any,
         kwargs: Any,
         attributes: Dict[str, Any],
@@ -411,7 +410,7 @@ class WorkflowMonitorWrapper:
         ) as span:
             try:
                 # Execute workflow and get result
-                result = wrapped(*args, **kwargs)
+                result = wrapped(instance, *args, **kwargs)
 
                 # Set output attributes - handle both string and object results consistently
                 if isinstance(result, str):

@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import logging
 from typing import Optional
-
+from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.utils import SignalHandlingMixin
 
 logger = logging.getLogger(__name__)
@@ -150,7 +150,7 @@ class ServiceMixin(SignalHandlingMixin):
                             "source": "graceful_shutdown",
                             "source_workflow_instance_id": None,
                             "workflow_name": getattr(self, '_workflow_name', 'Unknown'),
-                            "dapr_status": "SUSPENDED",
+                            "dapr_status": DaprWorkflowStatus.PENDING,
                             "suspended_reason": "app_terminated"
                         }
                         self.state.setdefault("instances", {})[self.workflow_instance_id] = incomplete_entry
@@ -158,12 +158,12 @@ class ServiceMixin(SignalHandlingMixin):
                     else:
                         # Mark existing instance as suspended due to app termination
                         if "instances" in self.state and self.workflow_instance_id in self.state["instances"]:
-                            self.state["instances"][self.workflow_instance_id]["dapr_status"] = "SUSPENDED"
+                            self.state["instances"][self.workflow_instance_id]["dapr_status"] = DaprWorkflowStatus.SUSPENDED
                             self.state["instances"][self.workflow_instance_id]["suspended_reason"] = "app_terminated"
                             logger.info(f"Marked instance {self.workflow_instance_id} as suspended due to app termination")
                 
-                self.save_state()
-                logger.debug("Workflow state saved successfully.")
+                    self.save_state()
+                    logger.debug("Workflow state saved successfully.")
         except Exception as e:
             logger.error(f"Failed to save state during shutdown: {e}")
 

@@ -138,21 +138,23 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             logger.info("Starting workflow runtime...")
             self.start_runtime()
 
-        # Check for existing incomplete workflows before starting a new one to see if we should resume one or not
+        # Check for existing incomplete workflows before starting a new one
         existing_instance_id = await self._find_incomplete_workflow()
         if existing_instance_id:
-            logger.debug(f"Found existing incomplete workflow: {existing_instance_id}. Resuming instead of starting new one.")
+            logger.info(f"Found existing incomplete workflow: {existing_instance_id}. The workflow runtime will automatically resume it.")
+            logger.info("Monitoring the resumed workflow until completion...")
             
-            # Monitor the existing workflow instead of starting a new one
+            # Monitor the resumed workflow until completion
             try:
                 result = await self.monitor_workflow_state(existing_instance_id)
                 if result and result.serialized_output:
+                    logger.info(f"Resumed workflow {existing_instance_id} completed successfully!")
                     return result.serialized_output
                 else:
-                    logger.warning(f"Existing workflow {existing_instance_id} completed but had no output")
+                    logger.warning(f"Resumed workflow {existing_instance_id} completed but had no output")
                     return None
             except Exception as e:
-                logger.error(f"Error monitoring existing workflow {existing_instance_id}: {e}")
+                logger.error(f"Error monitoring resumed workflow {existing_instance_id}: {e}")
                 # Fall through to start a new workflow if monitoring fails
 
         # Prepare input payload for workflow
@@ -206,16 +208,17 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                         if workflow_state:
                             runtime_status = workflow_state.runtime_status.name
                             logger.debug(f"Workflow {instance_id} Dapr status: {runtime_status}")
-                            
+
                             # If workflow is still running, return it for resumption
-                            if runtime_status in [DaprWorkflowStatus.RUNNING, DaprWorkflowStatus.PENDING, DaprWorkflowStatus.CONTINUE_AS_NEW]:
+                            # Handle case mismatch: Dapr returns 'RUNNING' but enum is 'running'
+                            if runtime_status.upper() in [DaprWorkflowStatus.RUNNING.value.upper(), DaprWorkflowStatus.PENDING.value.upper()]:
                                 return instance_id
-                            elif runtime_status in [DaprWorkflowStatus.UNKNOWN]:
+                            elif runtime_status.upper() in [DaprWorkflowStatus.UNKNOWN.value.upper()]:
                                 logger.debug(f"Workflow {instance_id} Dapr status is unknown, skipping")
                                 continue
                             else:
-                                # This is for DaprWorkflowStatus.COMPLETED, DaprWorkflowStatus.FAILED, DaprWorkflowStatus.TERMINATED
-                                self._mark_workflow_completed(instance_id, workflow_state)
+                                # This is for COMPLETED, FAILED, TERMINATED
+                                self._mark_workflow_completed(instance_id, runtime_status)
                         else:
                             logger.debug(f"Workflow {instance_id} no longer exists in Dapr")
                             # Mark as completed in our state since it's no longer in Dapr

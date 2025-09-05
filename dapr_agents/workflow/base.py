@@ -546,7 +546,7 @@ class WorkflowApp(BaseModel):
                 state.failure_details
             )  # This is an object, not a dictionary
 
-            if workflow_status == "COMPLETED":
+            if workflow_status.upper() == DaprWorkflowStatus.COMPLETED.value.upper():
                 logger.info(
                     f"Workflow '{instance_id}' completed successfully. Status: {workflow_status}."
                 )
@@ -556,7 +556,7 @@ class WorkflowApp(BaseModel):
                         f"Output: {json.dumps(state.serialized_output, indent=2)}"
                     )
 
-            elif workflow_status in ("FAILED", "ABORTED"):
+            elif workflow_status.upper() in (DaprWorkflowStatus.FAILED.value.upper(), "ABORTED"):
                 # Ensure `failure_details` exists before accessing attributes
                 error_type = getattr(failure_details, "error_type", "Unknown")
                 message = getattr(failure_details, "message", "No message provided")

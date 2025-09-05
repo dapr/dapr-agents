@@ -95,6 +95,66 @@ class WorkflowContextStorage:
                 logger.warning(f"⚠️ No context found for instance {instance_id}")
             return context
 
+    def create_resumed_workflow_context(self, instance_id: str, agent_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Create a new trace context for a resumed workflow after app restart.
+        
+        When an app restarts, the in-memory context storage is lost. This method
+        creates a new trace context for resumed workflows so they can still be
+        traced, even though they won't be connected to the original trace.
+        
+        Args:
+            instance_id (str): Unique workflow instance ID
+            
+        Returns:
+            Dict[str, Any]: New W3C context data for the resumed workflow
+        """
+        try:
+            from opentelemetry import trace
+            from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+            
+            # Create a new trace for the resumed workflow with proper AGENT span
+            tracer = trace.get_tracer(__name__)
+            
+            # Create AGENT span with proper agent name for resumed workflow
+            agent_display_name = agent_name or "DurableAgent"
+            span_name = f"{agent_display_name}.ToolCallingWorkflow"
+            with tracer.start_as_current_span(span_name) as span:
+                # Set AGENT span attributes
+                from .constants import OPENINFERENCE_SPAN_KIND
+                span.set_attribute(OPENINFERENCE_SPAN_KIND, "AGENT")
+                span.set_attribute("workflow.instance_id", instance_id)
+                span.set_attribute("workflow.resumed", True)
+                span.set_attribute("agent.name", agent_name)
+                # Extract the new context
+                propagator = TraceContextTextMapPropagator()
+                carrier = {}
+                propagator.inject(carrier)
+                
+                context_data = {
+                    "traceparent": carrier.get("traceparent"),
+                    "tracestate": carrier.get("tracestate"),
+                    "instance_id": instance_id,
+                    "resumed": True,
+                    "debug_info": f"New trace created for resumed workflow {instance_id}"
+                }
+                
+                # Store the new context
+                self.store_context(instance_id, context_data)
+                logger.info(f"Created new trace context for resumed workflow {instance_id}")
+                
+                return context_data
+                
+        except Exception as e:
+            logger.error(f"Failed to create resumed workflow context for {instance_id}: {e}")
+            return {
+                "traceparent": None,
+                "tracestate": None,
+                "instance_id": instance_id,
+                "resumed": True,
+                "error": str(e)
+            }
+
     def cleanup_context(self, instance_id: str) -> None:
         """
         Clean up stored context for a completed workflow instance to prevent memory leaks.

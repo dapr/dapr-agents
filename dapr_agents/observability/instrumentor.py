@@ -162,9 +162,6 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         # Initialize OpenTelemetry tracer with provider configuration
         self._initialize_tracer(kwargs)
 
-        # Apply W3C context propagation fix for Dapr Workflows (critical for proper tracing)
-        self._apply_context_propagation_fix()
-
         # Apply agent wrappers (Regular Agent class execution paths)
         self._apply_agent_wrappers()
 
@@ -253,18 +250,11 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                     else:
                         return await coro
 
+                loop = asyncio.new_event_loop()
                 try:
-                    # Try to use existing event loop
-                    loop = asyncio.get_running_loop()
                     return loop.run_until_complete(context_wrapped_coro())
-                except RuntimeError:
-                    # No running loop - create new one
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        return loop.run_until_complete(context_wrapped_coro())
-                    finally:
-                        loop.close()
+                finally:
+                    loop.close()
 
             def make_context_aware_task_wrapper(
                 self, task_name: str, method, task_instance
@@ -394,25 +384,29 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
 
             # Main agent run wrapper (AGENT span - top level)
             wrap_function_wrapper(
-                target=Agent.run,
+                module=Agent.__module__,
+                name=f"{Agent.__name__}.{Agent.run.__name__}",
                 wrapper=AgentRunWrapper(self._tracer),
             )
 
             # Process iterations wrapper (CHAIN span - processing steps)
             wrap_function_wrapper(
-                target=Agent.conversation,
+                module=Agent.__module__,
+                name=f"{Agent.__name__}.{Agent.conversation.__name__}",
                 wrapper=ProcessIterationsWrapper(self._tracer),
             )
 
             # Tool execution batch wrapper (TOOL span - batch execution)
             wrap_function_wrapper(
-                target=Agent.execute_tools,
+                module=Agent.__module__,
+                name=f"{Agent.__name__}.{Agent.execute_tools.__name__}",
                 wrapper=ExecuteToolsWrapper(self._tracer),
             )
 
             # Individual tool execution wrapper (TOOL span - actual tool execution)
             wrap_function_wrapper(
-                target=AgentToolExecutor.run_tool,
+                module=AgentToolExecutor.__module__,
+                name=f"{AgentToolExecutor.__name__}.{AgentToolExecutor.run_tool.__name__}",
                 wrapper=RunToolWrapper(self._tracer),
             )
         except Exception as e:
@@ -429,32 +423,30 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         try:
             from dapr_agents.workflow.base import WorkflowApp
             from dapr_agents.workflow.task import WorkflowTask
-
-            original_run_and_monitor = WorkflowApp.run_and_monitor_workflow_async
-            original_run_workflow = WorkflowApp.run_workflow
-            original_task_call = WorkflowTask.__call__
-            # Create wrapper instances
-            monitor_wrapper = WorkflowMonitorWrapper(self._tracer)
-            run_wrapper = WorkflowRunWrapper(self._tracer)
-            task_wrapper = WorkflowTaskWrapper(self._tracer)
-
-            # Create wrapped versions that can be bound to instances
-            def wrapped_run_and_monitor_workflow_async(self, *args, **kwargs):
-                return monitor_wrapper(original_run_and_monitor, self, args, kwargs)
-
-            def wrapped_run_workflow(self, *args, **kwargs):
-                return run_wrapper(original_run_workflow, self, args, kwargs)
-
-            def wrapped_task_call(self, *args, **kwargs):
-                return task_wrapper(original_task_call, self, args, kwargs)
-
-            # Replace the methods on the classes with our wrapped versions
-            # This is the only way to instrument Pydantic model methods
-            WorkflowApp.run_and_monitor_workflow_async = (
-                wrapped_run_and_monitor_workflow_async
+            import wrapt
+            
+            # Workflow monitoring wrapper - creates AGENT spans
+            wrapt.wrap_function_wrapper(
+                WorkflowApp.__module__,
+                f'{WorkflowApp.__name__}.{WorkflowApp.run_and_monitor_workflow_async.__name__}',
+                WorkflowMonitorWrapper(self._tracer)
             )
-            WorkflowApp.run_workflow = wrapped_run_workflow
-            WorkflowTask.__call__ = wrapped_task_call
+            
+            # Workflow run wrapper - creates workflow spans
+            wrapt.wrap_function_wrapper(
+                WorkflowApp.__module__,
+                f'{WorkflowApp.__name__}.{WorkflowApp.run_workflow.__name__}',
+                WorkflowRunWrapper(self._tracer)
+            )
+            
+            # WorkflowTask call wrapper
+            # This ensures child spans (LLM/TOOL) are properly linked to parent AGENT spans,
+            # and is necessary due to the async nature of the WorkflowTask.__call__ method.
+            wrapt.wrap_function_wrapper(
+                WorkflowTask.__module__,
+                f'{WorkflowTask.__name__}.{WorkflowTask.__call__.__name__}',
+                WorkflowTaskWrapper(self._tracer)
+            )
         except Exception as e:
             logger.error(f"Error applying workflow wrappers: {e}", exc_info=True)
 

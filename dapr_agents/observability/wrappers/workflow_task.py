@@ -78,13 +78,21 @@ class WorkflowTaskWrapper:
             return wrapped(*args, **kwargs)
 
         # Extract WorkflowActivityContext and payload
+        # When called as a method on WorkflowTask, instance is the WorkflowTask and args[0] is the context
         ctx = args[0] if args else None
         payload = args[1] if len(args) > 1 else kwargs.get("payload")
 
         # Determine task details
+        logger.debug(f"WorkflowTaskWrapper: instance type = {type(instance)}")
+        logger.debug(f"WorkflowTaskWrapper: instance attributes = {dir(instance)}")
+        if hasattr(instance, 'func'):
+            logger.debug(f"WorkflowTaskWrapper: instance.func = {instance.func}")
+        else:
+            logger.debug("WorkflowTaskWrapper: instance has no 'func' attribute")
+        
         task_name = (
             getattr(instance.func, "__name__", "unknown_task")
-            if instance.func
+            if hasattr(instance, 'func') and instance.func
             else "workflow_task"
         )
         span_kind = self._determine_span_kind(instance, task_name)
@@ -100,11 +108,11 @@ class WorkflowTaskWrapper:
         # Handle async vs sync execution like other wrappers
         if asyncio.iscoroutinefunction(wrapped):
             return self._handle_async_execution(
-                wrapped, args, kwargs, span_name, attributes
+                wrapped, instance, args, kwargs, span_name, attributes
             )
         else:
             return self._handle_sync_execution(
-                wrapped, args, kwargs, span_name, attributes
+                wrapped, instance, args, kwargs, span_name, attributes
             )
 
     def _determine_span_kind(self, instance: Any, task_name: str) -> str:
@@ -237,7 +245,7 @@ class WorkflowTaskWrapper:
         return attributes
 
     def _handle_async_execution(
-        self, wrapped: Any, args: Any, kwargs: Any, span_name: str, attributes: dict
+        self, wrapped: Any, instance: Any, args: Any, kwargs: Any, span_name: str, attributes: dict
     ) -> Any:
         """
         Handle asynchronous workflow task execution with OpenTelemetry context restoration.
@@ -248,6 +256,7 @@ class WorkflowTaskWrapper:
 
         Args:
             wrapped (callable): Original async WorkflowTask method to execute
+            instance (Any): The instance object (WorkflowTask) being wrapped
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
             span_name (str): Name for the created span (e.g., "WorkflowTask.generate_response")
@@ -267,6 +276,32 @@ class WorkflowTaskWrapper:
                 from ..context_storage import get_workflow_context
 
                 otel_context = get_workflow_context(instance_id)
+                
+                # If no context found for specific instance, try global context as fallback
+                if otel_context is None:
+                    logger.debug(f"No context found for instance {instance_id}, trying global context")
+                    otel_context = get_workflow_context("__global_workflow_context__")
+                    
+                    if otel_context:
+                        # Store the global context with the specific instance ID for future use
+                        from ..context_storage import store_workflow_context
+                        store_workflow_context(instance_id, otel_context)
+                        logger.debug(f"Copied global context to instance {instance_id}")
+                    else:
+                        # If still no context found (e.g., after app restart), create a new one for resumed workflows
+                        logger.debug(f"No context found for instance {instance_id} - creating new context for resumed workflow")
+                        
+                        # Try to get agent name from the task instance
+                        agent_name = None
+                        if hasattr(instance, 'agent') and instance.agent and hasattr(instance.agent, 'name'):
+                            agent_name = instance.agent.name
+                        elif hasattr(instance, 'func') and instance.func and hasattr(instance.func, '__self__'):
+                            agent_instance = instance.func.__self__
+                            if hasattr(agent_instance, 'name'):
+                                agent_name = agent_instance.name
+                        
+                        from ..context_storage import _context_storage
+                        otel_context = _context_storage.create_resumed_workflow_context(instance_id, agent_name)
 
             # Create span with restored context if available
             from ..context_propagation import create_child_span_with_context
@@ -313,7 +348,7 @@ class WorkflowTaskWrapper:
         return async_wrapper()
 
     def _handle_sync_execution(
-        self, wrapped: Any, args: Any, kwargs: Any, span_name: str, attributes: dict
+        self, wrapped: Any, instance: Any, args: Any, kwargs: Any, span_name: str, attributes: dict
     ) -> Any:
         """
         Handle synchronous workflow task execution with OpenTelemetry context restoration.
@@ -324,6 +359,7 @@ class WorkflowTaskWrapper:
 
         Args:
             wrapped (callable): Original sync WorkflowTask method to execute
+            instance (Any): The instance object (WorkflowTask) being wrapped
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
             span_name (str): Name for the created span (e.g., "WorkflowTask.run_tool")
