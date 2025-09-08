@@ -55,7 +55,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         description="Metadata about the agent, including name, role, goal, instructions, and topic name.",
     )
 
-
     @model_validator(mode="before")
     def set_agent_and_topic_name(cls, values: dict):
         # Set name to role if name is not provided
@@ -85,17 +84,21 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             self.state["instances"] = {}
         if "chat_history" not in self.state:
             self.state["chat_history"] = []
-            
+
         # Load the current workflow instance ID from state if it exists
         logger.info(f"State after loading: {self.state}")
         if self.state and "instances" in self.state:
             logger.info(f"Found {len(self.state['instances'])} instances in state")
             for instance_id, instance_data in self.state["instances"].items():
                 stored_workflow_name = instance_data.get("workflow_name")
-                logger.info(f"Instance {instance_id}: workflow_name={stored_workflow_name}, current_workflow_name={self._workflow_name}")
+                logger.info(
+                    f"Instance {instance_id}: workflow_name={stored_workflow_name}, current_workflow_name={self._workflow_name}"
+                )
                 if stored_workflow_name == self._workflow_name:
                     self.workflow_instance_id = instance_id
-                    logger.info(f"Loaded current workflow instance ID from state: {instance_id}")
+                    logger.info(
+                        f"Loaded current workflow instance ID from state: {instance_id}"
+                    )
                     break
         else:
             logger.info("No instances found in state or state is empty")
@@ -112,7 +115,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         }
 
         self.register_agentic_system()
-        
+
         # Start the runtime if it's not already running
         if not self.wf_runtime_is_running:
             logger.info("Starting workflow runtime...")
@@ -137,20 +140,28 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Check for existing incomplete workflows before starting a new one
         existing_instance_id = await self._find_incomplete_workflow(input_data)
         if existing_instance_id:
-            logger.info(f"Found existing incomplete workflow: {existing_instance_id}. The workflow runtime will automatically resume it.")
+            logger.info(
+                f"Found existing incomplete workflow: {existing_instance_id}. The workflow runtime will automatically resume it."
+            )
             logger.info("Monitoring the resumed workflow until completion...")
-            
+
             # Monitor the resumed workflow until completion
             try:
                 result = await self.monitor_workflow_state(existing_instance_id)
                 if result and result.serialized_output:
-                    logger.info(f"Resumed workflow {existing_instance_id} completed successfully!")
+                    logger.info(
+                        f"Resumed workflow {existing_instance_id} completed successfully!"
+                    )
                     return result.serialized_output
                 else:
-                    logger.warning(f"Resumed workflow {existing_instance_id} completed but had no output")
+                    logger.warning(
+                        f"Resumed workflow {existing_instance_id} completed but had no output"
+                    )
                     return None
             except Exception as e:
-                logger.error(f"Error monitoring resumed workflow {existing_instance_id}: {e}")
+                logger.error(
+                    f"Error monitoring resumed workflow {existing_instance_id}: {e}"
+                )
                 # Fall through to start a new workflow if monitoring fails
 
         # Prepare input payload for workflow
@@ -173,15 +184,17 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             if self.wf_runtime_is_running:
                 self.stop_runtime()
 
-    async def _find_incomplete_workflow(self, input_data: Union[str, Dict[str, Any]]) -> Optional[str]:
+    async def _find_incomplete_workflow(
+        self, input_data: Union[str, Dict[str, Any]]
+    ) -> Optional[str]:
         """
         Find an existing incomplete workflow instance that should be resumed.
         Uses Dapr WorkflowState to determine if workflow is actually complete.
         Only resumes workflows that match the current input.
-        
+
         Args:
             input_data: The input for the new workflow request
-            
+
         Returns:
             Optional[str]: The instance ID of an incomplete workflow with matching input, or None if none found.
         """
@@ -191,64 +204,81 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             if not instances:
                 logger.debug("No instances found in state")
                 return None
-            
+
             # Normalize input for comparison
             if isinstance(input_data, dict):
                 current_input = input_data.get("task", str(input_data))
             else:
                 current_input = str(input_data)
-            
+
             for instance_id, instance_data in instances.items():
                 workflow_name = instance_data.get("workflow_name")
                 end_time = instance_data.get("end_time")
                 stored_input = instance_data.get("input", "")
-                
+
                 # Only consider workflows that match our current workflow name
                 if workflow_name != self._workflow_name:
                     continue
-                
+
                 if end_time is None:
                     # Only consider workflows that match the current input
                     if str(stored_input) != str(current_input):
                         continue
-                    
+
                     # Verify the workflow still exists in Dapr and check its actual status
                     # as dapr is our source of truth.
                     try:
                         workflow_state = self.get_workflow_state(instance_id)
                         if workflow_state:
                             runtime_status = workflow_state.runtime_status.name
-                            logger.debug(f"Workflow {instance_id} Dapr status: {runtime_status}")
+                            logger.debug(
+                                f"Workflow {instance_id} Dapr status: {runtime_status}"
+                            )
 
                             # If workflow is still running, return it for resumption
                             # Handle case mismatch: Dapr returns 'RUNNING' but enum is 'running'
-                            if runtime_status.upper() in [DaprWorkflowStatus.RUNNING.value.upper(), DaprWorkflowStatus.PENDING.value.upper()]:
+                            if runtime_status.upper() in [
+                                DaprWorkflowStatus.RUNNING.value.upper(),
+                                DaprWorkflowStatus.PENDING.value.upper(),
+                            ]:
                                 return instance_id
-                            elif runtime_status.upper() in [DaprWorkflowStatus.UNKNOWN.value.upper()]:
-                                logger.debug(f"Workflow {instance_id} Dapr status is unknown, skipping")
+                            elif runtime_status.upper() in [
+                                DaprWorkflowStatus.UNKNOWN.value.upper()
+                            ]:
+                                logger.debug(
+                                    f"Workflow {instance_id} Dapr status is unknown, skipping"
+                                )
                                 continue
                             else:
                                 # This is for COMPLETED, FAILED, TERMINATED
-                                self._mark_workflow_completed(instance_id, runtime_status)
+                                self._mark_workflow_completed(
+                                    instance_id, runtime_status
+                                )
                         else:
-                            logger.debug(f"Workflow {instance_id} no longer exists in Dapr")
+                            logger.debug(
+                                f"Workflow {instance_id} no longer exists in Dapr"
+                            )
                             # Mark as completed in our state since it's no longer in Dapr
                             self._mark_workflow_completed(instance_id)
                     except Exception as e:
-                        logger.warning(f"Could not verify workflow {instance_id} in Dapr: {e}")
+                        logger.warning(
+                            f"Could not verify workflow {instance_id} in Dapr: {e}"
+                        )
                         return instance_id
-            
+
             logger.debug("No incomplete workflows found")
             return None
-            
+
         except Exception as e:
             logger.error(f"Error finding incomplete workflows: {e}")
             return None
 
-    def _mark_workflow_completed(self, instance_id: str, status: str = "completed") -> None:
+    def _mark_workflow_completed(
+        self, instance_id: str, status: str = "completed"
+    ) -> None:
         """
         Mark a workflow as completed in our state.
-        
+
         Args:
             instance_id: The workflow instance ID to mark as completed
             status: The completion status (default: "completed")
@@ -284,33 +314,45 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             metadata = message.get("_message_metadata", {}) or {}
             # Extract workflow_instance_id from TriggerAction if present from orchestrator
             if "workflow_instance_id" in message:
-                metadata["triggering_workflow_instance_id"] = message["workflow_instance_id"]
+                metadata["triggering_workflow_instance_id"] = message[
+                    "workflow_instance_id"
+                ]
         else:
             task = getattr(message, "task", None)
             metadata = getattr(message, "_message_metadata", {}) or {}
             # Extract workflow_instance_id from TriggerAction if present from orchestrator
             if hasattr(message, "workflow_instance_id"):
-                metadata["triggering_workflow_instance_id"] = getattr(message, "workflow_instance_id")
+                metadata["triggering_workflow_instance_id"] = getattr(
+                    message, "workflow_instance_id"
+                )
 
         workflow_instance_id = ctx.instance_id
-        triggering_workflow_instance_id = metadata.get("triggering_workflow_instance_id")
+        triggering_workflow_instance_id = metadata.get(
+            "triggering_workflow_instance_id"
+        )
         source = metadata.get("source")
-        
+
         # Set default source if not provided (for direct run() calls)
         if not source:
             source = "direct"
-        
-        print(f"DEBUG: tool_calling_workflow started with workflow_instance_id: {workflow_instance_id}")
-        print(f"DEBUG: triggering_workflow_instance_id: {triggering_workflow_instance_id}")
+
+        print(
+            f"DEBUG: tool_calling_workflow started with workflow_instance_id: {workflow_instance_id}"
+        )
+        print(
+            f"DEBUG: triggering_workflow_instance_id: {triggering_workflow_instance_id}"
+        )
         print(f"DEBUG: Current self.state at start of workflow: {self.state}")
-        logger.info(f"tool_calling_workflow started with workflow_instance_id: {workflow_instance_id}")
+        logger.info(
+            f"tool_calling_workflow started with workflow_instance_id: {workflow_instance_id}"
+        )
         logger.info(f"Current self.state at start of workflow: {self.state}")
-        
+
         # Store the instance ID from workflow context as the source of truth
         # This will be used by graceful shutdown logic to save incomplete instances
         logger.info(f"Workflow context provided instance ID: {workflow_instance_id}")
         print(f"DEBUG: Workflow context provided instance ID: {workflow_instance_id}")
-        
+
         # Check if this instance already exists in state (from previous runs)
         if workflow_instance_id not in self.state.get("instances", {}):
             # This is a new instance, create a minimal entry
@@ -324,19 +366,29 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 "workflow_instance_id": workflow_instance_id,
                 "triggering_workflow_instance_id": triggering_workflow_instance_id,
                 "workflow_name": self._workflow_name,
-                "status": "running"  # Mark as running
+                "status": "running",  # Mark as running
             }
-            self.state.setdefault("instances", {})[workflow_instance_id] = instance_entry
+            self.state.setdefault("instances", {})[
+                workflow_instance_id
+            ] = instance_entry
             logger.info(f"Created new instance entry: {workflow_instance_id}")
             print(f"DEBUG: Created new instance entry: {workflow_instance_id}")
-            
+
             # Immediately save state so graceful shutdown can capture this instance
             self.save_state()
-            logger.info(f"Saved state immediately after creating instance entry for {workflow_instance_id}")
-            print(f"DEBUG: Saved state immediately after creating instance entry for {workflow_instance_id}")
+            logger.info(
+                f"Saved state immediately after creating instance entry for {workflow_instance_id}"
+            )
+            print(
+                f"DEBUG: Saved state immediately after creating instance entry for {workflow_instance_id}"
+            )
         else:
-            logger.info(f"Found existing instance entry for workflow {workflow_instance_id}")
-            print(f"DEBUG: Found existing instance entry for workflow {workflow_instance_id}")
+            logger.info(
+                f"Found existing instance entry for workflow {workflow_instance_id}"
+            )
+            print(
+                f"DEBUG: Found existing instance entry for workflow {workflow_instance_id}"
+            )
         final_message: Optional[Dict[str, Any]] = None
 
         if not ctx.is_replaying:
@@ -371,7 +423,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 # Step 5: Add the assistant's response message to the chat history
                 yield ctx.call_activity(
                     self.append_assistant_message,
-                    input={"instance_id": workflow_instance_id, "message": response_message},
+                    input={
+                        "instance_id": workflow_instance_id,
+                        "message": response_message,
+                    },
                 )
 
                 # Step 6: Handle tool calls response
@@ -391,7 +446,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                     for tr in tool_results:
                         yield ctx.call_activity(
                             self.append_tool_message,
-                            input={"instance_id": workflow_instance_id, "tool_result": tr},
+                            input={
+                                "instance_id": workflow_instance_id,
+                                "tool_result": tr,
+                            },
                         )
                     # 🔴 If this was the last turn, stop here—even though there were tool calls
                     if turn == self.max_iterations:
@@ -512,7 +570,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         """
         # Load state to ensure we have the latest data
         self.load_state()
-        
+
         workflow_entry = self.state.get("instances", {}).get(instance_id)
         if workflow_entry is not None:
             return {
@@ -536,7 +594,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # }
         # self.state.setdefault("instances", {})[instance_id] = minimal_entry
         # self.save_state()
-        
+
         # return {
         #     "source": minimal_entry.get("source"),
         #     "source_workflow_instance_id": minimal_entry.get("source_workflow_instance_id"),
@@ -560,7 +618,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         """
         # Construct messages using instance-specific chat history instead of global memory
         # This ensures proper message sequence for tool calls
-        messages: List[Dict[str, Any]] = self._construct_messages_with_instance_history(instance_id, task or {})
+        messages: List[Dict[str, Any]] = self._construct_messages_with_instance_history(
+            instance_id, task or {}
+        )
         user_message = self.get_last_message_if_user(messages)
 
         # Always work with a copy of the user message for safety
@@ -582,7 +642,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                     "source": "user_input",
                     "workflow_instance_id": instance_id,
                     "triggering_workflow_instance_id": None,
-                    "workflow_name": self._workflow_name
+                    "workflow_name": self._workflow_name,
                 }
             inst: dict = self.state["instances"][instance_id]
             inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
@@ -622,15 +682,19 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         except Exception as e:
             error_type = type(e).__name__
             error_msg = str(e)
-            
-            logger.error(f"LLM generation failed in workflow {instance_id}: {error_type} - {error_msg}")
+
+            logger.error(
+                f"LLM generation failed in workflow {instance_id}: {error_type} - {error_msg}"
+            )
             logger.error(f"Task: {task}")
             logger.error(f"Messages count: {len(messages)}")
             logger.error(f"Tools available: {len(self.get_llm_tools())}")
             logger.error("Full error details:", exc_info=True)
 
-            raise AgentError(f"LLM generation failed in workflow {instance_id}: {error_type} - {error_msg}") from e
-            
+            raise AgentError(
+                f"LLM generation failed in workflow {instance_id}: {error_type} - {error_msg}"
+            ) from e
+
     @task
     async def run_tool(self, tool_call: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -733,7 +797,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 "source": "user_input",
                 "workflow_instance_id": instance_id,
                 "triggering_workflow_instance_id": None,
-                "workflow_name": self._workflow_name
+                "workflow_name": self._workflow_name,
             }
         inst: dict = self.state["instances"][instance_id]
         inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
@@ -774,7 +838,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 "source": "user_input",
                 "workflow_instance_id": instance_id,
                 "triggering_workflow_instance_id": None,
-                "workflow_name": self._workflow_name
+                "workflow_name": self._workflow_name,
             }
         inst: dict = self.state["instances"][instance_id]
         inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
@@ -808,7 +872,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 "source": "user_input",
                 "workflow_instance_id": instance_id,
                 "triggering_workflow_instance_id": None,
-                "workflow_name": self._workflow_name
+                "workflow_name": self._workflow_name,
             }
         inst: dict = self.state["instances"][instance_id]
         inst["output"] = final_output
@@ -870,26 +934,30 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         except Exception as e:
             logger.error(f"Error processing broadcast message: {e}", exc_info=True)
 
-    def _construct_messages_with_instance_history(self, instance_id: str, input_data: Union[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _construct_messages_with_instance_history(
+        self, instance_id: str, input_data: Union[str, Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """
         Construct messages using instance-specific chat history instead of global memory.
         This ensures proper message sequence for tool calls and prevents OpenAI API errors
         in the event an app gets terminated or restarts while the workflow is running.
-        
+
         Args:
             instance_id: The workflow instance ID
             input_data: User input, either as a string or dictionary
-            
+
         Returns:
             List of formatted messages with proper sequence
         """
         if not self.prompt_template:
-            raise ValueError("Prompt template must be initialized before constructing messages.")
-        
+            raise ValueError(
+                "Prompt template must be initialized before constructing messages."
+            )
+
         # Get instance-specific chat history instead of global memory
         instance_data = self.state.get("instances", {}).get(instance_id, {})
         instance_messages = instance_data.get("messages", [])
-        
+
         # Convert instance messages to the format expected by prompt template
         chat_history = []
         for msg in instance_messages:
@@ -897,10 +965,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 chat_history.append(msg)
             else:
                 # Convert DurableAgentMessage to dict if needed
-                chat_history.append(msg.model_dump() if hasattr(msg, 'model_dump') else dict(msg))
-        
+                chat_history.append(
+                    msg.model_dump() if hasattr(msg, "model_dump") else dict(msg)
+                )
+
         if isinstance(input_data, str):
-            formatted_messages = self.prompt_template.format_prompt(chat_history=chat_history)
+            formatted_messages = self.prompt_template.format_prompt(
+                chat_history=chat_history
+            )
             if isinstance(formatted_messages, list):
                 user_message = {"role": "user", "content": input_data}
                 return formatted_messages + [user_message]

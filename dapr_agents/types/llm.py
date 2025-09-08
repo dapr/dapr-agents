@@ -17,7 +17,6 @@ class ElevenLabsClientConfig(BaseModel):
     )
 
 
-
 class NVIDIAClientConfig(BaseModel):
     base_url: Optional[str] = Field(
         "https://integrate.api.nvidia.com/v1", description="Base URL for the NVIDIA API"
@@ -25,7 +24,6 @@ class NVIDIAClientConfig(BaseModel):
     api_key: Optional[str] = Field(
         None, description="API key to authenticate the NVIDIA API"
     )
-
 
 
 class DaprInferenceClientConfig:
@@ -73,7 +71,6 @@ class HFInferenceClientConfig(BaseModel):
     )
 
 
-
 class OpenAIClientConfig(BaseModel):
     base_url: Optional[str] = Field(None, description="Base URL for the OpenAI API")
     api_key: Optional[str] = Field(
@@ -110,7 +107,6 @@ class AzureOpenAIClientConfig(BaseModel):
     azure_client_id: Optional[str] = Field(
         default=None, description="Client ID for Managed Identity authentication."
     )
-
 
 
 class OpenAIModelConfig(OpenAIClientConfig):
@@ -170,7 +166,6 @@ class OpenAIParamsBase(BaseModel):
     stream: Optional[bool] = Field(False, description="Whether to stream responses")
 
 
-
 class OpenAITextCompletionParams(OpenAIParamsBase):
     """
     Specific configs for the text completions endpoint.
@@ -184,7 +179,6 @@ class OpenAITextCompletionParams(OpenAIParamsBase):
         None, ge=0, le=5, description="Include log probabilities"
     )
     suffix: Optional[str] = Field(None, description="Suffix to append to the prompt")
-
 
 
 class OpenAIChatCompletionParams(OpenAIParamsBase):
@@ -220,7 +214,6 @@ class OpenAIChatCompletionParams(OpenAIParamsBase):
     user: Optional[str] = Field(
         None, description="Unique identifier representing the end-user"
     )
-
 
 
 class HFHubChatCompletionParams(BaseModel):
@@ -285,7 +278,6 @@ class HFHubChatCompletionParams(BaseModel):
     )
 
 
-
 class NVIDIAChatCompletionParams(OpenAIParamsBase):
     """
     Specific settings for the Chat Completion endpoint.
@@ -311,7 +303,6 @@ class NVIDIAChatCompletionParams(OpenAIParamsBase):
     )
 
 
-
 class PromptyModelConfig(BaseModel):
     api: Literal["chat", "completion"] = Field(
         "chat", description="The API to use, either 'chat' or 'completion'"
@@ -329,7 +320,6 @@ class PromptyModelConfig(BaseModel):
         "first",
         description="Determines if full response or just the first one is returned",
     )
-
 
     @model_validator(mode="before")
     def sync_model_name(cls, values: dict):
@@ -403,7 +393,6 @@ class PromptyDefinition(BaseModel):
     content: str = Field(
         ..., description="The prompt messages defined in the Prompty file."
     )
-
 
 
 class AudioSpeechRequest(BaseModel):

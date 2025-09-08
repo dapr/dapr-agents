@@ -128,7 +128,7 @@ class FastAPIServerBase(APIServerBase, SignalHandlingMixin):
         Perform graceful shutdown operations for the FastAPI server.
         """
         await self.stop()
-    
+
     async def stop(self):
         """
         Stop the FastAPI server gracefully.

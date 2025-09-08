@@ -341,11 +341,17 @@ class WorkflowMonitorWrapper:
                     from ..context_storage import store_workflow_context
 
                     captured_context = extract_otel_context()
-                    if captured_context.get("traceparent") and captured_context.get("trace_id") != "00000000000000000000000000000000":
+                    if (
+                        captured_context.get("traceparent")
+                        and captured_context.get("trace_id")
+                        != "00000000000000000000000000000000"
+                    ):
                         logger.debug(
                             f"Captured traceparent: {captured_context.get('traceparent')}"
                         )
-                        store_workflow_context("__global_workflow_context__", captured_context)
+                        store_workflow_context(
+                            "__global_workflow_context__", captured_context
+                        )
                     else:
                         logger.debug(
                             f"Invalid or empty trace context captured: {captured_context}"

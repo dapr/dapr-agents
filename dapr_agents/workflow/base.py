@@ -556,7 +556,10 @@ class WorkflowApp(BaseModel):
                         f"Output: {json.dumps(state.serialized_output, indent=2)}"
                     )
 
-            elif workflow_status.upper() in (DaprWorkflowStatus.FAILED.value.upper(), "ABORTED"):
+            elif workflow_status.upper() in (
+                DaprWorkflowStatus.FAILED.value.upper(),
+                "ABORTED",
+            ):
                 # Ensure `failure_details` exists before accessing attributes
                 error_type = getattr(failure_details, "error_type", "Unknown")
                 message = getattr(failure_details, "message", "No message provided")
@@ -611,7 +614,9 @@ class WorkflowApp(BaseModel):
             # Off-load the potentially blocking run_workflow call to a thread.
             instance_id = await asyncio.to_thread(self.run_workflow, workflow, input)
 
-            logger.debug(f"Workflow '{workflow}' started with instance ID: {instance_id}")
+            logger.debug(
+                f"Workflow '{workflow}' started with instance ID: {instance_id}"
+            )
 
             # Await the asynchronous monitoring of the workflow state.
             state = await self.monitor_workflow_state(instance_id)

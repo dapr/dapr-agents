@@ -138,30 +138,44 @@ class ServiceMixin(SignalHandlingMixin):
 
         # Save state before shutting down to ensure persistence and agent durability to properly rerun after being stoped
         try:
-            if hasattr(self, 'save_state') and hasattr(self, 'state'):
+            if hasattr(self, "save_state") and hasattr(self, "state"):
                 # Graceful shutdown compensation: Save incomplete instance if it exists
-                if hasattr(self, 'workflow_instance_id') and self.workflow_instance_id:
+                if hasattr(self, "workflow_instance_id") and self.workflow_instance_id:
                     if self.workflow_instance_id not in self.state.get("instances", {}):
                         # This instance was never saved, add it as incomplete
                         from datetime import datetime, timezone
+
                         incomplete_entry = {
                             "messages": [],
                             "start_time": datetime.now(timezone.utc).isoformat(),
                             "source": "graceful_shutdown",
                             "source_workflow_instance_id": None,
-                            "workflow_name": getattr(self, '_workflow_name', 'Unknown'),
+                            "workflow_name": getattr(self, "_workflow_name", "Unknown"),
                             "dapr_status": DaprWorkflowStatus.PENDING,
-                            "suspended_reason": "app_terminated"
+                            "suspended_reason": "app_terminated",
                         }
-                        self.state.setdefault("instances", {})[self.workflow_instance_id] = incomplete_entry
-                        logger.info(f"Added incomplete instance {self.workflow_instance_id} during graceful shutdown")
+                        self.state.setdefault("instances", {})[
+                            self.workflow_instance_id
+                        ] = incomplete_entry
+                        logger.info(
+                            f"Added incomplete instance {self.workflow_instance_id} during graceful shutdown"
+                        )
                     else:
                         # Mark existing instance as suspended due to app termination
-                        if "instances" in self.state and self.workflow_instance_id in self.state["instances"]:
-                            self.state["instances"][self.workflow_instance_id]["dapr_status"] = DaprWorkflowStatus.SUSPENDED
-                            self.state["instances"][self.workflow_instance_id]["suspended_reason"] = "app_terminated"
-                            logger.info(f"Marked instance {self.workflow_instance_id} as suspended due to app termination")
-                
+                        if (
+                            "instances" in self.state
+                            and self.workflow_instance_id in self.state["instances"]
+                        ):
+                            self.state["instances"][self.workflow_instance_id][
+                                "dapr_status"
+                            ] = DaprWorkflowStatus.SUSPENDED
+                            self.state["instances"][self.workflow_instance_id][
+                                "suspended_reason"
+                            ] = "app_terminated"
+                            logger.info(
+                                f"Marked instance {self.workflow_instance_id} as suspended due to app termination"
+                            )
+
                     self.save_state()
                     logger.debug("Workflow state saved successfully.")
         except Exception as e:

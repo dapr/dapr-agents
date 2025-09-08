@@ -85,14 +85,14 @@ class WorkflowTaskWrapper:
         # Determine task details
         logger.debug(f"WorkflowTaskWrapper: instance type = {type(instance)}")
         logger.debug(f"WorkflowTaskWrapper: instance attributes = {dir(instance)}")
-        if hasattr(instance, 'func'):
+        if hasattr(instance, "func"):
             logger.debug(f"WorkflowTaskWrapper: instance.func = {instance.func}")
         else:
             logger.debug("WorkflowTaskWrapper: instance has no 'func' attribute")
-        
+
         task_name = (
             getattr(instance.func, "__name__", "unknown_task")
-            if hasattr(instance, 'func') and instance.func
+            if hasattr(instance, "func") and instance.func
             else "workflow_task"
         )
         span_kind = self._determine_span_kind(instance, task_name)
@@ -245,7 +245,13 @@ class WorkflowTaskWrapper:
         return attributes
 
     def _handle_async_execution(
-        self, wrapped: Any, instance: Any, args: Any, kwargs: Any, span_name: str, attributes: dict
+        self,
+        wrapped: Any,
+        instance: Any,
+        args: Any,
+        kwargs: Any,
+        span_name: str,
+        attributes: dict,
     ) -> Any:
         """
         Handle asynchronous workflow task execution with OpenTelemetry context restoration.
@@ -276,32 +282,48 @@ class WorkflowTaskWrapper:
                 from ..context_storage import get_workflow_context
 
                 otel_context = get_workflow_context(instance_id)
-                
+
                 # If no context found for specific instance, try global context as fallback
                 if otel_context is None:
-                    logger.debug(f"No context found for instance {instance_id}, trying global context")
+                    logger.debug(
+                        f"No context found for instance {instance_id}, trying global context"
+                    )
                     otel_context = get_workflow_context("__global_workflow_context__")
-                    
+
                     if otel_context:
                         # Store the global context with the specific instance ID for future use
                         from ..context_storage import store_workflow_context
+
                         store_workflow_context(instance_id, otel_context)
                         logger.debug(f"Copied global context to instance {instance_id}")
                     else:
                         # If still no context found (e.g., after app restart), create a new one for resumed workflows
-                        logger.debug(f"No context found for instance {instance_id} - creating new context for resumed workflow")
-                        
+                        logger.debug(
+                            f"No context found for instance {instance_id} - creating new context for resumed workflow"
+                        )
+
                         # Try to get agent name from the task instance
                         agent_name = None
-                        if hasattr(instance, 'agent') and instance.agent and hasattr(instance.agent, 'name'):
+                        if (
+                            hasattr(instance, "agent")
+                            and instance.agent
+                            and hasattr(instance.agent, "name")
+                        ):
                             agent_name = instance.agent.name
-                        elif hasattr(instance, 'func') and instance.func and hasattr(instance.func, '__self__'):
+                        elif (
+                            hasattr(instance, "func")
+                            and instance.func
+                            and hasattr(instance.func, "__self__")
+                        ):
                             agent_instance = instance.func.__self__
-                            if hasattr(agent_instance, 'name'):
+                            if hasattr(agent_instance, "name"):
                                 agent_name = agent_instance.name
-                        
+
                         from ..context_storage import _context_storage
-                        otel_context = _context_storage.create_resumed_workflow_context(instance_id, agent_name)
+
+                        otel_context = _context_storage.create_resumed_workflow_context(
+                            instance_id, agent_name
+                        )
 
             # Create span with restored context if available
             from ..context_propagation import create_child_span_with_context
@@ -348,7 +370,13 @@ class WorkflowTaskWrapper:
         return async_wrapper()
 
     def _handle_sync_execution(
-        self, wrapped: Any, instance: Any, args: Any, kwargs: Any, span_name: str, attributes: dict
+        self,
+        wrapped: Any,
+        instance: Any,
+        args: Any,
+        kwargs: Any,
+        span_name: str,
+        attributes: dict,
     ) -> Any:
         """
         Handle synchronous workflow task execution with OpenTelemetry context restoration.

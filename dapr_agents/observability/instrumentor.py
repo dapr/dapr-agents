@@ -424,28 +424,28 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
             from dapr_agents.workflow.base import WorkflowApp
             from dapr_agents.workflow.task import WorkflowTask
             import wrapt
-            
+
             # Workflow monitoring wrapper - creates AGENT spans
             wrapt.wrap_function_wrapper(
                 WorkflowApp.__module__,
-                f'{WorkflowApp.__name__}.{WorkflowApp.run_and_monitor_workflow_async.__name__}',
-                WorkflowMonitorWrapper(self._tracer)
+                f"{WorkflowApp.__name__}.{WorkflowApp.run_and_monitor_workflow_async.__name__}",
+                WorkflowMonitorWrapper(self._tracer),
             )
-            
+
             # Workflow run wrapper - creates workflow spans
             wrapt.wrap_function_wrapper(
                 WorkflowApp.__module__,
-                f'{WorkflowApp.__name__}.{WorkflowApp.run_workflow.__name__}',
-                WorkflowRunWrapper(self._tracer)
+                f"{WorkflowApp.__name__}.{WorkflowApp.run_workflow.__name__}",
+                WorkflowRunWrapper(self._tracer),
             )
-            
+
             # WorkflowTask call wrapper
             # This ensures child spans (LLM/TOOL) are properly linked to parent AGENT spans,
             # and is necessary due to the async nature of the WorkflowTask.__call__ method.
             wrapt.wrap_function_wrapper(
                 WorkflowTask.__module__,
-                f'{WorkflowTask.__name__}.{WorkflowTask.__call__.__name__}',
-                WorkflowTaskWrapper(self._tracer)
+                f"{WorkflowTask.__name__}.{WorkflowTask.__call__.__name__}",
+                WorkflowTaskWrapper(self._tracer),
             )
         except Exception as e:
             logger.error(f"Error applying workflow wrappers: {e}", exc_info=True)

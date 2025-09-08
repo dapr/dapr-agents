@@ -106,16 +106,16 @@ class StateManagementMixin:
                     raise TypeError(
                         f"Invalid state type retrieved: {type(state_data)}. Expected dict."
                     )
-                
+
                 # Set self.state to the loaded data
                 if self.state_format:
                     loaded_state = self.validate_state(state_data)
                 else:
                     loaded_state = state_data
-                
+
                 self.state = loaded_state
                 logger.debug(f"Set self.state to loaded data: {self.state}")
-                
+
                 return loaded_state
 
             logger.info(
