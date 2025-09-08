@@ -113,9 +113,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         self.register_agentic_system()
         
-        # Don't start the runtime automatically - let it be started when needed
-        # This prevents the workflow from being created automatically
-        logger.info("Workflow runtime will be started when run() is called")
+        # Start the runtime if it's not already running
+        if not self.wf_runtime_is_running:
+            logger.info("Starting workflow runtime...")
+            self.start_runtime()
 
     async def run(self, input_data: Union[str, Dict[str, Any]]) -> Any:
         """
@@ -133,13 +134,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Set up signal handlers for graceful shutdown when using run() method
         self.setup_signal_handlers()
 
-        # Start the runtime if it's not already running
-        if not self.wf_runtime_is_running:
-            logger.info("Starting workflow runtime...")
-            self.start_runtime()
-
         # Check for existing incomplete workflows before starting a new one
-        existing_instance_id = await self._find_incomplete_workflow()
+        existing_instance_id = await self._find_incomplete_workflow(input_data)
         if existing_instance_id:
             logger.info(f"Found existing incomplete workflow: {existing_instance_id}. The workflow runtime will automatically resume it.")
             logger.info("Monitoring the resumed workflow until completion...")
@@ -177,13 +173,17 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             if self.wf_runtime_is_running:
                 self.stop_runtime()
 
-    async def _find_incomplete_workflow(self) -> Optional[str]:
+    async def _find_incomplete_workflow(self, input_data: Union[str, Dict[str, Any]]) -> Optional[str]:
         """
         Find an existing incomplete workflow instance that should be resumed.
         Uses Dapr WorkflowState to determine if workflow is actually complete.
+        Only resumes workflows that match the current input.
         
+        Args:
+            input_data: The input for the new workflow request
+            
         Returns:
-            Optional[str]: The instance ID of an incomplete workflow, or None if none found.
+            Optional[str]: The instance ID of an incomplete workflow with matching input, or None if none found.
         """
         try:
             self.load_state()
@@ -192,15 +192,26 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 logger.debug("No instances found in state")
                 return None
             
+            # Normalize input for comparison
+            if isinstance(input_data, dict):
+                current_input = input_data.get("task", str(input_data))
+            else:
+                current_input = str(input_data)
+            
             for instance_id, instance_data in instances.items():
                 workflow_name = instance_data.get("workflow_name")
                 end_time = instance_data.get("end_time")
+                stored_input = instance_data.get("input", "")
                 
                 # Only consider workflows that match our current workflow name
                 if workflow_name != self._workflow_name:
                     continue
                 
                 if end_time is None:
+                    # Only consider workflows that match the current input
+                    if str(stored_input) != str(current_input):
+                        continue
+                    
                     # Verify the workflow still exists in Dapr and check its actual status
                     # as dapr is our source of truth.
                     try:

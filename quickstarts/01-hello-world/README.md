@@ -158,7 +158,7 @@ dapr init
 Run the assistant agent example to see how to create a stateful agent with persistent memory:
 
 ```bash
-dapr run --app-id stateful-llm --app-port 8001 --dapr-http-port 3500 --resources-path components/ -- python 03_durable_agent.py
+dapr run --app-id stateful-llm --dapr-http-port 3500 --resources-path components/ -- python 03_durable_agent.py
 ```
 
 This example demonstrates a stateful travel planning assistant that:
