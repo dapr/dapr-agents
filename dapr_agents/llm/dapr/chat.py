@@ -14,7 +14,8 @@ from typing import (
     Union,
 )
 
-from dapr.clients.grpc._request import ConversationInput
+# Alpha2 uses message variants; keep alpha1 import removed
+from dapr.clients.grpc import conversation as dapr_conversation
 from pydantic import BaseModel, Field
 
 from dapr_agents.llm.chat import ChatClientBase
@@ -86,17 +87,22 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
 
     def translate_response(self, response: dict, model: str) -> dict:
         """
-        Convert Dapr response into OpenAI-style ChatCompletion dict.
+        Convert Dapr Alpha2 response into OpenAI-style ChatCompletion dict.
         """
-        choices = [
-            {
-                "finish_reason": "stop",
-                "index": idx,
-                "message": {"role": "assistant", "content": out["result"]},
-                "logprobs": None,
-            }
-            for idx, out in enumerate(response.get("outputs", []))
-        ]
+        choices = []
+        outputs = response.get("outputs", []) or []
+        for out in outputs:
+            for ch in out.get("choices", []) or []:
+                msg = ch.get("message", {})
+                finish = ch.get("finish_reason", "stop")
+                choices.append(
+                    {
+                        "finish_reason": finish,
+                        "index": len(choices),
+                        "message": msg,
+                        "logprobs": None,
+                    }
+                )
         return {
             "choices": choices,
             "created": int(time.time()),
@@ -105,20 +111,64 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             "usage": {"total_tokens": "-1"},
         }
 
-    def convert_to_conversation_inputs(
-        self, inputs: List[Dict[str, Any]]
-    ) -> List[ConversationInput]:
+    def _to_alpha2_messages(self, inputs: List[Dict[str, Any]]) -> List[dapr_conversation.ConversationInputAlpha2]:
         """
-        Map normalized messages into Dapr ConversationInput objects.
+        Convert normalized messages into a single Alpha2 conversation input containing
+        a sequence of message variants (system/user/assistant/tool).
         """
-        return [
-            ConversationInput(
-                content=item["content"],
-                role=item.get("role"),
-                scrub_pii=bool(item.get("scrubPII")),
-            )
-            for item in inputs
-        ]
+        alpha2_messages: List[Any] = []
+        for item in inputs:
+            role = item.get("role")
+            content = item.get("content")
+            if role == "system":
+                alpha2_messages.append(dapr_conversation.create_system_message(content))
+            elif role == "user":
+                alpha2_messages.append(dapr_conversation.create_user_message(content))
+            elif role == "assistant":
+                # Support assistant with tool_calls when present (Alpha2 requires this for tool responses)
+                tool_calls_src = item.get("tool_calls") or []
+                if tool_calls_src:
+                    tool_calls = []
+                    for tc in tool_calls_src:
+                        fn = (tc or {}).get("function", {})
+                        tool_calls.append(
+                            dapr_conversation.ConversationToolCalls(
+                                id=(tc or {}).get("id", ""),
+                                function=dapr_conversation.ConversationToolCallsOfFunction(
+                                    name=fn.get("name", ""),
+                                    arguments=fn.get("arguments", ""),
+                                ),
+                            )
+                        )
+                    alpha2_messages.append(
+                        dapr_conversation.ConversationMessage(
+                            of_assistant=dapr_conversation.ConversationMessageOfAssistant(
+                                content=[
+                                    dapr_conversation.ConversationMessageContent(text=content)
+                                ]
+                                if content
+                                else [],
+                                tool_calls=tool_calls,
+                            )
+                        )
+                    )
+                else:
+                    alpha2_messages.append(dapr_conversation.create_assistant_message(content))
+            elif role == "tool":
+                tool_call_id = item.get("tool_call_id") or ""
+                tool_name = item.get("name") or "tool"
+                alpha2_messages.append(
+                    dapr_conversation.create_tool_message(
+                        tool_id=tool_call_id,
+                        name=tool_name,
+                        content=content,
+                    )
+                )
+            else:
+                # default to user if unknown
+                alpha2_messages.append(dapr_conversation.create_user_message(content))
+
+        return [dapr_conversation.ConversationInputAlpha2(messages=alpha2_messages)]
 
     def generate(
         self,
@@ -205,23 +255,25 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             structured_mode=structured_mode,
         )
 
-        # 6) Convert to Dapr inputs & call
-        conv_inputs = self.convert_to_conversation_inputs(params["inputs"])
+        # 6) Build Alpha2 inputs and call the Alpha2 API with tools
+        alpha2_inputs = self._to_alpha2_messages(params["inputs"])
         try:
-            logger.info("Invoking the Dapr Conversation API.")
-            raw = self.client.chat_completion(
+            logger.info("Invoking the Dapr Conversation API (Alpha2).")
+            raw = self.client.chat_completion_alpha2(
                 llm=llm_component or self._llm_component,
-                conversation_inputs=conv_inputs,
+                inputs=alpha2_inputs,
                 scrub_pii=scrubPII,
                 temperature=temperature,
+                tools=params.get("tools"),
+                tool_choice=params.get("tool_choice"),
             )
             normalized = self.translate_response(
                 raw, llm_component or self._llm_component
             )
-            logger.info("Chat completion retrieved successfully.")
+            logger.info("Chat completion (Alpha2) retrieved successfully.")
         except Exception as e:
             logger.error(
-                f"An error occurred during the Dapr Conversation API call: {e}"
+                f"An error occurred during the Dapr Conversation Alpha2 API call: {e}"
             )
             raise
 

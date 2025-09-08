@@ -1,0 +1,13 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: openai
+spec:
+  type: llm.openai
+  version: v1
+  metadata:
+    - name: apiKey
+      secretKeyRef:
+        name: openai_api_key
+        key: OPENAI_API_KEY
+
