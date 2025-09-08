@@ -26,5 +26,3 @@ def jump(distance: str) -> str:
 
 
 tools = [get_weather, jump]
-
-

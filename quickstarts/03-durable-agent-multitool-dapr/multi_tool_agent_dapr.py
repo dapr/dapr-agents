@@ -27,10 +27,10 @@ async def main():
             "Use web search for general facts when asked.",
             "Use the weather tool for location-based weather.",
         ],
-        message_bus_name="pubsub",#messagepubsub",
-        state_store_name="statestore",#workflowstatestore",
+        message_bus_name="pubsub",  # messagepubsub",
+        state_store_name="statestore",  # workflowstatestore",
         state_key="workflow_state",
-        agents_registry_store_name="statestore",#workflowstatestore",
+        agents_registry_store_name="statestore",  # workflowstatestore",
         agents_registry_key="agents_registry",
         tools=tools,
         llm=DaprChatClient(),
@@ -47,5 +47,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-

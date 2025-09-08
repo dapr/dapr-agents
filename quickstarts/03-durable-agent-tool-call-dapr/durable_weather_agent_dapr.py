@@ -22,10 +22,10 @@ async def main():
             "Respond clearly and helpfully to weather-related questions.",
             "Use tools when appropriate to fetch weather data.",
         ],
-        message_bus_name="pubsub",#"messagepubsub",
-        state_store_name="statestore",#"workflowstatestore",
+        message_bus_name="pubsub",  # "messagepubsub",
+        state_store_name="statestore",  # "workflowstatestore",
         state_key="workflow_state",
-        agents_registry_store_name="statestore",#"workflowstatestore",
+        agents_registry_store_name="statestore",  # "workflowstatestore",
         agents_registry_key="agents_registry",
         tools=tools,
         llm=DaprChatClient(),
@@ -36,5 +36,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-

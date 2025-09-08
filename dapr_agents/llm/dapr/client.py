@@ -112,7 +112,11 @@ class DaprInferenceClient:
                         "message": {
                             "role": "assistant",
                             "content": content,
-                            **({"tool_calls": tool_calls_json} if tool_calls_json else {}),
+                            **(
+                                {"tool_calls": tool_calls_json}
+                                if tool_calls_json
+                                else {}
+                            ),
                         },
                         "finish_reason": "stop",
                     }

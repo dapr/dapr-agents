@@ -88,5 +88,3 @@ def web_search(query: str, limit: int = 3) -> List[str]:
 
 
 tools = [get_weather, calculate, web_search]
-
-

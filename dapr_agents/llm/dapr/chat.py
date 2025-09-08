@@ -111,7 +111,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             "usage": {"total_tokens": "-1"},
         }
 
-    def _to_alpha2_messages(self, inputs: List[Dict[str, Any]]) -> List[dapr_conversation.ConversationInputAlpha2]:
+    def _to_alpha2_messages(
+        self, inputs: List[Dict[str, Any]]
+    ) -> List[dapr_conversation.ConversationInputAlpha2]:
         """
         Convert normalized messages into a single Alpha2 conversation input containing
         a sequence of message variants (system/user/assistant/tool).
@@ -144,7 +146,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                         dapr_conversation.ConversationMessage(
                             of_assistant=dapr_conversation.ConversationMessageOfAssistant(
                                 content=[
-                                    dapr_conversation.ConversationMessageContent(text=content)
+                                    dapr_conversation.ConversationMessageContent(
+                                        text=content
+                                    )
                                 ]
                                 if content
                                 else [],
@@ -153,7 +157,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                         )
                     )
                 else:
-                    alpha2_messages.append(dapr_conversation.create_assistant_message(content))
+                    alpha2_messages.append(
+                        dapr_conversation.create_assistant_message(content)
+                    )
             elif role == "tool":
                 tool_call_id = item.get("tool_call_id") or ""
                 tool_name = item.get("name") or "tool"
