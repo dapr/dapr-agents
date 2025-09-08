@@ -149,7 +149,7 @@ class ServiceMixin(SignalHandlingMixin):
                             "messages": [],
                             "start_time": datetime.now(timezone.utc).isoformat(),
                             "source": "graceful_shutdown",
-                            "source_workflow_instance_id": None,
+                            "triggering_workflow_instance_id": None,
                             "workflow_name": getattr(self, "_workflow_name", "Unknown"),
                             "dapr_status": DaprWorkflowStatus.PENDING,
                             "suspended_reason": "app_terminated",

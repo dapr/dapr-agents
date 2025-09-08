@@ -164,7 +164,7 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     workflow_entry = DurableAgentWorkflowEntry(
         input="What is 2 plus 2?",
         source=None,
-        source_workflow_instance_id=None,
+        triggering_workflow_instance_id=None,
     )
     durable_agent_with_mcp_tool.state["instances"] = {instance_id: workflow_entry}
 
@@ -263,7 +263,7 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
     workflow_entry = DurableAgentWorkflowEntry(
         input="What is 2 plus 2?",
         source=None,
-        source_workflow_instance_id=None,
+        triggering_workflow_instance_id=None,
     )
     agent.state["instances"] = {instance_id: workflow_entry}
     # Print available tool names

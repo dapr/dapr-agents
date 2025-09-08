@@ -587,7 +587,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         #     "messages": [],
         #     "start_time": datetime.now(timezone.utc).isoformat(),
         #     "source": "workflow_start",
-        #     "source_workflow_instance_id": None,
+        #     "triggering_workflow_instance_id": None,
         #     "workflow_name": self._workflow_name,
         #     "dapr_status": "RUNNING",
         #     "suspended_reason": None
@@ -597,7 +597,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         # return {
         #     "source": minimal_entry.get("source"),
-        #     "source_workflow_instance_id": minimal_entry.get("source_workflow_instance_id"),
+        #     "triggering_workflow_instance_id": minimal_entry.get("source_workflow_instance_id"),
         # }
 
     @task
