@@ -162,7 +162,7 @@ def to_function_call_definition(
     fmt = format_type.lower()
 
     # OpenAI‑style wrapper schema:
-    if fmt in ("openai", "nvidia", "huggingface", "dapr"):
+    if fmt in ("openai", "nvidia", "huggingface"):
         return to_openai_function_call_definition(
             name, description, args_schema, use_deprecated
         )

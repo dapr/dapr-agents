@@ -8,4 +8,5 @@ spec:
   metadata:
     - name: redisHost
       value: localhost:6379
-
+    - name: actorStateStore
+      value: "true"

@@ -14,8 +14,18 @@ from typing import (
     Union,
 )
 
-# Alpha2 uses message variants; keep alpha1 import removed
-from dapr.clients.grpc import conversation as dapr_conversation
+from dapr.clients.grpc.conversation import (
+    ConversationInputAlpha2,
+    ConversationMessage,
+    ConversationMessageOfAssistant,
+    ConversationMessageContent,
+    ConversationToolCalls,
+    ConversationToolCallsOfFunction,
+    create_user_message,
+    create_system_message,
+    create_assistant_message,
+    create_tool_message,
+)
 from pydantic import BaseModel, Field
 
 from dapr_agents.llm.chat import ChatClientBase
@@ -89,20 +99,11 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         """
         Convert Dapr Alpha2 response into OpenAI-style ChatCompletion dict.
         """
-        choices = []
-        outputs = response.get("outputs", []) or []
-        for out in outputs:
-            for ch in out.get("choices", []) or []:
-                msg = ch.get("message", {})
-                finish = ch.get("finish_reason", "stop")
-                choices.append(
-                    {
-                        "finish_reason": finish,
-                        "index": len(choices),
-                        "message": msg,
-                        "logprobs": None,
-                    }
-                )
+        # Flatten all output choices from Alpha2 envelope
+        choices: List[Dict[str, Any]] = []
+        for output in response.get("outputs", []) or []:
+            for choice in output.get("choices", []) or []:
+                choices.append(choice)
         return {
             "choices": choices,
             "created": int(time.time()),
@@ -111,70 +112,73 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             "usage": {"total_tokens": "-1"},
         }
 
-    def _to_alpha2_messages(
+    def convert_to_conversation_inputs(
         self, inputs: List[Dict[str, Any]]
-    ) -> List[dapr_conversation.ConversationInputAlpha2]:
+    ) -> List[ConversationInputAlpha2]:
         """
-        Convert normalized messages into a single Alpha2 conversation input containing
-        a sequence of message variants (system/user/assistant/tool).
+        Map normalized messages into a single Alpha2 ConversationInput that preserves history.
+
+        Alpha2 expects a list of ConversationMessage entries inside one ConversationInputAlpha2
+        for a turn. If there are tool results, they must reference prior assistant tool_calls by id.
         """
-        alpha2_messages: List[Any] = []
+        history_messages: List[Any] = []
+        scrub_flags: List[bool] = []
+
         for item in inputs:
             role = item.get("role")
-            content = item.get("content")
-            if role == "system":
-                alpha2_messages.append(dapr_conversation.create_system_message(content))
-            elif role == "user":
-                alpha2_messages.append(dapr_conversation.create_user_message(content))
+            content = item.get("content", "")
+
+            if role == "user":
+                msg = create_user_message(content)
+            elif role == "system":
+                msg = create_system_message(content)
             elif role == "assistant":
-                # Support assistant with tool_calls when present (Alpha2 requires this for tool responses)
-                tool_calls_src = item.get("tool_calls") or []
-                if tool_calls_src:
-                    tool_calls = []
-                    for tc in tool_calls_src:
-                        fn = (tc or {}).get("function", {})
-                        tool_calls.append(
-                            dapr_conversation.ConversationToolCalls(
-                                id=(tc or {}).get("id", ""),
-                                function=dapr_conversation.ConversationToolCallsOfFunction(
-                                    name=fn.get("name", ""),
-                                    arguments=fn.get("arguments", ""),
+                # Preserve assistant tool_calls if present (OpenAI-like schema)
+                tool_calls_data = item.get("tool_calls") or []
+                if tool_calls_data:
+                    converted_calls: List[ConversationToolCalls] = []
+                    for tc in tool_calls_data:
+                        fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+                        name = fn.get("name", "")
+                        arguments = fn.get("arguments", "")
+                        # Ensure arguments is a string
+                        if not isinstance(arguments, str):
+                            try:
+                                import json as _json
+
+                                arguments = _json.dumps(arguments)
+                            except Exception:
+                                arguments = str(arguments)
+                        converted_calls.append(
+                            ConversationToolCalls(
+                                id=tc.get("id", None),
+                                function=ConversationToolCallsOfFunction(
+                                    name=name, arguments=arguments
                                 ),
                             )
                         )
-                    alpha2_messages.append(
-                        dapr_conversation.ConversationMessage(
-                            of_assistant=dapr_conversation.ConversationMessageOfAssistant(
-                                content=[
-                                    dapr_conversation.ConversationMessageContent(
-                                        text=content
-                                    )
-                                ]
-                                if content
-                                else [],
-                                tool_calls=tool_calls,
-                            )
+                    msg = ConversationMessage(
+                        of_assistant=ConversationMessageOfAssistant(
+                            content=[ConversationMessageContent(text=content)],
+                            tool_calls=converted_calls,
                         )
                     )
                 else:
-                    alpha2_messages.append(
-                        dapr_conversation.create_assistant_message(content)
-                    )
+                    msg = create_assistant_message(content)
             elif role == "tool":
-                tool_call_id = item.get("tool_call_id") or ""
-                tool_name = item.get("name") or "tool"
-                alpha2_messages.append(
-                    dapr_conversation.create_tool_message(
-                        tool_id=tool_call_id,
-                        name=tool_name,
-                        content=content,
-                    )
-                )
+                tool_id = item.get("tool_call_id") or item.get("id") or ""
+                name = item.get("name", "")
+                msg = create_tool_message(tool_id, name, content)
             else:
-                # default to user if unknown
-                alpha2_messages.append(dapr_conversation.create_user_message(content))
+                raise ValueError(f"Unsupported role for Alpha2 conversion: {role}")
 
-        return [dapr_conversation.ConversationInputAlpha2(messages=alpha2_messages)]
+            history_messages.append(msg)
+            scrub_flags.append(bool(item.get("scrubPII")))
+
+        # Use scrub_pii if any message requested it
+        scrub_any = any(scrub_flags) if scrub_flags else None
+
+        return [ConversationInputAlpha2(messages=history_messages, scrub_pii=scrub_any)]
 
     def generate(
         self,
@@ -261,25 +265,42 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             structured_mode=structured_mode,
         )
 
-        # 6) Build Alpha2 inputs and call the Alpha2 API with tools
-        alpha2_inputs = self._to_alpha2_messages(params["inputs"])
+        # 6) Convert to Dapr inputs & call
+        conv_inputs = self.convert_to_conversation_inputs(params["inputs"])
         try:
-            logger.info("Invoking the Dapr Conversation API (Alpha2).")
+            logger.info("Invoking the Dapr Conversation API.")
+            # Log tools/tool_choice/parameters for debugging
+            if params.get("tools"):
+                try:
+                    logger.info(
+                        f"Alpha2 tools payload: {[t.get('function', {}).get('name', '') for t in params['tools'] if isinstance(t, dict)]}"
+                    )
+                except Exception:
+                    logger.info(
+                        "Alpha2 tools payload present (could not render names)."
+                    )
+            if params.get("tool_choice") is not None:
+                logger.info(f"Alpha2 tool_choice: {params.get('tool_choice')}")
+            if params.get("parameters") is not None:
+                logger.info(
+                    f"Alpha2 parameters keys: {list(params.get('parameters', {}).keys())}"
+                )
             raw = self.client.chat_completion_alpha2(
                 llm=llm_component or self._llm_component,
-                inputs=alpha2_inputs,
+                inputs=conv_inputs,
                 scrub_pii=scrubPII,
                 temperature=temperature,
                 tools=params.get("tools"),
                 tool_choice=params.get("tool_choice"),
+                parameters=params.get("parameters"),
             )
             normalized = self.translate_response(
                 raw, llm_component or self._llm_component
             )
-            logger.info("Chat completion (Alpha2) retrieved successfully.")
+            logger.info("Chat completion retrieved successfully.")
         except Exception as e:
             logger.error(
-                f"An error occurred during the Dapr Conversation Alpha2 API call: {e}"
+                f"An error occurred during the Dapr Conversation API call: {e}"
             )
             raise
 

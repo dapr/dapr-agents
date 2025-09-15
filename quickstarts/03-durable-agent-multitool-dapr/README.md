@@ -1,28 +1,34 @@
-# Durable Agent Multi-Tool with Dapr LLM (Alpha2)
+# Durable Agent Tool Call with Dapr LLM (Alpha2)
 
-This quickstart demonstrates a Durable Agent that may call multiple tools (weather, calculator, web search) using Dapr Conversation API Alpha2 with tool-calling.
+This quickstart mirrors `03-durable-agent-multitool-call/` but uses the Dapr Conversation API Alpha2 as the LLM provider with tool calling.
+It tests the Durable Agent with multiple tools using the Dapr Conversation API Alpha2.
 
-## Setup
+## Prerequisites
+- Python 3.10+
+- [uv package manager](https://docs.astral.sh/uv/getting-started/installation/)
+- Dapr CLI [installed and initialized](https://docs.dapr.io/getting-started/install-dapr-cli/#step-1-install-the-dapr-cli)
+
+## Setup using uv
 ```bash
-python -m venv .venv
+uv venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
-
-Set environment for your Dapr sidecar and LLM component:
-```bash
-export DAPR_HTTP_PORT=3500
-export DAPR_GRPC_PORT=56178
-export DAPR_LLM_COMPONENT_DEFAULT=openai   # or google
-```
-
-Optionally set API keys for your chosen LLM component (e.g., OPENAI_API_KEY).
 
 ## Run
 ```bash
-python multi_tool_agent_dapr.py
+dapr run --app-id durablemultitoolapp \
+  --resources-path ./components \
+  -- source .venv/bin/activate && python multi_tool_agent_dapr.py
 ```
 
-The agent will orchestrate tool calls to answer a multi-step query.
+## Files
+- `multi_tool_agent_dapr.py`: Durable agent using `llm_provider="dapr"`
+- `multi_tools.py`: sample tools
+- `components/`: Dapr components for LLM and state/pubsub
+
+Notes:
+- Alpha2 currently does not support streaming; this example is non-streaming.
+- Tool calling is enabled via Alpha2 `converse_alpha2` under the hood.
 
 
