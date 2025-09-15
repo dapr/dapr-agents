@@ -140,3 +140,12 @@ tox -e type
    ```
 
 6. Submit your changes
+
+## Design/Behavioral Decisions
+
+### DurableAgent Durability
+   Scenarios:
+   1. every time we run the same app instance any inflight workflow will be resumed.
+   1.1 caveat here is wf will continue but you will not get the result.
+   2. every time i have a .run() or invoke new workflow via curl or pubsub then a new workflow instance id will be created. If there is an inflight workflow already then it will be resumed, and the new one will be created.
+   3. Trace ID = workflow ID and make the tracing pick up from where it left off.

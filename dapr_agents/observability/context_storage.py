@@ -96,7 +96,7 @@ class WorkflowContextStorage:
             return context
 
     def create_resumed_workflow_context(
-        self, instance_id: str, agent_name: Optional[str] = None
+        self, instance_id: str, agent_name: Optional[str] = None, stored_trace_context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Create a new trace context for a resumed workflow after app restart.
@@ -235,6 +235,20 @@ def get_workflow_context(instance_id: str) -> Optional[Dict[str, Any]]:
                                  for creating child spans, or None if not found
     """
     return _context_storage.get_context(instance_id)
+
+
+def get_all_workflow_contexts() -> Dict[str, Dict[str, Any]]:
+    """
+    Retrieve all stored OpenTelemetry contexts from the global storage.
+
+    Used for debugging and fallback context lookup when instance-specific
+    context retrieval fails due to timing issues.
+
+    Returns:
+        Dict[str, Dict[str, Any]]: All stored contexts keyed by instance_id/key
+    """
+    with _context_storage._lock:
+        return dict(_context_storage._storage)
 
 
 def cleanup_workflow_context(instance_id: str) -> None:

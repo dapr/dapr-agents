@@ -191,6 +191,7 @@ def create_child_span_with_context(
         Span context manager that can be used in 'with' statements for proper
         span lifecycle management with restored parent-child relationships
     """
+    # Try to restore context from W3C format first
     parent_ctx = restore_otel_context(otel_context)
 
     if parent_ctx:
@@ -198,4 +199,11 @@ def create_child_span_with_context(
             span_name, context=parent_ctx, attributes=attributes
         )
     else:
-        return tracer.start_as_current_span(span_name, attributes=attributes)
+        # Fallback: try to use current active span as parent
+        current_span = trace.get_current_span()
+        if current_span and current_span.is_recording():
+            # Use current span as parent by creating a child span
+            return tracer.start_as_current_span(span_name, attributes=attributes)
+        else:
+            # Last resort: create root span
+            return tracer.start_as_current_span(span_name, attributes=attributes)

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # Workflow Run Wrapper
 # ============================================================================
-
+# Note: We pass instance id as part of the inputs to the workflow so that the workflow tasks can find the proper parent AGENT span context
 
 class WorkflowRunWrapper:
     """
@@ -74,7 +74,9 @@ class WorkflowRunWrapper:
         if context_api and context_api.get_value(
             context_api._SUPPRESS_INSTRUMENTATION_KEY
         ):
-            return wrapped(instance, *args, **kwargs)
+            logger.debug("Instrumentation suppressed, skipping span creation")
+            bound_method = wrapped.__get__(instance, type(instance))
+            return bound_method(*args, **kwargs)
 
         # Extract arguments
         arguments = bind_arguments(wrapped, *args, **kwargs)
@@ -84,30 +86,69 @@ class WorkflowRunWrapper:
         workflow_name = (
             workflow
             if isinstance(workflow, str)
-            else getattr(workflow, "__name__", "unknown_workflow")
+            else getattr(instance, "_workflow_name", "unknown_workflow")
         )
+        logger.debug(f"Extracted workflow_name: {workflow_name}")
 
         # Build span attributes
         attributes = self._build_workflow_attributes(instance, workflow_name, arguments)
 
-        # Debug logging to confirm wrapper is being called
-        logger.debug(
-            f"🔍 WorkflowRunWrapper creating AGENT span for workflow: {workflow_name}"
-        )
-
         # Create AGENT span (this IS the agent execution for workflow-based agents)
-        span_name = f"Agent.{workflow_name}"
+        agent_name = getattr(instance, "name", instance.__class__.__name__)
+        span_name = f"{agent_name}.{workflow_name}"
+        logger.debug(f"Creating AGENT span: {span_name}")
 
         with self._tracer.start_as_current_span(
             span_name, attributes=attributes
         ) as span:
+            logger.debug(f"Span context: {span.get_span_context()}")
+            
+            # Execute the workflow start first to get instance_id
+            bound_method = wrapped.__get__(instance, type(instance))
+            instance_id = bound_method(*args, **kwargs)
+            
+            if instance_id:
+                span.set_attribute("workflow.instance_id", instance_id)
+                logger.debug(f"Added workflow.instance_id attribute: {instance_id}")
+            
+            # Store span context for workflow tasks to find
+            try:
+                from ..context_propagation import extract_otel_context
+                from ..context_storage import store_workflow_context
+                
+                # Extract current context from the AGENT span
+                current_context = extract_otel_context()
+                if current_context.get("traceparent"):
+                    # Store the span ID for workflow tasks to use as parent
+                    span_id = span.get_span_context().span_id
+                    trace_id = span.get_span_context().trace_id
+                    span_context = {
+                        "trace_id": format(trace_id, '032x'),  # Convert to 32-char hex string
+                        "span_id": format(span_id, '016x'),    # Convert to 16-char hex string
+                        "traceparent": current_context.get("traceparent"),
+                        "tracestate": current_context.get("tracestate", "")
+                    }
+                    
+                    # Store ONLY instance-specific context to prevent cross-instance contamination upon app restarts
+                    # that creates new workflow instances
+                    if instance_id:
+                        store_workflow_context(f"__workflow_context_{instance_id}__", span_context)
+                        logger.debug(f"Stored Agent span context for instance {instance_id}: trace_id={format(trace_id, '032x')}, span_id={format(span_id, '016x')}")
+                    else:
+                        logger.warning("No instance_id available, cannot store instance-specific context")
+                else:
+                    logger.warning("No traceparent found in AGENT span context")
+            except Exception as e:
+                logger.warning(f"Failed to store span context: {e}")
+            
             # Debug logging to confirm span creation
             logger.debug(f"✅ Created AGENT span: {span_name}")
             logger.debug(f"📋 Span context: {span.get_span_context()}")
 
             try:
                 # Execute the workflow start
-                instance_id = wrapped(*args, **kwargs)
+                bound_method = wrapped.__get__(instance, type(instance))
+                instance_id = bound_method(*args, **kwargs)
 
                 # Set output attributes
                 span.set_attribute(
@@ -116,13 +157,12 @@ class WorkflowRunWrapper:
                 span.set_attribute("workflow.instance_id", instance_id)
 
                 span.set_status(Status(StatusCode.OK))
-                logger.debug(f"🎯 AGENT span completed successfully: {span_name}")
                 return instance_id
 
             except Exception as e:
                 span.set_status(Status(StatusCode.ERROR, str(e)))
                 span.record_exception(e)
-                logger.error(f"❌ AGENT span failed: {span_name} - {e}")
+                logger.error(f"AGENT span failed: {span_name} - {e}")
                 raise
 
     def _build_workflow_attributes(
@@ -200,6 +240,7 @@ class WorkflowMonitorWrapper:
         self._tracer = tracer
 
     def __call__(self, wrapped: Any, instance: Any, args: Any, kwargs: Any) -> Any:
+        logger.debug(f"WorkflowMonitorWrapper.__call__ triggered with wrapped={wrapped.__name__}, instance={instance.__class__.__name__}")
         """
         Wrap WorkflowApp.run_and_monitor_workflow_async with AGENT span tracing.
 
@@ -219,14 +260,25 @@ class WorkflowMonitorWrapper:
         if context_api and context_api.get_value(
             context_api._SUPPRESS_INSTRUMENTATION_KEY
         ):
-            return wrapped(instance, *args, **kwargs)
+            bound_method = wrapped.__get__(instance, type(instance))
+            return bound_method(*args, **kwargs)
+
+        # Always create AGENT span for workflow execution
+        from opentelemetry import trace
+        logger.debug(f"WorkflowMonitorWrapper called - creating AGENT span for args: {args}, kwargs: {kwargs}")
 
         workflow_name = self._extract_workflow_name(args, kwargs)
         # Extract agent name from the instance
         agent_name = getattr(instance, "name", "DurableAgent")
+        logger.debug(f"Agent name: {agent_name}, Workflow name: {workflow_name}")
+        
         attributes = self._build_workflow_attributes(
             workflow_name, agent_name, args, kwargs
         )
+
+        # Create Agent span immediately - this will establish the trace context
+        # The Agent span will be the parent of all workflow tasks
+        logger.debug("Creating AGENT span for workflow execution")
 
         # Handle async vs sync execution
         if asyncio.iscoroutinefunction(wrapped):
@@ -249,6 +301,9 @@ class WorkflowMonitorWrapper:
         Returns:
             str: Workflow name
         """
+        # Debug logging
+        logger.debug(f"_extract_workflow_name: args={args}, kwargs={kwargs}")
+        
         if args and len(args) > 0:
             workflow = args[0]
         else:
@@ -258,9 +313,8 @@ class WorkflowMonitorWrapper:
         workflow_name = (
             workflow
             if isinstance(workflow, str)
-            else getattr(workflow, "__name__", "unknown_workflow")
+            else getattr(workflow, "__name__", "ToolCallingWorkflow")
         )
-
         return workflow_name
 
     def _build_workflow_attributes(
@@ -303,6 +357,36 @@ class WorkflowMonitorWrapper:
 
         return attributes
 
+    def _store_context_in_workflow_state(self, instance_id: str, context: Dict[str, Any]) -> None:
+        """
+        Store OpenTelemetry context in workflow state for persistence across app restarts.
+        
+        This method stores the context in the DurableAgent's workflow state so it persists
+        across app restarts and can be retrieved by workflow tasks when they resume.
+        
+        Args:
+            instance_id: Workflow instance ID
+            context: OpenTelemetry context data
+        """
+        try:
+            # Import here to avoid circular imports
+            from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
+            
+            # This is a simplified approach - in practice, you'd need to access
+            # the actual workflow state through the Dapr Workflow runtime
+            # For now, we'll store it in the in-memory storage as a fallback
+            # but with a key that indicates it should be persisted
+            from ..context_storage import store_workflow_context
+            
+            # Store with a special prefix to indicate it should be persisted
+            persistent_key = f"__persistent_context_{instance_id}__"
+            store_workflow_context(persistent_key, context)
+            
+            logger.debug(f"Stored context for persistence: {persistent_key}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to store context in workflow state: {e}")
+
     def _handle_async_execution(
         self,
         wrapped: Any,
@@ -327,8 +411,8 @@ class WorkflowMonitorWrapper:
             Coroutine: Async wrapper function for execution
         """
 
-        async def async_wrapper():
-            span_name = f"Agent.{workflow_name}"
+        async def async_wrapper(*wrapper_args, **wrapper_kwargs):
+            span_name = f"{agent_name}.{workflow_name}"
 
             # Debug logging to confirm span creation
             logger.debug(f"Creating AGENT span: {span_name}")
@@ -336,32 +420,61 @@ class WorkflowMonitorWrapper:
             with self._tracer.start_as_current_span(
                 span_name, attributes=attributes
             ) as span:
+                # Store context immediately when AGENT span is created
+                # This ensures workflow tasks can find it during execution
                 try:
                     from ..context_propagation import extract_otel_context
                     from ..context_storage import store_workflow_context
-
-                    captured_context = extract_otel_context()
-                    if (
-                        captured_context.get("traceparent")
-                        and captured_context.get("trace_id")
-                        != "00000000000000000000000000000000"
-                    ):
-                        logger.debug(
-                            f"Captured traceparent: {captured_context.get('traceparent')}"
-                        )
-                        store_workflow_context(
-                            "__global_workflow_context__", captured_context
-                        )
+                    
+                    # Extract current context from the AGENT span
+                    current_context = extract_otel_context()
+                    if current_context.get("traceparent"):
+                        # Store the span ID for workflow tasks to use as parent
+                        span_id = span.get_span_context().span_id
+                        trace_id = span.get_span_context().trace_id
+                        span_context = {
+                            "trace_id": format(trace_id, '032x'),  # Convert to 32-char hex string
+                            "span_id": format(span_id, '016x'),    # Convert to 16-char hex string
+                            "traceparent": current_context.get("traceparent"),
+                            "tracestate": current_context.get("tracestate", "")
+                        }
+                        
+                        # Pass span context through workflow input instead of temporary storage
+                        # This eliminates the need for temporary keys and prevents conflicts
+                        logger.debug(f"AGENT span created with trace_id={format(trace_id, '032x')}, span_id={format(span_id, '016x')}")
+                        logger.debug(f"Will pass span context through workflow input to avoid temporary key conflicts")
                     else:
-                        logger.debug(
-                            f"Invalid or empty trace context captured: {captured_context}"
-                        )
+                        logger.warning("No traceparent found in AGENT span context")
+                        span_context = None
                 except Exception as e:
-                    logger.warning(f"Failed to capture/store workflow context: {e}")
+                    logger.warning(f"Failed to extract span context: {e}")
+                    span_context = None
 
                 try:
+                    # Inject span context into workflow input to avoid temporary storage
+                    modified_kwargs = dict(kwargs)
+                    if span_context and "input" in modified_kwargs and isinstance(modified_kwargs["input"], dict):
+                        # Add span context to workflow input
+                        modified_kwargs["input"]["_otel_span_context"] = span_context
+                        logger.debug(f"Injected span context into workflow input")
+                    
                     # Execute workflow and get result
-                    result = await wrapped(*args, **kwargs)
+                    bound_method = wrapped.__get__(instance, type(instance))
+                    result = await bound_method(*args, **modified_kwargs)
+
+                    # Store context with instance ID for workflow tasks to find
+                    if span_context:
+                        try:
+                            # Try to extract instance ID from result if it's a dict with instance_id
+                            if isinstance(result, dict) and "instance_id" in result:
+                                instance_id = result["instance_id"]
+                                # Store instance-specific context for workflow tasks
+                                store_workflow_context(f"__workflow_context_{instance_id}__", span_context)
+                                logger.debug(f"Stored Agent span context for instance {instance_id}")
+                            else:
+                                logger.warning("No instance_id in result, cannot store instance-specific context")
+                        except Exception as e:
+                            logger.warning(f"Failed to store instance-specific context: {e}")
 
                     # Set output attributes - handle both string and object results consistently
                     if isinstance(result, str):
@@ -381,7 +494,7 @@ class WorkflowMonitorWrapper:
                     logger.error(f"AGENT span failed: {span_name} - {e}")
                     raise
 
-        return async_wrapper()
+        return async_wrapper(*args, **kwargs)
 
     def _handle_sync_execution(
         self,
@@ -406,17 +519,62 @@ class WorkflowMonitorWrapper:
         Returns:
             Any: Result from wrapped method execution
         """
-        span_name = f"Agent.{workflow_name}"
-
-        # Debug logging to confirm span creation
+        span_name = f"{agent_name}.{workflow_name}"
         logger.debug(f"Creating AGENT span: {span_name}")
 
         with self._tracer.start_as_current_span(
             span_name, attributes=attributes
         ) as span:
+            # Store context immediately when AGENT span is created
+            # This ensures workflow tasks can find it during execution
+            try:
+                from ..context_propagation import extract_otel_context
+                from ..context_storage import store_workflow_context
+                
+                # Extract current context from the AGENT span
+                current_context = extract_otel_context()
+                if current_context.get("traceparent"):
+                    # Store the span ID for workflow tasks to use as parent
+                    span_id = span.get_span_context().span_id
+                    trace_id = span.get_span_context().trace_id
+                    span_context = {
+                        "trace_id": format(trace_id, '032x'),  # Convert to 32-char hex string
+                        "span_id": format(span_id, '016x'),    # Convert to 16-char hex string
+                        "traceparent": current_context.get("traceparent"),
+                        "tracestate": current_context.get("tracestate", "")
+                    }
+                    
+                    # Store immediately with temporary key based on workflow input hash
+                    # This allows WorkflowTask spans to find it during execution
+                    import hashlib
+                    input_hash = hashlib.md5(str(args + tuple(kwargs.items())).encode()).hexdigest()[:8]
+                    temp_key = f"__workflow_context_temp_{input_hash}_{format(span_id, '016x')}__"
+                    store_workflow_context(temp_key, span_context)  
+                    logger.debug(f"AGENT span created with trace_id={format(trace_id, '032x')}, span_id={format(span_id, '016x')}")
+                else:
+                    logger.warning("No traceparent found in AGENT span context")
+                    span_context = None
+            except Exception as e:
+                logger.warning(f"Failed to extract span context: {e}")
+                span_context = None
+
             try:
                 # Execute workflow and get result
-                result = wrapped(instance, *args, **kwargs)
+                bound_method = wrapped.__get__(instance, type(instance))
+                result = bound_method(*args, **kwargs)
+
+                # Store context with instance ID for workflow tasks to find
+                if span_context:
+                    try:
+                        # Try to extract instance ID from result if it's a dict with instance_id
+                        if isinstance(result, dict) and "instance_id" in result:
+                            instance_id = result["instance_id"]
+                            # Store instance-specific context for workflow tasks
+                            store_workflow_context(f"__workflow_context_{instance_id}__", span_context)
+                        else:
+                            logger.warning("No instance_id in result, cannot store instance-specific context")
+                    except Exception as e:
+                        logger.warning(f"Failed to store instance-specific context: {e}")
 
                 # Set output attributes - handle both string and object results consistently
                 if isinstance(result, str):
