@@ -96,7 +96,10 @@ class WorkflowContextStorage:
             return context
 
     def create_resumed_workflow_context(
-        self, instance_id: str, agent_name: Optional[str] = None, stored_trace_context: Optional[Dict[str, Any]] = None
+        self,
+        instance_id: str,
+        agent_name: Optional[str] = None,
+        stored_trace_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Create a new trace context for a resumed workflow after app restart.

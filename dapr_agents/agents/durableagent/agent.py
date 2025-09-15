@@ -159,8 +159,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             if self.wf_runtime_is_running:
                 self.stop_runtime()
 
-
-
     @message_router
     @workflow(name="ToolCallingWorkflow")
     def tool_calling_workflow(self, ctx: DaprWorkflowContext, message: TriggerAction):
@@ -213,6 +211,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         if otel_span_context:
             # New workflow - store the provided span context (observability layer handles this)
             from dapr_agents.observability.context_storage import store_workflow_context
+
             instance_context_key = f"__workflow_context_{workflow_instance_id}__"
             store_workflow_context(instance_context_key, otel_span_context)
 
@@ -408,7 +407,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         self.state.setdefault("instances", {})[instance_id] = entry.model_dump(
             mode="json"
         )
-
 
     @task
     def get_workflow_entry_info(self, instance_id: str) -> Dict[str, Any]:
@@ -659,9 +657,11 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Check if message already exists (idempotent operation for workflow replay)
         message_dict = msg_object.model_dump(mode="json")
         messages = inst.setdefault("messages", [])
-        
+
         # Check for duplicate by message ID (idempotent for workflow replay)
-        message_exists = any(msg.get("id") == message_dict.get("id") for msg in messages)
+        message_exists = any(
+            msg.get("id") == message_dict.get("id") for msg in messages
+        )
         if not message_exists:
             messages.append(message_dict)
             inst["last_message"] = message_dict
@@ -704,17 +704,22 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Check if message already exists (idempotent operation for workflow replay)
         message_dict = msg_object.model_dump(mode="json")
         messages = inst.setdefault("messages", [])
-        
+
         # Check for duplicate by message ID (idempotent for workflow replay)
-        message_exists = any(msg.get("id") == message_dict.get("id") for msg in messages)
+        message_exists = any(
+            msg.get("id") == message_dict.get("id") for msg in messages
+        )
         if not message_exists:
             messages.append(message_dict)
-        
+
         # Check for duplicate tool history entry by tool_call_id
         tool_history_dict = tool_history_entry.model_dump(mode="json")
         tool_history = inst.setdefault("tool_history", [])
-        
-        tool_exists = any(th.get("tool_call_id") == tool_history_dict.get("tool_call_id") for th in tool_history)
+
+        tool_exists = any(
+            th.get("tool_call_id") == tool_history_dict.get("tool_call_id")
+            for th in tool_history
+        )
         if not tool_exists:
             tool_history.append(tool_history_dict)
             # Update tool history and memory of agent (only if new)

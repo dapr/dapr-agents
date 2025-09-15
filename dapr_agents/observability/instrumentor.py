@@ -167,7 +167,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
 
         # Apply agent wrappers (Regular Agent class execution paths)
         self._apply_agent_wrappers()
-        
+
         # Apply workflow wrappers directly since start_runtime() is now called in model_post_init
         # This eliminates the need for callback mechanism
         self._apply_workflow_wrappers()
@@ -296,9 +296,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
 
                 @functools.wraps(method)
                 def wrapper(ctx, *args, **kwargs):
-                    logger.debug(
-                        f"Executing context-aware workflow task: {task_name}"
-                    )
+                    logger.debug(f"Executing context-aware workflow task: {task_name}")
 
                     # Create workflow activity context wrapper
                     wf_ctx = WorkflowActivityContext(ctx)
@@ -308,9 +306,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                     try:
                         inner_ctx = wf_ctx.get_inner_context()
                         instance_id = getattr(inner_ctx, "workflow_id", None)
-                        logger.debug(
-                            f"Extracted workflow instance_id: {instance_id}"
-                        )
+                        logger.debug(f"Extracted workflow instance_id: {instance_id}")
                     except Exception as e:
                         logger.warning(f"Failed to extract workflow instance_id: {e}")
 
@@ -427,7 +423,6 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         except Exception as e:
             logger.error(f"Error applying agent wrappers: {e}", exc_info=True)
 
-
     def _apply_workflow_wrappers(self) -> None:
         """
         Apply observability wrappers for workflow orchestration methods.
@@ -439,7 +434,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         try:
             from dapr_agents.workflow.base import WorkflowApp
             from dapr_agents.workflow.task import WorkflowTask
-            
+
             wrap_function_wrapper(
                 module="dapr_agents.workflow.base",
                 name="WorkflowApp.run_and_monitor_workflow_async",
@@ -520,7 +515,6 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                 continue
 
         return chat_client_classes
-
 
     def _uninstrument(self, **kwargs: Any) -> None:
         """
