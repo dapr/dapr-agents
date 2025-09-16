@@ -250,7 +250,7 @@ class AgentTool(BaseModel):
         if self.args_model:
             try:
                 validated_args = self.args_model(**kwargs)
-                return validated_args.model_dump()
+                return validated_args.model_dump(exclude_none=True)
             except ValidationError as ve:
                 logger.debug(f"Validation failed for tool '{self.name}': {ve}")
                 raise ToolError(f"Validation error in tool '{self.name}': {ve}") from ve

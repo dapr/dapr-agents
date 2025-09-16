@@ -1,7 +1,8 @@
-dapr-agents>=0.8.1
-python-dotenv
+dapr-agents>=0.8.3
 opentelemetry-sdk>=1.25.0
-opentelemetry-exporter-zipkin-json
+opentelemetry-exporter-zipkin-json==1.25.0
 opentelemetry-exporter-otlp>=1.25.0
 opentelemetry-proto>=1.25.0
 protobuf>=4.22
+# For local development use local changes by commenting out the dapr-agents line above and uncommenting the line below:
+# -e ../../

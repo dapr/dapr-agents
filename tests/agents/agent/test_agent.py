@@ -214,14 +214,14 @@ class TestAgent:
             await agent_with_tools.execute_tools([tool_call])
 
     @pytest.mark.asyncio
-    async def test_process_iterations_max_reached(self, basic_agent):
+    async def test_conversation_max_reached(self, basic_agent):
         """Test that agent stops immediately when there are no tool calls."""
         mock_response = Mock(spec=LLMChatResponse)
         assistant_msg = AssistantMessage(content="Using tool", tool_calls=[])
         mock_response.get_message.return_value = assistant_msg
         basic_agent.llm.generate.return_value = mock_response
 
-        result = await basic_agent.process_iterations([])
+        result = await basic_agent.conversation([])
 
         # current logic sees no tools ===> returns on first iteration
         assert isinstance(result, AssistantMessage)
@@ -229,14 +229,14 @@ class TestAgent:
         assert basic_agent.llm.generate.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_process_iterations_with_llm_error(self, basic_agent):
+    async def test_conversation_with_llm_error(self, basic_agent):
         """Test handling of LLM errors during iterations."""
         basic_agent.llm.generate.side_effect = Exception("LLM error")
 
         with pytest.raises(
             AgentError, match="Failed during chat generation: LLM error"
         ):
-            await basic_agent.process_iterations([])
+            await basic_agent.conversation([])
 
     @pytest.mark.asyncio
     async def test_run_tool_success(self, agent_with_tools):

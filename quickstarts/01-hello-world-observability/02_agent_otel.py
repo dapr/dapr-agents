@@ -1,5 +1,5 @@
 import asyncio
-from dapr_agents import tool, Agent
+from dapr_agents import tool, Agent, OpenAIChatClient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,6 +17,7 @@ async def main():
         role="Weather Assistant",
         instructions=["Help users with weather information"],
         tools=[my_weather_func],
+        llm=OpenAIChatClient(model="gpt-3.5-turbo"),
     )
 
     from opentelemetry import trace
@@ -47,9 +48,12 @@ async def main():
     instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
 
     # Run the agent
-    await weather_agent.run(
-        "What is the weather in Virginia, New York and Washington DC?"
-    )
+    try:
+        await weather_agent.run(
+            "What is the weather in Virginia, New York and Washington DC?"
+        )
+    except Exception as e:
+        print(f"Error: {e}")
 
 
 if __name__ == "__main__":

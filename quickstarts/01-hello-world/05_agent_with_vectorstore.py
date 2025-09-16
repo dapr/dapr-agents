@@ -2,7 +2,7 @@ import logging
 
 from dotenv import load_dotenv
 
-from dapr_agents import Agent
+from dapr_agents import Agent, OpenAIChatClient
 from dapr_agents.document.embedder.sentence import SentenceTransformerEmbedder
 from dapr_agents.storage.vectorstores import ChromaVectorStore
 from dapr_agents.tool import tool
@@ -110,14 +110,20 @@ async def main():
         ],
         tools=[search_documents, add_document, add_machine_learning_doc],
         vector_store=vector_store,
+        llm=OpenAIChatClient(model="gpt-3.5-turbo"),
     )
+    try:
+        logging.info("Starting Vector Database Agent...")
+        await agent.run("Add a machine learning basics document")
+        logging.info("Add Machine Learning Document Response:")
+    except Exception as e:
+        print(f"Error: {e}")
 
-    logging.info("Starting Vector Database Agent...")
-    await agent.run("Add a machine learning basics document")
-    logging.info("Add Machine Learning Document Response:")
-
-    logging.info("Searching for machine learning documents...")
-    await agent.run("Search for documents about machine learning")
+    try:
+        logging.info("Searching for machine learning documents...")
+        await agent.run("Search for documents about machine learning")
+    except Exception as e:
+        print(f"Error: {e}")
 
 
 if __name__ == "__main__":

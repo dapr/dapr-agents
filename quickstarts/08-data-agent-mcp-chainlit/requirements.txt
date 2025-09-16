@@ -1,5 +1,5 @@
-dapr-agents>=0.8.1
-python-dotenv
-chainlit
-psycopg
-psycopg[binary]
+dapr-agents>=0.8.3
+chainlit==2.6.8
+psycopg[binary]==3.2.9
+# For local development use local changes by commenting out the dapr-agents line above and uncommenting the line below:
+# -e ../../

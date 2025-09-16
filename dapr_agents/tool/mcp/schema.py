@@ -45,52 +45,45 @@ def create_pydantic_model_from_schema(
 
         # Process each property in the schema
         for field_name, field_props in properties.items():
-            # Get field type information
-            json_type = field_props.get("type", "string")
-
-            # Handle complex type definitions (arrays, unions, etc.)
-            if isinstance(json_type, list):
-                # Process union types (e.g., ["string", "null"])
-                has_null = "null" in json_type
-                non_null_types = [t for t in json_type if t != "null"]
-
-                if not non_null_types:
-                    # Only null type specified
-                    field_type = Optional[str]
-                else:
-                    # Use the first non-null type
-                    # TODO: Proper union type handling would be better but more complex
-                    primary_type = non_null_types[0]
+            # --- Handle anyOf/oneOf for nullable/union fields ---
+            if "anyOf" in field_props or "oneOf" in field_props:
+                variants = field_props.get("anyOf") or field_props.get("oneOf")
+                types = [v.get("type", "string") for v in variants]
+                has_null = "null" in types
+                non_null_variants = [v for v in variants if v.get("type") != "null"]
+                if non_null_variants:
+                    primary_type = non_null_variants[0].get("type", "string")
                     field_type = TYPE_MAPPING.get(primary_type, str)
-
-                    # Make optional if null is included
-                    if has_null:
-                        field_type = Optional[field_type]
+                    # Handle array/object with items/properties
+                    if primary_type == "array" and "items" in non_null_variants[0]:
+                        item_type = non_null_variants[0]["items"].get("type", "string")
+                        field_type = List[TYPE_MAPPING.get(item_type, str)]
+                    elif primary_type == "object":
+                        field_type = dict
+                else:
+                    field_type = str
+                if has_null:
+                    field_type = Optional[field_type]
             else:
-                # Simple type
+                # --- Fallback to "type" ---
+                json_type = field_props.get("type", "string")
                 field_type = TYPE_MAPPING.get(json_type, str)
-
-            # Handle arrays with item type information
-            if json_type == "array" or (
-                isinstance(json_type, list) and "array" in json_type
-            ):
-                # Get the items type if specified
-                if "items" in field_props:
-                    items_type = field_props["items"].get("type", "string")
-                    if isinstance(items_type, str):
-                        item_py_type = TYPE_MAPPING.get(items_type, str)
-                        field_type = List[item_py_type]
+                if json_type == "array" and "items" in field_props:
+                    item_type = field_props["items"].get("type", "string")
+                    field_type = List[TYPE_MAPPING.get(item_type, str)]
 
             # Set default value based on required status
             if field_name in required:
-                default = ...  # Required field
+                default = ...
             else:
                 default = None
                 # Make optional if not already
-                if not isinstance(field_type, type(Optional)):
+                if not (
+                    hasattr(field_type, "__origin__")
+                    and field_type.__origin__ is Optional
+                ):
                     field_type = Optional[field_type]
 
-            # Add field with description and default value
             field_description = field_props.get("description", "")
             fields[field_name] = (
                 field_type,

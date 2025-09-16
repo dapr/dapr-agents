@@ -130,7 +130,9 @@ Change the settings below based on your Postgres configuration:
 *Note: If you're running Postgres in a Docker container, change `<HOST>` to `localhost`.*
 
 ```bash
-docker run --rm -ti -p 8000:8000 -e DATABASE_URI=postgresql://<USERNAME>:<PASSWORD>@<HOST>:5432/userdb crystaldba/postgres-mcp --access-mode=unrestricted --transport=sse
+docker run --rm -ti -p 8000:8000 \
+  -e DATABASE_URI=postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME \
+  crystaldba/postgres-mcp --access-mode=unrestricted --transport=sse
 ```
 
 ## Examples

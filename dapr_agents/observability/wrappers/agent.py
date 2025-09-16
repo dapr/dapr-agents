@@ -237,9 +237,9 @@ class AgentRunWrapper:
 
 class ProcessIterationsWrapper:
     """
-    Wrapper for Agent.process_iterations() method to create CHAIN spans for processing logic.
+    Wrapper for Agent.conversation() method to create CHAIN spans for processing logic.
 
-    This wrapper instruments the Agent.process_iterations() method, creating
+    This wrapper instruments the Agent.conversation() method, creating
     CHAIN spans that capture the iterative processing and workflow execution
     within an agent's reasoning cycle.
 
@@ -265,16 +265,16 @@ class ProcessIterationsWrapper:
 
     def __call__(self, wrapped: Any, instance: Any, args: Any, kwargs: Any) -> Any:
         """
-        Wrap Agent.process_iterations() method with CHAIN span tracing.
+        Wrap Agent.conversation() method with CHAIN span tracing.
 
         Creates CHAIN spans that capture the iterative processing logic
         and reasoning flow within agent execution, providing visibility
         into the step-by-step processing workflow.
 
         Args:
-            wrapped (callable): Original Agent.process_iterations method to be instrumented
+            wrapped (callable): Original Agent.conversation method to be instrumented
             instance (Agent): Agent instance containing metadata and configuration
-            args (tuple): Positional arguments passed to process_iterations method
+            args (tuple): Positional arguments passed to conversation method
             kwargs (dict): Keyword arguments passed to the original method
 
         Returns:
@@ -289,7 +289,7 @@ class ProcessIterationsWrapper:
 
         # Extract agent information for span naming
         agent_name = getattr(instance, "name", instance.__class__.__name__)
-        span_name = f"{agent_name}.process_iterations"
+        span_name = f"{agent_name}.conversation"
 
         # Build span attributes
         attributes = {
@@ -319,15 +319,15 @@ class ProcessIterationsWrapper:
         """
         Handle asynchronous process iterations execution with comprehensive span tracing.
 
-        Manages async process_iterations execution by creating CHAIN spans with
+        Manages async conversation execution by creating CHAIN spans with
         proper attribute handling, result extraction, and error management for
         iterative agent processing workflows.
 
         Args:
-            wrapped (callable): Original async process_iterations method to execute
+            wrapped (callable): Original async conversation method to execute
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
-            span_name (str): Name for the created span (e.g., "MyAgent.process_iterations")
+            span_name (str): Name for the created span (e.g., "MyAgent.conversation")
             attributes (dict): Span attributes including agent name and processing context
 
         Returns:
@@ -359,17 +359,17 @@ class ProcessIterationsWrapper:
         self, wrapped: Any, args: Any, kwargs: Any, span_name: str, attributes: dict
     ) -> Any:
         """
-        Handle synchronous process iterations execution with comprehensive span tracing.
+        Handle synchronous conversation execution with comprehensive span tracing.
 
-        Manages sync process_iterations execution by creating CHAIN spans with
+        Manages sync conversation execution by creating CHAIN spans with
         proper attribute handling, result extraction, and error management for
         iterative agent processing workflows.
 
         Args:
-            wrapped (callable): Original sync process_iterations method to execute
+            wrapped (callable): Original sync conversation method to execute
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
-            span_name (str): Name for the created span (e.g., "MyAgent.process_iterations")
+            span_name (str): Name for the created span (e.g., "MyAgent.conversation")
             attributes (dict): Span attributes including agent name and processing context
 
         Returns:

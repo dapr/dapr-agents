@@ -177,3 +177,7 @@ db/
 
 # Requirements files since we use pyproject.toml instead
 dev-requirements.txt
+
+docker-entrypoint-initdb.d/
+
+*requirements.txt

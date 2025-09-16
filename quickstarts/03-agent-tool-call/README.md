@@ -325,6 +325,8 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+Alternatively, you can use the DurableAgent with this same setup using `weather_durable_agent_tracing.py`.
+
 #### Run with Observability
 
 1. Ensure Phoenix server is running (see setup steps above)
@@ -333,6 +335,11 @@ if __name__ == "__main__":
 
 ```bash
 python weather_agent_tracing.py
+```
+
+Alternatively, you can run the DurableAgent using:
+```bash
+dapr run --app-id weatheragent --resources-path ./components -- python weather_durable_agent_tracing.py
 ```
 
 3. View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)

@@ -9,7 +9,7 @@ Span Hierarchy by Agent Type:
 
 **Regular Agent (Direct Execution):**
 - Agent.run (AGENT span) - Root span for agent execution
-  └── Agent.process_iterations (CHAIN span) - Processing and reasoning logic
+  └── Agent.conversation (CHAIN span) - Processing and reasoning logic
       ├── Agent.execute_tools (TOOL span) - Batch tool coordination
       │   └── AgentToolExecutor.run_tool (TOOL span) - Individual tool execution
       └── ChatClient.generate (LLM span) - Language model interactions
@@ -121,6 +121,20 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         """
         return ("dapr-agents",)
 
+    def instrument(self, **kwargs: Any) -> None:
+        """
+        Public method to instrument Dapr Agents with OpenTelemetry tracing.
+
+        This method is called by users to enable instrumentation. It delegates
+        to the private _instrument method which contains the actual implementation.
+
+        Args:
+            **kwargs: Instrumentation configuration including:
+                     - tracer_provider: Optional OpenTelemetry tracer provider
+                     - Additional provider-specific configuration
+        """
+        self._instrument(**kwargs)
+
     def _instrument(self, **kwargs: Any) -> None:
         """
         Instrument Dapr Agents with comprehensive OpenTelemetry tracing.
@@ -151,10 +165,17 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         # Apply W3C context propagation fix for Dapr Workflows (critical for proper tracing)
         self._apply_context_propagation_fix()
 
-        # Apply method wrappers in logical order for complete tracing coverage
-        self._apply_agent_wrappers()  # Regular agent execution paths
-        self._apply_workflow_wrappers()  # Workflow-based agent execution
-        self._apply_llm_wrappers()  # LLM provider integrations
+        # Apply agent wrappers (Regular Agent class execution paths)
+        self._apply_agent_wrappers()
+
+        # Register workflow instrumentation callback for lazy loading of wrappers.
+        # This is needed for DurableAgent instrumentation,
+        # because the WorkflowApp is not available immediately when the instrumentor is initialized,
+        # so we must register the callback to properly instrument the WorkflowApp.
+        self._register_workflow_instrumentation_callback()
+
+        # LLM provider integrations
+        self._apply_llm_wrappers()
 
         logger.info("✅ Dapr Agents OpenTelemetry instrumentation enabled")
 
@@ -310,19 +331,13 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                             logger.debug(
                                 f"🔗 Storing W3C context for instance {instance_id}"
                             )
-                            logger.debug(
-                                f"🔗 Traceparent: {global_context.get('traceparent')}"
-                            )
-
-                            # Store W3C context with specific workflow instance ID
-                            store_workflow_context(instance_id, global_context)
                         else:
                             logger.warning(
-                                "⚠️ No global workflow context found for storage"
+                                f"⚠️ No global workflow context found for storage - instance {instance_id}"
                             )
                     else:
                         logger.warning(
-                            "⚠️ No workflow instance_id - cannot store W3C context"
+                            "⚠️ No workflow instance_id - cannot access W3C context"
                         )
 
                     try:
@@ -373,33 +388,35 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         Instruments core agent methods to create AGENT spans (top-level) and CHAIN spans
         (processing steps) for comprehensive agent execution tracing in Phoenix UI.
         """
-        # Main agent run wrapper (AGENT span - top level)
-        wrap_function_wrapper(
-            module="dapr_agents.agents.agent.agent",
-            name="Agent.run",
-            wrapper=AgentRunWrapper(self._tracer),
-        )
+        try:
+            from dapr_agents.agents.agent.agent import Agent
+            from dapr_agents.tool.executor import AgentToolExecutor
 
-        # Process iterations wrapper (CHAIN span - processing steps)
-        wrap_function_wrapper(
-            module="dapr_agents.agents.agent.agent",
-            name="Agent.process_iterations",
-            wrapper=ProcessIterationsWrapper(self._tracer),
-        )
+            # Main agent run wrapper (AGENT span - top level)
+            wrap_function_wrapper(
+                target=Agent.run,
+                wrapper=AgentRunWrapper(self._tracer),
+            )
 
-        # Tool execution batch wrapper (TOOL span - batch execution)
-        wrap_function_wrapper(
-            module="dapr_agents.agents.agent.agent",
-            name="Agent.execute_tools",
-            wrapper=ExecuteToolsWrapper(self._tracer),
-        )
+            # Process iterations wrapper (CHAIN span - processing steps)
+            wrap_function_wrapper(
+                target=Agent.conversation,
+                wrapper=ProcessIterationsWrapper(self._tracer),
+            )
 
-        # Individual tool execution wrapper (TOOL span - actual tool execution)
-        wrap_function_wrapper(
-            module="dapr_agents.tool.executor",
-            name="AgentToolExecutor.run_tool",
-            wrapper=RunToolWrapper(self._tracer),
-        )
+            # Tool execution batch wrapper (TOOL span - batch execution)
+            wrap_function_wrapper(
+                target=Agent.execute_tools,
+                wrapper=ExecuteToolsWrapper(self._tracer),
+            )
+
+            # Individual tool execution wrapper (TOOL span - actual tool execution)
+            wrap_function_wrapper(
+                target=AgentToolExecutor.run_tool,
+                wrapper=RunToolWrapper(self._tracer),
+            )
+        except Exception as e:
+            logger.error(f"Error applying agent wrappers: {e}", exc_info=True)
 
     def _apply_workflow_wrappers(self) -> None:
         """
@@ -409,29 +426,37 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         that capture the complete workflow lifecycle from start to completion, enabling
         detailed monitoring of workflow orchestration in Phoenix UI.
         """
-        # Workflow execution wrapper for DurableAgent (AGENT span with monitoring)
-        # This captures the complete workflow lifecycle from start to completion
-        wrap_function_wrapper(
-            module="dapr_agents.workflow.base",
-            name="WorkflowApp.run_and_monitor_workflow_async",
-            wrapper=WorkflowMonitorWrapper(self._tracer),
-        )
+        try:
+            from dapr_agents.workflow.base import WorkflowApp
+            from dapr_agents.workflow.task import WorkflowTask
 
-        # Workflow execution wrapper for Orchestrators (AGENT span, fire-and-forget)
-        # This captures orchestrator workflow starts (no monitoring since they're event-driven)
-        wrap_function_wrapper(
-            module="dapr_agents.workflow.base",
-            name="WorkflowApp.run_workflow",
-            wrapper=WorkflowRunWrapper(self._tracer),
-        )
+            original_run_and_monitor = WorkflowApp.run_and_monitor_workflow_async
+            original_run_workflow = WorkflowApp.run_workflow
+            original_task_call = WorkflowTask.__call__
+            # Create wrapper instances
+            monitor_wrapper = WorkflowMonitorWrapper(self._tracer)
+            run_wrapper = WorkflowRunWrapper(self._tracer)
+            task_wrapper = WorkflowTaskWrapper(self._tracer)
 
-        # Workflow task execution wrapper (TOOL/LLM/TASK spans for individual workflow tasks)
-        # This captures individual task execution within workflows, using ctx.instance_id for grouping
-        wrap_function_wrapper(
-            module="dapr_agents.workflow.task",
-            name="WorkflowTask.__call__",
-            wrapper=WorkflowTaskWrapper(self._tracer),
-        )
+            # Create wrapped versions that can be bound to instances
+            def wrapped_run_and_monitor_workflow_async(self, *args, **kwargs):
+                return monitor_wrapper(original_run_and_monitor, self, args, kwargs)
+
+            def wrapped_run_workflow(self, *args, **kwargs):
+                return run_wrapper(original_run_workflow, self, args, kwargs)
+
+            def wrapped_task_call(self, *args, **kwargs):
+                return task_wrapper(original_task_call, self, args, kwargs)
+
+            # Replace the methods on the classes with our wrapped versions
+            # This is the only way to instrument Pydantic model methods
+            WorkflowApp.run_and_monitor_workflow_async = (
+                wrapped_run_and_monitor_workflow_async
+            )
+            WorkflowApp.run_workflow = wrapped_run_workflow
+            WorkflowTask.__call__ = wrapped_task_call
+        except Exception as e:
+            logger.error(f"Error applying workflow wrappers: {e}", exc_info=True)
 
     def _apply_llm_wrappers(self) -> None:
         """
@@ -495,6 +520,31 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                 continue
 
         return chat_client_classes
+
+    def _register_workflow_instrumentation_callback(self):
+        """
+        Register workflow instrumentation callback for lazy loading of wrappers.
+
+        This method registers a callback in the WorkflowApp class that will be
+        invoked when start_runtime() is called. This ensures workflow wrappers
+        are applied at the right time (when classes are fully loaded) while
+        maintaining user control over instrumentation.
+        """
+        try:
+            from dapr_agents.workflow.base import WorkflowApp
+
+            # Register the workflow wrapper application as a class method
+            # This will be called when any WorkflowApp instance starts its runtime
+            setattr(
+                WorkflowApp,
+                WorkflowApp.INSTRUMENTATION_CALLBACK_ATTR,
+                self._apply_workflow_wrappers,
+            )
+
+        except ImportError as e:
+            logger.warning(f"Could not register workflow instrumentation callback: {e}")
+        except Exception as e:
+            logger.warning(f"Error registering workflow instrumentation callback: {e}")
 
     def _uninstrument(self, **kwargs: Any) -> None:
         """

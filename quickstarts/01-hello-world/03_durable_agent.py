@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import List
 from pydantic import BaseModel, Field
-from dapr_agents import tool, DurableAgent
+from dapr_agents import tool, DurableAgent, OpenAIChatClient
 from dapr_agents.memory import ConversationDaprStateMemory
 from dotenv import load_dotenv
 
@@ -58,6 +58,7 @@ async def main():
             memory=ConversationDaprStateMemory(
                 store_name="conversationstore", session_id="my-unique-id"
             ),
+            llm=OpenAIChatClient(model="gpt-3.5-turbo"),
         )
 
         travel_planner.as_service(port=8001)

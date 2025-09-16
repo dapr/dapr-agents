@@ -8,20 +8,41 @@ This project uses modern Python packaging with `pyproject.toml`. Dependencies ar
 - Test dependencies are in `[project.optional-dependencies.test]`
 - Development dependencies are in `[project.optional-dependencies.dev]`
 
+### Working within a virtual environment
+Create your python virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate
+```
+
 ### Generating Requirements Files
 
 If you need to generate requirements files (e.g., for deployment or specific environments):
 
+#### Option 1 - Using pip-tools:
 ```bash
+# Install dev tools
+pip install -e ".[dev]"
+
 # Generate requirements.txt
 pip-compile pyproject.toml
 
 # Generate dev-requirements.txt
-pip-compile pyproject.toml --extra dev
+pip-compile pyproject.toml # --extra dev
+```
+
+#### Option 2 - Using uv:
+```bash
+# Generate lock file with all dependencies
+uv lock --all-extras
+
+# Install everything from lock file
+uv sync --all-extras
 ```
 
 ### Installing Dependencies
 
+#### Option 1 - Using pip:
 ```bash
 # Install main package with test dependencies
 pip install -e ".[test]"
@@ -32,6 +53,32 @@ pip install -e ".[dev]"
 # Install main package with all optional dependencies
 pip install -e ".[test,dev]"
 ```
+
+#### Option 2 - Using uv:
+```bash
+# Install main package with test dependencies
+uv sync --extra=test
+
+# Install main package with development dependencies
+uv sync --extra=dev
+
+# Install main package with all optional dependencies
+uv sync --all-extras
+
+# Install in editable mode with all extras
+uv sync --all-extras --editable
+```
+
+## Command Mapping
+
+| pip/pip-tools command | uv equivalent |
+|----------------------|---------------|
+| `pip-compile pyproject.toml` | `uv lock` |
+| `pip-compile --all-extras` | `uv lock` (automatic) |
+| `pip install -r requirements.txt` | `uv sync` |
+| `pip install -e .` | `uv sync --editable` |
+| `pip install -e ".[dev]"` | `uv sync --extra=dev` |
+| `pip install -e ".[test,dev]"` | `uv sync --all-extras` |
 
 ## Testing
 
@@ -65,9 +112,12 @@ tox -e type
 
 ## Development Workflow
 
+### Option 1 - Using pip:
 1. Install development dependencies:
    ```bash
    pip install -e ".[dev]"
+   # Alternatively, you can use uv with:
+   # uv sync --extra=dev
    ```
 
 2. Run tests before making changes:

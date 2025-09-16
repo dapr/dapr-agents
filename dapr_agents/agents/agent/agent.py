@@ -101,7 +101,7 @@ class Agent(AgentBase):
             )
 
         # Process conversation iterations and return the result
-        return await self.process_iterations(messages)
+        return await self.conversation(messages)
 
     async def execute_tools(self, tool_calls: List[ToolCall]) -> List[ToolMessage]:
         """
@@ -180,7 +180,7 @@ class Agent(AgentBase):
         # Run all tool calls concurrently, but bounded by max_concurrent
         return await asyncio.gather(*(run_and_record(tc) for tc in tool_calls))
 
-    async def process_iterations(self, messages: List[Dict[str, Any]]) -> Any:
+    async def conversation(self, messages: List[Dict[str, Any]]) -> Any:
         """
         Drives the agent conversation iteratively until a final answer or max iterations is reached.
         Handles tool calls, updates memory, and returns the final assistant message.

@@ -15,6 +15,7 @@ from dapr.ext.workflow import (
 from dapr.ext.workflow.workflow_state import WorkflowState
 from durabletask import task as dtask
 from pydantic import BaseModel, ConfigDict, Field
+from typing import ClassVar
 
 from dapr_agents.agents.base import ChatClientBase
 from dapr_agents.types.workflow import DaprWorkflowStatus
@@ -30,6 +31,11 @@ class WorkflowApp(BaseModel):
     """
     A Pydantic-based class to encapsulate a Dapr Workflow runtime and manage workflows and tasks.
     """
+
+    # Class-level constant for instrumentation callback
+    # This is used to register the workflow instrumentation callback with the instrumentor
+    # This is needed because the instrumentor is not available immediately when the WorkflowApp is initialized
+    INSTRUMENTATION_CALLBACK_ATTR: ClassVar[str] = "_workflow_instrumentation_callback"
 
     llm: Optional[ChatClientBase] = Field(
         default=None,
@@ -436,6 +442,10 @@ class WorkflowApp(BaseModel):
             logger.info("Starting workflow runtime.")
             self.wf_runtime.start()
             self.wf_runtime_is_running = True
+
+            # Apply workflow instrumentation if callback was registered
+            if hasattr(self.__class__, self.INSTRUMENTATION_CALLBACK_ATTR):
+                getattr(self.__class__, self.INSTRUMENTATION_CALLBACK_ATTR)()
         else:
             logger.debug("Workflow runtime already running; skipping.")
 
@@ -465,10 +475,6 @@ class WorkflowApp(BaseModel):
             Exception: If workflow execution fails.
         """
         try:
-            # Start Workflow Runtime
-            if not self.wf_runtime_is_running:
-                self.start_runtime()
-
             # Generate unique instance ID
             instance_id = uuid.uuid4().hex
 
@@ -631,8 +637,6 @@ class WorkflowApp(BaseModel):
             raise
         finally:
             logger.info(f"Finished workflow with Instance ID: {instance_id}.")
-            # Off-load the stop_runtime call as it may block.
-            await asyncio.to_thread(self.stop_runtime)
 
     def run_and_monitor_workflow_sync(
         self,

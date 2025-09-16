@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Any, Dict
 
 from ..constants import (
@@ -202,11 +203,14 @@ class WorkflowMonitorWrapper:
         """
         Wrap WorkflowApp.run_and_monitor_workflow_async with AGENT span tracing.
 
+        Creates the top-level AGENT span for DurableAgent workflow execution and
+        stores the global workflow context immediately for task correlation.
+
         Args:
-            wrapped: Original WorkflowApp.run_and_monitor_workflow_async method
-            instance: WorkflowApp instance (DurableAgent)
-            args: Positional arguments (workflow, input)
-            kwargs: Keyword arguments
+            wrapped (callable): Original WorkflowApp.run_and_monitor_workflow_async method
+            instance (Any): WorkflowApp instance (DurableAgent)
+            args (tuple): Positional arguments for the wrapped method
+            kwargs (dict): Keyword arguments for the wrapped method
 
         Returns:
             Any: Result from wrapped method execution (workflow output)
@@ -217,9 +221,58 @@ class WorkflowMonitorWrapper:
         ):
             return wrapped(*args, **kwargs)
 
-        # Extract arguments
-        arguments = bind_arguments(wrapped, *args, **kwargs)
-        workflow = arguments.get("workflow")
+        workflow_name = self._extract_workflow_name(args, kwargs)
+        # Extract agent name from the instance
+        agent_name = getattr(instance, "name", "DurableAgent")
+        attributes = self._build_workflow_attributes(
+            workflow_name, agent_name, args, kwargs
+        )
+
+        # Store global context immediately when this method is called
+        # This ensures workflow tasks can access it before async execution begins
+        try:
+            from ..context_propagation import extract_otel_context
+            from ..context_storage import store_workflow_context
+
+            captured_context = extract_otel_context()
+            if captured_context.get("traceparent"):
+                logger.debug(
+                    f"Captured traceparent: {captured_context.get('traceparent')}"
+                )
+
+                store_workflow_context("__global_workflow_context__", captured_context)
+            else:
+                logger.warning(
+                    "No traceparent found in captured context during __call__"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to capture/store workflow context in __call__: {e}")
+
+        # Handle async vs sync execution
+        if asyncio.iscoroutinefunction(wrapped):
+            return self._handle_async_execution(
+                wrapped, args, kwargs, attributes, workflow_name, agent_name
+            )
+        else:
+            return self._handle_sync_execution(
+                wrapped, args, kwargs, attributes, workflow_name, agent_name
+            )
+
+    def _extract_workflow_name(self, args: Any, kwargs: Any) -> str:
+        """
+        Extract workflow name from method arguments.
+
+        Args:
+            args: Positional arguments
+            kwargs: Keyword arguments
+
+        Returns:
+            str: Workflow name
+        """
+        if args and len(args) > 0:
+            workflow = args[0]
+        else:
+            workflow = kwargs.get("workflow")
 
         # Extract workflow name
         workflow_name = (
@@ -228,47 +281,42 @@ class WorkflowMonitorWrapper:
             else getattr(workflow, "__name__", "unknown_workflow")
         )
 
-        # Build span attributes
-        attributes = self._build_monitor_attributes(instance, workflow_name, arguments)
+        return workflow_name
 
-        # Debug logging to confirm wrapper is being called
-        logger.debug(
-            f"🔍 WorkflowMonitorWrapper creating AGENT span for workflow: {workflow_name}"
-        )
-
-        # Handle async execution
-        return self._handle_async_execution(
-            wrapped, args, kwargs, attributes, workflow_name
-        )
-
-    def _build_monitor_attributes(
-        self, instance: Any, workflow_name: str, arguments: Dict[str, Any]
+    def _build_workflow_attributes(
+        self, workflow_name: str, agent_name: str, args: Any, kwargs: Any
     ) -> Dict[str, Any]:
         """
-        Build span attributes for DurableAgent workflow monitoring.
+        Build span attributes for workflow execution.
 
         Args:
-            instance: WorkflowApp instance (DurableAgent)
-            workflow_name: Name of the workflow being monitored
-            arguments: Bound method arguments from the wrapped call
+            workflow_name: Name of the workflow
+            agent_name: Name of the agent
+            args: Positional arguments
+            kwargs: Keyword arguments
 
         Returns:
             Dict[str, Any]: Span attributes for the AGENT span
         """
-        agent_name = getattr(instance, "name", instance.__class__.__name__)
-
+        # Build basic attributes
         attributes = {
             "openinference.span.kind": "AGENT",  # DurableAgent workflow execution is the agent action
-            INPUT_MIME_TYPE: "application/json",
-            OUTPUT_MIME_TYPE: "application/json",
             "workflow.name": workflow_name,
-            "workflow.operation": "run_and_monitor",
+            "agent.execution_mode": "workflow_based",
             "agent.name": agent_name,
-            "agent.type": instance.__class__.__name__,
+            OUTPUT_MIME_TYPE: "application/json",
         }
 
-        # Serialize input arguments
-        attributes[INPUT_VALUE] = safe_json_dumps(arguments)
+        # Add input payload if available
+        if args and len(args) > 1:
+            # Second argument is typically the input
+            input_data = args[1]
+            if input_data is not None:
+                attributes[INPUT_VALUE] = safe_json_dumps(input_data)
+                attributes[INPUT_MIME_TYPE] = "application/json"
+        elif "input" in kwargs and kwargs["input"] is not None:
+            attributes[INPUT_VALUE] = safe_json_dumps(kwargs["input"])
+            attributes[INPUT_MIME_TYPE] = "application/json"
 
         # Add context attributes
         attributes.update(get_attributes_from_context())
@@ -282,6 +330,7 @@ class WorkflowMonitorWrapper:
         kwargs: Any,
         attributes: Dict[str, Any],
         workflow_name: str,
+        agent_name: str,
     ) -> Any:
         """
         Handle async workflow monitoring execution with context propagation.
@@ -301,42 +350,12 @@ class WorkflowMonitorWrapper:
             span_name = f"Agent.{workflow_name}"
 
             # Debug logging to confirm span creation
-            logger.debug(f"✅ Creating AGENT span: {span_name}")
+            logger.debug(f"Creating AGENT span: {span_name}")
 
             with self._tracer.start_as_current_span(
                 span_name, attributes=attributes
             ) as span:
                 try:
-                    # Debug logging to confirm span context
-                    logger.debug(f"📋 AGENT span context: {span.get_span_context()}")
-
-                    # CRITICAL: Capture and store OpenTelemetry context BEFORE executing workflow
-                    # This must happen before wrapped() is called so tasks can access it
-                    try:
-                        from ..context_propagation import extract_otel_context
-                        from ..context_storage import store_workflow_context
-
-                        captured_context = extract_otel_context()
-                        if captured_context.get("traceparent"):
-                            logger.debug("🔗 Captured workflow context in AGENT span")
-                            logger.debug(
-                                f"🔗 Traceparent: {captured_context.get('traceparent')}"
-                            )
-
-                            # Store context IMMEDIATELY for workflow tasks to use
-                            store_workflow_context(
-                                "__global_workflow_context__", captured_context
-                            )
-                            logger.debug(
-                                "🔗 Stored global workflow context for task correlation"
-                            )
-                        else:
-                            logger.warning("⚠️ No traceparent found in captured context")
-                    except Exception as e:
-                        logger.warning(
-                            f"⚠️ Failed to capture/store workflow context: {e}"
-                        )
-
                     # Execute workflow and get result
                     result = await wrapped(*args, **kwargs)
 
@@ -349,16 +368,68 @@ class WorkflowMonitorWrapper:
                         span.set_attribute(OUTPUT_VALUE, safe_json_dumps(result))
 
                     span.set_status(Status(StatusCode.OK))
-                    logger.debug(f"🎯 AGENT span completed successfully: {span_name}")
+                    logger.debug(f"AGENT span completed successfully: {span_name}")
                     return result
 
                 except Exception as e:
                     span.set_status(Status(StatusCode.ERROR, str(e)))
                     span.record_exception(e)
-                    logger.error(f"❌ AGENT span failed: {span_name} - {e}")
+                    logger.error(f"AGENT span failed: {span_name} - {e}")
                     raise
 
         return async_wrapper()
+
+    def _handle_sync_execution(
+        self,
+        wrapped: Any,
+        args: Any,
+        kwargs: Any,
+        attributes: Dict[str, Any],
+        workflow_name: str,
+        agent_name: str,
+    ) -> Any:
+        """
+        Handle synchronous workflow monitoring execution with context propagation.
+
+        Args:
+            wrapped: Original synchronous method to execute
+            args: Positional arguments for the wrapped method
+            kwargs: Keyword arguments for the wrapped method
+            attributes: Pre-built span attributes
+            workflow_name: Name of the workflow for span naming
+
+        Returns:
+            Any: Result from wrapped method execution
+        """
+        span_name = f"Agent.{workflow_name}"
+
+        # Debug logging to confirm span creation
+        logger.debug(f"Creating AGENT span: {span_name}")
+
+        with self._tracer.start_as_current_span(
+            span_name, attributes=attributes
+        ) as span:
+            try:
+                # Execute workflow and get result
+                result = wrapped(*args, **kwargs)
+
+                # Set output attributes - handle both string and object results consistently
+                if isinstance(result, str):
+                    # If result is already a JSON string, use it directly
+                    span.set_attribute(OUTPUT_VALUE, result)
+                else:
+                    # If result is an object, serialize it to match input format
+                    span.set_attribute(OUTPUT_VALUE, safe_json_dumps(result))
+
+                span.set_status(Status(StatusCode.OK))
+                logger.debug(f"AGENT span completed successfully: {span_name}")
+                return result
+
+            except Exception as e:
+                span.set_status(Status(StatusCode.ERROR, str(e)))
+                span.record_exception(e)
+                logger.error(f"AGENT span failed: {span_name} - {e}")
+                raise
 
 
 # ============================================================================

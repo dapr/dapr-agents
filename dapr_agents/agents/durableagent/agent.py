@@ -86,7 +86,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             "pubsub_name": self.message_bus_name,
             "orchestrator": False,
         }
+
         self.register_agentic_system()
+        if not self.wf_runtime_is_running:
+            self.start_runtime()
 
     async def run(self, input_data: Union[str, Dict[str, Any]]) -> Any:
         """
@@ -97,9 +100,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         Returns:
             Any: The final output from the workflow execution.
         """
-        # Make sure the Dapr runtime is running
-        if not self.wf_runtime_is_running:
-            self.start_runtime()
 
         # Prepare input payload for workflow
         if isinstance(input_data, dict):
@@ -209,6 +209,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                     # 🔴 If this was the last turn, stop here—even though there were tool calls
                     if turn == self.max_iterations:
                         final_message = response_message
+                        # Make sure content exists and is a string
+                        final_message["content"] = final_message.get("content") or ""
                         final_message[
                             "content"
                         ] += "\n\n⚠️ Stopped: reached max iterations."
@@ -223,6 +225,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
                 # 🔴 If it happened to be the last turn, banner it
                 if turn == self.max_iterations:
+                    # Again, ensure content is never None
+                    final_message["content"] = final_message.get("content") or ""
                     final_message["content"] += "\n\n⚠️ Stopped: reached max iterations."
 
                 break  # exit loop with final_message
