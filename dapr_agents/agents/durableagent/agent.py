@@ -219,7 +219,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         self.load_state()
 
         # Check if this instance already exists in state (from previous runs)
-        if workflow_instance_id not in self.state.get("instances", {}):
+        is_resumed_workflow = workflow_instance_id in self.state.get("instances", {})
+        if not is_resumed_workflow:
             # This is a new instance, create a minimal entry
             instance_entry = {
                 "input": task,
@@ -232,7 +233,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 "triggering_workflow_instance_id": triggering_workflow_instance_id,
                 "workflow_name": self._workflow_name,
                 "status": DaprWorkflowStatus.RUNNING.value,
-                "trace_context": None,  # Will be captured later when span is active
+                "trace_context": otel_span_context,  # Store original trace context for resumption
             }
             self.state.setdefault("instances", {})[
                 workflow_instance_id
@@ -359,14 +360,13 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 },
             )
 
-        # Save final output to workflow state
-        yield ctx.call_activity(
-            self.finalize_workflow,
-            input={
-                "instance_id": workflow_instance_id,
-                "final_output": final_message["content"],
-            },
-        )
+            yield ctx.call_activity(
+                self.finalize_workflow,
+                input={
+                    "instance_id": workflow_instance_id,
+                    "final_output": final_message["content"],
+                },
+            )
 
         # Set verdict for the workflow instance
         if not ctx.is_replaying:
@@ -666,9 +666,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             messages.append(message_dict)
             inst["last_message"] = message_dict
             # Add the assistant message to memory (only if new)
+            # Note: Memory updates are handled at workflow level to avoid replay issues
             self.memory.add_message(AssistantMessage(**message))
-        # Save the state after appending the assistant message
-        self.save_state()
+            # Save the state after appending the assistant message
+            self.save_state()
         # Print the assistant message
         self.text_formatter.print_message(message)
 
@@ -723,6 +724,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         if not tool_exists:
             tool_history.append(tool_history_dict)
             # Update tool history and memory of agent (only if new)
+            # Note: Memory updates are handled at workflow level to avoid replay issues
             self.tool_history.append(tool_history_entry)
             # Add the tool message to the agent's memory
             self.memory.add_message(tool_message)

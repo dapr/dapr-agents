@@ -153,6 +153,7 @@ class ServiceMixin(SignalHandlingMixin):
                             "workflow_name": getattr(self, "_workflow_name", "Unknown"),
                             "dapr_status": DaprWorkflowStatus.PENDING,
                             "suspended_reason": "app_terminated",
+                            "trace_context": {"needs_agent_span_on_resume": True},
                         }
                         self.state.setdefault("instances", {})[
                             self.workflow_instance_id
@@ -161,20 +162,24 @@ class ServiceMixin(SignalHandlingMixin):
                             f"Added incomplete instance {self.workflow_instance_id} during graceful shutdown"
                         )
                     else:
-                        # Mark existing instance as suspended due to app termination
-                        if (
-                            "instances" in self.state
-                            and self.workflow_instance_id in self.state["instances"]
-                        ):
-                            self.state["instances"][self.workflow_instance_id][
-                                "dapr_status"
-                            ] = DaprWorkflowStatus.SUSPENDED
-                            self.state["instances"][self.workflow_instance_id][
-                                "suspended_reason"
-                            ] = "app_terminated"
-                            logger.info(
-                                f"Marked instance {self.workflow_instance_id} as suspended due to app termination"
-                            )
+                        # Mark running instances as needing AGENT spans on resume
+                        if "instances" in self.state:
+                            for instance_id, instance_data in self.state["instances"].items():
+                                # Only mark instances that are still running (no end_time)
+                                if not instance_data.get("end_time"):
+                                    instance_data["dapr_status"] = DaprWorkflowStatus.SUSPENDED
+                                    instance_data["suspended_reason"] = "app_terminated"
+                                    
+                                    # Mark trace context for AGENT span creation on resume
+                                    if instance_data.get("trace_context"):
+                                        instance_data["trace_context"]["needs_agent_span_on_resume"] = True
+                                        logger.debug(
+                                            f"Marked trace context for AGENT span creation on resume for {instance_id}"
+                                        )
+                                    
+                                    logger.info(
+                                        f"Marked instance {instance_id} as suspended due to app termination"
+                                    )
 
                     self.save_state()
                     logger.debug("Workflow state saved successfully.")

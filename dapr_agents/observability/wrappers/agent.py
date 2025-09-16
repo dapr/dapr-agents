@@ -210,9 +210,6 @@ class AgentRunWrapper:
                         store_workflow_context(
                             "__current_workflow_context__", span_context
                         )
-                        store_workflow_context(
-                            "__global_workflow_context__", span_context
-                        )
                         logger.debug(
                             f"Stored Agent span context: trace_id={format(trace_id, '032x')}, span_id={format(span_id, '016x')}"
                         )
@@ -285,9 +282,9 @@ class AgentRunWrapper:
                         "tracestate": current_context.get("tracestate", ""),
                     }
 
-                    # Store under multiple keys for different lookup patterns
-                    store_workflow_context("__current_workflow_context__", span_context)
-                    store_workflow_context("__global_workflow_context__", span_context)
+                    # Store context but don't use shared keys that cause cross-instance contamination
+                    # Context will be stored per-instance by WorkflowMonitorWrapper
+                    pass
                     logger.debug(
                         f"Stored Agent span context: trace_id={format(trace_id, '032x')}, span_id={format(span_id, '016x')}"
                     )

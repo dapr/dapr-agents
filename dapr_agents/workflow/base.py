@@ -600,74 +600,64 @@ class WorkflowApp(BaseModel):
                 else self.state.get("instances", {})
             )
 
-            # Find running workflows
-            running_workflows = [
+            # Find workflows that need trace continuity restoration (resumed workflows only)
+            resumed_workflows = [
                 (instance_id, instance_data)
                 for instance_id, instance_data in instances.items()
                 if instance_data.get("end_time") is None
-                and instance_data.get("status") == DaprWorkflowStatus.RUNNING.value
+                and instance_data.get("status") == DaprWorkflowStatus.SUSPENDED.value
+                and instance_data.get("trace_context", {}).get("needs_agent_span_on_resume")
             ]
 
-            if not running_workflows:
-                logger.debug("No running workflows found to monitor")
+            if not resumed_workflows:
+                logger.debug("No resumed workflows found that need trace continuity")
                 return
 
-            logger.debug(f"Monitoring {len(running_workflows)} running workflows...")
-            for instance_id, instance_data in running_workflows:
+            logger.debug(f"Restoring trace continuity for {len(resumed_workflows)} resumed workflows...")
+            for instance_id, instance_data in resumed_workflows:
                 try:
-                    logger.debug(f"Monitoring workflow {instance_id}...")
+                    logger.debug(f"Restoring trace continuity for resumed workflow {instance_id}...")
                     await self._ensure_trace_continuity(instance_id, instance_data)
-                    result = await self.monitor_workflow_state(instance_id)
-
-                    if result:
-                        instance_data["end_time"] = datetime.now(
-                            timezone.utc
-                        ).isoformat()
-                        instance_data["status"] = DaprWorkflowStatus.COMPLETED.value
-                        instance_data["output"] = result.serialized_output or ""
-                        self.save_state()
-                        logger.debug(
-                            f"Workflow {instance_id} completed and database updated"
-                        )
-                    else:
-                        logger.warning(
-                            f"Workflow {instance_id} completed but had no result"
-                        )
-
                 except Exception as e:
-                    logger.error(f"Error monitoring workflow {instance_id}: {e}")
+                    logger.error(f"Error restoring trace continuity for workflow {instance_id}: {e}")
 
         except Exception as e:
             logger.error(f"Error in workflow monitoring: {e}", exc_info=True)
 
     async def _ensure_trace_continuity(self, instance_id: str, instance_data: dict):
         """
-        Ensure trace continuity for resumed workflows by restoring or creating trace context.
+        Ensure trace continuity for resumed workflows by creating proper AGENT spans.
+        This is the key fix for missing parent traces in resumed workflows.
         """
         try:
             stored_trace_context = instance_data.get("trace_context")
-
-            if stored_trace_context and stored_trace_context.get("traceparent"):
+            
+            # Check if this workflow needs trace context restored
+            if stored_trace_context and stored_trace_context.get("needs_agent_span_on_resume"):
+                logger.info(f"Restoring trace context for resumed workflow {instance_id}")
+                await self._create_agent_span_for_resumed_workflow(instance_id, instance_data)
+            elif stored_trace_context and stored_trace_context.get("traceparent"):
                 logger.debug(
                     f"Restoring trace context for resumed workflow {instance_id}"
                 )
 
                 # Store the trace context for workflow tasks to use
-                from dapr_agents.observability.context_storage import _context_storage
+                from dapr_agents.observability.context_storage import store_workflow_context
 
                 context_data = {
                     "traceparent": stored_trace_context.get("traceparent"),
                     "tracestate": stored_trace_context.get("tracestate"),
+                    "trace_id": stored_trace_context.get("trace_id"),
+                    "span_id": stored_trace_context.get("span_id"),
                     "instance_id": instance_id,
                     "resumed": True,
                     "restored": True,
-                    "debug_info": f"Restored original trace for resumed workflow {instance_id}",
                 }
-                _context_storage.store_context(instance_id, context_data)
+                store_workflow_context(f"__workflow_context_{instance_id}__", context_data)
                 logger.debug(f"Trace context restored for workflow {instance_id}")
 
             else:
-                # Create new trace context for resumed workflow
+                # Create new trace context for resumed workflow without stored context
                 logger.debug(
                     f"Creating new trace context for resumed workflow {instance_id}"
                 )
@@ -684,6 +674,47 @@ class WorkflowApp(BaseModel):
             logger.warning(
                 f"Error ensuring trace continuity for workflow {instance_id}: {e}"
             )
+
+    async def _create_agent_span_for_resumed_workflow(self, instance_id: str, instance_data: dict):
+        """
+        Restore trace context for a resumed workflow without creating blocking spans.
+        This ensures proper trace hierarchy for resumed workflows that were interrupted.
+        """
+        try:
+            from dapr_agents.observability.context_storage import store_workflow_context
+            
+            # Get stored trace context
+            stored_trace_context = instance_data.get("trace_context", {})
+            
+            if stored_trace_context and stored_trace_context.get("traceparent"):
+                # Simply restore the original trace context for workflow tasks to use
+                # Don't create a new span here as it would block the workflow execution
+                
+                context_data = {
+                    "traceparent": stored_trace_context.get("traceparent"),
+                    "tracestate": stored_trace_context.get("tracestate", ""),
+                    "trace_id": stored_trace_context.get("trace_id"),
+                    "span_id": stored_trace_context.get("span_id"),
+                    "instance_id": instance_id,
+                    "resumed": True,
+                    "restored": True,
+                }
+                
+                # Store context for child spans to use
+                store_workflow_context(f"__workflow_context_{instance_id}__", context_data)
+                
+                # Remove the resume flag and save state
+                stored_trace_context.pop("needs_agent_span_on_resume", None)
+                self.save_state()
+                
+                logger.debug(f"Restored trace context for resumed workflow {instance_id}")
+                
+            else:
+                logger.warning(f"No valid trace context found for resumed workflow {instance_id}")
+                
+        except Exception as e:
+            logger.error(f"Failed to restore trace context for resumed workflow {instance_id}: {e}")
+
 
     def stop_runtime(self):
         """Idempotently stop the Dapr workflow runtime."""

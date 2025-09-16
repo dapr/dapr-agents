@@ -238,7 +238,7 @@ class WorkflowTaskWrapper:
         return attributes
 
     def _get_context_from_workflow_state(
-        self, instance_id: str
+        self, instance_id: str, instance: Any = None
     ) -> Optional[Dict[str, Any]]:
         """
         Retrieve OpenTelemetry context from workflow state for persistence across app restarts.
@@ -249,34 +249,40 @@ class WorkflowTaskWrapper:
 
         Args:
             instance_id: Workflow instance ID
+            instance: DurableAgent instance to access state from
 
         Returns:
             OpenTelemetry context data if found, None otherwise
         """
         try:
-            # This is a simplified approach - in practice, you'd need to access
-            # the actual workflow state through the Dapr Workflow runtime
-            # For now, we'll try to get it from the in-memory storage with a special prefix
-            from ..context_storage import get_workflow_context
-
-            # Try to get context with persistent prefix
-            persistent_key = f"__persistent_context_{instance_id}__"
-            otel_context = get_workflow_context(persistent_key)
-
-            if otel_context:
-                logger.debug(
-                    f"Retrieved context from workflow state for instance {instance_id}"
-                )
-                return otel_context
+            if instance and hasattr(instance, 'load_state') and hasattr(instance, 'state'):
+                # Load state to get the latest data from database
+                instance.load_state()
+                
+                # Try to get the workflow instance data to check for stored trace context
+                if 'instances' in instance.state:
+                    instance_data = instance.state['instances'].get(instance_id, {})
+                    stored_trace_context = instance_data.get('trace_context')
+                    if stored_trace_context:
+                        logger.debug(
+                            f"Retrieved trace context from database for instance {instance_id}"
+                        )
+                        return stored_trace_context
+                    else:
+                        logger.debug(f"No trace context found in database for {instance_id}")
+                        return None
+                else:
+                    logger.debug(f"No instances found in state for {instance_id}")
+                    return None
             else:
-                logger.warning(
-                    f"No context found in workflow state for instance {instance_id}"
-                )
+                logger.debug(f"Cannot access instance state for {instance_id}")
                 return None
 
         except Exception as e:
             logger.warning(f"Failed to get context from workflow state: {e}")
             return None
+
+
 
     def _handle_async_execution(
         self,
@@ -312,6 +318,9 @@ class WorkflowTaskWrapper:
             # Get OpenTelemetry context from storage using instance_id
             otel_context = None
             instance_id = attributes.get("workflow.instance_id", "unknown")
+            
+            # For resumed workflows, we need to ensure AGENT span context exists
+            agent_span_context = None
 
             # Also try to extract instance_id directly from workflow context if available
             if len(wrapper_args) > 0:
@@ -341,7 +350,7 @@ class WorkflowTaskWrapper:
             )
             agent_context = None
 
-            # Get instance-specific context directly
+            # Get instance-specific context directly (created by WorkflowMonitorWrapper or startup process)
             if instance_id and instance_id != "unknown":
                 agent_context = get_workflow_context(
                     f"__workflow_context_{instance_id}__"
@@ -349,19 +358,22 @@ class WorkflowTaskWrapper:
                 if agent_context:
                     logger.debug(f"Found instance-specific context for {instance_id}")
                 else:
-                    logger.warning(
-                        f"No instance-specific context found for {instance_id}"
-                    )
-                    # Don't create spans for missing contexts - let WorkflowMonitorWrapper handle AGENT spans
-                    # Missing context indicates timing issue, not resumed workflow
+                    logger.warning(f"No instance-specific context found for {instance_id}")
+                    # AGENT span will be created by the wrapper logic below if needed
                     agent_context = None
             else:
                 logger.warning(
                     f"No valid instance_id ({instance_id}), cannot lookup context"
                 )
+                agent_context = None
 
             if agent_context:
                 logger.debug(f"Found Agent span context: {agent_context}")
+                # Check if this is a restored trace context
+                if hasattr(instance, 'state') and 'instances' in instance.state:
+                    instance_data = instance.state['instances'].get(instance_id, {})
+                    if instance_data.get('trace_context') == agent_context:
+                        logger.debug(f"Using restored trace context for resumed workflow {instance_id}")
             else:
                 logger.warning(f"No Agent span context found")
 
@@ -462,17 +474,20 @@ class WorkflowTaskWrapper:
         # Always try to get context from current workflow first (since there's only one workflow)
         from ..context_storage import get_workflow_context
 
-        otel_context = get_workflow_context("__current_workflow_context__")
-
-        # If not found, try global workflow context
-        if not otel_context:
-            otel_context = get_workflow_context("__global_workflow_context__")
-
-        # If still not found and we have an instance ID, try instance-specific lookup
+        # Extract instance ID first for instance-specific context lookup
         instance_id = attributes.get("workflow.instance_id", "unknown")
+        
+        # Try instance-specific context first (preferred method)
+        otel_context = None
+        if instance_id != "unknown":
+            otel_context = get_workflow_context(f"__workflow_context_{instance_id}__")
+            
+        # No fallback to shared context - only use instance-specific context
+
+        # If still not found and we have an instance ID, try stored trace context from database
         if not otel_context and instance_id != "unknown":
             # Try to get context from workflow state first (persists across restarts)
-            otel_context = self._get_context_from_workflow_state(instance_id)
+            otel_context = self._get_context_from_workflow_state(instance_id, instance)
 
             # If not found in workflow state, try in-memory storage as fallback
             if not otel_context:
@@ -484,42 +499,47 @@ class WorkflowTaskWrapper:
         with create_child_span_with_context(
             self._tracer, span_name, otel_context, attributes
         ) as span:
-            # Debug logging to show context restoration
-            from opentelemetry import trace
+            return self._execute_task_with_span(wrapped, instance, args, kwargs, span, otel_context, span_name)
 
-            current_span = trace.get_current_span()
-            task_category = attributes.get("workflow.task.category", "UNKNOWN")
+    def _execute_task_with_span(self, wrapped, instance, args, kwargs, span, otel_context, span_name):
+        """Execute the task within the provided span context."""
+        # Debug logging to show context restoration
+        from opentelemetry import trace
 
-            if otel_context:
-                logger.debug(
-                    f"🔗 Creating {task_category} span with RESTORED context: {span_name}"
-                )
-                logger.debug(
-                    f"👨‍👦 Restored from traceparent: {otel_context.get('traceparent', 'None')}"
-                )
-            else:
-                logger.debug(
-                    f"⚠️ Creating {task_category} span WITHOUT context restoration: {span_name}"
-                )
+        current_span = trace.get_current_span()
+        task_category = span.attributes.get("workflow.task.category", "UNKNOWN")
 
+        if otel_context:
             logger.debug(
-                f"🎯 Current span context: {current_span.get_span_context() if current_span else 'None'}"
+                f"Creating {task_category} span with RESTORED context: {span_name}"
+            )
+            logger.debug(
+                f"Restored from traceparent: {otel_context.get('traceparent', 'None')}"
+            )
+        else:
+            logger.debug(
+                f"Creating {task_category} span WITHOUT context restoration: {span_name}"
             )
 
-            try:
-                bound_method = wrapped.__get__(instance, type(instance))
-                result = bound_method(*args, **kwargs)
-                span.set_attribute(OUTPUT_VALUE, safe_json_dumps(result))
-                span.set_attribute(OUTPUT_MIME_TYPE, "application/json")
-                span.set_status(Status(StatusCode.OK))
-                return result
-            except Exception as e:
-                span.set_status(Status(StatusCode.ERROR, str(e)))
-                span.record_exception(e)
-                logger.error(
-                    f"Error in sync workflow task execution: {e}", exc_info=True
-                )
-                raise
+        logger.debug(
+            f"Current span context: {current_span.get_span_context() if current_span else 'None'}"
+        )
+
+        try:
+            bound_method = wrapped.__get__(instance, type(instance))
+            result = bound_method(*args, **kwargs)
+            span.set_attribute(OUTPUT_VALUE, safe_json_dumps(result))
+            span.set_attribute(OUTPUT_MIME_TYPE, "application/json")
+            span.set_status(Status(StatusCode.OK))
+            return result
+        except Exception as e:
+            span.set_status(Status(StatusCode.ERROR, str(e)))
+            span.record_exception(e)
+            logger.error(
+                f"Error in sync workflow task execution: {e}", exc_info=True
+            )
+            raise
+
 
     def _categorize_workflow_task(self, task_name: str) -> str:
         """

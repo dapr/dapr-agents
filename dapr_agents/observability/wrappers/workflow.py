@@ -432,6 +432,9 @@ class WorkflowMonitorWrapper:
         async def async_wrapper(*wrapper_args, **wrapper_kwargs):
             span_name = f"{agent_name}.{workflow_name}"
 
+            # Note: This wrapper creates AGENT spans for NEW workflows only.
+            # Resumed workflows get their trace context restored during startup, not here.
+
             # Debug logging to confirm span creation
             logger.debug(f"Creating AGENT span: {span_name}")
 
@@ -477,7 +480,7 @@ class WorkflowMonitorWrapper:
                     span_context = None
 
                 try:
-                    # Inject span context into workflow input to avoid temporary storage
+                    # Inject span context into workflow input
                     modified_kwargs = dict(kwargs)
                     if (
                         span_context
@@ -492,27 +495,9 @@ class WorkflowMonitorWrapper:
                     bound_method = wrapped.__get__(instance, type(instance))
                     result = await bound_method(*args, **modified_kwargs)
 
-                    # Store context with instance ID for workflow tasks to find
-                    if span_context:
-                        try:
-                            # Try to extract instance ID from result if it's a dict with instance_id
-                            if isinstance(result, dict) and "instance_id" in result:
-                                instance_id = result["instance_id"]
-                                # Store instance-specific context for workflow tasks
-                                store_workflow_context(
-                                    f"__workflow_context_{instance_id}__", span_context
-                                )
-                                logger.debug(
-                                    f"Stored Agent span context for instance {instance_id}"
-                                )
-                            else:
-                                logger.warning(
-                                    "No instance_id in result, cannot store instance-specific context"
-                                )
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to store instance-specific context: {e}"
-                            )
+                    # Note: Context storage is handled by the workflow itself when it starts
+                    # See DurableAgent.tool_calling_workflow line ~216 where it stores the context
+                    # This ensures context is available DURING workflow execution, not after
 
                     # Set output attributes - handle both string and object results consistently
                     if isinstance(result, str):

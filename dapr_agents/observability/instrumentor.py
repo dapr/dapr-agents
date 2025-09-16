@@ -103,6 +103,9 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         >>> instrumentor.uninstrument()
     """
 
+    # Class-level tracer for global access
+    _global_tracer = None
+
     def __init__(self) -> None:
         """
         Initialize the Dapr Agents instrumentor.
@@ -192,6 +195,8 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
             tracer_provider = trace_api.get_tracer_provider()
 
         self._tracer = trace_api.get_tracer(__name__, tracer_provider=tracer_provider)
+        # Store globally for access by resumed workflows
+        DaprAgentsInstrumentor._global_tracer = self._tracer
 
     def _apply_context_propagation_fix(self) -> None:
         """
@@ -317,17 +322,17 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                     )
 
                     if instance_id:
-                        # Retrieve global W3C context and associate with instance
-                        global_context = get_workflow_context(
-                            "__global_workflow_context__"
+                        # Try to get instance-specific context first
+                        instance_context = get_workflow_context(
+                            f"__workflow_context_{instance_id}__"
                         )
-                        if global_context and global_context.get("traceparent"):
+                        if instance_context and instance_context.get("traceparent"):
                             logger.debug(
-                                f"Storing W3C context for instance {instance_id}"
+                                f"Found instance-specific context for {instance_id}"
                             )
                         else:
-                            logger.warning(
-                                f"No global workflow context found for storage - instance {instance_id}"
+                            logger.debug(
+                                f"No instance-specific context found for {instance_id}"
                             )
                     else:
                         logger.warning(
