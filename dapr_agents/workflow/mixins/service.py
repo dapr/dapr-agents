@@ -164,19 +164,25 @@ class ServiceMixin(SignalHandlingMixin):
                     else:
                         # Mark running instances as needing AGENT spans on resume
                         if "instances" in self.state:
-                            for instance_id, instance_data in self.state["instances"].items():
+                            for instance_id, instance_data in self.state[
+                                "instances"
+                            ].items():
                                 # Only mark instances that are still running (no end_time)
                                 if not instance_data.get("end_time"):
-                                    instance_data["dapr_status"] = DaprWorkflowStatus.SUSPENDED
+                                    instance_data[
+                                        "dapr_status"
+                                    ] = DaprWorkflowStatus.SUSPENDED
                                     instance_data["suspended_reason"] = "app_terminated"
-                                    
+
                                     # Mark trace context for AGENT span creation on resume
                                     if instance_data.get("trace_context"):
-                                        instance_data["trace_context"]["needs_agent_span_on_resume"] = True
+                                        instance_data["trace_context"][
+                                            "needs_agent_span_on_resume"
+                                        ] = True
                                         logger.debug(
                                             f"Marked trace context for AGENT span creation on resume for {instance_id}"
                                         )
-                                    
+
                                     logger.info(
                                         f"Marked instance {instance_id} as suspended due to app termination"
                                     )

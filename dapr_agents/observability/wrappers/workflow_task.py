@@ -255,21 +255,27 @@ class WorkflowTaskWrapper:
             OpenTelemetry context data if found, None otherwise
         """
         try:
-            if instance and hasattr(instance, 'load_state') and hasattr(instance, 'state'):
+            if (
+                instance
+                and hasattr(instance, "load_state")
+                and hasattr(instance, "state")
+            ):
                 # Load state to get the latest data from database
                 instance.load_state()
-                
+
                 # Try to get the workflow instance data to check for stored trace context
-                if 'instances' in instance.state:
-                    instance_data = instance.state['instances'].get(instance_id, {})
-                    stored_trace_context = instance_data.get('trace_context')
+                if "instances" in instance.state:
+                    instance_data = instance.state["instances"].get(instance_id, {})
+                    stored_trace_context = instance_data.get("trace_context")
                     if stored_trace_context:
                         logger.debug(
                             f"Retrieved trace context from database for instance {instance_id}"
                         )
                         return stored_trace_context
                     else:
-                        logger.debug(f"No trace context found in database for {instance_id}")
+                        logger.debug(
+                            f"No trace context found in database for {instance_id}"
+                        )
                         return None
                 else:
                     logger.debug(f"No instances found in state for {instance_id}")
@@ -281,8 +287,6 @@ class WorkflowTaskWrapper:
         except Exception as e:
             logger.warning(f"Failed to get context from workflow state: {e}")
             return None
-
-
 
     def _handle_async_execution(
         self,
@@ -318,7 +322,7 @@ class WorkflowTaskWrapper:
             # Get OpenTelemetry context from storage using instance_id
             otel_context = None
             instance_id = attributes.get("workflow.instance_id", "unknown")
-            
+
             # For resumed workflows, we need to ensure AGENT span context exists
             agent_span_context = None
 
@@ -358,7 +362,9 @@ class WorkflowTaskWrapper:
                 if agent_context:
                     logger.debug(f"Found instance-specific context for {instance_id}")
                 else:
-                    logger.warning(f"No instance-specific context found for {instance_id}")
+                    logger.warning(
+                        f"No instance-specific context found for {instance_id}"
+                    )
                     # AGENT span will be created by the wrapper logic below if needed
                     agent_context = None
             else:
@@ -370,10 +376,12 @@ class WorkflowTaskWrapper:
             if agent_context:
                 logger.debug(f"Found Agent span context: {agent_context}")
                 # Check if this is a restored trace context
-                if hasattr(instance, 'state') and 'instances' in instance.state:
-                    instance_data = instance.state['instances'].get(instance_id, {})
-                    if instance_data.get('trace_context') == agent_context:
-                        logger.debug(f"Using restored trace context for resumed workflow {instance_id}")
+                if hasattr(instance, "state") and "instances" in instance.state:
+                    instance_data = instance.state["instances"].get(instance_id, {})
+                    if instance_data.get("trace_context") == agent_context:
+                        logger.debug(
+                            f"Using restored trace context for resumed workflow {instance_id}"
+                        )
             else:
                 logger.warning(f"No Agent span context found")
 
@@ -476,12 +484,12 @@ class WorkflowTaskWrapper:
 
         # Extract instance ID first for instance-specific context lookup
         instance_id = attributes.get("workflow.instance_id", "unknown")
-        
+
         # Try instance-specific context first (preferred method)
         otel_context = None
         if instance_id != "unknown":
             otel_context = get_workflow_context(f"__workflow_context_{instance_id}__")
-            
+
         # No fallback to shared context - only use instance-specific context
 
         # If still not found and we have an instance ID, try stored trace context from database
@@ -499,9 +507,13 @@ class WorkflowTaskWrapper:
         with create_child_span_with_context(
             self._tracer, span_name, otel_context, attributes
         ) as span:
-            return self._execute_task_with_span(wrapped, instance, args, kwargs, span, otel_context, span_name)
+            return self._execute_task_with_span(
+                wrapped, instance, args, kwargs, span, otel_context, span_name
+            )
 
-    def _execute_task_with_span(self, wrapped, instance, args, kwargs, span, otel_context, span_name):
+    def _execute_task_with_span(
+        self, wrapped, instance, args, kwargs, span, otel_context, span_name
+    ):
         """Execute the task within the provided span context."""
         # Debug logging to show context restoration
         from opentelemetry import trace
@@ -535,11 +547,8 @@ class WorkflowTaskWrapper:
         except Exception as e:
             span.set_status(Status(StatusCode.ERROR, str(e)))
             span.record_exception(e)
-            logger.error(
-                f"Error in sync workflow task execution: {e}", exc_info=True
-            )
+            logger.error(f"Error in sync workflow task execution: {e}", exc_info=True)
             raise
-
 
     def _categorize_workflow_task(self, task_name: str) -> str:
         """
