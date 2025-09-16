@@ -272,17 +272,17 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             # Log tools/tool_choice/parameters for debugging
             if params.get("tools"):
                 try:
-                    logger.info(
+                    logger.debug(
                         f"Alpha2 tools payload: {[t.get('function', {}).get('name', '') for t in params['tools'] if isinstance(t, dict)]}"
                     )
                 except Exception:
-                    logger.info(
+                    logger.warning(
                         "Alpha2 tools payload present (could not render names)."
                     )
             if params.get("tool_choice") is not None:
-                logger.info(f"Alpha2 tool_choice: {params.get('tool_choice')}")
+                logger.debug(f"Alpha2 tool_choice: {params.get('tool_choice')}")
             if params.get("parameters") is not None:
-                logger.info(
+                logger.debug(
                     f"Alpha2 parameters keys: {list(params.get('parameters', {}).keys())}"
                 )
             raw = self.client.chat_completion_alpha2(

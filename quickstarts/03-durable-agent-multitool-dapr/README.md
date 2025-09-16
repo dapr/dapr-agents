@@ -1,4 +1,4 @@
-# Durable Agent Tool Call with Dapr LLM (Alpha2)
+# Durable Agent Tool Call with Dapr Conversation API
 
 This quickstart mirrors `03-durable-agent-multitool-call/` but uses the Dapr Conversation API Alpha2 as the LLM provider with tool calling.
 It tests the Durable Agent with multiple tools using the Dapr Conversation API Alpha2.

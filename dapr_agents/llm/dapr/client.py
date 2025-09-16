@@ -18,7 +18,7 @@ class DaprInferenceClient:
     # ──────────────────────────────────────────────────────────────────────────
     # Alpha2 (Tool Calling) support
     # ──────────────────────────────────────────────────────────────────────────
-    def _alpha2_tools_from_openai_like(
+    def _convert_openai_tools_to_conversation_tools(
         self, tools: Optional[List[Dict[str, Any]]]
     ) -> Optional[List[dapr_conversation.ConversationTools]]:
         """
