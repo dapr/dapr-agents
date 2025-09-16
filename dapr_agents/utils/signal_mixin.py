@@ -95,12 +95,11 @@ class SignalHandlingMixin:
                 if asyncio.iscoroutinefunction(self.graceful_shutdown):
                     logger.debug("Async graceful shutdown - shutdown event set")
                 else:
-                    self.graceful_shutdown()
+                    self.graceful_shutdown()  # type: ignore[unused-coroutine]
             except Exception as e:
                 logger.debug(f"Error in graceful shutdown: {e}")
 
         import sys
-
         sys.exit(0)
 
     async def graceful_shutdown(self) -> None:
