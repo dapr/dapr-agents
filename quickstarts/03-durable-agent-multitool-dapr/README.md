@@ -29,6 +29,5 @@ dapr run --app-id durablemultitoolapp \
 
 Notes:
 - Alpha2 currently does not support streaming; this example is non-streaming.
-- Tool calling is enabled via Alpha2 `converse_alpha2` under the hood.
 
 
