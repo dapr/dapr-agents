@@ -56,6 +56,10 @@ def patch_dapr_check(monkeypatch):
         self._text_formatter = Mock()
         self.client = Mock()
         self._state_store_client = Mock()
+        # Configure the mock to return a tuple as expected by try_get_state
+        self._state_store_client.try_get_state.return_value = (False, None)
+        # Configure the mock for save_state method
+        self._state_store_client.save_state.return_value = None
         self._agent_metadata = {
             "name": getattr(self, "name", "TestAgent"),
             "role": getattr(self, "role", "Test Role"),
