@@ -43,6 +43,9 @@ class OrchestratorWorkflowBase(AgenticWorkflow, ABC):
         # Register agent metadata
         self.register_agentic_system()
 
+        # Start the runtime if it's not already running
+        self.start_runtime()
+
     @abstractmethod
     def main_workflow(self, ctx: DaprWorkflowContext, message: Any) -> Any:
         """
