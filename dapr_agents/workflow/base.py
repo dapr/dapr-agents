@@ -426,7 +426,7 @@ class WorkflowApp(BaseModel):
             workflow_name = getattr(
                 workflow,
                 "_workflow_name",
-                getattr(workflow, instance._workflow_name, "unknown_workflow"),
+                getattr(workflow, "__name__", "unknown_workflow"),
             )
         else:
             raise ValueError(f"Invalid workflow reference: {workflow}")

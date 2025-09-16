@@ -2,8 +2,6 @@ import asyncio
 import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from ..constants import (
     AGENT,
     CHAIN,
@@ -17,6 +15,8 @@ from ..constants import (
     context_api,
 )
 from ..utils import bind_arguments, extract_content_from_result, get_input_value
+
+logger = logging.getLogger(__name__)
 
 try:
     from openinference.instrumentation import get_attributes_from_context
@@ -270,21 +270,8 @@ class AgentRunWrapper:
                     span_id = span.get_span_context().span_id
                     trace_id = span.get_span_context().trace_id
 
-                    # Store span context with trace and span IDs
-                    span_context = {
-                        "trace_id": format(
-                            trace_id, "032x"
-                        ),  # Convert to 32-char hex string
-                        "span_id": format(
-                            span_id, "016x"
-                        ),  # Convert to 16-char hex string
-                        "traceparent": current_context.get("traceparent"),
-                        "tracestate": current_context.get("tracestate", ""),
-                    }
-
-                    # Store context but don't use shared keys that cause cross-instance contamination
                     # Context will be stored per-instance by WorkflowMonitorWrapper
-                    pass
+                    # to avoid cross-instance contamination
                     logger.debug(
                         f"Stored Agent span context: trace_id={format(trace_id, '032x')}, span_id={format(span_id, '016x')}"
                     )

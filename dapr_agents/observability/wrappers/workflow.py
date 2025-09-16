@@ -470,7 +470,7 @@ class WorkflowMonitorWrapper:
                             f"AGENT span created with trace_id={format(trace_id, '032x')}, span_id={format(span_id, '016x')}"
                         )
                         logger.debug(
-                            f"Will pass span context through workflow input to avoid temporary key conflicts"
+                            "Will pass span context through workflow input to avoid temporary key conflicts"
                         )
                     else:
                         logger.warning("No traceparent found in AGENT span context")
@@ -489,7 +489,7 @@ class WorkflowMonitorWrapper:
                     ):
                         # Add span context to workflow input
                         modified_kwargs["input"]["_otel_span_context"] = span_context
-                        logger.debug(f"Injected span context into workflow input")
+                        logger.debug("Injected span context into workflow input")
 
                     # Execute workflow and get result
                     bound_method = wrapped.__get__(instance, type(instance))

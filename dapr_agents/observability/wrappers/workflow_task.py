@@ -399,11 +399,7 @@ class WorkflowTaskWrapper:
             logger.debug(f"WorkflowTaskWrapper called for {span_name}")
 
             # Get OpenTelemetry context from storage using instance_id
-            otel_context = None
             instance_id = attributes.get("workflow.instance_id", "unknown")
-
-            # For resumed workflows, we need to ensure AGENT span context exists
-            agent_span_context = None
 
             # Also try to extract instance_id directly from workflow context if available
             if len(wrapper_args) > 0:
@@ -463,7 +459,7 @@ class WorkflowTaskWrapper:
                             f"Using restored trace context for resumed workflow {instance_id}"
                         )
             else:
-                logger.warning(f"No Agent span context found")
+                logger.warning("No Agent span context found")
 
             if (
                 agent_context
