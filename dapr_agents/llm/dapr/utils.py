@@ -47,9 +47,7 @@ def process_dapr_chat_response(response: Dict[str, Any]) -> LLMChatResponse:
                 except Exception:
                     logger.exception(f"Invalid tool_call entry: {tc}")
 
-        function_call = None
-        if tool_calls:
-            function_call = tool_calls[0].function
+        function_call = None # there is no openai "function_call" in dapr only tool calls
 
         assistant_message = AssistantMessage(
             content=msg.get("content"),

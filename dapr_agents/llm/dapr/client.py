@@ -60,6 +60,7 @@ class DaprInferenceClient:
         """
         conv_tools = self._alpha2_tools_from_openai_like(tools)
 
+        # TODO: Remove when langchaningo is updated in contrib to latest version with a fix for openai-like temperature
         if not temperature:
             temperature = 1
 
@@ -118,7 +119,7 @@ class DaprInferenceClient:
                                 else {}
                             ),
                         },
-                        "finish_reason": "stop",
+                        "finish_reason": choice.get("finish_reason", "stop"),
                     }
                 )
             outputs.append({"choices": choices_list})
