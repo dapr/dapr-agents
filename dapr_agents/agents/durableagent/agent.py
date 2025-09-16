@@ -54,6 +54,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         default=None,
         description="Metadata about the agent, including name, role, goal, instructions, and topic name.",
     )
+    workflow_instance_id: Optional[str] = Field(
+        default=None,
+        description="The current workflow instance ID for this agent.",
+    )
 
     @model_validator(mode="before")
     def set_agent_and_topic_name(cls, values: dict):
@@ -360,13 +364,13 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 },
             )
 
-            yield ctx.call_activity(
-                self.finalize_workflow,
-                input={
-                    "instance_id": workflow_instance_id,
-                    "final_output": final_message["content"],
-                },
-            )
+        yield ctx.call_activity(
+            self.finalize_workflow,
+            input={
+                "instance_id": workflow_instance_id,
+                "final_output": final_message["content"],
+            },
+        )
 
         # Set verdict for the workflow instance
         if not ctx.is_replaying:

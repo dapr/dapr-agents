@@ -41,16 +41,37 @@ class SignalHandlingMixin:
             logger.debug("Signal handlers already set up")
             return
 
-        # Initialize shutdown event if it doesn't exist
-        if not hasattr(self, "_shutdown_event") or self._shutdown_event is None:
-            self._shutdown_event = asyncio.Event()
+        # Check if we're in the main thread
+        import threading
 
-        # Set up signal handlers
-        loop = asyncio.get_event_loop()
-        add_signal_handlers_cross_platform(loop, self._handle_shutdown_signal)
+        if threading.current_thread() is not threading.main_thread():
+            logger.debug("Skipping signal handler setup - not in main thread")
+            return
 
-        self._signal_handlers_setup = True
-        logger.debug("Signal handlers set up for graceful shutdown")
+        try:
+            # Initialize shutdown event if it doesn't exist
+            if not hasattr(self, "_shutdown_event") or self._shutdown_event is None:
+                self._shutdown_event = asyncio.Event()
+
+            # Try to get the current event loop, but don't create one if it doesn't exist
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop, try to get the event loop for the current thread
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    logger.debug("No event loop available for signal handlers")
+                    return
+
+            # Set up signal handlers
+            add_signal_handlers_cross_platform(loop, self._handle_shutdown_signal)
+
+            self._signal_handlers_setup = True
+            logger.debug("Signal handlers set up for graceful shutdown")
+        except Exception as e:
+            logger.debug(f"Could not set up signal handlers: {e}")
+            # Don't fail initialization if signal handlers can't be set up
 
     def _handle_shutdown_signal(self, sig: int) -> None:
         """
@@ -67,14 +88,20 @@ class SignalHandlingMixin:
 
         # Call the graceful shutdown method if it exists
         if hasattr(self, "graceful_shutdown"):
-            asyncio.create_task(self.graceful_shutdown())
-        elif hasattr(self, "stop"):
-            # Fallback to stop() method if graceful_shutdown doesn't exist
-            asyncio.create_task(self.stop())
-        else:
-            logger.warning(
-                "No graceful shutdown method found. Implement graceful_shutdown() or stop() method."
-            )
+            try:
+                # Call synchronously since we're in a signal handler
+                import asyncio
+
+                if asyncio.iscoroutinefunction(self.graceful_shutdown):
+                    logger.debug("Async graceful shutdown - shutdown event set")
+                else:
+                    self.graceful_shutdown()
+            except Exception as e:
+                logger.debug(f"Error in graceful shutdown: {e}")
+
+        import sys
+
+        sys.exit(0)
 
     async def graceful_shutdown(self) -> None:
         """

@@ -23,27 +23,39 @@ def add_signal_handlers_cross_platform(
         handler_func: The function to call when signals are received
         signals: Tuple of signals to handle (default: SIGINT, SIGTERM)
     """
+    import threading
+
+    # Only set up signal handlers in the main thread
+    if threading.current_thread() is not threading.main_thread():
+        logger.debug("Skipping signal handler setup - not in main thread")
+        return
+
     if platform.system() == "Windows":
         # Windows uses traditional signal handlers
         for sig in signals:
             try:
 
                 def windows_handler(s: int, f: Any) -> None:
-                    asyncio.create_task(handler_func(s))
+                    try:
+                        handler_func(s)
+                    except Exception as e:
+                        logger.debug(f"Error in signal handler: {e}")
 
                 signal.signal(sig, windows_handler)
             except Exception as e:
                 logger.warning(f"Failed to register signal handler for {sig}: {e}")
     else:
-        # Unix-like systems use asyncio signal handlers
+        # Unix-like systems - use traditional signal handlers to avoid asyncio cleanup issues
         for sig in signals:
             try:
 
-                def unix_handler() -> None:
-                    asyncio.create_task(handler_func(sig))
+                def unix_handler(s: int, f: Any) -> None:
+                    try:
+                        handler_func(s)
+                    except Exception as e:
+                        logger.debug(f"Error in signal handler: {e}")
 
-                loop.add_signal_handler(sig, unix_handler)
-            except NotImplementedError:
-                logger.warning(f"Signal {sig} not supported in this environment")
+                # Use traditional signal handler instead of asyncio signal handler
+                signal.signal(sig, unix_handler)
             except Exception as e:
                 logger.warning(f"Failed to register signal handler for {sig}: {e}")

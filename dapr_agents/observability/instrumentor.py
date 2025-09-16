@@ -446,6 +446,12 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                 wrapper=WorkflowMonitorWrapper(self._tracer),
             )
 
+            wrap_function_wrapper(
+                module="dapr_agents.workflow.base",
+                name="WorkflowApp.run_and_monitor_workflow_sync",
+                wrapper=WorkflowMonitorWrapper(self._tracer),
+            )
+
             # Note: WorkflowRunWrapper removed to prevent double wrapping
             # run_and_monitor_workflow_async internally calls run_workflow
             # So wrapping both causes duplicate instances

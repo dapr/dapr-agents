@@ -20,6 +20,7 @@ from typing import ClassVar
 
 from dapr_agents.agents.base import ChatClientBase
 from dapr_agents.types.workflow import DaprWorkflowStatus
+from dapr_agents.utils import SignalHandlingMixin
 from dapr_agents.workflow.task import WorkflowTask
 from dapr_agents.workflow.utils.core import get_decorated_methods, is_pydantic_model
 
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
-class WorkflowApp(BaseModel):
+class WorkflowApp(BaseModel, SignalHandlingMixin):
     """
     A Pydantic-based class to encapsulate a Dapr Workflow runtime and manage workflows and tasks.
     """
@@ -70,11 +71,17 @@ class WorkflowApp(BaseModel):
         """
         Initialize the Dapr workflow runtime and register tasks & workflows.
         """
+        # Initialize LLM first
+        if self.llm is None:
+            self.llm = self._create_default_llm()
+
         # Initialize clients and runtime
         self.wf_runtime = WorkflowRuntime()
         self.wf_runtime_is_running = False
         self.wf_client = DaprWorkflowClient()
         logger.info("WorkflowApp initialized; discovering tasks and workflows.")
+
+        self.start_runtime()
 
         # Discover and register tasks and workflows
         discovered_tasks = self._discover_tasks()
@@ -82,7 +89,83 @@ class WorkflowApp(BaseModel):
         discovered_wfs = self._discover_workflows()
         self._register_workflows(discovered_wfs)
 
+        # Set up automatic signal handlers for graceful shutdown
+        try:
+            self.setup_signal_handlers()
+        except Exception as e:
+            logger.warning(f"Could not set up signal handlers: {e}")
+
         super().model_post_init(__context)
+
+    def _create_default_llm(self) -> Optional[ChatClientBase]:
+        """
+        Creates a default LLM client when none is provided.
+        Returns None if the default LLM cannot be created due to missing configuration.
+        """
+        try:
+            from dapr_agents.llm.openai import OpenAIChatClient
+
+            return OpenAIChatClient()
+        except Exception as e:
+            logger.warning(
+                f"Failed to create default OpenAI client: {e}. LLM will be None."
+            )
+            return None
+
+    def graceful_shutdown(self) -> None:
+        """
+        Perform graceful shutdown operations for the WorkflowApp.
+
+        This method stops the workflow runtime and cleans up resources.
+        Overrides the SignalHandlingMixin method to provide WorkflowApp-specific cleanup.
+        """
+        logger.debug("Initiating graceful shutdown of WorkflowApp...")
+
+        try:
+            if getattr(self, "wf_runtime_is_running", False):
+                logger.debug("Shutting down workflow runtime...")
+                self.stop_runtime()
+                logger.debug("Workflow runtime stopped successfully.")
+        except Exception as e:
+            logger.error(f"Error during workflow runtime shutdown: {e}")
+
+    def __del__(self):
+        """
+        Cleanup method called when WorkflowApp is garbage collected.
+        Ensures runtime is properly stopped.
+        """
+        try:
+            if getattr(self, "wf_runtime_is_running", False):
+                logger.debug("Cleaning up workflow runtime in destructor...")
+                self.stop_runtime()
+        except Exception:
+            # Ignore errors during cleanup in destructor
+            pass
+
+    def setup_shutdown_handlers(self) -> None:
+        """
+        Set up signal handlers for graceful shutdown.
+
+        Call this method to enable automatic cleanup when the process receives
+        shutdown signals (SIGINT, SIGTERM).
+        """
+        self.setup_signal_handlers()
+        logger.debug("Shutdown signal handlers configured for WorkflowApp.")
+
+    async def __aenter__(self):
+        """
+        Async context manager entry.
+        Sets up signal handlers for automatic cleanup.
+        """
+        self.setup_shutdown_handlers()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """
+        Async context manager exit.
+        Ensures graceful shutdown when exiting the context.
+        """
+        await self.graceful_shutdown()
 
     def _choose_llm_for(self, method: Callable) -> Optional[ChatClientBase]:
         """
@@ -693,31 +776,82 @@ class WorkflowApp(BaseModel):
                 f"Error ensuring trace continuity for workflow {instance_id}: {e}"
             )
 
+    # TODO: This needs further work as resumed workflows remain intact on their workflow task traces,
+    # but the official agent span is not created.
     async def _create_agent_span_for_resumed_workflow(
         self, instance_id: str, instance_data: dict
     ):
         """
-        Restore trace context for a resumed workflow without creating blocking spans.
-        This ensures proper trace hierarchy for resumed workflows that were interrupted.
+        Create a proper AGENT span for resumed workflows to restore trace hierarchy.
+        This ensures resumed workflows have the same trace structure as new workflows.
         """
         try:
             from dapr_agents.observability.context_storage import store_workflow_context
+            from opentelemetry import trace
+            from opentelemetry.trace import set_span_in_context
+            from opentelemetry.context import Context
 
             # Get stored trace context
             stored_trace_context = instance_data.get("trace_context", {})
 
             if stored_trace_context and stored_trace_context.get("traceparent"):
-                # Simply restore the original trace context for workflow tasks to use
-                # Don't create a new span here as it would block the workflow execution
+                # Parse the stored traceparent to restore the original trace
+                traceparent = stored_trace_context.get("traceparent")
+                trace_id_hex = traceparent.split("-")[1]
+                parent_span_id_hex = traceparent.split("-")[2]
+                trace_id = int(trace_id_hex, 16)
+                parent_span_id = int(parent_span_id_hex, 16)
 
+                # Create span context from stored trace
+                from opentelemetry.trace import SpanContext, TraceFlags
+
+                parent_span_context = SpanContext(
+                    trace_id=trace_id,
+                    span_id=parent_span_id,
+                    is_remote=True,
+                    trace_flags=TraceFlags(0x01),  # Sampled
+                )
+
+                parent_context = set_span_in_context(
+                    trace.NonRecordingSpan(parent_span_context), Context()
+                )
+
+                # Get tracer and create AGENT span as child of the original trace
+                tracer = trace.get_tracer(__name__)
+                agent_name = getattr(self, "name", "DurableAgent")
+                workflow_name = instance_data.get(
+                    "workflow_name", "ToolCallingWorkflow"
+                )
+                span_name = f"{agent_name}.{workflow_name}"
+
+                # Create the AGENT span that will show up in the trace
+                agent_span = tracer.start_span(
+                    span_name,
+                    context=parent_context,
+                    kind=trace.SpanKind.INTERNAL,
+                    attributes={
+                        "openinference.span.kind": "AGENT",
+                        "workflow.instance_id": instance_id,
+                        "agent.name": agent_name,
+                        "workflow.name": workflow_name,
+                        "workflow.resumed": True,
+                        "input.value": instance_data.get("input", ""),
+                        "input.mime_type": "text/plain",
+                    },
+                )
+
+                # Make this span the current context for child spans
+                agent_context = set_span_in_context(agent_span, parent_context)
+                agent_span_context = agent_span.get_span_context()
                 context_data = {
-                    "traceparent": stored_trace_context.get("traceparent"),
+                    "traceparent": f"00-{format(agent_span_context.trace_id, '032x')}-{format(agent_span_context.span_id, '016x')}-01",
                     "tracestate": stored_trace_context.get("tracestate", ""),
-                    "trace_id": stored_trace_context.get("trace_id"),
-                    "span_id": stored_trace_context.get("span_id"),
+                    "trace_id": format(agent_span_context.trace_id, "032x"),
+                    "span_id": format(agent_span_context.span_id, "016x"),
                     "instance_id": instance_id,
                     "resumed": True,
                     "restored": True,
+                    "agent_span": agent_span,  # Store span reference for lifecycle management
                 }
 
                 # Store context for child spans to use
@@ -730,7 +864,7 @@ class WorkflowApp(BaseModel):
                 self.save_state()
 
                 logger.debug(
-                    f"Restored trace context for resumed workflow {instance_id}"
+                    f"Created AGENT span '{span_name}' for resumed workflow {instance_id}"
                 )
 
             else:
@@ -740,7 +874,38 @@ class WorkflowApp(BaseModel):
 
         except Exception as e:
             logger.error(
-                f"Failed to restore trace context for resumed workflow {instance_id}: {e}"
+                f"Failed to create agent span for resumed workflow {instance_id}: {e}"
+            )
+
+    # TODO: This needs further work as resumed workflows remain intact on their workflow task traces,
+    # but the official agent span is not created.
+    def _close_resumed_workflow_span(self, instance_id: str, final_output: str = None):
+        """
+        Close the agent span for a resumed workflow when it completes.
+        This should be called when the workflow finishes execution.
+        """
+        try:
+            from dapr_agents.observability.context_storage import get_workflow_context
+            from opentelemetry.trace import Status, StatusCode
+
+            context = get_workflow_context(f"__workflow_context_{instance_id}__")
+            if context and context.get("resumed") and "agent_span" in context:
+                agent_span = context["agent_span"]
+                if final_output:
+                    agent_span.set_attribute("output.value", str(final_output)[:1000])
+                    agent_span.set_attribute("output.mime_type", "text/plain")
+
+                agent_span.set_status(Status(StatusCode.OK))
+                agent_span.end()
+
+                logger.debug(
+                    f"Closed AGENT span for completed resumed workflow {instance_id}"
+                )
+                context.pop("agent_span", None)
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to close resumed workflow span for {instance_id}: {e}"
             )
 
     def stop_runtime(self):

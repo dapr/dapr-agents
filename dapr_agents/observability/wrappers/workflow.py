@@ -591,28 +591,38 @@ class WorkflowMonitorWrapper:
                 span_context = None
 
             try:
-                # Execute workflow and get result
+                # We need to intercept the workflow execution to capture the instance ID
+                # The sync method calls run_and_monitor_workflow_async which calls run_workflow
                 bound_method = wrapped.__get__(instance, type(instance))
-                result = bound_method(*args, **kwargs)
 
-                # Store context with instance ID for workflow tasks to find
+                # Store context before execution so workflow tasks can find it
                 if span_context:
-                    try:
-                        # Try to extract instance ID from result if it's a dict with instance_id
-                        if isinstance(result, dict) and "instance_id" in result:
-                            instance_id = result["instance_id"]
-                            # Store instance-specific context for workflow tasks
-                            store_workflow_context(
-                                f"__workflow_context_{instance_id}__", span_context
-                            )
-                        else:
-                            logger.warning(
-                                "No instance_id in result, cannot store instance-specific context"
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to store instance-specific context: {e}"
+                    # For sync execution, we need to hook into the run_workflow call
+                    # to get the instance ID. Use object.__setattr__ to bypass Pydantic validation.
+                    original_run_workflow = instance.run_workflow
+
+                    def patched_run_workflow(*run_args, **run_kwargs):
+                        instance_id = original_run_workflow(*run_args, **run_kwargs)
+                        # Store the context with the instance ID
+                        store_workflow_context(
+                            f"__workflow_context_{instance_id}__", span_context
                         )
+                        logger.debug(
+                            f"Stored workflow context for instance {instance_id}"
+                        )
+                        return instance_id
+
+                    # Temporarily replace the method using object.__setattr__ to bypass Pydantic
+                    object.__setattr__(instance, "run_workflow", patched_run_workflow)
+                    try:
+                        result = bound_method(*args, **kwargs)
+                    finally:
+                        # Restore the original method
+                        object.__setattr__(
+                            instance, "run_workflow", original_run_workflow
+                        )
+                else:
+                    result = bound_method(*args, **kwargs)
 
                 # Set output attributes - handle both string and object results consistently
                 if isinstance(result, str):

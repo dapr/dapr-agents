@@ -129,7 +129,7 @@ class WorkflowTaskWrapper:
         ) or "generate_response" in task_name:
             return LLM
 
-        # Check if this is a tool execution task
+        # Check if this is a tool execution task (including agent tasks)
         if (
             hasattr(instance, "agent") and instance.agent is not None
         ) or "run_tool" in task_name:
@@ -300,6 +300,7 @@ class WorkflowTaskWrapper:
         """
         try:
             from ..context_storage import get_workflow_context, store_workflow_context
+            from opentelemetry import trace
 
             # Check if this is a resumed workflow by looking at the workflow state
             if not (hasattr(instance, "state") and "instances" in instance.state):
@@ -319,7 +320,7 @@ class WorkflowTaskWrapper:
                 )
                 return None
 
-            logger.debug(f"Creating AGENT context for resumed workflow {instance_id}")
+            logger.debug(f"Creating AGENT span for resumed workflow {instance_id}")
 
             agent_name = getattr(instance, "name", "DurableAgent")
             workflow_name = instance_data.get("workflow_name", "ToolCallingWorkflow")
@@ -331,12 +332,24 @@ class WorkflowTaskWrapper:
                 "agent.name": agent_name,
                 "workflow.instance_id": instance_id,
                 "workflow.resumed": True,
-                "input.value": stored_trace_context.get("traceparent", ""),
+                "input.value": instance_data.get("input", ""),
                 "input.mime_type": "application/json",
+                "output.value": instance_data.get("output", ""),
                 "output.mime_type": "application/json",
             }
 
-            # Create a safe, non-blocking AGENT span
+            # Check if we've already created an agent span for this workflow to avoid duplicates
+            if instance_data.get("agent_span_created"):
+                logger.debug(
+                    f"Agent span already created for {instance_id}, reusing context"
+                )
+                existing_context = get_workflow_context(
+                    f"__workflow_context_{instance_id}__"
+                )
+                if existing_context:
+                    return existing_context
+
+            # Create and start the AGENT span - this will be the parent for all workflow tasks
             agent_span = self._tracer.start_span(span_name, attributes=attributes)
 
             try:
@@ -347,6 +360,9 @@ class WorkflowTaskWrapper:
                     "span_id": format(span_id, "016x"),
                     "traceparent": f"00-{format(trace_id, '032x')}-{format(span_id, '016x')}-01",
                     "tracestate": stored_trace_context.get("tracestate", ""),
+                    "instance_id": instance_id,
+                    "resumed": True,
+                    "agent_span": agent_span,  # Keep reference to close later
                 }
 
                 # Store context for subsequent workflow tasks to find
@@ -354,16 +370,24 @@ class WorkflowTaskWrapper:
                     f"__workflow_context_{instance_id}__", span_context
                 )
 
+                logger.debug(
+                    f"Created AGENT span for resumed workflow {instance_id}: {span_name}"
+                )
+
+                instance_data["agent_span_created"] = True
+                if hasattr(instance, "save_state"):
+                    instance.save_state()
+
                 return span_context
 
-            finally:
-                # End the span immediately to avoid hanging issues
-                # The context is preserved for child spans to reference
+            except Exception as e:
+                # If something goes wrong, end the span
                 agent_span.end()
+                raise e
 
         except Exception as e:
             logger.error(
-                f"Failed to create AGENT context for resumed workflow {instance_id}: {e}"
+                f"Failed to create AGENT span for resumed workflow {instance_id}: {e}"
             )
             return None
 
@@ -524,7 +548,9 @@ class WorkflowTaskWrapper:
                 f"No parent context available for {span_name}, executing without span"
             )
             bound_method = wrapped.__get__(instance, type(instance))
-            return await bound_method(*wrapper_args, **wrapper_kwargs)
+            result = await bound_method(*wrapper_args, **wrapper_kwargs)
+
+            return result
 
         return async_wrapper(instance, *args, **kwargs)
 
