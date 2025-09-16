@@ -841,7 +841,6 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                 )
 
                 # Make this span the current context for child spans
-                agent_context = set_span_in_context(agent_span, parent_context)
                 agent_span_context = agent_span.get_span_context()
                 context_data = {
                     "traceparent": f"00-{format(agent_span_context.trace_id, '032x')}-{format(agent_span_context.span_id, '016x')}-01",
