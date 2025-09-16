@@ -288,6 +288,85 @@ class WorkflowTaskWrapper:
             logger.warning(f"Failed to get context from workflow state: {e}")
             return None
 
+    # TODO: in future this needs to be updated to properly capture all of the AGENT span context for resumed workflows.
+    def _create_context_for_resumed_workflow(
+        self, instance_id: str, instance: Any
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Create AGENT span context for resumed workflows to restore proper trace hierarchy.
+
+        This creates a safe, non-blocking AGENT span that establishes the trace context
+        for child workflow tasks to nest under, fixing the missing parent span issue.
+        """
+        try:
+            from ..context_storage import get_workflow_context, store_workflow_context
+
+            # Check if this is a resumed workflow by looking at the workflow state
+            if not (hasattr(instance, "state") and "instances" in instance.state):
+                logger.debug(
+                    f"No state found for instance to check if {instance_id} is resumed"
+                )
+                return None
+            if hasattr(instance, "load_state"):
+                instance.load_state()
+
+            instance_data = instance.state["instances"].get(instance_id, {})
+            stored_trace_context = instance_data.get("trace_context", {})
+
+            if not stored_trace_context:
+                logger.debug(
+                    f"No stored trace context found for {instance_id} - not a resumed workflow"
+                )
+                return None
+
+            logger.debug(f"Creating AGENT context for resumed workflow {instance_id}")
+
+            agent_name = getattr(instance, "name", "DurableAgent")
+            workflow_name = instance_data.get("workflow_name", "ToolCallingWorkflow")
+            span_name = f"{agent_name}.{workflow_name}"
+            attributes = {
+                "openinference.span.kind": "AGENT",
+                "workflow.name": workflow_name,
+                "agent.execution_mode": "workflow_based",
+                "agent.name": agent_name,
+                "workflow.instance_id": instance_id,
+                "workflow.resumed": True,
+                "input.value": stored_trace_context.get("traceparent", ""),
+                "input.mime_type": "application/json",
+                "output.mime_type": "application/json",
+            }
+
+            # Create a safe, non-blocking AGENT span
+            agent_span = self._tracer.start_span(span_name, attributes=attributes)
+
+            try:
+                span_id = agent_span.get_span_context().span_id
+                trace_id = agent_span.get_span_context().trace_id
+                span_context = {
+                    "trace_id": format(trace_id, "032x"),
+                    "span_id": format(span_id, "016x"),
+                    "traceparent": f"00-{format(trace_id, '032x')}-{format(span_id, '016x')}-01",
+                    "tracestate": stored_trace_context.get("tracestate", ""),
+                }
+
+                # Store context for subsequent workflow tasks to find
+                store_workflow_context(
+                    f"__workflow_context_{instance_id}__", span_context
+                )
+
+                return span_context
+
+            finally:
+                # End the span immediately to avoid hanging issues
+                # The context is preserved for child spans to reference
+                agent_span.end()
+
+        except Exception as e:
+            logger.error(
+                f"Failed to create AGENT context for resumed workflow {instance_id}: {e}"
+            )
+            return None
+
     def _handle_async_execution(
         self,
         wrapped: Any,
@@ -365,8 +444,9 @@ class WorkflowTaskWrapper:
                     logger.warning(
                         f"No instance-specific context found for {instance_id}"
                     )
-                    # AGENT span will be created by the wrapper logic below if needed
-                    agent_context = None
+                    agent_context = self._create_context_for_resumed_workflow(
+                        instance_id, instance
+                    )
             else:
                 logger.warning(
                     f"No valid instance_id ({instance_id}), cannot lookup context"
