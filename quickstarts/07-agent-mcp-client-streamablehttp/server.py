@@ -108,7 +108,7 @@ class MCPServer:
                 async with session_manager.run():
                     config = uvicorn.Config(app, host=host, port=port, log_level="info")
                     self.server = uvicorn.Server(config)
-                    
+
                     await self.server.serve()
             except KeyboardInterrupt:
                 logger.info("Received KeyboardInterrupt, shutting down gracefully...")
@@ -123,7 +123,7 @@ class MCPServer:
         def signal_handler(signum, frame):
             logger.info(f"Received signal {signum}, shutting down gracefully...")
             self.shutdown_event.set()
-        
+
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
