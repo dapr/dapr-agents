@@ -1,4 +1,4 @@
-dapr-agents[observability]>=0.8.3
+dapr-agents[observability]
 arize-phoenix>=11.22.0,<12.0.0
 arize-phoenix-otel>=0.12.0,<0.13.0
 opentelemetry-instrumentation>=0.55b1,<0.56b0
