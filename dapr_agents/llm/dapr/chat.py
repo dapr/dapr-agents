@@ -14,18 +14,6 @@ from typing import (
     Union,
 )
 
-from dapr.clients.grpc.conversation import (
-    ConversationInputAlpha2,
-    ConversationMessage,
-    ConversationMessageOfAssistant,
-    ConversationMessageContent,
-    ConversationToolCalls,
-    ConversationToolCallsOfFunction,
-    create_user_message,
-    create_system_message,
-    create_assistant_message,
-    create_tool_message,
-)
 from pydantic import BaseModel, Field
 
 from dapr_agents.llm.chat import ChatClientBase
@@ -38,6 +26,36 @@ from dapr_agents.types.message import (
     BaseMessage,
     LLMChatResponse,
 )
+
+
+# Lazy import to avoid import issues during test collection
+def _import_conversation_types():
+    from dapr.clients.grpc.conversation import (
+        ConversationInputAlpha2,
+        ConversationMessage,
+        ConversationMessageOfAssistant,
+        ConversationMessageContent,
+        ConversationToolCalls,
+        ConversationToolCallsOfFunction,
+        create_user_message,
+        create_system_message,
+        create_assistant_message,
+        create_tool_message,
+    )
+
+    return (
+        ConversationInputAlpha2,
+        ConversationMessage,
+        ConversationMessageOfAssistant,
+        ConversationMessageContent,
+        ConversationToolCalls,
+        ConversationToolCallsOfFunction,
+        create_user_message,
+        create_system_message,
+        create_assistant_message,
+        create_tool_message,
+    )
+
 
 logger = logging.getLogger(__name__)
 
@@ -112,16 +130,28 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             "usage": {"total_tokens": "-1"},
         }
 
-    def convert_to_conversation_inputs(
-        self, inputs: List[Dict[str, Any]]
-    ) -> List[ConversationInputAlpha2]:
+    def convert_to_conversation_inputs(self, inputs: List[Dict[str, Any]]) -> List[Any]:
         """
         Map normalized messages into a single Alpha2 ConversationInput that preserves history.
 
         Alpha2 expects a list of ConversationMessage entries inside one ConversationInputAlpha2
         for a turn. If there are tool results, they must reference prior assistant tool_calls by id.
         """
-        history_messages: List[Any] = []
+        # Lazy import conversation types
+        (
+            ConversationInputAlpha2,
+            ConversationMessage,
+            ConversationMessageOfAssistant,
+            ConversationMessageContent,
+            ConversationToolCalls,
+            ConversationToolCallsOfFunction,
+            create_user_message,
+            create_system_message,
+            create_assistant_message,
+            create_tool_message,
+        ) = _import_conversation_types()
+
+        history_messages: List[ConversationMessage] = []
         scrub_flags: List[bool] = []
 
         for item in inputs:

@@ -58,7 +58,7 @@ class DaprInferenceClient:
         Invoke Dapr Conversation API Alpha2 with optional tool-calling support and
         convert the response into a simplified OpenAI-like JSON envelope.
         """
-        conv_tools = self._alpha2_tools_from_openai_like(tools)
+        conv_tools = self._convert_openai_tools_to_conversation_tools(tools)
 
         # TODO: Remove when langchaningo is updated in contrib to latest version with a fix for openai-like temperature
         if not temperature:
@@ -119,7 +119,7 @@ class DaprInferenceClient:
                                 else {}
                             ),
                         },
-                        "finish_reason": choice.get("finish_reason", "stop"),
+                        "finish_reason": getattr(choice, "finish_reason", "stop"),
                     }
                 )
             outputs.append({"choices": choices_list})
