@@ -1,11 +1,11 @@
 from dapr_agents.types.llm import DaprInferenceClientConfig
 from dapr_agents.llm.base import LLMClientBase
 from dapr.clients import DaprClient
-from dapr.clients.grpc._request import ConversationInput
-from dapr.clients.grpc._response import ConversationResponse
-from typing import Dict, Any, List
+from dapr.clients.grpc import conversation as dapr_conversation
+from typing import Dict, Any, List, Optional
 from pydantic import model_validator
 
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,34 +15,119 @@ class DaprInferenceClient:
     def __init__(self):
         self.dapr_client = DaprClient()
 
-    def translate_to_json(self, response: ConversationResponse) -> dict:
-        response_dict = {
-            "outputs": [
-                {
-                    "result": output.result,
-                }
-                for output in response.outputs
-            ]
-        }
+    # ──────────────────────────────────────────────────────────────────────────
+    # Alpha2 (Tool Calling) support
+    # ──────────────────────────────────────────────────────────────────────────
+    def _convert_openai_tools_to_conversation_tools(
+        self, tools: Optional[List[Dict[str, Any]]]
+    ) -> Optional[List[dapr_conversation.ConversationTools]]:
+        """
+        Convert OpenAI-style tools (type=function, function={name, description, parameters})
+        into Dapr ConversationTools objects for Alpha2.
+        """
+        if not tools:
+            return None
+        converted: List[dapr_conversation.ConversationTools] = []
+        for tool in tools:
+            fn = tool.get("function", {}) if isinstance(tool, dict) else {}
+            name = fn.get("name")
+            description = fn.get("description")
+            parameters = fn.get("parameters")
+            function_spec = dapr_conversation.ConversationToolsFunction(
+                name=name or "",
+                description=description or "",
+                parameters=parameters or {},
+            )
+            conv_tool = dapr_conversation.ConversationTools(function=function_spec)
+            converted.append(conv_tool)
+        return converted
 
-        return response_dict
-
-    def chat_completion(
+    def chat_completion_alpha2(
         self,
+        *,
         llm: str,
-        conversation_inputs: List[ConversationInput],
-        scrub_pii: bool | None = None,
-        temperature: float | None = None,
-    ) -> Any:
-        response = self.dapr_client.converse_alpha1(
+        inputs: List[dapr_conversation.ConversationInputAlpha2],
+        scrub_pii: Optional[bool] = None,
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
+        context_id: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Invoke Dapr Conversation API Alpha2 with optional tool-calling support and
+        convert the response into a simplified OpenAI-like JSON envelope.
+        """
+        conv_tools = self._convert_openai_tools_to_conversation_tools(tools)
+
+        # TODO: Remove when langchaningo is updated in contrib to latest version with a fix for openai-like temperature
+        if not temperature:
+            temperature = 1
+
+        response_alpha2 = self.dapr_client.converse_alpha2(
             name=llm,
-            inputs=conversation_inputs,
+            inputs=inputs,
+            context_id=context_id,
+            parameters=parameters,
             scrub_pii=scrub_pii,
             temperature=temperature,
+            tools=conv_tools,
+            tool_choice=tool_choice,
         )
-        output = self.translate_to_json(response)
 
-        return output
+        outputs: List[Dict[str, Any]] = []
+        for output in getattr(response_alpha2, "outputs", []) or []:
+            choices_list: List[Dict[str, Any]] = []
+            for choice in getattr(output, "choices", []) or []:
+                msg = getattr(choice, "message", None)
+                content = getattr(msg, "content", None) if msg else None
+
+                # Convert tool calls if present
+                tool_calls_json: Optional[List[Dict[str, Any]]] = None
+                if msg and getattr(msg, "tool_calls", None):
+                    tool_calls_json = []
+                    for tc in msg.tool_calls:
+                        fn = getattr(tc, "function", None)
+                        arguments = getattr(fn, "arguments", None) if fn else None
+                        if isinstance(arguments, (dict, list)):
+                            try:
+                                arguments = json.dumps(arguments)
+                            except Exception:
+                                arguments = str(arguments)
+                        elif arguments is None:
+                            arguments = ""
+
+                        tool_calls_json.append(
+                            {
+                                "id": getattr(tc, "id", ""),
+                                "type": "function",
+                                "function": {
+                                    "name": getattr(fn, "name", "") if fn else "",
+                                    "arguments": arguments,
+                                },
+                            }
+                        )
+
+                choices_list.append(
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": content,
+                            **(
+                                {"tool_calls": tool_calls_json}
+                                if tool_calls_json
+                                else {}
+                            ),
+                        },
+                        "finish_reason": getattr(choice, "finish_reason", "stop"),
+                    }
+                )
+            outputs.append({"choices": choices_list})
+
+        return {
+            "context_id": getattr(response_alpha2, "context_id", None),
+            "outputs": outputs,
+        }
 
 
 class DaprInferenceClientBase(LLMClientBase):

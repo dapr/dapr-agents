@@ -59,9 +59,9 @@ class ToolHelper:
             return validate_and_format_tool(tool, tool_format, use_deprecated)
         if not isinstance(tool, AgentTool):
             raise TypeError(f"Unsupported tool type: {type(tool).__name__}")
-        return tool.to_function_call(
-            format_type=tool_format, use_deprecated=use_deprecated
-        )
+        # Treat 'dapr' like OpenAI-style function tools; Dapr client will convert
+        fmt = tool_format if tool_format != "dapr" else "openai"
+        return tool.to_function_call(format_type=fmt, use_deprecated=use_deprecated)
 
     @staticmethod
     def infer_func_schema(

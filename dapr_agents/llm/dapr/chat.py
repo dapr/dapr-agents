@@ -14,7 +14,6 @@ from typing import (
     Union,
 )
 
-from dapr.clients.grpc._request import ConversationInput
 from pydantic import BaseModel, Field
 
 from dapr_agents.llm.chat import ChatClientBase
@@ -27,6 +26,36 @@ from dapr_agents.types.message import (
     BaseMessage,
     LLMChatResponse,
 )
+
+
+# Lazy import to avoid import issues during test collection
+def _import_conversation_types():
+    from dapr.clients.grpc.conversation import (
+        ConversationInputAlpha2,
+        ConversationMessage,
+        ConversationMessageOfAssistant,
+        ConversationMessageContent,
+        ConversationToolCalls,
+        ConversationToolCallsOfFunction,
+        create_user_message,
+        create_system_message,
+        create_assistant_message,
+        create_tool_message,
+    )
+
+    return (
+        ConversationInputAlpha2,
+        ConversationMessage,
+        ConversationMessageOfAssistant,
+        ConversationMessageContent,
+        ConversationToolCalls,
+        ConversationToolCallsOfFunction,
+        create_user_message,
+        create_system_message,
+        create_assistant_message,
+        create_tool_message,
+    )
+
 
 logger = logging.getLogger(__name__)
 
@@ -86,17 +115,13 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
 
     def translate_response(self, response: dict, model: str) -> dict:
         """
-        Convert Dapr response into OpenAI-style ChatCompletion dict.
+        Convert Dapr Alpha2 response into OpenAI-style ChatCompletion dict.
         """
-        choices = [
-            {
-                "finish_reason": "stop",
-                "index": idx,
-                "message": {"role": "assistant", "content": out["result"]},
-                "logprobs": None,
-            }
-            for idx, out in enumerate(response.get("outputs", []))
-        ]
+        # Flatten all output choices from Alpha2 envelope
+        choices: List[Dict[str, Any]] = []
+        for output in response.get("outputs", []) or []:
+            for choice in output.get("choices", []) or []:
+                choices.append(choice)
         return {
             "choices": choices,
             "created": int(time.time()),
@@ -105,20 +130,85 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             "usage": {"total_tokens": "-1"},
         }
 
-    def convert_to_conversation_inputs(
-        self, inputs: List[Dict[str, Any]]
-    ) -> List[ConversationInput]:
+    def convert_to_conversation_inputs(self, inputs: List[Dict[str, Any]]) -> List[Any]:
         """
-        Map normalized messages into Dapr ConversationInput objects.
+        Map normalized messages into a single Alpha2 ConversationInput that preserves history.
+
+        Alpha2 expects a list of ConversationMessage entries inside one ConversationInputAlpha2
+        for a turn. If there are tool results, they must reference prior assistant tool_calls by id.
         """
-        return [
-            ConversationInput(
-                content=item["content"],
-                role=item.get("role"),
-                scrub_pii=bool(item.get("scrubPII")),
-            )
-            for item in inputs
-        ]
+        # Lazy import conversation types
+        (
+            ConversationInputAlpha2,
+            ConversationMessage,
+            ConversationMessageOfAssistant,
+            ConversationMessageContent,
+            ConversationToolCalls,
+            ConversationToolCallsOfFunction,
+            create_user_message,
+            create_system_message,
+            create_assistant_message,
+            create_tool_message,
+        ) = _import_conversation_types()
+
+        history_messages: List[ConversationMessage] = []
+        scrub_flags: List[bool] = []
+
+        for item in inputs:
+            role = item.get("role")
+            content = item.get("content", "")
+
+            if role == "user":
+                msg = create_user_message(content)
+            elif role == "system":
+                msg = create_system_message(content)
+            elif role == "assistant":
+                # Preserve assistant tool_calls if present (OpenAI-like schema)
+                tool_calls_data = item.get("tool_calls") or []
+                if tool_calls_data:
+                    converted_calls: List[ConversationToolCalls] = []
+                    for tc in tool_calls_data:
+                        fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+                        name = fn.get("name", "")
+                        arguments = fn.get("arguments", "")
+                        # Ensure arguments is a string
+                        if not isinstance(arguments, str):
+                            try:
+                                import json as _json
+
+                                arguments = _json.dumps(arguments)
+                            except Exception:
+                                arguments = str(arguments)
+                        converted_calls.append(
+                            ConversationToolCalls(
+                                id=tc.get("id", None),
+                                function=ConversationToolCallsOfFunction(
+                                    name=name, arguments=arguments
+                                ),
+                            )
+                        )
+                    msg = ConversationMessage(
+                        of_assistant=ConversationMessageOfAssistant(
+                            content=[ConversationMessageContent(text=content)],
+                            tool_calls=converted_calls,
+                        )
+                    )
+                else:
+                    msg = create_assistant_message(content)
+            elif role == "tool":
+                tool_id = item.get("tool_call_id") or item.get("id") or ""
+                name = item.get("name", "")
+                msg = create_tool_message(tool_id, name, content)
+            else:
+                raise ValueError(f"Unsupported role for Alpha2 conversion: {role}")
+
+            history_messages.append(msg)
+            scrub_flags.append(bool(item.get("scrubPII")))
+
+        # Use scrub_pii if any message requested it
+        scrub_any = any(scrub_flags) if scrub_flags else None
+
+        return [ConversationInputAlpha2(messages=history_messages, scrub_pii=scrub_any)]
 
     def generate(
         self,
@@ -209,11 +299,30 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         conv_inputs = self.convert_to_conversation_inputs(params["inputs"])
         try:
             logger.info("Invoking the Dapr Conversation API.")
-            raw = self.client.chat_completion(
+            # Log tools/tool_choice/parameters for debugging
+            if params.get("tools"):
+                try:
+                    logger.debug(
+                        f"Alpha2 tools payload: {[t.get('function', {}).get('name', '') for t in params['tools'] if isinstance(t, dict)]}"
+                    )
+                except Exception:
+                    logger.warning(
+                        "Alpha2 tools payload present (could not render names)."
+                    )
+            if params.get("tool_choice") is not None:
+                logger.debug(f"Alpha2 tool_choice: {params.get('tool_choice')}")
+            if params.get("parameters") is not None:
+                logger.debug(
+                    f"Alpha2 parameters keys: {list(params.get('parameters', {}).keys())}"
+                )
+            raw = self.client.chat_completion_alpha2(
                 llm=llm_component or self._llm_component,
-                conversation_inputs=conv_inputs,
+                inputs=conv_inputs,
                 scrub_pii=scrubPII,
                 temperature=temperature,
+                tools=params.get("tools"),
+                tool_choice=params.get("tool_choice"),
+                parameters=params.get("parameters"),
             )
             normalized = self.translate_response(
                 raw, llm_component or self._llm_component
