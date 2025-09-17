@@ -1,4 +1,4 @@
-dapr-agents>=0.8.3
+dapr-agents>=0.8.4
 chainlit==2.6.8
 psycopg[binary]==3.2.9
 websockets>=12.0
