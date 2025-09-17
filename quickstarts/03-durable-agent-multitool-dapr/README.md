@@ -15,11 +15,27 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
+## Component Configuration
+We provide a `components` folder with the Dapr components for the LLM and state/pubsub.
+The Conversation component example uses [OpenAI](https://docs.dapr.io/reference/components-reference/supported-conversation/openai/) component. 
+Many other LLM providers are compatible with OpenAI to certain extent (DeepSeek, Google AI, etc) so you can use them with the OpenAI component by configuring it with the appropriate parameters.
+But Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
+
+One thing you will need to update is the `key` in the [component configuration file](components/openai.yaml):
+
+```yaml
+metadata:
+  - name: key
+    value: "YOUR_OPENAI_API_KEY"
+```
+
+Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API (or other provider's API) key.
+
 ## Run
 ```bash
 dapr run --app-id durablemultitoolapp \
   --resources-path ./components \
-  -- source .venv/bin/activate && python multi_tool_agent_dapr.py
+  -- python multi_tool_agent_dapr.py
 ```
 
 ## Files
