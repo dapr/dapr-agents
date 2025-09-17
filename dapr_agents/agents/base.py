@@ -88,9 +88,10 @@ class AgentBase(BaseModel, ABC):
     max_iterations: int = Field(
         default=10, description="Max iterations for conversation cycles."
     )
+    # TODO(@Sicoyle): Rename this to make clearer
     memory: MemoryBase = Field(
         default_factory=ConversationListMemory,
-        description="Handles conversation history and context storage.",
+        description="Handles long-term conversation history (for all workflow instance-ids within the same session) and context storage.",
     )
     # TODO: we should have a system_template, prompt_template, and response_template, or better separation here.
     # If we have something like a customer service agent, we want diff templates for different types of interactions.

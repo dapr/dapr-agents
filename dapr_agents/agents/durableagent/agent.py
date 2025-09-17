@@ -230,6 +230,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 "input": task,
                 "output": "",
                 "messages": [],
+                # TODO(@Sicoyle): update to leverage deterministic time for replays.
                 "start_time": datetime.now(timezone.utc).isoformat(),
                 "end_time": None,  # Will be set when workflow completes
                 "source": source,
@@ -440,25 +441,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 ),
             }
         raise AgentError(f"No workflow entry found for instance_id={instance_id}")
-        # If entry doesn't exist, create a minimal one and return default values
-        # logger.warning(f"No workflow entry found for instance_id={instance_id}, creating minimal entry")
-        # from datetime import datetime, timezone
-        # minimal_entry = {
-        #     "messages": [],
-        #     "start_time": datetime.now(timezone.utc).isoformat(),
-        #     "source": "workflow_start",
-        #     "triggering_workflow_instance_id": None,
-        #     "workflow_name": self._workflow_name,
-        #     "dapr_status": "RUNNING",
-        #     "suspended_reason": None
-        # }
-        # self.state.setdefault("instances", {})[instance_id] = minimal_entry
-        # self.save_state()
-
-        # return {
-        #     "source": minimal_entry.get("source"),
-        #     "triggering_workflow_instance_id": minimal_entry.get("source_workflow_instance_id"),
-        # }
 
     @task
     async def generate_response(
