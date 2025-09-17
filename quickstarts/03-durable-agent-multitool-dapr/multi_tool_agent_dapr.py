@@ -14,6 +14,10 @@ async def main():
     # Ensure default Dapr LLM component is set (e.g., "openai" or "google")
     os.environ.setdefault("DAPR_LLM_COMPONENT_DEFAULT", "openai")
 
+    # Initialize the llm provider using the DaprChatClient
+    llm_provider = DaprChatClient()
+
+    # Instantiate the agent with the llm provider
     agent = DurableAgent(
         role="Research And Weather Assistant",
         name="Alex",
@@ -33,10 +37,10 @@ async def main():
         agents_registry_store_name="workflowstatestore",
         agents_registry_key="agents_registry",
         tools=tools,
-        llm=DaprChatClient(),
+        llm=llm_provider,
     )
 
-    # An example prompt that can require multiple tool calls
+    # An example prompt that can require multiple tool calls using the llm provider
     prompt = (
         "What's the current weather in Boston, MA, then compute (14*7)+23, and finally "
         "search for the official tourism site for Boston?"
