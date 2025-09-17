@@ -15,6 +15,10 @@ This quickstart demonstrates how to build a fully functional, enterprise-ready a
 - pip package manager
 - OpenAI API key (for the OpenAI example)
 - [Dapr CLI installed](https://docs.dapr.io/getting-started/install-dapr-cli/)
+- Poppler (for PDF processing) - Install with:
+  - macOS: `brew install poppler`
+  - Ubuntu/Debian: `sudo apt-get install poppler-utils`
+  - Windows: Download from [poppler releases](https://github.com/oschwartz10612/poppler-windows/releases)
 
 ## Environment Setup
 

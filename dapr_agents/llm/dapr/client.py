@@ -1,7 +1,13 @@
 from dapr_agents.types.llm import DaprInferenceClientConfig
 from dapr_agents.llm.base import LLMClientBase
 from dapr.clients import DaprClient
-from dapr.clients.grpc import conversation as dapr_conversation
+from dapr.clients.grpc.conversation import (
+    ConversationInput, 
+    ConversationResponseAlpha1 as ConversationResponse,
+    ConversationTools,
+    ConversationToolsFunction,
+    ConversationInputAlpha2
+)
 from typing import Dict, Any, List, Optional
 from pydantic import model_validator
 
@@ -20,25 +26,25 @@ class DaprInferenceClient:
     # ──────────────────────────────────────────────────────────────────────────
     def _convert_openai_tools_to_conversation_tools(
         self, tools: Optional[List[Dict[str, Any]]]
-    ) -> Optional[List[dapr_conversation.ConversationTools]]:
+    ) -> Optional[List[ConversationTools]]:
         """
         Convert OpenAI-style tools (type=function, function={name, description, parameters})
         into Dapr ConversationTools objects for Alpha2.
         """
         if not tools:
             return None
-        converted: List[dapr_conversation.ConversationTools] = []
+        converted: List[ConversationTools] = []
         for tool in tools:
             fn = tool.get("function", {}) if isinstance(tool, dict) else {}
             name = fn.get("name")
             description = fn.get("description")
             parameters = fn.get("parameters")
-            function_spec = dapr_conversation.ConversationToolsFunction(
+            function_spec = ConversationToolsFunction(
                 name=name or "",
                 description=description or "",
                 parameters=parameters or {},
             )
-            conv_tool = dapr_conversation.ConversationTools(function=function_spec)
+            conv_tool = ConversationTools(function=function_spec)
             converted.append(conv_tool)
         return converted
 
@@ -46,7 +52,7 @@ class DaprInferenceClient:
         self,
         *,
         llm: str,
-        inputs: List[dapr_conversation.ConversationInputAlpha2],
+        inputs: List[ConversationInputAlpha2],
         scrub_pii: Optional[bool] = None,
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,

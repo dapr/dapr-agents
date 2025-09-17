@@ -1,5 +1,8 @@
 import argparse
+import asyncio
 import logging
+import signal
+import sys
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -23,6 +26,8 @@ class MCPServer:
 
     def __init__(self):
         self.mcp = mcp
+        self.shutdown_event = asyncio.Event()
+        self.server = None
 
     def run_stdio(self):
         """Run the MCP server using stdio transport."""
@@ -99,14 +104,36 @@ class MCPServer:
         )
 
         async def serve():
-            async with session_manager.run():
-                config = uvicorn.Config(app, host=host, port=port, log_level="info")
-                server = uvicorn.Server(config)
-                await server.serve()
+            try:
+                async with session_manager.run():
+                    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+                    self.server = uvicorn.Server(config)
+                    
+                    await self.server.serve()
+            except KeyboardInterrupt:
+                logger.info("Received KeyboardInterrupt, shutting down gracefully...")
+            except Exception as e:
+                logger.exception(f"Server error: {e}")
+            finally:
+                if self.server:
+                    logger.info("Shutting down server...")
+                    self.server.should_exit = True
 
-        import asyncio
+        # Set up signal handlers before running
+        def signal_handler(signum, frame):
+            logger.info(f"Received signal {signum}, shutting down gracefully...")
+            self.shutdown_event.set()
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
 
-        asyncio.run(serve())
+        # Run the server
+        try:
+            asyncio.run(serve())
+        except KeyboardInterrupt:
+            logger.info("Server stopped by user")
+        except Exception as e:
+            logger.exception(f"Server failed: {e}")
 
 
 # ─────────────────────────────────────────────
