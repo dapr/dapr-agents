@@ -675,7 +675,7 @@ class WorkflowTaskWrapper:
         Returns:
             str: Semantic category for the task type
         """
-        if task_name in ["record_initial_entry", "get_workflow_entry_info"]:
+        if task_name in ["record_initial_entry"]:
             return "initialization"
         elif task_name in ["finalize_workflow", "finish_workflow"]:
             return "finalization"
