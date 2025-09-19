@@ -8,6 +8,7 @@ from dapr.ext.workflow import DaprWorkflowContext  # type: ignore
 from pydantic import Field, model_validator
 
 from dapr_agents.agents.base import AgentBase
+from dapr_agents.agents.durableagent.state import DurableAgentWorkflowState
 from dapr_agents.types import (
     AgentError,
     AssistantMessage,
@@ -83,18 +84,17 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         # Initialize state structure if it doesn't exist
         if not self.state:
-            self.state = {}
-        if "instances" not in self.state:
-            self.state["instances"] = {}
-        if "chat_history" not in self.state:
-            self.state["chat_history"] = []
+            self.state = DurableAgentWorkflowState()
+        elif isinstance(self.state, dict):
+            # Convert dict to DurableAgentWorkflowState if needed
+            self.state = DurableAgentWorkflowState(**self.state)
 
         # Load the current workflow instance ID from state if it exists
         logger.debug(f"State after loading: {self.state}")
-        if self.state and "instances" in self.state:
-            logger.debug(f"Found {len(self.state['instances'])} instances in state")
-            for instance_id, instance_data in self.state["instances"].items():
-                stored_workflow_name = instance_data.get("workflow_name")
+        if self.state and self.state.instances:
+            logger.debug(f"Found {len(self.state.instances)} instances in state")
+            for instance_id, instance_data in self.state.instances.items():
+                stored_workflow_name = instance_data.workflow_name
                 logger.debug(
                     f"Instance {instance_id}: workflow_name={stored_workflow_name}, current_workflow_name={self._workflow_name}"
                 )
@@ -266,7 +266,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                             input={
                                 "tool_call": tc,
                                 "instance_id": ctx.instance_id,
-                                "time": ctx.current_utc_datetime.isoformat(),
+                                "time": ctx.current_utc_datetime,
                             },
                         )
                         for tc in tool_calls
@@ -318,7 +318,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             input={
                 "instance_id": ctx.instance_id,
                 "final_output": final_msg.get("content", ""),
-                "time": ctx.current_utc_datetime.isoformat(),
+                "time": ctx.current_utc_datetime,
                 "triggering_workflow_instance_id": triggering_workflow_instance_id,
             },
         )
@@ -371,57 +371,28 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             trace_context=trace_context,
             status=DaprWorkflowStatus.RUNNING.value,
         )
-        self.state.setdefault("instances", {})[instance_id] = entry.model_dump(
-            mode="json"
-        )
-
-    @task
-    def get_workflow_entry_info(self, instance_id: str) -> Dict[str, Any]:
-        """
-        Retrieves the 'source' and 'triggering_workflow_instance_id' for a given workflow instance.
-
-        Args:
-            instance_id (str): The workflow instance ID to look up.
-
-        Returns:
-            Dict[str, Any]: Dictionary containing:
-                - 'source': The source of the workflow trigger (str or None).
-                - 'triggering_workflow_instance_id': The workflow instance ID of the triggering workflow (str or None).
-
-        Raises:
-            AgentError: If the entry is not found or invalid.
-        """
-        # Load state to ensure we have the latest data
-        self.load_state()
-
-        workflow_entry = self.state.get("instances", {}).get(instance_id)
-        if workflow_entry is not None:
-            return {
-                "source": workflow_entry.get("source"),
-                "triggering_workflow_instance_id": workflow_entry.get(
-                    "triggering_workflow_instance_id"
-                ),
-            }
-        raise AgentError(f"No workflow entry found for instance_id={instance_id}")
+        self.state.instances[instance_id] = entry
 
     # Note: This is only really needed bc of the in-memory storage solutions.
     # With persistent storage, this is not needed as we rehydrate the conversation state from the database upon app restart.
     def _ensure_instance_exists(
         self,
         instance_id: str,
+        input: str,
         triggering_workflow_instance_id: Optional[str] = None,
-        time: str = None,
+        time: Optional[datetime] = None,
     ) -> None:
         """Ensure the instance entry exists in the state."""
-        if instance_id not in self.state["instances"]:
-            self.state["instances"][instance_id] = {
-                "messages": [],
-                "start_time": time,
-                "source": "user_input",
-                "workflow_instance_id": instance_id,
-                "triggering_workflow_instance_id": triggering_workflow_instance_id,
-                "workflow_name": self._workflow_name,
-            }
+        if instance_id not in self.state.instances:
+            from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
+            self.state.instances[instance_id] = DurableAgentWorkflowEntry(
+                input=input,
+                start_time=time,  # Pydantic will use default_factory if None
+                source="user_input",
+                workflow_instance_id=instance_id,
+                triggering_workflow_instance_id=triggering_workflow_instance_id,
+                workflow_name=self._workflow_name,
+            )
 
     def _process_user_message(
         self,
@@ -437,9 +408,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         self.memory.add_message(user_msg)
 
         msg_object = DurableAgentMessage(**user_message_copy)
-        inst: dict = self.state["instances"][instance_id]
-        inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
-        inst["last_message"] = msg_object.model_dump(mode="json")
+        inst = self.state.instances[instance_id]
+        inst.messages.append(msg_object)
+        inst.last_message = msg_object
         self.save_state()
 
     def _generate_llm_response(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -464,19 +435,18 @@ class DurableAgent(AgenticWorkflow, AgentBase):
     ) -> None:
         """Save assistant message to state with idempotency check."""
         assistant_message["name"] = self.name
-        msg_object = DurableAgentMessage(**assistant_message)
+        agent_msg = DurableAgentMessage(**assistant_message)
 
-        inst: dict = self.state["instances"][instance_id]
-        message_dict = msg_object.model_dump(mode="json")
-        messages_list = inst.setdefault("messages", [])
+        inst = self.state.instances[instance_id]
+        messages_list = inst.messages
 
         # Check for duplicate by message ID (idempotent for workflow replay)
         message_exists = any(
-            msg.get("id") == message_dict.get("id") for msg in messages_list
+            msg.id == agent_msg.id for msg in messages_list
         )
         if not message_exists:
-            messages_list.append(message_dict)
-            inst["last_message"] = message_dict
+            messages_list.append(agent_msg)
+            inst.last_message = agent_msg
             self.memory.add_message(AssistantMessage(**assistant_message))
             self.save_state()
 
@@ -499,7 +469,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
     async def generate_llm_response(
         self,
         instance_id: str,
-        time: str,
+        time: datetime,
         task: Optional[Union[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
@@ -527,7 +497,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             dict(user_message) if user_message else None
         )
 
-        self._ensure_instance_exists(instance_id, time=time)
+        self._ensure_instance_exists(instance_id, task or "No input provided", time=time)
         self._process_user_message(instance_id, task, user_message_copy)
 
         # Generate LLM response and atomically save assistant message
@@ -588,29 +558,27 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             agent_msg: The DurableAgentMessage object
             tool_history_entry: The ToolExecutionRecord object
         """
-        wf_instance = self.state["instances"][instance_id]
+        wf_instance = self.state.instances[instance_id]
 
         # Check if message already exists (idempotent operation for workflow replay)
-        agent_messages = agent_msg.model_dump(mode="json")
-        wf_messages = wf_instance.setdefault("messages", [])
+        wf_messages = wf_instance.messages
 
         # Check for duplicate by message ID (idempotent for workflow replay)
         message_exists = any(
-            msg.get("id") == agent_messages.get("id") for msg in wf_messages
+            msg.id == agent_msg.id for msg in wf_messages
         )
         if not message_exists:
-            wf_messages.append(agent_messages)
+            wf_messages.append(agent_msg)
 
         # Check for duplicate tool history entry by tool_call_id
-        tool_history_dict = tool_history_entry.model_dump(mode="json")
-        tool_history = wf_instance.setdefault("tool_history", [])
+        tool_history = wf_instance.tool_history
 
         tool_exists = any(
-            th.get("tool_call_id") == tool_history_dict.get("tool_call_id")
+            th.tool_call_id == tool_history_entry.tool_call_id
             for th in tool_history
         )
         if not tool_exists:
-            tool_history.append(tool_history_dict)
+            tool_history.append(tool_history_entry)
 
     def _update_agent_memory_and_history(
         self, tool_message: ToolMessage, tool_history_entry: ToolExecutionRecord
@@ -640,12 +608,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         Returns:
             The last message dict or None if not found
         """
-        instance_data = self.state.get("instances", {}).get(instance_id, {})
-        return instance_data.get("last_message")
+        instance_data = self.state.instances.get(instance_id)
+        if instance_data is not None:
+            return instance_data.last_message
+        return None
 
     @task
     async def run_tool(
-        self, tool_call: Dict[str, Any], instance_id: str, time: str
+        self, tool_call: Dict[str, Any], instance_id: str, time: datetime
     ) -> Dict[str, Any]:
         """
         Executes a tool call atomically by invoking the specified function with the provided arguments
@@ -689,7 +659,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         }
 
         # Atomically persist the tool execution result
-        self._ensure_instance_exists(instance_id, time=time)
+        # Get existing input or use placeholder
+        existing_input = self.state.instances[instance_id].input if instance_id in self.state.instances else "Tool execution"
+        self._ensure_instance_exists(instance_id, existing_input, time=time)
         tool_msg, agent_msg, tool_history_entry = self._create_tool_message_objects(
             tool_result
         )
@@ -747,18 +719,19 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         self,
         instance_id: str,
         final_output: str,
-        time: str,
+        time: datetime,
         triggering_workflow_instance_id: Optional[str] = None,
     ) -> None:
         """
         Record the final output and end_time in the workflow state.
         """
         # Ensure the instance entry exists
-        self._ensure_instance_exists(instance_id, triggering_workflow_instance_id, time)
-        instance = self.state["instances"][instance_id]
-        instance["output"] = final_output
-        instance["end_time"] = time
-        instance["status"] = DaprWorkflowStatus.COMPLETED.value  # Mark as completed
+        existing_input = self.state.instances[instance_id].input if instance_id in self.state.instances else "Workflow completion"
+        self._ensure_instance_exists(instance_id, existing_input, triggering_workflow_instance_id, time)
+        instance = self.state.instances[instance_id]
+        instance.output = final_output
+        instance.end_time = time
+        instance.status = DaprWorkflowStatus.COMPLETED.value  # Mark as completed
         logger.info(f"Workflow {instance_id} completed successfully")
         self.save_state()
 
@@ -804,11 +777,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             self.memory.add_message(message)
 
             # Define DurableAgentMessage object for state persistence
-            msg_object = DurableAgentMessage(**message.model_dump())
+            agent_msg = DurableAgentMessage(**message.model_dump())
 
             # Persist to global chat history
-            self.state.setdefault("chat_history", [])
-            self.state["chat_history"].append(msg_object.model_dump(mode="json"))
+            self.state.chat_history.append(agent_msg)
             # Save the state after processing the broadcast message
             self.save_state()
 
@@ -836,8 +808,11 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             )
 
         # Get instance-specific chat history instead of global memory
-        instance_data = self.state.get("instances", {}).get(instance_id, {})
-        instance_messages = instance_data.get("messages", [])
+        instance_data = self.state.instances.get(instance_id)
+        if instance_data is not None:
+            instance_messages = instance_data.messages
+        else:
+            instance_messages = []
 
         # Convert instance messages to the format expected by prompt template
         chat_history = []
@@ -873,3 +848,4 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 return [{"role": "system", "content": formatted_messages}]
         else:
             raise ValueError("Input data must be either a string or dictionary.")
+

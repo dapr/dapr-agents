@@ -181,14 +181,13 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
         "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
     }
 
-    result = await durable_agent_with_mcp_tool.run_tool(tool_call)
+    result = await durable_agent_with_mcp_tool.run_tool(tool_call, instance_id, "2024-01-01T00:00:00Z")
     instance_data = durable_agent_with_mcp_tool.state["instances"][instance_id]
-    instance_data.tool_history.append(result)
     assert len(instance_data.tool_history) == 1
     tool_entry = instance_data.tool_history[0]
-    assert tool_entry["tool_call_id"] == "call_123"
-    assert tool_entry["tool_name"] == tool_name
-    assert tool_entry["execution_result"] == "4"
+    assert tool_entry.tool_call_id == "call_123"
+    assert tool_entry.tool_name == tool_name
+    assert tool_entry.execution_result == "4"
 
 
 # Shared fixture to start the math server with streamable HTTP
@@ -277,11 +276,10 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
         "id": "call_456",
         "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
     }
-    result = await agent.run_tool(tool_call)
+    result = await agent.run_tool(tool_call, instance_id, "2024-01-01T00:00:00Z")
     instance_data = agent.state["instances"][instance_id]
-    instance_data.tool_history.append(result)
     assert len(instance_data.tool_history) == 1
     tool_entry = instance_data.tool_history[0]
-    assert tool_entry["tool_call_id"] == "call_456"
-    assert tool_entry["tool_name"] == tool_name
-    assert tool_entry["execution_result"] == "4"
+    assert tool_entry.tool_call_id == "call_456"
+    assert tool_entry.tool_name == tool_name
+    assert tool_entry.execution_result == "4"

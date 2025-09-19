@@ -134,20 +134,20 @@ Your role is {role}.
         return values
 
     @model_validator(mode="after")
-    def validate_llm(cls, values):
+    def validate_llm(self):
         """Validate that LLM is properly configured."""
-        if hasattr(values, "llm"):
-            if values.llm is None:
+        if hasattr(self, "llm"):
+            if self.llm is None:
                 logger.warning("LLM client is None, some functionality may be limited.")
             else:
                 try:
                     # Validate LLM is properly configured by accessing it as this is required to be set.
-                    _ = values.llm
+                    _ = self.llm
                 except Exception as e:
                     logger.error(f"Failed to initialize LLM: {e}")
-                    values.llm = None
+                    self.llm = None
 
-        return values
+        return self
 
     def model_post_init(self, __context: Any) -> None:
         """
