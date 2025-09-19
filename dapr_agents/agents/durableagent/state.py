@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from dapr_agents.types import MessageContent, ToolExecutionRecord
+from dapr_agents.types.workflow import DaprWorkflowStatus
 from datetime import datetime
 import uuid
 
@@ -59,6 +60,10 @@ class DurableAgentWorkflowEntry(BaseModel):
     trace_context: Optional[Dict[str, Any]] = Field(
         default=None,
         description="OpenTelemetry trace context for workflow resumption.",
+    )
+    status: str = Field(
+        default=DaprWorkflowStatus.RUNNING.value,
+        description="Current status of the workflow.",
     )
 
 
