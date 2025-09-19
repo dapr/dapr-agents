@@ -362,7 +362,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             # Don't reregister tasks that are already registered
             if task_name in self.tasks:
                 continue
-            
+
             llm = self._choose_llm_for(method)
             logger.debug(
                 f"Registering task '{task_name}' with llm={getattr(llm, '__class__', None)}"
@@ -452,6 +452,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             # Don't reregister workflows that are already registered
             if wf_name in self.workflows:
                 continue
+
             # Use a closure helper to avoid late-binding capture issues.
             def make_wrapped(meth: Callable) -> Callable:
                 @functools.wraps(meth)
@@ -538,7 +539,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             self._monitor_resumed_workflows()
         else:
             logger.debug("Workflow runtime already running; skipping.")
-        
+
         self._ensure_activities_registered()
 
     def _ensure_activities_registered(self):

@@ -189,7 +189,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 metadata["triggering_workflow_instance_id"] = message[
                     "workflow_instance_id"
                 ]
-        else: # This is for if triggered by an orchestrator
+        else:  # This is for if triggered by an orchestrator
             task = getattr(message, "task", None)
             metadata = getattr(message, "_message_metadata", {}) or {}
             # Extract OpenTelemetry span context if present
@@ -245,7 +245,11 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 # Generate Response with LLM and atomically save the assistant's response message
                 response_message: dict = yield ctx.call_activity(
                     self.generate_llm_response,
-                    input={"task": task, "instance_id": ctx.instance_id, "time": ctx.current_utc_datetime.isoformat()},
+                    input={
+                        "task": task,
+                        "instance_id": ctx.instance_id,
+                        "time": ctx.current_utc_datetime.isoformat(),
+                    },
                 )
 
                 # Handle tool calls response
@@ -258,17 +262,17 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                     # fan‑out parallel tool executions
                     parallel = [
                         ctx.call_activity(
-                            self.run_tool, 
+                            self.run_tool,
                             input={
                                 "tool_call": tc,
                                 "instance_id": ctx.instance_id,
                                 "time": ctx.current_utc_datetime.isoformat(),
-                            }
+                            },
                         )
                         for tc in tool_calls
                     ]
                     yield self.when_all(parallel)
-                    
+
                     # Prepare for next turn: clear task so that generate_llm_response() uses memory/history
                     task = None
                     continue  # bump to next turn
@@ -289,10 +293,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Get the last message from state (this will be the final response)
         final_msg = self._get_last_message_from_state(ctx.instance_id)
         if not final_msg:
-            final_msg = {
-                "role": "assistant", 
-                "content": "No response generated"
-            }
+            final_msg = {"role": "assistant", "content": "No response generated"}
 
         # Broadcast the final response if a broadcast topic is set
         if self.broadcast_topic_name:
@@ -331,10 +332,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         # Return the final response message
         return final_msg
-    
-    def get_source_or_default(self,
-        source: str
-    ):
+
+    def get_source_or_default(self, source: str):
         # Set default source if not provided (for direct run() calls)
         if not source:
             source = "direct"
@@ -347,7 +346,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         input: str,
         source: Optional[str],
         triggering_workflow_instance_id: Optional[str],
-        start_time: str, # required to be passed in using the workflow context for deterministic timestamp
+        start_time: str,  # required to be passed in using the workflow context for deterministic timestamp
         output: str = "",
         trace_context: Optional[Dict[str, Any]] = None,
     ):
@@ -407,9 +406,12 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
     # Note: This is only really needed bc of the in-memory storage solutions.
     # With persistent storage, this is not needed as we rehydrate the conversation state from the database upon app restart.
-    def _ensure_instance_exists(self, instance_id: str, 
-                              triggering_workflow_instance_id: Optional[str] = None, 
-                              time: str = None) -> None:
+    def _ensure_instance_exists(
+        self,
+        instance_id: str,
+        triggering_workflow_instance_id: Optional[str] = None,
+        time: str = None,
+    ) -> None:
         """Ensure the instance entry exists in the state."""
         if instance_id not in self.state["instances"]:
             self.state["instances"][instance_id] = {
@@ -422,18 +424,18 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             }
 
     def _process_user_message(
-        self, 
-        instance_id: str, 
-        task: Optional[Union[str, Dict[str, Any]]], 
-        user_message_copy: Optional[Dict[str, Any]]
+        self,
+        instance_id: str,
+        task: Optional[Union[str, Dict[str, Any]]],
+        user_message_copy: Optional[Dict[str, Any]],
     ) -> None:
         """Process and save user message to memory and state."""
         if not (task and user_message_copy):
             return
-            
+
         user_msg = UserMessage(content=user_message_copy.get("content", ""))
         self.memory.add_message(user_msg)
-        
+
         msg_object = DurableAgentMessage(**user_message_copy)
         inst: dict = self.state["instances"][instance_id]
         inst.setdefault("messages", []).append(msg_object.model_dump(mode="json"))
@@ -454,18 +456,16 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         response_message = response.get_message()
         if response_message is None:
             raise AgentError("LLM returned no assistant message")
-        
+
         return response_message.model_dump()
 
     def _save_assistant_message(
-        self, 
-        instance_id: str, 
-        assistant_message: Dict[str, Any]
+        self, instance_id: str, assistant_message: Dict[str, Any]
     ) -> None:
         """Save assistant message to state with idempotency check."""
         assistant_message["name"] = self.name
         msg_object = DurableAgentMessage(**assistant_message)
-        
+
         inst: dict = self.state["instances"][instance_id]
         message_dict = msg_object.model_dump(mode="json")
         messages_list = inst.setdefault("messages", [])
@@ -481,9 +481,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             self.save_state()
 
     def _print_llm_interaction_messages(
-        self, 
-        user_message_copy: Optional[Dict[str, Any]], 
-        assistant_message: Dict[str, Any]
+        self,
+        user_message_copy: Optional[Dict[str, Any]],
+        assistant_message: Dict[str, Any],
     ) -> None:
         """Print user and assistant messages for context."""
         # Print user message
@@ -491,13 +491,16 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             self.text_formatter.print_message(
                 {str(k): v for k, v in user_message_copy.items()}
             )
-        
+
         # Print assistant message
         self.text_formatter.print_message(assistant_message)
 
     @task
     async def generate_llm_response(
-        self, instance_id: str, time: str, task: Optional[Union[str, Dict[str, Any]]] = None,
+        self,
+        instance_id: str,
+        time: str,
+        task: Optional[Union[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Ask the LLM for the assistant's next message.
@@ -532,7 +535,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             assistant_message = self._generate_llm_response(messages)
             self._save_assistant_message(instance_id, assistant_message)
             self._print_llm_interaction_messages(user_message_copy, assistant_message)
-            
+
             return assistant_message
         except Exception as e:
             error_type = type(e).__name__
@@ -554,10 +557,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
     def _create_tool_message_objects(self, tool_result: Dict[str, Any]) -> tuple:
         """
         Create ToolMessage and DurableAgentMessage objects from tool result.
-        
+
         Args:
             tool_result: Dictionary containing tool execution details
-            
+
         Returns:
             Tuple of (tool_msg, agent_msg, tool_history_entry)
         """
@@ -568,22 +571,25 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         )
         agent_msg = DurableAgentMessage(**tool_msg.model_dump())
         tool_history_entry = ToolExecutionRecord(**tool_result)
-        
+
         return tool_msg, agent_msg, tool_history_entry
 
-
-    def _append_tool_message_to_instance(self, instance_id: str, agent_msg: DurableAgentMessage, 
-                                       tool_history_entry: ToolExecutionRecord) -> None:
+    def _append_tool_message_to_instance(
+        self,
+        instance_id: str,
+        agent_msg: DurableAgentMessage,
+        tool_history_entry: ToolExecutionRecord,
+    ) -> None:
         """
         Append tool message and history to the instance state.
-        
+
         Args:
             instance_id: The workflow instance ID
             agent_msg: The DurableAgentMessage object
             tool_history_entry: The ToolExecutionRecord object
         """
         wf_instance = self.state["instances"][instance_id]
-        
+
         # Check if message already exists (idempotent operation for workflow replay)
         agent_messages = agent_msg.model_dump(mode="json")
         wf_messages = wf_instance.setdefault("messages", [])
@@ -606,11 +612,12 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         if not tool_exists:
             tool_history.append(tool_history_dict)
 
-    def _update_agent_memory_and_history(self, tool_message: ToolMessage, 
-                                       tool_history_entry: ToolExecutionRecord) -> None:
+    def _update_agent_memory_and_history(
+        self, tool_message: ToolMessage, tool_history_entry: ToolExecutionRecord
+    ) -> None:
         """
         Update agent's memory and tool history.
-        
+
         Args:
             tool_message: The ToolMessage object
             tool_history_entry: The ToolExecutionRecord object
@@ -621,13 +628,15 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Add the tool message to the agent's memory
         self.memory.add_message(tool_message)
 
-    def _get_last_message_from_state(self, instance_id: str) -> Optional[Dict[str, Any]]:
+    def _get_last_message_from_state(
+        self, instance_id: str
+    ) -> Optional[Dict[str, Any]]:
         """
         Get the last message from the instance state.
-        
+
         Args:
             instance_id: The workflow instance ID
-            
+
         Returns:
             The last message dict or None if not found
         """
@@ -635,7 +644,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         return instance_data.get("last_message")
 
     @task
-    async def run_tool(self, tool_call: Dict[str, Any], instance_id: str, time: str) -> Dict[str, Any]:
+    async def run_tool(
+        self, tool_call: Dict[str, Any], instance_id: str, time: str
+    ) -> Dict[str, Any]:
         """
         Executes a tool call atomically by invoking the specified function with the provided arguments
         and immediately persisting the result to the agent's state and memory.
@@ -679,8 +690,12 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         # Atomically persist the tool execution result
         self._ensure_instance_exists(instance_id, time=time)
-        tool_msg, agent_msg, tool_history_entry = self._create_tool_message_objects(tool_result)
-        self._append_tool_message_to_instance(instance_id, agent_msg, tool_history_entry)
+        tool_msg, agent_msg, tool_history_entry = self._create_tool_message_objects(
+            tool_result
+        )
+        self._append_tool_message_to_instance(
+            instance_id, agent_msg, tool_history_entry
+        )
         self._update_agent_memory_and_history(tool_msg, tool_history_entry)
         self.save_state()
         self.text_formatter.print_message(tool_msg)
@@ -727,8 +742,13 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         await self.send_message_to_agent(name=target_agent, message=agent_response)
 
     @task
-    def finalize_workflow(self, instance_id: str, final_output: str, time: str, 
-                         triggering_workflow_instance_id: Optional[str] = None) -> None:
+    def finalize_workflow(
+        self,
+        instance_id: str,
+        final_output: str,
+        time: str,
+        triggering_workflow_instance_id: Optional[str] = None,
+    ) -> None:
         """
         Record the final output and end_time in the workflow state.
         """
