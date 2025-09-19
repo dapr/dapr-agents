@@ -83,12 +83,6 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
 
         self.start_runtime()
 
-        # Discover and register tasks and workflows
-        discovered_tasks = self._discover_tasks()
-        self._register_tasks(discovered_tasks)
-        discovered_wfs = self._discover_workflows()
-        self._register_workflows(discovered_wfs)
-
         # Set up automatic signal handlers for graceful shutdown
         try:
             self.setup_signal_handlers()
@@ -365,6 +359,10 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
     def _register_tasks(self, tasks: Dict[str, Callable]) -> None:
         """Register each discovered task with the Dapr runtime using direct registration."""
         for task_name, method in tasks.items():
+            # Don't reregister tasks that are already registered
+            if task_name in self.tasks:
+                continue
+            
             llm = self._choose_llm_for(method)
             logger.debug(
                 f"Registering task '{task_name}' with llm={getattr(llm, '__class__', None)}"
@@ -451,6 +449,9 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
     def _register_workflows(self, wfs: Dict[str, Callable]) -> None:
         """Register each discovered workflow with the Dapr runtime."""
         for wf_name, method in wfs.items():
+            # Don't reregister workflows that are already registered
+            if wf_name in self.workflows:
+                continue
             # Use a closure helper to avoid late-binding capture issues.
             def make_wrapped(meth: Callable) -> Callable:
                 @functools.wraps(meth)
@@ -537,6 +538,17 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             self._monitor_resumed_workflows()
         else:
             logger.debug("Workflow runtime already running; skipping.")
+        
+        self._ensure_activities_registered()
+
+    def _ensure_activities_registered(self):
+        """Ensure all workflow activities are registered with the Dapr runtime."""
+        # Discover and register tasks and workflows
+        discovered_tasks = self._discover_tasks()
+        self._register_tasks(discovered_tasks)
+        discovered_wfs = self._discover_workflows()
+        self._register_workflows(discovered_wfs)
+        logger.debug("Workflow activities registration completed.")
 
     def _sync_workflow_state_after_startup(self):
         """
