@@ -295,8 +295,8 @@ class TestDurableAgent:
         assert instance_data.triggering_workflow_instance_id == "parent-instance-123"
 
     @pytest.mark.asyncio
-    async def test_generate_response_activity(self, basic_durable_agent):
-        """Test that generate_response unwraps an LLMChatResponse properly."""
+    async def test_generate_llm_response_activity(self, basic_durable_agent):
+        """Test that generate_llm_response unwraps an LLMChatResponse properly."""
         from dapr_agents.types import (
             AssistantMessage,
             LLMChatCandidate,
@@ -328,8 +328,8 @@ class TestDurableAgent:
             }
         }
 
-        assistant_dict = await basic_durable_agent.generate_response(
-            instance_id, "Test task"
+        assistant_dict = await basic_durable_agent.generate_llm_response(
+            instance_id, "2024-01-01T00:00:00Z", "Test task"
         )
         # The dict dumped from AssistantMessage should have our content
         assert assistant_dict["content"] == "Test response"
@@ -382,7 +382,7 @@ class TestDurableAgent:
             }
         }
 
-        basic_durable_agent.finalize_workflow(instance_id, final_output)
+        basic_durable_agent.finalize_workflow(instance_id, final_output, "2024-01-01T00:00:00Z")
         instance_data = basic_durable_agent.state["instances"][instance_id]
         assert instance_data["output"] == final_output
         assert "end_time" in instance_data
@@ -410,13 +410,11 @@ class TestDurableAgent:
             }
         }
 
-        basic_durable_agent.append_assistant_message(instance_id, message)
-        basic_durable_agent.append_tool_message(instance_id, tool_execution_record)
-        basic_durable_agent.finalize_workflow(instance_id, final_output)
+        basic_durable_agent._save_assistant_message(instance_id, message)
+        basic_durable_agent.finalize_workflow(instance_id, final_output, "2024-01-01T00:00:00Z")
 
         instance_data = basic_durable_agent.state["instances"][instance_id]
-        assert len(instance_data["messages"]) == 2
-        assert len(instance_data["tool_history"]) == 1
+        assert len(instance_data["messages"]) == 1  # Only assistant message
         assert instance_data["output"] == final_output
 
     @pytest.mark.asyncio

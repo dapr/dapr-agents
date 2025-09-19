@@ -741,6 +741,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Send the message to the target agent
         await self.send_message_to_agent(name=target_agent, message=agent_response)
 
+    # TODO: add metrics on workflow run in future here?
     @task
     def finalize_workflow(
         self,
