@@ -382,7 +382,9 @@ class TestDurableAgent:
             }
         }
 
-        basic_durable_agent.finalize_workflow(instance_id, final_output, "2024-01-01T00:00:00Z")
+        basic_durable_agent.finalize_workflow(
+            instance_id, final_output, "2024-01-01T00:00:00Z"
+        )
         instance_data = basic_durable_agent.state["instances"][instance_id]
         assert instance_data["output"] == final_output
         assert "end_time" in instance_data
@@ -411,7 +413,9 @@ class TestDurableAgent:
         }
 
         basic_durable_agent._save_assistant_message(instance_id, message)
-        basic_durable_agent.finalize_workflow(instance_id, final_output, "2024-01-01T00:00:00Z")
+        basic_durable_agent.finalize_workflow(
+            instance_id, final_output, "2024-01-01T00:00:00Z"
+        )
 
         instance_data = basic_durable_agent.state["instances"][instance_id]
         assert len(instance_data["messages"]) == 1  # Only assistant message
