@@ -533,9 +533,7 @@ class TestDurableAgent:
         )
 
         # Mock memory.add_message
-        with patch.object(
-            type(basic_durable_agent.memory), "add_message"
-        ):
+        with patch.object(type(basic_durable_agent.memory), "add_message"):
             basic_durable_agent._process_user_message(
                 instance_id, task, user_message_copy
             )
@@ -560,9 +558,7 @@ class TestDurableAgent:
         )
 
         # Mock memory.add_message
-        with patch.object(
-            type(basic_durable_agent.memory), "add_message"
-        ):
+        with patch.object(type(basic_durable_agent.memory), "add_message"):
             basic_durable_agent._save_assistant_message(instance_id, assistant_message)
 
         # Verify message was added to instance
