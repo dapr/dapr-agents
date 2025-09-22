@@ -166,7 +166,7 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
         source=None,
         triggering_workflow_instance_id=None,
     )
-    durable_agent_with_mcp_tool.state["instances"] = {instance_id: workflow_entry}
+    durable_agent_with_mcp_tool.state.instances[instance_id] = workflow_entry
 
     # Print available tool names for debugging
     tool_names = [t.name for t in durable_agent_with_mcp_tool.tool_executor.tools]
@@ -184,7 +184,7 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     await durable_agent_with_mcp_tool.run_tool(
         tool_call, instance_id, "2024-01-01T00:00:00Z"
     )
-    instance_data = durable_agent_with_mcp_tool.state["instances"][instance_id]
+    instance_data = durable_agent_with_mcp_tool.state.instances[instance_id]
     assert len(instance_data.tool_history) == 1
     tool_entry = instance_data.tool_history[0]
     assert tool_entry.tool_call_id == "call_123"
@@ -266,7 +266,7 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
         source=None,
         triggering_workflow_instance_id=None,
     )
-    agent.state["instances"] = {instance_id: workflow_entry}
+    agent.state.instances[instance_id] = workflow_entry
     # Print available tool names
     tool_names = [t.name for t in agent.tool_executor.tools]
     print("Available tool names (integration test):", tool_names)
@@ -279,7 +279,7 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
         "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
     }
     await agent.run_tool(tool_call, instance_id, "2024-01-01T00:00:00Z")
-    instance_data = agent.state["instances"][instance_id]
+    instance_data = agent.state.instances[instance_id]
     assert len(instance_data.tool_history) == 1
     tool_entry = instance_data.tool_history[0]
     assert tool_entry.tool_call_id == "call_456"
