@@ -535,7 +535,7 @@ class TestDurableAgent:
         # Mock memory.add_message
         with patch.object(
             type(basic_durable_agent.memory), "add_message"
-        ) as mock_add_message:
+        ):
             basic_durable_agent._process_user_message(
                 instance_id, task, user_message_copy
             )
@@ -562,7 +562,7 @@ class TestDurableAgent:
         # Mock memory.add_message
         with patch.object(
             type(basic_durable_agent.memory), "add_message"
-        ) as mock_add_message:
+        ):
             basic_durable_agent._save_assistant_message(instance_id, assistant_message)
 
         # Verify message was added to instance
@@ -575,7 +575,6 @@ class TestDurableAgent:
     def test_get_last_message_from_state(self, basic_durable_agent):
         """Test _get_last_message_from_state helper method."""
         instance_id = "test-instance-123"
-        last_message = {"role": "assistant", "content": "Last message"}
 
         # Set up instance with last_message
         basic_durable_agent.state.instances[instance_id] = DurableAgentWorkflowEntry(

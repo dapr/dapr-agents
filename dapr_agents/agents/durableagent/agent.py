@@ -29,7 +29,6 @@ from .schemas import (
 from .state import (
     DurableAgentMessage,
     DurableAgentWorkflowEntry,
-    DurableAgentWorkflowState,
 )
 
 logger = logging.getLogger(__name__)
