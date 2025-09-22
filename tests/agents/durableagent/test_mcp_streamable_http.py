@@ -181,7 +181,9 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
         "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
     }
 
-    result = await durable_agent_with_mcp_tool.run_tool(tool_call, instance_id, "2024-01-01T00:00:00Z")
+    result = await durable_agent_with_mcp_tool.run_tool(
+        tool_call, instance_id, "2024-01-01T00:00:00Z"
+    )
     instance_data = durable_agent_with_mcp_tool.state["instances"][instance_id]
     assert len(instance_data.tool_history) == 1
     tool_entry = instance_data.tool_history[0]

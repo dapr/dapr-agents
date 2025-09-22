@@ -385,6 +385,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         """Ensure the instance entry exists in the state."""
         if instance_id not in self.state.instances:
             from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
+
             self.state.instances[instance_id] = DurableAgentWorkflowEntry(
                 input=input,
                 start_time=time,  # Pydantic will use default_factory if None
@@ -441,9 +442,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         messages_list = inst.messages
 
         # Check for duplicate by message ID (idempotent for workflow replay)
-        message_exists = any(
-            msg.id == agent_msg.id for msg in messages_list
-        )
+        message_exists = any(msg.id == agent_msg.id for msg in messages_list)
         if not message_exists:
             messages_list.append(agent_msg)
             inst.last_message = agent_msg
@@ -497,7 +496,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             dict(user_message) if user_message else None
         )
 
-        self._ensure_instance_exists(instance_id, task or "No input provided", time=time)
+        self._ensure_instance_exists(
+            instance_id, task or "No input provided", time=time
+        )
         self._process_user_message(instance_id, task, user_message_copy)
 
         # Generate LLM response and atomically save assistant message
@@ -564,9 +565,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         wf_messages = wf_instance.messages
 
         # Check for duplicate by message ID (idempotent for workflow replay)
-        message_exists = any(
-            msg.id == agent_msg.id for msg in wf_messages
-        )
+        message_exists = any(msg.id == agent_msg.id for msg in wf_messages)
         if not message_exists:
             wf_messages.append(agent_msg)
 
@@ -574,8 +573,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         tool_history = wf_instance.tool_history
 
         tool_exists = any(
-            th.tool_call_id == tool_history_entry.tool_call_id
-            for th in tool_history
+            th.tool_call_id == tool_history_entry.tool_call_id for th in tool_history
         )
         if not tool_exists:
             tool_history.append(tool_history_entry)
@@ -660,7 +658,11 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         # Atomically persist the tool execution result
         # Get existing input or use placeholder
-        existing_input = self.state.instances[instance_id].input if instance_id in self.state.instances else "Tool execution"
+        existing_input = (
+            self.state.instances[instance_id].input
+            if instance_id in self.state.instances
+            else "Tool execution"
+        )
         self._ensure_instance_exists(instance_id, existing_input, time=time)
         tool_msg, agent_msg, tool_history_entry = self._create_tool_message_objects(
             tool_result
@@ -726,8 +728,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         Record the final output and end_time in the workflow state.
         """
         # Ensure the instance entry exists
-        existing_input = self.state.instances[instance_id].input if instance_id in self.state.instances else "Workflow completion"
-        self._ensure_instance_exists(instance_id, existing_input, triggering_workflow_instance_id, time)
+        existing_input = (
+            self.state.instances[instance_id].input
+            if instance_id in self.state.instances
+            else "Workflow completion"
+        )
+        self._ensure_instance_exists(
+            instance_id, existing_input, triggering_workflow_instance_id, time
+        )
         instance = self.state.instances[instance_id]
         instance.output = final_output
         instance.end_time = time
@@ -848,4 +856,3 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 return [{"role": "system", "content": formatted_messages}]
         else:
             raise ValueError("Input data must be either a string or dictionary.")
-
