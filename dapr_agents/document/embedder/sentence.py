@@ -136,7 +136,6 @@ class SentenceTransformerEmbedder(EmbedderBase):
         """
         return self.embed(input)
 
-
     def __call__(
         self, input: Union[str, List[str]]
     ) -> Union[List[float], List[List[float]]]:
