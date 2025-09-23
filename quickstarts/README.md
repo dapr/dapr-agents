@@ -187,3 +187,57 @@ This quickstart demonstrates how to build a database agent with memory and chat 
 
 [Go to Conversational Agent over Postgres with MCP](./08-data-agent-mcp-chainlit)
 
+## Contributors
+
+### Add runnable README tests with Mechanical Markdown
+
+We annotate README code blocks with lightweight metadata so they can be executed and validated automatically using [mechanical-markdown](https://github.com/dapr/mechanical-markdown).
+
+- **Install**:
+```bash
+pip install mechanical-markdown
+```
+
+- **Annotate steps**: Wrap executable blocks with STEP markers (as in `01-hello-world/README.md`). Example:
+```markdown
+<!-- STEP
+name: Run a simple workflow example
+expected_stdout_lines:
+  - "Result:"
+output_match_mode: substring
+-->
+```
+```bash
+dapr run --app-id dapr-agent-wf -- python 04_chain_tasks.py
+```
+<!-- END_STEP -->
+```
+
+- **Run locally**:
+```bash
+mm.py quickstarts/01-hello-world/README.md
+```
+
+Tip: Use dry-run first to see which commands will execute:
+```bash
+mm.py --dry-run quickstarts/01-hello-world/README.md
+```
+
+Before running, export your `.env` so keys are available to the shell used by `mm.py`:
+```bash
+export $(grep -v '^#' .env | xargs)
+```
+
+### Using the env-template resolver
+
+For Dapr component files that reference environment variables (e.g., `{{OPENAI_API_KEY}}` or `${{OPENAI_API_KEY}}`), use the helper to render a temporary resources folder and pass it to Dapr:
+```bash
+dapr run --resources-path $(quickstarts/resolve_env_templates.py quickstarts/01-hello-world/components) -- python 03_durable_agent.py
+```
+
+The helper scans only `.yaml`/`.yml` files (non-recursive), replaces placeholders with matching env var values, writes processed files to a temp directory, and prints that directory path.
+
+### CI note
+
+Mechanical Markdown steps are not executed in CI yet due to the absence of a repository OpenAI API key. Please validate locally as shown above. Once CI secrets are provisioned, these steps can be enabled for automated verification.
+

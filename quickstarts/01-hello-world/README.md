@@ -10,7 +10,22 @@ This quickstart provides a hands-on introduction to Dapr Agents through simple e
 
 ## Environment Setup
 
-### Option 1: Using pip (Recommended)
+<details open>
+<summary><strong>Option 1: Using uv (Recommended)</strong></summary>
+
+```bash
+# Create and activate virtual environment
+uv venv .venv
+source .venv/bin/activate
+
+# Install core dependencies
+uv pip install -r requirements.txt
+```
+
+</details>
+
+<details>
+<summary><strong>Option 2: Using pip</strong></summary>
 
 ```bash
 # Create a virtual environment
@@ -27,26 +42,26 @@ pip install -r requirements.txt
 
 ```
 
-### Option 2: Using uv 
+</details>
 
-```bash
-# Create and activate virtual environment
-uv venv .venv
-source .venv/bin/activate
-
-# Install core dependencies
-uv pip install -r requirements.txt
-```
 
 ## Configuration
 
-Create a `.env` file in the project root:
+> **Warning**
+> The examples will not work if you do not have a OpenAI API key exported in the environment.
+
+Create a `.env` file in the project root and add your OpenAI API key:
 
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
 
 Replace `your_api_key_here` with your actual OpenAI API key.
+
+Export the environment variables from the .env file to your shell:
+```bash
+export $(grep -v '^#' .env | xargs) # or if .env is in the root directory, you can just run `export $(grep -v '^#' ../../.env | xargs)`
+```
 
 ## Examples
 
@@ -170,8 +185,10 @@ output_match_mode: substring
 -->
 
 
+We are using the `resolve_env_templates.py` script to resolve the environment variables in the components folder and substitute them with the actual values in your .env file, like the OpenAI API key.
+
 ```bash
-dapr run --app-id stateful-llm --dapr-http-port 3500 --resources-path components/ -- python 03_durable_agent.py
+dapr run --app-id stateful-llm --dapr-http-port 3500 --resources-path $(../resolve_env_templates.py ./components) -- python 03_durable_agent.py
 ```
 
 <!-- END_STEP -->
@@ -304,7 +321,7 @@ expected_stdout_lines:
 output_match_mode: substring
 -->
 ```bash
-dapr run --app-id dapr-agent-wf -- python 04_chain_tasks.py
+dapr run --app-id dapr-agent-wf --resources-path $(../resolve_env_templates.py ./components) -- python 04_chain_tasks.py
 ```
 <!-- END_STEP -->
 
@@ -375,10 +392,13 @@ Run the vector store agent example to see how to create an agent that can search
 
 <!-- STEP
 name: Run agent with vector store example
+expected_stderr_lines:
+  - "Batches"
 expected_stdout_lines:
-  - "Starting Vector Database Agent..."
-  - "Add Document Response:"
-  - "Search Response:"
+  - "Add a machine learning basics document"
+  - "Added machine learning basics document"
+  - "Search for documents about machine learning"
+  - "I found"
 output_match_mode: substring
 -->
 ```bash
