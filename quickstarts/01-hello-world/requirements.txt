@@ -1,3 +1,4 @@
 dapr-agents
+sentence-transformers
 # For local development use local changes by commenting out the line above and uncommenting the line below:
 # -e ../../

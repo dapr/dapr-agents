@@ -16,9 +16,9 @@ from dapr.ext.workflow import (
 from dapr.ext.workflow.workflow_state import WorkflowState
 from durabletask import task as dtask
 from pydantic import BaseModel, ConfigDict, Field
-from typing import ClassVar
 
 from dapr_agents.agents.base import ChatClientBase
+from dapr_agents.llm.utils.defaults import get_default_llm
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.utils import SignalHandlingMixin
 from dapr_agents.workflow.task import WorkflowTask
@@ -73,7 +73,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
         """
         # Initialize LLM first
         if self.llm is None:
-            self.llm = self._create_default_llm()
+            self.llm = get_default_llm()
 
         # Initialize clients and runtime
         self.wf_runtime = WorkflowRuntime()
@@ -97,20 +97,6 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
 
         super().model_post_init(__context)
 
-    def _create_default_llm(self) -> Optional[ChatClientBase]:
-        """
-        Creates a default LLM client when none is provided.
-        Returns None if the default LLM cannot be created due to missing configuration.
-        """
-        try:
-            from dapr_agents.llm.openai import OpenAIChatClient
-
-            return OpenAIChatClient()
-        except Exception as e:
-            logger.warning(
-                f"Failed to create default OpenAI client: {e}. LLM will be None."
-            )
-            return None
 
     def graceful_shutdown(self) -> None:
         """

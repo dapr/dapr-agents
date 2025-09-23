@@ -15,7 +15,9 @@ async def main():
     os.environ.setdefault("DAPR_LLM_COMPONENT_DEFAULT", "openai")
 
     # Initialize the llm provider using the DaprChatClient
-    llm_provider = DaprChatClient()
+    # By default, it uses the DaprChatClient with the component name "openai"
+    # llm_provider = DaprChatClient() # None # uses DaprChatClient by default when not provided
+    llm_provider = None
 
     # Instantiate the agent with the llm provider
     agent = DurableAgent(

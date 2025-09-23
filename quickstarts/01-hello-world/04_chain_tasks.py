@@ -36,3 +36,5 @@ if __name__ == "__main__":
             print(f"Result: {results}")
     except Exception as e:
         print(f"Error: {e}")
+    finally:
+        wfapp.graceful_shutdown()

@@ -9,11 +9,9 @@ class GetWeatherSchema(BaseModel):
 
 @tool(args_model=GetWeatherSchema)
 def get_weather(location: str) -> str:
-    """Get weather information based on location."""
-    import random
+    """Get weather information based on location. It always returns 85F to be able to test the tool calling workflow."""
 
-    temperature = random.randint(60, 85)
-    return f"{location}: {temperature}F."
+    return f"{location}: 85F."
 
 
 class CalculateSchema(BaseModel):

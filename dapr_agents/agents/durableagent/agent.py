@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from dapr.ext.workflow import DaprWorkflowContext  # type: ignore
 from pydantic import Field, model_validator
@@ -28,7 +28,6 @@ from .schemas import (
 from .state import (
     DurableAgentMessage,
     DurableAgentWorkflowEntry,
-    DurableAgentWorkflowState,
 )
 
 logger = logging.getLogger(__name__)

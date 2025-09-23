@@ -149,6 +149,9 @@ if __name__ == "__main__":
 
 A stateful agent that uses Dapr Workflows to ensure durability and persistence of agent reasoning.
 
+We are using the Dapr ChatClient to interact with the OpenAI API. In the components folder, we have a `openai.yaml` file that contains the configuration for the OpenAI API.
+You need to replace the `{YOUR_OPENAI_API_KEY}` with your actual OpenAI API key.
+
 Make sure Dapr is initialized on your system:
 
 ```bash
@@ -157,9 +160,22 @@ dapr init
 
 Run the assistant agent example to see how to create a stateful agent with persistent memory:
 
+<!-- STEP
+name: Run basic LLM example
+expected_stdout_lines:
+  - "I want to find flights to Paris"
+  - "TravelBuddy"
+timeout_seconds: 30
+output_match_mode: substring
+-->
+
+
 ```bash
 dapr run --app-id stateful-llm --dapr-http-port 3500 --resources-path components/ -- python 03_durable_agent.py
 ```
+
+<!-- END_STEP -->
+
 
 This example demonstrates a stateful travel planning assistant that:
 1. Remembers user context persistently (across restarts)

@@ -76,6 +76,8 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         default=None, description="Optional prompt-template to format inputs."
     )
 
+    component_name: Optional[str] = None
+
     # Only function_call–style structured output is supported
     SUPPORTED_STRUCTURED_MODES: ClassVar[set[str]] = {"function_call"}
 
@@ -84,7 +86,11 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         After Pydantic init, set up API/type and default LLM component from env.
         """
         self._api = "chat"
-        self._llm_component = os.environ["DAPR_LLM_COMPONENT_DEFAULT"]
+        self._llm_component = self.component_name
+        if not self._llm_component:
+            self._llm_component = os.environ.get("DAPR_LLM_COMPONENT_DEFAULT")
+        if not self._llm_component:
+            raise ValueError("You must provide a component_name or set DAPR_LLM_COMPONENT_DEFAULT in the environment.")
         super().model_post_init(__context)
 
     @classmethod

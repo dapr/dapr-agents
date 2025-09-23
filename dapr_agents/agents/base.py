@@ -27,6 +27,7 @@ from typing import (
 )
 from pydantic import BaseModel, Field, PrivateAttr, model_validator, ConfigDict
 from dapr_agents.llm.chat import ChatClientBase
+from dapr_agents.llm.utils.defaults import get_default_llm
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,7 @@ Your role is {role}.
 
         # Initialize LLM if not provided
         if self.llm is None:
-            self.llm = self._create_default_llm()
+            self.llm = get_default_llm()
 
         # Centralize prompt template selection logic
         self.prompt_template = self._initialize_prompt_template()
@@ -182,21 +183,6 @@ Your role is {role}.
         self._setup_signal_handlers()
 
         super().model_post_init(__context)
-
-    def _create_default_llm(self) -> Optional[ChatClientBase]:
-        """
-        Creates a default LLM client when none is provided.
-        Returns None if the default LLM cannot be created due to missing configuration.
-        """
-        try:
-            from dapr_agents.llm.openai import OpenAIChatClient
-
-            return OpenAIChatClient()
-        except Exception as e:
-            logger.warning(
-                f"Failed to create default OpenAI client: {e}. LLM will be None."
-            )
-            return None
 
     def _initialize_prompt_template(self) -> PromptTemplateBase:
         """
