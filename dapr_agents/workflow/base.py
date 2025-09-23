@@ -97,7 +97,6 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
 
         super().model_post_init(__context)
 
-
     def graceful_shutdown(self) -> None:
         """
         Perform graceful shutdown operations for the WorkflowApp.

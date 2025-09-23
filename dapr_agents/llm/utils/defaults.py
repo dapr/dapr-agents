@@ -18,9 +18,5 @@ def get_default_llm() -> Optional[ChatClientBase]:
 
         return DaprChatClient()
     except Exception as e:
-        logger.warning(
-            f"Failed to create default Dapr client: {e}. LLM will be None."
-        )
+        logger.warning(f"Failed to create default Dapr client: {e}. LLM will be None.")
         raise
-
-

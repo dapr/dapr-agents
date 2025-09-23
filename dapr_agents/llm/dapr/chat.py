@@ -90,7 +90,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         if not self._llm_component:
             self._llm_component = os.environ.get("DAPR_LLM_COMPONENT_DEFAULT")
         if not self._llm_component:
-            raise ValueError("You must provide a component_name or set DAPR_LLM_COMPONENT_DEFAULT in the environment.")
+            raise ValueError(
+                "You must provide a component_name or set DAPR_LLM_COMPONENT_DEFAULT in the environment."
+            )
         super().model_post_init(__context)
 
     @classmethod

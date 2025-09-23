@@ -6,7 +6,7 @@ This quickstart provides a hands-on introduction to Dapr Agents through simple e
 
 - Python 3.10 (recommended)
 - pip package manager
-- OpenAI API key
+- OpenAI API key (you can put in an .env file or directly in the `openai.yaml` file, but we recommend the .env file that is gitignored)
 
 ## Environment Setup
 

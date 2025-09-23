@@ -39,7 +39,7 @@ def search_flights(destination: str) -> List[FlightOption]:
 
 
 # one can use the environment variable to set the default component name
-# os.environ.setdefault("DAPR_LLM_COMPONENT_DEFAULT", "openai")    
+# os.environ.setdefault("DAPR_LLM_COMPONENT_DEFAULT", "openai")
 
 # or directly pass the component name
 llm = DaprChatClient(component_name="openai")
