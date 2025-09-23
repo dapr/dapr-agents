@@ -34,6 +34,13 @@ sys.modules["dapr.common"] = mock_dapr.common
 sys.modules["dapr.common.pubsub"] = mock_dapr.common.pubsub
 sys.modules["dapr.common.pubsub.subscription"] = mock_dapr.common.pubsub.subscription
 
+# Ensure an 'openai' module stub exists for tests that patch it
+if "openai" not in sys.modules:
+    mock_openai = MagicMock()
+    # Provide OpenAI attribute so monkeypatch can target it
+    mock_openai.OpenAI = MagicMock()
+    sys.modules["openai"] = mock_openai
+
 
 class MockDaprPubSub:
     pass
