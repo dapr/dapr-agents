@@ -64,6 +64,12 @@ The team is working on the following task:
   - **DO NOT create or assume non-existent step/substep IDs.**
   - **DO NOT reference any invalid step/substep identifiers. Always check the plan.**
 
+### Step Progression Rules:
+- **PRIORITIZE SEQUENTIAL EXECUTION**: Generally, steps should be executed in numerical order (1, 2, 3, etc.).
+- **Complete current step before moving to next**: If a step has substeps, complete ALL substeps before moving to the next main step.
+- **Only skip steps if they are explicitly marked as "completed"** or if there's a logical reason to do so.
+- **Check step status carefully**: Look for steps with status "not_started" or "in_progress" before jumping to later steps.
+
 ### Expected Output Format (JSON Schema):
 {next_step_schema}
 """
@@ -87,6 +93,8 @@ The team is working on the following task:
 ### Task Evaluation:
 Assess the task progress based on **conversation history**, execution results, and the structured plan.
 
+**Key Point:** `plan_needs_update` should be `true` whenever you are making ANY changes to the plan (status updates OR restructuring).
+
 1. **Determine Overall Task Verdict**
    - `"continue"` → **Use this if there are `"not_started"` or `"in_progress"` steps that still require execution.**
    - `"completed"` → The task is **done** (i.e., **all required steps and substeps have been completed**).
@@ -102,10 +110,12 @@ Assess the task progress based on **conversation history**, execution results, a
    - If an **agent explicitly marks a step as `"completed"`**, then it **remains completed**, regardless of substeps.
    - If a **substep is completed**, check if **all** substeps are `"completed"` **before marking the parent step as "completed"**.
    - **If a step is "completed" but has "not_started" substeps, DO NOT modify those substeps.** They remain unchanged unless explicitly acted upon.
+   - **IMPORTANT: If you are making ANY status updates (step or substep), set `plan_needs_update` to `true`.**
 
 4. **Plan Adjustments (Only If Necessary)**
    - If the step descriptions are **unclear or incomplete**, update `"plan_restructure"` with a **single modified step**.
    - Do **not** introduce unnecessary modifications.
+   - **IMPORTANT: If you are making ANY plan restructuring, set `plan_needs_update` to `true`.**
 
 ### Important:
 - **Do NOT mark a step as `"completed"` unless explicitly confirmed based on execution results.**

@@ -243,7 +243,10 @@ class PubSubMixin:
         @functools.wraps(method)
         async def wrapped_method(message: dict):
             try:
-                if getattr(method, "_is_workflow", False):
+                is_workflow = getattr(method, "_is_workflow", False)
+                message_type = type(message).__name__ if hasattr(message, '__class__') else str(type(message))
+                logger.debug(f"PubSub routing for {method.__name__}: _is_workflow={is_workflow}, message_type={message_type}")
+                if is_workflow:
                     workflow_name = getattr(method, "_workflow_name", method.__name__)
                     # If the message is a Pydantic model, extract metadata and convert to dict
                     if is_pydantic_model(type(message)):
@@ -255,9 +258,17 @@ class PubSubMixin:
                             # Include metadata in the message dict
                             message_dict["_message_metadata"] = metadata
                         message = message_dict
+                    
+                    # Prevent triggering multiple orchestrator workflows if one is already running
+                    if workflow_name == "LLMWorkflow" or workflow_name == "main_workflow":
+                        triggering_workflow_id = message.get("workflow_instance_id")
+                        if triggering_workflow_id:
+                            if hasattr(self, '_is_workflow_running') and self._is_workflow_running(triggering_workflow_id):
+                                logger.info(f"Triggering workflow {triggering_workflow_id} is still running. Skipping new orchestrator instance.")
+                                return None
+                    
                     # Invoke the workflow
-                    instance_id = self.run_workflow(workflow_name, input=message)
-                    asyncio.create_task(self.monitor_workflow_completion(instance_id))
+                    instance_id = await self.run_and_monitor_workflow_async(workflow_name, input=message)
                     return None
 
                 if inspect.iscoroutinefunction(method):

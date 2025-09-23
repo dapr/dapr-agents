@@ -746,14 +746,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
     @message_router(broadcast=True)
     async def process_broadcast_message(self, message: BroadcastMessage):
         """
-        Processes a broadcast message, filtering out messages sent by the same agent
-        and updating local memory with valid messages.
+        Processes a broadcast message by filtering out messages from the same agent,
+        storing valid messages in memory, and triggering the agent's workflow if needed.
 
         Args:
             message (BroadcastMessage): The received broadcast message.
 
         Returns:
-            None: The function updates the agent's memory and ignores unwanted messages.
+            None: The function updates the agent's memory and triggers a workflow.
         """
         try:
             # Extract metadata safely from message["_message_metadata"]
@@ -784,14 +784,33 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             # Store the message in local memory
             self.memory.add_message(message)
 
-            # Define DurableAgentMessage object for state persistence
-            msg_object = DurableAgentMessage(**message.model_dump())
-
-            # Persist to global chat history
-            self.state.setdefault("chat_history", [])
-            self.state["chat_history"].append(msg_object.model_dump(mode="json"))
             # Save the state after processing the broadcast message
             self.save_state()
+
+            # Define DurableAgentMessage object for state persistence
+            msg_object = DurableAgentMessage(**message.model_dump())
+            
+            # Trigger agent workflow to respond to the broadcast message
+            workflow_instance_id = metadata.get("workflow_instance_id")
+            if workflow_instance_id:
+                # Create a TriggerAction to start the agent's workflow
+                trigger_message = TriggerAction(
+                    task=message.content,
+                    workflow_instance_id=workflow_instance_id
+                )
+                trigger_message._message_metadata = {
+                    "source": metadata.get("source", "unknown"),
+                    "type": "BroadcastMessage",
+                    "workflow_instance_id": workflow_instance_id
+                }
+                
+                # Start the agent's workflow
+                await self.run_and_monitor_workflow_async(
+                    workflow="ToolCallingWorkflow",
+                    input=trigger_message
+                )
+            
+            
 
         except Exception as e:
             logger.error(f"Error processing broadcast message: {e}", exc_info=True)
@@ -819,6 +838,26 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Get instance-specific chat history instead of global memory
         instance_data = self.state.get("instances", {}).get(instance_id, {})
         instance_messages = instance_data.get("messages", [])
+        
+        # For broadcast-triggered workflows, also include memory for context
+        source = instance_data.get("source")
+        if source and source != "direct":
+            # Include memory messages for context
+            memory_messages = self.memory.get_messages()
+            
+            # Convert memory messages to the format expected by prompt template
+            # and avoid duplicates by checking if message already exists in instance_messages
+            existing_contents = {msg.get("content", "") for msg in instance_messages if isinstance(msg, dict)}
+            
+            for msg in memory_messages:
+                if isinstance(msg, dict):
+                    # Avoid duplicates by checking content
+                    if msg.get("content", "") not in existing_contents:
+                        instance_messages.append(msg)
+                elif hasattr(msg, 'model_dump'):
+                    msg_dict = msg.model_dump()
+                    if msg_dict.get("content", "") not in existing_contents:
+                        instance_messages.append(msg_dict)
 
         # Convert instance messages to the format expected by prompt template
         chat_history = []

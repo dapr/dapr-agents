@@ -5,6 +5,22 @@ import logging
 
 
 async def main():
+    from phoenix.otel import register
+    from dapr_agents.observability import DaprAgentsInstrumentor
+
+    # Register Dapr Agents with Phoenix OpenTelemetry
+    tracer_provider = register(
+        project_name="dapr-multi-agent-workflows",
+        protocol="http/protobuf",
+    )
+
+    # Initialize Dapr Agents OpenTelemetry instrumentor
+    try:
+        instrumentor = DaprAgentsInstrumentor()
+        instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
+    except Exception as e:
+        raise
+    
     try:
         wizard_service = DurableAgent(
             role="Wizard",

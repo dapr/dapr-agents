@@ -60,6 +60,7 @@ from .wrappers import (
     ProcessIterationsWrapper,
     RunToolWrapper,
     WorkflowMonitorWrapper,
+    WorkflowRegistrationWrapper,
     WorkflowRunWrapper,
     WorkflowTaskWrapper,
 )
@@ -262,12 +263,25 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                     return loop.run_until_complete(context_wrapped_coro())
                 except RuntimeError:
                     # No running loop - create new one
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
                     try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
                         return loop.run_until_complete(context_wrapped_coro())
+                    except Exception as e:
+                        logger.warning(f"Failed to run coroutine with new event loop: {e}")
+                        # Fallback: run in thread pool to avoid blocking
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(
+                                lambda: asyncio.run(context_wrapped_coro())
+                            )
+                            return future.result()
                     finally:
-                        loop.close()
+                        try:
+                            if 'loop' in locals() and not loop.is_closed():
+                                loop.close()
+                        except Exception as e:
+                            logger.debug(f"Error closing event loop: {e}")
 
             def make_context_aware_task_wrapper(
                 self, task_name: str, method, task_instance
@@ -455,6 +469,13 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
             # Note: WorkflowRunWrapper removed to prevent double wrapping
             # run_and_monitor_workflow_async internally calls run_workflow
             # So wrapping both causes duplicate instances
+
+            # Instrument workflow registration to add AGENT spans for orchestrator workflows
+            wrap_function_wrapper(
+                module="dapr_agents.workflow.base",
+                name="WorkflowApp._register_workflows",
+                wrapper=WorkflowRegistrationWrapper(self._tracer),
+            )
 
             wrap_function_wrapper(
                 module="dapr_agents.workflow.task",

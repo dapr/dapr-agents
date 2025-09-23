@@ -320,10 +320,35 @@ class WorkflowTaskWrapper:
                 )
                 return None
 
-            logger.debug(f"Creating AGENT span for resumed workflow {instance_id}")
-
+            # Check if this is an orchestrator workflow or individual agent workflow
             agent_name = getattr(instance, "name", "DurableAgent")
-            workflow_name = instance_data.get("workflow_name", "ToolCallingWorkflow")
+            is_orchestrator = hasattr(instance, 'orchestrator_topic_name') or 'Orchestrator' in instance.__class__.__name__
+            
+            # For individual agent workflows, we need to check if they're being triggered by an orchestrator
+            # If they have a triggering_workflow_instance_id, they should be nested under the orchestrator
+            # If they don't, they should create their own AGENT span (standalone usage)
+            if not is_orchestrator:
+                # Check if this agent workflow was triggered by an orchestrator
+                triggering_workflow_id = instance_data.get("triggering_workflow_instance_id")
+                if triggering_workflow_id:
+                    logger.debug(
+                        f"Skipping AGENT span creation for individual agent workflow {agent_name}.{instance_id} - triggered by orchestrator {triggering_workflow_id}, should be nested"
+                    )
+                    return None
+                else:
+                    logger.debug(
+                        f"Creating AGENT span for standalone individual agent workflow {agent_name}.{instance_id}"
+                    )
+
+            if is_orchestrator:
+                logger.debug(f"Creating AGENT span for resumed orchestrator workflow {instance_id}")
+                workflow_name = instance_data.get("workflow_name", "LLMWorkflow")
+                is_orchestrator_flag = True
+            else:
+                logger.debug(f"Creating AGENT span for resumed individual agent workflow {instance_id}")
+                workflow_name = instance_data.get("workflow_name", "ToolCallingWorkflow")
+                is_orchestrator_flag = False
+
             span_name = f"{agent_name}.{workflow_name}"
             attributes = {
                 "openinference.span.kind": "AGENT",
@@ -332,6 +357,7 @@ class WorkflowTaskWrapper:
                 "agent.name": agent_name,
                 "workflow.instance_id": instance_id,
                 "workflow.resumed": True,
+                "workflow.orchestrator": is_orchestrator_flag,
                 "input.value": instance_data.get("input", ""),
                 "input.mime_type": "application/json",
                 "output.value": instance_data.get("output", ""),
@@ -455,15 +481,18 @@ class WorkflowTaskWrapper:
 
             # Get instance-specific context directly (created by WorkflowMonitorWrapper or startup process)
             if instance_id and instance_id != "unknown":
-                agent_context = get_workflow_context(
-                    f"__workflow_context_{instance_id}__"
-                )
+                context_key = f"__workflow_context_{instance_id}__"
+                agent_context = get_workflow_context(context_key)
                 if agent_context:
-                    logger.debug(f"Found instance-specific context for {instance_id}")
+                    logger.info(f"🔗 Found instance-specific context for {instance_id} with key '{context_key}'")
                 else:
                     logger.warning(
-                        f"No instance-specific context found for {instance_id}"
+                        f"⚠️ No instance-specific context found for {instance_id} with key '{context_key}'"
                     )
+                    # Try to get all contexts for debugging
+                    from ..context_storage import get_all_workflow_contexts
+                    all_contexts = get_all_workflow_contexts()
+                    logger.warning(f"Available context keys: {list(all_contexts.keys())}")
                     agent_context = self._create_context_for_resumed_workflow(
                         instance_id, instance
                     )
@@ -587,12 +616,19 @@ class WorkflowTaskWrapper:
         # Extract instance ID first for instance-specific context lookup
         instance_id = attributes.get("workflow.instance_id", "unknown")
 
-        # Try instance-specific context first (preferred method)
+        # Try instance-specific context first (for individual agent workflows)
         otel_context = None
         if instance_id != "unknown":
-            otel_context = get_workflow_context(f"__workflow_context_{instance_id}__")
-
-        # No fallback to shared context - only use instance-specific context
+            context_key = f"__workflow_context_{instance_id}__"
+            otel_context = get_workflow_context(context_key)
+            if otel_context:
+                logger.info(f"🔗 Found instance-specific context for {instance_id} with key '{context_key}'")
+            else:
+                logger.warning(f"⚠️ No instance-specific context found for {instance_id} with key '{context_key}'")
+                # Try to get all contexts for debugging
+                from ..context_storage import get_all_workflow_contexts
+                all_contexts = get_all_workflow_contexts()
+                logger.warning(f"Available context keys: {list(all_contexts.keys())}")
 
         # If still not found and we have an instance ID, try stored trace context from database
         if not otel_context and instance_id != "unknown":
