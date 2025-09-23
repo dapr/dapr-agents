@@ -74,5 +74,3 @@ def is_version_supported(version: str, constraints: str) -> bool:
         if all(_satisfies(v, *_parse_constraint_token(tok)) for tok in tokens):
             return True
     return False
-
-

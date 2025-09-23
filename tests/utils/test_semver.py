@@ -3,10 +3,7 @@ from pathlib import Path
 from importlib.machinery import SourceFileLoader
 
 _SEMVER_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "dapr_agents"
-    / "utils"
-    / "semver.py"
+    Path(__file__).resolve().parents[2] / "dapr_agents" / "utils" / "semver.py"
 )
 semver = SourceFileLoader("_semver_test_module", str(_SEMVER_PATH)).load_module()
 is_version_supported = semver.is_version_supported
@@ -61,5 +58,3 @@ def test_version_parse_defaults_missing_parts_to_zero() -> None:
     assert Version.parse("1.2").major == 1
     assert Version.parse("1.2").minor == 2
     assert Version.parse("1.2").patch == 0
-
-
