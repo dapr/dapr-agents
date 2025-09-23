@@ -194,7 +194,7 @@ class WorkflowTaskWrapper:
             attributes["resource.workflow.instance_id"] = instance_id
             attributes[
                 "resource.workflow.name"
-            ] = "ToolCallingWorkflow"  # Could be dynamic
+            ] = "AgenticWorkflow"  # Could be dynamic
 
             # Log the trace context for debugging (expected to be disconnected for Dapr Workflows)
             from opentelemetry import trace
@@ -323,7 +323,7 @@ class WorkflowTaskWrapper:
             logger.debug(f"Creating AGENT span for resumed workflow {instance_id}")
 
             agent_name = getattr(instance, "name", "DurableAgent")
-            workflow_name = instance_data.get("workflow_name", "ToolCallingWorkflow")
+            workflow_name = instance_data.get("workflow_name", "AgenticWorkflow")
             span_name = f"{agent_name}.{workflow_name}"
             attributes = {
                 "openinference.span.kind": "AGENT",
@@ -681,7 +681,7 @@ class WorkflowTaskWrapper:
             return "finalization"
         elif task_name in ["broadcast_message_to_agents", "send_response_back"]:
             return "communication"
-        elif task_name == "generate_llm_response":
+        elif task_name == "call_llm":
             return "llm_generation"
         elif task_name == "run_tool":
             return "tool_execution"

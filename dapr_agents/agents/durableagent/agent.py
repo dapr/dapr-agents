@@ -79,7 +79,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         # Name of main Workflow
         # TODO: can this be configurable or dynamic? Would that make sense?
-        self._workflow_name = "ToolCallingWorkflow"
+        self._workflow_name = "AgenticWorkflow"
 
         # Initialize state structure if it doesn't exist
         if not self.state:
@@ -163,7 +163,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 self.stop_runtime()
 
     @message_router
-    @workflow(name="ToolCallingWorkflow")
+    @workflow(name="AgenticWorkflow")
     def tool_calling_workflow(self, ctx: DaprWorkflowContext, message: TriggerAction):
         """
         Executes a tool-calling workflow, determining the task source (either an agent or an external user).
@@ -243,7 +243,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
                 # Generate Response with LLM and atomically save the assistant's response message
                 response_message: dict = yield ctx.call_activity(
-                    self.generate_llm_response,
+                    self.call_llm,
                     input={
                         "task": task,
                         "instance_id": ctx.instance_id,
@@ -272,7 +272,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                     ]
                     yield self.when_all(parallel)
 
-                    # Prepare for next turn: clear task so that generate_llm_response() uses memory/history
+                    # Prepare for next turn: clear task so that call_llm() uses memory/history
                     task = None
                     continue  # bump to next turn
 
@@ -413,7 +413,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         inst.last_message = msg_object
         self.save_state()
 
-    def _generate_llm_response(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _call_llm(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Generate LLM response and return the assistant message."""
         response: LLMChatResponse = self.llm.generate(
             messages=messages,
@@ -464,7 +464,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         self.text_formatter.print_message(assistant_message)
 
     @task
-    async def generate_llm_response(
+    async def call_llm(
         self,
         instance_id: str,
         time: datetime,
@@ -502,7 +502,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         # Generate LLM response and atomically save assistant message
         try:
-            assistant_message = self._generate_llm_response(messages)
+            assistant_message = self._call_llm(messages)
             self._save_assistant_message(instance_id, assistant_message)
             self._print_llm_interaction_messages(user_message_copy, assistant_message)
 

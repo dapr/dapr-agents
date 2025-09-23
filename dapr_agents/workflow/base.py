@@ -833,7 +833,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                 tracer = trace.get_tracer(__name__)
                 agent_name = getattr(self, "name", "DurableAgent")
                 workflow_name = instance_data.get(
-                    "workflow_name", "ToolCallingWorkflow"
+                    "workflow_name", "AgenticWorkflow"
                 )
                 span_name = f"{agent_name}.{workflow_name}"
 

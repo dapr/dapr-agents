@@ -46,7 +46,7 @@ def patch_dapr_check(monkeypatch):
         self.wf_client = Mock()
         self.client = Mock()
         self.tasks = {}
-        self.workflows["ToolCallingWorkflow"] = getattr(
+        self.workflows["AgenticWorkflow"] = getattr(
             self, "tool_calling_workflow", None
         )
 
@@ -79,7 +79,7 @@ def patch_dapr_check(monkeypatch):
             "pubsub_name": getattr(self, "message_bus_name", "testpubsub"),
             "orchestrator": False,
         }
-        self._workflow_name = "ToolCallingWorkflow"
+        self._workflow_name = "AgenticWorkflow"
         self._is_running = False
         self._shutdown_event = asyncio.Event()
         self._subscriptions = {}
@@ -307,8 +307,8 @@ class TestDurableAgent:
         assert instance_data.triggering_workflow_instance_id == "parent-instance-123"
 
     @pytest.mark.asyncio
-    async def test_generate_llm_response_activity(self, basic_durable_agent):
-        """Test that generate_llm_response unwraps an LLMChatResponse properly."""
+    async def test_call_llm_activity(self, basic_durable_agent):
+        """Test that call_llm unwraps an LLMChatResponse properly."""
 
         # create a fake LLMChatResponse with one choice
         fake_response = LLMChatResponse(
@@ -337,7 +337,7 @@ class TestDurableAgent:
         test_time = datetime.fromisoformat(
             "2024-01-01T00:00:00Z".replace("Z", "+00:00")
         )
-        assistant_dict = await basic_durable_agent.generate_llm_response(
+        assistant_dict = await basic_durable_agent.call_llm(
             instance_id, test_time, "Test task"
         )
         # The dict dumped from AssistantMessage should have our content
@@ -481,7 +481,7 @@ class TestDurableAgent:
         )
         # start_time is parsed as datetime by Pydantic, so we need to compare the string representation
         assert instance_data.start_time.isoformat() == "2024-01-01T00:00:00+00:00"
-        assert instance_data.workflow_name == "ToolCallingWorkflow"
+        assert instance_data.workflow_name == "AgenticWorkflow"
         assert instance_data.status == "running"
 
     def test_ensure_instance_exists(self, basic_durable_agent):
@@ -506,7 +506,7 @@ class TestDurableAgent:
         )
         # start_time is parsed as datetime by Pydantic, so we need to compare the string representation
         assert instance_data.start_time.isoformat() == "2024-01-01T00:00:00+00:00"
-        assert instance_data.workflow_name == "ToolCallingWorkflow"
+        assert instance_data.workflow_name == "AgenticWorkflow"
 
         # Test that existing instance is not overwritten
         original_input = "Original input"
@@ -762,7 +762,7 @@ class TestDurableAgent:
 
     def test_durable_agent_workflow_name(self, basic_durable_agent):
         """Test that the workflow name is set correctly."""
-        assert basic_durable_agent._workflow_name == "ToolCallingWorkflow"
+        assert basic_durable_agent._workflow_name == "AgenticWorkflow"
 
     def test_durable_agent_state_initialization(self, basic_durable_agent):
         """Test that the agent state is properly initialized."""

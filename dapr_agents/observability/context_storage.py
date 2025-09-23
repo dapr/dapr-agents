@@ -125,7 +125,7 @@ class WorkflowContextStorage:
 
             # Create AGENT span with proper agent name for resumed workflow
             agent_display_name = agent_name or "DurableAgent"
-            span_name = f"{agent_display_name}.ToolCallingWorkflow"
+            span_name = f"{agent_display_name}.AgenticWorkflow"
             with tracer.start_as_current_span(span_name) as span:
                 # Set AGENT span attributes
                 from .constants import OPENINFERENCE_SPAN_KIND

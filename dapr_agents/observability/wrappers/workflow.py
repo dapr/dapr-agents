@@ -329,7 +329,7 @@ class WorkflowMonitorWrapper:
         workflow_name = (
             workflow
             if isinstance(workflow, str)
-            else getattr(workflow, "__name__", "ToolCallingWorkflow")
+            else getattr(workflow, "__name__", "AgenticWorkflow")
         )
         return workflow_name
 
