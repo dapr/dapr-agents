@@ -46,9 +46,7 @@ def patch_dapr_check(monkeypatch):
         self.wf_client = Mock()
         self.client = Mock()
         self.tasks = {}
-        self.workflows["AgenticWorkflow"] = getattr(
-            self, "tool_calling_workflow", None
-        )
+        self.workflows["AgenticWorkflow"] = getattr(self, "tool_calling_workflow", None)
 
         try:
             super(base.WorkflowApp, self).model_post_init(__context)
@@ -284,9 +282,7 @@ class TestDurableAgent:
             "stop",
         ]
 
-        basic_durable_agent.state["instances"][
-            "test-instance-123"
-        ] = {
+        basic_durable_agent.state["instances"]["test-instance-123"] = {
             "input": "Test task",
             "source": None,
             "triggering_workflow_instance_id": "parent-instance-123",
@@ -464,7 +460,9 @@ class TestDurableAgent:
             # Verify state was updated atomically
             instance_data = basic_durable_agent.state["instances"][instance_id]
             assert len(instance_data["messages"]) == 1  # Tool message added
-            assert len(instance_data["tool_history"]) == 1  # Tool execution record added
+            assert (
+                len(instance_data["tool_history"]) == 1
+            )  # Tool execution record added
 
             # Verify tool execution record in tool_history
             tool_history_entry = instance_data["tool_history"][0]
@@ -545,7 +543,10 @@ class TestDurableAgent:
         )
 
         # Input should remain unchanged
-        assert basic_durable_agent.state["instances"][instance_id]["input"] == original_input
+        assert (
+            basic_durable_agent.state["instances"][instance_id]["input"]
+            == original_input
+        )
 
     def test_process_user_message(self, basic_durable_agent):
         """Test _process_user_message helper method."""
@@ -626,7 +627,9 @@ class TestDurableAgent:
             "tool_history": [],
             "end_time": None,
             "trace_context": None,
-            "last_message": DurableAgentMessage(role="assistant", content="Last message").model_dump(mode='json'),
+            "last_message": DurableAgentMessage(
+                role="assistant", content="Last message"
+            ).model_dump(mode="json"),
         }
 
         result = basic_durable_agent._get_last_message_from_state(instance_id)
@@ -747,8 +750,12 @@ class TestDurableAgent:
             "workflow_name": "AgenticWorkflow",
             "status": "RUNNING",
             "messages": [
-                DurableAgentMessage(role="user", content="Hello").model_dump(mode='json'),
-                DurableAgentMessage(role="assistant", content="Hi there!").model_dump(mode='json'),
+                DurableAgentMessage(role="user", content="Hello").model_dump(
+                    mode="json"
+                ),
+                DurableAgentMessage(role="assistant", content="Hi there!").model_dump(
+                    mode="json"
+                ),
             ],
             "tool_history": [],
             "end_time": None,
