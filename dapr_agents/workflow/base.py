@@ -8,7 +8,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
 
-from pydantic import BaseModel
 from dapr.ext.workflow import (
     DaprWorkflowClient,
     WorkflowActivityContext,
