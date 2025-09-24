@@ -151,3 +151,122 @@ tox -e type
    1.1 caveat here is wf will continue but you will not get the result.
    2. every time i have a .run() or invoke new workflow via curl or pubsub then a new workflow instance id will be created. If there is an inflight workflow already then it will be resumed, and the new one will be created.
    3. Trace ID = workflow ID and make the tracing pick up from where it left off.
+
+
+## Contributing to Dapr Agents Quickstarts
+
+### Add runnable README tests with Mechanical Markdown
+
+We annotate README code blocks with lightweight metadata so they can be executed and validated automatically using [mechanical-markdown](https://github.com/dapr/mechanical-markdown).
+
+- **Install**:
+   ```bash
+   pip install mechanical-markdown
+   ```
+
+- **Annotate steps**: Wrap executable blocks with STEP markers (as in `01-hello-world/README.md`). Example:
+   ```markdown
+   <!-- STEP
+   name: Run a simple workflow example
+   expected_stderr_lines:
+   - "Creating virtual environment"
+   expected_stdout_lines:
+   - "Result:"
+   output_match_mode: substring
+   -->
+   ```
+   
+   ```bash
+   dapr run --app-id dapr-agent-wf -- python 04_chain_tasks.py
+   ```
+   
+   ```markdown
+   <!-- END_STEP -->
+   ```
+
+- **Run locally**:
+
+   ```bash
+   # cd to the directory you want to run mechanical markdown on
+   cd quickstarts/01-hello-world/
+
+   # run mechanical markdown on the README.md file
+   mm.py README.md
+   ```
+
+   Tip: Use dry-run first to see which commands will execute:
+   ```bash
+   mm.py --dry-run README.md
+   ```
+
+   Before running, export your `.env` so keys are available to the shell used by `mm.py`:
+   ```bash
+   # export the environment variables from the .env file if it is in the current directory
+   export $(grep -v '^#' .env | xargs)
+   ```
+
+- **Use the validate.sh script**:
+   This script will run the mechanical markdown script against the quickstarts directory you want to validate. It is a simpler wrapper around the mechanical markdown script.
+
+   ```bash
+   # cd to the quickstarts directory
+   cd quickstarts
+
+   # run the validate.sh script against the quickstarts directory you want to validate
+   ./validate.sh 01-hello-world
+   ```
+
+### Troubleshooting
+
+- Remember to setup the virtual environment and install the dependencies before running the mechanical markdown script.
+- You can also add the setup of the virtual environment and installation of the dependencies to the mechanical markdown script execution scope. For example:
+   ```markdown
+   <!-- STEP
+   name: Setup virtual environment
+   expected_stderr_lines:
+   - "Creating virtual environment"
+   -->
+   ```
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+   Your script run:
+   ```bash
+   source .venv/bin/activate
+   python my_script.py
+   ```
+
+   ```markdown
+   <!-- END_STEP -->
+   ```
+- If you have errors related to order of execution, you can use the `match_order` keyword to specify the order of execution. For example:
+   ```markdown
+   <!-- STEP
+   name: Run my script
+   match_order: none
+   -->
+   ```
+- Remember that mechanical markdown is YAML so follow YAML syntax. One issue at times is with strings and quotes inside of strings. You can use single quotes inside of double quotes and vice versa. For example:
+   ```markdown
+   <!-- STEP
+   name: Run my script
+   expected_stdout_lines:
+   - '"Hello, world!"'
+   -->
+   ```
+
+### Using the env-template resolver
+
+For Dapr component files that reference environment variables (e.g., `{{OPENAI_API_KEY}}` or `${{OPENAI_API_KEY}}`), use the helper to render a temporary resources folder and pass it to Dapr:
+```bash
+dapr run --resources-path $(quickstarts/resolve_env_templates.py quickstarts/01-hello-world/components) -- python 03_durable_agent.py
+```
+
+The helper scans only `.yaml`/`.yml` files (non-recursive), replaces placeholders with matching env var values, writes processed files to a temp directory, and prints that directory path.
+
+### CI note
+
+Mechanical Markdown steps are not executed in CI yet due to the absence of a repository OpenAI API key. Please validate locally as shown above. Once CI secrets are provisioned, these steps can be enabled for automated verification.
+
