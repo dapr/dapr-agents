@@ -141,7 +141,8 @@ class AgentTool(BaseModel):
                 tool_args_model = create_pydantic_model_from_schema(
                     mcp_tool.inputSchema, f"{tool_name}Args"
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to create schema for tool '{tool_name}': {e}")
                 pass
 
         return cls(
