@@ -154,10 +154,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         except asyncio.CancelledError:
             logger.warning("Workflow execution was cancelled")
             raise
-        finally:
-            # Clean up runtime
-            if self.wf_runtime_is_running:
-                self.stop_runtime()
 
     @message_router
     @workflow(name="AgenticWorkflow")

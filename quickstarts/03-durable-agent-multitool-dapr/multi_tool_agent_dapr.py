@@ -51,11 +51,7 @@ async def main():
         "search for the official tourism site for Boston?"
     )
 
-    try:
-        await agent.run(prompt)
-    finally:
-        # stop the workflow runtime engine
-        agent.stop_runtime()
+    await agent.run(prompt)
 
 
 if __name__ == "__main__":
