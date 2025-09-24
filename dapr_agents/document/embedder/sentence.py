@@ -131,7 +131,6 @@ class SentenceTransformerEmbedder(EmbedderBase):
     ) -> Union[List[float], List[List[float]]]:
         """
         Alias for embed(input) as it is used for querying in some sections of the code.
-
         TODO: remove this method after updating the code to use embed(input) directly or rename the method embed to embed_query
         """
         return self.embed(input)

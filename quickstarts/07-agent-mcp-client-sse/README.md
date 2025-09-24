@@ -91,7 +91,7 @@ python server.py --server_type sse --port 8000
 2. In a separate terminal window, start the agent with Dapr:
 
 ```bash
-dapr run --app-id weatherappmcp --app-port 8001 --dapr-http-port 3500 --resources-path ./components/ -- python app.py
+dapr run --app-id weatherappmcp  --dapr-http-port 3500 --resources-path ./components/ -- python app.py
 ```
 
 3. Send a test request to the agent:

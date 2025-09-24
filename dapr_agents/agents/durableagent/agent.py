@@ -821,7 +821,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             agent_msg = DurableAgentMessage(**message.model_dump())
 
             # Persist to global chat history
-            self.state.chat_history.append(agent_msg)
+            if "chat_history" not in self.state:
+                self.state["chat_history"] = []
+            self.state["chat_history"].append(agent_msg.model_dump(mode="json"))
             # Save the state after processing the broadcast message
             self.save_state()
 
