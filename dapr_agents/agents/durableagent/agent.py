@@ -83,17 +83,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         # Initialize state structure if it doesn't exist
         if not self.state:
-            self.state = DurableAgentWorkflowState()
-        elif isinstance(self.state, dict):
-            # Convert dict to DurableAgentWorkflowState if needed
-            self.state = DurableAgentWorkflowState(**self.state)
+            self.state = {"instances": {}}
 
         # Load the current workflow instance ID from state if it exists
         logger.debug(f"State after loading: {self.state}")
-        if self.state and self.state.instances:
-            logger.debug(f"Found {len(self.state.instances)} instances in state")
-            for instance_id, instance_data in self.state.instances.items():
-                stored_workflow_name = instance_data.workflow_name
+        if self.state and self.state.get("instances"):
+            logger.debug(f"Found {len(self.state['instances'])} instances in state")
+            for instance_id, instance_data in self.state["instances"].items():
+                stored_workflow_name = instance_data.get("workflow_name")
                 logger.debug(
                     f"Instance {instance_id}: workflow_name={stored_workflow_name}, current_workflow_name={self._workflow_name}"
                 )
@@ -265,7 +262,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                             input={
                                 "tool_call": tc,
                                 "instance_id": ctx.instance_id,
-                                "time": ctx.current_utc_datetime,
+                                "time": ctx.current_utc_datetime.isoformat(),
                             },
                         )
                         for tc in tool_calls
@@ -317,7 +314,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             input={
                 "instance_id": ctx.instance_id,
                 "final_output": final_msg.get("content", ""),
-                "time": ctx.current_utc_datetime,
+                "time": ctx.current_utc_datetime.isoformat(),
                 "triggering_workflow_instance_id": triggering_workflow_instance_id,
             },
         )
@@ -360,17 +357,31 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             start_time (Optional[str]): The start time in ISO format (default: None, will use current time).
             trace_context (Optional[Dict[str, Any]]): OpenTelemetry trace context for workflow resumption.
         """
-        entry = DurableAgentWorkflowEntry(
-            input=input,
-            source=source,
-            workflow_instance_id=instance_id,
-            triggering_workflow_instance_id=triggering_workflow_instance_id,
-            workflow_name=self._workflow_name,
-            start_time=start_time,
-            trace_context=trace_context,
-            status=DaprWorkflowStatus.RUNNING.value,
-        )
-        self.state.instances[instance_id] = entry
+        # Convert datetime to string for JSON serialization
+        if start_time:
+            if isinstance(start_time, str):
+                start_time_str = start_time
+            else:
+                start_time_str = start_time.isoformat()
+        else:
+            start_time_str = datetime.now(timezone.utc).isoformat()
+
+        entry = {
+            "input": input,
+            "source": source,
+            "workflow_instance_id": instance_id,
+            "triggering_workflow_instance_id": triggering_workflow_instance_id,
+            "workflow_name": self._workflow_name,
+            "start_time": start_time_str,
+            "trace_context": trace_context,
+            "status": DaprWorkflowStatus.RUNNING.value,
+            "messages": [],
+            "tool_history": [],
+            "end_time": None,
+        }
+        if "instances" not in self.state:
+            self.state["instances"] = {}
+        self.state["instances"][instance_id] = entry
 
     # Note: This is only really needed bc of the in-memory storage solutions.
     # With persistent storage, this is not needed as we rehydrate the conversation state from the database upon app restart.
@@ -382,17 +393,32 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         time: Optional[datetime] = None,
     ) -> None:
         """Ensure the instance entry exists in the state."""
-        if instance_id not in self.state.instances:
-            from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
+        if instance_id not in self.state.get("instances", {}):
+            if "instances" not in self.state:
+                self.state["instances"] = {}
 
-            self.state.instances[instance_id] = DurableAgentWorkflowEntry(
-                input=input,
-                start_time=time,  # Pydantic will use default_factory if None
-                source="user_input",
-                workflow_instance_id=instance_id,
-                triggering_workflow_instance_id=triggering_workflow_instance_id,
-                workflow_name=self._workflow_name,
-            )
+            # Handle time parameter - it might be a datetime object or a string
+            if time:
+                if isinstance(time, str):
+                    start_time = time
+                else:
+                    start_time = time.isoformat()
+            else:
+                start_time = datetime.now(timezone.utc).isoformat()
+
+            self.state["instances"][instance_id] = {
+                "input": input,
+                "start_time": start_time,
+                "source": "user_input",
+                "workflow_instance_id": instance_id,
+                "triggering_workflow_instance_id": triggering_workflow_instance_id,
+                "workflow_name": self._workflow_name,
+                "messages": [],
+                "tool_history": [],
+                "status": DaprWorkflowStatus.RUNNING.value,
+                "end_time": None,
+                "trace_context": None,
+            }
 
     def _process_user_message(
         self,
@@ -408,9 +434,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         self.memory.add_message(user_msg)
 
         msg_object = DurableAgentMessage(**user_message_copy)
-        inst = self.state.instances[instance_id]
-        inst.messages.append(msg_object)
-        inst.last_message = msg_object
+        inst = self.state["instances"][instance_id]
+        inst["messages"].append(msg_object.model_dump(mode="json"))
+        inst["last_message"] = msg_object.model_dump(mode="json")
         self.save_state()
 
     def _call_llm(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -437,14 +463,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         assistant_message["name"] = self.name
         agent_msg = DurableAgentMessage(**assistant_message)
 
-        inst = self.state.instances[instance_id]
-        messages_list = inst.messages
+        inst = self.state["instances"][instance_id]
+        messages_list = inst["messages"]
 
         # Check for duplicate by message ID (idempotent for workflow replay)
-        message_exists = any(msg.id == agent_msg.id for msg in messages_list)
+        message_exists = any(msg.get("id") == agent_msg.id for msg in messages_list)
         if not message_exists:
-            messages_list.append(agent_msg)
-            inst.last_message = agent_msg
+            messages_list.append(agent_msg.model_dump(mode="json"))
+            inst["last_message"] = agent_msg.model_dump(mode="json")
             self.memory.add_message(AssistantMessage(**assistant_message))
             self.save_state()
 
@@ -558,24 +584,25 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             agent_msg: The DurableAgentMessage object
             tool_history_entry: The ToolExecutionRecord object
         """
-        wf_instance = self.state.instances[instance_id]
+        wf_instance = self.state["instances"][instance_id]
 
         # Check if message already exists (idempotent operation for workflow replay)
-        wf_messages = wf_instance.messages
+        wf_messages = wf_instance["messages"]
 
         # Check for duplicate by message ID (idempotent for workflow replay)
-        message_exists = any(msg.id == agent_msg.id for msg in wf_messages)
+        message_exists = any(msg.get("id") == agent_msg.id for msg in wf_messages)
         if not message_exists:
-            wf_messages.append(agent_msg)
+            wf_messages.append(agent_msg.model_dump(mode="json"))
 
         # Check for duplicate tool history entry by tool_call_id
-        tool_history = wf_instance.tool_history
+        tool_history = wf_instance["tool_history"]
 
         tool_exists = any(
-            th.tool_call_id == tool_history_entry.tool_call_id for th in tool_history
+            th.get("tool_call_id") == tool_history_entry.tool_call_id
+            for th in tool_history
         )
         if not tool_exists:
-            tool_history.append(tool_history_entry)
+            tool_history.append(tool_history_entry.model_dump(mode="json"))
 
     def _update_agent_memory_and_history(
         self, tool_message: ToolMessage, tool_history_entry: ToolExecutionRecord
@@ -605,9 +632,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         Returns:
             The last message dict or None if not found
         """
-        instance_data = self.state.instances.get(instance_id)
+        instance_data = self.state.get("instances", {}).get(instance_id)
         if instance_data is not None:
-            return instance_data.last_message
+            return instance_data.get("last_message")
         return None
 
     @task
@@ -658,8 +685,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         # Atomically persist the tool execution result
         # Get existing input or use placeholder
         existing_input = (
-            self.state.instances[instance_id].input
-            if instance_id in self.state.instances
+            self.state["instances"][instance_id]["input"]
+            if instance_id in self.state.get("instances", {})
             else "Tool execution"
         )
         self._ensure_instance_exists(instance_id, existing_input, time=time)
@@ -720,7 +747,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         self,
         instance_id: str,
         final_output: str,
-        time: datetime,
+        time: str,
         triggering_workflow_instance_id: Optional[str] = None,
     ) -> None:
         """
@@ -728,17 +755,24 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         """
         # Ensure the instance entry exists
         existing_input = (
-            self.state.instances[instance_id].input
-            if instance_id in self.state.instances
+            self.state["instances"][instance_id]["input"]
+            if instance_id in self.state.get("instances", {})
             else "Workflow completion"
         )
         self._ensure_instance_exists(
             instance_id, existing_input, triggering_workflow_instance_id, time
         )
-        instance = self.state.instances[instance_id]
-        instance.output = final_output
-        instance.end_time = time
-        instance.status = DaprWorkflowStatus.COMPLETED.value  # Mark as completed
+        instance = self.state["instances"][instance_id]
+        instance["output"] = final_output
+        # Convert time to string for JSON serialization
+        if time:
+            if isinstance(time, str):
+                instance["end_time"] = time
+            else:
+                instance["end_time"] = time.isoformat()
+        else:
+            instance["end_time"] = datetime.now(timezone.utc).isoformat()
+        instance["status"] = DaprWorkflowStatus.COMPLETED.value  # Mark as completed
         logger.info(f"Workflow {instance_id} completed successfully")
         self.save_state()
 
@@ -815,9 +849,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             )
 
         # Get instance-specific chat history instead of global memory
-        instance_data = self.state.instances.get(instance_id)
+        instance_data = self.state.get("instances", {}).get(instance_id)
         if instance_data is not None:
-            instance_messages = instance_data.messages
+            instance_messages = instance_data.get("messages", [])
         else:
             instance_messages = []
 

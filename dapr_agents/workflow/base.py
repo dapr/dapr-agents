@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
 
+from pydantic import BaseModel
 from dapr.ext.workflow import (
     DaprWorkflowClient,
     WorkflowActivityContext,
@@ -15,8 +16,7 @@ from dapr.ext.workflow import (
 )
 from dapr.ext.workflow.workflow_state import WorkflowState
 from durabletask import task as dtask
-from pydantic import BaseModel, ConfigDict, Field
-from typing import ClassVar
+from pydantic import ConfigDict, Field
 
 from dapr_agents.agents.base import ChatClientBase
 from dapr_agents.types.workflow import DaprWorkflowStatus
@@ -568,17 +568,8 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                 )
                 return
 
-            logger.debug("Syncing workflow state with Dapr after runtime startup...")
             self.load_state()
-
-            # Check if we have instances to sync
-            instances = (
-                getattr(self.state, "instances", {})
-                if hasattr(self.state, "instances")
-                else self.state.get("instances", {})
-            )
-            if not instances:
-                return
+            instances = self.state.get("instances", {})
 
             logger.debug(f"Found {len(instances)} workflow instances to sync")
 
@@ -586,7 +577,8 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             for instance_id, instance_data in instances.items():
                 try:
                     # Skip if already completed
-                    if instance_data.get("end_time") is not None:
+                    end_time = instance_data.get("end_time")
+                    if end_time is not None:
                         continue
 
                     # Get actual status from Dapr
@@ -608,6 +600,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                                 timezone.utc
                             ).isoformat()
                             instance_data["status"] = runtime_status.lower()
+
                             logger.debug(
                                 f"Marked workflow {instance_id} as {runtime_status.lower()} in database"
                             )
@@ -628,6 +621,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                             timezone.utc
                         ).isoformat()
                         instance_data["status"] = DaprWorkflowStatus.COMPLETED.value
+
                         logger.debug(
                             f"Workflow {instance_id} no longer in Dapr, marked as completed"
                         )
@@ -832,9 +826,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                 # Get tracer and create AGENT span as child of the original trace
                 tracer = trace.get_tracer(__name__)
                 agent_name = getattr(self, "name", "DurableAgent")
-                workflow_name = instance_data.get(
-                    "workflow_name", "AgenticWorkflow"
-                )
+                workflow_name = instance_data.get("workflow_name", "AgenticWorkflow")
                 span_name = f"{agent_name}.{workflow_name}"
 
                 # Create the AGENT span that will show up in the trace

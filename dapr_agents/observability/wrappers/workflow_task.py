@@ -192,9 +192,7 @@ class WorkflowTaskWrapper:
 
             # Add resource-level attributes for Phoenix UI grouping
             attributes["resource.workflow.instance_id"] = instance_id
-            attributes[
-                "resource.workflow.name"
-            ] = "AgenticWorkflow"  # Could be dynamic
+            attributes["resource.workflow.name"] = "AgenticWorkflow"  # Could be dynamic
 
             # Log the trace context for debugging (expected to be disconnected for Dapr Workflows)
             from opentelemetry import trace

@@ -37,7 +37,7 @@ class StateManagementMixin:
 
             if not isinstance(self.state, dict):
                 raise TypeError(
-                    f"Invalid state type: {type(self.state)}. Expected dict or Pydantic model."
+                    f"Invalid state type: {type(self.state)}. Expected dict."
                 )
 
             logger.debug(f"Workflow state initialized with {len(self.state)} key(s).")
