@@ -15,7 +15,7 @@ from typing import (
 )
 
 from pydantic import BaseModel, Field
-
+from dapr.clients.grpc.client import GetMetadataResponse
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.dapr.client import DaprInferenceClientBase
 from dapr_agents.llm.utils import RequestHandler, ResponseHandler
@@ -23,10 +23,12 @@ from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.tool import AgentTool
 from dapr_agents.types.exceptions import DaprRuntimeVersionNotSupportedError
+from dapr_agents.types.exceptions import DaprRuntimeVersionNotSupportedError
 from dapr_agents.types.message import (
     BaseMessage,
     LLMChatResponse,
 )
+from dapr_agents.utils import is_version_supported
 from dapr_agents.utils import is_version_supported
 
 
@@ -80,6 +82,8 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
 
     component_name: Optional[str] = None
 
+    component_name: Optional[str] = None
+
     # Only function_call–style structured output is supported
     SUPPORTED_STRUCTURED_MODES: ClassVar[set[str]] = {"function_call"}
 
@@ -92,8 +96,8 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         if not self._llm_component:
             self._llm_component = os.environ.get("DAPR_LLM_COMPONENT_DEFAULT")
         if not self._llm_component:
-            raise ValueError(
-                "You must provide a component_name or set DAPR_LLM_COMPONENT_DEFAULT in the environment."
+            logger.debug(
+                "No LLM component provided and no default component found in the environment. Will try to get it from the metadata at runtime."
             )
         super().model_post_init(__context)
 
@@ -327,16 +331,11 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                 )
             # get metadata information from the dapr client
             metadata = self.client.dapr_client.get_metadata()
-            extended_metadata = metadata.extended_metadata
-            dapr_runtime_version = extended_metadata.get("daprRuntimeVersion", None)
-            if dapr_runtime_version is not None:
-                # Allow only versions >=1.16.0 and <2.0.0 for Alpha2 Chat Client
-                if not is_version_supported(
-                    str(dapr_runtime_version), ">=1.16.0, edge, <2.0.0"
-                ):
-                    raise DaprRuntimeVersionNotSupportedError(
-                        f"!!!!! Dapr Runtime Version {dapr_runtime_version} is not supported with Alpha2 Dapr Chat Client. Only Dapr runtime versions >=1.16.0, edge,and <2.0.0 are supported."
-                    )
+            _check_dapr_runtime_support(metadata)
+
+            llm_component = llm_component or self._llm_component
+            if not llm_component:
+                llm_component = _get_llm_component(metadata)
 
             raw = self.client.chat_completion_alpha2(
                 llm=llm_component or self._llm_component,
@@ -364,4 +363,35 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             response_format=response_format,
             structured_mode=structured_mode,
             stream=False,
+        )
+
+
+def _check_dapr_runtime_support(metadata: GetMetadataResponse):
+    """Check if the Dapr runtime version is supported for Alpha2 Chat Client."""
+    extended_metadata = metadata.extended_metadata
+    dapr_runtime_version = extended_metadata.get("daprRuntimeVersion", None)
+    if dapr_runtime_version is not None:
+        # Allow only versions >=1.16.0 and <2.0.0 for Alpha2 Chat Client
+        if not is_version_supported(str(dapr_runtime_version), ">=1.16.0, <2.0.0"):
+            raise DaprRuntimeVersionNotSupportedError(
+                f"!!!!! Dapr Runtime Version {dapr_runtime_version} is not supported with Alpha2 Dapr Chat Client. Only Dapr runtim versions >=1.16.0 and <2.0.0 are supported."
+            )
+
+
+def _get_llm_component(metadata: GetMetadataResponse) -> str:
+    """Get the LLM component from the metadata."""
+    conversation_components = [
+        component
+        for component in metadata.registered_components
+        if component.type.startswith("conversation.")
+    ]
+    if len(conversation_components) == 1:
+        return conversation_components[0].name
+    elif len(conversation_components) > 1:
+        raise ValueError(
+            "Multiple LLM components found in the metadata. Please provide the component name explicitly (e.g. llm = DaprChatClient(component_name='openai')) or environment variable DAPR_LLM_COMPONENT_DEFAULT."
+        )
+    else:
+        raise ValueError(
+            "No LLM component provided and no default component found in the metadata."
         )

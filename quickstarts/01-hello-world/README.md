@@ -4,12 +4,28 @@ This quickstart provides a hands-on introduction to Dapr Agents through simple e
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- Python 3.10+ (recommended)
+- [uv package manager](https://docs.astral.sh/uv/getting-started/installation/)
 - OpenAI API key (you can put in an .env file or directly in the `openai.yaml` file, but we recommend the .env file that is gitignored)
 
 ## Environment Setup
 
+<details open>
+<summary><strong>Option 1: Using uv (Recommended)</strong></summary>
+
+```bash
+# Create and activate virtual environment
+uv venv .venv
+source .venv/bin/activate
+
+# Install core dependencies
+uv pip install -r requirements.txt
+```
+
+</details>
+
+<details>
+<summary><strong>Option 2: Using pip</strong></summary>
 <details open>
 <summary><strong>Option 1: Using uv (Recommended)</strong></summary>
 
@@ -44,9 +60,15 @@ pip install -r requirements.txt
 
 </details>
 
+</details>
+
 
 ## Configuration
 
+> **Warning**
+> The examples will not work if you do not have a OpenAI API key exported in the environment.
+
+Create a `.env` file in the project root and add your OpenAI API key:
 > **Warning**
 > The examples will not work if you do not have a OpenAI API key exported in the environment.
 
@@ -57,6 +79,11 @@ OPENAI_API_KEY=your_api_key_here
 ```
 
 Replace `your_api_key_here` with your actual OpenAI API key.
+
+Export the environment variables from the .env file to your shell:
+```bash
+export $(grep -v '^#' .env | xargs) # or if .env is in the root directory, you can just run `export $(grep -v '^#' ../../.env | xargs)`
+```
 
 Export the environment variables from the .env file to your shell:
 ```bash
@@ -167,6 +194,9 @@ A stateful agent that uses Dapr Workflows to ensure durability and persistence o
 We are using the Dapr ChatClient to interact with the OpenAI API. In the components folder, we have a `openai.yaml` file that contains the configuration for the OpenAI API.
 You need to replace the `{YOUR_OPENAI_API_KEY}` with your actual OpenAI API key.
 
+We are using the Dapr ChatClient to interact with the OpenAI API. In the components folder, we have a `openai.yaml` file that contains the configuration for the OpenAI API.
+You need to replace the `{YOUR_OPENAI_API_KEY}` with your actual OpenAI API key.
+
 Make sure Dapr is initialized on your system:
 
 ```bash
@@ -187,9 +217,25 @@ output_match_mode: substring
 
 We are using the `resolve_env_templates.py` script to resolve the environment variables in the components folder and substitute them with the actual values in your .env file, like the OpenAI API key.
 
+<!-- STEP
+name: Run basic LLM example
+expected_stdout_lines:
+  - "I want to find flights to Paris"
+  - "TravelBuddy"
+timeout_seconds: 30
+output_match_mode: substring
+-->
+
+
+We are using the `resolve_env_templates.py` script to resolve the environment variables in the components folder and substitute them with the actual values in your .env file, like the OpenAI API key.
+
 ```bash
 dapr run --app-id stateful-llm --dapr-http-port 3500 --resources-path $(../resolve_env_templates.py ./components) -- python 03_durable_agent.py
+dapr run --app-id stateful-llm --dapr-http-port 3500 --resources-path $(../resolve_env_templates.py ./components) -- python 03_durable_agent.py
 ```
+
+<!-- END_STEP -->
+
 
 <!-- END_STEP -->
 
@@ -322,6 +368,7 @@ output_match_mode: substring
 -->
 ```bash
 dapr run --app-id dapr-agent-wf --resources-path $(../resolve_env_templates.py ./components) -- python 04_chain_tasks.py
+dapr run --app-id dapr-agent-wf --resources-path $(../resolve_env_templates.py ./components) -- python 04_chain_tasks.py
 ```
 <!-- END_STEP -->
 
@@ -392,6 +439,8 @@ Run the vector store agent example to see how to create an agent that can search
 
 <!-- STEP
 name: Run agent with vector store example
+expected_stderr_lines:
+  - "Batches"
 expected_stderr_lines:
   - "Batches"
 expected_stdout_lines:
