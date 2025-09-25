@@ -120,7 +120,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         self.register_agentic_system()
 
-
     async def run(self, input_data: Union[str, Dict[str, Any]]) -> Any:
         """
         Fire up the workflow, wait for it to complete, then return the final serialized_output.
