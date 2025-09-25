@@ -517,7 +517,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             self.wf_runtime.start()
             self.wf_runtime_is_running = True
 
-            logger.info("Sleeping for 5 seconds to ensure runtime is started.")            
+            logger.info("Sleeping for 5 seconds to ensure runtime is started.")
             time.sleep(5)
 
             # Sync database state with Dapr workflow status after runtime starts
