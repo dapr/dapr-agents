@@ -42,7 +42,6 @@ def _import_conversation_types():
         create_system_message,
         create_assistant_message,
         create_tool_message,
-        GetMetadataResponse,
     )
 
     return (
@@ -56,7 +55,6 @@ def _import_conversation_types():
         create_system_message,
         create_assistant_message,
         create_tool_message,
-        GetMetadataResponse,
     )
 
 
@@ -365,7 +363,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         )
 
 
-def _check_dapr_runtime_support(metadata: GetMetadataResponse):
+def _check_dapr_runtime_support(metadata: 'GetMetadataResponse'):  # noqa: F821
     """Check if the Dapr runtime version is supported for Alpha2 Chat Client."""
     extended_metadata = metadata.extended_metadata
     dapr_runtime_version = extended_metadata.get("daprRuntimeVersion", None)
@@ -377,7 +375,7 @@ def _check_dapr_runtime_support(metadata: GetMetadataResponse):
             )
 
 
-def _get_llm_component(metadata: GetMetadataResponse) -> str:
+def _get_llm_component(metadata: 'GetMetadataResponse') -> str:  # noqa: F821
     """Get the LLM component from the metadata."""
     conversation_components = [
         component
