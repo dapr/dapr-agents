@@ -23,12 +23,10 @@ from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.tool import AgentTool
 from dapr_agents.types.exceptions import DaprRuntimeVersionNotSupportedError
-from dapr_agents.types.exceptions import DaprRuntimeVersionNotSupportedError
 from dapr_agents.types.message import (
     BaseMessage,
     LLMChatResponse,
 )
-from dapr_agents.utils import is_version_supported
 from dapr_agents.utils import is_version_supported
 
 
