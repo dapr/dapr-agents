@@ -63,6 +63,8 @@ def is_version_supported(version: str, constraints: str) -> bool:
       - Each token supports operators: ==, !=, >=, <=, >, <
       - Missing operator defaults to ==
     """
+    if version == "edge":
+        return True
     v = Version.parse(version)
     for group in constraints.split("||"):
         group = group.strip()

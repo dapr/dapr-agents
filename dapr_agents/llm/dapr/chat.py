@@ -332,10 +332,10 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             if dapr_runtime_version is not None:
                 # Allow only versions >=1.16.0 and <2.0.0 for Alpha2 Chat Client
                 if not is_version_supported(
-                    str(dapr_runtime_version), ">=1.16.0, <2.0.0"
+                    str(dapr_runtime_version), ">=1.16.0, edge, <2.0.0"
                 ):
                     raise DaprRuntimeVersionNotSupportedError(
-                        f"!!!!! Dapr Runtime Version {dapr_runtime_version} is not supported with Alpha2 Dapr Chat Client. Only Dapr runtime versions >=1.16.0 and <2.0.0 are supported."
+                        f"!!!!! Dapr Runtime Version {dapr_runtime_version} is not supported with Alpha2 Dapr Chat Client. Only Dapr runtime versions >=1.16.0, edge,and <2.0.0 are supported."
                     )
 
             raw = self.client.chat_completion_alpha2(
