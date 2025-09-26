@@ -39,20 +39,17 @@ def search_flights(destination: str) -> List[FlightOption]:
     ]
 
 
+# ----------------------------------------------------------------------------------------------------------------------
 # There are three ways to set the LLM component with DaprChatClient:
 #
-# 1. Directly pass the component name
-# 2. Use the environment variable DAPR_LLM_COMPONENT_DEFAULT
-# 3. If there is only one conversation component in the metadata, it will be used by default
-#
-# Option 1: Directly pass the component name
+# 1. Explicitly instantiate the DaprChatClient with the component name
 # llm = DaprChatClient(component_name="openai")
 #
-# Option 2: Use the environment variable to set the default component name
+# 2. Use the environment variable DAPR_LLM_COMPONENT_DEFAULT
 # os.environ.setdefault("DAPR_LLM_COMPONENT_DEFAULT", "openai")
 #
-# Option 3: If there is only one conversation component in the metadata, it will be used by default
-#
+# 3. If there is only one conversation component in the resources folder, it will be used by default
+# ----------------------------------------------------------------------------------------------------------------------
 
 
 async def main():
