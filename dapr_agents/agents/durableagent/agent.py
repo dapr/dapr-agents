@@ -120,10 +120,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         self.register_agentic_system()
 
-        # Start the runtime if it's not already running
-        logger.info("Starting workflow runtime...")
-        self.start_runtime()
-
     async def run(self, input_data: Union[str, Dict[str, Any]]) -> Any:
         """
         Fire up the workflow, wait for it to complete, then return the final serialized_output.

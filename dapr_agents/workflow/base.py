@@ -3,6 +3,7 @@ import functools
 import inspect
 import json
 import logging
+import time
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -515,6 +516,9 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             logger.info("Starting workflow runtime.")
             self.wf_runtime.start()
             self.wf_runtime_is_running = True
+
+            logger.info("Sleeping for 5 seconds to ensure runtime is started.")
+            time.sleep(5)
 
             # Sync database state with Dapr workflow status after runtime starts
             # This ensures our database reflects the actual state of resumed workflows

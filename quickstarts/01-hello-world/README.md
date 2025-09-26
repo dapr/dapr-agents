@@ -4,14 +4,24 @@ This quickstart provides a hands-on introduction to Dapr Agents through simple e
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- Python 3.10+ (recommended)
+- [uv package manager](https://docs.astral.sh/uv/getting-started/installation/)
 - OpenAI API key (you can put in an .env file or directly in the `openai.yaml` file, but we recommend the .env file that is gitignored)
 
 ## Environment Setup
 
 <details open>
 <summary><strong>Option 1: Using uv (Recommended)</strong></summary>
+
+<!-- We include setting up the venv as part of the first step to make sure the venv is created and activated before the examples are run.-->
+
+<!-- STEP
+name: Run basic LLM example
+expected_stdout_lines:
+  - "Got response:"
+timeout_seconds: 30
+output_match_mode: substring
+-->
 
 ```bash
 # Create and activate virtual environment
@@ -27,7 +37,7 @@ uv pip install -r requirements.txt
 <details>
 <summary><strong>Option 2: Using pip</strong></summary>
 
-```bash
+```a shell [not setting type to avoid mechanical markdown execution]
 # Create a virtual environment
 python3.10 -m venv .venv
 
@@ -39,16 +49,18 @@ source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
-
 ```
 
 </details>
 
 
-## Configuration
+## OpenAI API Key
 
 > **Warning**
 > The examples will not work if you do not have a OpenAI API key exported in the environment.
+
+<details open>
+<summary><strong>Option 1: Using .env file</strong></summary>
 
 Create a `.env` file in the project root and add your OpenAI API key:
 
@@ -59,9 +71,25 @@ OPENAI_API_KEY=your_api_key_here
 Replace `your_api_key_here` with your actual OpenAI API key.
 
 Export the environment variables from the .env file to your shell:
-```bash
-export $(grep -v '^#' .env | xargs) # or if .env is in the root directory, you can just run `export $(grep -v '^#' ../../.env | xargs)`
+```a shell [not setting type to avoid mechanical markdown execution]
+export $(grep -v '^#' .env | xargs) 
+
+# or if .env is in the root directory of the repository, 
+# export $(grep -v '^#' ../../.env | xargs)
 ```
+
+</details>
+
+<details>
+<summary><strong>Option 2: Exporting the OpenAI API Key directly to the shell</strong></summary>
+
+```a shell [not setting type to avoid mechanical markdown execution]
+export OPENAI_API_KEY=your_api_key_here
+```
+
+Replace `your_api_key_here` with your actual OpenAI API key.
+
+</details>
 
 ## Examples
 
@@ -69,13 +97,6 @@ export $(grep -v '^#' .env | xargs) # or if .env is in the root directory, you c
 
 Run the basic LLM example to see how to interact with OpenAI's language models:
 
-<!-- STEP
-name: Run basic LLM example
-expected_stdout_lines:
-  - "Got response:"
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python 01_ask_llm.py
 ```
@@ -167,6 +188,9 @@ A stateful agent that uses Dapr Workflows to ensure durability and persistence o
 We are using the Dapr ChatClient to interact with the OpenAI API. In the components folder, we have a `openai.yaml` file that contains the configuration for the OpenAI API.
 You need to replace the `{YOUR_OPENAI_API_KEY}` with your actual OpenAI API key.
 
+We are using the Dapr ChatClient to interact with the OpenAI API. In the components folder, we have a `openai.yaml` file that contains the configuration for the OpenAI API.
+You need to replace the `{YOUR_OPENAI_API_KEY}` with your actual OpenAI API key.
+
 Make sure Dapr is initialized on your system:
 
 ```bash
@@ -180,14 +204,16 @@ name: Run basic LLM example
 expected_stdout_lines:
   - "I want to find flights to Paris"
   - "TravelBuddy"
-timeout_seconds: 30
+timeout_seconds: 60
 output_match_mode: substring
 -->
 
 
-We are using the `resolve_env_templates.py` script to resolve the environment variables in the components folder and substitute them with the actual values in your .env file, like the OpenAI API key.
+We are using the `resolve_env_templates.py` script to resolve the environment variables in the components folder and substitute them with the actual values in your environment, like the OpenAI API key.
 
 ```bash
+source .venv/bin/activate
+
 dapr run --app-id stateful-llm --dapr-http-port 3500 --resources-path $(../resolve_env_templates.py ./components) -- python 03_durable_agent.py
 ```
 
@@ -321,6 +347,8 @@ expected_stdout_lines:
 output_match_mode: substring
 -->
 ```bash
+source .venv/bin/activate
+
 dapr run --app-id dapr-agent-wf --resources-path $(../resolve_env_templates.py ./components) -- python 04_chain_tasks.py
 ```
 <!-- END_STEP -->
@@ -402,6 +430,8 @@ expected_stdout_lines:
 output_match_mode: substring
 -->
 ```bash
+source .venv/bin/activate
+
 python 05_agent_with_vectorstore.py
 ```
 <!-- END_STEP -->
@@ -541,6 +571,7 @@ if __name__ == "__main__":
 
 ## Key Concepts
 
+- **DaprChatClient**: The interface for interacting with Dapr's LLMs
 - **OpenAIChatClient**: The interface for interacting with OpenAI's LLMs
 - **Agent**: A class that combines an LLM with tools and instructions
 - **@tool decorator**: A way to create tools that agents can use

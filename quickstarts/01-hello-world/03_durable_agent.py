@@ -9,9 +9,10 @@ Stateful Augmented LLM Pattern demonstrates:
 import asyncio
 import logging
 
+
 from typing import List
 from pydantic import BaseModel, Field
-from dapr_agents import tool, DurableAgent, DaprChatClient
+from dapr_agents import tool, DurableAgent
 from dapr_agents.memory import ConversationDaprStateMemory
 from dotenv import load_dotenv
 
@@ -38,11 +39,17 @@ def search_flights(destination: str) -> List[FlightOption]:
     ]
 
 
-# one can use the environment variable to set the default component name
+# ----------------------------------------------------------------------------------------------------------------------
+# There are three ways to set the LLM component with DaprChatClient:
+#
+# 1. Explicitly instantiate the DaprChatClient with the component name
+# llm = DaprChatClient(component_name="openai")
+#
+# 2. Use the environment variable DAPR_LLM_COMPONENT_DEFAULT
 # os.environ.setdefault("DAPR_LLM_COMPONENT_DEFAULT", "openai")
-
-# or directly pass the component name
-llm = DaprChatClient(component_name="openai")
+#
+# 3. If there is only one conversation component in the resources folder, it will be used by default
+# ----------------------------------------------------------------------------------------------------------------------
 
 
 async def main():
@@ -66,7 +73,7 @@ async def main():
             memory=ConversationDaprStateMemory(
                 store_name="conversationstore", session_id="my-unique-id"
             ),
-            llm=llm,
+            # llm=llm, # if you don't set the llm attribute, it will be by default set to DaprChatClient()
         )
 
         await travel_planner.run("I want to find flights to Paris")
