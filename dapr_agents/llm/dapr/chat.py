@@ -15,7 +15,6 @@ from typing import (
 )
 
 from pydantic import BaseModel, Field
-from dapr.clients.grpc.client import GetMetadataResponse
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.dapr.client import DaprInferenceClientBase
 from dapr_agents.llm.utils import RequestHandler, ResponseHandler
@@ -43,6 +42,7 @@ def _import_conversation_types():
         create_system_message,
         create_assistant_message,
         create_tool_message,
+        GetMetadataResponse,
     )
 
     return (
@@ -56,6 +56,7 @@ def _import_conversation_types():
         create_system_message,
         create_assistant_message,
         create_tool_message,
+        GetMetadataResponse,
     )
 
 
