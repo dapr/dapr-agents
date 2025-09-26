@@ -363,7 +363,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         )
 
 
-def _check_dapr_runtime_support(metadata: 'GetMetadataResponse'):  # noqa: F821
+def _check_dapr_runtime_support(metadata: "GetMetadataResponse"):  # noqa: F821
     """Check if the Dapr runtime version is supported for Alpha2 Chat Client."""
     extended_metadata = metadata.extended_metadata
     dapr_runtime_version = extended_metadata.get("daprRuntimeVersion", None)
@@ -375,7 +375,7 @@ def _check_dapr_runtime_support(metadata: 'GetMetadataResponse'):  # noqa: F821
             )
 
 
-def _get_llm_component(metadata: 'GetMetadataResponse') -> str:  # noqa: F821
+def _get_llm_component(metadata: "GetMetadataResponse") -> str:  # noqa: F821
     """Get the LLM component from the metadata."""
     conversation_components = [
         component
