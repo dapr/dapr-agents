@@ -1,6 +1,7 @@
 from dapr_agents.agents.agent import Agent
 from dapr_agents.agents.durableagent import DurableAgent
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
+from dapr_agents.llm.dapr import DaprChatClient
 from dapr_agents.llm.elevenlabs import ElevenLabsSpeechClient
 from dapr_agents.llm.huggingface import HFHubChatClient
 from dapr_agents.llm.nvidia import NVIDIAChatClient, NVIDIAEmbeddingClient
@@ -24,6 +25,7 @@ __all__ = [
     "DockerCodeExecutor",
     "LocalCodeExecutor",
     "ElevenLabsSpeechClient",
+    "DaprChatClient",
     "HFHubChatClient",
     "NVIDIAChatClient",
     "NVIDIAEmbeddingClient",

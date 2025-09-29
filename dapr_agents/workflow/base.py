@@ -16,9 +16,9 @@ from dapr.ext.workflow import (
 from dapr.ext.workflow.workflow_state import WorkflowState
 from durabletask import task as dtask
 from pydantic import BaseModel, ConfigDict, Field
-from typing import ClassVar
 
 from dapr_agents.agents.base import ChatClientBase
+from dapr_agents.llm.utils.defaults import get_default_llm
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.utils import SignalHandlingMixin
 from dapr_agents.workflow.task import WorkflowTask
@@ -73,7 +73,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
         """
         # Initialize LLM first
         if self.llm is None:
-            self.llm = self._create_default_llm()
+            self.llm = get_default_llm()
 
         # Initialize clients and runtime
         self.wf_runtime = WorkflowRuntime()
@@ -83,12 +83,6 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
 
         self.start_runtime()
 
-        # Discover and register tasks and workflows
-        discovered_tasks = self._discover_tasks()
-        self._register_tasks(discovered_tasks)
-        discovered_wfs = self._discover_workflows()
-        self._register_workflows(discovered_wfs)
-
         # Set up automatic signal handlers for graceful shutdown
         try:
             self.setup_signal_handlers()
@@ -96,21 +90,6 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             logger.warning(f"Could not set up signal handlers: {e}")
 
         super().model_post_init(__context)
-
-    def _create_default_llm(self) -> Optional[ChatClientBase]:
-        """
-        Creates a default LLM client when none is provided.
-        Returns None if the default LLM cannot be created due to missing configuration.
-        """
-        try:
-            from dapr_agents.llm.openai import OpenAIChatClient
-
-            return OpenAIChatClient()
-        except Exception as e:
-            logger.warning(
-                f"Failed to create default OpenAI client: {e}. LLM will be None."
-            )
-            return None
 
     def graceful_shutdown(self) -> None:
         """
@@ -365,6 +344,10 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
     def _register_tasks(self, tasks: Dict[str, Callable]) -> None:
         """Register each discovered task with the Dapr runtime using direct registration."""
         for task_name, method in tasks.items():
+            # Don't reregister tasks that are already registered
+            if task_name in self.tasks:
+                continue
+
             llm = self._choose_llm_for(method)
             logger.debug(
                 f"Registering task '{task_name}' with llm={getattr(llm, '__class__', None)}"
@@ -451,6 +434,10 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
     def _register_workflows(self, wfs: Dict[str, Callable]) -> None:
         """Register each discovered workflow with the Dapr runtime."""
         for wf_name, method in wfs.items():
+            # Don't reregister workflows that are already registered
+            if wf_name in self.workflows:
+                continue
+
             # Use a closure helper to avoid late-binding capture issues.
             def make_wrapped(meth: Callable) -> Callable:
                 @functools.wraps(meth)
@@ -538,6 +525,17 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
         else:
             logger.debug("Workflow runtime already running; skipping.")
 
+        self._ensure_activities_registered()
+
+    def _ensure_activities_registered(self):
+        """Ensure all workflow activities are registered with the Dapr runtime."""
+        # Discover and register tasks and workflows
+        discovered_tasks = self._discover_tasks()
+        self._register_tasks(discovered_tasks)
+        discovered_wfs = self._discover_workflows()
+        self._register_workflows(discovered_wfs)
+        logger.debug("Workflow activities registration completed.")
+
     def _sync_workflow_state_after_startup(self):
         """
         Sync database workflow state with actual Dapr workflow status after runtime startup.
@@ -555,17 +553,8 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                 )
                 return
 
-            logger.debug("Syncing workflow state with Dapr after runtime startup...")
             self.load_state()
-
-            # Check if we have instances to sync
-            instances = (
-                getattr(self.state, "instances", {})
-                if hasattr(self.state, "instances")
-                else self.state.get("instances", {})
-            )
-            if not instances:
-                return
+            instances = self.state.get("instances", {})
 
             logger.debug(f"Found {len(instances)} workflow instances to sync")
 
@@ -573,7 +562,8 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             for instance_id, instance_data in instances.items():
                 try:
                     # Skip if already completed
-                    if instance_data.get("end_time") is not None:
+                    end_time = instance_data.get("end_time")
+                    if end_time is not None:
                         continue
 
                     # Get actual status from Dapr
@@ -595,6 +585,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                                 timezone.utc
                             ).isoformat()
                             instance_data["status"] = runtime_status.lower()
+
                             logger.debug(
                                 f"Marked workflow {instance_id} as {runtime_status.lower()} in database"
                             )
@@ -615,6 +606,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                             timezone.utc
                         ).isoformat()
                         instance_data["status"] = DaprWorkflowStatus.COMPLETED.value
+
                         logger.debug(
                             f"Workflow {instance_id} no longer in Dapr, marked as completed"
                         )
@@ -819,9 +811,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                 # Get tracer and create AGENT span as child of the original trace
                 tracer = trace.get_tracer(__name__)
                 agent_name = getattr(self, "name", "DurableAgent")
-                workflow_name = instance_data.get(
-                    "workflow_name", "ToolCallingWorkflow"
-                )
+                workflow_name = instance_data.get("workflow_name", "AgenticWorkflow")
                 span_name = f"{agent_name}.{workflow_name}"
 
                 # Create the AGENT span that will show up in the trace

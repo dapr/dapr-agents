@@ -187,3 +187,8 @@ This quickstart demonstrates how to build a database agent with memory and chat 
 
 [Go to Conversational Agent over Postgres with MCP](./08-data-agent-mcp-chainlit)
 
+### Contributing to Dapr Agents Quickstarts
+
+Please refer to our [Dapr Community Code of Conduct](https://github.com/dapr/community/blob/master/CODE-OF-CONDUCT.md)
+
+For development setup and guidelines, see our [Development Guide](../docs/development/README.md#contributing-to-dapr-agents-quickstarts).

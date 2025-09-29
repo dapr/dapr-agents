@@ -8,9 +8,10 @@ Stateful Augmented LLM Pattern demonstrates:
 """
 import asyncio
 import logging
+
 from typing import List
 from pydantic import BaseModel, Field
-from dapr_agents import tool, DurableAgent, OpenAIChatClient
+from dapr_agents import tool, DurableAgent, DaprChatClient
 from dapr_agents.memory import ConversationDaprStateMemory
 from dotenv import load_dotenv
 
@@ -37,6 +38,13 @@ def search_flights(destination: str) -> List[FlightOption]:
     ]
 
 
+# one can use the environment variable to set the default component name
+# os.environ.setdefault("DAPR_LLM_COMPONENT_DEFAULT", "openai")
+
+# or directly pass the component name
+llm = DaprChatClient(component_name="openai")
+
+
 async def main():
     try:
         # Initialize TravelBuddy agent
@@ -58,15 +66,16 @@ async def main():
             memory=ConversationDaprStateMemory(
                 store_name="conversationstore", session_id="my-unique-id"
             ),
-            llm=OpenAIChatClient(model="gpt-3.5-turbo"),
+            llm=llm,
         )
 
-        travel_planner.as_service(port=8001)
-        await travel_planner.start()
+        await travel_planner.run("I want to find flights to Paris")
         print("Travel Planner Agent is running")
 
     except Exception as e:
         print(f"Error starting service: {e}")
+    finally:
+        travel_planner.graceful_shutdown()
 
 
 if __name__ == "__main__":

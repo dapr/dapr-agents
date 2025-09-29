@@ -19,6 +19,10 @@ This quickstart demonstrates how to build a fully functional, enterprise-ready a
   - macOS: `brew install poppler`
   - Ubuntu/Debian: `sudo apt-get install poppler-utils`
   - Windows: Download from [poppler releases](https://github.com/oschwartz10612/poppler-windows/releases)
+- Tesseract OCR (for text extraction from images/PDFs) - Install with:
+  - macOS: `brew install tesseract`
+  - Ubuntu/Debian: `sudo apt-get install tesseract-ocr`
+  - Windows: Download from [tesseract releases](https://github.com/UB-Mannheim/tesseract/wiki)
 
 ## Environment Setup
 

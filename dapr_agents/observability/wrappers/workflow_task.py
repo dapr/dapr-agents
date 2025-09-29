@@ -192,9 +192,7 @@ class WorkflowTaskWrapper:
 
             # Add resource-level attributes for Phoenix UI grouping
             attributes["resource.workflow.instance_id"] = instance_id
-            attributes[
-                "resource.workflow.name"
-            ] = "ToolCallingWorkflow"  # Could be dynamic
+            attributes["resource.workflow.name"] = "AgenticWorkflow"  # Could be dynamic
 
             # Log the trace context for debugging (expected to be disconnected for Dapr Workflows)
             from opentelemetry import trace
@@ -349,6 +347,7 @@ class WorkflowTaskWrapper:
                 workflow_name = instance_data.get("workflow_name", "ToolCallingWorkflow")
                 is_orchestrator_flag = False
 
+            workflow_name = instance_data.get("workflow_name", "AgenticWorkflow")
             span_name = f"{agent_name}.{workflow_name}"
             attributes = {
                 "openinference.span.kind": "AGENT",
@@ -711,15 +710,13 @@ class WorkflowTaskWrapper:
         Returns:
             str: Semantic category for the task type
         """
-        if task_name in ["record_initial_entry", "get_workflow_entry_info"]:
+        if task_name in ["record_initial_entry"]:
             return "initialization"
-        elif task_name in ["append_assistant_message", "append_tool_message"]:
-            return "state_management"
         elif task_name in ["finalize_workflow", "finish_workflow"]:
             return "finalization"
         elif task_name in ["broadcast_message_to_agents", "send_response_back"]:
             return "communication"
-        elif task_name == "generate_response":
+        elif task_name == "call_llm":
             return "llm_generation"
         elif task_name == "run_tool":
             return "tool_execution"

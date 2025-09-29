@@ -15,7 +15,12 @@ async def main():
     os.environ.setdefault("DAPR_LLM_COMPONENT_DEFAULT", "openai")
 
     # Initialize the llm provider using the DaprChatClient
-    llm_provider = DaprChatClient()
+    # By default, the LLM provider is DaprChatClient("openai")
+    # Uncomment the line below to use it:
+    # llm_provider = DaprChatClient()
+
+    # Setting to None has the same effect as the default above
+    llm_provider = None
 
     # Instantiate the agent with the llm provider
     agent = DurableAgent(
@@ -46,11 +51,7 @@ async def main():
         "search for the official tourism site for Boston?"
     )
 
-    try:
-        await agent.run(prompt)
-    finally:
-        # stop the workflow runtime engine
-        agent.stop_runtime()
+    await agent.run(prompt)
 
 
 if __name__ == "__main__":

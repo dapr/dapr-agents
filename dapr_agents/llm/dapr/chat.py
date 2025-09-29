@@ -22,10 +22,12 @@ from dapr_agents.llm.utils import RequestHandler, ResponseHandler
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.tool import AgentTool
+from dapr_agents.types.exceptions import DaprRuntimeVersionNotSupportedError
 from dapr_agents.types.message import (
     BaseMessage,
     LLMChatResponse,
 )
+from dapr_agents.utils import is_version_supported
 
 
 # Lazy import to avoid import issues during test collection
@@ -76,6 +78,8 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         default=None, description="Optional prompt-template to format inputs."
     )
 
+    component_name: Optional[str] = None
+
     # Only function_call–style structured output is supported
     SUPPORTED_STRUCTURED_MODES: ClassVar[set[str]] = {"function_call"}
 
@@ -84,7 +88,13 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         After Pydantic init, set up API/type and default LLM component from env.
         """
         self._api = "chat"
-        self._llm_component = os.environ["DAPR_LLM_COMPONENT_DEFAULT"]
+        self._llm_component = self.component_name
+        if not self._llm_component:
+            self._llm_component = os.environ.get("DAPR_LLM_COMPONENT_DEFAULT")
+        if not self._llm_component:
+            raise ValueError(
+                "You must provide a component_name or set DAPR_LLM_COMPONENT_DEFAULT in the environment."
+            )
         super().model_post_init(__context)
 
     @classmethod
@@ -315,6 +325,19 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                 logger.debug(
                     f"Alpha2 parameters keys: {list(params.get('parameters', {}).keys())}"
                 )
+            # get metadata information from the dapr client
+            metadata = self.client.dapr_client.get_metadata()
+            extended_metadata = metadata.extended_metadata
+            dapr_runtime_version = extended_metadata.get("daprRuntimeVersion", None)
+            if dapr_runtime_version is not None:
+                # Allow only versions >=1.16.0 and <2.0.0 for Alpha2 Chat Client
+                if not is_version_supported(
+                    str(dapr_runtime_version), ">=1.16.0, <2.0.0"
+                ):
+                    raise DaprRuntimeVersionNotSupportedError(
+                        f"!!!!! Dapr Runtime Version {dapr_runtime_version} is not supported with Alpha2 Dapr Chat Client. Only Dapr runtime versions >=1.16.0 and <2.0.0 are supported."
+                    )
+
             raw = self.client.chat_completion_alpha2(
                 llm=llm_component or self._llm_component,
                 inputs=conv_inputs,

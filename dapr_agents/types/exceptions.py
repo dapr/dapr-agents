@@ -16,3 +16,11 @@ class StructureError(Exception):
 
 class FunCallBuilderError(Exception):
     """Custom exception for errors related to structured handling."""
+
+
+class NotSupportedError(Exception):
+    """Custom exception for errors related to not supported features or versions."""
+
+
+class DaprRuntimeVersionNotSupportedError(NotSupportedError):
+    """Custom exception for errors related to not supported Dapr runtime versions."""

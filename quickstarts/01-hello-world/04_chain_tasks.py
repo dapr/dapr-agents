@@ -1,4 +1,5 @@
 from dapr_agents.workflow import WorkflowApp, workflow, task
+from dapr_agents.llm.dapr import DaprChatClient
 from dapr.ext.workflow import DaprWorkflowContext
 from dotenv import load_dotenv
 
@@ -28,7 +29,7 @@ def write_blog(outline: str) -> str:
 
 
 if __name__ == "__main__":
-    wfapp = WorkflowApp()
+    wfapp = WorkflowApp(llm=DaprChatClient(component_name="openai"))
 
     try:
         results = wfapp.run_and_monitor_workflow_sync(analyze_topic, input="AI Agents")
@@ -36,3 +37,5 @@ if __name__ == "__main__":
             print(f"Result: {results}")
     except Exception as e:
         print(f"Error: {e}")
+    finally:
+        wfapp.graceful_shutdown()

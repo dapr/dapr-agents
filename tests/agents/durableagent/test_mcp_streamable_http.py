@@ -161,12 +161,19 @@ def durable_agent_with_mcp_tool(mock_mcp_tool, mock_mcp_session):
 async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     # Test the mocked MCP tool (add) with DurableAgent
     instance_id = "test-instance-123"
-    workflow_entry = DurableAgentWorkflowEntry(
-        input="What is 2 plus 2?",
-        source=None,
-        triggering_workflow_instance_id=None,
-    )
-    durable_agent_with_mcp_tool.state["instances"] = {instance_id: workflow_entry}
+    workflow_entry = {
+        "input": "What is 2 plus 2?",
+        "source": None,
+        "triggering_workflow_instance_id": None,
+        "workflow_instance_id": instance_id,
+        "workflow_name": "AgenticWorkflow",
+        "status": "RUNNING",
+        "messages": [],
+        "tool_history": [],
+        "end_time": None,
+        "trace_context": None,
+    }
+    durable_agent_with_mcp_tool.state["instances"][instance_id] = workflow_entry
 
     # Print available tool names for debugging
     tool_names = [t.name for t in durable_agent_with_mcp_tool.tool_executor.tools]
@@ -181,11 +188,12 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
         "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
     }
 
-    result = await durable_agent_with_mcp_tool.run_tool(tool_call)
+    await durable_agent_with_mcp_tool.run_tool(
+        tool_call, instance_id, "2024-01-01T00:00:00Z"
+    )
     instance_data = durable_agent_with_mcp_tool.state["instances"][instance_id]
-    instance_data.tool_history.append(result)
-    assert len(instance_data.tool_history) == 1
-    tool_entry = instance_data.tool_history[0]
+    assert len(instance_data["tool_history"]) == 1
+    tool_entry = instance_data["tool_history"][0]
     assert tool_entry["tool_call_id"] == "call_123"
     assert tool_entry["tool_name"] == tool_name
     assert tool_entry["execution_result"] == "4"
@@ -260,12 +268,19 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
     )
     agent.__pydantic_private__["_tool_executor"] = tool_executor
     instance_id = "test-instance-456"
-    workflow_entry = DurableAgentWorkflowEntry(
-        input="What is 2 plus 2?",
-        source=None,
-        triggering_workflow_instance_id=None,
-    )
-    agent.state["instances"] = {instance_id: workflow_entry}
+    workflow_entry = {
+        "input": "What is 2 plus 2?",
+        "source": None,
+        "triggering_workflow_instance_id": None,
+        "workflow_instance_id": instance_id,
+        "workflow_name": "AgenticWorkflow",
+        "status": "RUNNING",
+        "messages": [],
+        "tool_history": [],
+        "end_time": None,
+        "trace_context": None,
+    }
+    agent.state["instances"][instance_id] = workflow_entry
     # Print available tool names
     tool_names = [t.name for t in agent.tool_executor.tools]
     print("Available tool names (integration test):", tool_names)
@@ -277,11 +292,10 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
         "id": "call_456",
         "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
     }
-    result = await agent.run_tool(tool_call)
+    await agent.run_tool(tool_call, instance_id, "2024-01-01T00:00:00Z")
     instance_data = agent.state["instances"][instance_id]
-    instance_data.tool_history.append(result)
-    assert len(instance_data.tool_history) == 1
-    tool_entry = instance_data.tool_history[0]
+    assert len(instance_data["tool_history"]) == 1
+    tool_entry = instance_data["tool_history"][0]
     assert tool_entry["tool_call_id"] == "call_456"
     assert tool_entry["tool_name"] == tool_name
     assert tool_entry["execution_result"] == "4"

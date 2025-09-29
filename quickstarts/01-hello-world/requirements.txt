@@ -1,3 +1,4 @@
-dapr-agents
-# For local development use local changes by commenting out the line above and uncommenting the line below:
-# -e ../../
+# with optional extras required for the vectorstore example
+dapr-agents[vectorstore]
+# For local development using the local repo in editable mode with optional extras, use:
+# -e ../../[vectorstore]
