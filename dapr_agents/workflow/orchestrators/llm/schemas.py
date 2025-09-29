@@ -8,6 +8,17 @@ from dapr_agents.types.message import BaseMessage
 from dapr_agents.llm.utils import StructureHandler
 
 
+class IterablePlanStep(BaseModel):
+    """
+    A Pydantic model to capture IterablePlanStep objects.
+    This wraps a list of PlanStep objects for structured output.
+    """
+    
+    objects: List[PlanStep] = Field(
+        description="A list of PlanStep objects"
+    )
+
+
 class BroadcastMessage(BaseMessage):
     """
     Represents a broadcast message from an agent.
@@ -26,7 +37,22 @@ class AgentTaskResponse(BaseMessage):
 
 class TriggerAction(BaseModel):
     """
-    Represents a message used to trigger an agent's activity within the workflow.
+    Represents a message used to trigger an agent's activity within the workflow by an end user.
+    """
+
+    task: Optional[str] = Field(
+        None,
+        description="The specific task to execute. If not provided, the agent can act based on its memory or predefined behavior.",
+    )
+    workflow_instance_id: Optional[str] = Field(
+        default=None, description="Dapr workflow instance id from source if available"
+    )
+
+
+class InternalTriggerAction(BaseModel):
+    """
+    Represents an internal message used by orchestrators to trigger agents.
+    This prevents self-triggering loops.
     """
 
     task: Optional[str] = Field(
@@ -98,10 +124,10 @@ class Schemas:
 
     @cached_property
     def plan(self) -> str:
+        # Generate schema for IterablePlanStep (List[PlanStep] wrapper)
+        iterable_plan_step = StructureHandler.create_iterable_model(PlanStep)
         return json.dumps(
-            StructureHandler.enforce_strict_json_schema(TaskPlan.model_json_schema())[
-                "properties"
-            ]["plan"]
+            StructureHandler.enforce_strict_json_schema(iterable_plan_step.model_json_schema())
         )
 
     @cached_property

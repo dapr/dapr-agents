@@ -31,3 +31,18 @@ class TriggerAction(BaseModel):
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
     )
+
+
+class InternalTriggerAction(BaseModel):
+    """
+    Represents an internal message used by orchestrators to trigger agents.
+    This prevents self-triggering loops.
+    """
+
+    task: Optional[str] = Field(
+        None,
+        description="The specific task to execute. If not provided, the agent will act based on its memory or predefined behavior.",
+    )
+    workflow_instance_id: Optional[str] = Field(
+        default=None, description="Dapr workflow instance id from source if available"
+    )

@@ -1,4 +1,5 @@
 from dapr_agents import LLMOrchestrator
+from dapr_agents.llm import DaprChatClient
 from dotenv import load_dotenv
 import asyncio
 import logging
@@ -20,10 +21,13 @@ async def main():
         instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
     except Exception as e:
         raise
+
+    llm = DaprChatClient(component_name="openai")
     
     try:
         workflow_service = LLMOrchestrator(
             name="LLMOrchestrator",
+            llm=llm,
             message_bus_name="messagepubsub",
             state_store_name="workflowstatestore",
             state_key="workflow_state",

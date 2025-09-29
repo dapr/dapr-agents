@@ -124,5 +124,5 @@ class ResponseHandler:
             validated = StructureHandler.validate_response(raw, fmt)
             logger.info("Structured output successfully validated.")
 
-            # 3e) If it’s our auto‑wrapped iterable model, return its `.objects` list
-            return getattr(validated, "objects", validated)
+            # 3e) Return the validated model (don't unwrap iterable models)
+            return validated

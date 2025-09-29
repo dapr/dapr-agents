@@ -24,6 +24,7 @@ from dapr_agents.workflow.decorators import message_router, task, workflow
 from .schemas import (
     AgentTaskResponse,
     BroadcastMessage,
+    InternalTriggerAction,
     TriggerAction,
 )
 from .state import (
@@ -324,6 +325,28 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
         # Return the final response message
         return final_msg
+
+    @message_router
+    @workflow(name="AgenticWorkflow")
+    def internal_trigger_workflow(self, ctx: DaprWorkflowContext, message: InternalTriggerAction):
+        """
+        Handles InternalTriggerAction messages by treating them the same as TriggerAction.
+        This prevents self-triggering loops while allowing orchestrators to trigger agents.
+        
+        Args:
+            ctx (DaprWorkflowContext): The workflow context for the current execution.
+            message (InternalTriggerAction): The internal trigger message from an orchestrator.
+            
+        Returns:
+            Dict[str, Any]: The final response message when the workflow completes.
+        """
+        # Convert InternalTriggerAction to TriggerAction format and delegate to the main workflow
+        trigger_message = TriggerAction(
+            task=message.task,
+            workflow_instance_id=message.workflow_instance_id,
+            source="orchestrator"  # Default source for internal triggers
+        )
+        return self.tool_calling_workflow(ctx, trigger_message)
 
     def get_source_or_default(self, source: str):
         # Set default source if not provided (for direct run() calls)
@@ -872,34 +895,50 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             )
 
         # Get instance-specific chat history instead of global memory
+        if self.state is None:
+            logger.warning(f"Agent state is None for instance {instance_id}, initializing empty state")
+            self.state = {}
+        
         instance_data = self.state.get("instances", {}).get(instance_id)
         if instance_data is not None:
             instance_messages = instance_data.get("messages", [])
         else:
             instance_messages = []
         
-        # For broadcast-triggered workflows, also include memory for context
-        source = instance_data.get("source")
+        # Always include long-term memory (chat_history) for context
+        # This ensures agents have access to broadcast messages and persistent context
+        long_term_memory_data = self.state.get("chat_history", [])
+        
+        # Convert long-term memory to dict format for LLM consumption
+        long_term_memory_messages = []
+        for msg in long_term_memory_data:
+            if isinstance(msg, dict):
+                long_term_memory_messages.append(msg)
+            elif hasattr(msg, 'model_dump'):
+                long_term_memory_messages.append(msg.model_dump())
+        
+        # For broadcast-triggered workflows, also include additional context memory
+        source = instance_data.get("source") if instance_data else None
+        additional_context_messages = []
         if source and source != "direct":
-            # Include memory messages for context
-            memory_messages = self.memory.get_messages()
-            
-            # Convert memory messages to the format expected by prompt template
-            # and avoid duplicates by checking if message already exists in instance_messages
-            existing_contents = {msg.get("content", "") for msg in instance_messages if isinstance(msg, dict)}
-            
-            for msg in memory_messages:
+            # Include additional context memory for broadcast-triggered workflows
+            context_memory_data = self.memory.get_messages()
+            for msg in context_memory_data:
                 if isinstance(msg, dict):
-                    # Avoid duplicates by checking content
-                    if msg.get("content", "") not in existing_contents:
-                        instance_messages.append(msg)
+                    additional_context_messages.append(msg)
                 elif hasattr(msg, 'model_dump'):
-                    msg_dict = msg.model_dump()
-                    if msg_dict.get("content", "") not in existing_contents:
-                        instance_messages.append(msg_dict)
+                    additional_context_messages.append(msg.model_dump())
 
-        # Convert instance messages to the format expected by prompt template
+        # Build chat history with:
+        # 1. Long-term memory (persistent context, broadcast messages)
+        # 2. Short-term instance messages (current workflow specific)
+        # 3. Additional context memory (for broadcast-triggered workflows)
         chat_history = []
+        
+        # Add long-term memory first (broadcast messages, persistent context)
+        chat_history.extend(long_term_memory_messages)
+        
+        # Add short-term instance messages (current workflow)
         for msg in instance_messages:
             if isinstance(msg, dict):
                 chat_history.append(msg)
@@ -908,6 +947,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 chat_history.append(
                     msg.model_dump() if hasattr(msg, "model_dump") else dict(msg)
                 )
+        
+        # Add additional context memory last (for broadcast-triggered workflows)
+        chat_history.extend(additional_context_messages)
 
         if isinstance(input_data, str):
             formatted_messages = self.prompt_template.format_prompt(

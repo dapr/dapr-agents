@@ -33,25 +33,18 @@ if __name__ == "__main__":
     workflow_url = "http://localhost:8004/start-workflow"
     task_payload = {"task": "How to get to Mordor? We all need to help!"}
 
-    for attempt in range(1, 11):
-        try:
-            print(f"Attempt {attempt}...")
-            response = requests.post(workflow_url, json=task_payload, timeout=5)
+    try:
+        print("Starting workflow...")
+        response = requests.post(workflow_url, json=task_payload, timeout=120)
 
-            if response.status_code == 202:
-                print("Workflow started successfully!")
-                sys.exit(0)
-            else:
-                print(f"Received status code {response.status_code}: {response.text}")
+        if response.status_code == 202:
+            print("Workflow started successfully!")
+            print("Check Phoenix UI for workflow progress.")
+            sys.exit(0)
+        else:
+            print(f"Received status code {response.status_code}: {response.text}")
+            sys.exit(1)
 
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
-
-        attempt += 1
-        print("Waiting 1s seconds before next attempt...")
-        time.sleep(1)
-
-    print("Maximum attempts (10) reached without success.")
-
-    print("Failed to get successful response")
-    sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+        sys.exit(1)

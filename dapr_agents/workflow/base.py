@@ -1055,6 +1055,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
         Returns:
             Optional[str]: The serialized output of the workflow.
         """
+        instance_id = None
         try:
             # Off-load the potentially blocking run_workflow call to a thread.
             instance_id = await asyncio.to_thread(self.run_workflow, workflow, input)
@@ -1087,10 +1088,16 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             return state.serialized_output
 
         except Exception as e:
-            logger.error(f"Error during workflow '{instance_id}': {e}")
+            if instance_id:
+                logger.error(f"Error during workflow '{instance_id}': {e}")
+            else:
+                logger.error(f"Error starting workflow '{workflow}': {e}")
             raise
         finally:
-            logger.info(f"Finished workflow with Instance ID: {instance_id}.")
+            if instance_id:
+                logger.info(f"Finished workflow with Instance ID: {instance_id}.")
+            else:
+                logger.info(f"Finished workflow attempt for '{workflow}'.")
 
     def run_and_monitor_workflow_sync(
         self,

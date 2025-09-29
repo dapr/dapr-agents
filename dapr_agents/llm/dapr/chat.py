@@ -80,8 +80,8 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
 
     component_name: Optional[str] = None
 
-    # Only function_call–style structured output is supported
-    SUPPORTED_STRUCTURED_MODES: ClassVar[set[str]] = {"function_call"}
+    # Support both function_call and json structured output modes
+    SUPPORTED_STRUCTURED_MODES: ClassVar[set[str]] = {"function_call", "json"}
 
     def model_post_init(self, __context: Any) -> None:
         """
@@ -233,7 +233,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         llm_component: Optional[str] = None,
         tools: Optional[List[Union[AgentTool, Dict[str, Any]]]] = None,
         response_format: Optional[Type[BaseModel]] = None,
-        structured_mode: Literal["function_call"] = "function_call",
+        structured_mode: Literal["function_call", "json"] = "function_call",
         scrubPII: bool = False,
         temperature: Optional[float] = None,
         **kwargs: Any,
@@ -255,7 +255,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             llm_component:   Dapr component name (defaults from env).
             tools:           AgentTool or dict specifications.
             response_format: Pydantic model for structured output.
-            structured_mode: Must be "function_call".
+            structured_mode: Must be "function_call" or "json".
             scrubPII:        Obfuscate sensitive output if True.
             temperature:     Sampling temperature.
             **kwargs:        Other Dapr API parameters.
@@ -272,9 +272,8 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             raise ValueError(
                 f"structured_mode must be one of {self.SUPPORTED_STRUCTURED_MODES}"
             )
-        # 2) Disallow response_format + streaming
-        if response_format is not None:
-            raise ValueError("`response_format` is not supported by DaprChatClient.")
+        # 2) Disallow streaming
+        # Note: response_format is now supported for structured output
         if kwargs.get("stream"):
             raise ValueError("Streaming is not supported by DaprChatClient.")
 
@@ -304,6 +303,11 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             response_format=response_format,
             structured_mode=structured_mode,
         )
+        
+        logger.info(f"Processed parameters for Dapr: {params}")
+        if response_format:
+            logger.info(f"Response format: {response_format}")
+            logger.info(f"Structured mode: {structured_mode}")
 
         # 6) Convert to Dapr inputs & call
         conv_inputs = self.convert_to_conversation_inputs(params["inputs"])
@@ -351,6 +355,8 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                 raw, llm_component or self._llm_component
             )
             logger.info("Chat completion retrieved successfully.")
+            logger.info(f"Dapr Conversation API response: {raw}")
+            logger.info(f"Normalized response: {normalized}")
         except Exception as e:
             logger.error(
                 f"An error occurred during the Dapr Conversation API call: {e}"

@@ -19,11 +19,17 @@ We need to develop a structured, **logically ordered** plan to accomplish the fo
    - **Feedback Handling Step:** If execution results need analysis, include a step for refining the code.
 8. **Maintain a natural task flow** where each step logically follows the previous one.
 9. **Each step must have a `status` field** to track progress (Initially all set to `not_started`).
-10. **Sub-steps should be included only if a step requires multiple distinct actions.**
-11. **Focus only on structuring the task execution**, NOT on assigning agents at this stage.
+10. **Include sub-steps for complex steps that can be broken down into 2-4 distinct actions. This provides better granularity and tracking.**
+11. **Examples of steps that should have substeps:**
+    - Planning/analysis steps (e.g., "Assess situation" → "Gather intel", "Analyze data", "Identify risks")
+    - Preparation steps (e.g., "Prepare supplies" → "Inventory needs", "Gather materials", "Pack equipment")
+    - Execution steps with multiple phases (e.g., "Execute plan" → "Begin execution", "Monitor progress", "Adjust as needed")
+12. **Focus only on structuring the task execution**, NOT on assigning agents at this stage.
 
 ### Expected Output Format (JSON Schema):
 {plan_schema}
+
+**IMPORTANT: Return ONLY the raw JSON object without any markdown code blocks, explanations, or additional text. The JSON must have an "objects" field containing the array of plan steps.**
 """
 
 TASK_INITIAL_PROMPT = """## Mission Briefing

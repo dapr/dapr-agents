@@ -17,9 +17,11 @@ from dapr_agents.workflow.orchestrators.llm.prompts import (
 from dapr_agents.workflow.orchestrators.llm.schemas import (
     AgentTaskResponse,
     BroadcastMessage,
+    IterablePlanStep,
     NextStep,
     ProgressCheckOutput,
     TriggerAction,
+    InternalTriggerAction,
     schemas,
 )
 from dapr_agents.workflow.orchestrators.llm.state import (
@@ -81,6 +83,20 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             return False
 
     @message_router
+    async def handle_external_trigger(self, message: TriggerAction):
+        """
+        Handle external TriggerAction messages from end users.
+        This starts a new orchestrator workflow.
+        """
+        try:
+            logger.info(f"External trigger received: {message.task}")
+            await self.run_and_monitor_workflow_async(
+                workflow="LLMWorkflow",
+                input=message
+            )
+        except Exception as e:
+            logger.error(f"Error handling external trigger: {e}", exc_info=True)
+
     @workflow(name="LLMWorkflow")
     # TODO: set retry policies on the activities!
     # TODO: utilize prompt verdict value of failed as we do not currently use.
@@ -106,7 +122,8 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         self.state.setdefault("instances", {}).setdefault(
             instance_id, LLMWorkflowEntry(input=task).model_dump(mode="json")
         )
-        plan = self.state["instances"][instance_id].get("plan", [])
+        # Initialize plan as empty list - it will be set after turn 1
+        plan = []
         final_summary: Optional[str] = None
 
         # Single loop from turn 1 to max_iterations
@@ -124,32 +141,42 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                 if not ctx.is_replaying:
                     logger.info(f"Initial message from User -> {self.name}")
 
-                plan = yield ctx.call_activity(
+                plan_response = yield ctx.call_activity(
                     self.generate_plan,
                     input={"task": task, "agents": agents, "plan_schema": schemas.plan},
                 )
+                logger.info(f"generate_plan returned: {plan_response}")
                 initial_message = yield ctx.call_activity(
                     self.prepare_initial_message,
                     input={
                         "instance_id": instance_id,
                         "task": task,
                         "agents": agents,
-                        "plan": plan,
+                        "plan": plan_response,
                         "wf_time": ctx.current_utc_datetime.isoformat(),
                     },
                 )
+                # Extract the plan objects for use in the main loop
+                plan = plan_response.objects if hasattr(plan_response, 'objects') else plan_response.get('objects', [])
                 yield ctx.call_activity(
                     self.broadcast_message_to_agents,
                     input={"instance_id": instance_id, "task": initial_message},
                 )
 
             # Determine next step and dispatch
+            # Plan is now always a list of dictionaries after turn 1
+            plan_objects = plan if plan else []
+            
+            # If plan is empty, read from workflow state
+            if not plan_objects:
+                plan_objects = self.state["instances"][instance_id].get("plan", [])
+                plan = plan_objects
             next_step = yield ctx.call_activity(
                 self.generate_next_step,
                 input={
                     "task": task,
                     "agents": agents,
-                    "plan": json.dumps(plan, indent=2),
+                    "plan": json.dumps(plan_objects, indent=2),
                     "next_step_schema": schemas.next_step,
                 },
             )
@@ -161,14 +188,14 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             
             if not ctx.is_replaying:
                 logger.info(f"Next step selected: Agent={next_agent}, Step={step_id}, Substep={substep_id}")
-                logger.info(f"Current plan status: {json.dumps([{'step': s['step'], 'status': s['status'], 'substeps': [{'substep': ss['substep'], 'status': ss['status']} for ss in s.get('substeps', [])]} for s in plan], indent=2)}")
+                logger.info(f"Current plan status: {json.dumps([{'step': s['step'], 'status': s['status'], 'substeps': [{'substep': ss['substep'], 'status': ss['status']} for ss in s.get('substeps', [])]} for s in plan_objects], indent=2)}")
 
             # Validate Step Before Proceeding
             valid_step = yield ctx.call_activity(
                 self.validate_next_step,
                 input={
                     "instance_id": instance_id,
-                    "plan": plan,
+                    "plan": plan_objects,
                     "step": step_id,
                     "substep": substep_id,
                 },
@@ -176,7 +203,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
             if valid_step:
                 # Trigger next agent directly
-                plan = yield ctx.call_activity(
+                plan_objects = yield ctx.call_activity(
                     self.trigger_agent,
                     input={
                         "instance_id": instance_id,
@@ -228,7 +255,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                     self.check_progress,
                     input={
                         "task": task,
-                        "plan": json.dumps(plan, indent=2),
+                        "plan": json.dumps(plan_objects, indent=2),
                         "step": step_id,
                         "substep": substep_id,
                         "results": task_results["content"],
@@ -250,11 +277,17 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                         self.update_plan,
                         input={
                             "instance_id": instance_id,
-                            "plan": plan,
+                            "plan": plan_objects,
                             "status_updates": status_updates,
                             "plan_updates": plan_updates,
                         },
                     )
+                    
+                    # Re-read the updated plan from workflow state
+                    # The plan in workflow state is stored as a list of dicts (the objects field)
+                    plan_objects = self.state["instances"][instance_id].get("plan", [])
+                    # Update the plan variable to reflect the current state
+                    plan = plan_objects
             else:
                 if not ctx.is_replaying:
                     logger.warning(
@@ -286,7 +319,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                     input={
                         "task": task,
                         "verdict": verdict,
-                        "plan": json.dumps(plan, indent=2),
+                        "plan": json.dumps(plan_objects, indent=2),
                         "step": step_id,
                         "substep": substep_id,
                         "agent": next_agent,
@@ -299,7 +332,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                     self.finish_workflow,
                     input={
                         "instance_id": instance_id,
-                        "plan": plan,
+                        "plan": plan_objects,
                         "step": step_id,
                         "substep": substep_id,
                         "verdict": verdict,
@@ -344,23 +377,27 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
     @task(description=TASK_PLANNING_PROMPT)
     async def generate_plan(
         self, task: str, agents: str, plan_schema: str
-    ) -> List[PlanStep]:
+    ) -> IterablePlanStep:
         """
         Generates a structured execution plan for the given task.
 
         Args:
             task (str): The description of the task to be executed.
             agents (str): Formatted list of available agents and their roles.
-            plan_schema (sr): Schema of the plan
+            plan_schema (str): Schema of the plan
 
         Returns:
-            List[Dict[str, Any]]: A list of steps for the overall plan.
+            IterablePlanStep: A structured plan with objects field containing the steps.
         """
+        # The @task decorator handles the LLM call and returns the structured response
+        # The LLM will be called with the TASK_PLANNING_PROMPT and the provided parameters
+        # The response will be automatically validated against IterablePlanStep
+        # This method body is intentionally empty - the @task decorator handles everything
         pass
 
     @task
     async def prepare_initial_message(
-        self, instance_id: str, task: str, agents: str, plan: List[Dict[str, Any]], wf_time: str
+        self, instance_id: str, task: str, agents: str, plan: IterablePlanStep, wf_time: str
     ) -> str:
         """
         Initializes the workflow entry and sends the first task briefing to all agents.
@@ -369,15 +406,18 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             instance_id (str): The ID of the workflow instance.
             task (str): The initial input message describing the task.
             agents (str): The formatted list of available agents.
-            plan (List[Dict[str, Any]]): The structured execution plan generated beforehand.
+            plan (IterablePlanStep): The structured execution plan generated beforehand.
         """
+        # Extract the objects list from the IterablePlanStep
+        plan_objects = plan.objects if hasattr(plan, 'objects') else plan.get('objects', [])
+        
         # Format Initial Message with the Plan
         formatted_message = TASK_INITIAL_PROMPT.format(
-            task=task, agents=agents, plan=plan
+            task=task, agents=agents, plan=json.dumps(plan_objects, indent=2)
         )
 
         # Save initial plan using update_workflow_state for consistency
-        await self.update_workflow_state(instance_id=instance_id, plan=plan, wf_time=wf_time)
+        await self.update_workflow_state(instance_id=instance_id, plan=plan_objects, wf_time=wf_time)
 
         # Return formatted prompt
         return formatted_message
@@ -477,7 +517,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
         # Send message to agent with specific task instruction
         await self.send_message_to_agent(
-            name=name, message=TriggerAction(task=instruction, workflow_instance_id=instance_id)
+            name=name, message=InternalTriggerAction(task=instruction, workflow_instance_id=instance_id)
         )
 
         return updated_plan
