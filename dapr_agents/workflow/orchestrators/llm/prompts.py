@@ -53,6 +53,9 @@ The team is working on the following task:
 
 {task}
 
+## CRITICAL INSTRUCTION
+**SUBSTEPS MUST USE DECIMAL NOTATION**: If you select a substep, it MUST be a decimal number like 1.2, 1.3, 2.1, 2.2, etc. NEVER use whole numbers like 1, 2, 3, 4 or 2.0, 3.0, 4.0 for substeps!
+
 ### Team of Agents (ONLY these agents are available):
 {agents}
 
@@ -69,12 +72,31 @@ The team is working on the following task:
   - **If the main step is `"not_started"` but has `"completed"` substeps, you must correctly identify the next `"not_started"` substep.**
   - **DO NOT create or assume non-existent step/substep IDs.**
   - **DO NOT reference any invalid step/substep identifiers. Always check the plan.**
+  - **CRITICAL: Use decimal notation for substeps (1.1, 1.2, 1.3) NOT whole numbers**
 
 ### Step Progression Rules:
 - **PRIORITIZE SEQUENTIAL EXECUTION**: Generally, steps should be executed in numerical order (1, 2, 3, etc.).
 - **Complete current step before moving to next**: If a step has substeps, complete ALL substeps before moving to the next main step.
+- **Substep numbering is decimal**: Substeps use decimal notation (1.1, 1.2, 1.3, 2.1, 2.2, etc.). NEVER use whole numbers for substeps.
 - **Only skip steps if they are explicitly marked as "completed"** or if there's a logical reason to do so.
 - **Check step status carefully**: Look for steps with status "not_started" or "in_progress" before jumping to later steps.
+
+### Substep Progression Examples:
+- **If step 1 has substeps [1.1, 1.2, 1.3, 1.4] and 1.1 is completed:**
+  - **CORRECT**: Next substep is 1.2 (decimal notation)
+  - **WRONG**: Next substep is 2.0 (this doesn't exist!)
+  - **WRONG**: Next substep is 2 (this doesn't exist!)
+- **If step 1 has substeps [1.1, 1.2, 1.3, 1.4] and 1.1, 1.2 are completed:**
+  - **CORRECT**: Next substep is 1.3 (decimal notation)
+  - **WRONG**: Next substep is 2.0 (this doesn't exist!)
+  - **WRONG**: Next substep is 2 (this doesn't exist!)
+- **Only move to step 2 when ALL substeps of step 1 are completed**
+
+### CRITICAL SUBSTEP RULES:
+- **Substeps are ALWAYS decimal numbers**: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, etc.
+- **NEVER use whole numbers for substeps**: 1, 2, 3, 4 are NOT valid substep numbers
+- **NEVER use 2.0, 3.0, 4.0**: These are NOT valid substep numbers
+- **The decimal part indicates the substep within a step**: 1.1 = step 1, substep 1
 
 ### Expected Output Format (JSON Schema):
 {next_step_schema}
