@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from dapr.ext.workflow import DaprWorkflowContext
+from pydantic import Field
 
 from dapr_agents.workflow.decorators import message_router, task, workflow
 from dapr_agents.workflow.orchestrators.base import OrchestratorWorkflowBase
@@ -36,6 +37,7 @@ from dapr_agents.workflow.orchestrators.llm.utils import (
     restructure_plan,
     update_step_statuses,
 )
+from dapr_agents.memory import ConversationDaprStateMemory
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +50,61 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
     Uses the `continue_as_new` pattern to restart the workflow with updated input at each iteration.
     """
 
+    workflow_instance_id: Optional[str] = Field(
+        default=None,
+        description="The current workflow instance ID for this orchestrator.",
+    )
+    memory: ConversationDaprStateMemory = Field(
+        default_factory=lambda: ConversationDaprStateMemory(
+            store_name="workflowstatestore",
+            session_id="orchestrator_session"
+        ),
+        description="Persistent memory with session-based state hydration.",
+    )
+
     def model_post_init(self, __context: Any) -> None:
         """
         Initializes and configures the LLM-based workflow service.
         """
 
-        # Initializes local LLM Orchestrator State
-        self.state = LLMWorkflowState()
-        self._workflow_name = "LLMWorkflow"
+        # Call OrchestratorWorkflowBase's model_post_init first to initialize state store and other dependencies
+        # This will properly load state from storage if it exists
+        super().model_post_init(__context)
+
+        self._workflow_name = "OrchestratorWorkflow"
         # TODO(@Sicoyle): fix this later!!
         self._is_orchestrator = True  # Flag for PubSub deduplication to prevent orchestrator workflows from being triggered multiple times
 
-        super().model_post_init(__context)
+        if not self.state:
+            logger.debug("No state found, initializing empty state")
+            self.state = {"instances": {}}
+        else:
+            logger.debug(f"State loaded successfully: {self.state}")
+
+        # Load the current workflow instance ID from state using session_id)
+        if self.state and self.state.get("instances"):
+            logger.debug(f"Found {len(self.state['instances'])} instances in state")
+            
+            current_session_id = self.memory.session_id
+            for instance_id, instance_data in self.state["instances"].items():
+                stored_workflow_name = instance_data.get("workflow_name")
+                stored_session_id = instance_data.get("session_id")
+                logger.debug(
+                    f"Instance {instance_id}: workflow_name={stored_workflow_name}, session_id={stored_session_id}, current_workflow_name={self._workflow_name}, current_session_id={current_session_id}"
+                )
+                if (stored_workflow_name == self._workflow_name and 
+                    stored_session_id == current_session_id):
+                    self.workflow_instance_id = instance_id
+                    logger.debug(
+                        f"Loaded current workflow instance ID from state using session_id: {instance_id}"
+                    )
+                    break
+        else:
+            logger.debug("No instances found in state or state is empty")
+
+        # Sync workflow state with Dapr runtime after loading
+        # This ensures our database reflects the actual state of resumed workflows
+        self._sync_workflow_state_after_startup()
 
     def _convert_plan_objects_to_dicts(self, plan_objects: List[Any]) -> List[Dict[str, Any]]:
         """
@@ -384,13 +429,11 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         if hasattr(response, 'choices') and response.choices:
             # If it's still a raw response, parse it
             next_step_data = response.choices[0].message.content
-            logger.info(f"LLM raw response: {next_step_data}")
+            logger.debug(f"Next step generation response: {next_step_data}")
             next_step_dict = json.loads(next_step_data)
-            logger.info(f"Parsed next step: {next_step_dict}")
             return NextStep(**next_step_dict)
         else:
             # If it's already a Pydantic model
-            logger.info(f"LLM selected next step (Pydantic): {response}")
             return response
 
     @task
@@ -591,6 +634,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
     ) -> Dict[str, Any]:
         """
         Atomically generates a plan and broadcasts it to all agents.
+        If a plan already exists in state, it will be reused (state hydration).
         
         Args:
             instance_id (str): The workflow instance ID.
@@ -602,55 +646,67 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             Dict containing the generated plan and broadcast status
         """
         try:
-            # Generate plan using the LLM directly
-            response = self.llm.generate(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": TASK_PLANNING_PROMPT.format(
-                            task=task,
-                            agents=agents,
-                            plan_schema=schemas.plan,
-                        ),
-                    }
-                ],
-                response_format=IterablePlanStep,
-                structured_mode="json"
-            )
+            # Look for existing plan using session_id
+            existing_plan = None
+            for stored_instance_id, instance_data in self.state.get("instances", {}).items():
+                stored_session_id = instance_data.get("session_id")
+                if stored_session_id == self.memory.session_id:
+                    existing_plan = instance_data.get("plan", [])
+                    logger.debug(f"Found existing plan for session_id {self.memory.session_id} in instance {stored_instance_id}")
+                    break
             
-            # Parse the response - now we get a Pydantic model directly
-            if hasattr(response, 'choices') and response.choices:
-                # If it's still a raw response, parse it
-                plan_data = response.choices[0].message.content
-                logger.debug(f"Plan generation response: {plan_data}")
-                plan_dict = json.loads(plan_data)
-                # Convert raw dictionaries to Pydantic models
-                plan_objects = [PlanStep(**step_dict) for step_dict in plan_dict.get('objects', [])]
+            if existing_plan:
+                logger.debug(f"Found existing plan in workflow state, reusing it: {len(existing_plan)} steps")
+                plan_objects = existing_plan
             else:
-                # If it's already a Pydantic model
-                plan_objects = response.objects if hasattr(response, 'objects') else []
-                logger.debug(f"Plan generation response (Pydantic): {plan_objects}")
+                # Generate new plan using the LLM
+                logger.debug("No existing plan found in workflow state, generating new plan")
+                response = self.llm.generate(
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": TASK_PLANNING_PROMPT.format(
+                                task=task,
+                                agents=agents,
+                                plan_schema=schemas.plan,
+                            ),
+                        }
+                    ],
+                    response_format=IterablePlanStep,
+                    structured_mode="json"
+                )
+                
+                # Parse the response - now we get a Pydantic model directly
+                if hasattr(response, 'choices') and response.choices:
+                    # If it's still a raw response, parse it
+                    plan_data = response.choices[0].message.content
+                    logger.debug(f"Plan generation response: {plan_data}")
+                    plan_dict = json.loads(plan_data)
+                    # Convert raw dictionaries to Pydantic models
+                    plan_objects = [PlanStep(**step_dict) for step_dict in plan_dict.get('objects', [])]
+                else:
+                    # If it's already a Pydantic model
+                    plan_objects = response.objects if hasattr(response, 'objects') else []
+                    logger.debug(f"Plan generation response (Pydantic): {plan_objects}")
             
             # Format and broadcast message
             plan_dicts = self._convert_plan_objects_to_dicts(plan_objects)
-            logger.info(f"Generated plan with {len(plan_dicts)} steps")
-            for i, step in enumerate(plan_dicts):
-                substeps_count = len(step.get("substeps", []))
-                logger.info(f"Step {i+1}: {step.get('step')} - {substeps_count} substeps")
-            
             formatted_message = TASK_INITIAL_PROMPT.format(
                 task=task, 
                 agents=agents, 
                 plan=json.dumps(plan_dicts, indent=2)
             )
             
-            # Save plan to state atomically
-            plan_dicts = self._convert_plan_objects_to_dicts(plan_objects)
-            await self.update_workflow_state(
-                instance_id=instance_id, 
-                plan=plan_dicts, 
-                wf_time=wf_time
-            )
+            if not existing_plan:
+                await self.update_workflow_state(
+                    instance_id=instance_id, 
+                    plan=plan_dicts, 
+                    wf_time=wf_time
+                )
+                
+                # Store the workflow instance ID for session-based state rehydration
+                self.workflow_instance_id = instance_id
+                logger.debug(f"Stored workflow instance ID: {instance_id}")
             
             # Broadcast to agents
             await self.broadcast_message_to_agents_internal(
@@ -964,6 +1020,11 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             workflow_entry["output"] = final_output
             if wf_time is not None:
                 workflow_entry["end_time"] = wf_time
+
+        # Store workflow instance ID, workflow name, and session_id for session-based state rehydration
+        workflow_entry["workflow_instance_id"] = instance_id
+        workflow_entry["workflow_name"] = self._workflow_name
+        workflow_entry["session_id"] = self.memory.session_id
 
         # Persist updated state
         self.save_state()
