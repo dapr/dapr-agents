@@ -268,9 +268,12 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                         asyncio.set_event_loop(loop)
                         return loop.run_until_complete(context_wrapped_coro())
                     except Exception as e:
-                        logger.warning(f"Failed to run coroutine with new event loop: {e}")
+                        logger.warning(
+                            f"Failed to run coroutine with new event loop: {e}"
+                        )
                         # Fallback: run in thread pool to avoid blocking
                         import concurrent.futures
+
                         with concurrent.futures.ThreadPoolExecutor() as executor:
                             future = executor.submit(
                                 lambda: asyncio.run(context_wrapped_coro())
@@ -278,7 +281,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                             return future.result()
                     finally:
                         try:
-                            if 'loop' in locals() and not loop.is_closed():
+                            if "loop" in locals() and not loop.is_closed():
                                 loop.close()
                         except Exception as e:
                             logger.debug(f"Error closing event loop: {e}")

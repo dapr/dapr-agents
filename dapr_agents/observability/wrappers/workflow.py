@@ -642,7 +642,7 @@ class WorkflowMonitorWrapper:
 class WorkflowRegistrationWrapper:
     """
     Wrapper for WorkflowApp._register_workflows method.
-    
+
     This wrapper instruments the workflow registration process to add AGENT span
     tracing for orchestrator workflows when they are registered with the Dapr runtime.
     This ensures that when workflows are executed directly by the Dapr runtime
@@ -661,18 +661,20 @@ class WorkflowRegistrationWrapper:
     def __call__(self, wrapped: Any, instance: Any, args: Any, kwargs: Any) -> Any:
         """
         Wrap WorkflowApp._register_workflows to add AGENT span tracing to workflows.
-        
+
         Args:
             wrapped: Original _register_workflows method
             instance: WorkflowApp instance
             args: Positional arguments (wfs: Dict[str, Callable])
             kwargs: Keyword arguments
-            
+
         Returns:
             None (original method returns None)
         """
-        logger.info(f"🔧 WorkflowRegistrationWrapper called for {instance.__class__.__name__}")
-        
+        logger.info(
+            f"WorkflowRegistrationWrapper called for {instance.__class__.__name__}"
+        )
+
         # Check for instrumentation suppression
         if context_api and context_api.get_value(
             context_api._SUPPRESS_INSTRUMENTATION_KEY
@@ -682,48 +684,62 @@ class WorkflowRegistrationWrapper:
 
         # Get the workflows dictionary
         wfs = args[0] if args else {}
-        logger.info(f"🔧 Found {len(wfs)} workflows to register: {list(wfs.keys())}")
-        
+        logger.info(f"Found {len(wfs)} workflows to register: {list(wfs.keys())}")
+
         # Wrap each workflow method to add AGENT span tracing
         for wf_name, method in wfs.items():
             # Only create AGENT spans for orchestrator workflows, not individual agent workflows
             # Check if this is an orchestrator workflow by looking at the instance type
-            is_orchestrator = hasattr(instance, 'orchestrator_topic_name') or 'Orchestrator' in instance.__class__.__name__
-            
+            is_orchestrator = (
+                hasattr(instance, "orchestrator_topic_name")
+                or "Orchestrator" in instance.__class__.__name__
+            )
+
             if is_orchestrator:
-                logger.info(f"🔧 Wrapping orchestrator workflow '{wf_name}' with AGENT span tracing")
+                logger.info(
+                    f"Wrapping orchestrator workflow '{wf_name}' with AGENT span tracing"
+                )
+
                 # Create a wrapper that adds AGENT span tracing for orchestrator workflows
                 def create_agent_span_wrapper(original_method, workflow_name):
-                    if not hasattr(create_agent_span_wrapper, '_spans_created'):
+                    if not hasattr(create_agent_span_wrapper, "_spans_created"):
                         create_agent_span_wrapper._spans_created = set()
-                    
+
                     @functools.wraps(original_method)
                     def wrapped_workflow(*workflow_args, **workflow_kwargs):
                         instance_id = "unknown"
                         if workflow_args and len(workflow_args) > 0:
                             ctx = workflow_args[0]
-                            if hasattr(ctx, 'instance_id'):
+                            if hasattr(ctx, "instance_id"):
                                 instance_id = ctx.instance_id
-                            elif hasattr(ctx, 'get_inner_context'):
+                            elif hasattr(ctx, "get_inner_context"):
                                 try:
                                     inner_ctx = ctx.get_inner_context()
-                                    instance_id = getattr(inner_ctx, 'workflow_id', 'unknown')
+                                    instance_id = getattr(
+                                        inner_ctx, "workflow_id", "unknown"
+                                    )
                                 except Exception as e:
-                                    logger.debug(f"Failed to extract instance_id from context: {e}")
-                        
+                                    logger.debug(
+                                        f"Failed to extract instance_id from context: {e}"
+                                    )
+
                         # Create a unique key for this instance
                         span_key = f"{instance_id}_{workflow_name}"
-                        
+
                         # Only create AGENT span for the first execution of this workflow instance
                         if span_key not in create_agent_span_wrapper._spans_created:
                             create_agent_span_wrapper._spans_created.add(span_key)
-                            
+
                             # Create AGENT span for orchestrator workflow
-                            agent_name = getattr(instance, 'name', instance.__class__.__name__)
+                            agent_name = getattr(
+                                instance, "name", instance.__class__.__name__
+                            )
                             span_name = f"{agent_name}.{workflow_name}"
-                            
-                            logger.info(f"🚀 Creating AGENT span: {span_name} for instance {instance_id}")
-                            
+
+                            logger.info(
+                                f"Creating AGENT span: {span_name} for instance {instance_id}"
+                            )
+
                             # Build basic attributes
                             attributes = {
                                 "openinference.span.kind": "AGENT",
@@ -733,21 +749,29 @@ class WorkflowRegistrationWrapper:
                                 "workflow.orchestrator": True,
                                 "workflow.instance_id": instance_id,
                             }
-                            
+
                             # Add input data if available
                             if workflow_args and len(workflow_args) > 1:
-                                input_data = workflow_args[1]  # Second argument is usually the input
+                                input_data = workflow_args[
+                                    1
+                                ]  # Second argument is usually the input
                                 if input_data:
                                     attributes["input.value"] = str(input_data)
                                     attributes["input.mime_type"] = "application/json"
-                            
-                            with self._tracer.start_as_current_span(span_name, attributes=attributes) as span:
+
+                            with self._tracer.start_as_current_span(
+                                span_name, attributes=attributes
+                            ) as span:
                                 try:
                                     # Store span context for workflow tasks to find
                                     try:
-                                        from ..context_propagation import extract_otel_context
-                                        from ..context_storage import store_workflow_context
-                                        
+                                        from ..context_propagation import (
+                                            extract_otel_context,
+                                        )
+                                        from ..context_storage import (
+                                            store_workflow_context,
+                                        )
+
                                         # Extract current context from the AGENT span
                                         current_context = extract_otel_context()
                                         if current_context.get("traceparent"):
@@ -755,42 +779,68 @@ class WorkflowRegistrationWrapper:
                                             span_id = span.get_span_context().span_id
                                             trace_id = span.get_span_context().trace_id
                                             span_context = {
-                                                "trace_id": format(trace_id, "032x"),  # Convert to 32-char hex string
-                                                "span_id": format(span_id, "016x"),   # Convert to 16-char hex string
-                                                "traceparent": current_context.get("traceparent"),
-                                                "tracestate": current_context.get("tracestate", ""),
+                                                "trace_id": format(
+                                                    trace_id, "032x"
+                                                ),  # Convert to 32-char hex string
+                                                "span_id": format(
+                                                    span_id, "016x"
+                                                ),  # Convert to 16-char hex string
+                                                "traceparent": current_context.get(
+                                                    "traceparent"
+                                                ),
+                                                "tracestate": current_context.get(
+                                                    "tracestate", ""
+                                                ),
                                             }
-                                            
+
                                             # Store with instance-specific key
-                                            context_key = f"__workflow_context_{instance_id}__"
-                                            store_workflow_context(context_key, span_context)
-                                            logger.info(f"🔗 Stored Agent span context with key '{context_key}': trace_id={format(trace_id, '032x')}, span_id={format(span_id, '016x')}")
+                                            context_key = (
+                                                f"__workflow_context_{instance_id}__"
+                                            )
+                                            store_workflow_context(
+                                                context_key, span_context
+                                            )
+                                            logger.info(
+                                                f"Stored Agent span context with key '{context_key}': trace_id={format(trace_id, '032x')}, span_id={format(span_id, '016x')}"
+                                            )
                                         else:
-                                            logger.warning("No traceparent found in AGENT span context")
+                                            logger.warning(
+                                                "No traceparent found in AGENT span context"
+                                            )
                                     except Exception as e:
-                                        logger.warning(f"Failed to store span context: {e}")
-                                    
-                                    result = original_method(*workflow_args, **workflow_kwargs)
-                                    span.set_attribute("output.value", str(result) if result else "")
-                                    span.set_attribute("output.mime_type", "application/json")
+                                        logger.warning(
+                                            f"Failed to store span context: {e}"
+                                        )
+
+                                    result = original_method(
+                                        *workflow_args, **workflow_kwargs
+                                    )
+                                    span.set_attribute(
+                                        "output.value", str(result) if result else ""
+                                    )
+                                    span.set_attribute(
+                                        "output.mime_type", "application/json"
+                                    )
                                     return result
                                 except Exception as e:
                                     span.record_exception(e)
                                     raise
                         else:
                             # For subsequent executions, just run the original method without creating a new span
-                            logger.debug(f"🚀 Skipping AGENT span creation for subsequent execution of {workflow_name} (instance {instance_id})")
+                            logger.debug(
+                                f"Skipping AGENT span creation for subsequent execution of {workflow_name} (instance {instance_id})"
+                            )
                             return original_method(*workflow_args, **workflow_kwargs)
-                    
+
                     return wrapped_workflow
-                
+
                 # Replace the method in the workflows dictionary
                 wfs[wf_name] = create_agent_span_wrapper(method, wf_name)
             else:
                 # For non-orchestrator workflows, just pass through without AGENT span tracing
                 # They will still get traced by WorkflowTaskWrapper if they have tasks
                 pass
-        
+
         # Call the original method with the wrapped workflows
         bound_method = wrapped.__get__(instance, type(instance))
         return bound_method(wfs, **kwargs)

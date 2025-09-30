@@ -303,7 +303,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             response_format=response_format,
             structured_mode=structured_mode,
         )
-        
+
         logger.info(f"Processed parameters for Dapr: {params}")
         if response_format:
             logger.info(f"Response format: {response_format}")

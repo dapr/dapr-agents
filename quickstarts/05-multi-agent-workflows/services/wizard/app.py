@@ -20,7 +20,7 @@ async def main():
         instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
     except Exception as e:
         raise
-    
+
     try:
         wizard_service = DurableAgent(
             role="Wizard",

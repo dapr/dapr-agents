@@ -23,7 +23,7 @@ async def main():
         raise
 
     llm = DaprChatClient(component_name="openai")
-    
+
     try:
         workflow_service = LLMOrchestrator(
             name="LLMOrchestrator",

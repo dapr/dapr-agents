@@ -13,10 +13,8 @@ class IterablePlanStep(BaseModel):
     A Pydantic model to capture IterablePlanStep objects.
     This wraps a list of PlanStep objects for structured output.
     """
-    
-    objects: List[PlanStep] = Field(
-        description="A list of PlanStep objects"
-    )
+
+    objects: List[PlanStep] = Field(description="A list of PlanStep objects")
 
 
 class BroadcastMessage(BaseMessage):
@@ -127,7 +125,9 @@ class Schemas:
         # Generate schema for IterablePlanStep (List[PlanStep] wrapper)
         iterable_plan_step = StructureHandler.create_iterable_model(PlanStep)
         return json.dumps(
-            StructureHandler.enforce_strict_json_schema(iterable_plan_step.model_json_schema())
+            StructureHandler.enforce_strict_json_schema(
+                iterable_plan_step.model_json_schema()
+            )
         )
 
     @cached_property

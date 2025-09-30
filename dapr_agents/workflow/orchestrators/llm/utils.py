@@ -12,7 +12,6 @@ def update_step_statuses(plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     for step in plan:
         subs = step.get("substeps", None)
-        step_id = step.get("step")
 
         # --- NO substeps: do nothing here (explicit updates only) ---
         if subs is None:

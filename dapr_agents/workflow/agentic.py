@@ -330,8 +330,11 @@ class AgenticWorkflow(
                 logger.error(f"Error on transaction attempt: {attempt}: {e}")
                 # Add random jitter
                 import random
+
                 delay = 1 + random.uniform(0, 1)  # 1-2 seconds
-                logger.info(f"Sleeping for {delay:.2f} seconds before retrying transaction...")
+                logger.info(
+                    f"Sleeping for {delay:.2f} seconds before retrying transaction..."
+                )
                 time.sleep(delay)
         raise Exception(
             f"Failed to update state store key: {store_key} after 20 attempts."
@@ -390,7 +393,9 @@ class AgenticWorkflow(
                 input_data = await request.json()
 
             logger.info(f"Starting workflow '{workflow_name}' with input: {input_data}")
-            instance_id = await self.run_and_monitor_workflow_async(workflow=workflow_name, input=input_data)
+            instance_id = await self.run_and_monitor_workflow_async(
+                workflow=workflow_name, input=input_data
+            )
 
             return JSONResponse(
                 content={

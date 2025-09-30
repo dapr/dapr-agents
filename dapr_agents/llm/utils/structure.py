@@ -587,7 +587,7 @@ class StructureHandler:
                 except ValidationError as e:
                     last_error = e
                     continue
-            
+
             # If we get here, all models failed validation
             if last_error:
                 raise last_error
