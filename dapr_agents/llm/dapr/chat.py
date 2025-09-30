@@ -368,10 +368,12 @@ def _check_dapr_runtime_support(metadata: "GetMetadataResponse"):  # noqa: F821
     extended_metadata = metadata.extended_metadata
     dapr_runtime_version = extended_metadata.get("daprRuntimeVersion", None)
     if dapr_runtime_version is not None:
-        # Allow only versions >=1.16.0 and <2.0.0 for Alpha2 Chat Client
-        if not is_version_supported(str(dapr_runtime_version), ">=1.16.0, <2.0.0"):
+        # Allow only versions >=1.16.0, edge, and <2.0.0 for Alpha2 Chat Client
+        if not is_version_supported(
+            str(dapr_runtime_version), ">=1.16.0, edge, <2.0.0"
+        ):
             raise DaprRuntimeVersionNotSupportedError(
-                f"!!!!! Dapr Runtime Version {dapr_runtime_version} is not supported with Alpha2 Dapr Chat Client. Only Dapr runtim versions >=1.16.0 and <2.0.0 are supported."
+                f"!!!!! Dapr Runtime Version {dapr_runtime_version} is not supported with Alpha2 Dapr Chat Client. Only Dapr runtime versions >=1.16.0, edge, and <2.0.0 are supported."
             )
 
 
