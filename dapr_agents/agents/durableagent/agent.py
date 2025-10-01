@@ -20,6 +20,7 @@ from dapr_agents.types import (
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.workflow.agentic import AgenticWorkflow
 from dapr_agents.workflow.decorators import message_router, task, workflow
+from dapr_agents.memory import ConversationDaprStateMemory
 
 from .schemas import (
     AgentTaskResponse,
@@ -59,6 +60,12 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         default=None,
         description="The current workflow instance ID for this agent.",
     )
+    memory: ConversationDaprStateMemory = Field(
+        default_factory=lambda: ConversationDaprStateMemory(
+            store_name="workflowstatestore", session_id="durable_agent_session"
+        ),
+        description="Persistent memory with session-based state hydration.",
+    )
 
     @model_validator(mode="before")
     def set_agent_and_topic_name(cls, values: dict):
@@ -86,19 +93,23 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         if not self.state:
             self.state = {"instances": {}}
 
-        # Load the current workflow instance ID from state if it exists
+        # Load the current workflow instance ID from state using session_id
         logger.debug(f"State after loading: {self.state}")
         if self.state and self.state.get("instances"):
             logger.debug(f"Found {len(self.state['instances'])} instances in state")
             for instance_id, instance_data in self.state["instances"].items():
                 stored_workflow_name = instance_data.get("workflow_name")
+                stored_session_id = instance_data.get("session_id")
                 logger.debug(
-                    f"Instance {instance_id}: workflow_name={stored_workflow_name}, current_workflow_name={self._workflow_name}"
+                    f"Instance {instance_id}: workflow_name={stored_workflow_name}, session_id={stored_session_id}, current_workflow_name={self._workflow_name}, current_session_id={self.memory.session_id}"
                 )
-                if stored_workflow_name == self._workflow_name:
+                if (
+                    stored_workflow_name == self._workflow_name
+                    and stored_session_id == self.memory.session_id
+                ):
                     self.workflow_instance_id = instance_id
                     logger.debug(
-                        f"Loaded current workflow instance ID from state: {instance_id}"
+                        f"Loaded current workflow instance ID from state using session_id: {instance_id}"
                     )
                     break
         else:
@@ -256,9 +267,10 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                                 "tool_call": tc,
                                 "instance_id": ctx.instance_id,
                                 "time": ctx.current_utc_datetime.isoformat(),
+                                "execution_order": i,  # Add ordering information
                             },
                         )
-                        for tc in tool_calls
+                        for i, tc in enumerate(tool_calls)
                     ]
                     yield self.when_all(parallel)
 
@@ -324,15 +336,17 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
     @message_router
     @workflow(name="AgenticWorkflow")
-    def internal_trigger_workflow(self, ctx: DaprWorkflowContext, message: InternalTriggerAction):
+    def internal_trigger_workflow(
+        self, ctx: DaprWorkflowContext, message: InternalTriggerAction
+    ):
         """
         Handles InternalTriggerAction messages by treating them the same as TriggerAction.
         This prevents self-triggering loops while allowing orchestrators to trigger agents.
-        
+
         Args:
             ctx (DaprWorkflowContext): The workflow context for the current execution.
             message (InternalTriggerAction): The internal trigger message from an orchestrator.
-            
+
         Returns:
             Dict[str, Any]: The final response message when the workflow completes.
         """
@@ -340,7 +354,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         trigger_message = TriggerAction(
             task=message.task,
             workflow_instance_id=message.workflow_instance_id,
-            source="orchestrator"  # Default source for internal triggers
+            source="orchestrator",  # Default source for internal triggers
         )
         return self.tool_calling_workflow(ctx, trigger_message)
 
@@ -387,6 +401,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             "workflow_instance_id": instance_id,
             "triggering_workflow_instance_id": triggering_workflow_instance_id,
             "workflow_name": self._workflow_name,
+            "session_id": self.memory.session_id,
             "start_time": start_time_str,
             "trace_context": trace_context,
             "status": DaprWorkflowStatus.RUNNING.value,
@@ -428,6 +443,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 "workflow_instance_id": instance_id,
                 "triggering_workflow_instance_id": triggering_workflow_instance_id,
                 "workflow_name": self._workflow_name,
+                "session_id": self.memory.session_id,
                 "messages": [],
                 "tool_history": [],
                 "status": DaprWorkflowStatus.RUNNING.value,
@@ -579,6 +595,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             tool_call_id=tool_result["tool_call_id"],
             name=tool_result["tool_name"],
             content=tool_result["execution_result"],
+            role="tool",
         )
         agent_msg = DurableAgentMessage(**tool_msg.model_dump())
         tool_history_entry = ToolExecutionRecord(**tool_result)
@@ -654,7 +671,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
     @task
     async def run_tool(
-        self, tool_call: Dict[str, Any], instance_id: str, time: datetime
+        self, tool_call: Dict[str, Any], instance_id: str, time: datetime, execution_order: int = 0
     ) -> Dict[str, Any]:
         """
         Executes a tool call atomically by invoking the specified function with the provided arguments
@@ -842,30 +859,23 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             # Save the state after processing the broadcast message
             self.save_state()
 
-            # Define DurableAgentMessage object for state persistence
-            msg_object = DurableAgentMessage(**message.model_dump())
-            
             # Trigger agent workflow to respond to the broadcast message
             workflow_instance_id = metadata.get("workflow_instance_id")
             if workflow_instance_id:
                 # Create a TriggerAction to start the agent's workflow
                 trigger_message = TriggerAction(
-                    task=message.content,
-                    workflow_instance_id=workflow_instance_id
+                    task=message.content, workflow_instance_id=workflow_instance_id
                 )
                 trigger_message._message_metadata = {
                     "source": metadata.get("source", "unknown"),
                     "type": "BroadcastMessage",
-                    "workflow_instance_id": workflow_instance_id
+                    "workflow_instance_id": workflow_instance_id,
                 }
-                
+
                 # Start the agent's workflow
                 await self.run_and_monitor_workflow_async(
-                    workflow="ToolCallingWorkflow",
-                    input=trigger_message
+                    workflow="AgenticWorkflow", input=trigger_message
                 )
-            
-            
 
         except Exception as e:
             logger.error(f"Error processing broadcast message: {e}", exc_info=True)
@@ -874,9 +884,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         self, instance_id: str, input_data: Union[str, Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Construct messages using instance-specific chat history instead of global memory.
-        This ensures proper message sequence for tool calls and prevents OpenAI API errors
-        in the event an app gets terminated or restarts while the workflow is running.
+        Construct messages using instance-specific chat history and persistent memory.
+        This ensures proper message sequence for tool calls and maintains conversation
+        history across workflow executions using the session_id.
 
         Args:
             instance_id: The workflow instance ID
@@ -890,62 +900,59 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 "Prompt template must be initialized before constructing messages."
             )
 
-        # Get instance-specific chat history instead of global memory
+        # Get instance-specific chat history
         if self.state is None:
-            logger.warning(f"Agent state is None for instance {instance_id}, initializing empty state")
+            logger.warning(
+                f"Agent state is None for instance {instance_id}, initializing empty state"
+            )
             self.state = {}
-        
+
         instance_data = self.state.get("instances", {}).get(instance_id)
         if instance_data is not None:
             instance_messages = instance_data.get("messages", [])
         else:
             instance_messages = []
-        
-        # Always include long-term memory (chat_history) for context
-        # This ensures agents have access to broadcast messages and persistent context
+
+        # Get messages from persistent memory (session-based, cross-workflow)
+        persistent_memory_messages = []
+        try:
+            persistent_memory_messages = self.memory.get_messages()
+            logger.info(f"Retrieved {len(persistent_memory_messages)} messages for session {self.memory.session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to retrieve persistent memory: {e}")
+
+        # Get long-term memory from workflow state (for broadcast messages and persistent context)
         long_term_memory_data = self.state.get("chat_history", [])
-        
-        # Convert long-term memory to dict format for LLM consumption
         long_term_memory_messages = []
         for msg in long_term_memory_data:
             if isinstance(msg, dict):
                 long_term_memory_messages.append(msg)
-            elif hasattr(msg, 'model_dump'):
+            elif hasattr(msg, "model_dump"):
                 long_term_memory_messages.append(msg.model_dump())
-        
-        # For broadcast-triggered workflows, also include additional context memory
-        source = instance_data.get("source") if instance_data else None
-        additional_context_messages = []
-        if source and source != "direct":
-            # Include additional context memory for broadcast-triggered workflows
-            context_memory_data = self.memory.get_messages()
-            for msg in context_memory_data:
-                if isinstance(msg, dict):
-                    additional_context_messages.append(msg)
-                elif hasattr(msg, 'model_dump'):
-                    additional_context_messages.append(msg.model_dump())
 
-        # Build chat history with:
-        # 1. Long-term memory (persistent context, broadcast messages)
-        # 2. Short-term instance messages (current workflow specific)
-        # 3. Additional context memory (for broadcast-triggered workflows)
+        # Build chat history with proper context and order
         chat_history = []
-        
-        # Add long-term memory first (broadcast messages, persistent context)
-        chat_history.extend(long_term_memory_messages)
-        
-        # Add short-term instance messages (current workflow)
+
+        # First add persistent memory and long-term memory as user messages for context
+        # This ensures we have cross-workflow context but doesn't interfere with tool state order
+        for msg in persistent_memory_messages + long_term_memory_messages:
+            msg_dict = msg.model_dump() if hasattr(msg, "model_dump") else dict(msg)
+            if msg_dict in chat_history:
+                continue
+            # Convert tool-related messages to user messages to avoid conversation order issues
+            if msg_dict.get("role") in ["tool", "assistant"] and (msg_dict.get("tool_calls") or msg_dict.get("tool_call_id")):
+                msg_dict = {
+                    "role": "user",
+                    "content": f"[Previous {msg_dict['role']} message: {msg_dict.get('content', '')}]"
+                }
+            chat_history.append(msg_dict)
+
+        # Then add instance messages in their original form to maintain tool state
         for msg in instance_messages:
-            if isinstance(msg, dict):
-                chat_history.append(msg)
-            else:
-                # Convert DurableAgentMessage to dict if needed
-                chat_history.append(
-                    msg.model_dump() if hasattr(msg, "model_dump") else dict(msg)
-                )
-        
-        # Add additional context memory last (for broadcast-triggered workflows)
-        chat_history.extend(additional_context_messages)
+            msg_dict = msg.model_dump() if hasattr(msg, "model_dump") else dict(msg)
+            if msg_dict in chat_history:
+                continue
+            chat_history.append(msg_dict)
 
         if isinstance(input_data, str):
             formatted_messages = self.prompt_template.format_prompt(
