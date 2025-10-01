@@ -844,9 +844,6 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             # Save the state after processing the broadcast message
             self.save_state()
 
-            # Define DurableAgentMessage object for state persistence
-            msg_object = DurableAgentMessage(**message.model_dump())
-
             # Trigger agent workflow to respond to the broadcast message
             workflow_instance_id = metadata.get("workflow_instance_id")
             if workflow_instance_id:
