@@ -237,7 +237,7 @@ expected_stdout_lines:
   - "assistant:"
   - "user:"
   - "assistant:"
-  - "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'LLMWorkflow'"
+  - "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'OrchestratorWorkflow'"
 timeout_seconds: 200
 output_match_mode: substring
 background: false
