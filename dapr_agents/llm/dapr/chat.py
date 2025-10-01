@@ -126,11 +126,42 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         """
         Convert Dapr Alpha2 response into OpenAI-style ChatCompletion dict.
         """
+        if not isinstance(response, dict):
+            logger.error(f"Invalid response type: {type(response)}")
+            raise ValueError(f"Response must be a dictionary, got {type(response)}")
+
         # Flatten all output choices from Alpha2 envelope
         choices: List[Dict[str, Any]] = []
-        for output in response.get("outputs", []) or []:
-            for choice in output.get("choices", []) or []:
+        outputs = response.get("outputs", []) or []
+        if not isinstance(outputs, list):
+            logger.error(f"Invalid outputs type: {type(outputs)}")
+            raise ValueError(f"Outputs must be a list, got {type(outputs)}")
+
+        for output in outputs:
+            if not isinstance(output, dict):
+                logger.error(f"Invalid output type: {type(output)}")
+                continue
+            output_choices = output.get("choices", []) or []
+            if not isinstance(output_choices, list):
+                logger.error(f"Invalid choices type: {type(output_choices)}")
+                continue
+            for choice in output_choices:
+                if not isinstance(choice, dict):
+                    logger.error(f"Invalid choice type: {type(choice)}")
+                    continue
+                # Ensure message is present and has required fields
+                message = choice.get("message", {})
+                if not isinstance(message, dict):
+                    logger.error(f"Invalid message type: {type(message)}")
+                    continue
+                # Add required fields if missing
+                if "content" not in message:
+                    message["content"] = ""
+                if "role" not in message:
+                    message["role"] = "assistant"
+                choice["message"] = message
                 choices.append(choice)
+
         return {
             "choices": choices,
             "created": int(time.time()),
@@ -336,6 +367,17 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             if not llm_component:
                 llm_component = _get_llm_component(metadata)
 
+            # Extract and serialize response format parameters
+            api_params = {}
+            if "response_format" in params:
+                try:
+                    import json
+                    api_params["response_format"] = json.dumps(params["response_format"])
+                except Exception as e:
+                    logger.warning(f"Failed to serialize response_format: {e}")
+            if "structured_mode" in params:
+                api_params["structured_mode"] = str(params["structured_mode"])
+
             raw = self.client.chat_completion_alpha2(
                 llm=llm_component or self._llm_component,
                 inputs=conv_inputs,
@@ -343,7 +385,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                 temperature=temperature,
                 tools=params.get("tools"),
                 tool_choice=params.get("tool_choice"),
-                parameters=params.get("parameters"),
+                parameters=api_params or None,
             )
             normalized = self.translate_response(
                 raw, llm_component or self._llm_component

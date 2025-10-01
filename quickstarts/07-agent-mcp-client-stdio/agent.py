@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from dapr_agents import Agent
 from dapr_agents.tool.mcp import MCPClient
 from dapr_agents.types import AssistantMessage
+from dapr_agents.llm.openai import OpenAIChatClient
 
 load_dotenv()
 
@@ -29,6 +30,7 @@ async def main():
             name="Stevie",
             role="Weather Assistant",
             goal="Help humans get weather and location info using MCP tools.",
+            llm=OpenAIChatClient(model="gpt-4o-mini"),
             instructions=[
                 "Respond clearly and helpfully to weather-related questions.",
                 "Use tools when appropriate to fetch or simulate weather data.",

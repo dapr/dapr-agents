@@ -469,9 +469,13 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                 wrapper=WorkflowMonitorWrapper(self._tracer),
             )
 
-            # Note: WorkflowRunWrapper removed to prevent double wrapping
-            # run_and_monitor_workflow_async internally calls run_workflow
-            # So wrapping both causes duplicate instances
+
+            # This is necessary to create the parent workflow span for the 09 quickstart...
+            wrap_function_wrapper(
+                module="dapr_agents.workflow.base",
+                name="WorkflowApp.run_workflow",
+                wrapper=WorkflowRunWrapper(self._tracer),
+            )
 
             # Instrument workflow registration to add AGENT spans for orchestrator workflows
             wrap_function_wrapper(

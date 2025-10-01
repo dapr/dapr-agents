@@ -51,8 +51,16 @@ def process_dapr_chat_response(response: Dict[str, Any]) -> LLMChatResponse:
             None  # there is no openai "function_call" in dapr only tool calls
         )
 
+        content = msg.get("content")
+        if isinstance(content, dict):
+            try:
+                import json
+                content = json.dumps(content)
+            except Exception as e:
+                logger.warning(f"Failed to serialize dictionary content: {e}")
+
         assistant_message = AssistantMessage(
-            content=msg.get("content"),
+            content=content,
             tool_calls=tool_calls,
             function_call=function_call,
         )

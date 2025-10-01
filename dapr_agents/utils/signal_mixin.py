@@ -99,10 +99,6 @@ class SignalHandlingMixin:
             except Exception as e:
                 logger.debug(f"Error in graceful shutdown: {e}")
 
-        import sys
-
-        sys.exit(0)
-
     async def graceful_shutdown(self) -> None:
         """
         Perform graceful shutdown operations.

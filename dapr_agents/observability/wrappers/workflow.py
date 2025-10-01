@@ -85,11 +85,23 @@ class WorkflowRunWrapper:
         workflow = arguments.get("workflow")
 
         # Extract workflow name
-        workflow_name = (
-            workflow
-            if isinstance(workflow, str)
-            else getattr(instance, "_workflow_name", "unknown_workflow")
-        )
+        if isinstance(workflow, str):
+            workflow_name = workflow
+        else:
+            # Try to get the name from the workflow function/class
+            workflow_name = None
+            # First try the workflow decorator name
+            if hasattr(workflow, "_workflow_name"):
+                workflow_name = workflow._workflow_name
+            # Then try __name__ for function workflows
+            if not workflow_name and hasattr(workflow, "__name__"):
+                workflow_name = workflow.__name__
+            # Finally try the name attribute
+            if not workflow_name and hasattr(workflow, "name"):
+                workflow_name = workflow.name
+            # Fallback
+            if not workflow_name:
+                workflow_name = "AgenticWorkflow"
         logger.debug(f"Extracted workflow_name: {workflow_name}")
 
         # Build span attributes
@@ -316,12 +328,24 @@ class WorkflowMonitorWrapper:
         else:
             workflow = kwargs.get("workflow")
 
-        # Extract workflow name
-        workflow_name = (
-            workflow
-            if isinstance(workflow, str)
-            else getattr(workflow, "__name__", "AgenticWorkflow")
-        )
+        # Extract workflow name with better fallback chain
+        if isinstance(workflow, str):
+            workflow_name = workflow
+        else:
+            # Try to get the name from the workflow function/class
+            workflow_name = None
+            # First try the workflow decorator name
+            if hasattr(workflow, "_workflow_name"):
+                workflow_name = workflow._workflow_name
+            # Then try __name__ for function workflows
+            if not workflow_name and hasattr(workflow, "__name__"):
+                workflow_name = workflow.__name__
+            # Finally try the name attribute
+            if not workflow_name and hasattr(workflow, "name"):
+                workflow_name = workflow.name
+            # Fallback
+            if not workflow_name:
+                workflow_name = "AgenticWorkflow"
         return workflow_name
 
     def _build_workflow_attributes(

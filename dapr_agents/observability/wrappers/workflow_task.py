@@ -591,10 +591,13 @@ class WorkflowTaskWrapper:
             logger.warning(
                 f"No parent context available for {span_name}, executing without span"
             )
-            bound_method = wrapped.__get__(instance, type(instance))
-            result = await bound_method(*wrapper_args, **wrapper_kwargs)
-
-            return result
+            try:
+                bound_method = wrapped.__get__(instance, type(instance))
+                result = await bound_method(*wrapper_args, **wrapper_kwargs)
+                return result
+            except Exception as e:
+                logger.error(f"Error in async workflow task execution (no span): {e}", exc_info=True)
+                raise
 
         return async_wrapper(instance, *args, **kwargs)
 

@@ -128,6 +128,15 @@ class RequestHandler:
 
         if response_format:
             logger.info(f"Structured Mode Activated! Mode={structured_mode}.")
+            # Add system message for JSON formatting
+            # This is necessary for the response formatting of the data to work correctly when a user has a function call response format.
+            inputs = params.get("inputs", [])
+            inputs.insert(0, {
+                "role": "system",
+                "content": "You must format your response as a valid JSON object matching the provided schema. Do not include any explanatory text or markdown formatting."
+            })
+            params["inputs"] = inputs
+
             params = StructureHandler.generate_request(
                 response_format=response_format,
                 llm_provider=llm_provider,

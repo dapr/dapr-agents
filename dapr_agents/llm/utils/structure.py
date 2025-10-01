@@ -259,7 +259,17 @@ class StructureHandler:
                     if not content:
                         raise StructureError("No content found for JSON mode.")
 
-                    logger.debug(f"Extracted JSON content: {content}")
+                    # Try to parse content as JSON first
+                    try:
+                        if isinstance(content, str):
+                            parsed = json.loads(content)
+                            logger.debug(f"Successfully parsed JSON content: {parsed}")
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
+
+                    # If parsing fails or content is not a string, return as is
+                    logger.debug(f"Returning raw content: {content}")
                     return content
 
                 else:
