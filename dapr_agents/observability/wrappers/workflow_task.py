@@ -347,15 +347,15 @@ class WorkflowTaskWrapper:
                 logger.debug(
                     f"Creating AGENT span for resumed orchestrator workflow {instance_id}"
                 )
-                workflow_name = instance_data.get("workflow_name", "OrchestratorWorkflow")
+                workflow_name = instance_data.get(
+                    "workflow_name", "OrchestratorWorkflow"
+                )
                 is_orchestrator_flag = True
             else:
                 logger.debug(
                     f"Creating AGENT span for resumed individual agent workflow {instance_id}"
                 )
-                workflow_name = instance_data.get(
-                    "workflow_name", "AgenticWorkflow"
-                )
+                workflow_name = instance_data.get("workflow_name", "AgenticWorkflow")
                 is_orchestrator_flag = False
 
             workflow_name = instance_data.get("workflow_name", "AgenticWorkflow")
