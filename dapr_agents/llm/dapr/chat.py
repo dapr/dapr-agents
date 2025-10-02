@@ -303,15 +303,15 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             structured_mode=structured_mode,
         )
 
-        logger.info(f"Processed parameters for Dapr: {params}")
+        logger.debug(f"Processed parameters for Dapr: {params}")
         if response_format:
-            logger.info(f"Response format: {response_format}")
-            logger.info(f"Structured mode: {structured_mode}")
+            logger.debug(f"Response format: {response_format}")
+            logger.debug(f"Structured mode: {structured_mode}")
 
         # 6) Convert to Dapr inputs & call
         conv_inputs = self.convert_to_conversation_inputs(params["inputs"])
         try:
-            logger.info("Invoking the Dapr Conversation API.")
+            logger.debug("Invoking the Dapr Conversation API.")
             # Log tools/tool_choice/parameters for debugging
             if params.get("tools"):
                 try:
@@ -348,9 +348,8 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             normalized = self.translate_response(
                 raw, llm_component or self._llm_component
             )
-            logger.info("Chat completion retrieved successfully.")
-            logger.info(f"Dapr Conversation API response: {raw}")
-            logger.info(f"Normalized response: {normalized}")
+            logger.debug(f"Dapr Conversation API response: {raw}")
+            logger.debug(f"Normalized response: {normalized}")
         except Exception as e:
             logger.error(
                 f"An error occurred during the Dapr Conversation API call: {e}"
@@ -375,7 +374,7 @@ def _check_dapr_runtime_support(metadata: "GetMetadataResponse"):  # noqa: F821
         # Allow only versions >=1.16.0, edge, and <2.0.0 for Alpha2 Chat Client
         if not is_version_supported(str(dapr_runtime_version), ">=1.16.0, <2.0.0"):
             raise DaprRuntimeVersionNotSupportedError(
-                f"!!!!! Dapr Runtime Version {dapr_runtime_version} is not supported with Alpha2 Dapr Chat Client. Only Dapr runtime versions >=1.16.0, edge, and <2.0.0 are supported."
+                f"!!!!! Dapr Runtime Version {dapr_runtime_version} is not supported with Alpha2 Dapr Chat Client. Only Dapr runtime versions >=1.16.0 and <2.0.0 are supported."
             )
 
 
