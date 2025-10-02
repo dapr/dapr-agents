@@ -901,6 +901,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         Returns:
             List of formatted messages with proper sequence
         """
+        additional_context_messages: List[Dict[str, Any]] = []
         if not self.prompt_template:
             raise ValueError(
                 "Prompt template must be initialized before constructing messages."
