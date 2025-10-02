@@ -865,6 +865,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         except Exception as e:
             logger.error(f"Error processing broadcast message: {e}", exc_info=True)
 
+    # TODO: we need to better design context history management. Context engineering is important,
+    # and too much context can derail the agent.
     def _construct_messages_with_instance_history(
         self, instance_id: str, input_data: Union[str, Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
