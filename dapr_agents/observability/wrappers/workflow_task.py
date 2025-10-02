@@ -347,15 +347,15 @@ class WorkflowTaskWrapper:
                 logger.debug(
                     f"Creating AGENT span for resumed orchestrator workflow {instance_id}"
                 )
-                workflow_name = instance_data.get("workflow_name", "OrchestratorWorkflow")
+                workflow_name = instance_data.get(
+                    "workflow_name", "OrchestratorWorkflow"
+                )
                 is_orchestrator_flag = True
             else:
                 logger.debug(
                     f"Creating AGENT span for resumed individual agent workflow {instance_id}"
                 )
-                workflow_name = instance_data.get(
-                    "workflow_name", "AgenticWorkflow"
-                )
+                workflow_name = instance_data.get("workflow_name", "AgenticWorkflow")
                 is_orchestrator_flag = False
 
             workflow_name = instance_data.get("workflow_name", "AgenticWorkflow")
@@ -596,7 +596,10 @@ class WorkflowTaskWrapper:
                 result = await bound_method(*wrapper_args, **wrapper_kwargs)
                 return result
             except Exception as e:
-                logger.error(f"Error in async workflow task execution (no span): {e}", exc_info=True)
+                logger.error(
+                    f"Error in async workflow task execution (no span): {e}",
+                    exc_info=True,
+                )
                 raise
 
         return async_wrapper(instance, *args, **kwargs)

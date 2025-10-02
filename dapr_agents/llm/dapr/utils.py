@@ -55,6 +55,7 @@ def process_dapr_chat_response(response: Dict[str, Any]) -> LLMChatResponse:
         if isinstance(content, dict):
             try:
                 import json
+
                 content = json.dumps(content)
             except Exception as e:
                 logger.warning(f"Failed to serialize dictionary content: {e}")

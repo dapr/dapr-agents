@@ -671,7 +671,11 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
     @task
     async def run_tool(
-        self, tool_call: Dict[str, Any], instance_id: str, time: datetime, execution_order: int = 0
+        self,
+        tool_call: Dict[str, Any],
+        instance_id: str,
+        time: datetime,
+        execution_order: int = 0,
     ) -> Dict[str, Any]:
         """
         Executes a tool call atomically by invoking the specified function with the provided arguments
@@ -880,6 +884,8 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         except Exception as e:
             logger.error(f"Error processing broadcast message: {e}", exc_info=True)
 
+    # TODO: we need to better design context history management. Context engineering is important,
+    # and too much context can derail the agent.
     def _construct_messages_with_instance_history(
         self, instance_id: str, input_data: Union[str, Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
@@ -895,6 +901,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         Returns:
             List of formatted messages with proper sequence
         """
+        additional_context_messages: List[Dict[str, Any]] = []
         if not self.prompt_template:
             raise ValueError(
                 "Prompt template must be initialized before constructing messages."
@@ -917,7 +924,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         persistent_memory_messages = []
         try:
             persistent_memory_messages = self.memory.get_messages()
-            logger.info(f"Retrieved {len(persistent_memory_messages)} messages for session {self.memory.session_id}")
+            logger.info(
+                f"Retrieved {len(persistent_memory_messages)} messages for session {self.memory.session_id}"
+            )
         except Exception as e:
             logger.warning(f"Failed to retrieve persistent memory: {e}")
 
@@ -939,11 +948,14 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             msg_dict = msg.model_dump() if hasattr(msg, "model_dump") else dict(msg)
             if msg_dict in chat_history:
                 continue
+            # TODO: We need to properly design session-based memory.
             # Convert tool-related messages to user messages to avoid conversation order issues
-            if msg_dict.get("role") in ["tool", "assistant"] and (msg_dict.get("tool_calls") or msg_dict.get("tool_call_id")):
+            if msg_dict.get("role") in ["tool", "assistant"] and (
+                msg_dict.get("tool_calls") or msg_dict.get("tool_call_id")
+            ):
                 msg_dict = {
                     "role": "user",
-                    "content": f"[Previous {msg_dict['role']} message: {msg_dict.get('content', '')}]"
+                    "content": f"[Previous {msg_dict['role']} message: {msg_dict.get('content', '')}]",
                 }
             chat_history.append(msg_dict)
 
@@ -953,6 +965,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             if msg_dict in chat_history:
                 continue
             chat_history.append(msg_dict)
+
+        # Add additional context memory last (for broadcast-triggered workflows)
+        chat_history.extend(additional_context_messages)
 
         if isinstance(input_data, str):
             formatted_messages = self.prompt_template.format_prompt(

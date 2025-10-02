@@ -84,7 +84,9 @@ class ChatPromptHelper:
                     # preserve all fields by passing the entire dict as message_data
                     role = item.get("role", "user")
                     content = item.get("content", "")
-                    if role == "tool" or (role == "assistant" and item.get("tool_calls")):
+                    if role == "tool" or (
+                        role == "assistant" and item.get("tool_calls")
+                    ):
                         normalized_messages.append(
                             validate_and_create_message(role, content, item)
                         )
@@ -100,7 +102,9 @@ class ChatPromptHelper:
         elif isinstance(variable_value, dict):
             role = variable_value.get("role", "user")
             content = variable_value.get("content", "")
-            if role == "tool" or (role == "assistant" and variable_value.get("tool_calls")):
+            if role == "tool" or (
+                role == "assistant" and variable_value.get("tool_calls")
+            ):
                 # For tool messages and assistant messages with tool calls,
                 # preserve all fields by passing the entire dict as message_data
                 normalized_messages.append(

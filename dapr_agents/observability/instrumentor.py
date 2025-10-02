@@ -263,6 +263,8 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                     return loop.run_until_complete(context_wrapped_coro())
                 except RuntimeError:
                     # No running loop - create new one
+                    # TODO: eventually clean this up by using the tracing setup from dapr upstream
+                    # when we have trace propagation in the SDKs for workflows.
                     try:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
@@ -469,12 +471,18 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                 wrapper=WorkflowMonitorWrapper(self._tracer),
             )
 
-
             # This is necessary to create the parent workflow span for the 09 quickstart...
             wrap_function_wrapper(
                 module="dapr_agents.workflow.base",
                 name="WorkflowApp.run_workflow",
                 wrapper=WorkflowRunWrapper(self._tracer),
+            )
+
+            # Instrument workflow registration to add AGENT spans for orchestrator workflows
+            wrap_function_wrapper(
+                module="dapr_agents.workflow.base",
+                name="WorkflowApp._register_workflows",
+                wrapper=WorkflowRegistrationWrapper(self._tracer),
             )
 
             # Instrument workflow registration to add AGENT spans for orchestrator workflows

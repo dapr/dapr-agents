@@ -586,8 +586,7 @@ class StructureHandler:
         # Handle one or more BaseModels
         models = StructureHandler.resolve_all_pydantic_models(expected_type)
         if models:
-            # Try each model, but raise the last ValidationError if all fail
-            last_error = None
+            validation_errors = {}
             for model_cls in models:
                 try:
                     # Always validate the entire result against the model class
@@ -595,12 +594,17 @@ class StructureHandler:
                     validated = StructureHandler.validate_response(result, model_cls)
                     return validated.model_dump()
                 except ValidationError as e:
-                    last_error = e
+                    validation_errors[model_cls.__name__] = e
                     continue
 
             # If we get here, all models failed validation
-            if last_error:
-                raise last_error
+            if validation_errors:
+                error_details = "\n".join(
+                    f"{model}: {error}" for model, error in validation_errors.items()
+                )
+                raise TypeError(
+                    f"Validation failed for all possible models:\n{error_details}"
+                )
 
         # Handle Union[str, dict, etc.]
         if origin is Union:

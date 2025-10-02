@@ -131,10 +131,13 @@ class RequestHandler:
             # Add system message for JSON formatting
             # This is necessary for the response formatting of the data to work correctly when a user has a function call response format.
             inputs = params.get("inputs", [])
-            inputs.insert(0, {
-                "role": "system",
-                "content": "You must format your response as a valid JSON object matching the provided schema. Do not include any explanatory text or markdown formatting."
-            })
+            inputs.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": "You must format your response as a valid JSON object matching the provided schema. Do not include any explanatory text or markdown formatting.",
+                },
+            )
             params["inputs"] = inputs
 
             params = StructureHandler.generate_request(
