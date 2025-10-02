@@ -1,11 +1,12 @@
-# Multi-Agent Event-Driven Workflows
-This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using Dapr Agents. You'll learn how to set up agents as services, implement workflow orchestration, and enable real-time agent collaboration through pub/sub messaging.
+# Multi-Agent Event-Driven Workflows with Distributed Tracing
+This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using Dapr Agents, with comprehensive distributed tracing powered by Phoenix Arize. You'll learn how to set up agents as services, implement workflow orchestration, enable real-time agent collaboration through pub/sub messaging, and gain deep insights into agent interactions through distributed tracing.
 
 ## Prerequisites
 - Python 3.10 (recommended)
 - pip package manager
 - OpenAI API key
 - Dapr CLI and Docker installed
+- PostgreSQL (for Phoenix Arize tracing backend)
 
 ## Environment Setup
 
@@ -20,6 +21,39 @@ python -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
+pip install -r requirements.txt
+```
+
+## Observability with Phoenix Arize
+
+This section demonstrates how to add observability to your Dapr Agent workflows using Phoenix Arize for distributed tracing and monitoring. You'll learn how to set up Phoenix with PostgreSQL backend and instrument your workflow for comprehensive observability.
+
+### Phoenix Server Setup
+
+First, deploy Phoenix Arize server using Docker Compose with PostgreSQL backend for persistent storage.
+
+#### Prerequisites
+
+- Docker and Docker Compose installed on your system
+- Verify Docker is running: `docker info`
+
+#### Deploy Phoenix with PostgreSQL
+
+1. Use the [docker-compose.yml](./docker-compose.yml) file provided to set up a Phoenix server locally with PostgreSQL backend.
+
+2. Start the Phoenix server:
+
+```bash
+docker compose up --build
+```
+
+3. Verify Phoenix is running by navigating to [http://localhost:6006](http://localhost:6006)
+
+#### Install Observability Dependencies
+
+Install the updated requirements:
+
+```bash
 pip install -r requirements.txt
 ```
 
@@ -202,6 +236,7 @@ dapr run -f dapr-random.yaml
 ```
 <!-- END_STEP -->
 
+
 You will see the agents engaging in a conversation about getting to Mordor, with different agents contributing based on their character.
 
 You can also run the RoundRobin and LLM-based orchestrators using `dapr-roundrobin.yaml` and `dapr-llm.yaml` respectively:
@@ -237,7 +272,7 @@ expected_stdout_lines:
   - "assistant:"
   - "user:"
   - "assistant:"
-  - "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'LLMWorkflow'"
+  - "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'OrchestratorWorkflow'"
 timeout_seconds: 200
 output_match_mode: substring
 background: false
@@ -263,10 +298,15 @@ Dapr Agents supports multiple workflow orchestration patterns:
 3. **LLM-based**: Uses an LLM (default: OpenAI's models like gpt-4o) to intelligently select agents based on context and task requirements
 
 ## Monitoring and Observability
-1. **Console Logs**: Monitor real-time workflow execution and agent interactions
-2. **Dapr Dashboard**: View components, configurations and service details at http://localhost:8080/
-3. **Zipkin Tracing**: Access distributed tracing at http://localhost:9411/zipkin/
-4. **Dapr Metrics**: Access agent performance metrics via (ex: HobbitApp) http://localhost:6001/metrics when configured
+1. **Phoenix Arize**: Access comprehensive distributed tracing and agent interaction visualization at http://localhost:6006
+   - View detailed agent-to-agent communication flows
+   - Analyze conversation patterns and agent decision making
+   - Monitor workflow performance and bottlenecks
+   - Track LLM interactions and response times
+2. **Console Logs**: Monitor real-time workflow execution and agent interactions
+3. **Dapr Dashboard**: View components, configurations and service details at http://localhost:8080/
+4. **Zipkin Tracing**: Access additional distributed tracing at http://localhost:9411/zipkin/
+5. **Dapr Metrics**: Access agent performance metrics via (ex: HobbitApp) http://localhost:6001/metrics when configured
 
 ## Troubleshooting
 

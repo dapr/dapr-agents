@@ -263,6 +263,8 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                     return loop.run_until_complete(context_wrapped_coro())
                 except RuntimeError:
                     # No running loop - create new one
+                    # TODO: eventually clean this up by using the tracing setup from dapr upstream
+                    # when we have trace propagation in the SDKs for workflows.
                     try:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)

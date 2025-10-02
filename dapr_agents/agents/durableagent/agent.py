@@ -874,12 +874,18 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
                 # Start the agent's workflow
                 await self.run_and_monitor_workflow_async(
+<<<<<<< HEAD
                     workflow="AgenticWorkflow", input=trigger_message
+=======
+                    workflow="ToolCallingWorkflow", input=trigger_message
+>>>>>>> main
                 )
 
         except Exception as e:
             logger.error(f"Error processing broadcast message: {e}", exc_info=True)
 
+    # TODO: we need to better design context history management. Context engineering is important,
+    # and too much context can derail the agent.
     def _construct_messages_with_instance_history(
         self, instance_id: str, input_data: Union[str, Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
@@ -900,7 +906,11 @@ class DurableAgent(AgenticWorkflow, AgentBase):
                 "Prompt template must be initialized before constructing messages."
             )
 
+<<<<<<< HEAD
         # Get instance-specific chat history
+=======
+        # Get instance-specific chat history instead of global memory
+>>>>>>> main
         if self.state is None:
             logger.warning(
                 f"Agent state is None for instance {instance_id}, initializing empty state"
@@ -913,6 +923,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         else:
             instance_messages = []
 
+<<<<<<< HEAD
         # Get messages from persistent memory (session-based, cross-workflow)
         persistent_memory_messages = []
         try:
@@ -925,6 +936,43 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         long_term_memory_data = self.state.get("chat_history", [])
         long_term_memory_messages = []
         for msg in long_term_memory_data:
+=======
+        # Always include long-term memory (chat_history) for context
+        # This ensures agents have access to broadcast messages and persistent context
+        long_term_memory_data = self.state.get("chat_history", [])
+
+        # Convert long-term memory to dict format for LLM consumption
+        long_term_memory_messages = []
+        for msg in long_term_memory_data:
+            if isinstance(msg, dict):
+                long_term_memory_messages.append(msg)
+            elif hasattr(msg, "model_dump"):
+                long_term_memory_messages.append(msg.model_dump())
+
+        # For broadcast-triggered workflows, also include additional context memory
+        source = instance_data.get("source") if instance_data else None
+        additional_context_messages = []
+        if source and source != "direct":
+            # Include additional context memory for broadcast-triggered workflows
+            context_memory_data = self.memory.get_messages()
+            for msg in context_memory_data:
+                if isinstance(msg, dict):
+                    additional_context_messages.append(msg)
+                elif hasattr(msg, "model_dump"):
+                    additional_context_messages.append(msg.model_dump())
+
+        # Build chat history with:
+        # 1. Long-term memory (persistent context, broadcast messages)
+        # 2. Short-term instance messages (current workflow specific)
+        # 3. Additional context memory (for broadcast-triggered workflows)
+        chat_history = []
+
+        # Add long-term memory first (broadcast messages, persistent context)
+        chat_history.extend(long_term_memory_messages)
+
+        # Add short-term instance messages (current workflow)
+        for msg in instance_messages:
+>>>>>>> main
             if isinstance(msg, dict):
                 long_term_memory_messages.append(msg)
             elif hasattr(msg, "model_dump"):
@@ -953,6 +1001,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             if msg_dict in chat_history:
                 continue
             chat_history.append(msg_dict)
+
+        # Add additional context memory last (for broadcast-triggered workflows)
+        chat_history.extend(additional_context_messages)
 
         if isinstance(input_data, str):
             formatted_messages = self.prompt_template.format_prompt(

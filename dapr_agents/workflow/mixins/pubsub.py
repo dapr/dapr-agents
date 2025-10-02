@@ -273,8 +273,8 @@ class PubSubMixin:
                         triggering_workflow_id = message.get("workflow_instance_id")
                         if triggering_workflow_id:
                             if hasattr(
-                                self, "_is_workflow_running"
-                            ) and self._is_workflow_running(triggering_workflow_id):
+                                self, "_does_workflow_exist"
+                            ) and self._does_workflow_exist(triggering_workflow_id):
                                 logger.info(
                                     f"Triggering workflow {triggering_workflow_id} is still running. Skipping new orchestrator instance."
                                 )
