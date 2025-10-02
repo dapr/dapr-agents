@@ -948,6 +948,7 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             msg_dict = msg.model_dump() if hasattr(msg, "model_dump") else dict(msg)
             if msg_dict in chat_history:
                 continue
+            # TODO: We need to properly design session-based memory.
             # Convert tool-related messages to user messages to avoid conversation order issues
             if msg_dict.get("role") in ["tool", "assistant"] and (
                 msg_dict.get("tool_calls") or msg_dict.get("tool_call_id")
