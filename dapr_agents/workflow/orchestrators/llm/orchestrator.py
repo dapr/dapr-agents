@@ -245,15 +245,6 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             step_id = next_step.get("step", None)
             substep_id = next_step.get("substep", None)
 
-            if not ctx.is_replaying:
-                logger.info(
-                    f"Next step selected: Agent={next_agent}, Step={step_id}, Substep={substep_id}"
-                )
-                plan_dicts = self._convert_plan_objects_to_dicts(plan_objects)
-                logger.info(
-                    f"Current plan status: {json.dumps([{'step': s['step'], 'status': s['status'], 'substeps': [{'substep': ss['substep'], 'status': ss['status']} for ss in s.get('substeps', [])]} for s in plan_dicts], indent=2)}"
-                )
-
             # Validate Step Before Proceeding
             valid_step = yield ctx.call_activity(
                 self.validate_next_step,
