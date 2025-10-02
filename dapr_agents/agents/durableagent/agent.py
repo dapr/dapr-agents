@@ -671,7 +671,11 @@ class DurableAgent(AgenticWorkflow, AgentBase):
 
     @task
     async def run_tool(
-        self, tool_call: Dict[str, Any], instance_id: str, time: datetime, execution_order: int = 0
+        self,
+        tool_call: Dict[str, Any],
+        instance_id: str,
+        time: datetime,
+        execution_order: int = 0,
     ) -> Dict[str, Any]:
         """
         Executes a tool call atomically by invoking the specified function with the provided arguments
@@ -919,7 +923,9 @@ class DurableAgent(AgenticWorkflow, AgentBase):
         persistent_memory_messages = []
         try:
             persistent_memory_messages = self.memory.get_messages()
-            logger.info(f"Retrieved {len(persistent_memory_messages)} messages for session {self.memory.session_id}")
+            logger.info(
+                f"Retrieved {len(persistent_memory_messages)} messages for session {self.memory.session_id}"
+            )
         except Exception as e:
             logger.warning(f"Failed to retrieve persistent memory: {e}")
 
@@ -942,10 +948,12 @@ class DurableAgent(AgenticWorkflow, AgentBase):
             if msg_dict in chat_history:
                 continue
             # Convert tool-related messages to user messages to avoid conversation order issues
-            if msg_dict.get("role") in ["tool", "assistant"] and (msg_dict.get("tool_calls") or msg_dict.get("tool_call_id")):
+            if msg_dict.get("role") in ["tool", "assistant"] and (
+                msg_dict.get("tool_calls") or msg_dict.get("tool_call_id")
+            ):
                 msg_dict = {
                     "role": "user",
-                    "content": f"[Previous {msg_dict['role']} message: {msg_dict.get('content', '')}]"
+                    "content": f"[Previous {msg_dict['role']} message: {msg_dict.get('content', '')}]",
                 }
             chat_history.append(msg_dict)
 
