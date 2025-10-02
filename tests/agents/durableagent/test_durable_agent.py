@@ -5,7 +5,7 @@
 import asyncio
 import os
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 import pytest
 from dapr.ext.workflow import DaprWorkflowContext
@@ -21,7 +21,7 @@ from dapr_agents.agents.durableagent.state import (
     DurableAgentWorkflowState,
 )
 from dapr_agents.llm import OpenAIChatClient
-from dapr_agents.memory import ConversationListMemory
+from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.types import (
     AssistantMessage,
@@ -104,13 +104,43 @@ def patch_dapr_check(monkeypatch):
     yield
 
 
+class MockDaprClient:
+    """Mock DaprClient that supports context manager protocol"""
+
+    def __init__(self):
+        self.get_state = MagicMock(return_value=Mock(data=None, json=lambda: {}))
+        self.save_state = MagicMock()
+        self.delete_state = MagicMock()
+        self.query_state = MagicMock()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def __call__(self, *args, **kwargs):
+        return self
+
+
 class TestDurableAgent:
     """Test cases for the DurableAgent class."""
 
     @pytest.fixture(autouse=True)
-    def setup_env(self):
-        """Set up environment variables for testing."""
+    def setup_env(self, monkeypatch):
+        """Set up environment variables and mocks for testing."""
         os.environ["OPENAI_API_KEY"] = "test-api-key"
+
+        # Mock DaprClient to use our context manager supporting mock
+        mock_client = MockDaprClient()
+        mock_client.get_state.return_value = Mock(data=None)  # Default empty state
+
+        # Patch both the client import locations
+        monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
+        )
+
         yield
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
@@ -158,7 +188,9 @@ class TestDurableAgent:
             goal="Help with testing",
             instructions=["Be helpful", "Test things"],
             llm=mock_llm,
-            memory=ConversationListMemory(),
+            memory=ConversationDaprStateMemory(
+                store_name="teststatestore", session_id="test_session"
+            ),
             max_iterations=5,
             state_store_name="teststatestore",
             message_bus_name="testpubsub",
@@ -174,7 +206,9 @@ class TestDurableAgent:
             goal="Execute tools",
             instructions=["Use tools when needed"],
             llm=mock_llm,
-            memory=ConversationListMemory(),
+            memory=ConversationDaprStateMemory(
+                store_name="teststatestore", session_id="test_session"
+            ),
             tools=[mock_tool],
             max_iterations=5,
             state_store_name="teststatestore",
