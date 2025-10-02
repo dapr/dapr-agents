@@ -26,13 +26,50 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Create a `.env` file in the project root:
+The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
 
+### Option 1: Using Environment Variables (Recommended)
+
+1. Create a `.env` file in the project root and add your OpenAI API key:
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
 
-Replace `your_api_key_here` with your actual OpenAI API key.
+2. When running the examples with Dapr, use the helper script to resolve environment variables:
+```bash
+# Get the environment variables from the .env file:
+export $(grep -v '^#' ../../.env | xargs)
+
+# Create a temporary resources folder with resolved environment variables
+temp_resources_folder=$(../resolve_env_templates.py ./components)
+
+# Run your dapr command with the temporary resources
+dapr run --app-id weatherappmcp --dapr-http-port 3500 --resources-path $temp_resources_folder -- python app.py
+
+# Clean up when done
+rm -rf $temp_resources_folder
+```
+
+Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
+
+### Option 2: Direct Component Configuration
+
+You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
+```yaml
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: openai
+spec:
+  type: conversation.openai
+  metadata:
+    - name: key
+      value: "YOUR_OPENAI_API_KEY"
+```
+
+Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key.
+
+Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
 
 ## Examples
 

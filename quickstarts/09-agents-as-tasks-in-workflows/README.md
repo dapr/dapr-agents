@@ -27,23 +27,90 @@ pip install -r requirements.txt
 
 ## Configuration
 
-1. Create a `.env` file in the project root:
+The quickstart includes component configurations in the `components` directory for various LLM providers. You have two options to configure your API keys:
 
+### Option 1: Using Environment Variables (Recommended)
+
+1. Create a `.env` file in the project root and add your API keys:
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
 NVIDIA_API_KEY=your_nvidia_api_key_here  # Optional, for multi-model examples
 HUGGINGFACE_API_KEY=your_huggingface_api_key_here  # Optional, for multi-model examples
 ```
 
-2. Replace the API keys with your actual keys.
+2. When running the examples with Dapr, use the helper script to resolve environment variables:
+```bash
+# Get the environment variables from the .env file:
+export $(grep -v '^#' ../../.env | xargs)
 
-3. Make sure Dapr is initialized on your system:
+# Create a temporary resources folder with resolved environment variables
+temp_resources_folder=$(../resolve_env_templates.py ./components)
+
+# Run your dapr command with the temporary resources
+dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow.py
+
+# Clean up when done
+rm -rf $temp_resources_folder
+```
+
+Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
+
+### Option 2: Direct Component Configuration
+
+You can directly update the API keys in the respective component files:
+
+1. For OpenAI ([components/openai.yaml](components/openai.yaml)):
+```yaml
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: openai
+spec:
+  type: conversation.openai
+  metadata:
+    - name: key
+      value: "YOUR_OPENAI_API_KEY"
+```
+
+2. For NVIDIA ([components/nvidia.yaml](components/nvidia.yaml)):
+```yaml
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: nvidia
+spec:
+  type: conversation.nvidia
+  metadata:
+    - name: key
+      value: "YOUR_NVIDIA_API_KEY"
+```
+
+3. For Hugging Face ([components/huggingface.yaml](components/huggingface.yaml)):
+```yaml
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: huggingface
+spec:
+  type: conversation.huggingface
+  metadata:
+    - name: key
+      value: "YOUR_HUGGINGFACE_API_KEY"
+```
+
+Replace `YOUR_*_API_KEY` with your actual API keys.
+
+Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with the OpenAI component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
+
+### Additional Components
+
+Make sure Dapr is initialized on your system:
 
 ```bash
 dapr init
 ```
 
-4. Create the workflow state store component:
+The quickstart includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
 
 Look at the `workflowstate.yaml` file in the `components` directory:
 

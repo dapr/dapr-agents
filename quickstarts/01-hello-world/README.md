@@ -54,42 +54,49 @@ pip install -r requirements.txt
 </details>
 
 
-## OpenAI API Key
+## OpenAI Configuration
 
 > **Warning**
-> The examples will not work if you do not have a OpenAI API key exported in the environment.
+> The examples will not work if you do not have an OpenAI API key configured.
 
-<details open>
-<summary><strong>Option 1: Using .env file</strong></summary>
+The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
 
-Create a `.env` file in the project root and add your OpenAI API key:
+### Option 1: Using Environment Variables (Recommended)
 
+1. Create a `.env` file in the project root and add your OpenAI API key:
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
 
-Replace `your_api_key_here` with your actual OpenAI API key.
+2. When running the examples with Dapr, use the helper script to resolve environment variables:
+```bash
+# Get the environment variables from the .env file:
+export $(grep -v '^#' ../../.env | xargs)
 
-Export the environment variables from the .env file to your shell:
-```a shell [not setting type to avoid mechanical markdown execution]
-export $(grep -v '^#' .env | xargs) 
+# Create a temporary resources folder with resolved environment variables
+temp_resources_folder=$(../resolve_env_templates.py ./components)
 
-# or if .env is in the root directory of the repository, 
-# export $(grep -v '^#' ../../.env | xargs)
+# Run your dapr command with the temporary resources
+dapr run --resources-path $temp_resources_folder -- python your_script.py
+
+# Clean up when done
+rm -rf $temp_resources_folder
 ```
 
-</details>
+Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
 
-<details>
-<summary><strong>Option 2: Exporting the OpenAI API Key directly to the shell</strong></summary>
+### Option 2: Direct Component Configuration
 
-```a shell [not setting type to avoid mechanical markdown execution]
-export OPENAI_API_KEY=your_api_key_here
+You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
+```yaml
+metadata:
+  - name: key
+    value: "YOUR_OPENAI_API_KEY"
 ```
 
-Replace `your_api_key_here` with your actual OpenAI API key.
+Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key.
 
-</details>
+Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
 
 ## Examples
 

@@ -24,6 +24,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+
+
 ## Observability with Phoenix Arize
 
 This section demonstrates how to add observability to your Dapr Agent workflows using Phoenix Arize for distributed tracing and monitoring. You'll learn how to set up Phoenix with PostgreSQL backend and instrument your workflow for comprehensive observability.
@@ -65,17 +67,44 @@ pip install -r requirements.txt
 OPENAI_API_KEY=your_api_key_here
 ```
 
-2. Make sure Dapr is initialized on your system:
+2. Configure the OpenAI component. You have two options:
+
+   a. Directly update the `key` in [components/openai.yaml](components/openai.yaml):
+   ```yaml
+   metadata:
+     - name: key
+       value: "YOUR_OPENAI_API_KEY"
+   ```
+
+   b. Use environment variables (recommended):
+   ```bash
+   # Get the environment variables from the .env file:
+   export $(grep -v '^#' ../../.env | xargs)
+
+   # Create a temporary resources folder with resolved environment variables
+   temp_resources_folder=$(../resolve_env_templates.py ./components)
+
+   # Use the temporary folder when running your dapr commands
+   dapr run -f dapr-random.yaml --resources-path $temp_resources_folder
+
+   # Clean up the temporary folder when done
+   rm -rf $temp_resources_folder
+   ```
+
+   Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
+
+3. Make sure Dapr is initialized on your system:
 
 ```bash
 dapr init
 ```
 
-3. The quickstart includes the necessary Dapr components in the `components` directory:
+4. The quickstart includes the necessary Dapr components in the `components` directory:
 
 - `statestore.yaml`: Agent state configuration
 - `pubsub.yaml`: Pub/Sub message bus configuration
 - `workflowstate.yaml`: Workflow state configuration
+- `openai.yaml`: OpenAI component configuration
 
 ## Project Structure
 
