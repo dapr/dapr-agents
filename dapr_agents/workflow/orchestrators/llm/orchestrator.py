@@ -130,9 +130,9 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
     def _does_workflow_exist(self, instance_id: str) -> bool:
         """
         Check if a workflow instance exists and is accessible via the Dapr client.
-        
+
         This function attempts to retrieve the workflow metadata from Dapr. A successful
-        response indicates the workflow exists in Dapr's state store, while failures 
+        response indicates the workflow exists in Dapr's state store, while failures
         (e.g., not found errors) indicate the workflow is no longer accessible.
 
         Args:
