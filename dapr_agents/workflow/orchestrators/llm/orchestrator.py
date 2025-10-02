@@ -127,23 +127,27 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                 result.append(dict(obj) if hasattr(obj, "__dict__") else obj)
         return result
 
-    def _is_workflow_running(self, instance_id: str) -> bool:
+    def _does_workflow_exist(self, instance_id: str) -> bool:
         """
-        Check if a workflow instance is still running using Dapr client.
+        Check if a workflow instance exists and is accessible via the Dapr client.
+        
+        This function attempts to retrieve the workflow metadata from Dapr. A successful
+        response indicates the workflow exists in Dapr's state store, while failures 
+        (e.g., not found errors) indicate the workflow is no longer accessible.
 
         Args:
             instance_id (str): The workflow instance ID to check
 
         Returns:
-            bool: True if the workflow is running, False otherwise
+            bool: True if the workflow exists and is accessible, False if not found or on error
         """
         try:
             # Use Dapr client to get workflow instance status
             response = self._dapr_client.get_workflow(instance_id=instance_id)
-            # If we get a response, the workflow exists and is running
+            # If we get a response, the workflow exists and is accessible
             return response is not None
         except Exception as e:
-            logger.debug(f"Workflow {instance_id} not found or not running: {e}")
+            logger.debug(f"Workflow {instance_id} not found or not accessible: {e}")
             return False
 
     @message_router
