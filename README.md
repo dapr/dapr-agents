@@ -88,7 +88,6 @@ For more details about these features and other planned work, please check out o
 | Language | Current Status | Development Status | Stable Status |
 |----------|---------------|-------------|--------|
 | Python   | In Development | Q2 2025 | Q3 2025 |
-| .NET     | Planning | Q3 2025 | Q4 2025 |
 | Other Languages | Coming Soon | TBD | TBD |
 
 ## Documentation
