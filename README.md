@@ -20,7 +20,8 @@ Dapr Agents is a developer framework designed to build production-grade resilien
 - **Data-Driven Agents**: Directly integrate with databases, documents, and unstructured data by connecting to dozens of different data sources.
 - **Multi-Agent Systems**: Secure and observable by default, enabling collaboration between agents.
 - **Vendor-Neutral & Open Source**: Avoid vendor lock-in and gain flexibility across cloud and on-premises deployments.
-- **Platform-Ready**: Built-in RBAC, access scopes and declarative resources enable platform teams to integrate Dapr agents into their systems. 
+- **Platform-Ready**: Access scopes and declarative resources enable platform teams to integrate Dapr Agents into their systems.
+
 
 ## Why Choose Dapr Agents?
 
@@ -30,11 +31,11 @@ Dapr Agents uses a [durable-execution workflow engine](https://docs.dapr.io/deve
 
 ### Cost-Effective AI Adoption
 
-Dapr Agents builds on top of Dapr's Workflow API, which under the hood represents each agent as an actor, a single unit of compute and state that is thread-safe and natively distributed, lending itself well to an agentic Scale-To-Zero architecture. This minimizes infrastructure costs, making AI adoption accessible to everyone. The underlying virtual actor model allows thousands of agents to run on demand on a single core machine with double-digit millisecond latency when scaling from zero. When unused, the agents are reclaimed by the system but retain their state until the next time they are needed. With this design, there's no trade-off between performance and resource efficiency.
+Dapr Agents builds on top of Dapr's Workflow API, which under the hood uses [actors](https://docs.dapr.io/developing-applications/building-blocks/actors/actors-overview/), a single unit of compute and state that is thread-safe and natively distributed, lending itself well to an agentic Scale-To-Zero architecture. This minimizes infrastructure costs, making AI adoption accessible to everyone. The underlying virtual actor model allows thousands of agents to run on demand on a single core machine with double-digit millisecond latency when scaling from zero. When unused, the agents are reclaimed by the system but retain their state until the next time they are needed. With this design, there's no trade-off between performance and resource efficiency.
 
 ### Data-Centric AI Agents
 
-With built-in connectivity to over 50 enterprise data sources, Dapr Agents efficiently handles structured and unstructured data. From basic [PDF extraction](https://v1-16.docs.dapr.io/developing-applications/dapr-agents/dapr-agents-integrations/#arxiv-fetcher) to large-scale database interactions, it enables seamless data-driven AI workflows with minimal code changes. Dapr's [bindings](https://docs.dapr.io/reference/components-reference/supported-bindings/) and [state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/) provide access to a large number of data sources that can be used to ingest data to an agent.
+With built-in connectivity to over 50 enterprise data sources, Dapr Agents efficiently handles structured and unstructured data. From basic [PDF extraction](https://docs.dapr.io/developing-applications/dapr-agents/dapr-agents-integrations/#arxiv-fetcher) to large-scale database interactions, it enables seamless data-driven AI workflows with minimal code changes. Dapr's [bindings](https://docs.dapr.io/reference/components-reference/supported-bindings/) and [state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/) provide access to a large number of data sources that can be used to ingest data to an agent.
 
 ### Accelerated Development
 
@@ -66,33 +67,20 @@ As a part of **CNCF**, Dapr Agents is vendor-neutral, eliminating concerns about
 
 ## Roadmap
 
-Here are some of the major features we're working on:
+Check the [project view](https://github.com/orgs/dapr/projects/92) for some of the major features we're working on:
 
-### Q2 2025
-- **MCP Support** - Integration with Anthropic's MCP platform ([#50](https://github.com/dapr/dapr-agents/issues/50) ✅ )
-- **Agent Interaction Tracing** - Enhanced observability of agent interactions with LLMs and tools ([#79](https://github.com/dapr/dapr-agents/issues/79))
-- **Streaming LLM Output** - Real-time streaming capabilities for LLM responses ([#80](https://github.com/dapr/dapr-agents/issues/80))
-- **HTTP Endpoint Tools** - Support for using Dapr's HTTP endpoint capabilities for tool calling ([#81](https://github.com/dapr/dapr-agents/issues/81))
-- **DSL Cleanup** - Streamlining the domain-specific language and removing actor dependencies ([#65](https://github.com/dapr/dapr-agents/issues/65))
-- **Samples Registry** - A dedicated repository for Dapr Agents examples and use cases
-
-### Q3/Q4 2025
-- **Human-in-the-Loop Support**
-- **Conversation API Progressed to Beta** 
-- **Vector API** - Vector operations support in Dapr and Dapr Agents
-
-For more details about these features and other planned work, please check out our [GitHub issues](https://github.com/dapr/dapr-agents/issues).
+For a complete list of issue (including bug fixes) please check out our [GitHub issues](https://github.com/dapr/dapr-agents/issues).
 
 ### Language Support
 
-| Language | Current Status | Development Status | Stable Status |
-|----------|---------------|-------------|--------|
-| Python   | In Development | Q2 2025 | Q3 2025 |
-| Other Languages | Coming Soon | TBD | TBD |
+| Language | Current Status | Development Status | Stable Status    |
+|----------|--------|-------------|------------------|
+| Python   | In Development | Q2 2025 | expected Q4 2025 |
+| Other Languages | TBD | TBD | TBD              |
 
 ## Documentation
 
-- [Development Guide](docs/development/README.md) - For developers and contributors
+- Documentation: [https://docs.dapr.io/developing-applications/dapr-agents/](https://docs.dapr.io/developing-applications/dapr-agents/)
 
 ## Community
 
@@ -125,6 +113,6 @@ To start running Dapr Agents locally, see our [quickstarts](./quickstarts/README
 Dapr Agents is an open-source project under the CNCF umbrella, and we welcome contributions from developers and organizations worldwide!
 
 - GitHub Repository: [https://github.com/dapr/dapr-agents](https://github.com/dapr/dapr-agents)
-- Documentation: [https://dapr.github.io/dapr-agents/](https://dapr.github.io/dapr-agents/)
+- Documentation: [https://dapr.github.io/dapr-agents/](https://docs.dapr.io/developing-applications/dapr-agents/)
 - Community Discord: [Join the discussion](https://bit.ly/dapr-discord). 
 - Contribute: Open an issue or submit a PR to help improve Dapr Agents!
