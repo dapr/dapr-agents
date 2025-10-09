@@ -69,7 +69,7 @@ OPENAI_API_KEY=your_api_key_here
 
 2. Configure the OpenAI component. You have two options:
 
-   a. Directly update the `key` in [components/openai.yaml](components/openai.yaml):
+   a. Directly update the `key` in [components/openai.yaml](components/openai.yaml), and remove the secretKeyRef:
    ```yaml
    metadata:
      - name: key
@@ -78,20 +78,9 @@ OPENAI_API_KEY=your_api_key_here
 
    b. Use environment variables (recommended):
    ```bash
-   # Get the environment variables from the .env file:
+   # Get the environment variables from the .env file exported to be use
    export $(grep -v '^#' ../../.env | xargs)
-
-   # Create a temporary resources folder with resolved environment variables
-   temp_resources_folder=$(../resolve_env_templates.py ./components)
-
-   # Use the temporary folder when running your dapr commands
-   dapr run -f dapr-random.yaml --resources-path $temp_resources_folder
-
-   # Clean up the temporary folder when done
-   rm -rf $temp_resources_folder
    ```
-
-   Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
 
 3. Make sure Dapr is initialized on your system:
 

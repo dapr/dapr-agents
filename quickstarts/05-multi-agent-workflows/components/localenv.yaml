@@ -1,0 +1,11 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: envvar-secret-store
+spec:
+  type: secretstores.local.env
+  version: v1
+  metadata:
+    # to limit what environment variables are loaded into the secret store to only those prefixed with "MYAPP_"
+    # - name: prefix
+    #   value: "MYAPP_"
