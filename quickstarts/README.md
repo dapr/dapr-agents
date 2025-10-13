@@ -48,7 +48,6 @@ Learn how to interact with Language Models using Dapr Agents' `DaprChatClient`:
 - **Resilience**: Setting timeout, retry and circuit-breaking
 - **PII Obfuscation** – Automatically detect and mask sensitive user information.
 
-
 This quickstart shows basic text generation using plain text prompts and templates. Using the `DaprChatClient` you can target different LLM providers without changing your agent's code.
 
 [Go to Dapr LLM Call](./02_llm_call_dapr)
@@ -95,7 +94,7 @@ This quickstart demonstrates how to build a weather assistant with durable, work
 
 ### LLM-based Workflow Patterns
 
-Learn to orchestrate stateful, resilient workflows powered by Language Models (LLMs) using Dapr Agents:
+Learn to orchestrate stateful, resilient workflows powered by Language Models (LLMs) using `@llm_activity` decorator.
 
 - **LLM-powered Tasks**: Automate reasoning and decision-making in workflows
 - **Task Chaining**: Build multi-step processes with reliable state management
@@ -104,6 +103,19 @@ Learn to orchestrate stateful, resilient workflows powered by Language Models (L
 This quickstart demonstrates how to design and run sequential and parallel workflows using Dapr Agents and LLMs for advanced orchestration.
 
 [Go to LLM-based Workflow Patterns](./04-llm-based-workflows/)
+
+### Agent-based Workflow Patterns
+
+Learn to orchestrate **autonomous, role-driven agents** inside Dapr Workflows using the `@agent_activity` decorator.  
+These patterns focus on chaining and coordinating specialized agents that reason, plan, and act within durable, stateful workflows.
+
+- **Agent-driven Tasks**: Execute workflow activities through autonomous agents with defined roles and instructions  
+- **Sequential & Composed Flows**: Chain multiple agents together, passing context and results between steps  
+- **Resilient Orchestration**: Combine agent reasoning with Dapr’s durable state, recovery, and execution guarantees  
+
+This quickstart demonstrates how to design and run **agent-based workflows**, starting with a sequential chain of agents collaborating to complete a shared objective.
+
+[Go to Agent-based Workflow Patterns](./04-agent-based-workflows/)
 
 ### Multi-Agent Workflows
 

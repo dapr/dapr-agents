@@ -627,3 +627,30 @@ class StructureHandler:
             return adapter.validate_python(result)
         except ValidationError as e:
             raise TypeError(f"Validation failed for type {expected_type}: {e}")
+
+    @staticmethod
+    def ensure_json_only_system_prompt(params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Dapr's chat client (today) does NOT forward OpenAI-style `response_format`
+        (e.g., {"type":"json_schema", ...}). That means the model won't be hard-constrained
+        to your schema. As a fallback, we prepend a system message that instructs the
+        model to return strict JSON so downstream parsing doesn't break.
+
+        Note:
+        - Dapr uses "inputs" (not "messages") for the message array.
+        - If "inputs" isn't present (future providers), we fall back to "messages".
+        """
+        collection_key = "inputs" if "inputs" in params else "messages"
+        msgs = list(params.get(collection_key, []))
+        msgs.insert(
+            0,
+            {
+                "role": "system",
+                "content": (
+                    "Return ONLY a valid JSON object that matches the provided schema. "
+                    "No markdown, no code fences, no explanations—JSON object only."
+                ),
+            },
+        )
+        params[collection_key] = msgs
+        return params

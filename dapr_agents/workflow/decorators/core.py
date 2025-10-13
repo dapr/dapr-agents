@@ -1,6 +1,20 @@
-import functools
-from typing import Any, Callable, Optional
 import logging
+import functools
+import warnings
+from typing import Any, Callable, Optional
+
+
+_TASK_DEPRECATION_MESSAGE = (
+    "@task is deprecated and will be removed in a future release. "
+    "Switch to native Dapr activity registration (WorkflowRuntime.activity) and, "
+    "for LLM/agent helpers, prefer the new @llm_activity or @agent_activity decorators."
+)
+
+_WORKFLOW_DEPRECATION_MESSAGE = (
+    "@workflow is deprecated and will be removed in a future release. "
+    "Switch to native Dapr workflow registration (WorkflowRuntime.workflow) and combine with "
+    "@message_router or other decorators as needed."
+)
 
 
 def task(
@@ -40,6 +54,12 @@ def task(
     def decorator(f: Callable) -> Callable:
         if not callable(f):
             raise ValueError(f"@task must be applied to a function, got {type(f)}.")
+
+        warnings.warn(
+            _TASK_DEPRECATION_MESSAGE,
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         # Attach task metadata
         f._is_task = True
@@ -101,6 +121,12 @@ def workflow(
         """
         if not callable(f):
             raise ValueError(f"@workflow must be applied to a function, got {type(f)}.")
+
+        warnings.warn(
+            _WORKFLOW_DEPRECATION_MESSAGE,
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         f._is_workflow = True
         f._workflow_name = name or f.__name__

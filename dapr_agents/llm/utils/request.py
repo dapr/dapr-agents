@@ -1,12 +1,13 @@
-from typing import Dict, Any, Optional, List, Type, Union, Iterable, Literal
-from dapr_agents.prompt.prompty import Prompty, PromptyHelper
-from dapr_agents.types.message import BaseMessage
-from dapr_agents.llm.utils.structure import StructureHandler
-from dapr_agents.tool.utils.tool import ToolHelper
-from pydantic import BaseModel, ValidationError
-from dapr_agents.tool.base import AgentTool
-
 import logging
+from typing import Any, Dict, Iterable, List, Literal, Optional, Type, Union
+
+from pydantic import BaseModel, ValidationError
+
+from dapr_agents.llm.utils.structure import StructureHandler
+from dapr_agents.prompt.prompty import Prompty, PromptyHelper
+from dapr_agents.tool.base import AgentTool
+from dapr_agents.tool.utils.tool import ToolHelper
+from dapr_agents.types.message import BaseMessage
 
 logger = logging.getLogger(__name__)
 
@@ -100,46 +101,38 @@ class RequestHandler:
         Prepare request parameters for the language model.
 
         Args:
-            params: Parameters for the request.
-            llm_provider: The LLM provider to use (e.g., 'openai').
-            tools: List of tools to include in the request.
-            response_format: Either a Pydantic model (for function calling)
-                            or a JSON Schema definition/dict (for raw JSON structured output).
-            structured_mode: The mode of structured output: 'json' or 'function_call'.
-                            Defaults to 'json'.
+            params: Raw request params (messages/inputs, model, etc.).
+            llm_provider: Provider key, e.g. "openai", "dapr".
+            tools: Tools to expose to the model (AgentTool or already-shaped dicts).
+            response_format:
+                - If structured_mode == "json": a JSON Schema dict or a Pydantic model
+                (we'll convert) to request raw JSON output.
+                - If structured_mode == "function_call": a Pydantic model describing
+                the function/tool signature for model-side function calling.
+            structured_mode: "json" for raw JSON structured output,
+                            "function_call" for tool/function calling.
 
         Returns:
-            Dict[str, Any]: Prepared request parameters.
+            A params dict ready for the target provider.
         """
+
+        # Tools
         if tools:
             logger.info("Tools are available in the request.")
-            # Convert AgentTool objects to dict format for the provider
-            tool_dicts = []
-            for tool in tools:
-                if isinstance(tool, AgentTool):
-                    tool_dicts.append(
-                        ToolHelper.format_tool(tool, tool_format=llm_provider)
-                    )
-                else:
-                    tool_dicts.append(
-                        ToolHelper.format_tool(tool, tool_format=llm_provider)
-                    )
-            params["tools"] = tool_dicts
+            params["tools"] = [
+                ToolHelper.format_tool(t, tool_format=llm_provider) for t in tools
+            ]
 
+        # Structured output
         if response_format:
-            logger.info(f"Structured Mode Activated! Mode={structured_mode}.")
-            # Add system message for JSON formatting
-            # This is necessary for the response formatting of the data to work correctly when a user has a function call response format.
-            inputs = params.get("inputs", [])
-            inputs.insert(
-                0,
-                {
-                    "role": "system",
-                    "content": "You must format your response as a valid JSON object matching the provided schema. Do not include any explanatory text or markdown formatting.",
-                },
-            )
-            params["inputs"] = inputs
+            logger.info(f"Structured Mode Activated! mode={structured_mode}")
 
+            # If we're on Dapr, we cannot rely on OpenAI-style `response_format`.
+            # Add a small system nudge to enforce JSON-only output so we can parse reliably.
+            if llm_provider == "dapr":
+                params = StructureHandler.ensure_json_only_system_prompt(params)
+
+            # Generate provider-specific request params
             params = StructureHandler.generate_request(
                 response_format=response_format,
                 llm_provider=llm_provider,

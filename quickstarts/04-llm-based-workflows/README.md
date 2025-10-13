@@ -1,7 +1,7 @@
 
 # LLM-based Workflow Patterns
 
-This quickstart demonstrates how to orchestrate sequential and parallel tasks using Dapr Agents' workflow capabilities powered by Language Models (LLMs). You'll learn how to build resilient, stateful workflows that leverage LLMs for reasoning, decision-making, and automation.
+This quickstart demonstrates how to orchestrate sequential and parallel tasks using Dapr Agents' workflow capabilities powered by Language Models (LLMs). You'll learn how to build resilient, stateful workflows that leverage LLMs for reasoning, structured output, and automation, all using the new `@llm_activity` decorator and native Dapr workflow runtime.
 
 ## Prerequisites
 
@@ -33,11 +33,13 @@ The quickstart includes an OpenAI component configuration in the `components` di
 ### Option 1: Using Environment Variables (Recommended)
 
 1. Create a `.env` file in the project root and add your OpenAI API key:
+
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
 
 2. When running the examples with Dapr, use the helper script to resolve environment variables:
+
 ```bash
 # Get the environment variables from the .env file:
 export $(grep -v '^#' ../../.env | xargs)
@@ -52,7 +54,7 @@ dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- pytho
 rm -rf $temp_resources_folder
 ```
 
-Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
+> The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
 
 ### Option 2: Direct Component Configuration
 
@@ -71,7 +73,7 @@ spec:
 
 Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key.
 
-Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
+> Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
 
 ### Additional Components
 
@@ -104,43 +106,270 @@ spec:
 
 ## Examples
 
-### 1. Sequential Task Execution
+Each script shows a distinct workflow pattern using the decorators
+(`@runtime.workflow`, `@runtime.activity`, and `@llm_activity`).
 
-This example demonstrates the Chaining Pattern by executing two activities in sequence:
+### 1. Single LLM Activity (01_single_activity_workflow.py)
+
+A simple example where the workflow executes one LLM-powered activity that returns a short biography.
 
 ```python
-from dapr_agents.workflow import WorkflowApp, workflow, task
+import time
+
+import dapr.ext.workflow as wf
 from dapr.ext.workflow import DaprWorkflowContext
 from dotenv import load_dotenv
 
-# Load environment variables
+from dapr_agents.llm.dapr import DaprChatClient
+from dapr_agents.workflow.decorators import llm_activity
+
+# Load environment variables (e.g., API keys, secrets)
 load_dotenv()
 
-# Initialize the WorkflowApp
+# Initialize the Dapr workflow runtime and LLM client
+runtime = wf.WorkflowRuntime()
+llm = DaprChatClient(component_name="openai")
 
-# Define Workflow logic
-@workflow(name='task_chain_workflow')
+
+@runtime.workflow(name="single_task_workflow")
+def single_task_workflow(ctx: DaprWorkflowContext, name: str):
+    """Ask the LLM about a single historical figure and return a short bio."""
+    response = yield ctx.call_activity(describe_person, input={"name": name})
+    return response
+
+
+@runtime.activity(name="describe_person")
+@llm_activity(
+    prompt="Who was {name}?",
+    llm=llm,
+)
+async def describe_person(ctx, name: str) -> str:
+    pass
+
+
+if __name__ == "__main__":
+    runtime.start()
+    time.sleep(5)
+
+    client = wf.DaprWorkflowClient()
+    instance_id = client.schedule_new_workflow(
+        workflow=single_task_workflow,
+        input="Grace Hopper",
+    )
+    print(f"Workflow started: {instance_id}")
+
+    state = client.wait_for_workflow_completion(instance_id)
+    if not state:
+        print("No state returned (instance may not exist).")
+    elif state.runtime_status.name == "COMPLETED":
+        print(f"Grace Hopper bio:\n{state.serialized_output}")
+    else:
+        print(f"Workflow ended with status: {state.runtime_status}")
+        if state.failure_details:
+            fd = state.failure_details
+            print("Failure type:", fd.error_type)
+            print("Failure message:", fd.message)
+            print("Stack trace:\n", fd.stack_trace)
+        else:
+            print("Custom status:", state.serialized_custom_status)
+
+    runtime.shutdown()
+```
+
+Run
+
+```bash
+dapr run --app-id dapr-agent-wf --resources-path components/ -- python 01_single_activity_workflow.py
+```
+
+How it works:
+
+* The single_task_workflow calls one LLM activity (describe_person).
+* The `@llm_activity` decorator automatically invokes the LLM with `"Who was {name}?"`.
+* The workflow returns the model's response (a short bio).
+
+### 2. Structured LLM Output (02_single_structured_activity_workflow.py)
+
+Demonstrates schema-guided prompting using Pydantic models.
+
+```python
+import time
+
+import dapr.ext.workflow as wf
+from dapr.ext.workflow import DaprWorkflowContext
+from dotenv import load_dotenv
+from pydantic import BaseModel
+
+from dapr_agents.llm.dapr import DaprChatClient
+from dapr_agents.workflow.decorators import llm_activity
+
+
+class Dog(BaseModel):
+    name: str
+    bio: str
+    breed: str
+
+
+# Load environment variables (e.g., API keys, secrets)
+load_dotenv()
+
+# Initialize the Dapr workflow runtime and LLM client
+runtime = wf.WorkflowRuntime()
+llm = DaprChatClient(component_name="openai")
+
+
+@runtime.workflow(name="single_task_workflow_structured")
+def single_task_workflow_structured(ctx: DaprWorkflowContext, name: str):
+    """Ask the LLM for structured data about a dog and return the result."""
+    result = yield ctx.call_activity(describe_dog, input={"name": name})
+    return result
+
+
+@runtime.activity(name="describe_dog")
+@llm_activity(
+    prompt="""
+You are a JSON-only API. Return a Dog object for the dog named {name}."
+JSON schema (informal):
+{{
+    "name":  string,   // Dog's full name
+    "bio":   string,   // 1-3 sentence biography
+    "breed": string    // Primary breed or mixed
+}}
+""",
+    llm=llm)
+def describe_dog(ctx, name: str) -> Dog:
+    pass
+
+
+if __name__ == "__main__":
+    runtime.start()
+    time.sleep(5)
+
+    client = wf.DaprWorkflowClient()
+    instance_id = client.schedule_new_workflow(
+        workflow=single_task_workflow_structured,
+        input="Laika",
+    )
+    print(f"Workflow started: {instance_id}")
+
+    state = client.wait_for_workflow_completion(instance_id)
+    if not state:
+        print("No state returned (instance may not exist).")
+    elif state.runtime_status.name == "COMPLETED":
+        print(f"Dog Bio:\n{state.serialized_output}")
+    else:
+        print(f"Workflow ended with status: {state.runtime_status}")
+        if state.failure_details:
+            fd = state.failure_details
+            print("Failure type:", fd.error_type)
+            print("Failure message:", fd.message)
+            print("Stack trace:\n", fd.stack_trace)
+        else:
+            print("Custom status:", state.serialized_custom_status)
+
+    runtime.shutdown()
+```
+
+Run
+
+```bash
+dapr run --app-id dapr-agent-wf-structured --resources-path components/ -- python 02_single_structured_activity_workflow.py
+```
+
+How it works:
+
+* Defines a Pydantic model Dog for structured output.
+* The `describe_dog` activity uses `@llm_activity` to return a JSON-like object mapped to Dog.
+* The workflow yields structured, validated data (name, bio, breed).
+
+### 3. Sequential Task Chain (03_sequential_workflow.py)
+
+Chains multiple LLM-powered activities where the output of one becomes the input of the next.
+
+```python
+import time
+
+import dapr.ext.workflow as wf
+from dapr.ext.workflow import DaprWorkflowContext
+from dotenv import load_dotenv
+
+from dapr_agents.llm.dapr import DaprChatClient
+from dapr_agents.workflow.decorators import llm_activity
+
+# Load environment variables (e.g., API keys, secrets)
+load_dotenv()
+
+# Initialize the Dapr workflow runtime and LLM client
+runtime = wf.WorkflowRuntime()
+llm = DaprChatClient(component_name="openai")
+
+
+@runtime.workflow(name="task_chain_workflow")
 def task_chain_workflow(ctx: DaprWorkflowContext):
-    result1 = yield ctx.call_activity(get_character)
-    result2 = yield ctx.call_activity(get_line, input={"character": result1})
-    return result2
+    """
+    Chain two LLM-backed activities:
+      1) Pick a random LOTR character (name only)
+      2) Ask for a famous quote from that character
+    """
+    character = yield ctx.call_activity(get_character)
+    line = yield ctx.call_activity(get_line, input={"character": character})
+    return line
 
-@task(description="""
-    Pick a random character from The Lord of the Rings\n
-    and respond with the character's name only
-""")
-def get_character() -> str:
+
+@runtime.activity(name="get_character")
+@llm_activity(
+    prompt="""
+Pick a random character from The Lord of the Rings.
+Respond with the character's name only.
+""",
+    llm=llm,
+)
+def get_character(ctx) -> str:
+    # The llm_activity decorator handles the LLM call using the prompt above.
+    # Just declare the signature; the body can be empty or 'pass'.
     pass
 
-@task(description="What is a famous line by {character}",)
-def get_line(character: str) -> str:
+
+@runtime.activity(name="get_line")
+@llm_activity(
+    prompt="What is a famous line by {character}?",
+    llm=llm,
+)
+def get_line(ctx, character: str) -> str:
+    # The llm_activity decorator will format the prompt with 'character'.
     pass
 
-if __name__ == '__main__':
-    wfapp = WorkflowApp()
 
-    results = wfapp.run_and_monitor_workflow_sync(task_chain_workflow)
-    print(f"Famous Line: {results}")
+if __name__ == "__main__":
+    # Start the workflow runtime sidecar
+    runtime.start()
+    time.sleep(5)  # small grace period for runtime to be ready
+
+    # Kick off the workflow
+    client = wf.DaprWorkflowClient()
+    instance_id = client.schedule_new_workflow(
+        workflow=task_chain_workflow,
+        input=None,  # no input expected for this workflow
+    )
+    print(f"Workflow started: {instance_id}")
+
+    # Wait for completion and print results
+    state = client.wait_for_workflow_completion(instance_id)
+    if not state:
+        print("No state returned (instance may not exist).")
+    elif state.runtime_status.name == "COMPLETED":
+        print(f"Famous Line:\n{state.serialized_output}")
+    else:
+        print(f"Workflow ended with status: {state.runtime_status}")
+        if state.failure_details:
+            fd = state.failure_details
+            print("Failure type:", fd.error_type)
+            print("Failure message:", fd.message)
+            print("Stack trace:\n", fd.stack_trace)
+        else:
+            print("Custom status:", state.serialized_custom_status)
+
+    runtime.shutdown()
 ```
 
 Run the sequential task chain workflow:
@@ -155,98 +384,182 @@ timeout_seconds: 30
 output_match_mode: substring
 -->
 ```bash
-dapr run --app-id dapr-agent-wf --resources-path components/ -- python sequential_workflow.py 
+dapr run --app-id dapr-agent-wf-sequence --resources-path components/ -- python 03_sequential_workflow.py
 ```
 <!-- END_STEP -->
 
-**How it works:**
-In this chaining pattern, the workflow executes tasks in strict sequence:
-1. The `get_character()` task executes first and returns a character name
-2. Only after completion, the `get_line()` task runs using that character name as input
-3. Each task awaits the previous task's completion before starting
+How it works:
 
-### 2. Parallel Task Execution
+* The workflow first calls `get_character()` — the LLM picks a random LOTR character.
+* Once complete, it calls `get_line()` to fetch a famous quote from that character.
+* The final result is returned to the caller.
 
-This example demonstrates the Fan-out/Fan-in Pattern with a research use case. It will execute 3 activities in parallel; then synchronize these activities do not proceed with the execution of subsequent activities until all preceding activities have completed.
+This pattern ensures strict sequential execution, waiting for each activity to finish before continuing.
+
+### 4. Parallel Fan-out/Fan-in Workflow (04_parallel_workflow.py)
+
+Demonstrates how to run multiple LLM activities concurrently and synthesize their results.
 
 ```python
 import logging
+import time
 from typing import List
 
+import dapr.ext.workflow as wf
+from dapr.ext.workflow import DaprWorkflowContext
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-from dapr_agents.workflow import WorkflowApp, workflow, task
-from dapr.ext.workflow import DaprWorkflowContext
+from dapr_agents.llm.dapr import DaprChatClient
+from dapr_agents.workflow.decorators import llm_activity
 
-# Load environment variables
+# Load environment variables (API keys, etc.)
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
+# Initialize the Dapr workflow runtime and LLM client
+runtime = wf.WorkflowRuntime()
+llm = DaprChatClient(component_name="openai")
 
-# Define a structured model for a single question
+
+# ----- Models -----
+
 class Question(BaseModel):
     """Represents a single research question."""
     text: str = Field(..., description="A research question related to the topic.")
 
 
-# Define a model that holds multiple questions
 class Questions(BaseModel):
     """Encapsulates a list of research questions."""
-    questions: List[Question] = Field(...,
-                                      description="A list of research questions generated for the topic.")
+    questions: List[Question] = Field(
+        ..., description="A list of research questions generated for the topic."
+    )
 
 
-# Define Workflow logic
-@workflow(name="research_workflow")
+# ----- Workflow -----
+
+@runtime.workflow(name="research_workflow")
 def research_workflow(ctx: DaprWorkflowContext, topic: str):
     """Defines a Dapr workflow for researching a given topic."""
+    # 1) Generate research questions
+    questions: Questions = yield ctx.call_activity(
+        generate_questions, input={"topic": topic}
+    )
 
-    # Generate research questions
-    questions: Questions = yield ctx.call_activity(generate_questions, input={"topic": topic})
+    # Handle both dict and model cases gracefully
+    q_list = (
+        [q["text"] for q in questions["questions"]]
+        if isinstance(questions, dict)
+        else [q.text for q in questions.questions]
+    )
 
-    # Gather information for each question in parallel
-    parallel_tasks = [ctx.call_activity(gather_information, input={"question": q["text"]}) for q in
-        questions["questions"]]
-    research_results = yield wfapp.when_all(parallel_tasks)  # Ensure wfapp is initialized
+    # 2) Gather information for each question in parallel
+    parallel_tasks = [
+        ctx.call_activity(gather_information, input={"question": q})
+        for q in q_list
+    ]
+    research_results: List[str] = yield wf.when_all(parallel_tasks)
 
-    # Synthesize the results into a final report
-    final_report = yield ctx.call_activity(synthesize_results,
-        input={"topic": topic, "research_results": research_results})
+    # 3) Synthesize final report
+    final_report: str = yield ctx.call_activity(
+        synthesize_results, input={"topic": topic, "research_results": research_results}
+    )
 
     return final_report
 
 
-@task(description="Generate 3 focused research questions about {topic}.")
-def generate_questions(topic: str) -> Questions:
-    """Generates three research questions related to the given topic."""
+# ----- Activities -----
+
+@runtime.activity(name="generate_questions")
+@llm_activity(
+    prompt="""
+You are a research assistant. Generate exactly 3 focused research questions about the topic: {topic}.
+Return ONLY a JSON object matching this schema (no prose):
+
+{
+  "questions": [
+    { "text": "..." },
+    { "text": "..." },
+    { "text": "..." }
+  ]
+}
+""",
+    llm=llm,
+)
+def generate_questions(ctx, topic: str) -> Questions:
+    # Implemented by llm_activity via the prompt above.
     pass
 
 
-@task(
-    description="Research information to answer this question: {question}. Provide a detailed response.")
-def gather_information(question: str) -> str:
-    """Fetches relevant information based on the research question provided."""
+@runtime.activity(name="gather_information")
+@llm_activity(
+    prompt="""
+Research the following question and provide a detailed, well-cited answer (paragraphs + bullet points where helpful).
+Question: {question}
+""",
+    llm=llm,
+)
+def gather_information(ctx, question: str) -> str:
+    # Implemented by llm_activity via the prompt above.
     pass
 
 
-@task(
-    description="Create a comprehensive research report on {topic} based on the following research: {research_results}")
-def synthesize_results(topic: str, research_results: List[str]) -> str:
-    """Synthesizes the gathered research into a structured report."""
+@runtime.activity(name="synthesize_results")
+@llm_activity(
+    prompt="""
+Create a comprehensive research report on the topic "{topic}" using the following research findings:
+
+{research_results}
+
+Requirements:
+- Clear executive summary (3–5 sentences)
+- Key findings (bulleted)
+- Risks/unknowns
+- Short conclusion
+
+Return plain text (no JSON).
+""",
+    llm=llm,
+)
+def synthesize_results(ctx, topic: str, research_results: List[str]) -> str:
+    # Implemented by llm_activity via the prompt above.
     pass
 
+
+# ----- Entrypoint -----
 
 if __name__ == "__main__":
-    wfapp = WorkflowApp()
+    runtime.start()
+    time.sleep(5)  # small grace period for runtime readiness
 
+    client = wf.DaprWorkflowClient()
     research_topic = "The environmental impact of quantum computing"
 
     logging.info(f"Starting research workflow on: {research_topic}")
-    results = wfapp.run_and_monitor_workflow_sync(research_workflow, input=research_topic)
-    logging.info(f"\nResearch Report:\n{results}")
+    instance_id = client.schedule_new_workflow(
+        workflow=research_workflow,
+        input=research_topic,
+    )
+    logging.info(f"Workflow started: {instance_id}")
+
+    state = client.wait_for_workflow_completion(instance_id)
+    if not state:
+        logging.error("No state returned (instance may not exist).")
+    elif state.runtime_status.name == "COMPLETED":
+        logging.info(f"\nResearch Report:\n{state.serialized_output}")
+    else:
+        logging.error(f"Workflow ended with status: {state.runtime_status}")
+        if state.failure_details:
+            fd = state.failure_details
+            logging.error("Failure type: %s", fd.error_type)
+            logging.error("Failure message: %s", fd.message)
+            logging.error("Stack trace:\n%s", fd.stack_trace)
+        else:
+            logging.error("Custom status: %s", state.serialized_custom_status)
+
+    runtime.shutdown()
 ```
 
 Run the parallel research workflow:
@@ -259,7 +572,7 @@ expected_stdout_lines:
 output_match_mode: substring
 -->
 ```bash
-dapr run --app-id dapr-agent-research --resources-path components/ -- python parallel_workflow.py
+dapr run --app-id dapr-agent-research --resources-path components/ -- python 04_parallel_workflow.py
 ```
 <!-- END_STEP -->
 
@@ -288,4 +601,4 @@ Dapr Agents workflows leverage Dapr's core capabilities:
 
 ## Next Steps
 
-After completing this quickstart, move on to the [Multi-Agent Workflow quickstart](../05-multi-agent-workflows/README.md) to learn how to create distributed systems of collaborating agents.
+After completing this quickstart, move on to the [Agent Based Workflow Quickstart](../04-agent-absed-workflows/README.md) to learn how to integrate the concept of an agent on specific activity steps.
