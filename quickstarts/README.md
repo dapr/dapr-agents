@@ -117,6 +117,19 @@ This quickstart demonstrates how to design and run **agent-based workflows**, st
 
 [Go to Agent-based Workflow Patterns](./04-agent-based-workflows/)
 
+### Message Router Workflow
+
+Learn how to trigger Dapr Workflows via Pub/Sub messages using the `@message_router` decorator.
+This pattern connects event-driven systems with LLM-powered workflows, validating and routing structured messages to durable workflow executions.
+
+- **Event-Driven Orchestration**: Start workflows automatically when messages arrive on a topic
+- **Edge Validation**: Enforce schema integrity with Pydantic before invoking workflows
+- **Seamless Integration**: Combine Dapr Pub/Sub, Workflow Runtime, and LLM activities for resilient automation
+
+This quickstart demonstrates how to design a message-driven workflow where each published event triggers a workflow instance such as creating a blog post outline and draft powered by an LLM.
+
+[Go to Message Router Workflow](./04-message-router-workflow/)
+
 ### Multi-Agent Workflows
 
 Advanced example of event-driven workflows with multiple autonomous agents:

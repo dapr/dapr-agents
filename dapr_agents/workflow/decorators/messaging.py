@@ -1,10 +1,20 @@
 import logging
+import warnings
 from copy import deepcopy
 from typing import Any, Callable, Optional, get_type_hints
+
 from dapr_agents.workflow.utils.core import is_valid_routable_model
 from dapr_agents.workflow.utils.messaging import extract_message_models
 
 logger = logging.getLogger(__name__)
+
+_MESSAGE_ROUTER_DEPRECATION_MESSAGE = (
+    "@message_router (legacy version from dapr_agents.workflow.decorators.messaging) "
+    "is deprecated and will be removed in a future release. "
+    "Please migrate to the updated decorator in "
+    "`dapr_agents.workflow.decorators.routers`, which supports "
+    "Union types, forward references, and explicit Dapr workflow integration."
+)
 
 
 def message_router(
@@ -16,7 +26,8 @@ def message_router(
     broadcast: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
-    Decorator for registering message handlers by inspecting type hints on the 'message' argument.
+    [DEPRECATED] Legacy decorator for registering message handlers by inspecting type hints
+    on the 'message' argument.
 
     This decorator:
     - Extracts the expected message model type from function annotations.
@@ -36,6 +47,12 @@ def message_router(
     """
 
     def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
+        warnings.warn(
+            _MESSAGE_ROUTER_DEPRECATION_MESSAGE,
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         is_workflow = hasattr(f, "_is_workflow")
         workflow_name = getattr(f, "_workflow_name", None)
 
@@ -56,7 +73,9 @@ def message_router(
                 )
 
         logger.debug(
-            f"@message_router: '{f.__name__}' => models {[m.__name__ for m in message_models]}"
+            "@message_router (legacy): '%s' => models %s",
+            f.__name__,
+            [m.__name__ for m in message_models],
         )
 
         # Attach metadata for later registration
