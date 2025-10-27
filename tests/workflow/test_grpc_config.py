@@ -118,7 +118,9 @@ def test_grpc_channel_patching():
 
     # Set up the mock channel
     mock_grpc.insecure_channel.return_value = mock_channel
-    original_get_grpc_channel = MagicMock()
+
+    # Keep original reference
+    original_get_grpc_channel = lambda *_, **__: "original"
     mock_shared.get_grpc_channel = original_get_grpc_channel
 
     with patch.dict(
@@ -136,12 +138,13 @@ def test_grpc_channel_patching():
         max_send = 10 * 1024 * 1024  # 10MB
         max_recv = 12 * 1024 * 1024  # 12MB
 
-        WorkflowApp(
+        app = WorkflowApp(
             grpc_max_send_message_length=max_send,
             grpc_max_receive_message_length=max_recv,
         )
 
-        # Verify the shared.get_grpc_channel was replaced
+        # Confirm get_grpc_channel was overridden
+        assert callable(mock_shared.get_grpc_channel)
         assert mock_shared.get_grpc_channel != original_get_grpc_channel
 
         # Call the patched function
@@ -156,8 +159,8 @@ def test_grpc_channel_patching():
         assert call_args[0][0] == test_address
 
         # Check that options were passed
-        assert "options" in call_args[1]
-        options = call_args[1]["options"]
+        assert "options" in call_args.kwargs
+        options = call_args.kwargs["options"]
 
         # Verify options contain our custom message size limits
         assert ("grpc.max_send_message_length", max_send) in options
