@@ -82,7 +82,7 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
         """
         if self.grpc_max_send_message_length or self.grpc_max_receive_message_length:
             self._configure_grpc_channel_options()
-        
+
         # Initialize LLM first
         if self.llm is None:
             self.llm = get_default_llm()
@@ -107,38 +107,53 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
         """
         Configure gRPC channel options before workflow runtime initialization.
         This patches the durabletask internal channel factory to support custom message size limits.
-        
+
         This is particularly useful for AI-powered workflows that may need to handle large payloads
         such as images, which can exceed the default 4MB gRPC message size limit.
         """
         try:
             import grpc
             from durabletask.internal import shared
-            
+
             # Store the original get_grpc_channel function
             original_get_grpc_channel = shared.get_grpc_channel
-            
+
             # Create custom options list
             options = []
             if self.grpc_max_send_message_length:
-                options.append(('grpc.max_send_message_length', self.grpc_max_send_message_length))
-                logger.debug(f"Configured gRPC max_send_message_length: {self.grpc_max_send_message_length} bytes ({self.grpc_max_send_message_length / (1024 * 1024):.2f} MB)")
+                options.append(
+                    ("grpc.max_send_message_length", self.grpc_max_send_message_length)
+                )
+                logger.debug(
+                    f"Configured gRPC max_send_message_length: {self.grpc_max_send_message_length} bytes ({self.grpc_max_send_message_length / (1024 * 1024):.2f} MB)"
+                )
             if self.grpc_max_receive_message_length:
-                options.append(('grpc.max_receive_message_length', self.grpc_max_receive_message_length))
-                logger.debug(f"Configured gRPC max_receive_message_length: {self.grpc_max_receive_message_length} bytes ({self.grpc_max_receive_message_length / (1024 * 1024):.2f} MB)")
-            
+                options.append(
+                    (
+                        "grpc.max_receive_message_length",
+                        self.grpc_max_receive_message_length,
+                    )
+                )
+                logger.debug(
+                    f"Configured gRPC max_receive_message_length: {self.grpc_max_receive_message_length} bytes ({self.grpc_max_receive_message_length / (1024 * 1024):.2f} MB)"
+                )
+
             # Patch the function to include our custom options
             def get_grpc_channel_with_options(address: str):
                 """Custom gRPC channel factory with configured message size limits."""
                 return grpc.insecure_channel(address, options=options)
-            
+
             # Replace the function
             shared.get_grpc_channel = get_grpc_channel_with_options
-            
-            logger.debug("Successfully patched durabletask gRPC channel factory with custom options")
-            
+
+            logger.debug(
+                "Successfully patched durabletask gRPC channel factory with custom options"
+            )
+
         except ImportError as e:
-            logger.error(f"Failed to import required modules for gRPC configuration: {e}")
+            logger.error(
+                f"Failed to import required modules for gRPC configuration: {e}"
+            )
             raise
         except Exception as e:
             logger.error(f"Failed to configure gRPC channel options: {e}")
