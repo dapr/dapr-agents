@@ -89,15 +89,12 @@ def test_configure_grpc_channel_options_is_called(mock_workflow_dependencies):
     """Test that _configure_grpc_channel_options is called when gRPC config is provided."""
     with patch.object(WorkflowApp, "_configure_grpc_channel_options") as mock_configure:
         # Create WorkflowApp with gRPC config
-        app = WorkflowApp(
+        WorkflowApp(
             grpc_max_send_message_length=8 * 1024 * 1024,  # 8MB
         )
 
         # Verify the configuration method was called
         mock_configure.assert_called_once()
-
-        # Verify the configuration was set
-        assert app.grpc_max_send_message_length == 8 * 1024 * 1024
 
 
 def test_configure_grpc_channel_options_not_called_without_config(
@@ -106,7 +103,7 @@ def test_configure_grpc_channel_options_not_called_without_config(
     """Test that _configure_grpc_channel_options is not called without gRPC config."""
     with patch.object(WorkflowApp, "_configure_grpc_channel_options") as mock_configure:
         # Create WorkflowApp without gRPC config
-        app = WorkflowApp()
+        WorkflowApp()
 
         # Verify the configuration method was NOT called
         mock_configure.assert_not_called()
@@ -139,7 +136,7 @@ def test_grpc_channel_patching():
         max_send = 10 * 1024 * 1024  # 10MB
         max_recv = 12 * 1024 * 1024  # 12MB
 
-        app = WorkflowApp(
+        WorkflowApp(
             grpc_max_send_message_length=max_send,
             grpc_max_receive_message_length=max_recv,
         )

@@ -115,9 +115,6 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
             import grpc
             from durabletask.internal import shared
 
-            # Store the original get_grpc_channel function
-            original_get_grpc_channel = shared.get_grpc_channel
-
             # Create custom options list
             options = []
             if self.grpc_max_send_message_length:
