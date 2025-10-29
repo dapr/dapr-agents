@@ -85,10 +85,12 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
         if values.get("grpc_max_send_message_length") is not None:
             if values["grpc_max_send_message_length"] < 0:
                 raise ValueError("grpc_max_send_message_length must be greater than 0")
-        
+
         if values.get("grpc_max_receive_message_length") is not None:
             if values["grpc_max_receive_message_length"] < 0:
-                raise ValueError("grpc_max_receive_message_length must be greater than 0")
+                raise ValueError(
+                    "grpc_max_receive_message_length must be greater than 0"
+                )
 
         return values
 
@@ -152,9 +154,11 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                 )
 
             # Patch the function to include our custom options
-            def get_grpc_channel_with_options(host_address: Optional[str],
-                                  secure_channel: bool = False,
-                                  interceptors: Optional[Sequence["grpc.ClientInterceptor"]] = None):
+            def get_grpc_channel_with_options(
+                host_address: Optional[str],
+                secure_channel: bool = False,
+                interceptors: Optional[Sequence["grpc.ClientInterceptor"]] = None,
+            ):
                 # This is a copy of the original get_grpc_channel function in durabletask.internal.shared at
                 # https://github.com/dapr/durabletask-python/blob/7070cb07d07978d079f8c099743ee4a66ae70e05/durabletask/internal/shared.py#L30C1-L61C19
                 # but with my option overrides applied above.
@@ -165,20 +169,22 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                     if host_address.lower().startswith(protocol):
                         secure_channel = True
                         # remove the protocol from the host name
-                        host_address = host_address[len(protocol):]
+                        host_address = host_address[len(protocol) :]
                         break
 
                 for protocol in getattr(shared, "INSECURE_PROTOCOLS", []):
                     if host_address.lower().startswith(protocol):
                         secure_channel = False
                         # remove the protocol from the host name
-                        host_address = host_address[len(protocol):]
+                        host_address = host_address[len(protocol) :]
                         break
 
                 # Create the base channel
                 if secure_channel:
                     credentials = grpc.ssl_channel_credentials()
-                    channel = grpc.secure_channel(host_address, credentials, options=options)
+                    channel = grpc.secure_channel(
+                        host_address, credentials, options=options
+                    )
                 else:
                     channel = grpc.insecure_channel(host_address, options=options)
 
