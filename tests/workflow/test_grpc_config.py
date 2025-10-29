@@ -122,6 +122,7 @@ def test_grpc_channel_patching():
     # Keep original reference
     def original_get_grpc_channel(*_, **__):
         return "original"
+
     mock_shared.get_grpc_channel = original_get_grpc_channel
 
     with patch.dict(
