@@ -120,7 +120,8 @@ def test_grpc_channel_patching():
     mock_grpc.insecure_channel.return_value = mock_channel
 
     # Keep original reference
-    original_get_grpc_channel = lambda *_, **__: "original"
+    def original_get_grpc_channel(*_, **__):
+        return "original"
     mock_shared.get_grpc_channel = original_get_grpc_channel
 
     with patch.dict(
@@ -138,7 +139,7 @@ def test_grpc_channel_patching():
         max_send = 10 * 1024 * 1024  # 10MB
         max_recv = 12 * 1024 * 1024  # 12MB
 
-        app = WorkflowApp(
+        WorkflowApp(
             grpc_max_send_message_length=max_send,
             grpc_max_receive_message_length=max_recv,
         )
