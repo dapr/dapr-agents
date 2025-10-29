@@ -168,14 +168,14 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                     if host_address.lower().startswith(protocol):
                         secure_channel = True
                         # remove the protocol from the host name
-                        host_address = host_address[len(protocol):]
+                        host_address = host_address[len(protocol) :]
                         break
 
                 for protocol in getattr(shared, "INSECURE_PROTOCOLS", []):
                     if host_address.lower().startswith(protocol):
                         secure_channel = False
                         # remove the protocol from the host name
-                        host_address = host_address[len(protocol):]
+                        host_address = host_address[len(protocol) :]
                         break
 
                 # Create the base channel
