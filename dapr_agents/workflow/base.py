@@ -7,7 +7,7 @@ import time
 import sys
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, TypeVar, Union, Sequence
 
 from dapr.ext.workflow import (
     DaprWorkflowClient,
@@ -16,7 +16,7 @@ from dapr.ext.workflow import (
 )
 from dapr.ext.workflow.workflow_state import WorkflowState
 from durabletask import task as dtask
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from dapr_agents.agents.base import ChatClientBase
 from dapr_agents.llm.utils.defaults import get_default_llm
@@ -75,6 +75,22 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @model_validator(mode="before")
+    def validate_grpc_chanell_options(cls, values: Any):
+        # Ensure we only operate on dict inputs and always return the original values
+        if not isinstance(values, dict):
+            return values
+
+        if values.get("grpc_max_send_message_length") is not None:
+            if values["grpc_max_send_message_length"] < 0:
+                raise ValueError("grpc_max_send_message_length must be greater than 0")
+        
+        if values.get("grpc_max_receive_message_length") is not None:
+            if values["grpc_max_receive_message_length"] < 0:
+                raise ValueError("grpc_max_receive_message_length must be greater than 0")
+
+        return values
 
     def model_post_init(self, __context: Any) -> None:
         """
@@ -136,9 +152,41 @@ class WorkflowApp(BaseModel, SignalHandlingMixin):
                 )
 
             # Patch the function to include our custom options
-            def get_grpc_channel_with_options(address: str):
-                """Custom gRPC channel factory with configured message size limits."""
-                return grpc.insecure_channel(address, options=options)
+            def get_grpc_channel_with_options(host_address: Optional[str],
+                                  secure_channel: bool = False,
+                                  interceptors: Optional[Sequence["grpc.ClientInterceptor"]] = None):
+                # This is a copy of the original get_grpc_channel function in durabletask.internal.shared at
+                # https://github.com/dapr/durabletask-python/blob/7070cb07d07978d079f8c099743ee4a66ae70e05/durabletask/internal/shared.py#L30C1-L61C19
+                # but with my option overrides applied above.
+                if host_address is None:
+                    host_address = shared.get_default_host_address()
+
+                for protocol in getattr(shared, "SECURE_PROTOCOLS", []):
+                    if host_address.lower().startswith(protocol):
+                        secure_channel = True
+                        # remove the protocol from the host name
+                        host_address = host_address[len(protocol):]
+                        break
+
+                for protocol in getattr(shared, "INSECURE_PROTOCOLS", []):
+                    if host_address.lower().startswith(protocol):
+                        secure_channel = False
+                        # remove the protocol from the host name
+                        host_address = host_address[len(protocol):]
+                        break
+
+                # Create the base channel
+                if secure_channel:
+                    credentials = grpc.ssl_channel_credentials()
+                    channel = grpc.secure_channel(host_address, credentials, options=options)
+                else:
+                    channel = grpc.insecure_channel(host_address, options=options)
+
+                # Apply interceptors ONLY if they exist
+                if interceptors:
+                    channel = grpc.intercept_channel(channel, *interceptors)
+
+                return channel
 
             # Replace the function
             shared.get_grpc_channel = get_grpc_channel_with_options
