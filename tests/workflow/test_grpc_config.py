@@ -1,6 +1,7 @@
 """Tests for gRPC configuration in WorkflowApp."""
 import pytest
 from unittest.mock import MagicMock, patch, call
+import types
 from dapr_agents.workflow.base import WorkflowApp
 
 
@@ -125,10 +126,18 @@ def test_grpc_channel_patching():
 
     mock_shared.get_grpc_channel = original_get_grpc_channel
 
+    # Create dummy package/module structure so 'from durabletask.internal import shared' works
+    durabletask_module = types.ModuleType("durabletask")
+    internal_module = types.ModuleType("durabletask.internal")
+    setattr(durabletask_module, "internal", internal_module)
+    setattr(internal_module, "shared", mock_shared)
+
     with patch.dict(
         "sys.modules",
         {
             "grpc": mock_grpc,
+            "durabletask": durabletask_module,
+            "durabletask.internal": internal_module,
             "durabletask.internal.shared": mock_shared,
         },
     ), patch("dapr_agents.workflow.base.WorkflowRuntime"), patch(
