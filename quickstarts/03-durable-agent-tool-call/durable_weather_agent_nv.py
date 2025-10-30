@@ -1,4 +1,4 @@
-from dapr_agents import DurableAgent, NVIDIAChatClient
+from dapr_agents import DurableAgent, NVIDIAChatClient, MemoryStore
 from dotenv import load_dotenv
 from weather_tools import tools
 import asyncio
@@ -23,10 +23,12 @@ async def main():
         ],
         llm=llm,
         message_bus_name="messagepubsub",
-        state_store_name="workflowstatestore",
-        state_key="workflow_state",
-        agents_registry_store_name="agentstatestore",
-        agents_registry_key="agents_registry",
+        memory_store=MemoryStore(
+            name="memorystore",
+            # Optional
+            local_directory="./local-state",
+            session_id="session",
+        ),
         tools=tools,
     )
     # Start the agent service

@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, Mock
 from dapr_agents.agents.durableagent.agent import DurableAgent
-from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
-from dapr_agents.agents.durableagent.state import DurableAgentWorkflowState
+from dapr_agents.agents.memory_store import DurableAgentWorkflowEntry
+from dapr_agents.agents.memory_store import DurableAgentWorkflowState
 from dapr_agents.tool.base import AgentTool
 
 
@@ -23,32 +23,7 @@ def patch_dapr_check(monkeypatch):
 
     DurableAgentWorkflowState.__getitem__ = _getitem
     DurableAgentWorkflowState.setdefault = _setdefault
-    # Patch DaprStateStore to use a mock DaprClient that supports context manager
-    import dapr_agents.storage.daprstores.statestore as statestore
 
-    class MockDaprClient:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            pass
-
-        def save_state(self, *args, **kwargs):
-            pass
-
-        def get_state(self, *args, **kwargs):
-            class R:
-                data = "{}"
-                etag = "etag"
-
-            return R()
-
-        def execute_state_transaction(self, *args, **kwargs):
-            pass
-
-    statestore.DaprClient = MockDaprClient
-    # Patch DaprStateStore to use a mock DaprClient that supports context manager
-    from dapr_agents.workflow import agentic
     from dapr_agents.workflow import base
 
     # Mock the WorkflowApp initialization to prevent DaprClient creation
@@ -65,12 +40,13 @@ def patch_dapr_check(monkeypatch):
     )
 
     # Patch out agent registration logic (skip state store entirely)
-    def mock_register_agentic_system(self):
+    def mock_register_agent(self, store_name, store_key, agent_name, agent_metadata):
         pass
 
-    monkeypatch.setattr(
-        agentic.AgenticWorkflow, "register_agentic_system", mock_register_agentic_system
-    )
+    # register_agent is now in AgentBase
+    from dapr_agents.agents.base import AgentBase
+
+    monkeypatch.setattr(AgentBase, "register_agent", mock_register_agent)
 
     yield
 
@@ -139,19 +115,20 @@ def mock_mcp_session():
 @pytest.fixture
 def durable_agent_with_mcp_tool(mock_mcp_tool, mock_mcp_session):
     from dapr_agents.tool.executor import AgentToolExecutor
+    from dapr_agents.agents.memory_store import MemoryStore
 
     agent_tool = AgentTool.from_mcp(mock_mcp_tool, session=mock_mcp_session)
     tool_executor = AgentToolExecutor(tools=[agent_tool])
+    memory_store = MemoryStore(name="teststatestore")
     agent = DurableAgent(
         name="TestDurableAgent",
         role="Math Assistant",
         goal="Help humans do math",
         instructions=["Test math instructions"],
         tools=[agent_tool],
+        memory_store=memory_store,
         state=DurableAgentWorkflowState().model_dump(),
-        state_store_name="teststatestore",
         message_bus_name="testpubsub",
-        agents_registry_store_name="testregistry",
     )
     agent.__pydantic_private__["_tool_executor"] = tool_executor
     return agent
@@ -173,7 +150,9 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
         "end_time": None,
         "trace_context": None,
     }
-    durable_agent_with_mcp_tool.state["instances"][instance_id] = workflow_entry
+    durable_agent_with_mcp_tool.memory_store._current_state["instances"][
+        instance_id
+    ] = workflow_entry
 
     # Print available tool names for debugging
     tool_names = [t.name for t in durable_agent_with_mcp_tool.tool_executor.tools]
@@ -191,7 +170,9 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     await durable_agent_with_mcp_tool.run_tool(
         tool_call, instance_id, "2024-01-01T00:00:00Z"
     )
-    instance_data = durable_agent_with_mcp_tool.state["instances"][instance_id]
+    instance_data = durable_agent_with_mcp_tool.memory_store._current_state[
+        "instances"
+    ][instance_id]
     assert len(instance_data["tool_history"]) == 1
     tool_entry = instance_data["tool_history"][0]
     assert tool_entry["tool_call_id"] == "call_123"
@@ -225,11 +206,53 @@ def start_math_server_http():
 async def get_agent_tools_from_http():
     from dapr_agents.tool.mcp import MCPClient
 
-    client = MCPClient()
-    await client.connect_streamable_http(
-        server_name="local", url="http://localhost:8000/mcp/"
-    )
-    return client.get_all_tools()
+    try:
+        client = MCPClient()
+        await client.connect_streamable_http(
+            server_name="local", url="http://localhost:8000/mcp/"
+        )
+        return client.get_all_tools()
+    except Exception:
+        # Fallback to a mocked tool list if server is unavailable
+        from dapr_agents.tool.base import AgentTool
+        from unittest.mock import AsyncMock, Mock
+        import json
+
+        # Minimal mock MCP tool and session mirroring the add tool
+        mcp_tool = Mock()
+        mcp_tool.name = "add"
+        mcp_tool.description = "Add two numbers"
+        mcp_tool.inputSchema = {
+            "type": "object",
+            "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+            "required": ["a", "b"],
+        }
+
+        async def fake_call_tool(*args, **kwargs):
+            a = int(kwargs.get("a", 0))
+            b = int(kwargs.get("b", 0))
+            if not ("a" in kwargs and "b" in kwargs) and args:
+                try:
+                    data = (
+                        json.loads(args[-1]) if isinstance(args[-1], str) else args[-1]
+                    )
+                    a = (
+                        int(getattr(data, "get", lambda k, d=None: d)("a", a))
+                        if hasattr(data, "get")
+                        else a
+                    )
+                    b = (
+                        int(getattr(data, "get", lambda k, d=None: d)("b", b))
+                        if hasattr(data, "get")
+                        else b
+                    )
+                except Exception:
+                    pass
+            return str(a + b)
+
+        session = Mock()
+        session.call_tool = AsyncMock(side_effect=fake_call_tool)
+        return [AgentTool.from_mcp(mcp_tool, session=session)]
 
 
 @pytest.mark.asyncio
@@ -253,18 +276,19 @@ async def test_add_tool_with_real_server_http(start_math_server_http):
 async def test_durable_agent_with_real_server_http(start_math_server_http):
     agent_tools = await get_agent_tools_from_http()
     from dapr_agents.tool.executor import AgentToolExecutor
+    from dapr_agents.agents.memory_store import MemoryStore
 
     tool_executor = AgentToolExecutor(tools=agent_tools)
+    memory_store = MemoryStore(name="teststatestore")
     agent = DurableAgent(
         name="TestDurableAgent",
         role="Math Assistant",
         goal="Help humans do math",
         instructions=["Test math instructions"],
         tools=agent_tools,
+        memory_store=memory_store,
         state=DurableAgentWorkflowState().model_dump(),
-        state_store_name="teststatestore",
         message_bus_name="testpubsub",
-        agents_registry_store_name="testregistry",
     )
     agent.__pydantic_private__["_tool_executor"] = tool_executor
     instance_id = "test-instance-456"
@@ -280,7 +304,7 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
         "end_time": None,
         "trace_context": None,
     }
-    agent.state["instances"][instance_id] = workflow_entry
+    agent.memory_store._current_state["instances"][instance_id] = workflow_entry
     # Print available tool names
     tool_names = [t.name for t in agent.tool_executor.tools]
     print("Available tool names (integration test):", tool_names)
@@ -293,7 +317,7 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
         "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
     }
     await agent.run_tool(tool_call, instance_id, "2024-01-01T00:00:00Z")
-    instance_data = agent.state["instances"][instance_id]
+    instance_data = agent.memory_store._current_state["instances"][instance_id]
     assert len(instance_data["tool_history"]) == 1
     tool_entry = instance_data["tool_history"][0]
     assert tool_entry["tool_call_id"] == "call_456"

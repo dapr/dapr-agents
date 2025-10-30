@@ -7,6 +7,7 @@ from dapr_agents.document.embedder.sentence import SentenceTransformerEmbedder
 from dapr_agents.storage.vectorstores import ChromaVectorStore
 from dapr_agents.tool import tool
 from dapr_agents.types.document import Document
+from dapr_agents import MemoryStore
 
 load_dotenv()
 
@@ -109,8 +110,15 @@ async def main():
             "Provide relevant information from stored documents",
         ],
         tools=[search_documents, add_document, add_machine_learning_doc],
-        vector_store=vector_store,
         llm=OpenAIChatClient(model="gpt-3.5-turbo"),
+        memory_store=MemoryStore(
+            name="statestore",
+            # Optional
+            local_directory="./local-state",
+            session_id="session",
+        ),
+        # Note: Regular Agent always uses in-memory conversation history
+        # The 'name' field only registers the agent for discovery by orchestrators
     )
     try:
         logging.info("Starting Vector Database Agent...")

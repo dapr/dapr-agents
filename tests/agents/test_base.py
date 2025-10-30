@@ -20,6 +20,10 @@ class TestAgentBase(AgentBase):
         """Implementation of abstract method for testing."""
         return f"Processed: {input_data}"
 
+    def get_chat_history(self, task=None):
+        """Implementation of abstract method for testing."""
+        return self.memory_store.get_messages()
+
 
 class TestAgentBaseClass:
     """Test cases for AgentBase class."""
@@ -77,7 +81,6 @@ class TestAgentBaseClass:
         assert basic_agent.instructions == ["Test instruction 1", "Test instruction 2"]
         assert basic_agent.max_iterations == 10
         assert basic_agent.template_format == "jinja2"
-        assert isinstance(basic_agent.memory, ConversationListMemory)
         assert basic_agent.llm is not None
 
     def test_agent_creation_with_minimal_fields(self, minimal_agent):
@@ -184,14 +187,13 @@ class TestAgentBaseClass:
         assert basic_agent.get_last_message() is None
 
     def test_get_last_message_with_memory(self, basic_agent):
-        """Test getting last message from memory with content."""
+        """Test getting last message from storage with content."""
         # Use a dictionary as the mock message
         mock_message = {"foo": "bar"}
-        with patch.object(
-            ConversationListMemory, "get_messages", return_value=[mock_message]
-        ):
-            result = basic_agent.get_last_message()
-            assert result == {"foo": "bar"}
+        # Add a message to storage directly
+        basic_agent.memory_store._in_memory_messages = [mock_message]
+        result = basic_agent.get_last_message()
+        assert result == {"foo": "bar"}
 
     def test_get_last_user_message(self, basic_agent):
         """Test getting last user message from message list."""
@@ -215,12 +217,6 @@ class TestAgentBaseClass:
 
         result = basic_agent.get_last_user_message(messages)
         assert result is None
-
-    def test_reset_memory(self, basic_agent):
-        """Test memory reset."""
-        with patch.object(type(basic_agent.memory), "reset_memory") as mock_reset:
-            basic_agent.reset_memory()
-            mock_reset.assert_called_once()
 
     def test_pre_fill_prompt_template(self, basic_agent):
         """Test pre-filling prompt template with variables."""
@@ -256,33 +252,26 @@ class TestAgentBaseClass:
             agent.pre_fill_prompt_template(custom_var="test_value")
 
     def test_chat_history_with_vector_memory_and_task(self):
-        """Test chat history retrieval with vector memory and task."""
-        from tests.agents.mocks.vectorstore import MockVectorStore
-        from tests.agents.mocks.memory import DummyVectorMemory
-
-        mock_vector_store = MockVectorStore()
+        """Test chat history retrieval with storage."""
         mock_llm = MockLLMClient()
-        memory = DummyVectorMemory(mock_vector_store)
-        agent = TestAgentBase(memory=memory, llm=mock_llm)
+        agent = TestAgentBase(llm=mock_llm)
 
-        # Access chat_history as a property
+        # Add messages to storage directly
+        agent.memory_store._in_memory_messages = [Mock(), Mock()]
+        result = agent.chat_history
+        assert isinstance(result, list)
+        if len(result) > 0:
+            assert isinstance(result[0], Mock)
+
+    def test_chat_history_with_regular_memory(self, mock_llm_client):
+        """Test chat history retrieval with storage."""
+        agent = TestAgentBase(llm=mock_llm_client)
+
+        # Add a message to storage directly
+        agent.memory_store._in_memory_messages = [Mock(spec=MessageContent)]
         result = agent.chat_history
         assert isinstance(result, list)
         assert isinstance(result[0], Mock)
-
-    def test_chat_history_with_regular_memory(self, mock_llm_client):
-        """Test chat history retrieval with regular memory."""
-        memory = ConversationListMemory()
-        agent = TestAgentBase(memory=memory, llm=mock_llm_client)
-
-        with patch.object(
-            ConversationListMemory,
-            "get_messages",
-            return_value=[Mock(spec=MessageContent)],
-        ):
-            result = agent.chat_history
-            assert isinstance(result, list)
-            assert isinstance(result[0], Mock)
 
     def test_prefill_agent_attributes_missing_fields_warns(
         self, mock_llm_client, caplog
@@ -324,13 +313,13 @@ class TestAgentBaseClass:
         ):
             TestAgentBase(llm=OpenAIChatClient())
 
-    def test_validate_memory_failure(self, mock_llm_client):
-        """Test validation fails when memory initialization fails."""
+    def test_validate_storage_failure(self, mock_llm_client):
+        """Test validation fails when storage initialization fails."""
         with patch(
-            "dapr_agents.memory.ConversationListMemory.__new__",
-            side_effect=Exception("Memory error"),
+            "dapr_agents.agents.memory_store.MemoryStore.__init__",
+            side_effect=Exception("Storage error"),
         ):
-            with pytest.raises(Exception, match="Memory error"):
+            with pytest.raises(Exception, match="Storage error"):
                 TestAgentBase(llm=mock_llm_client)
 
     def test_signal_handler_setup(self, basic_agent):

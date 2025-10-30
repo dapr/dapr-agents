@@ -12,8 +12,7 @@ import logging
 
 from typing import List
 from pydantic import BaseModel, Field
-from dapr_agents import tool, DurableAgent
-from dapr_agents.memory import ConversationDaprStateMemory
+from dapr_agents import tool, DurableAgent, MemoryStore
 from dotenv import load_dotenv
 
 
@@ -66,12 +65,11 @@ async def main():
             ],
             tools=[search_flights],
             message_bus_name="messagepubsub",
-            state_store_name="workflowstatestore",
-            state_key="workflow_state",
-            agents_registry_store_name="registrystatestore",
-            agents_registry_key="agents_registry",
-            memory=ConversationDaprStateMemory(
-                store_name="conversationstore", session_id="my-unique-id"
+            memory_store=MemoryStore(
+                name="statestore",
+                # Optional
+                local_directory="./local-state",
+                session_id="agent_session",
             ),
             # llm=llm, # if you don't set the llm attribute, it will be by default set to DaprChatClient()
         )
@@ -81,8 +79,6 @@ async def main():
 
     except Exception as e:
         print(f"Error starting service: {e}")
-    finally:
-        travel_planner.graceful_shutdown()
 
 
 if __name__ == "__main__":

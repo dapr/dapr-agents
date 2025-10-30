@@ -1,5 +1,4 @@
-from dapr_agents import DurableAgent
-from dapr_agents.llm.dapr import DaprChatClient
+from dapr_agents import DurableAgent, MemoryStore
 from dotenv import load_dotenv
 from multi_tools import tools
 import asyncio
@@ -37,10 +36,12 @@ async def main():
             "Use the weather tool for location-based weather.",
         ],
         message_bus_name="messagepubsub",
-        state_store_name="workflowstatestore",
-        state_key="workflow_state",
-        agents_registry_store_name="workflowstatestore",
-        agents_registry_key="agents_registry",
+        memory_store=MemoryStore(
+            name="statestore",
+            # Optional
+            local_directory="./local-state",
+            session_id="session",
+        ),
         tools=tools,
         llm=llm_provider,
     )

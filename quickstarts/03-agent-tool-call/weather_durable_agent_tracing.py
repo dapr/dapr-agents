@@ -1,6 +1,6 @@
 import asyncio
 from weather_tools import tools
-from dapr_agents import DurableAgent
+from dapr_agents import DurableAgent, MemoryStore
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -35,8 +35,12 @@ async def main():
         ],
         tools=tools,
         message_bus_name="messagepubsub",
-        state_store_name="workflowstatestore",
-        agents_registry_store_name="agentstatestore",
+        memory_store=MemoryStore(
+            name="statestore",
+            # Optional
+            local_directory="./local-state",
+            session_id="session",
+        ),
     )
 
     await AIAgent.run("What is the weather in Virginia, New York and Washington DC?")

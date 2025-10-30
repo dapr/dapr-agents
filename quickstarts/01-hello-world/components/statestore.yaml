@@ -1,7 +1,7 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: registrystatestore
+  name: statestore
 spec:
   type: state.redis
   version: v1
@@ -14,3 +14,5 @@ spec:
     value: "false"
   - name: keyPrefix
     value: none
+  - name: actorStateStore
+    value: "true"

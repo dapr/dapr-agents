@@ -1,7 +1,7 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: workflowstatestore
+  name: statestore
 spec:
   type: state.redis
   version: v1
@@ -12,3 +12,5 @@ spec:
     value: ""
   - name: actorStateStore
     value: "true"
+  - name: keyPrefix
+    value: none

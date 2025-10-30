@@ -1,7 +1,7 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: workflowstatestore
+  name: memorystore
 spec:
   type: state.redis
   version: v1
@@ -9,4 +9,8 @@ spec:
   - name: redisHost
     value: localhost:6379
   - name: redisPassword
-    value: "" 
+    value: ""
+  - name: actorStateStore
+    value: "true"
+  - name: keyPrefix
+    value: none

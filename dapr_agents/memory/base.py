@@ -66,16 +66,6 @@ class MemoryBase(BaseModel, ABC):
         """
         pass
 
-    @abstractmethod
-    def reset_memory(self):
-        """
-        Clears all messages from the memory storage.
-
-        Note:
-            This method must be implemented by subclasses.
-        """
-        pass
-
     @staticmethod
     def _convert_to_dict(message: Union[Dict, BaseMessage]) -> Dict:
         """

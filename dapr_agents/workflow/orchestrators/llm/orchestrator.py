@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from dapr.ext.workflow import DaprWorkflowContext
+from dapr_agents.types.workflow import DaprWorkflowStatus
 from pydantic import Field
 
 from dapr_agents.workflow.decorators import message_router, task, workflow
@@ -28,7 +29,6 @@ from dapr_agents.workflow.orchestrators.llm.schemas import (
 from dapr_agents.workflow.orchestrators.llm.state import (
     LLMWorkflowEntry,
     LLMWorkflowMessage,
-    LLMWorkflowState,
     PlanStep,
     TaskResult,
 )
@@ -37,7 +37,7 @@ from dapr_agents.workflow.orchestrators.llm.utils import (
     restructure_plan,
     update_step_statuses,
 )
-from dapr_agents.memory import ConversationDaprStateMemory
+from dapr_agents.agents.memory_store import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +54,11 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         default=None,
         description="The current workflow instance ID for this orchestrator.",
     )
-    memory: Optional[ConversationDaprStateMemory] = Field(
-        default=None,
-        description="Persistent memory with session-based state hydration.",
+    memory_store: MemoryStore = Field(
+        default_factory=lambda: MemoryStore(
+            name="workflowstatestore", session_id="orchestrator_session"
+        ),
+        description="Persistent storage with session-based state hydration.",
     )
 
     def model_post_init(self, __context: Any) -> None:
@@ -72,29 +74,28 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         # TODO(@Sicoyle): fix this later!!
         self._is_orchestrator = True  # Flag for PubSub deduplication to prevent orchestrator workflows from being triggered multiple times
 
-        if not self.state:
-            logger.debug("No state found, initializing empty state")
-            self.state = {"instances": {}}
+        if not self.memory_store._current_state:
+            self.memory_store._current_state = {"instances": {}}
 
-        if self.memory is not None:
-            self.memory = ConversationDaprStateMemory(
-                store_name=self.memory.store_name,
-                session_id=f"{self.name or 'orchestrator'}_session",
-            )
-
-            print(f"sam memory store name is {self.memory.store_name}")
-            logger.info(f"sam memory store name is {self.memory.store_name}")
+        if not self.memory_store.name:
+            raise ValueError("LLMOrchestrator must have a name for persistent storage")
 
         # Load the current workflow instance ID from state using session_id)
-        if self.state and self.state.get("instances"):
-            logger.debug(f"Found {len(self.state['instances'])} instances in state")
+        if self.memory_store._current_state and self.memory_store._current_state.get(
+            "instances"
+        ):
+            logger.debug(
+                f"Found {len(self.memory_store._current_state['instances'])} instances in state"
+            )
 
             current_session_id = (
-                self.memory.session_id
-                if self.memory
+                self.memory_store.session_id
+                if self.memory_store
                 else f"{self.name}_default_session"
             )
-            for instance_id, instance_data in self.state["instances"].items():
+            for instance_id, instance_data in self.memory_store._current_state[
+                "instances"
+            ].items():
                 stored_workflow_name = instance_data.get("workflow_name")
                 stored_session_id = instance_data.get("session_id")
                 logger.debug(
@@ -195,9 +196,14 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         # Step 1: Retrieve initial task and ensure state entry exists
         task = message.get("task")
         instance_id = ctx.instance_id
-        self.state.setdefault("instances", {}).setdefault(
+        self.memory_store._current_state.setdefault("instances", {}).setdefault(
             instance_id, LLMWorkflowEntry(input=task).model_dump(mode="json")
         )
+
+        # Update session index to track this workflow instance
+        if not ctx.is_replaying:
+            self.memory_store._update_session_index(instance_id)
+
         # Initialize plan as empty list - it will be set after turn 1
         plan = []
         final_summary: Optional[str] = None
@@ -215,7 +221,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             # On turn 1, atomically generate plan and broadcast task
             if turn == 1:
                 if not ctx.is_replaying:
-                    logger.info(f"Initial message from User -> {self.name}")
+                    logger.debug(f"Initial message from User -> {self.name}")
 
                 init_result = yield ctx.call_activity(
                     self.initialize_workflow_with_plan,
@@ -226,7 +232,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                         "wf_time": ctx.current_utc_datetime.isoformat(),
                     },
                 )
-                logger.info(f"Workflow initialized with plan: {init_result['status']}")
+                logger.debug(f"Workflow initialized with plan: {init_result['status']}")
                 plan = init_result["plan"]
 
             # Determine next step and dispatch
@@ -235,7 +241,16 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
 
             # If plan is empty, read from workflow state
             if not plan_objects:
-                plan_objects = self.state["instances"][instance_id].get("plan", [])
+                if (
+                    self.memory_store._current_state
+                    and "instances" in self.memory_store._current_state
+                    and instance_id in self.memory_store._current_state["instances"]
+                ):
+                    plan_objects = self.memory_store._current_state["instances"][
+                        instance_id
+                    ].get("plan", [])
+                else:
+                    plan_objects = []
                 plan = plan_objects
             next_step = yield ctx.call_activity(
                 self.generate_next_step,
@@ -305,7 +320,7 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
                 else:
                     task_results = yield event_data
                     if not ctx.is_replaying:
-                        logger.info(f"{task_results['name']} sent a response.")
+                        logger.debug(f"{task_results['name']} sent a response.")
 
                 # Atomically process agent response, update history, check progress, and update plan
                 response_result = yield ctx.call_activity(
@@ -659,77 +674,68 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         try:
             # Look for existing plan using session_id
             existing_plan = None
-            for stored_instance_id, instance_data in self.state.get(
-                "instances", {}
-            ).items():
-                stored_session_id = instance_data.get("session_id")
-                current_session_id = (
-                    self.memory.session_id
-                    if self.memory
-                    else f"{self.name}_default_session"
+            if (
+                self.memory_store._current_state
+                and self.memory_store._current_state.get("instances")
+            ):
+                logger.debug(
+                    f"Found {len(self.memory_store._current_state['instances'])} instances in state"
                 )
-                if stored_session_id == current_session_id:
+                for instance_id, instance_data in self.memory_store._current_state.get(
+                    "instances", {}
+                ).items():
+                    # stored_session_id = instance_data.get("session_id")
+                    # if stored_session_id == self.memory.session_id:
                     existing_plan = instance_data.get("plan", [])
-                    logger.debug(
-                        f"Found existing plan for session_id {current_session_id} in instance {stored_instance_id}"
+                    logger.info(
+                        f"Found existing plan for session_id {self.memory_store.session_id}"
                     )
-                    break
+                    # break
 
-            if existing_plan:
-                logger.debug(
-                    f"Found existing plan in workflow state, reusing it: {len(existing_plan)} steps"
-                )
-                plan_objects = existing_plan
-            else:
-                # Generate new plan using the LLM
-                logger.debug(
-                    "No existing plan found in workflow state, generating new plan"
-                )
-                response = self.llm.generate(
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": TASK_PLANNING_PROMPT.format(
-                                task=task,
-                                agents=agents,
-                                plan_schema=schemas.plan,
-                            ),
-                        }
-                    ],
-                    response_format=IterablePlanStep,
-                    structured_mode="json",
-                )
-
-                # Parse the response
-                if isinstance(response, str):
-                    # If it's a raw JSON string
-                    plan_dict = json.loads(response)
-                    plan_objects = [
-                        PlanStep(**step_dict)
-                        for step_dict in plan_dict.get("objects", [])
-                    ]
-                elif hasattr(response, "choices") and response.choices:
-                    # If it's an OpenAI-style response with multiple choices
-                    plan_objects = []
-                    for choice in response.choices:
-                        plan_data = choice.message.content
-                        if isinstance(plan_data, str):
-                            plan_dict = json.loads(plan_data)
-                            plan_objects.extend(
-                                PlanStep(**step_dict)
-                                for step_dict in plan_dict.get("objects", [])
-                            )
-                        elif hasattr(plan_data, "objects"):
-                            plan_objects.extend(plan_data.objects)
+                if existing_plan:
+                    logger.info(
+                        f"Found existing plan in workflow state, reusing it: {len(existing_plan)} steps"
+                    )
+                    plan_objects = existing_plan
                 else:
-                    # If it's already a Pydantic model
-                    plan_objects = (
-                        response.objects if hasattr(response, "objects") else []
+                    # Generate new plan using the LLM
+                    logger.info(
+                        "No existing plan found in workflow state, generating new plan"
+                    )
+                    response = self.llm.generate(
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": TASK_PLANNING_PROMPT.format(
+                                    task=task,
+                                    agents=agents,
+                                    plan_schema=schemas.plan,
+                                ),
+                            }
+                        ],
+                        response_format=IterablePlanStep,
+                        structured_mode="json",
                     )
 
-                logger.debug(
-                    f"Plan generation response with {len(plan_objects)} objects: {plan_objects}"
-                )
+                    # Parse the response - now we get a Pydantic model directly
+                    if hasattr(response, "choices") and response.choices:
+                        # If it's still a raw response, parse it
+                        plan_data = response.choices[0].message.content
+                        logger.debug(f"Plan generation response: {plan_data}")
+                        plan_dict = json.loads(plan_data)
+                        # Convert raw dictionaries to Pydantic models
+                        plan_objects = [
+                            PlanStep(**step_dict)
+                            for step_dict in plan_dict.get("objects", [])
+                        ]
+                    else:
+                        # If it's already a Pydantic model
+                        plan_objects = (
+                            response.objects if hasattr(response, "objects") else []
+                        )
+                        logger.debug(
+                            f"Plan generation response (Pydantic): {plan_objects}"
+                        )
 
             # Format and broadcast message
             plan_dicts = self._convert_plan_objects_to_dicts(plan_objects)
@@ -1041,7 +1047,13 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         Raises:
             ValueError: If the workflow instance ID is not found in the local state.
         """
-        workflow_entry = self.state["instances"].get(instance_id)
+        if (
+            not self.memory_store._current_state
+            or "instances" not in self.memory_store._current_state
+        ):
+            raise ValueError("No workflow instances found in local state.")
+
+        workflow_entry = self.memory_store._current_state["instances"].get(instance_id)
         if not workflow_entry:
             raise ValueError(
                 f"No workflow entry found for instance_id {instance_id} in local state."
@@ -1057,9 +1069,12 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             workflow_entry["messages"].append(serialized_message)
             workflow_entry["last_message"] = serialized_message
 
-            # Update the local chat history if memory is enabled
-            if self.memory:
-                self.memory.add_message(message)
+            # Update the local chat history
+            if not self.memory_store._current_state:
+                self.memory_store._current_state = {}
+            if "chat_history" not in self.memory_store._current_state:
+                self.memory_store._current_state["chat_history"] = []
+            self.memory_store._current_state["chat_history"].append(serialized_message)
 
         if final_output is not None:
             workflow_entry["output"] = final_output
@@ -1070,7 +1085,9 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         workflow_entry["workflow_instance_id"] = instance_id
         workflow_entry["workflow_name"] = self._workflow_name
         workflow_entry["session_id"] = (
-            self.memory.session_id if self.memory else f"{self.name}_default_session"
+            self.memory_store.session_id
+            if self.memory_store
+            else f"{self.name}_default_session"
         )
 
         # Persist updated state
@@ -1147,8 +1164,14 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
             f"Triggering agent {name} for step {step}, substep {substep} (Instance ID: {instance_id})"
         )
 
-        # Get the workflow entry from self.state
-        workflow_entry = self.state["instances"].get(instance_id)
+        # Get the workflow entry from self.memory_store._current_state
+        if (
+            not self.memory_store._current_state
+            or "instances" not in self.memory_store._current_state
+        ):
+            raise ValueError("No workflow instances found in local state.")
+
+        workflow_entry = self.memory_store._current_state["instances"].get(instance_id)
         if not workflow_entry:
             raise ValueError(f"No workflow entry found for instance_id: {instance_id}")
 
@@ -1201,7 +1224,13 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         await self.update_workflow_state(instance_id=instance_id, message=results)
 
         # Retrieve Workflow state
-        workflow_entry = self.state["instances"].get(instance_id)
+        if (
+            not self.memory_store._current_state
+            or "instances" not in self.memory_store._current_state
+        ):
+            raise ValueError("No workflow instances found in local state.")
+
+        workflow_entry = self.memory_store._current_state["instances"].get(instance_id)
         if not workflow_entry:
             raise ValueError(f"No workflow entry found for instance_id: {instance_id}")
 
@@ -1334,9 +1363,13 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         Rollback workflow initialization by clearing partial state.
         """
         try:
-            if instance_id in self.state["instances"]:
+            if (
+                self.memory_store._current_state
+                and "instances" in self.memory_store._current_state
+                and instance_id in self.memory_store._current_state["instances"]
+            ):
                 # Clear the plan if it was partially created
-                self.state["instances"][instance_id]["plan"] = []
+                self.memory_store._current_state["instances"][instance_id]["plan"] = []
                 self.save_state()
                 logger.info(f"Rolled back workflow initialization for {instance_id}")
         except Exception as e:
@@ -1349,16 +1382,24 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         Rollback agent trigger by reverting step status.
         """
         try:
-            workflow_entry = self.state["instances"].get(instance_id)
-            if workflow_entry and "plan" in workflow_entry:
-                plan = workflow_entry["plan"]
-                step_entry = find_step_in_plan(plan, step_id, substep_id)
-                if step_entry and step_entry["status"] == "in_progress":
-                    step_entry["status"] = "not_started"
-                    await self.update_workflow_state(instance_id=instance_id, plan=plan)
-                    logger.info(
-                        f"Rolled back agent trigger for step {step_id}, substep {substep_id}"
-                    )
+            if (
+                self.memory_store._current_state
+                and "instances" in self.memory_store._current_state
+            ):
+                workflow_entry = self.memory_store._current_state["instances"].get(
+                    instance_id
+                )
+                if workflow_entry and "plan" in workflow_entry:
+                    plan = workflow_entry["plan"]
+                    step_entry = find_step_in_plan(plan, step_id, substep_id)
+                    if step_entry and step_entry["status"] == "in_progress":
+                        step_entry["status"] = "not_started"
+                        await self.update_workflow_state(
+                            instance_id=instance_id, plan=plan
+                        )
+                        logger.info(
+                            f"Rolled back agent trigger for step {step_id}, substep {substep_id}"
+                        )
         except Exception as e:
             logger.error(f"Failed to rollback agent trigger: {e}")
 
@@ -1369,35 +1410,44 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         Rollback agent response processing by reverting changes.
         """
         try:
-            workflow_entry = self.state["instances"].get(instance_id)
-            if workflow_entry:
-                # Remove the last task result if it was added
-                if "task_history" in workflow_entry and workflow_entry["task_history"]:
-                    # Find and remove the last entry for this agent/step
-                    task_history = workflow_entry["task_history"]
-                    for i in range(len(task_history) - 1, -1, -1):
-                        task = task_history[i]
-                        if (
-                            task.get("agent") == agent
-                            and task.get("step") == step_id
-                            and task.get("substep") == substep_id
-                        ):
-                            task_history.pop(i)
-                            break
-
-                # Revert step status if it was changed
-                if "plan" in workflow_entry:
-                    plan = workflow_entry["plan"]
-                    step_entry = find_step_in_plan(plan, step_id, substep_id)
-                    if step_entry and step_entry["status"] == "completed":
-                        step_entry["status"] = "in_progress"
-                        await self.update_workflow_state(
-                            instance_id=instance_id, plan=plan
-                        )
-
-                logger.info(
-                    f"Rolled back agent response processing for {agent} at step {step_id}, substep {substep_id}"
+            if (
+                self.memory_store._current_state
+                and "instances" in self.memory_store._current_state
+            ):
+                workflow_entry = self.memory_store._current_state["instances"].get(
+                    instance_id
                 )
+                if workflow_entry:
+                    # Remove the last task result if it was added
+                    if (
+                        "task_history" in workflow_entry
+                        and workflow_entry["task_history"]
+                    ):
+                        # Find and remove the last entry for this agent/step
+                        task_history = workflow_entry["task_history"]
+                        for i in range(len(task_history) - 1, -1, -1):
+                            task = task_history[i]
+                            if (
+                                task.get("agent") == agent
+                                and task.get("step") == step_id
+                                and task.get("substep") == substep_id
+                            ):
+                                task_history.pop(i)
+                                break
+
+                    # Revert step status if it was changed
+                    if "plan" in workflow_entry:
+                        plan = workflow_entry["plan"]
+                        step_entry = find_step_in_plan(plan, step_id, substep_id)
+                        if step_entry and step_entry["status"] == "completed":
+                            step_entry["status"] = "in_progress"
+                            await self.update_workflow_state(
+                                instance_id=instance_id, plan=plan
+                            )
+
+                    logger.info(
+                        f"Rolled back agent response processing for {agent} at step {step_id}, substep {substep_id}"
+                    )
         except Exception as e:
             logger.error(f"Failed to rollback agent response processing: {e}")
 
@@ -1406,16 +1456,22 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         Rollback workflow finalization to ensure consistent state.
         """
         try:
-            workflow_entry = self.state["instances"].get(instance_id)
-            if workflow_entry:
-                # Clear final output if it was set
-                if "output" in workflow_entry:
-                    workflow_entry["output"] = None
-                if "end_time" in workflow_entry:
-                    workflow_entry["end_time"] = None
+            if (
+                self.memory_store._current_state
+                and "instances" in self.memory_store._current_state
+            ):
+                workflow_entry = self.memory_store._current_state["instances"].get(
+                    instance_id
+                )
+                if workflow_entry:
+                    # Clear final output if it was set
+                    if "output" in workflow_entry:
+                        workflow_entry["output"] = None
+                    if "end_time" in workflow_entry:
+                        workflow_entry["end_time"] = None
 
-                self.save_state()
-                logger.info(f"Rolled back workflow finalization for {instance_id}")
+                    self.save_state()
+                    logger.info(f"Rolled back workflow finalization for {instance_id}")
         except Exception as e:
             logger.error(f"Failed to rollback workflow finalization: {e}")
 
@@ -1494,28 +1550,34 @@ class LLMOrchestrator(OrchestratorWorkflowBase):
         Ensures workflow state is consistent after compensation.
         """
         try:
-            workflow_entry = self.state["instances"].get(instance_id)
-            if not workflow_entry:
-                logger.warning(
-                    f"No workflow entry found for {instance_id} during consistency check"
+            if (
+                self.memory_store._current_state
+                and "instances" in self.memory_store._current_state
+            ):
+                workflow_entry = self.memory_store._current_state["instances"].get(
+                    instance_id
                 )
-                return
+                if not workflow_entry:
+                    logger.warning(
+                        f"No workflow entry found for {instance_id} during consistency check"
+                    )
+                    return
 
-            # Ensure plan exists and is valid
-            if "plan" not in workflow_entry or not workflow_entry["plan"]:
-                workflow_entry["plan"] = []
+                # Ensure plan exists and is valid
+                if "plan" not in workflow_entry or not workflow_entry["plan"]:
+                    workflow_entry["plan"] = []
 
-            # Ensure task_history exists
-            if "task_history" not in workflow_entry:
-                workflow_entry["task_history"] = []
+                # Ensure task_history exists
+                if "task_history" not in workflow_entry:
+                    workflow_entry["task_history"] = []
 
-            # Ensure messages exists
-            if "messages" not in workflow_entry:
-                workflow_entry["messages"] = []
+                # Ensure messages exists
+                if "messages" not in workflow_entry:
+                    workflow_entry["messages"] = []
 
-            # Save the consistent state
-            self.save_state()
-            logger.info(f"Ensured workflow state consistency for {instance_id}")
+                # Save the consistent state
+                self.save_state()
+                logger.info(f"Ensured workflow state consistency for {instance_id}")
 
         except Exception as e:
             logger.error(f"Failed to ensure workflow state consistency: {e}")

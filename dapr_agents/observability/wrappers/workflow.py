@@ -403,7 +403,7 @@ class WorkflowMonitorWrapper:
         """
         try:
             # Import here to avoid circular imports
-            from dapr_agents.agents.durableagent.state import DurableAgentWorkflowEntry
+            from dapr_agents.agents.memory_store import DurableAgentWorkflowEntry
 
             # This is a simplified approach - in practice, you'd need to access
             # the actual workflow state through the Dapr Workflow runtime

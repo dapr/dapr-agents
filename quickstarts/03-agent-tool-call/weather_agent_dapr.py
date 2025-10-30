@@ -1,8 +1,7 @@
 import asyncio
 from weather_tools import tools
-from dapr_agents import Agent
+from dapr_agents import Agent, MemoryStore
 from dotenv import load_dotenv
-from dapr_agents.memory import ConversationDaprStateMemory
 
 load_dotenv()
 
@@ -15,7 +14,12 @@ AIAgent = Agent(
         "If you perform any additional actions (like jumping), summarize those actions and their results.",
         "At the end, provide a concise summary that combines the weather information for all requested locations and any other actions you performed.",
     ],
-    memory=ConversationDaprStateMemory(store_name="historystore", session_id="some-id"),
+    memory_store=MemoryStore(
+        name="statestore",
+        # Optional
+        local_directory="./local-state",
+        session_id="session",
+    ),
     tools=tools,
 )
 

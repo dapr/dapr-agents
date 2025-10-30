@@ -1,5 +1,6 @@
 from dapr_agents.agents.agent import Agent
 from dapr_agents.agents.durableagent import DurableAgent
+from dapr_agents.agents.memory_store import MemoryStore
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
 from dapr_agents.llm.dapr import DaprChatClient
 from dapr_agents.llm.elevenlabs import ElevenLabsSpeechClient
@@ -22,6 +23,7 @@ from dapr_agents.workflow import (
 __all__ = [
     "Agent",
     "DurableAgent",
+    "MemoryStore",
     "DockerCodeExecutor",
     "LocalCodeExecutor",
     "ElevenLabsSpeechClient",

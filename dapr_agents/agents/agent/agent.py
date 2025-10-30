@@ -21,6 +21,18 @@ class Agent(AgentBase):
     It integrates tools and processes them based on user inputs and task orchestration.
     """
 
+    def get_chat_history(self, task: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves the chat history as a list of dictionaries.
+
+        Args:
+            task (Optional[str]): The task or query provided by the user.
+
+        Returns:
+            List[Dict[str, Any]]: The chat history as dictionaries.
+        """
+        return self.memory_store.get_messages()
+
     async def run(self, input_data: Optional[Union[str, Dict[str, Any]]] = None) -> Any:
         """
         Runs the agent with the given input, supporting graceful shutdown.
@@ -69,7 +81,7 @@ class Agent(AgentBase):
     ) -> Any:
         """
         Internal method for running the agent logic.
-        Formats messages, updates memory, and drives the conversation loop.
+        Formats messages, updates conversation history, and drives the conversation loop.
 
         Args:
             input_data (Optional[Union[str, Dict[str, Any]]]): Input for the agent, can be a string or dict.
@@ -77,7 +89,7 @@ class Agent(AgentBase):
             Any: The result of the agent's conversation loop.
         """
         logger.debug(
-            f"Agent run started with input: {input_data if input_data else 'Using memory context'}"
+            f"Agent run started with input: {input_data if input_data else 'Using session conversation context'}"
         )
 
         # Construct messages using only input_data; chat history handled internally
@@ -91,7 +103,7 @@ class Agent(AgentBase):
         if input_data and user_message_copy:
             # Add the new user message to memory only if input_data is provided and user message exists
             user_msg = UserMessage(content=user_message_copy.get("content", ""))
-            self.memory.add_message(user_msg)
+            self.memory_store.add_message(user_msg)
 
         # Always print the last user message for context, even if no input_data is provided
         if user_message_copy is not None:
@@ -160,8 +172,8 @@ class Agent(AgentBase):
                     )
                     # Print the tool message for visibility
                     self.text_formatter.print_message(tool_message)
-                    # Add tool message to memory
-                    self.memory.add_message(tool_message)
+                    # Add tool message to storage
+                    self.memory_store.add_message(tool_message)
                     # Append tool message to the persistent audit log
                     tool_execution_record = ToolExecutionRecord(
                         tool_call_id=tool_id,
@@ -215,7 +227,7 @@ class Agent(AgentBase):
                 else:
                     assistant = response_message
                     self.text_formatter.print_message(assistant)
-                    self.memory.add_message(assistant)
+                    self.memory_store.add_message(assistant)
 
                 # Handle tool calls response
                 if assistant is not None and assistant.has_tool_calls():

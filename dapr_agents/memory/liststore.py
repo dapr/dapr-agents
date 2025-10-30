@@ -55,7 +55,3 @@ class ConversationListMemory(MemoryBase):
             List[Dict[str, Any]]: A list containing copies of all stored messages as dictionaries.
         """
         return self.messages.copy()
-
-    def reset_memory(self):
-        """Clears all messages stored in the memory, resetting the memory to an empty state."""
-        self.messages.clear()

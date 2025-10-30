@@ -2,7 +2,7 @@ import asyncio
 import logging
 from dotenv import load_dotenv
 
-from dapr_agents import DurableAgent
+from dapr_agents import DurableAgent, MemoryStore
 from dapr_agents.tool.mcp import MCPClient
 
 
@@ -27,10 +27,12 @@ async def main():
             ],
             tools=tools,
             message_bus_name="messagepubsub",
-            state_store_name="workflowstatestore",
-            state_key="workflow_state",
-            agents_registry_store_name="agentstatestore",
-            agents_registry_key="agents_registry",
+            memory_store=MemoryStore(
+                name="statestore",
+                # Optional
+                local_directory="./local-state",
+                session_id="session",
+            ),
         ).as_service(port=8001)
 
         # Start the FastAPI agent service

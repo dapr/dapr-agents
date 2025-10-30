@@ -27,6 +27,3 @@ class DummyVectorMemory(MemoryBase):
         self, user_message: BaseMessage, assistant_message: BaseMessage
     ):
         pass
-
-    def reset_memory(self):
-        pass
