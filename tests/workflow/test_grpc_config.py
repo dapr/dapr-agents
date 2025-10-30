@@ -148,7 +148,10 @@ def test_grpc_channel_patching():
         # Confirm get_grpc_channel was overridden
         assert callable(mock_shared.get_grpc_channel)
         assert mock_shared.get_grpc_channel is not original_get_grpc_channel
-        assert getattr(mock_shared.get_grpc_channel, "__name__", "") == "get_grpc_channel_with_options"
+        assert (
+            getattr(mock_shared.get_grpc_channel, "__name__", "")
+            == "get_grpc_channel_with_options"
+        )
 
         # Call the patched function
         test_address = "localhost:50001"
