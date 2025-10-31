@@ -55,7 +55,7 @@ class ChatPromptTemplate(PromptTemplateBase):
         "tool": ToolMessage,
     }
 
-    def format_prompt(
+    def format(
         self, template_format: Optional[str] = None, **kwargs: Any
     ) -> List[Dict[str, Any]]:
         """

@@ -311,7 +311,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         if input_data:
             if not self.prompt_template:
                 raise ValueError("input_data provided but no prompt_template is set.")
-            messages = self.prompt_template.format_prompt(**input_data)
+            messages = self.prompt_template.format(**input_data)
 
         if not messages:
             raise ValueError("Either 'messages' or 'input_data' must be provided.")

@@ -24,7 +24,7 @@ class PromptTemplateBase(ABC, BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @abstractmethod
-    def format_prompt(self, **kwargs: Any) -> Union[str, List[Any]]:
+    def format(self, **kwargs: Any) -> Union[str, List[Any]]:
         """
         Abstract method for formatting the prompt. Must be implemented by subclasses.
 

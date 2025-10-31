@@ -150,7 +150,7 @@ class HFHubChatClient(HFHubInferenceClientBase, ChatClientBase):
             if not self.prompt_template:
                 raise ValueError("No prompt_template set for input_data usage.")
             logger.info("Formatting messages via prompt_template.")
-            messages = self.prompt_template.format_prompt(**input_data)
+            messages = self.prompt_template.format(**input_data)
 
         if not messages:
             raise ValueError("Either messages or input_data must be provided.")

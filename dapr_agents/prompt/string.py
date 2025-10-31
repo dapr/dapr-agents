@@ -16,7 +16,7 @@ class StringPromptTemplate(PromptTemplateBase):
     template: str
     template_format: Literal["f-string", "jinja2"] = "f-string"
 
-    def format_prompt(self, **kwargs: Any) -> str:
+    def format(self, **kwargs: Any) -> str:
         """
         Format the prompt by replacing variables in the template, using any provided keyword arguments.
         Validates the template structure before formatting.

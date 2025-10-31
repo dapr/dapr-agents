@@ -154,7 +154,7 @@ class NVIDIAChatClient(NVIDIAClientBase, ChatClientBase):
             if not self.prompt_template:
                 raise ValueError("input_data provided but no prompt_template is set.")
             logger.info("Formatting messages via prompt_template.")
-            messages = self.prompt_template.format_prompt(**input_data)
+            messages = self.prompt_template.format(**input_data)
 
         if not messages:
             raise ValueError("Either 'messages' or 'input_data' must be provided.")

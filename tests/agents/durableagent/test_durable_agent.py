@@ -719,8 +719,8 @@ class TestDurableAgent:
         }
 
         # Mock prompt template
-        basic_durable_agent.prompt_template = Mock()
-        basic_durable_agent.prompt_template.format_prompt.return_value = [
+        basic_durable_agent.prompt.template = Mock()
+        basic_durable_agent.prompt.template.format.return_value = [
             {"role": "system", "content": "System prompt"}
         ]
 
