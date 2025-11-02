@@ -68,7 +68,10 @@ class WorkflowGrpcOptions:
     max_receive_message_length: Optional[int] = None
 
     def __post_init__(self) -> None:
-        if self.max_send_message_length is not None and self.max_send_message_length <= 0:
+        if (
+            self.max_send_message_length is not None
+            and self.max_send_message_length <= 0
+        ):
             raise ValueError("max_send_message_length must be greater than 0")
         if (
             self.max_receive_message_length is not None

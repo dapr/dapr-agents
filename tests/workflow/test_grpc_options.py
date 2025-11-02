@@ -55,7 +55,9 @@ def test_apply_grpc_options_only_send():
         shared.get_grpc_channel("localhost:4001")
         grpc_mock.insecure_channel.assert_called_once()
         call_kwargs = grpc_mock.insecure_channel.call_args.kwargs
-        assert ("grpc.max_send_message_length", 16 * 1024 * 1024) in call_kwargs["options"]
+        assert ("grpc.max_send_message_length", 16 * 1024 * 1024) in call_kwargs[
+            "options"
+        ]
         assert "grpc.max_receive_message_length" not in dict(call_kwargs["options"])
 
 
@@ -71,7 +73,9 @@ def test_apply_grpc_options_only_receive():
         shared.get_grpc_channel("localhost:4001")
         grpc_mock.insecure_channel.assert_called_once()
         call_kwargs = grpc_mock.insecure_channel.call_args.kwargs
-        assert ("grpc.max_receive_message_length", 24 * 1024 * 1024) in call_kwargs["options"]
+        assert ("grpc.max_receive_message_length", 24 * 1024 * 1024) in call_kwargs[
+            "options"
+        ]
         assert "grpc.max_send_message_length" not in dict(call_kwargs["options"])
 
 

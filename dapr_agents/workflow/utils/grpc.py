@@ -26,7 +26,9 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
         import grpc
         from durabletask.internal import shared
     except ImportError as exc:
-        logger.error("Failed to import grpc/durabletask for channel configuration: %s", exc)
+        logger.error(
+            "Failed to import grpc/durabletask for channel configuration: %s", exc
+        )
         raise
 
     grpc_options = []
@@ -64,7 +66,9 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
 
         if secure_channel:
             credentials = grpc.ssl_channel_credentials()
-            channel = grpc.secure_channel(host_address, credentials, options=grpc_options)
+            channel = grpc.secure_channel(
+                host_address, credentials, options=grpc_options
+            )
         else:
             channel = grpc.insecure_channel(host_address, options=grpc_options)
 
@@ -74,5 +78,6 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
         return channel
 
     shared.get_grpc_channel = get_grpc_channel_with_options
-    logger.debug("Applied gRPC options to durabletask channel factory: %s", dict(grpc_options))
-
+    logger.debug(
+        "Applied gRPC options to durabletask channel factory: %s", dict(grpc_options)
+    )
