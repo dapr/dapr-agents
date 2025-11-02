@@ -12,6 +12,7 @@ from dapr_agents.agents.configs import (
     AgentRegistryConfig,
     AgentStateConfig,
     AgentExecutionConfig,
+    WorkflowGrpcOptions,
     DEFAULT_AGENT_WORKFLOW_BUNDLE,
 )
 from dapr_agents.agents.prompting import AgentProfileConfig, PromptingAgentBase
@@ -65,6 +66,7 @@ class AgentBase(AgentComponents):
         tools: Optional[Iterable[Any]] = None,
         # Metadata
         agent_metadata: Optional[Dict[str, Any]] = None,
+        workflow_grpc: Optional[WorkflowGrpcOptions] = None,
         # Execution
         execution: Optional[AgentExecutionConfig] = None,
     ) -> None:
@@ -95,6 +97,7 @@ class AgentBase(AgentComponents):
             tools: Optional tool callables or `AgentTool` instances.
 
             agent_metadata: Extra metadata to store in the registry.
+            workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
         """
         # Resolve and validate profile (ensures non-empty name).
         resolved_profile = self._build_profile(
@@ -118,6 +121,7 @@ class AgentBase(AgentComponents):
             base_metadata=base_metadata,
             max_etag_attempts=max_etag_attempts,
             default_bundle=DEFAULT_AGENT_WORKFLOW_BUNDLE,
+            workflow_grpc_options=workflow_grpc,
         )
 
         # -----------------------------

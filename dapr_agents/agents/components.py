@@ -14,6 +14,7 @@ from dapr_agents.agents.configs import (
     AgentRegistryConfig,
     AgentStateConfig,
     DEFAULT_AGENT_WORKFLOW_BUNDLE,
+    WorkflowGrpcOptions,
 )
 from dapr_agents.agents.schemas import AgentWorkflowEntry
 from dapr_agents.storage.daprstores.stateservice import StateStoreError
@@ -47,6 +48,7 @@ class AgentComponents:
         base_metadata: Optional[Dict[str, Any]] = None,
         max_etag_attempts: int = 10,
         default_bundle: Optional["StateModelBundle"] = None,
+        workflow_grpc_options: Optional["WorkflowGrpcOptions"] = None,
     ) -> None:
         """
         Initialize component wiring.
@@ -61,6 +63,7 @@ class AgentComponents:
             default_bundle: Default state schema bundle (injected by agent/orchestrator class).
         """
         self.name = name
+        self._workflow_grpc_options = workflow_grpc_options
 
         # -----------------------------
         # Pub/Sub configuration (copy)
@@ -172,6 +175,11 @@ class AgentComponents:
     def workflow_state(self) -> BaseModel:
         """Return the in-memory workflow state model (customizable model)."""
         return self._state_model
+
+    @property
+    def workflow_grpc_options(self) -> Optional[WorkflowGrpcOptions]:
+        """Return workflow gRPC tuning options if provided."""
+        return self._workflow_grpc_options
 
     @property
     def state(self) -> Dict[str, Any]:
