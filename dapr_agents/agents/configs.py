@@ -55,6 +55,29 @@ DEFAULT_AGENT_WORKFLOW_BUNDLE = StateModelBundle(
 
 
 @dataclass
+class WorkflowGrpcOptions:
+    """
+    Optional overrides for Durable Task gRPC channel limits.
+
+    Allows agents/orchestrators to lift the default ~4 MB message size
+    ceiling when sending or receiving large payloads through the workflow
+    runtime channel.
+    """
+
+    max_send_message_length: Optional[int] = None
+    max_receive_message_length: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        if self.max_send_message_length is not None and self.max_send_message_length <= 0:
+            raise ValueError("max_send_message_length must be greater than 0")
+        if (
+            self.max_receive_message_length is not None
+            and self.max_receive_message_length <= 0
+        ):
+            raise ValueError("max_receive_message_length must be greater than 0")
+
+
+@dataclass
 class AgentStateConfig:
     """
     State persistence configuration.
