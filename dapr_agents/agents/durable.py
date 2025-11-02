@@ -13,6 +13,7 @@ from dapr_agents.agents.configs import (
     AgentRegistryConfig,
     AgentStateConfig,
     AgentExecutionConfig,
+    WorkflowGrpcOptions,
 )
 from dapr_agents.agents.prompting import AgentProfileConfig
 from dapr_agents.agents.schemas import (
@@ -31,6 +32,7 @@ from dapr_agents.types import (
 )
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.workflow.decorators.routers import message_router
+from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
 
 logger = logging.getLogger(__name__)
@@ -71,6 +73,7 @@ class DurableAgent(AgentBase):
         execution: Optional[AgentExecutionConfig] = None,
         # Misc
         agent_metadata: Optional[Dict[str, Any]] = None,
+        workflow_grpc: Optional[WorkflowGrpcOptions] = None,
         runtime: Optional[wf.WorkflowRuntime] = None,
     ) -> None:
         """
@@ -96,6 +99,7 @@ class DurableAgent(AgentBase):
             tools: Optional tool callables or `AgentTool` instances.
 
             agent_metadata: Extra metadata to publish to the registry.
+            workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
             runtime: Optional pre-existing workflow runtime to attach to.
         """
         super().__init__(
@@ -112,10 +116,13 @@ class DurableAgent(AgentBase):
             registry=registry,
             execution=execution,
             agent_metadata=agent_metadata,
+            workflow_grpc=workflow_grpc,
             llm=llm,
             tools=tools,
             prompt_template=prompt_template,
         )
+
+        apply_grpc_options(self.workflow_grpc_options)
 
         self._runtime: wf.WorkflowRuntime = runtime or wf.WorkflowRuntime()
         self._runtime_owned = runtime is None

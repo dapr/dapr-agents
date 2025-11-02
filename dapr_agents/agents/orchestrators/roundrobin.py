@@ -12,6 +12,7 @@ from dapr_agents.agents.configs import (
     AgentRegistryConfig,
     AgentStateConfig,
     AgentExecutionConfig,
+    WorkflowGrpcOptions,
 )
 from dapr_agents.agents.orchestrators.base import OrchestratorBase
 from dapr_agents.agents.schemas import (
@@ -43,6 +44,7 @@ class RoundRobinOrchestrator(OrchestratorBase):
         registry: Optional[AgentRegistryConfig] = None,
         execution: Optional[AgentExecutionConfig] = None,
         agent_metadata: Optional[Dict[str, Any]] = None,
+        workflow_grpc: Optional[WorkflowGrpcOptions] = None,
         timeout_seconds: int = 60,
         runtime: Optional[wf.WorkflowRuntime] = None,
     ) -> None:
@@ -53,6 +55,7 @@ class RoundRobinOrchestrator(OrchestratorBase):
             registry=registry,
             execution=execution,
             agent_metadata=agent_metadata,
+            workflow_grpc=workflow_grpc,
             runtime=runtime,
         )
         self.timeout = max(1, timeout_seconds)

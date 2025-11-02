@@ -12,6 +12,7 @@ from dapr_agents.agents.configs import (
     AgentRegistryConfig,
     AgentStateConfig,
     AgentExecutionConfig,
+    WorkflowGrpcOptions,
 )
 from dapr_agents.agents.orchestrators.base import OrchestratorBase
 from dapr_agents.agents.orchestrators.llm.configs import build_llm_state_bundle
@@ -49,6 +50,7 @@ class LLMOrchestratorBase(OrchestratorBase):
         agent_metadata: Optional[Dict[str, Any]] = None,
         memory: Optional[AgentMemoryConfig] = None,
         llm: Optional[ChatClientBase] = None,
+        workflow_grpc: Optional[WorkflowGrpcOptions] = None,
         runtime: Optional[wf.WorkflowRuntime] = None,
         workflow_client: Optional[wf.DaprWorkflowClient] = None,
     ) -> None:
@@ -64,6 +66,7 @@ class LLMOrchestratorBase(OrchestratorBase):
             agent_metadata (Optional[Dict[str, Any]]): Metadata to store alongside the registry entry.
             memory (Optional[AgentMemoryConfig]): Memory configuration for the orchestrator.
             llm (Optional[ChatClientBase]): LLM client instance.
+            workflow_grpc (Optional[WorkflowGrpcOptions]): gRPC overrides for the workflow runtime channel.
             runtime (Optional[wf.WorkflowRuntime]): Workflow runtime configuration.
             workflow_client (Optional[wf.DaprWorkflowClient]): Dapr workflow client.
         """
@@ -74,6 +77,7 @@ class LLMOrchestratorBase(OrchestratorBase):
             registry=registry,
             execution=execution,
             agent_metadata=agent_metadata,
+            workflow_grpc=workflow_grpc,
             runtime=runtime,
             workflow_client=workflow_client,
             default_bundle=build_llm_state_bundle(),

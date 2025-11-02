@@ -13,8 +13,10 @@ from dapr_agents.agents.configs import (
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
+    WorkflowGrpcOptions,
 )
 from dapr_agents.agents.utils.text_printer import ColorTextFormatter
+from dapr_agents.workflow.utils.grpc import apply_grpc_options
 
 if TYPE_CHECKING:
     from dapr_agents.agents.configs import StateModelBundle
@@ -42,6 +44,7 @@ class OrchestratorBase(AgentComponents):
         registry: Optional[AgentRegistryConfig] = None,
         execution: Optional[AgentExecutionConfig] = None,
         agent_metadata: Optional[Dict[str, Any]] = None,
+        workflow_grpc: Optional[WorkflowGrpcOptions] = None,
         runtime: Optional[wf.WorkflowRuntime] = None,
         workflow_client: Optional[wf.DaprWorkflowClient] = None,
         default_bundle: Optional["StateModelBundle"] = None,
@@ -56,6 +59,7 @@ class OrchestratorBase(AgentComponents):
             registry: Agent registry configuration for discovery.
             agent_metadata: Extra metadata to store in the registry; ``orchestrator=True``
                 is enforced automatically.
+            workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
             runtime: Optional pre-existing workflow runtime to attach to.
             workflow_client: Optional DaprWorkflowClient for dependency injection/testing.
             default_bundle: Optional state schema bundle (injected by orchestrator subclass).
@@ -65,6 +69,7 @@ class OrchestratorBase(AgentComponents):
             pubsub=pubsub,
             state=state,
             registry=registry,
+            workflow_grpc_options=workflow_grpc,
             default_bundle=default_bundle,
         )
 
@@ -86,6 +91,8 @@ class OrchestratorBase(AgentComponents):
                 )
 
         # Runtime wiring
+        apply_grpc_options(self.workflow_grpc_options)
+
         self._runtime: wf.WorkflowRuntime = runtime or wf.WorkflowRuntime()
         self._runtime_owned = runtime is None
         self._registered = False
