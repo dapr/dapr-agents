@@ -42,6 +42,14 @@ class TriggerAction(BaseModel):
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
     )
+    expect_response: bool = Field(
+        default=True,
+        description="Whether the source agent expects a response back. Set to False for handoff chains.",
+    )
+    handoff_metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional structured metadata associated with a handoff invocation.",
+    )
 
 
 class AgentWorkflowMessage(MessageContent):
