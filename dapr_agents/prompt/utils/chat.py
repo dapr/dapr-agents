@@ -210,9 +210,21 @@ class ChatPromptHelper:
 
         message_class = cls._ROLE_MAP[role]
         if role == "tool":
-            return message_class(
-                content=content, tool_call_id=message_data.get("tool_call_id")
-            )
+            # Prefer explicit tool_call_id, fall back to any persisted id, otherwise synthesize
+            tool_call_id = message_data.get("tool_call_id") or message_data.get("id")
+            if not tool_call_id:
+                tool_call = message_data.get("tool_call")
+                if isinstance(tool_call, dict):
+                    tool_call_id = tool_call.get("id")
+            if not tool_call_id:
+                generated = f"tool:{message_data.get('name', 'unknown')}"
+                logger.debug(
+                    "create_message: Synthesizing missing tool_call_id '%s' for tool message %s",
+                    generated,
+                    message_data,
+                )
+                tool_call_id = generated
+            return message_class(content=content, tool_call_id=str(tool_call_id))
         elif role == "assistant" and message_data.get("tool_calls") is not None:
             # Pass tool_calls to AssistantMessage if present
             return message_class(

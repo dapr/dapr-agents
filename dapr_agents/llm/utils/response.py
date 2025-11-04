@@ -104,6 +104,22 @@ class ResponseHandler:
                 raise ValueError("No candidates in LLMChatResponse")
             assistant = first_candidate.message
 
+            # When the model has issued tool calls (handoffs/function calls) or withheld content,
+            # skip structured validation so the caller can execute those tools and retry.
+            if (
+                structured_mode == "json"
+                and response_format is not None
+                and hasattr(assistant, "has_tool_calls")
+                and (
+                    assistant.has_tool_calls()
+                    or not getattr(assistant, "content", None)
+                )
+            ):
+                logger.debug(
+                    "Structured validation skipped: pending tool calls or empty content detected."
+                )
+                return llm_resp
+
             # 3a) Get the raw JSON or function‐call payload
             raw = StructureHandler.extract_structured_response(
                 message=assistant,

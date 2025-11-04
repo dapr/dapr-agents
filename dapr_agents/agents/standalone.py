@@ -331,7 +331,8 @@ class Agent(AgentBase):
             async with semaphore:
                 return await self._run_tool_call(instance_id, tool_call)
 
-        return await asyncio.gather(*(run_single(call) for call in tool_calls))
+        raw_results = await asyncio.gather(*(run_single(call) for call in tool_calls))
+        return self._persist_tool_results(instance_id, raw_results)
 
     async def _run_tool_call(
         self, instance_id: str, tool_call: ToolCall
@@ -362,7 +363,6 @@ class Agent(AgentBase):
             logger.error("Error executing tool %s: %s", function_name, exc)
             raise AgentError(f"Error executing tool '{function_name}': {exc}") from exc
 
-        # Safe serialization of tool result
         if isinstance(result, str):
             serialized_result = result
         else:
@@ -371,49 +371,107 @@ class Agent(AgentBase):
             except Exception:  # noqa: BLE001
                 serialized_result = str(result)
 
-        # Build memory + durable messages
-        tool_message = ToolMessage(
-            tool_call_id=tool_call.id,
-            name=function_name,
-            content=serialized_result,
-        )
-        message_dict = tool_message.model_dump()
+        tool_message_dict = {
+            "role": "tool",
+            "tool_call_id": tool_call.id,
+            "name": function_name,
+            "content": serialized_result,
+        }
 
-        history_entry = ToolExecutionRecord(
-            tool_call_id=tool_call.id,
-            tool_name=function_name,
-            tool_args=function_args,
-            execution_result=serialized_result,
-        )
+        tool_result = {
+            "tool_call_id": tool_call.id,
+            "tool_name": function_name,
+            "tool_args": function_args,
+            "execution_result": serialized_result,
+        }
 
-        # Append to durable timeline using the flexible model/coercer path
+        return {
+            "tool_result": tool_result,
+            "message": tool_message_dict,
+        }
+
+    def _persist_tool_results(
+        self,
+        instance_id: str,
+        tool_payloads: Sequence[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Persist tool results to state and memory, returning the tool messages.
+        """
+        if not tool_payloads:
+            return []
+
         container = self._get_entry_container()
         entry = container.get(instance_id) if container else None
-        if entry is not None and hasattr(entry, "messages"):
-            # Prefer a custom coercer if configured; otherwise the configured message model, with a safe fallback.
-            try:
-                if getattr(self, "_message_coercer", None):
-                    durable_message = self._message_coercer(message_dict)  # type: ignore[attr-defined]
-                else:
-                    durable_message = self._message_dict_to_message_model(message_dict)
-            except Exception:
-                # Last-resort: keep the raw dict so we don't drop tool output.
-                durable_message = dict(message_dict)
 
-            entry.messages.append(durable_message)
-            if hasattr(entry, "tool_history"):
-                entry.tool_history.append(history_entry)
-            if hasattr(entry, "last_message"):
-                entry.last_message = durable_message
+        existing_runtime_ids = {
+            getattr(record, "tool_call_id", None)
+            for record in getattr(self, "tool_history", [])
+        }
 
-        # Always persist to memory + in-process history
-        self.text_formatter.print_message(message_dict)
-        self.memory.add_message(tool_message)
-        self.tool_history.append(history_entry)
-        self.save_state()
+        emitted_messages: List[Dict[str, Any]] = []
 
-        # Return tool message dict so the next LLM turn can see it
-        return message_dict
+        for payload in tool_payloads:
+            tool_data = payload.get("tool_result") or {}
+            message_dict = payload.get("message") or {}
+
+            tool_call_id = tool_data.get("tool_call_id")
+            tool_name = tool_data.get("tool_name")
+            execution_result = tool_data.get("execution_result")
+
+            if not tool_call_id or not tool_name:
+                logger.debug("Skipping incomplete tool payload: %s", payload)
+                continue
+
+            # Reconstruct canonical message/model objects
+            tool_message = ToolMessage(
+                tool_call_id=tool_call_id,
+                name=tool_name,
+                content=execution_result,
+            )
+            message_dict = message_dict or tool_message.model_dump()
+
+            history_entry = ToolExecutionRecord(
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                tool_args=tool_data.get("tool_args") or {},
+                execution_result=execution_result,
+            )
+
+            if entry is not None and hasattr(entry, "messages"):
+                existing_ids = self._get_existing_message_ids(entry)
+
+                if tool_message.tool_call_id not in existing_ids:
+                    try:
+                        if getattr(self, "_message_coercer", None):
+                            durable_message = self._message_coercer(
+                                message_dict
+                            )  # type: ignore[attr-defined]
+                        else:
+                            durable_message = self._message_dict_to_message_model(
+                                message_dict
+                            )
+                    except Exception:
+                        durable_message = dict(message_dict)
+
+                    entry.messages.append(durable_message)
+                    if hasattr(entry, "tool_history"):
+                        entry.tool_history.append(history_entry)
+                    if hasattr(entry, "last_message"):
+                        entry.last_message = durable_message
+
+            if history_entry.tool_call_id not in existing_runtime_ids:
+                self.tool_history.append(history_entry)
+                existing_runtime_ids.add(history_entry.tool_call_id)
+                self.memory.add_message(tool_message)
+
+            self.text_formatter.print_message(message_dict)
+            emitted_messages.append(message_dict)
+
+        if entry is not None:
+            self.save_state()
+
+        return emitted_messages
 
     # ------------------------------------------------------------------
     # Finalization
