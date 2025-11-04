@@ -43,9 +43,9 @@ class TestAgentMetadataBuilding:
             role="Tester",
             goal="Test metadata building",
         )
-        
+
         metadata = agent._build_agent_metadata()
-        
+
         assert metadata is not None
         assert isinstance(metadata, AgentMetadata)
         assert metadata.name == "TestAgent"
@@ -65,25 +65,25 @@ class TestAgentMetadataBuilding:
             goal="Follow instructions",
             instructions=["Be helpful", "Be concise", "Be accurate"],
         )
-        
+
         metadata = agent._build_agent_metadata()
-        
+
         assert metadata.instructions == ["Be helpful", "Be concise", "Be accurate"]
 
     def test_build_metadata_durable_agent_category(self):
         """Test that DurableAgent has correct category."""
         # Create with all required configs but don't trigger registration
         pubsub_config = AgentPubSubConfig(pubsub_name="test-pubsub")
-        
+
         agent = DurableAgent(
             name="DurableTestAgent",
             role="Durable",
             goal="Test durable category",
             pubsub_config=pubsub_config,
         )
-        
+
         metadata = agent._build_agent_metadata()
-        
+
         assert metadata.agent_class == "DurableAgent"
         assert metadata.agent_category == "durable-agent"
 
@@ -95,18 +95,21 @@ class TestComponentMappingsExtraction:
         """Test component extraction with state store."""
         state_store = StateStoreService(store_name="my-state-store")
         state_config = AgentStateConfig(store=state_store)
-        
+
         agent = Agent(
             name="StatefulAgent",
             role="Tester",
             state_config=state_config,
         )
-        
+
         components = agent._extract_component_mappings()
-        
+
         assert "workflow" in components.state_stores
         assert components.state_stores["workflow"].name == "my-state-store"
-        assert components.state_stores["workflow"].usage == "Durable workflow state storage"
+        assert (
+            components.state_stores["workflow"].usage
+            == "Durable workflow state storage"
+        )
 
     @patch("dapr.clients.DaprClient")
     def test_extract_components_with_agent_registry(self, mock_client_cls):
@@ -115,44 +118,50 @@ class TestComponentMappingsExtraction:
         mock_client = MagicMock()
         mock_client_cls.return_value.__enter__.return_value = mock_client
         mock_client_cls.return_value.__exit__.return_value = None
-        
+
         # Mock the state operations
         mock_response = Mock()
         mock_response.data = json.dumps({}).encode("utf-8")
         mock_response.etag = "test-etag"
         mock_client.get_state.return_value = mock_response
-        
+
         agent_registry_store = StateStoreService(store_name="agent-registry-store")
         agent_registry_config = AgentRegistryConfig(store=agent_registry_store)
-        
+
         agent = Agent(
             name="RegistryAgent",
             role="Tester",
             agent_registry_config=agent_registry_config,
         )
-        
+
         components = agent._extract_component_mappings()
-        
+
         assert "agent_registry" in components.state_stores
         assert components.state_stores["agent_registry"].name == "agent-registry-store"
-        assert components.state_stores["agent_registry"].usage == "Agent metadata discovery registry"
+        assert (
+            components.state_stores["agent_registry"].usage
+            == "Agent metadata discovery registry"
+        )
 
     def test_extract_components_with_team_registry(self):
         """Test component extraction with team registry store."""
         team_registry_store = StateStoreService(store_name="team-registry-store")
         registry_config = AgentRegistryConfig(store=team_registry_store)
-        
+
         agent = Agent(
             name="TeamAgent",
             role="Tester",
             registry_config=registry_config,
         )
-        
+
         components = agent._extract_component_mappings()
-        
+
         assert "team_registry" in components.state_stores
         assert components.state_stores["team_registry"].name == "team-registry-store"
-        assert components.state_stores["team_registry"].usage == "Team pub/sub addressing registry"
+        assert (
+            components.state_stores["team_registry"].usage
+            == "Team pub/sub addressing registry"
+        )
 
     @patch("dapr.clients.DaprClient")
     def test_extract_components_with_both_registries(self, mock_client_cls):
@@ -161,31 +170,31 @@ class TestComponentMappingsExtraction:
         mock_client = MagicMock()
         mock_client_cls.return_value.__enter__.return_value = mock_client
         mock_client_cls.return_value.__exit__.return_value = None
-        
+
         # Mock the state operations
         mock_response = Mock()
         mock_response.data = json.dumps({}).encode("utf-8")
         mock_response.etag = "test-etag"
         mock_client.get_state.return_value = mock_response
-        
+
         agent_registry_store = StateStoreService(store_name="agent-store")
         team_registry_store = StateStoreService(store_name="team-store")
-        
+
         agent_registry_config = AgentRegistryConfig(store=agent_registry_store)
         registry_config = AgentRegistryConfig(store=team_registry_store)
-        
+
         agent = Agent(
             name="DualRegistryAgent",
             role="Tester",
             agent_registry_config=agent_registry_config,
             registry_config=registry_config,
         )
-        
+
         components = agent._extract_component_mappings()
-        
+
         assert "agent_registry" in components.state_stores
         assert components.state_stores["agent_registry"].name == "agent-store"
-        
+
         assert "team_registry" in components.state_stores
         assert components.state_stores["team_registry"].name == "team-store"
 
@@ -195,15 +204,15 @@ class TestComponentMappingsExtraction:
             pubsub_name="my-pubsub",
             agent_topic="agent-topic",
         )
-        
+
         agent = DurableAgent(
             name="PubSubAgent",
             role="Tester",
             pubsub_config=pubsub_config,
         )
-        
+
         components = agent._extract_component_mappings()
-        
+
         assert "default" in components.pubsub_components
         assert components.pubsub_components["default"].name == "my-pubsub"
         assert components.pubsub_components["default"].topic_name == "agent-topic"
@@ -215,15 +224,15 @@ class TestToolDefinitionsExtraction:
     def test_extract_tool_from_agent_tool(self):
         """Test extracting tool definition from AgentTool."""
         tool = AgentTool.from_func(sample_tool_function)
-        
+
         agent = Agent(
             name="ToolAgent",
             role="Tester",
             tools=[tool],
         )
-        
+
         tool_defs = agent._extract_tool_definitions()
-        
+
         assert len(tool_defs) == 1
         assert tool_defs[0].name == "SampleToolFunction"
         assert "sample tool function" in tool_defs[0].description.lower()
@@ -237,9 +246,9 @@ class TestToolDefinitionsExtraction:
             role="Tester",
             tools=[tool],
         )
-        
+
         tool_defs = agent._extract_tool_definitions()
-        
+
         assert len(tool_defs) == 1
         assert tool_defs[0].name == "CustomToolCallable"
         assert "custom callable" in tool_defs[0].description.lower()
@@ -249,15 +258,15 @@ class TestToolDefinitionsExtraction:
         """Test extracting multiple tool definitions."""
         tool1 = AgentTool.from_func(sample_tool_function)
         tool2 = AgentTool.from_func(custom_tool_callable)
-        
+
         agent = Agent(
             name="MultiToolAgent",
             role="Tester",
             tools=[tool1, tool2],
         )
-        
+
         tool_defs = agent._extract_tool_definitions()
-        
+
         assert len(tool_defs) == 2
         assert tool_defs[0].name == "SampleToolFunction"
         assert tool_defs[1].name == "CustomToolCallable"
@@ -268,9 +277,9 @@ class TestToolDefinitionsExtraction:
             name="NoToolsAgent",
             role="Tester",
         )
-        
+
         tool_defs = agent._extract_tool_definitions()
-        
+
         assert tool_defs == []
 
 
@@ -284,24 +293,24 @@ class TestMetadataIntegration:
         mock_client = MagicMock()
         mock_client_cls.return_value.__enter__.return_value = mock_client
         mock_client_cls.return_value.__exit__.return_value = None
-        
+
         # Mock the state operations
         mock_response = Mock()
         mock_response.data = json.dumps({}).encode("utf-8")
         mock_response.etag = "test-etag"
         mock_client.get_state.return_value = mock_response
-        
+
         # Setup all configs
         state_store = StateStoreService(store_name="state-store")
         agent_registry_store = StateStoreService(store_name="agent-store")
         team_registry_store = StateStoreService(store_name="team-store")
-        
+
         state_config = AgentStateConfig(store=state_store)
         agent_registry_config = AgentRegistryConfig(store=agent_registry_store)
         registry_config = AgentRegistryConfig(store=team_registry_store)
-        
+
         tool = AgentTool.from_func(sample_tool_function)
-        
+
         agent = Agent(
             name="CompleteAgent",
             role="Full Featured Agent",
@@ -312,9 +321,9 @@ class TestMetadataIntegration:
             registry_config=registry_config,
             tools=[tool],
         )
-        
+
         metadata = agent._build_agent_metadata()
-        
+
         # Verify all fields
         assert metadata.name == "CompleteAgent"
         assert metadata.role == "Full Featured Agent"
@@ -322,15 +331,14 @@ class TestMetadataIntegration:
         assert metadata.instructions == ["Instruction 1", "Instruction 2"]
         assert metadata.agent_class == "Agent"
         assert metadata.agent_category == "agent"
-        
+
         # Verify components
         assert len(metadata.components.state_stores) == 3
         assert "workflow" in metadata.components.state_stores
         assert "agent_registry" in metadata.components.state_stores
         assert "team_registry" in metadata.components.state_stores
-        
+
         # Verify tools
         assert len(metadata.tools) == 1
         assert metadata.tools[0].name == "SampleToolFunction"
         assert metadata.tools[0].tool_type == "function"
-

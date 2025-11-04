@@ -45,7 +45,7 @@ class DurableAgent(AgentBase):
         Leverages flexible state models, message coercers, and registry/metadata from Components.
 
     """
-    
+
     # Override agent category for workflow-based agents
     _agent_category_override: Optional[str] = "durable-agent"
 

@@ -48,7 +48,9 @@ for module_name in dapr_modules_to_remove:
     del sys.modules[module_name]
 
 # Also remove dapr_agents modules that may have imported mocked dapr
-dapr_agents_modules = [k for k in list(sys.modules.keys()) if k.startswith("dapr_agents")]
+dapr_agents_modules = [
+    k for k in list(sys.modules.keys()) if k.startswith("dapr_agents")
+]
 for module_name in dapr_agents_modules:
     del sys.modules[module_name]
 
@@ -62,7 +64,11 @@ from testcontainers.core.waiting_utils import wait_for_logs
 from dapr_agents.agents.standalone import Agent
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
-from dapr_agents.agents.configs import AgentRegistryConfig, AgentStateConfig, AgentPubSubConfig
+from dapr_agents.agents.configs import (
+    AgentRegistryConfig,
+    AgentStateConfig,
+    AgentPubSubConfig,
+)
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.registry.registry import Registry
 
@@ -76,6 +82,7 @@ def sample_tool_function(input_text: str) -> str:
 
 
 # TODO: move dapr testcontainers logic to a separate file to reuse in other tests
+
 
 def wait_for_dapr_health(host: str, port: int, timeout: int = 60) -> bool:
     """
@@ -121,7 +128,9 @@ def redis_container(docker_network):
         DockerContainer("redis:7-alpine")
         .with_network(docker_network)
         .with_network_aliases("redis")
-        .with_exposed_ports(6379)  # TODO: switch to random port by making configuration dynamic at runtime to avoid port conflicts
+        .with_exposed_ports(
+            6379
+        )  # TODO: switch to random port by making configuration dynamic at runtime to avoid port conflicts
     )
     container.start()
     wait_for_logs(container, "Ready to accept connections", timeout=30)
@@ -142,10 +151,10 @@ def placement_container(docker_network):
         .with_exposed_ports(50005)
     )
     container.start()
-    
+
     # Give placement service time to start
     time.sleep(2)
-    
+
     try:
         yield container
     finally:
@@ -256,14 +265,14 @@ spec:
 def reset_registry(request):
     """
     Reset the agent registry before and after each test.
-    
+
     This ensures each test starts with a clean slate in both the local cache
     and the Dapr state store. Tests can opt out of the initial cleanup by
     marking themselves with @pytest.mark.no_cleanup.
     """
     # Clear local registry cache
     Registry.clear_registered_names()
-    
+
     # Clear the state store unless test is marked with no_cleanup
     if "no_cleanup" not in request.keywords:
         # Get Dapr client to clear the registry
@@ -274,9 +283,9 @@ def reset_registry(request):
         except Exception:
             # If we can't connect to Dapr yet (fixture not ready), skip cleanup
             pass
-    
+
     yield
-    
+
     # Always clear local cache after test
     Registry.clear_registered_names()
 
@@ -285,7 +294,7 @@ def reset_registry(request):
 def patch_dapr_client(monkeypatch):
     """
     Patch DaprClient to use the correct address and skip health checks.
-    
+
     This ensures all DaprClient instances created during tests (including
     those created internally by Agent, MemoryStore, etc.) use the exposed
     port from the testcontainer.
@@ -293,13 +302,13 @@ def patch_dapr_client(monkeypatch):
     from dapr.clients import DaprClient
     from dapr.clients.grpc.client import DaprGrpcClient
     from dapr.clients.health import DaprHealth
-    
+
     # Skip health check
     monkeypatch.setattr(DaprHealth, "wait_until_ready", lambda: None)
-    
+
     # Save the original __init__
     original_init = DaprGrpcClient.__init__
-    
+
     # Create patched __init__
     def patched_init(self, address=None, *args, **kwargs):
         # If no address provided, use the one from environment variables
@@ -309,7 +318,7 @@ def patch_dapr_client(monkeypatch):
             address = f"{dapr_host}:{dapr_grpc_port}"
         # Call original __init__ with the address
         original_init(self, address, *args, **kwargs)
-    
+
     monkeypatch.setattr(DaprGrpcClient, "__init__", patched_init)
 
 
@@ -324,7 +333,7 @@ def get_dapr_client() -> DaprClient:
 def test_agent_metadata_persisted(dapr_container):
     """
     Test that agent metadata is correctly persisted to Redis via Dapr.
-    
+
     Starts with a clean registry and validates that all metadata fields
     are correctly stored in the Dapr state store in both team and agent registries.
     """
@@ -335,11 +344,15 @@ def test_agent_metadata_persisted(dapr_container):
         state_store = StateStoreService(store_name="statestore")
         team_registry_store = StateStoreService(store_name="statestore")
         agent_registry_store = StateStoreService(store_name="statestore")
-        
+
         state_config = AgentStateConfig(store=state_store)
-        registry_config = AgentRegistryConfig(store=team_registry_store)  # Team registry
-        agent_registry_config = AgentRegistryConfig(store=agent_registry_store)  # Agent registry
-        
+        registry_config = AgentRegistryConfig(
+            store=team_registry_store
+        )  # Team registry
+        agent_registry_config = AgentRegistryConfig(
+            store=agent_registry_store
+        )  # Agent registry
+
         tool = AgentTool.from_func(sample_tool_function)
 
         agent = Agent(
@@ -362,7 +375,9 @@ def test_agent_metadata_persisted(dapr_container):
         assert "IntegrationTestAgent" in team_data
 
         # Verify agent registry (for metadata discovery)
-        response_agent = client.get_state(store_name="statestore", key="agents-registry")
+        response_agent = client.get_state(
+            store_name="statestore", key="agents-registry"
+        )
         assert response_agent.data, "Agent registry data should exist"
 
         registry_data = json.loads(response_agent.data)
@@ -382,7 +397,9 @@ def test_agent_metadata_persisted(dapr_container):
         assert "tools" in agent_metadata
         assert len(agent_metadata["tools"]) == 1
         tool_def = agent_metadata["tools"][0]
-        assert tool_def["name"] == "SampleToolFunction"  # AgentTool converts to PascalCase
+        assert (
+            tool_def["name"] == "SampleToolFunction"
+        )  # AgentTool converts to PascalCase
         assert tool_def["tool_type"] == "function"
         assert "sample tool function" in tool_def["description"].lower()
 
@@ -390,7 +407,7 @@ def test_agent_metadata_persisted(dapr_container):
         assert "components" in agent_metadata
         components = agent_metadata["components"]
         assert "state_stores" in components
-        
+
         # Verify separate registry stores
         assert "agent_registry" in components["state_stores"]
         assert components["state_stores"]["agent_registry"]["name"] == "statestore"
@@ -404,7 +421,7 @@ def test_agent_metadata_persisted(dapr_container):
 def test_idempotent_reregistration(dapr_container):
     """
     Test that re-registering the same agent with same metadata is idempotent.
-    
+
     Starts with a clean registry, registers an agent, then simulates a restart
     by clearing the local cache and registering the same agent again with identical
     metadata. This should succeed without error.
@@ -414,7 +431,7 @@ def test_idempotent_reregistration(dapr_container):
     try:
         state_store = StateStoreService(store_name="statestore")
         agent_registry_store = StateStoreService(store_name="statestore")
-        
+
         state_config = AgentStateConfig(store=state_store)
         agent_registry_config = AgentRegistryConfig(store=agent_registry_store)
 
@@ -441,8 +458,12 @@ def test_idempotent_reregistration(dapr_container):
             name="IdempotentAgent",
             role="Tester",
             goal="Test idempotency",
-            state_config=AgentStateConfig(store=StateStoreService(store_name="statestore")),
-            agent_registry_config=AgentRegistryConfig(store=StateStoreService(store_name="statestore")),
+            state_config=AgentStateConfig(
+                store=StateStoreService(store_name="statestore")
+            ),
+            agent_registry_config=AgentRegistryConfig(
+                store=StateStoreService(store_name="statestore")
+            ),
         )
 
         time.sleep(1)
@@ -456,9 +477,15 @@ def test_idempotent_reregistration(dapr_container):
 
         # Metadata should be identical (no error on idempotent registration)
         # Note: In the future, timestamps might differ but core metadata should match
-        assert registry1["IdempotentAgent"]["name"] == registry2["IdempotentAgent"]["name"]
-        assert registry1["IdempotentAgent"]["role"] == registry2["IdempotentAgent"]["role"]
-        assert registry1["IdempotentAgent"]["goal"] == registry2["IdempotentAgent"]["goal"]
+        assert (
+            registry1["IdempotentAgent"]["name"] == registry2["IdempotentAgent"]["name"]
+        )
+        assert (
+            registry1["IdempotentAgent"]["role"] == registry2["IdempotentAgent"]["role"]
+        )
+        assert (
+            registry1["IdempotentAgent"]["goal"] == registry2["IdempotentAgent"]["goal"]
+        )
 
     finally:
         client.close()
@@ -469,21 +496,19 @@ def test_registry_error_handling(dapr_container):
     Test Registry error handling for edge cases.
     """
     from dapr_agents.registry.registry import Registry
-    
+
     # Test: Registry without client should raise error during init
     with pytest.raises(ValueError, match="Dapr client is required"):
         Registry(client=None, store_name="test", store_key="test")
-    
+
     # Test: Registry without store_name should raise error
     client = get_dapr_client()
     try:
         with pytest.raises(ValueError, match="State store name is required"):
             Registry(client=client, store_name=None, store_key="test")
-        
+
         # Test: Registry without store_key should raise error
         with pytest.raises(ValueError, match="State store key is required"):
             Registry(client=client, store_name="test", store_key=None)
     finally:
         client.close()
-
-

@@ -151,32 +151,31 @@ class AgentMetadata(BaseModel):
     )
     components: ComponentMappings = Field(..., description="Component mappings")
 
-    system_prompt: str = Field(
-        default="", description="The agent's system prompt"
-    )
+    system_prompt: str = Field(default="", description="The agent's system prompt")
 
     agent_id: str = Field(..., description="The agent's unique identifier")
     agent_framework: str = Field(
         default="dapr-agents", description="The agent framework name"
     )
     agent_class: str = Field(
-        ..., 
-        description="Agent implementation class (e.g., 'Agent', 'DurableAgent', 'LLMOrchestrator')"
+        ...,
+        description="Agent implementation class (e.g., 'Agent', 'DurableAgent', 'LLMOrchestrator')",
     )
     agent_category: AgentCategory = Field(
-        ..., 
-        description="Functional category: 'agent' for standard agents, 'durable-agent' for workflow-based agents, 'orchestrator' for multi-agent coordination"
+        ...,
+        description="Functional category: 'agent' for standard agents, 'durable-agent' for workflow-based agents, 'orchestrator' for multi-agent coordination",
     )
 
     dapr_app_id: str | None = Field(
-        None, description="The Dapr app ID (can be retrieved from Dapr metadata endpoint)"
+        None,
+        description="The Dapr app ID (can be retrieved from Dapr metadata endpoint)",
     )
     namespace: str | None = Field(
         None, description="The app namespace/project ID (optional)"
     )
     sub_agents: List[str] = Field(
         default_factory=list,
-        description="Child agents managed by this agent/orchestrator"
+        description="Child agents managed by this agent/orchestrator",
     )
 
     model_config = ConfigDict(extra="allow")

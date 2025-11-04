@@ -274,11 +274,13 @@ class TestDurableAgent:
 
         mock_workflow_context.instance_id = "test-instance-123"
         # Use regular Mock instead of AsyncMock to avoid unawaited coroutine warnings
-        mock_workflow_context.call_activity = Mock(side_effect=[
-            {"content": "Test response"},
-            {"message": "Test response"},
-            "stop",
-        ])
+        mock_workflow_context.call_activity = Mock(
+            side_effect=[
+                {"content": "Test response"},
+                {"message": "Test response"},
+                "stop",
+            ]
+        )
 
         # Use AgentWorkflowEntry for state setup
         entry = AgentWorkflowEntry(

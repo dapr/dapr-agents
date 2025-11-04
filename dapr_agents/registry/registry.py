@@ -55,22 +55,22 @@ class Registry:
     def get_dapr_app_id(self) -> Optional[str]:
         """
         Best effort to get the Dapr app ID from the metadata endpoint in the sidecar.
-        
+
         Returns:
             The Dapr app ID, or None if unavailable.
         """
         if self._cached_app_id:
             return self._cached_app_id
-        
+
         try:
             import os
             import requests
-            
+
             # TODO: this environment configuration can be removed once this is added upstream in python sdk
             dapr_http_port = os.environ.get("DAPR_HTTP_PORT", "3500")
             dapr_host = os.environ.get("DAPR_RUNTIME_HOST", "localhost")
             metadata_url = f"http://{dapr_host}:{dapr_http_port}/v1.0/metadata"
-            
+
             response = requests.get(metadata_url, timeout=self._m)
             if response.status_code == 200:
                 metadata = response.json()
@@ -78,7 +78,7 @@ class Registry:
                 return self._cached_app_id
         except Exception as exc:
             logger.debug("Could not fetch Dapr app ID from metadata endpoint: %s", exc)
-        
+
         return None
 
     def register_agent(
@@ -116,7 +116,6 @@ class Registry:
                     f"Agent name '{agent_name}' is already registered in this process (id: {existing_id}). "
                     "Agent names must be unique within a process."
                 )
-
 
         for attempt in range(1, max_attempts + 1):
             try:

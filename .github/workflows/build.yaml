@@ -71,6 +71,6 @@ jobs:
     - name: Run Tests
       run: |
         tox -e pytest
-    - name: Run Tests
+    - name: Run Integration Tests
       run: |
         tox -e integration

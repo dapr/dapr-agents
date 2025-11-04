@@ -51,7 +51,7 @@ class AgentBase(AgentComponents, RegistryMixin):
 
     Infrastructure (pub/sub, durable state, registry) is provided by `AgentComponents`.
     """
-    
+
     # Class attribute for agent category override (can be overridden by subclasses)
     _agent_category_override: Optional[str] = None
 
@@ -243,9 +243,7 @@ class AgentBase(AgentComponents, RegistryMixin):
             try:
                 self._register_agent_metadata()
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Could not register agent in agent registry: %s", exc
-                )
+                logger.warning("Could not register agent in agent registry: %s", exc)
 
     # ------------------------------------------------------------------
     # Presentation helpers
@@ -703,7 +701,9 @@ class AgentBase(AgentComponents, RegistryMixin):
                 role=self.profile_config.role,
                 goal=self.profile_config.goal,
                 tool_choice=self.execution_config.tool_choice,
-                instructions=list(self.profile_config.instructions) if self.profile_config.instructions else None,
+                instructions=list(self.profile_config.instructions)
+                if self.profile_config.instructions
+                else None,
                 tools=tools,
                 components=components,
                 system_prompt=self.profile_config.system_prompt or "",
@@ -738,14 +738,20 @@ class AgentBase(AgentComponents, RegistryMixin):
             )
 
         # Extract state store from agent_registry_config
-        if self._agent_registry_config is not None and self._agent_registry_config.store is not None:
+        if (
+            self._agent_registry_config is not None
+            and self._agent_registry_config.store is not None
+        ):
             state_stores["agent_registry"] = StateStoreComponent(
                 name=self._agent_registry_config.store.store_name,
                 usage="Agent metadata discovery registry",
             )
 
         # Extract state store from team registry_config
-        if self._registry_config is not None and self._registry_config.store is not None:
+        if (
+            self._registry_config is not None
+            and self._registry_config.store is not None
+        ):
             state_stores["team_registry"] = StateStoreComponent(
                 name=self._registry_config.store.store_name,
                 usage="Team pub/sub addressing registry",
@@ -789,14 +795,23 @@ class AgentBase(AgentComponents, RegistryMixin):
                     description = tool.description
                 elif callable(tool):
                     # Check if it's an MCP tool (heuristic: has mcp-related attributes)
-                    if hasattr(tool, "__mcp__") or (hasattr(tool, "__module__") and "mcp" in str(tool.__module__).lower()):
+                    if hasattr(tool, "__mcp__") or (
+                        hasattr(tool, "__module__")
+                        and "mcp" in str(tool.__module__).lower()
+                    ):
                         tool_type = TOOL_TYPE_MCP
                     else:
                         tool_type = TOOL_TYPE_FUNCTION
                     name = getattr(tool, "__name__", str(tool))
-                    description = getattr(tool, "__doc__", "No description") or "No description"
+                    description = (
+                        getattr(tool, "__doc__", "No description") or "No description"
+                    )
                     # Clean up description
-                    description = description.strip().split("\n")[0] if description else "No description"
+                    description = (
+                        description.strip().split("\n")[0]
+                        if description
+                        else "No description"
+                    )
                 else:
                     tool_type = TOOL_TYPE_UNKNOWN
                     name = str(tool)

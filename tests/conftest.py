@@ -191,11 +191,11 @@ def set_openai_api_key(monkeypatch):
 def skip_dapr_health_check_for_unit_tests(request, monkeypatch):
     """
     Skip Dapr health checks for all unit tests (non-integration tests).
-    
+
     This fixture runs for every test. For integration tests (marked with 'integration'),
     it does nothing, allowing real health checks. For unit tests, it patches the
     health check to return immediately.
-    
+
     This works with both mocked dapr (tox) and real dapr (venv) installations.
     """
     # Only patch for non-integration tests
@@ -203,6 +203,7 @@ def skip_dapr_health_check_for_unit_tests(request, monkeypatch):
         try:
             # Try to import real dapr.clients.health (if installed)
             from dapr.clients.health import DaprHealth
+
             monkeypatch.setattr(DaprHealth, "wait_until_ready", lambda: None)
         except (ImportError, AttributeError):
             # If import fails, dapr might be mocked or not installed - that's fine

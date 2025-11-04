@@ -35,7 +35,7 @@ class OrchestratorBase(AgentComponents, RegistryMixin):
         console helpers for readable interactions, and small utilities like
         raising workflow events.
     """
-    
+
     # Class attribute for agent category (orchestrators)
     _agent_category_override: Optional[str] = "orchestrator"
 
@@ -294,7 +294,9 @@ class OrchestratorBase(AgentComponents, RegistryMixin):
             )
             return metadata
         except Exception as exc:
-            logger.warning("Failed to build orchestrator metadata: %s", exc, exc_info=True)
+            logger.warning(
+                "Failed to build orchestrator metadata: %s", exc, exc_info=True
+            )
             return None
 
     def _extract_component_mappings(self) -> ComponentMappings:
@@ -315,14 +317,20 @@ class OrchestratorBase(AgentComponents, RegistryMixin):
             )
 
         # Extract state store from agent_registry_config
-        if self._agent_registry_config is not None and self._agent_registry_config.store is not None:
+        if (
+            self._agent_registry_config is not None
+            and self._agent_registry_config.store is not None
+        ):
             state_stores["agent_registry"] = StateStoreComponent(
                 name=self._agent_registry_config.store.store_name,
                 usage="Agent metadata discovery registry",
             )
 
         # Extract state store from team registry_config
-        if self._registry_config is not None and self._registry_config.store is not None:
+        if (
+            self._registry_config is not None
+            and self._registry_config.store is not None
+        ):
             state_stores["team_registry"] = StateStoreComponent(
                 name=self._registry_config.store.store_name,
                 usage="Team pub/sub addressing registry",
