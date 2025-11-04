@@ -162,7 +162,12 @@ class WorkflowRunner(SignalMixin):
             self.shutdown()
 
     def __del__(self) -> None:
-        """Best-effort GC close; never raises."""
+        """
+        Best-effort GC close; never raises.
+        
+        Ensures proper cleanup of owned clients and workflow runtime
+        to prevent "Invalid file descriptor" errors during interpreter shutdown.
+        """
         try:
             self.shutdown()
         except Exception:
@@ -178,8 +183,20 @@ class WorkflowRunner(SignalMixin):
         try:
             self.unwire_pubsub()
         finally:
+            # Close workflow client if we created and own it
+            if self._wf_client_owned and self._wf_client is not None:
+                try:
+                    close_method = getattr(self._wf_client, "close", None)
+                    if callable(close_method):
+                        close_method()
+                        logger.debug(
+                            "[%s] Closed owned DaprWorkflowClient.", self._name
+                        )
+                except Exception:
+                    logger.debug(
+                        "Ignoring error closing DaprWorkflowClient", exc_info=True
+                    )
             self._close_dapr_client()
-            self._close_wf_client()
 
     def _ensure_dapr_client(self) -> None:
         """
@@ -206,21 +223,6 @@ class WorkflowRunner(SignalMixin):
                 logger.debug("Ignoring error closing DaprClient", exc_info=True)
         self._dapr_client = None
         self._dapr_client_owned = False
-
-    def _close_wf_client(self) -> None:
-        """
-        Close the DaprWorkflowClient if it is owned by this runner.
-
-        Returns:
-            None
-        """
-        if self._wf_client is not None and self._wf_client_owned:
-            try:
-                self._wf_client.close()
-            except Exception:
-                logger.debug(
-                    "Ignoring error while closing DaprWorkflowClient", exc_info=True
-                )
 
     def register_routes(
         self,
@@ -480,8 +482,8 @@ class WorkflowRunner(SignalMixin):
         logger.info("[%s] Waiting for workflow completion...", self._name)
         state = await self._await_state(instance, effective_timeout, fetch_payloads)
 
-        if log:
-            self._log_state(instance, state)
+        # Always log errors, but only log success if log=True
+        self._log_state(instance, state, log_success=log)
         return getattr(state, "serialized_output", None) if state else None
 
     def wait_for_workflow_completion(
@@ -565,7 +567,8 @@ class WorkflowRunner(SignalMixin):
             state = await self._await_state(
                 instance_id, timeout_in_seconds, fetch_payloads
             )
-            self._log_state(instance_id, state)
+            # This is only called when log=True, so log_success=True
+            self._log_state(instance_id, state, log_success=True)
         except Exception:
             logger.exception(
                 "[%s] %s: error while monitoring workflow outcome",
@@ -573,13 +576,16 @@ class WorkflowRunner(SignalMixin):
                 instance_id,
             )
 
-    def _log_state(self, instance_id: str, state: Optional[WorkflowState]) -> None:
+    def _log_state(
+        self, instance_id: str, state: Optional[WorkflowState], log_success: bool = True
+    ) -> None:
         """
         Compact logger for final workflow state.
 
         Args:
             instance_id: Workflow instance id.
             state: Final state (may be None on timeout/error).
+            log_success: If True, log successful COMPLETED state; if False, only log errors.
 
         Returns:
             None
@@ -594,14 +600,17 @@ class WorkflowRunner(SignalMixin):
 
         status = getattr(state.runtime_status, "name", str(state.runtime_status))
         if status == "COMPLETED":
-            logger.info(
-                "[%s] %s completed. Final Output=%s",
-                self._name,
-                instance_id,
-                getattr(state, "serialized_output", None),
-            )
+            # Only log successful output if log_success is True
+            if log_success:
+                logger.info(
+                    "[%s] %s completed. Final Output=%s",
+                    self._name,
+                    instance_id,
+                    getattr(state, "serialized_output", None),
+                )
             return
 
+        # Always log failures regardless of log_success flag
         fd = getattr(state, "failure_details", None)
         if fd:
             logger.error(

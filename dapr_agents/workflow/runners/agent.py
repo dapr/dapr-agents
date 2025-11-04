@@ -81,7 +81,7 @@ class AgentRunner(WorkflowRunner):
         wait: bool = True,
         timeout_in_seconds: Optional[int] = None,
         fetch_payloads: bool = True,
-        log: bool = True,
+        log: bool = False,
     ) -> Union[str, Optional[str]]:
         """
         Run an Agent's workflow entry.
@@ -94,7 +94,7 @@ class AgentRunner(WorkflowRunner):
             timeout_in_seconds: Max time to wait when wait=True. If omitted (Runner's timeout), defaults to the runner's configured timeout.
                 Ignored when wait=False.
             fetch_payloads: Whether to fetch input/output payloads when waiting.
-            log: If True, log the final outcome (sync if `wait=True`, background if `wait=False`).
+            log: If True, log successful completion output; if False, only log errors (default: False).
 
         Returns:
             - If `wait=False`: the workflow instance id (str).
@@ -133,7 +133,7 @@ class AgentRunner(WorkflowRunner):
         instance_id: Optional[str] = None,
         timeout_in_seconds: Optional[int] = None,
         fetch_payloads: bool = True,
-        log: bool = True,
+        log: bool = False,
     ) -> Optional[str]:
         """
         Synchronously run an Agent's workflow entry and wait for completion.
@@ -145,7 +145,7 @@ class AgentRunner(WorkflowRunner):
             timeout_in_seconds: Max time to wait when wait=True. If omitted (Runner's timeout), defaults to the runner's configured timeout.
                 Ignored when wait=False.
             fetch_payloads: Whether to fetch input/output payloads when waiting.
-            log: If True, log the final outcome.
+            log: If True, log successful completion output; if False, only log errors (default: False).
 
         Returns:
             Serialized output string, or `None` on timeout/error.
@@ -300,6 +300,15 @@ class AgentRunner(WorkflowRunner):
             )
             if not topic:
                 kind = "broadcast" if is_broadcast else "direct"
+                # Skip optional broadcast handlers if no broadcast_topic configured
+                if is_broadcast and config.broadcast_topic is None:
+                    logger.debug(
+                        "[%s] Skipping broadcast handler %s (no broadcast_topic configured)",
+                        self._name,
+                        handler.__name__,
+                    )
+                    continue
+                # Direct handlers require agent_topic
                 raise ValueError(
                     f"AgentPubSubConfig missing topic for {kind} handler {handler.__name__}"
                 )

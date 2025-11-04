@@ -55,7 +55,7 @@ class SignalMixin:
 
     # ------------------- Public API -------------------
 
-    def install_signal_handlers(self) -> None:
+    def install_signal_handlers(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
         """
         Install OS signal handlers and initialize (or reinitialize) the shutdown event.
 
@@ -63,11 +63,14 @@ class SignalMixin:
 
         Also resets internal scheduling flags so the instance can be restarted.
 
+        Args:
+            loop: Optional event loop to use. If None, requires a running loop (won't create one).
+
         Returns:
             None
 
         Raises:
-            RuntimeError: If no event loop can be obtained for the current thread.
+            RuntimeError: If no running event loop is available and loop parameter is None.
         """
         # (Re)create a fresh event if first install OR previous event is already set.
         if self._shutdown_event is None or self._shutdown_event.is_set():
@@ -80,16 +83,9 @@ class SignalMixin:
         if self._cleanup_handlers is not None and self._signal_loop is not None:
             return
 
-        # Capture the loop we will always bounce into (thread-safe).
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError as exc:
-                raise RuntimeError(
-                    "No asyncio event loop available to install signal handlers."
-                ) from exc
+        # Use provided loop or require a running loop (never create a phantom loop).
+        if loop is None:
+            loop = asyncio.get_running_loop()  # Will raise if no running loop
 
         self._signal_loop = loop
         self._cleanup_handlers = install_signal_handlers(loop, self._on_signal)
