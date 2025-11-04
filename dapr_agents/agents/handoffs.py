@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class HandoffSpec:
     """
     Declarative configuration for a durable agent handoff tool.
-    
+
     Example:
         >>> HandoffSpec(
         ...     agent_name="Billing Specialist",
@@ -47,6 +47,7 @@ class HandoffSpec:
         - Without: "Continue the conversation." (generic)
         - With: "Review the customer's billing inquiry" (specific)
     """
+
 
 class HandoffToolInput(BaseModel):
     """

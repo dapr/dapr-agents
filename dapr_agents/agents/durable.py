@@ -159,7 +159,9 @@ class DurableAgent(AgentBase):
         if handoffs:
             for spec in handoffs:
                 if not isinstance(spec, HandoffSpec):
-                    raise TypeError("handoffs iterable must contain HandoffSpec instances.")
+                    raise TypeError(
+                        "handoffs iterable must contain HandoffSpec instances."
+                    )
                 normalized_specs.append(spec)
 
         if normalized_specs:
@@ -202,7 +204,10 @@ class DurableAgent(AgentBase):
 
         self.tools.append(tool)
 
-        alias_keys = {alias.lower() for alias in generate_handoff_aliases(tool.name, spec.agent_name)}
+        alias_keys = {
+            alias.lower()
+            for alias in generate_handoff_aliases(tool.name, spec.agent_name)
+        }
         snapshot = replace(spec)
 
         for alias in alias_keys:
@@ -264,7 +269,7 @@ class DurableAgent(AgentBase):
 
         trigger_instance_id = metadata.get("triggering_workflow_instance_id")
         source = metadata.get("source") or "direct"
-        
+
         # Track if workflow ended via handoff (to skip broadcast)
         is_handoff_exit = False
 
@@ -328,7 +333,7 @@ class DurableAgent(AgentBase):
                             len(tool_calls),
                             turn,
                         )
-                    
+
                     parallel = [
                         ctx.call_activity(
                             self.run_tool,
@@ -587,15 +592,17 @@ class DurableAgent(AgentBase):
 
         # Reload state to ensure we have the latest tool results from parallel activities
         self.load_state()
-        
+
         chat_history = self._construct_messages_with_instance_history(instance_id)
-        logger.debug(f"call_llm: Retrieved {len(chat_history)} messages from history for instance {instance_id}")
-        
+        logger.debug(
+            f"call_llm: Retrieved {len(chat_history)} messages from history for instance {instance_id}"
+        )
+
         messages = self.prompting_helper.build_initial_messages(
             user_input=task,
             chat_history=chat_history,
         )
-        
+
         # Debug: Log final message sequence
         logger.debug(f"call_llm: Final message sequence has {len(messages)} messages")
 
@@ -627,7 +634,7 @@ class DurableAgent(AgentBase):
             llm_result = self.llm.generate(**generate_kwargs)
         except Exception as exc:  # noqa: BLE001
             logger.exception("LLM generate failed: %s", exc)
-            raise AgentError(str(exc)) from exc          
+            raise AgentError(str(exc)) from exc
 
         assistant_response: Dict[str, Any]
         if isinstance(llm_result, LLMChatResponse):
@@ -897,7 +904,9 @@ class DurableAgent(AgentBase):
             name = function_entry or "handoff"
             call_id = None
 
-        tool_call_id = tool_call.get("id") or tool_call.get("call_id") or call_id or name
+        tool_call_id = (
+            tool_call.get("id") or tool_call.get("call_id") or call_id or name
+        )
 
         execution_payload: Dict[str, Any] = {
             "handoff_to": agent_name,
@@ -951,13 +960,15 @@ class DurableAgent(AgentBase):
                     entry.last_message = tool_message_model
                 if hasattr(entry, "tool_history"):
                     existing_history_ids = {
-                        getattr(t, "tool_call_id", None) for t in getattr(entry, "tool_history")
+                        getattr(t, "tool_call_id", None)
+                        for t in getattr(entry, "tool_history")
                     }
                     if history_entry.tool_call_id not in existing_history_ids:
                         entry.tool_history.append(history_entry)
 
         existing_runtime_ids = {
-            getattr(record, "tool_call_id", None) for record in getattr(self, "tool_history", [])
+            getattr(record, "tool_call_id", None)
+            for record in getattr(self, "tool_history", [])
         }
         if history_entry.tool_call_id not in existing_runtime_ids:
             self.tool_history.append(history_entry)
@@ -1113,7 +1124,7 @@ class DurableAgent(AgentBase):
         instance_id = payload.get("instance_id")
         agent_name = handoff_result.get("agent_name")
         handoff_spec = handoff_result.get("handoff_spec") or {}
-        
+
         if not agent_name:
             logger.warning("Handoff result missing agent_name")
             return
@@ -1122,7 +1133,7 @@ class DurableAgent(AgentBase):
         tool_args = handoff_result.get("tool_args", {}) or {}
         raw_task = tool_args.get("task")
         handoff_task = raw_task.strip() if isinstance(raw_task, str) else ""
-        
+
         if not handoff_task:
             fallback_task = handoff_spec.get("default_task")
             if fallback_task:
@@ -1234,9 +1245,7 @@ class DurableAgent(AgentBase):
         if self._runtime_owned:
             try:
                 self._runtime.shutdown()
-                logger.info(
-                    "WorkflowRuntime shut down for agent '%s'.", self.name
-                )
+                logger.info("WorkflowRuntime shut down for agent '%s'.", self.name)
             except Exception as exc:
                 logger.warning(
                     "Error while shutting down workflow runtime for agent '%s': %s",
@@ -1250,7 +1259,7 @@ class DurableAgent(AgentBase):
     def __del__(self) -> None:
         """
         Best-effort cleanup during garbage collection.
-        
+
         Ensures the workflow runtime is properly shut down if owned by this agent.
         This prevents "Invalid file descriptor" errors during interpreter shutdown.
         """

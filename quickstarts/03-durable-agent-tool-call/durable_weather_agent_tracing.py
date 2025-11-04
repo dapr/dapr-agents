@@ -47,10 +47,10 @@ async def main():
 
     try:
         prompt = "What's the weather in Boston?"
-        
+
         # Run the workflow and wait for completion
         result = await runner.run(
-            weather_agent, 
+            weather_agent,
             payload={"task": prompt},
         )
 
@@ -67,6 +67,7 @@ async def main():
         weather_agent.stop()
         # Then shut down runner (unwire/close clients)
         runner.shutdown()
+
 
 if __name__ == "__main__":
     try:

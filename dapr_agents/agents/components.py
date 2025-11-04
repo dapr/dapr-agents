@@ -193,7 +193,9 @@ class AgentComponents:
         If no state store is configured, skips reload to preserve in-memory state.
         """
         if not self.state_store:
-            logger.debug("No state store configured; skipping state reload to preserve memory.")
+            logger.debug(
+                "No state store configured; skipping state reload to preserve memory."
+            )
             return
 
         snapshot = self.state_store.load(

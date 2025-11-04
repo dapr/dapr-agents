@@ -63,9 +63,7 @@ async def publish_with_retry(client: DaprClient, payload: Dict[str, Any]) -> Non
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            logger.info(
-                "Publish attempt %d → %s/%s", attempt, PUBSUB_NAME, TOPIC_NAME
-            )
+            logger.info("Publish attempt %d → %s/%s", attempt, PUBSUB_NAME, TOPIC_NAME)
             client.publish_event(
                 pubsub_name=PUBSUB_NAME,
                 topic_name=TOPIC_NAME,
@@ -88,7 +86,7 @@ async def main() -> int:
     if len(sys.argv) > 1:
         task_text = " ".join(sys.argv[1:])
     elif not RAW_DATA:
-        print("Usage: python publish_task.py \"<text to translate>\"")
+        print('Usage: python publish_task.py "<text to translate>"')
         return 1
     else:
         task_text = None

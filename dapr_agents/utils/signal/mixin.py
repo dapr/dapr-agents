@@ -55,7 +55,9 @@ class SignalMixin:
 
     # ------------------- Public API -------------------
 
-    def install_signal_handlers(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+    def install_signal_handlers(
+        self, loop: Optional[asyncio.AbstractEventLoop] = None
+    ) -> None:
         """
         Install OS signal handlers and initialize (or reinitialize) the shutdown event.
 

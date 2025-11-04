@@ -19,7 +19,9 @@ AIAgent = Agent(
         "At the end, provide a concise summary that combines the weather information for all requested locations and any other actions you performed.",
     ],
     memory=AgentMemoryConfig(
-        store=ConversationDaprStateMemory(store_name="historystore", session_id="some-id"),
+        store=ConversationDaprStateMemory(
+            store_name="historystore", session_id="some-id"
+        ),
     ),
     tools=tools,
 )

@@ -31,7 +31,6 @@ MEMORY_SESSION_ID = "translator.session"
 
 
 async def main() -> None:
-
     llm = OpenAIChatClient()
 
     agent = DurableAgent(
@@ -54,9 +53,11 @@ async def main() -> None:
             agent_topic="translator.intake.requests",
         ),
         state=AgentStateConfig(
-            store=StateStoreService(store_name="workflowstatestore", key_prefix="translator-intake:")
+            store=StateStoreService(
+                store_name="workflowstatestore", key_prefix="translator-intake:"
+            )
         ),
-        registry = AgentRegistryConfig(
+        registry=AgentRegistryConfig(
             store=StateStoreService(store_name="translatorregistrystore"),
             team_name="translator-swarm",
         ),

@@ -63,7 +63,9 @@ async def main() -> None:
             agent_topic="research.requests",
         ),
         state=AgentStateConfig(
-            store=StateStoreService(store_name="workflowstatestore", key_prefix="research:")
+            store=StateStoreService(
+                store_name="workflowstatestore", key_prefix="research:"
+            )
         ),
         registry=AgentRegistryConfig(
             store=StateStoreService(store_name="researchregistrystore"),

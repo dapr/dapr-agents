@@ -42,15 +42,15 @@ def search_web(query: str) -> str:
         Multiple perspectives exist, with experts highlighting various aspects of the subject.
         Recent studies show interesting patterns and potential future directions.
         Further investigation would provide more specific insights.
-        """
+        """,
     }
-    
+
     # Find matching result or use default
     query_lower = query.lower()
     for key, result in search_results.items():
         if key in query_lower:
             return f"Search results for '{query}':\n{result.strip()}"
-    
+
     return f"Search results for '{query}':\n{search_results['default'].strip()}"
 
 

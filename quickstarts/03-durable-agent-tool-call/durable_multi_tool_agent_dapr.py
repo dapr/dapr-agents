@@ -16,7 +16,7 @@ async def main():
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    
+
     logger = logging.getLogger(__name__)
 
     # Ensure default Dapr LLM component is set (e.g., "openai" or "google")
@@ -31,7 +31,7 @@ async def main():
     llm_provider = None
 
     logger.info("Creating DurableAgent...")
-    
+
     # Instantiate the agent with the llm provider
     agent = DurableAgent(
         role="Research And Weather Assistant",
@@ -63,10 +63,10 @@ async def main():
         )
 
         logger.info(f"Running workflow with prompt: {prompt}")
-        
+
         # Run the workflow and wait for completion
         result = await runner.run(
-            agent, 
+            agent,
             payload={"task": prompt},
         )
 
@@ -81,9 +81,9 @@ async def main():
         # Then shut down runner (unwire/close clients)
         runner.shutdown()
 
+
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
-

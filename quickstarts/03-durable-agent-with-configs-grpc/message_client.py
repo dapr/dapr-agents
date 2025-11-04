@@ -17,7 +17,9 @@ from dapr.clients import DaprClient
 # ---------------------------
 PUBSUB_NAME = os.getenv("PUBSUB_NAME", "messagepubsub")
 TOPIC_NAME = os.getenv("TOPIC_NAME", "weather.requests")
-WEATHERTOPIC = os.getenv("WEATHERTOPIC", "AI Agents")  # used when RAW_DATA is not provided
+WEATHERTOPIC = os.getenv(
+    "WEATHERTOPIC", "AI Agents"
+)  # used when RAW_DATA is not provided
 RAW_DATA = os.getenv("RAW_DATA")  # if set, must be a JSON object (string)
 CONTENT_TYPE = os.getenv("CONTENT_TYPE", "application/json")
 CE_TYPE = os.getenv("CLOUDEVENT_TYPE")  # optional CloudEvent 'type' metadata

@@ -27,6 +27,7 @@ def jump(distance: str) -> str:
     """Jump a specific distance."""
     return f"I jumped the following distance {distance}"
 
+
 class CalculateSchema(BaseModel):
     expression: str = Field(description="Arithmetic expression like '2+2' or '14*7+23'")
 
@@ -95,5 +96,6 @@ def web_search(query: str, limit: int = 3) -> List[str]:
     """Fake web search that returns example links for a query."""
     base = "https://example.org/search?q="
     return [f"{base}{query}&n={i+1}" for i in range(limit)]
+
 
 tools = [get_weather, jump, calculate, web_search]

@@ -38,7 +38,7 @@ MEMORY_SESSION_ID = "research.session"
 
 async def main() -> None:
     llm = OpenAIChatClient()
-    
+
     agent = DurableAgent(
         profile=AgentProfileConfig(
             name="Writer Agent",
@@ -68,7 +68,9 @@ async def main() -> None:
             agent_topic="writer.requests",
         ),
         state=AgentStateConfig(
-            store=StateStoreService(store_name="workflowstatestore", key_prefix="writer:")
+            store=StateStoreService(
+                store_name="workflowstatestore", key_prefix="writer:"
+            )
         ),
         registry=AgentRegistryConfig(
             store=StateStoreService(store_name="researchregistrystore"),

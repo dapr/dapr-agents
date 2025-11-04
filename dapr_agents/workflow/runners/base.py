@@ -164,7 +164,7 @@ class WorkflowRunner(SignalMixin):
     def __del__(self) -> None:
         """
         Best-effort GC close; never raises.
-        
+
         Ensures proper cleanup of owned clients and workflow runtime
         to prevent "Invalid file descriptor" errors during interpreter shutdown.
         """

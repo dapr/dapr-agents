@@ -444,9 +444,7 @@ class Agent(AgentBase):
                 if tool_message.tool_call_id not in existing_ids:
                     try:
                         if getattr(self, "_message_coercer", None):
-                            durable_message = self._message_coercer(
-                                message_dict
-                            )  # type: ignore[attr-defined]
+                            durable_message = self._message_coercer(message_dict)  # type: ignore[attr-defined]
                         else:
                             durable_message = self._message_dict_to_message_model(
                                 message_dict

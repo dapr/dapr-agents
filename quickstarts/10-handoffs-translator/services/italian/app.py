@@ -34,11 +34,11 @@ MEMORY_SESSION_ID = "translator.session"
 
 class ItalianTranslationOutput(BaseModel):
     """Italian translation output schema."""
+
     italian: str
 
 
 async def main() -> None:
-
     llm = OpenAIChatClient()
 
     agent = DurableAgent(
@@ -61,9 +61,11 @@ async def main() -> None:
             agent_topic="translator.italian.requests",
         ),
         state=AgentStateConfig(
-            store=StateStoreService(store_name="workflowstatestore", key_prefix="italian:")
+            store=StateStoreService(
+                store_name="workflowstatestore", key_prefix="italian:"
+            )
         ),
-        registry = AgentRegistryConfig(
+        registry=AgentRegistryConfig(
             store=StateStoreService(store_name="translatorregistrystore"),
             team_name="translator-swarm",
         ),

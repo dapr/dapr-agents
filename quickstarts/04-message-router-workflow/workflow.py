@@ -10,13 +10,18 @@ from dapr_agents.workflow.decorators.routers import message_router
 
 load_dotenv()
 
+
 class StartBlogMessage(BaseModel):
     topic: str = Field(min_length=1, description="Blog topic/title")
+
 
 # Initialize the LLM client and workflow runtime
 llm = DaprChatClient(component_name="openai")
 
-@message_router(pubsub="messagepubsub", topic="blog.requests", message_model=StartBlogMessage)
+
+@message_router(
+    pubsub="messagepubsub", topic="blog.requests", message_model=StartBlogMessage
+)
 def blog_workflow(ctx: DaprWorkflowContext, wf_input: dict) -> str:
     """
     Workflow input must be JSON-serializable. We accept a dict like:
