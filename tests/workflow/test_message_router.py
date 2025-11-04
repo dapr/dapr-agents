@@ -520,10 +520,10 @@ def test_message_router_with_class_method():
     assert hasattr(handler.handle, "_is_message_handler")
 
 
-# Tests for register_message_handlers
+# Tests for register_message_routes
 
 
-def test_register_message_handlers_discovers_standalone_function():
+def test_register_message_routes_discovers_standalone_function():
     """Test that standalone decorated functions are discovered."""
     mock_client = MagicMock()
     mock_client.subscribe_with_handler.return_value = MagicMock()
@@ -551,7 +551,7 @@ def test_register_message_handlers_discovers_standalone_function():
     assert call_args.kwargs["dead_letter_topic"] == "orders_DEAD"
 
 
-def test_register_message_handlers_discovers_class_methods():
+def test_register_message_routes_discovers_class_methods():
     """Test that decorated methods in class instances are discovered."""
     mock_client = MagicMock()
     mock_client.subscribe_with_handler.return_value = MagicMock()
@@ -587,7 +587,7 @@ def test_register_message_handlers_discovers_class_methods():
     assert "orders.cancelled" in topics
 
 
-def test_register_message_handlers_ignores_undecorated_methods():
+def test_register_message_routes_ignores_undecorated_methods():
     """Test that methods without @message_router are ignored."""
     mock_client = MagicMock()
     mock_client.subscribe_with_handler.return_value = MagicMock()
@@ -615,7 +615,7 @@ def test_register_message_handlers_ignores_undecorated_methods():
     assert len(closers) == 1
 
 
-def test_register_message_handlers_handles_multiple_targets():
+def test_register_message_routes_handles_multiple_targets():
     """Test registering multiple targets (functions and instances)."""
     mock_client = MagicMock()
     mock_client.subscribe_with_handler.return_value = MagicMock()
@@ -645,7 +645,7 @@ def test_register_message_handlers_handles_multiple_targets():
     assert len(closers) == 2
 
 
-def test_register_message_handlers_returns_closers():
+def test_register_message_routes_returns_closers():
     """Test that closer functions are returned for each subscription."""
     mock_client = MagicMock()
     mock_client.subscribe_with_handler.return_value = MagicMock()
