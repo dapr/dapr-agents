@@ -60,6 +60,7 @@ class Agent(AgentBase):
         # Persistence/registry
         state_config: Optional[AgentStateConfig] = None,
         registry_config: Optional[AgentRegistryConfig] = None,
+        agent_registry_config: Optional[AgentRegistryConfig] = None,
         # Behavior / execution
         execution_config: Optional[AgentExecutionConfig] = None,
         # Misc
@@ -76,7 +77,8 @@ class Agent(AgentBase):
             tools: Optional tool callables or `AgentTool` instances.
             memory_config: Conversation memory config.
             state_config: Durable state configuration/model customization.
-            registry_config: Team registry configuration.
+            registry_config: Team registry configuration for pub/sub addressing.
+            agent_registry_config: Agent metadata registry config for agent discovery (optional, independent).
             execution_config: Execution dials for the agent run.
             agent_metadata: Extra metadata to store in the registry.
         """
@@ -91,6 +93,7 @@ class Agent(AgentBase):
             state_config=state_config,
             memory_config=memory_config,
             registry_config=registry_config,
+            agent_registry_config=agent_registry_config,
             execution_config=execution_config,
             agent_metadata=agent_metadata,
             llm=llm,

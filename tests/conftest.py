@@ -25,6 +25,11 @@ mock_dapr.common.pubsub.subscription = MagicMock()
 mock_dapr.common.pubsub.subscription.StreamCancelledError = Exception
 mock_dapr.common.pubsub.subscription.SubscriptionMessage = MagicMock
 
+# Mock Dapr health check to prevent connection attempts in unit tests
+mock_dapr.clients = MagicMock()
+mock_dapr.clients.health = MagicMock()
+mock_dapr.clients.health.DaprHealth = MagicMock()
+mock_dapr.clients.health.DaprHealth.wait_until_ready = MagicMock(return_value=None)
 
 # Register the mock modules
 sys.modules["dapr"] = mock_dapr
@@ -127,6 +132,7 @@ mock_modules = {
     "dapr.ext.workflow": mock_dapr.ext.workflow,
     "dapr.ext.workflow.workflow_state": mock_dapr.ext.workflow.workflow_state,
     "dapr.clients": mock_dapr.clients,
+    "dapr.clients.health": mock_dapr.clients.health,
     "dapr.clients.grpc": mock_dapr.clients.grpc,
     "dapr.clients.grpc._request": mock_dapr.clients.grpc._request,
     "dapr.clients.grpc._response": mock_dapr.clients.grpc._response,
@@ -179,6 +185,28 @@ def set_llm_component_default_env(monkeypatch):
 @pytest.fixture(autouse=True)
 def set_openai_api_key(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
+
+
+@pytest.fixture(autouse=True)
+def skip_dapr_health_check_for_unit_tests(request, monkeypatch):
+    """
+    Skip Dapr health checks for all unit tests (non-integration tests).
+    
+    This fixture runs for every test. For integration tests (marked with 'integration'),
+    it does nothing, allowing real health checks. For unit tests, it patches the
+    health check to return immediately.
+    
+    This works with both mocked dapr (tox) and real dapr (venv) installations.
+    """
+    # Only patch for non-integration tests
+    if "integration" not in request.keywords:
+        try:
+            # Try to import real dapr.clients.health (if installed)
+            from dapr.clients.health import DaprHealth
+            monkeypatch.setattr(DaprHealth, "wait_until_ready", lambda: None)
+        except (ImportError, AttributeError):
+            # If import fails, dapr might be mocked or not installed - that's fine
+            pass
 
 
 # Cleanup after all tests

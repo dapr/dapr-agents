@@ -14,11 +14,18 @@ from dapr_agents.agents.configs import (
     AgentStateConfig,
 )
 from dapr_agents.agents.utils.text_printer import ColorTextFormatter
+from dapr_agents.registry import (
+    RegistryMixin,
+    AgentMetadata,
+    ComponentMappings,
+    StateStoreComponent,
+    PubSubComponent,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class OrchestratorBase(AgentComponents):
+class OrchestratorBase(AgentComponents, RegistryMixin):
     """
     Workflow-native orchestrator base built on AgentComponents.
 
@@ -28,6 +35,9 @@ class OrchestratorBase(AgentComponents):
         console helpers for readable interactions, and small utilities like
         raising workflow events.
     """
+    
+    # Class attribute for agent category (orchestrators)
+    _agent_category_override: Optional[str] = "orchestrator"
 
     def __init__(
         self,
@@ -36,6 +46,7 @@ class OrchestratorBase(AgentComponents):
         pubsub_config: Optional[AgentPubSubConfig] = None,
         state_config: Optional[AgentStateConfig] = None,
         registry_config: Optional[AgentRegistryConfig] = None,
+        agent_registry_config: Optional[AgentRegistryConfig] = None,
         agent_metadata: Optional[Dict[str, Any]] = None,
         runtime: Optional[wf.WorkflowRuntime] = None,
         workflow_client: Optional[wf.DaprWorkflowClient] = None,
@@ -47,7 +58,8 @@ class OrchestratorBase(AgentComponents):
             name: Orchestrator name.
             pubsub_config: Pub/Sub settings used to address agents via topics.
             state_config: Durable state settings (if the orchestrator persists anything).
-            registry_config: Agent registry configuration for discovery.
+            registry_config: Team registry configuration for pub/sub addressing.
+            agent_registry_config: Agent metadata registry config for agent discovery (optional, independent).
             agent_metadata: Extra metadata to store in the registry; ``orchestrator=True``
                 is enforced automatically.
             runtime: Optional pre-existing workflow runtime to attach to.
@@ -69,6 +81,16 @@ class OrchestratorBase(AgentComponents):
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "Could not register orchestrator in registry.", exc_info=True
+                )
+
+        # Agent registry registration (agent metadata discovery)
+        self._agent_registry_config = agent_registry_config
+        if self._agent_registry_config is not None:
+            try:
+                self._register_agent_metadata()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Could not register orchestrator in agent registry: %s", exc
                 )
 
         # Runtime wiring
@@ -233,6 +255,90 @@ class OrchestratorBase(AgentComponents):
             exclude_self=not include_self,
             exclude_orchestrator=False,
             team=team,
+        )
+
+    # ------------------------------------------------------------------
+    # Agent Registry (RegistryMixin implementation)
+    # ------------------------------------------------------------------
+    def _build_agent_metadata(self) -> Optional[AgentMetadata]:
+        """
+        Build orchestrator metadata for registry registration.
+
+        Returns:
+            AgentMetadata instance or None if registration should be skipped.
+        """
+        try:
+            # Extract component mappings
+            components = self._extract_component_mappings()
+
+            # Determine agent category (use override if set, otherwise default to "orchestrator")
+            agent_category = self._agent_category_override or "orchestrator"
+
+            # Build metadata
+            metadata = AgentMetadata(
+                name=self.name,
+                role=None,  # Orchestrators typically don't have a role
+                goal=None,  # Orchestrators typically don't have a goal
+                tool_choice=None,
+                instructions=None,
+                tools=[],  # Orchestrators don't have tools
+                components=components,
+                system_prompt="",
+                agent_id=str(id(self)),
+                agent_framework="dapr-agents",
+                agent_class=self.__class__.__name__,
+                agent_category=agent_category,
+                dapr_app_id=None,  # Will be auto-detected by Registry
+                namespace=None,
+                sub_agents=[],
+            )
+            return metadata
+        except Exception as exc:
+            logger.warning("Failed to build orchestrator metadata: %s", exc, exc_info=True)
+            return None
+
+    def _extract_component_mappings(self) -> ComponentMappings:
+        """
+        Extract component mappings from orchestrator configuration.
+
+        Returns:
+            ComponentMappings instance with state stores and pub/sub components.
+        """
+        state_stores: Dict[str, StateStoreComponent] = {}
+        pubsub_components: Dict[str, PubSubComponent] = {}
+
+        # Extract state store from state_config
+        if self._state_config is not None and self._state_config.store is not None:
+            state_stores["workflow"] = StateStoreComponent(
+                name=self._state_config.store.store_name,
+                usage="Durable workflow state storage",
+            )
+
+        # Extract state store from agent_registry_config
+        if self._agent_registry_config is not None and self._agent_registry_config.store is not None:
+            state_stores["agent_registry"] = StateStoreComponent(
+                name=self._agent_registry_config.store.store_name,
+                usage="Agent metadata discovery registry",
+            )
+
+        # Extract state store from team registry_config
+        if self._registry_config is not None and self._registry_config.store is not None:
+            state_stores["team_registry"] = StateStoreComponent(
+                name=self._registry_config.store.store_name,
+                usage="Team pub/sub addressing registry",
+            )
+
+        # Extract pub/sub from pubsub_config
+        if self._pubsub_config is not None:
+            pubsub_components["default"] = PubSubComponent(
+                name=self._pubsub_config.pubsub_name,
+                usage="Orchestrator messaging and broadcasts",
+                topic_name=self._pubsub_config.agent_topic or self.name,
+            )
+
+        return ComponentMappings(
+            state_stores=state_stores,
+            pubsub_components=pubsub_components,
         )
 
     # ------------------------------------------------------------------

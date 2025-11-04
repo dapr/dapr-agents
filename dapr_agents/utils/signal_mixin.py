@@ -57,12 +57,16 @@ class SignalHandlingMixin:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                # No running loop, try to get the event loop for the current thread
-                try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    logger.debug("No event loop available for signal handlers")
-                    return
+                # get_event_loop() is removed in Python 3.12 - this is showing as warnings in tests
+                # leaving this commented out for feedback 
+                # # No running loop - signal handlers require an active event loop
+                # logger.debug("No running event loop available for signal handlers")
+                # # # No running loop, try to get the event loop for the current thread
+                # try:
+                #     loop = asyncio.get_event_loop()
+                # except RuntimeError:
+                logger.debug("No event loop available for signal handlers")
+                return
 
             # Set up signal handlers
             add_signal_handlers_cross_platform(loop, self._handle_shutdown_signal)

@@ -111,7 +111,8 @@ class TestDurableAgent:
     @pytest.fixture
     def mock_workflow_context(self):
         """Create a mock Dapr workflow context."""
-        context = DaprWorkflowContext()
+        # Create a mock context object directly (DaprWorkflowContext is mocked in conftest)
+        context = Mock()
         context.instance_id = "test-instance-123"
         context.is_replaying = False
         context.call_activity = AsyncMock()
@@ -272,11 +273,12 @@ class TestDurableAgent:
         }
 
         mock_workflow_context.instance_id = "test-instance-123"
-        mock_workflow_context.call_activity.side_effect = [
+        # Use regular Mock instead of AsyncMock to avoid unawaited coroutine warnings
+        mock_workflow_context.call_activity = Mock(side_effect=[
             {"content": "Test response"},
             {"message": "Test response"},
             "stop",
-        ]
+        ])
 
         # Use AgentWorkflowEntry for state setup
         entry = AgentWorkflowEntry(

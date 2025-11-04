@@ -19,6 +19,18 @@ from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.utils.defaults import get_default_llm
 from dapr_agents.memory import ConversationDaprStateMemory, ConversationListMemory
 from dapr_agents.prompt.base import PromptTemplateBase
+from dapr_agents.registry import (
+    RegistryMixin,
+    AgentMetadata,
+    ComponentMappings,
+    StateStoreComponent,
+    PubSubComponent,
+    ToolDefinition,
+    TOOL_TYPE_FUNCTION,
+    TOOL_TYPE_MCP,
+    TOOL_TYPE_AGENT,
+    TOOL_TYPE_UNKNOWN,
+)
 from dapr_agents.storage.daprstores.stateservice import StateStoreError
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.tool.executor import AgentToolExecutor
@@ -27,7 +39,7 @@ from dapr_agents.types import AssistantMessage, ToolExecutionRecord, UserMessage
 logger = logging.getLogger(__name__)
 
 
-class AgentBase(AgentComponents):
+class AgentBase(AgentComponents, RegistryMixin):
     """
     Base class for agent behavior.
 
@@ -39,6 +51,9 @@ class AgentBase(AgentComponents):
 
     Infrastructure (pub/sub, durable state, registry) is provided by `AgentComponents`.
     """
+    
+    # Class attribute for agent category override (can be overridden by subclasses)
+    _agent_category_override: Optional[str] = None
 
     def __init__(
         self,
@@ -56,6 +71,7 @@ class AgentBase(AgentComponents):
         pubsub_config: Optional[AgentPubSubConfig] = None,
         state_config: Optional[AgentStateConfig] = None,
         registry_config: Optional[AgentRegistryConfig] = None,
+        agent_registry_config: Optional[AgentRegistryConfig] = None,
         base_metadata: Optional[Dict[str, Any]] = None,
         max_etag_attempts: int = 10,
         # Memory / runtime
@@ -83,7 +99,8 @@ class AgentBase(AgentComponents):
 
             pubsub_config: Pub/Sub config used by `AgentComponents`.
             state_config: Durable state config used by `AgentComponents`.
-            registry_config: Team registry config used by `AgentComponents`.
+            registry_config: Team registry config used by `AgentComponents` for pub/sub addressing.
+            agent_registry_config: Agent metadata registry config for agent discovery (optional, independent).
             execution_config: Execution dials for the agent run.
             base_metadata: Default Dapr state metadata used by `AgentComponents`.
             max_etag_attempts: Concurrency retry count for registry mutations.
@@ -191,7 +208,7 @@ class AgentBase(AgentComponents):
             logger.warning("Agent failed to load persisted state; starting fresh.")
 
         # -----------------------------
-        # Agent metadata & registry registration (from AgentComponents)
+        # Agent metadata & team registry registration (from AgentComponents)
         # -----------------------------
         base_meta: Dict[str, Any] = {
             "name": self.name,
@@ -217,6 +234,18 @@ class AgentBase(AgentComponents):
             logger.debug(
                 "Registry configuration not provided; skipping agent registration."
             )
+
+        # -----------------------------
+        # Agent registry registration (agent metadata discovery)
+        # -----------------------------
+        self._agent_registry_config = agent_registry_config
+        if self._agent_registry_config is not None:
+            try:
+                self._register_agent_metadata()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Could not register agent in agent registry: %s", exc
+                )
 
     # ------------------------------------------------------------------
     # Presentation helpers
@@ -647,6 +676,144 @@ class AgentBase(AgentComponents):
             exclude_orchestrator=False,
             team=team,
         )
+
+    # ------------------------------------------------------------------
+    # Agent Registry (RegistryMixin implementation)
+    # ------------------------------------------------------------------
+    def _build_agent_metadata(self) -> Optional[AgentMetadata]:
+        """
+        Build agent metadata for registry registration.
+
+        Returns:
+            AgentMetadata instance or None if registration should be skipped.
+        """
+        try:
+            # Extract component mappings
+            components = self._extract_component_mappings()
+
+            # Extract tool definitions
+            tools = self._extract_tool_definitions()
+
+            # Determine agent category (use override if set, otherwise default to "agent")
+            agent_category = self._agent_category_override or "agent"
+
+            # Build metadata
+            metadata = AgentMetadata(
+                name=self.name,
+                role=self.profile_config.role,
+                goal=self.profile_config.goal,
+                tool_choice=self.execution_config.tool_choice,
+                instructions=list(self.profile_config.instructions) if self.profile_config.instructions else None,
+                tools=tools,
+                components=components,
+                system_prompt=self.profile_config.system_prompt or "",
+                agent_id=str(id(self)),
+                agent_framework="dapr-agents",
+                agent_class=self.__class__.__name__,
+                agent_category=agent_category,
+                dapr_app_id=None,  # Will be auto-detected by Registry
+                namespace=None,
+                sub_agents=[],
+            )
+            return metadata
+        except Exception as exc:
+            logger.warning("Failed to build agent metadata: %s", exc, exc_info=True)
+            return None
+
+    def _extract_component_mappings(self) -> ComponentMappings:
+        """
+        Extract component mappings from agent configuration.
+
+        Returns:
+            ComponentMappings instance with state stores and pub/sub components.
+        """
+        state_stores: Dict[str, StateStoreComponent] = {}
+        pubsub_components: Dict[str, PubSubComponent] = {}
+
+        # Extract state store from state_config
+        if self._state_config is not None and self._state_config.store is not None:
+            state_stores["workflow"] = StateStoreComponent(
+                name=self._state_config.store.store_name,
+                usage="Durable workflow state storage",
+            )
+
+        # Extract state store from agent_registry_config
+        if self._agent_registry_config is not None and self._agent_registry_config.store is not None:
+            state_stores["agent_registry"] = StateStoreComponent(
+                name=self._agent_registry_config.store.store_name,
+                usage="Agent metadata discovery registry",
+            )
+
+        # Extract state store from team registry_config
+        if self._registry_config is not None and self._registry_config.store is not None:
+            state_stores["team_registry"] = StateStoreComponent(
+                name=self._registry_config.store.store_name,
+                usage="Team pub/sub addressing registry",
+            )
+
+        # Extract state store from memory_config (if it's Dapr-backed)
+        if hasattr(self.memory, "store_name"):
+            state_stores["memory"] = StateStoreComponent(
+                name=self.memory.store_name,  # type: ignore
+                usage="Conversation memory storage",
+            )
+
+        # Extract pub/sub from pubsub_config
+        if self._pubsub_config is not None:
+            pubsub_components["default"] = PubSubComponent(
+                name=self._pubsub_config.pubsub_name,
+                usage="Agent messaging and broadcasts",
+                topic_name=self._pubsub_config.agent_topic or self.name,
+            )
+
+        return ComponentMappings(
+            state_stores=state_stores,
+            pubsub_components=pubsub_components,
+        )
+
+    def _extract_tool_definitions(self) -> List[ToolDefinition]:
+        """
+        Extract tool definitions from agent's tools.
+
+        Returns:
+            List of ToolDefinition instances.
+        """
+        tool_defs: List[ToolDefinition] = []
+
+        for tool in self.tools:
+            try:
+                # Determine tool type and extract metadata
+                if isinstance(tool, AgentTool):
+                    tool_type = tool.tool_type  # Use the tool's declared type
+                    name = tool.name
+                    description = tool.description
+                elif callable(tool):
+                    # Check if it's an MCP tool (heuristic: has mcp-related attributes)
+                    if hasattr(tool, "__mcp__") or (hasattr(tool, "__module__") and "mcp" in str(tool.__module__).lower()):
+                        tool_type = TOOL_TYPE_MCP
+                    else:
+                        tool_type = TOOL_TYPE_FUNCTION
+                    name = getattr(tool, "__name__", str(tool))
+                    description = getattr(tool, "__doc__", "No description") or "No description"
+                    # Clean up description
+                    description = description.strip().split("\n")[0] if description else "No description"
+                else:
+                    tool_type = TOOL_TYPE_UNKNOWN
+                    name = str(tool)
+                    description = "Unknown tool type"
+
+                tool_defs.append(
+                    ToolDefinition(
+                        name=name,
+                        description=description,
+                        tool_type=tool_type,
+                    )
+                )
+            except Exception as exc:
+                logger.debug("Failed to extract tool definition: %s", exc)
+                continue
+
+        return tool_defs
 
     # ------------------------------------------------------------------
     # Misc helpers

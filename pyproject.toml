@@ -34,7 +34,7 @@ dependencies = [
     "aiohttp>=3.9.0,<4.0.0",
     "cloudevents>=1.11.0,<2.0.0",
     "numpy>=2.2.2,<3.0.0",
-    "mcp>=1.7.1,<2.0.0",
+    "mcp>=1.11.0,<2.0.0",
     "websockets>=15.0.0,<16.0.0",
     "python-dotenv>=1.1.1,<2.0.0",
     "posthog<6.0.0",
@@ -59,6 +59,7 @@ test = [
     "pytest-cov>=4.1.0,<5.0.0",
     "pytest-mock>=3.12.0,<4.0.0",
     "httpx>=0.27.0,<1.0.0",  # For testing FastAPI endpoints
+    "testcontainers==4.12.0",  # pinned to 4.12.0 because 4.13.0 has a warning bug in wait_for_logs, see https://github.com/testcontainers/testcontainers-python/issues/874
 ]
 dev = [
     "mypy>=1.15.0,<2.0.0",
@@ -101,3 +102,35 @@ local_scheme = "node-and-date"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+markers = [
+    "integration: marks tests as integration tests (require Docker, Dapr containers, slow)",
+]
+# Suppress known warnings that don't indicate bugs:
+# - RuntimeWarning from AsyncMock: Production code bridges sync Dapr workflow activities 
+#   with async agent methods using asyncio.run(). AsyncMock creates coroutines that trigger
+#   warnings in these sync→async bridge points, but the actual code executes correctly.
+# - DeprecationWarning from importlib: Python stdlib deprecation, not our code.
+filterwarnings = [
+    "ignore::RuntimeWarning:unittest.mock",
+    "ignore::RuntimeWarning:inspect",
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["dapr_agents"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

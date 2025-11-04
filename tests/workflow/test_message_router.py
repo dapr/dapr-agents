@@ -329,18 +329,20 @@ def test_extract_cloudevent_data_from_str():
 def test_extract_cloudevent_data_from_subscription_message():
     """Test extracting CloudEvent from Dapr SubscriptionMessage."""
     import json
-    from unittest.mock import MagicMock as MockClass
+    from unittest.mock import MagicMock, Mock
+    from dapr.common.pubsub.subscription import SubscriptionMessage
 
-    mock_message = MockClass()
-    mock_message.id.return_value = "event-456"
-    mock_message.source.return_value = "test-service"
-    mock_message.type.return_value = "test.event"
-    mock_message.data_content_type.return_value = "application/json"
-    mock_message.data.return_value = json.dumps({"key": "value"}).encode("utf-8")
-    mock_message.topic.return_value = "test-topic"
-    mock_message.pubsub_name.return_value = "test-pubsub"
-    mock_message.spec_version.return_value = "1.0"
-    mock_message.extensions.return_value = {}
+    # Create a mock that's recognized as a SubscriptionMessage instance
+    mock_message = Mock(spec=SubscriptionMessage)
+    mock_message.id = Mock(return_value="event-456")
+    mock_message.source = Mock(return_value="test-service")
+    mock_message.type = Mock(return_value="test.event")
+    mock_message.data_content_type = Mock(return_value="application/json")
+    mock_message.data = Mock(return_value=json.dumps({"key": "value"}).encode("utf-8"))
+    mock_message.topic = Mock(return_value="test-topic")
+    mock_message.pubsub_name = Mock(return_value="test-pubsub")
+    mock_message.spec_version = Mock(return_value="1.0")
+    mock_message.extensions = Mock(return_value={})
 
     event_data, metadata = extract_cloudevent_data(mock_message)
 

@@ -7,6 +7,13 @@ from pydantic import BaseModel, Field, ValidationError, model_validator, Private
 from dapr_agents.tool.utils.tool import ToolHelper
 from dapr_agents.tool.utils.function_calling import to_function_call_definition
 from dapr_agents.types import ToolError
+from dapr_agents.registry.metadata import (
+    ToolType,
+    TOOL_TYPE_FUNCTION,
+    TOOL_TYPE_MCP,
+    TOOL_TYPE_AGENT,
+    TOOL_TYPE_UNKNOWN,
+)
 
 if TYPE_CHECKING:
     from mcp.types import Tool as MCPTool
@@ -25,6 +32,7 @@ class AgentTool(BaseModel):
         description (str): A brief description of the tool's purpose.
         args_model (Optional[Type[BaseModel]]): Model for validating tool arguments.
         func (Optional[Callable]): Function defining tool behavior.
+        tool_type (ToolType): The type of tool.
     """
 
     name: str = Field(
@@ -39,6 +47,10 @@ class AgentTool(BaseModel):
     )
     func: Optional[Callable] = Field(
         None, description="Optional function implementing the tool's behavior."
+    )
+    tool_type: ToolType = Field(
+        default=TOOL_TYPE_UNKNOWN,
+        description=f"The type of tool: '{TOOL_TYPE_FUNCTION}' for Python functions, '{TOOL_TYPE_MCP}' for MCP tools, '{TOOL_TYPE_AGENT}' for agent tools, or '{TOOL_TYPE_UNKNOWN}'.",
     )
 
     _is_async: bool = PrivateAttr(default=False)
@@ -67,7 +79,7 @@ class AgentTool(BaseModel):
             AgentTool: An instance of `AgentTool`.
         """
         ToolHelper.check_docstring(func)
-        return cls(func=func)
+        return cls(func=func, tool_type=TOOL_TYPE_FUNCTION)
 
     @classmethod
     def from_mcp(
@@ -150,6 +162,7 @@ class AgentTool(BaseModel):
             description=tool_docs,
             func=executor,
             args_model=tool_args_model,
+            tool_type=TOOL_TYPE_MCP,
         )
 
     @classmethod

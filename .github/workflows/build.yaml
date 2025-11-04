@@ -64,7 +64,6 @@ jobs:
       run: |
         pip cache purge
         pip install --upgrade pip setuptools wheel
-        pip install -e .
         pip install -e .[test]
     - name: Check Typing
       run: |
@@ -72,3 +71,6 @@ jobs:
     - name: Run Tests
       run: |
         tox -e pytest
+    - name: Run Tests
+      run: |
+        tox -e integration
