@@ -430,9 +430,12 @@ DAPR_INTEGRATION=1 pytest tests/agents/test_agent_registration_integration.py -v
 
 ## Documentation
 
-For detailed information about agent registry metadata, see:
-- [Agent Registry Metadata](../../docs/agent_registry_metadata.md)
-- [Tool Type Constants](../../docs/tool_type_constants.md)
+This README serves as the complete documentation for the agent registry module, including:
+- Metadata structure and types
+- Tool type constants
+- Dual registry architecture
+- State store configuration
+- Usage examples and best practices
 
 ## Architecture
 
