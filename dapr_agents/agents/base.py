@@ -455,21 +455,24 @@ class AgentBase(AgentComponents):
     # Internal utilities
     # ------------------------------------------------------------------
     @staticmethod
-    def _run_asyncio_task(coro: Coroutine[Any, Any, Any]) -> None:
+    def _run_asyncio_task(coro: Coroutine[Any, Any, Any]) -> Any:
         """
         Execute an async coroutine from a synchronous context, creating a fresh loop if needed.
 
         Args:
             coro: The coroutine to execute.
+
+        Returns:
+            The result of the coroutine execution.
         """
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            asyncio.run(coro)
+            return asyncio.run(coro)
         else:
             loop = asyncio.new_event_loop()
             try:
-                loop.run_until_complete(coro)
+                return loop.run_until_complete(coro)
             finally:
                 loop.close()
 
@@ -506,6 +509,27 @@ class AgentBase(AgentComponents):
                 return message
         return None
 
+    def _get_existing_message_ids(self, entry: Any) -> set[Any]:
+        """
+        Extract existing message IDs from an entry to prevent duplicate messages.
+        
+        Args:
+            entry: The workflow/instance entry containing messages.
+            
+        Returns:
+            Set of existing message IDs (from 'id' or 'tool_call_id' attributes).
+        """
+        if entry is None or not hasattr(entry, "messages"):
+            return set()
+        
+        try:
+            return {
+                getattr(m, "id", None) or getattr(m, "tool_call_id", None)
+                for m in getattr(entry, "messages")
+            }
+        except Exception:
+            return set()
+
     # ------------------------------------------------------------------
     # State-aware message helpers (use AgentComponents' state model)
     # ------------------------------------------------------------------
@@ -530,22 +554,64 @@ class AgentBase(AgentComponents):
                 serialized = self._serialize_message(msg)
                 if serialized.get("role") != "system":
                     instance_messages.append(serialized)
+        
+        logger.debug(f"_construct_messages: instance has {len(instance_messages)} non-system messages")
 
         persistent_memory: List[Dict[str, Any]] = []
         try:
             for msg in self.memory.get_messages():
                 try:
                     persistent_memory.append(self._serialize_message(msg))
-                except TypeError:
-                    logger.debug(
-                        "Unsupported memory message type %s; skipping.", type(msg)
+                except TypeError as e:
+                    logger.warning(
+                        "Failed to serialize memory message (type=%s): %s. Skipping message.", 
+                        type(msg), e
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Unexpected error serializing memory message (type=%s): %s. Skipping message.", 
+                        type(msg), e
                     )
         except Exception:  # noqa: BLE001
             logger.debug("Unable to load persistent memory.", exc_info=True)
+        
+        logger.debug(f"_construct_messages: persistent memory has {len(persistent_memory)} messages")
 
+        # Combine histories with de-duplication
         history: List[Dict[str, Any]] = []
-        history.extend(persistent_memory)
-        history.extend(instance_messages)
+        seen_keys = set()
+        
+        def _make_message_key(msg: Dict[str, Any]) -> tuple:
+            """Create a unique key for message deduplication."""
+            # For tool messages, use tool_call_id as primary identifier
+            if msg.get("role") == "tool" and msg.get("tool_call_id"):
+                return ("tool", msg["tool_call_id"])
+            
+            # For assistant messages with tool_calls, include tool call IDs
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                tool_call_ids = tuple(sorted(tc.get("id") for tc in tool_calls if tc.get("id")))
+                return ("assistant", "tool_calls", tool_call_ids)
+            
+            # For regular messages (user/assistant without tool_calls), use role + content only
+            # Ignore id/timestamp fields that vary between instance state and persistent memory
+            return (
+                msg.get("role"),
+                msg.get("content"),
+            )
+        
+        for msg in persistent_memory:
+            key = _make_message_key(msg)
+            if key not in seen_keys:
+                seen_keys.add(key)
+                history.append(msg)
+        
+        for msg in instance_messages:
+            key = _make_message_key(msg)
+            if key not in seen_keys:
+                seen_keys.add(key)
+                history.append(msg)
+        
         return history
 
     def _sync_system_messages_with_state(
@@ -602,6 +668,7 @@ class AgentBase(AgentComponents):
         self.memory.add_message(
             UserMessage(content=user_message_copy.get("content", ""))
         )
+        logger.debug(f"_process_user_message: Added user message to memory. Total messages in memory: {len(self.memory.get_messages())}")
         self.save_state()
 
     def _save_assistant_message(
@@ -637,6 +704,7 @@ class AgentBase(AgentComponents):
             entry.last_message = message_model  # type: ignore[attr-defined]
 
         self.memory.add_message(AssistantMessage(**assistant_message))
+        logger.debug(f"_save_assistant_message: Added assistant message to memory. Total messages in memory: {len(self.memory.get_messages())}")
         self.save_state()
 
     # ------------------------------------------------------------------

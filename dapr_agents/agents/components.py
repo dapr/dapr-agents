@@ -148,17 +148,17 @@ class AgentComponents:
         return self._pubsub
 
     @property
-    def message_bus_name(self) -> str:
-        """Return the Dapr pub/sub component name (bus)."""
+    def message_bus_name(self) -> Optional[str]:
+        """Return the Dapr pub/sub component name (bus), or None if no pubsub configured."""
         if not self._pubsub:
-            raise RuntimeError("No pubsub configuration available for this agent.")
+            return None
         return self._pubsub.pubsub_name
 
     @property
-    def agent_topic_name(self) -> str:
-        """Return the per-agent topic name."""
+    def agent_topic_name(self) -> Optional[str]:
+        """Return the per-agent topic name, or None if no pubsub configured."""
         if not self._pubsub:
-            raise RuntimeError("No pubsub configuration available for this agent.")
+            return None
         return self._pubsub.agent_topic or self.name
 
     @property
@@ -190,11 +190,10 @@ class AgentComponents:
         """
         Load the durable workflow state snapshot into memory.
 
-        If no state store is configured, resets the in-memory model to defaults.
+        If no state store is configured, skips reload to preserve in-memory state.
         """
         if not self.state_store:
-            logger.debug("No state store configured; using in-memory state only.")
-            self._state_model = self._initial_state_model()
+            logger.debug("No state store configured; skipping state reload to preserve memory.")
             return
 
         snapshot = self.state_store.load(
