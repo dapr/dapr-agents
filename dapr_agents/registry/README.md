@@ -508,22 +508,7 @@ The separation between metadata types and registry logic allows easy adoption in
 
 ## Component Configuration Examples
 
-### Local Development (Docker Compose)
-
 ```yaml
-# docker-compose.yml
-version: '3'
-services:
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-  
-  placement:
-    image: "daprio/dapr:latest"
-    command: ["./placement", "-port", "50005"]
-    ports:
-      - "50005:50005"
 
 # components/agent-registry-store.yaml
 apiVersion: dapr.io/v1alpha1
@@ -552,42 +537,4 @@ spec:
     value: redis:6379
   - name: keyPrefix
     value: name  # or appid for single-app teams
-```
-
-### Kubernetes Deployment
-
-```yaml
-# agent-registry-store-component.yaml
-apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: agent-registry-store
-  namespace: production
-spec:
-  type: state.redis
-  version: v1
-  metadata:
-  - name: redisHost
-    value: redis-master.redis-system.svc.cluster.local:6379
-  - name: keyPrefix
-    value: namespace  # Namespace-scoped for multi-tenant environments
-  - name: enableTLS
-    value: "true"
-
-# team-registry-store-component.yaml
-apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: team-registry-store
-  namespace: production
-spec:
-  type: state.redis
-  version: v1
-  metadata:
-  - name: redisHost
-    value: redis-master.redis-system.svc.cluster.local:6379
-  - name: keyPrefix
-    value: name  # Cross-application teams
-  - name: enableTLS
-    value: "true"
 ```
