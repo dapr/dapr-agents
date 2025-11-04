@@ -67,7 +67,6 @@ from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.agents.configs import (
     AgentRegistryConfig,
     AgentStateConfig,
-    AgentPubSubConfig,
 )
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.registry.registry import Registry
@@ -355,7 +354,7 @@ def test_agent_metadata_persisted(dapr_container):
 
         tool = AgentTool.from_func(sample_tool_function)
 
-        agent = Agent(
+        _ = Agent(
             name="IntegrationTestAgent",
             role="Integration Tester",
             goal="Test metadata persistence",
@@ -436,7 +435,7 @@ def test_idempotent_reregistration(dapr_container):
         agent_registry_config = AgentRegistryConfig(store=agent_registry_store)
 
         # Register agent first time
-        agent1 = Agent(
+        _ = Agent(
             name="IdempotentAgent",
             role="Tester",
             goal="Test idempotency",
@@ -454,7 +453,7 @@ def test_idempotent_reregistration(dapr_container):
         Registry.clear_registered_names()
 
         # Register same agent again (simulating restart with same metadata)
-        agent2 = Agent(
+        _ = Agent(
             name="IdempotentAgent",
             role="Tester",
             goal="Test idempotency",
