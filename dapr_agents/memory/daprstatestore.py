@@ -157,7 +157,7 @@ class ConversationDaprStateMemory(MemoryBase):
             raw_messages = json.loads(response.data)
             if raw_messages:
                 messages = raw_messages[:limit]
-                logger.info(
+                logger.debug(
                     f"Retrieved {len(messages)} messages for session {self.session_id}"
                 )
                 return messages

@@ -253,6 +253,7 @@ class AgentProfileConfig:
     template_format: str = "jinja2"
     modules: Sequence[str] = field(default_factory=tuple)
     module_overrides: Dict[str, PromptSection] = field(default_factory=dict)
+    output_type: Optional[Type[Any]] = None
 
 
 @dataclass
