@@ -4,56 +4,21 @@ This directory contains tests for the dapr-agents framework.
 
 ## Test Types
 
-The test suite uses pytest markers to distinguish between fast unit tests and slower integration tests.
+The test suite uses pytest markers to distinguish between fast unit tests and slower integration tests that test real Dapr interactions.
+
+## Install Dependencies
+
+```bash
+pip install -e ".[test]"
+```
 
 ### Unit Tests (Default)
 
-Fast tests that use mocked dependencies. Run by default with pytest.
-
-**Characteristics:**
-- ✅ Fast execution (~6 seconds for 178 tests)
-- ✅ No external dependencies (Docker, Dapr, Redis)
-- ✅ Use mocks for Dapr SDK and external services
-- ✅ Isolated and deterministic
-- ✅ Run automatically in CI/CD on every commit
-
-**Running:**
-```bash
-# Run all unit tests (excludes integration tests)
-pytest -m "not integration"
-
-# Run with verbose output
-pytest -m "not integration" -v
-
-# Run all tests (unit + integration)
-pytest
-```
+Fast tests that use mocked dependencies.
 
 ### Integration Tests
 
 Tests that require Docker and real Dapr containers. Marked with `@pytest.mark.integration`.
-
-**Characteristics:**
-- 🐳 Require Docker daemon running
-- 🕐 Slower execution (~10 seconds with container startup)
-- 🔧 Use testcontainers to spin up:
-  - Redis (state store)
-  - Dapr sidecar
-  - Dapr placement service
-- ✅ Test real Dapr API interactions
-- ✅ Validate actual state persistence
-
-**Running:**
-```bash
-# Run integration tests only
-pytest -m integration -v
-
-# Run specific integration test file
-pytest tests/agents/test_agent_registration_integration.py -v
-
-# Run with detailed output
-pytest -m integration -xvs
-```
 
 ## Pytest Configuration
 
@@ -75,68 +40,19 @@ filterwarnings = [
 - **RuntimeWarning**: Production code bridges sync Dapr workflow activities with async agent methods using `asyncio.run()`. AsyncMock triggers warnings in these sync→async bridge points, but the code executes correctly.
 - **DeprecationWarning**: Python stdlib deprecations, not our code.
 
-## Test Organization
-
-### Agent Registration Tests
-
-- **`tests/agents/test_agent_metadata.py`** (Unit Tests)
-  - Tests metadata building logic without Dapr
-  - Fast execution (~3 seconds, 13 tests)
-  - Tests `_build_agent_metadata()`, `_extract_component_mappings()`, `_extract_tool_definitions()`
-  - Uses `@patch("dapr.clients.DaprClient")` to mock Dapr SDK
-  - No external dependencies
-
-- **`tests/agents/test_agent_registration_integration.py`** (Integration Tests)
-  - Tests with real Dapr containers using testcontainers
-  - ~10 second execution (includes Docker container startup, 3 tests)
-  - Tests full metadata persistence, idempotent re-registration, dual registry system
-  - Validates actual state store operations
-  - Marked with `@pytest.mark.integration`
-  - Requires Docker daemon running
-
-### Other Test Files
-
-All test files follow the same pattern:
-- **Unit tests**: Default, fast, mocked dependencies
-- **Integration tests**: Marked with `@pytest.mark.integration`, require Docker
-
-Use `pytest --co -q` to list all tests and their markers.
-
 ## Running Tests
-
-### Quick Development Cycle (Unit Tests Only - Recommended)
-
-Fast feedback loop for local development:
 
 ```bash
 # Run unit tests only (default, ~6 seconds)
 pytest -m "not integration" -v
 
+# Run integration tests only
+pytest -m integration -v
+
 # With coverage report
 pytest -m "not integration" --cov=dapr_agents --cov-report=term-missing
-
-# Watch mode (requires pytest-watch)
-ptw -- -m "not integration"
 ```
 
-**When to use:** Always during development. Fast, no Docker needed.
-
-### Full Test Suite (CI/CD)
-
-Complete validation including integration tests:
-
-```bash
-# Run all tests (unit + integration, ~14 seconds)
-pytest -v
-
-# With coverage
-pytest --cov=dapr_agents --cov-report=html
-
-# Only integration tests (~10 seconds)
-pytest -m integration -v
-```
-
-**When to use:** Before commits, in CI/CD pipelines, validating Dapr interactions.
 
 ### Specific Test Files
 
@@ -276,15 +192,6 @@ pytest tests/agents/test_agent_metadata.py tests/agents/test_agent_registration_
 pytest --cov=dapr_agents --cov-report=html
 open htmlcov/index.html  # View in browser
 ```
-
-## Best Practices
-
-1. **Write unit tests first** - They run fast and catch most bugs
-2. **Add integration tests for critical paths** - Verify real Dapr interaction
-3. **Use descriptive test names** - Test name should describe what is being tested
-4. **Keep tests isolated** - Each test should be independent
-5. **Clean up resources** - Use fixtures and teardown to clean up
-6. **Mark slow tests** - Use `@pytest.mark.integration` for slow tests
 
 ## Troubleshooting
 
