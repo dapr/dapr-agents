@@ -42,7 +42,7 @@ class HandoffSpec:
     default_task: Optional[str] = None
     """
     Fallback task instruction when the handoff tool is invoked without explicit task.
-    
+
     Useful when LLMs forget to provide context:
         - Without: "Continue the conversation." (generic)
         - With: "Review the customer's billing inquiry" (specific)
