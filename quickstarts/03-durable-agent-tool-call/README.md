@@ -75,8 +75,6 @@ Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, 
 
 The quickstart includes other necessary Dapr components in the `components` directory:
 
-- `statestore.yaml`: Agent state configuration
-- `pubsub.yaml`: Pub/Sub message bus configuration
 - `workflowstate.yaml`: Workflow state configuration
 
 Make sure Dapr is initialized on your system:
@@ -104,7 +102,7 @@ Durable agents maintain state across runs, enabling workflows that require persi
 
 ## Custom Tools Example
 
-See `weather_tools.py` for sample tool definitions.
+See `agent_tools.py` for sample tool definitions.
 
 ## Observability with Phoenix Arize
 

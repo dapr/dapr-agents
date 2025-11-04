@@ -1,0 +1,28 @@
+version: 1
+common:
+  resourcesPath: ./components
+  logLevel: info
+  appLogDestination: console
+  daprdLogDestination: console
+
+apps:
+  - appID: research-agent
+    appDirPath: ./services/research/
+    command: ["python3", "app.py"]
+
+  - appID: writer-agent
+    appDirPath: ./services/writer/
+    command: ["python3", "app.py"]
+
+  - appID: reviewer-agent
+    appDirPath: ./services/reviewer/
+    command: ["python3", "app.py"]
+
+  - appID: research-client
+    appDirPath: ./services/client/
+    command:
+      [
+        "python3",
+        "publish_task.py",
+        "Research and write a comprehensive report about quantum computing.",
+      ]

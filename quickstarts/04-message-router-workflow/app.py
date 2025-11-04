@@ -7,14 +7,13 @@ import signal
 import dapr.ext.workflow as wf
 from dapr.clients import DaprClient
 from dotenv import load_dotenv
-from handlers import start_blog_workflow
 from workflow import (
     blog_workflow,
     create_outline,
     write_post,
 )
 
-from dapr_agents.workflow.utils.registration import register_message_handlers
+from dapr_agents.workflow.utils.registration import register_message_routes
 
 load_dotenv()
 
@@ -53,8 +52,8 @@ async def main() -> None:
     try:
         with DaprClient() as client:
             # Wire streaming subscriptions for our router(s)
-            closers = register_message_handlers(
-                targets=[start_blog_workflow],
+            closers = register_message_routes(
+                targets=[blog_workflow],
                 dapr_client=client,
             )
 

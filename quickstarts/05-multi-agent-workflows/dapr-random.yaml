@@ -7,23 +7,26 @@ common:
   daprdLogDestination: console
 
 apps:
-- appID: HobbitApp
-  appDirPath: ./services/hobbit/
+- appID: FrodoApp
+  appDirPath: ./services/frodo/
   command: ["python3", "app.py"]
 
-- appID: WizardApp
-  appDirPath: ./services/wizard/
+- appID: SamApp
+  appDirPath: ./services/sam/
   command: ["python3", "app.py"]
 
-- appID: ElfApp
-  appDirPath: ./services/elf/
+- appID: GandalfApp
+  appDirPath: ./services/gandalf/
   command: ["python3", "app.py"]
 
-- appID: WorkflowApp
+- appID: LegolasApp
+  appDirPath: ./services/legolas/
+  command: ["python3", "app.py"]
+
+- appID: RandomApp
   appDirPath: ./services/workflow-random/
   command: ["python3", "app.py"]
-  appPort: 8004
 
 - appID: ClientApp
   appDirPath: ./services/client/
-  command: ["python3", "http_client.py"]
+  command: ["python3", "pubsub_client.py", "--orchestrator", "random"]

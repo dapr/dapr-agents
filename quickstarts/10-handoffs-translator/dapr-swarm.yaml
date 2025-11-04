@@ -1,0 +1,28 @@
+version: 1
+common:
+  resourcesPath: ./components
+  logLevel: info
+  appLogDestination: console
+  daprdLogDestination: console
+
+apps:
+  - appID: translator-intake
+    appDirPath: ./services/translator/
+    command: ["python3", "app.py"]
+
+  - appID: spanish-translator
+    appDirPath: ./services/spanish/
+    command: ["python3", "app.py"]
+
+  - appID: italian-translator
+    appDirPath: ./services/italian/
+    command: ["python3", "app.py"]
+
+  - appID: translator-client
+    appDirPath: ./services/client/
+    command:
+      [
+        "python3",
+        "publish_task.py",
+        "Please translate the following announcement into Spanish: 'Our offices will be closed next Monday for maintenance.'",
+      ]

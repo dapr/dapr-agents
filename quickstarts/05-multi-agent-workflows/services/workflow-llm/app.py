@@ -1,55 +1,125 @@
-from dapr_agents import LLMOrchestrator
-from dapr_agents.agents.configs import AgentExecutionConfig
-from dapr_agents.llm import DaprChatClient
-from dapr_agents.memory import ConversationDaprStateMemory
-from dotenv import load_dotenv
+from __future__ import annotations
+
 import asyncio
 import logging
+import os
+
+from dotenv import load_dotenv
+
+import dapr.ext.workflow as wf
+from dapr_agents.agents.configs import (
+    AgentPubSubConfig,
+    AgentRegistryConfig,
+    AgentStateConfig,
+    AgentExecutionConfig,
+)
+from dapr_agents.agents.orchestrators.llm import LLMOrchestrator
+from dapr_agents.storage.daprstores.stateservice import StateStoreService
+from dapr_agents.workflow.runners import AgentRunner
+from dapr_agents.llm.openai import OpenAIChatClient
+from dapr_agents.workflow.utils.core import wait_for_shutdown
 
 
-async def main():
-    from phoenix.otel import register
-    from dapr_agents.observability import DaprAgentsInstrumentor
+load_dotenv()
 
-    # Register Dapr Agents with Phoenix OpenTelemetry
-    tracer_provider = register(
-        project_name="dapr-multi-agent-workflows",
-        protocol="http/protobuf",
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("llm.orchestrator.app")
+
+
+async def main() -> None:
+    """
+    LLM Orchestrator application.
+
+    This service hosts the LLMOrchestrator on a Dapr Workflow runtime.
+    It subscribes to the orchestrator topic for TriggerAction messages and
+    coordinates registered agents by selecting the next agent/step in the workflow.
+    """
+
+    # -------------------------------------------------------------------------
+    # Config (env-overridable)
+    # -------------------------------------------------------------------------
+    orchestrator_name = os.getenv("ORCHESTRATOR_NAME", "LLMOrchestrator")
+    team_name = os.getenv("TEAM_NAME", "fellowship")
+
+    # Pub/Sub topics: orchestrator listens on orchestrator_topic for TriggerAction
+    pubsub_name = os.getenv("PUBSUB_NAME", "messagepubsub")
+    orchestrator_topic = os.getenv("ORCHESTRATOR_TOPIC", "llm.orchestrator.requests")
+    broadcast_topic = os.getenv("BROADCAST_TOPIC", "fellowship.broadcast")
+
+    # (Optional) state & registry stores (by name, as configured in Dapr components)
+    workflow_state_store_name = os.getenv("WORKFLOW_STATE_STORE", "workflowstatestore")
+    registry_store_name = os.getenv("REGISTRY_STATE_STORE", "agentregistrystore")
+
+    # Orchestrator behavior
+    max_iterations = int(os.getenv("MAX_ITERATIONS", "8"))
+    timeout_seconds = int(os.getenv("TIMEOUT_SECONDS", "45"))
+
+    # LLM Provider
+    llm = OpenAIChatClient()
+
+    # -------------------------------------------------------------------------
+    # Pub/Sub, State, Registry wiring
+    # -------------------------------------------------------------------------
+    pubsub = AgentPubSubConfig(
+        pubsub_name=pubsub_name,
+        agent_topic=orchestrator_topic,
+        broadcast_topic=broadcast_topic,
     )
 
-    # Initialize Dapr Agents OpenTelemetry instrumentor
+    # Orchestrators often don't persist workflow-local state; still allow it
+    # so you can extend later (metrics, audit, etc).
+    # Schema automatically set to LLMWorkflowState by LLMOrchestrator
+    state = AgentStateConfig(
+        store=StateStoreService(
+            store_name=workflow_state_store_name, key_prefix="llm.orchestrator:"
+        ),
+    )
+
+    registry = AgentRegistryConfig(
+        store=StateStoreService(store_name=registry_store_name),
+        team_name=team_name,
+    )
+
+    execution = AgentExecutionConfig(max_iterations=max_iterations)
+
+    # -------------------------------------------------------------------------
+    # LLM Orchestrator instance
+    # -------------------------------------------------------------------------
+    orchestrator = LLMOrchestrator(
+        name=orchestrator_name,
+        llm=llm,
+        pubsub=pubsub,
+        state=state,
+        registry=registry,
+        execution=execution,
+        agent_metadata={
+            "type": "LLMOrchestrator",
+            "description": "LLM-driven Orchestrator",
+        },
+        timeout_seconds=timeout_seconds,
+        runtime=wf.WorkflowRuntime(),  # you can inject your own if needed
+    )
+
+    # Start workflow runtime + register workflows/activities
+    orchestrator.start()
+
+    # -------------------------------------------------------------------------
+    # HTTP runner (exposes workflow endpoints for Dapr to call)
+    # -------------------------------------------------------------------------
+    runner = AgentRunner()
     try:
-        instrumentor = DaprAgentsInstrumentor()
-        instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
-    except Exception as e:
-        raise
-
-    llm = DaprChatClient(component_name="openai")
-
-    try:
-        workflow_service = LLMOrchestrator(
-            name="LLMOrchestrator",
-            llm=llm,
-            message_bus_name="messagepubsub",
-            state_store_name="workflowstatestore",
-            state_key="workflow_state",
-            agents_registry_store_name="agentstatestore",
-            agents_registry_key="agents_registry",
-            broadcast_topic_name="beacon_channel",
-            memory=ConversationDaprStateMemory(
-                store_name="conversationstore", session_id="myuniqueid"
-            ),
-            execution=AgentExecutionConfig(max_iterations=3),
-        ).as_service(port=8004)
-
-        await workflow_service.start()
-    except Exception as e:
-        print(f"Error starting service: {e}")
+        runner.register_routes(orchestrator)
+        await wait_for_shutdown()
+    finally:
+        runner.shutdown()
+        orchestrator.stop()
 
 
 if __name__ == "__main__":
-    load_dotenv()
-
-    logging.basicConfig(level=logging.INFO)
-
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

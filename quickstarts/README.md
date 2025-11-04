@@ -146,6 +146,19 @@ This quickstart demonstrates a Lord of the Rings themed multi-agent system where
 
 [Go to Multi-Agent Workflows](./05-multi-agent-workflows)
 
+### Durable Swarm with Handoffs
+
+Spin up a small team of durable agents that hand off work to one another without an
+orchestrator. All agents share the same conversation memory stored in Dapr state
+and publish handoff requests via pub/sub.
+
+- **Durable Agents**: Each agent keeps workflow state and tool history
+- **Shared Memory**: Agents read/write a common `ConversationDaprStateMemory`
+- **Handoff Tools**: Use tool-calling to delegate work between agents
+- **Event-driven Collaboration**: Handoffs publish `TriggerAction` events via Dapr pub/sub
+
+[Go to Durable Swarm with Handoffs](./13-swarm-handoffs)
+
 ### Conversational Document Agent with Chainlit
 
 Build a fully functional, agent that parses unstructured documents, learns them, and enables users to chat over their contents with persistent conversational memory. Integrates Dapr with Chainlit for a ready-to-use chat UI.
