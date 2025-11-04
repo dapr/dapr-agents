@@ -149,70 +149,6 @@ For more information on state sharing strategies, see the [Dapr documentation on
 
 ## Usage
 
-### Creating Metadata
-
-```python
-from dapr_agents.registry.metadata import (
-    AgentMetadata,
-    ToolDefinition,
-    ComponentMappings,
-    StateStoreComponent,
-    PubSubComponent,
-    TOOL_TYPE_FUNCTION,
-)
-
-# Create tool definition
-tool = ToolDefinition(
-    name="WeatherTool",
-    description="Get weather information",
-    tool_type=TOOL_TYPE_FUNCTION
-)
-
-# Create component mappings with typed references
-components = ComponentMappings(
-    state_stores={
-        "memory": StateStoreComponent(
-            name="statestore",
-            usage="Conversation and long-term memory store"
-        ),
-        "agent_registry": StateStoreComponent(
-            name="agent-registry-store",
-            usage="Agent metadata discovery registry"
-        ),
-        "team_registry": StateStoreComponent(
-            name="team-registry-store",
-            usage="Team pub/sub addressing registry"
-        ),
-    },
-    pubsub_components={
-        "message_bus": PubSubComponent(
-            name="pubsub",
-            usage="Primary pub/sub component for agent messaging",
-            topic_name="WeatherAgent"
-        )
-    },
-)
-
-# Create agent metadata
-metadata = AgentMetadata(
-    name="WeatherAgent",
-    role="Weather Assistant",
-    goal="Provide weather information",
-    tools=[tool],
-    components=components,
-    system_prompt="You are a weather assistant",
-    agent_id="weather-agent-instance-123",
-    agent_class="Agent",  # Technical implementation class
-    agent_category="agent",  # Functional category
-    agent_framework="dapr-agents",
-    dapr_app_id="weather-app",  # Auto-detected if not provided
-    namespace="default",  # Optional
-    sub_agents=[],  # For orchestrators: list of managed agent names
-)
-
-# Serialize for registry storage
-registry_data = metadata.model_dump_for_registry()
-```
 
 ### Using the Agent Registry (Manual)
 
@@ -236,7 +172,13 @@ with DaprClient() as client:
     )
 ```
 
-### Automatic Registration (Recommended)
+### Automatic Registration in Dapr Agents
+
+> **Note on Configuration:** The current design uses two separate config parameters 
+> (`agent_registry_config` and `registry_config`) for backward compatibility. 
+> In a future release, these will be consolidated into a unified registry configuration 
+> that allows configuring multiple registry stores with different purposes. 
+> See [Future Improvements](#future-improvements) below.
 
 Agents automatically register themselves when using `RegistryMixin`:
 
@@ -264,7 +206,7 @@ agent = Agent(
     agent_registry_config=agent_registry_config,  # For agent metadata discovery
 )
 
-# Example 2: Team registry only (pub/sub addressing for orchestrators)
+# Example 2: Team registry only (pub/sub addressing for orchestrators or local development)
 agent_team_only = Agent(
     name="TeamAgent",
     role="Team Member",
@@ -522,7 +464,7 @@ spec:
   - name: redisHost
     value: redis:6379
   - name: keyPrefix
-    value: name
+    value: name # same as agent-registry-store (state store name)
 
 # components/team-registry-store.yaml
 apiVersion: dapr.io/v1alpha1

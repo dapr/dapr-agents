@@ -70,8 +70,8 @@ class AgentBase(AgentComponents, RegistryMixin):
         # Components (infrastructure)
         pubsub_config: Optional[AgentPubSubConfig] = None,
         state_config: Optional[AgentStateConfig] = None,
-        registry_config: Optional[AgentRegistryConfig] = None,
-        agent_registry_config: Optional[AgentRegistryConfig] = None,
+        registry_config: Optional[AgentRegistryConfig] = None,  # TODO: Consolidate with agent_registry_config into unified RegistryConfig
+        agent_registry_config: Optional[AgentRegistryConfig] = None,  # TODO: Part of unified RegistryConfig (design TBD)
         base_metadata: Optional[Dict[str, Any]] = None,
         max_etag_attempts: int = 10,
         # Memory / runtime
@@ -99,8 +99,10 @@ class AgentBase(AgentComponents, RegistryMixin):
 
             pubsub_config: Pub/Sub config used by `AgentComponents`.
             state_config: Durable state config used by `AgentComponents`.
-            registry_config: Team registry config used by `AgentComponents` for pub/sub addressing.
+            registry_config: Team registry config used by `AgentComponents` for pub/sub addressing (backward compatible).
+                In future versions, will be merged into a unified registry configuration.
             agent_registry_config: Agent metadata registry config for agent discovery (optional, independent).
+                In future versions, will be merged into a unified registry configuration.
             execution_config: Execution dials for the agent run.
             base_metadata: Default Dapr state metadata used by `AgentComponents`.
             max_etag_attempts: Concurrency retry count for registry mutations.
@@ -134,6 +136,10 @@ class AgentBase(AgentComponents, RegistryMixin):
             base_metadata=base_metadata,
             max_etag_attempts=max_etag_attempts,
         )
+
+        # TODO: Future improvement - merge registry_config and agent_registry_config into single
+        # unified configuration that supports multiple named registry stores. Keep current dual
+        # config for backward compatibility. See dapr_agents/registry/README.md#future-improvements
 
         # -----------------------------
         # Memory wiring

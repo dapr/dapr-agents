@@ -59,8 +59,8 @@ class Agent(AgentBase):
         memory_config: Optional[AgentMemoryConfig] = None,
         # Persistence/registry
         state_config: Optional[AgentStateConfig] = None,
-        registry_config: Optional[AgentRegistryConfig] = None,
-        agent_registry_config: Optional[AgentRegistryConfig] = None,
+        registry_config: Optional[AgentRegistryConfig] = None,  # TODO: Part of unified RegistryConfig
+        agent_registry_config: Optional[AgentRegistryConfig] = None,  # TODO: Part of unified RegistryConfig
         # Behavior / execution
         execution_config: Optional[AgentExecutionConfig] = None,
         # Misc
