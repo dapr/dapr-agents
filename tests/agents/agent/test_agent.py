@@ -279,10 +279,13 @@ class TestAgent:
         # Call the actual internal method
         result = await agent_with_tools._run_tool_call("test-instance", tool_call)
 
-        # Verify the result is a tool message dict
-        assert result["role"] == "tool"
-        assert result["name"] == echo_tool.name
-        assert result["content"] == "value1"
+        # Verify the result structure (now returns dict with 'tool_result' and 'message')
+        assert "message" in result
+        assert "tool_result" in result
+        message = result["message"]
+        assert message["role"] == "tool"
+        assert message["name"] == echo_tool.name
+        assert message["content"] == "value1"
 
     async def test_run_tool_failure(self, agent_with_tools):
         """Test tool execution failure via _run_tool_call method."""

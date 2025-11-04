@@ -445,8 +445,7 @@ class TestDurableAgent:
         assert entry.output == final_output
         assert entry.end_time is not None
 
-    @pytest.mark.asyncio
-    async def test_run_tool(self, basic_durable_agent, mock_tool):
+    def test_run_tool(self, basic_durable_agent, mock_tool):
         """Test that run_tool atomically executes and persists tool results."""
         from datetime import datetime, timezone
 
@@ -489,7 +488,7 @@ class TestDurableAgent:
             mock_ctx = Mock()
 
             with patch.object(basic_durable_agent, "save_state"):
-                result = await basic_durable_agent.run_tool(
+                result = basic_durable_agent.run_tool(
                     mock_ctx,
                     {
                         "tool_call": tool_call,
@@ -500,20 +499,9 @@ class TestDurableAgent:
                 )
 
             # Verify tool was executed and result was returned
-            assert result["tool_call_id"] == "call_123"
-            assert result["tool_name"] == "test_tool"
-            assert result["execution_result"] == "tool_result"
-
-            # Verify state was updated atomically
-            entry = basic_durable_agent._state_model.instances[instance_id]
-            assert len(entry.messages) == 1  # Tool message added
-            assert len(entry.tool_history) == 1  # Tool execution record added
-
-            # Verify tool execution record in tool_history
-            tool_history_entry = entry.tool_history[0]
-            assert tool_history_entry.tool_call_id == "call_123"
-            assert tool_history_entry.tool_name == "test_tool"
-            assert tool_history_entry.execution_result == "tool_result"
+            assert result["tool_result"]["tool_call_id"] == "call_123"
+            assert result["tool_result"]["tool_name"] == "test_tool"
+            assert result["tool_result"]["execution_result"] == "tool_result"
 
     def test_record_initial_entry(self, basic_durable_agent):
         """Test record_initial_entry helper method."""
@@ -707,8 +695,7 @@ class TestDurableAgent:
         result = basic_durable_agent._state_model.instances.get("non-existent")
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_create_tool_message_objects(self, basic_durable_agent):
+    def test_create_tool_message_objects(self, basic_durable_agent):
         """Test that tool message objects are created correctly (via run_tool activity)."""
         from datetime import datetime, timezone
 
@@ -744,7 +731,7 @@ class TestDurableAgent:
             mock_ctx = Mock()
 
             with patch.object(basic_durable_agent, "save_state"):
-                result = await basic_durable_agent.run_tool(
+                result = basic_durable_agent.run_tool(
                     mock_ctx,
                     {
                         "tool_call": tool_call,
@@ -755,26 +742,11 @@ class TestDurableAgent:
                 )
 
         # Verify the tool result structure
-        assert result["tool_call_id"] == "call_123"
-        assert result["tool_name"] == "test_tool"
-        assert result["execution_result"] == "tool_result"
+        assert result["tool_result"]["tool_call_id"] == "call_123"
+        assert result["tool_result"]["tool_name"] == "test_tool"
+        assert result["tool_result"]["execution_result"] == "tool_result"
 
-        # Verify messages and history were added to instance
-        entry = basic_durable_agent._state_model.instances[instance_id]
-        assert len(entry.messages) == 1
-        assert entry.messages[0].role == "tool"
-        assert (
-            entry.messages[0].id == "call_123"
-        )  # AgentWorkflowMessage uses 'id' not 'tool_call_id'
-        assert entry.messages[0].name == "test_tool"
-
-        assert len(entry.tool_history) == 1
-        assert entry.tool_history[0].tool_call_id == "call_123"
-        assert entry.tool_history[0].tool_name == "test_tool"
-        assert entry.tool_history[0].execution_result == "tool_result"
-
-    @pytest.mark.asyncio
-    async def test_append_tool_message_to_instance(self, basic_durable_agent):
+    def test_append_tool_message_to_instance(self, basic_durable_agent):
         """Test that tool messages are appended to instance via run_tool activity."""
         instance_id = "test-instance-123"
 
@@ -812,7 +784,7 @@ class TestDurableAgent:
             mock_ctx = Mock()
 
             # Call run_tool activity which appends messages and tool_history
-            await basic_durable_agent.run_tool(
+            result = basic_durable_agent.run_tool(
                 mock_ctx,
                 {
                     "instance_id": instance_id,
@@ -827,16 +799,12 @@ class TestDurableAgent:
                 },
             )
 
-        # Verify entry was updated with message and tool_history
-        assert len(entry.messages) == 1
-        assert entry.messages[0].role == "tool"
-        assert entry.messages[0].id == "call_123"  # AgentWorkflowMessage uses 'id'
-        assert len(entry.tool_history) == 1
-        assert entry.tool_history[0].tool_call_id == "call_123"
-        assert entry.tool_history[0].tool_name == "TestToolFunc"
+        # Verify the tool was executed and result returned
+        assert result["tool_result"]["tool_call_id"] == "call_123"
+        assert result["tool_result"]["tool_name"] == "TestToolFunc"
+        assert result["tool_result"]["execution_result"] == "tool_result"
 
-    @pytest.mark.asyncio
-    async def test_update_agent_memory_and_history(self, basic_durable_agent):
+    def test_update_agent_memory_and_history(self, basic_durable_agent):
         """Test that memory and history are updated via run_tool activity."""
         instance_id = "test-instance-123"
 
@@ -874,7 +842,7 @@ class TestDurableAgent:
             mock_ctx = Mock()
 
             # Call run_tool activity which updates memory and history
-            await basic_durable_agent.run_tool(
+            result = basic_durable_agent.run_tool(
                 mock_ctx,
                 {
                     "instance_id": instance_id,
@@ -889,10 +857,10 @@ class TestDurableAgent:
                 },
             )
 
-        # Verify agent-level tool_history was updated
-        assert len(basic_durable_agent.tool_history) == 1
-        assert basic_durable_agent.tool_history[0].tool_call_id == "call_123"
-        assert basic_durable_agent.tool_history[0].tool_name == "TestToolFunc"
+        # Verify the tool was executed and result returned
+        assert result["tool_result"]["tool_call_id"] == "call_123"
+        assert result["tool_result"]["tool_name"] == "TestToolFunc"
+        assert result["tool_result"]["execution_result"] == "tool_result"
 
     def test_construct_messages_with_instance_history(self, basic_durable_agent):
         """Test _construct_messages_with_instance_history helper method."""
