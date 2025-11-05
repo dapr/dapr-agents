@@ -70,8 +70,12 @@ class AgentBase(AgentComponents, RegistryMixin):
         # Components (infrastructure)
         pubsub_config: Optional[AgentPubSubConfig] = None,
         state_config: Optional[AgentStateConfig] = None,
-        registry_config: Optional[AgentRegistryConfig] = None,  # TODO: Consolidate with agent_registry_config into unified RegistryConfig
-        agent_registry_config: Optional[AgentRegistryConfig] = None,  # TODO: Part of unified RegistryConfig (design TBD)
+        registry_config: Optional[
+            AgentRegistryConfig
+        ] = None,  # TODO: Consolidate with agent_registry_config into unified RegistryConfig
+        agent_registry_config: Optional[
+            AgentRegistryConfig
+        ] = None,  # TODO: Part of unified RegistryConfig (design TBD)
         base_metadata: Optional[Dict[str, Any]] = None,
         max_etag_attempts: int = 10,
         # Memory / runtime

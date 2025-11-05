@@ -64,8 +64,12 @@ class DurableAgent(AgentBase):
         # Infrastructure
         pubsub_config: AgentPubSubConfig,
         state_config: Optional[AgentStateConfig] = None,
-        registry_config: Optional[AgentRegistryConfig] = None,  # TODO: Part of unified RegistryConfig
-        agent_registry_config: Optional[AgentRegistryConfig] = None,  # TODO: Part of unified RegistryConfig
+        registry_config: Optional[
+            AgentRegistryConfig
+        ] = None,  # TODO: Part of unified RegistryConfig
+        agent_registry_config: Optional[
+            AgentRegistryConfig
+        ] = None,  # TODO: Part of unified RegistryConfig
         # Memory / runtime
         memory_config: Optional[AgentMemoryConfig] = None,
         llm: Optional[ChatClientBase] = None,
