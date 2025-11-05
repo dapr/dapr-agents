@@ -16,10 +16,16 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
     ``durabletask.internal.shared.get_grpc_channel``.  This helper monkey patches
     that factory so that subsequent runtime/client instances honour the provided
     ``grpc.max_send_message_length`` / ``grpc.max_receive_message_length`` values.
+
+    Users can set either or both options; any non-None value will be applied.
     """
     if not options:
         return
-    if not options.max_send_message_length and not options.max_receive_message_length:
+    # Early return if neither option is set
+    if (
+        options.max_send_message_length is None
+        and options.max_receive_message_length is None
+    ):
         return
 
     try:
@@ -40,9 +46,6 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
         grpc_options.append(
             ("grpc.max_receive_message_length", options.max_receive_message_length)
         )
-
-    if not grpc_options:
-        return
 
     def get_grpc_channel_with_options(
         host_address: Optional[str],
