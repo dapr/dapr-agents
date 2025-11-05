@@ -8,6 +8,9 @@ from dapr_agents.agents.configs import WorkflowGrpcOptions
 logger = logging.getLogger(__name__)
 
 
+# This is a copy of the original get_grpc_channel function in durabletask.internal.shared at
+# https://github.com/dapr/durabletask-python/blob/7070cb07d07978d079f8c099743ee4a66ae70e05/durabletask/internal/shared.py#L30C1-L61C19
+# but with my option overrides applied above.
 def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
     """
     Patch Durable Task's gRPC channel factory with custom message size limits.
