@@ -28,20 +28,9 @@ pip install -r requirements.txt
 ### Text
 
 **1. Run the basic text completion example:**
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - "Response:"
-  - "Response with prompty:"
-  - "Response with user input:"
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python text_completion.py
 ```
-<!-- END_STEP -->
 
 The script demonstrates basic usage of the DaprChatClient for text generation:
 
@@ -78,20 +67,9 @@ if response.get_message() is not None and "hello" in response.get_message().cont
 **2. Expected output:** The LLM will respond with the name of a famous dog (e.g., "Lassie", "Hachiko", etc.).
 
 **Run the structured text completion example:**
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - '"name":'
-  - '"breed":'
-  - '"reason":'
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python structured_completion.py
 ```
-<!-- END_STEP -->
 
 This example shows how to use Pydantic models to get structured data from LLMs:
 

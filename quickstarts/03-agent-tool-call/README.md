@@ -78,34 +78,9 @@ Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, 
 This example shows how to create tools and an agent that can use them.
 
 Run the weather agent:
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - "user:"
-  - "What is the weather in Virginia, New York and Washington DC?"
-  - "assistant:"
-  - "Function name: GetWeather (Call Id:"
-  - 'Arguments: {"location":'
-  - "assistant:"
-  - "Function name: GetWeather (Call Id:"
-  - 'Arguments: {"location":'
-  - "assistant:"
-  - "Function name: GetWeather (Call Id:"
-  - 'Arguments: {"location":'
-  - "GetWeather(tool)"
-  - "Virginia"
-  - "GetWeather(tool)"
-  - "New York"
-  - "GetWeather(tool)"
-  - "Washington DC"
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python weather_agent.py
 ```
-<!-- END_STEP -->
 
 **Expected output:** The agent will identify the locations and use the get_weather tool to fetch weather information for each city.
 

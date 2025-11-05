@@ -134,7 +134,7 @@ dapr run --app-id weatherappmcp  --dapr-http-port 3500 --resources-path ./compon
 3. Send a test request to the agent:
 
 ```bash
-curl -X POST http://localhost:8001/start-workflow \
+curl -X POST http://localhost:8001/run \
   -H "Content-Type: application/json" \
   -d '{"task": "What is the weather in New York?"}'
 ```

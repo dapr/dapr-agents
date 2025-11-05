@@ -111,20 +111,9 @@ spec:
 This example demonstrates the Chaining Pattern by executing two activities in sequence.
 
 Run the sequential task chain workflow:
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - "== APP == Character:"
-  - "== APP == Line:"
-  - "== APP == Results:"
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 dapr run --app-id dapr-agent-wf-sequence --resources-path components/ -- python 03_sequential_workflow.py
 ```
-<!-- END_STEP -->
 
 **How it works:**
 In this chaining pattern, the workflow executes tasks in strict sequence:
@@ -137,18 +126,9 @@ In this chaining pattern, the workflow executes tasks in strict sequence:
 This example demonstrates the Fan-out/Fan-in Pattern with a research use case. It will execute 3 activities in parallel; then synchronize these activities do not proceed with the execution of subsequent activities until all preceding activities have completed.
 
 Run the parallel research workflow:
-
-<!-- STEP
-name: Run parallel workflows example
-expected_stdout_lines:
-  - "Starting research workflow on: The environmental impact of quantum computing"
-  - "Research Report:"
-output_match_mode: substring
--->
 ```bash
 dapr run --app-id dapr-agent-research --resources-path components/ -- python 04_parallel_workflow.py
 ```
-<!-- END_STEP -->
 
 **How it works:**
 This fan-out/fan-in pattern combines sequential and parallel execution:

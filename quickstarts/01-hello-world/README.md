@@ -13,16 +13,6 @@ This quickstart provides a hands-on introduction to Dapr Agents through simple e
 <details open>
 <summary><strong>Option 1: Using uv (Recommended)</strong></summary>
 
-<!-- We include setting up the venv as part of the first step to make sure the venv is created and activated before the examples are run.-->
-
-<!-- STEP
-name: Run basic LLM example
-expected_stdout_lines:
-  - "Got response:"
-timeout_seconds: 30
-output_match_mode: substring
--->
-
 ```bash
 # Create and activate virtual environment
 uv venv .venv
@@ -37,7 +27,7 @@ uv pip install -r requirements.txt
 <details>
 <summary><strong>Option 2: Using pip</strong></summary>
 
-```a shell [not setting type to avoid mechanical markdown execution]
+```bash
 # Create a virtual environment
 python3.10 -m venv .venv
 
@@ -107,7 +97,6 @@ Run the basic LLM example to see how to interact with OpenAI's language models:
 ```bash
 python 01_ask_llm.py
 ```
-<!-- END_STEP -->
 
 This example demonstrates the simplest way to use Dapr Agents' OpenAIChatClient.
 
@@ -115,26 +104,10 @@ This example demonstrates the simplest way to use Dapr Agents' OpenAIChatClient.
 
 ### 2. Simple Agent with Tools
 
-Run the agent example to see how to create an agent with custom tools:
-
-<!-- STEP
-name: Run simple agent with tools example
-expected_stdout_lines:
-  - "user:"
-  - "What's the weather?"
-  - "assistant:"
-  - "Function name: MyWeatherFunc"
-  - "MyWeatherFunc(tool)"
-  - "It's 72°F and sunny"
-  - "assistant:"
-  - "The current weather is 72°F and sunny."
-timeout_seconds: 30
-output_match_mode: substring
--->
+Run the agent example to see how to create an agent with custom tools.
 ```bash
 python 02_build_agent.py
 ```
-<!-- END_STEP -->
 
 This example shows how to create a basic agent with a custom tool.
 
@@ -156,17 +129,7 @@ Make sure Dapr is initialized on your system:
 dapr init
 ```
 
-Run the assistant agent example to see how to create a stateful agent with persistent memory:
-
-<!-- STEP
-name: Run basic LLM example
-expected_stdout_lines:
-  - "I want to find flights to Paris"
-  - "TravelBuddy"
-timeout_seconds: 60
-output_match_mode: substring
--->
-
+Run the assistant agent example to see how to create a stateful agent with persistent memory.
 
 We are using the `resolve_env_templates.py` script to resolve the environment variables in the components folder and substitute them with the actual values in your environment, like the OpenAI API key.
 
@@ -175,8 +138,6 @@ source .venv/bin/activate
 
 dapr run --app-id stateful-llm --dapr-http-port 3500 --resources-path $(../resolve_env_templates.py ./components) -- python 03_durable_agent.py
 ```
-
-<!-- END_STEP -->
 
 This example demonstrates a stateful travel planning assistant that:
 1. Remembers user context persistently (across restarts)
@@ -191,7 +152,7 @@ Unlike simpler agents, this stateful agent exposes a REST API for workflow inter
 #### Start a new workflow:
 
 ```bash
-curl -i -X POST http://localhost:8001/start-workflow \
+curl -i -X POST http://localhost:8001/run \
   -H "Content-Type: application/json" \
   -d '{"task": "I want to find flights to Paris"}'
 ```
@@ -222,22 +183,13 @@ The key components of this implementation are:
 
 ### 4. Simple Workflow
 
-Run the workflow example to see how to create a multi-step LLM process:
+Run the workflow example to see how to create a multi-step LLM process.
 
-<!-- STEP
-name: Run a simple workflow example
-expected_stdout_lines:
-  - "Outline:"
-  - "Blog post:"
-  - "Result:"
-output_match_mode: substring
--->
 ```bash
 source .venv/bin/activate
 
 dapr run --app-id dapr-agent-wf --resources-path $(../resolve_env_templates.py ./components) -- python 04_chain_tasks.py
 ```
-<!-- END_STEP -->
 
 This example demonstrates how to create a workflow with multiple tasks.
 
@@ -270,24 +222,11 @@ uv pip install -e ".[vectorstore]"
 ```
 
 Run the vector store agent example to see how to create an agent that can search and store documents:
-
-<!-- STEP
-name: Run agent with vector store example
-expected_stderr_lines:
-  - "Batches"
-expected_stdout_lines:
-  - "Add a machine learning basics document"
-  - "Added machine learning basics document"
-  - "Search for documents about machine learning"
-  - "I found"
-output_match_mode: substring
--->
 ```bash
 source .venv/bin/activate
 
 dapr run --app-id vectorstore --resources-path $(../resolve_env_templates.py ./components) -- python 05_agent_with_vectorstore.py
 ```
-<!-- END_STEP -->
 
 This example demonstrates how to create an agent with vector store capabilities, including logging, structured Document usage, and a tool to add a machine learning basics document.
 

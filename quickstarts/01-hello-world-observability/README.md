@@ -63,25 +63,9 @@ docker run --rm -d -p 9411:9411 --name zipkin openzipkin/zipkin
 ```
 
 Run the agent example to see how to create an agent with custom tools:
-
-<!-- STEP
-name: Run simple agent with tools example
-expected_stdout_lines:
-  - "user:"
-  - "What's the weather?"
-  - "assistant:"
-  - "Function name: MyWeatherFunc"
-  - "MyWeatherFunc(tool)"
-  - "It's 72°F and sunny"
-  - "assistant:"
-  - "The current weather is 72°F and sunny."
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python 01_agent_zipkin.py
 ```
-<!-- END_STEP -->
 
 **Expected output:** Visit `http://localhost:9411` in your browser and view the traces.
 
@@ -96,25 +80,9 @@ docker run -d -e COLLECTOR_OTLP_ENABLED=true -p 4318:4318 -p 16686:16686 jaegert
 ```
 
 Run the agent example to see how to create an agent with custom tools:
-
-<!-- STEP
-name: Run simple agent with tools example
-expected_stdout_lines:
-  - "user:"
-  - "What's the weather?"
-  - "assistant:"
-  - "Function name: MyWeatherFunc"
-  - "MyWeatherFunc(tool)"
-  - "It's 72°F and sunny"
-  - "assistant:"
-  - "The current weather is 72°F and sunny."
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python 02_agent_otel.py
 ```
-<!-- END_STEP -->
 
 **Expected output:** Visit `http://localhost:16686` in your browser and view the traces.
 

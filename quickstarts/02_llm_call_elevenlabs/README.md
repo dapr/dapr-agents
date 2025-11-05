@@ -40,18 +40,9 @@ Replace `your_api_key_here` with your actual Elevenlabs API key.
 You can use the `ElevenLabsSpeechClient` in `dapr-agents` for text to speech capabilities of the Elevenlabs Audio API.
 
 **1. Run the text to speech example:**
-
-
-<!-- STEP
-name: Run audio generation example
-expected_stdout_lines:
-  - "Audio saved to output_speech.mp3"
-  - "File output_speech.mp3 has been deleted."
--->
 ```bash
 python text_to_speech.py
 ```
-<!-- END_STEP -->
 
 ## Key Concepts
 

@@ -39,40 +39,18 @@ Replace `your_api_key_here` with your actual OpenAI API key.
 ### Text
 
 **1. Run the basic text completion example:**
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - "Response:"
-  - "Response with prompty:"
-  - "Response with user input:"
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python text_completion.py
 ```
-<!-- END_STEP -->
 
 The script demonstrates basic usage of Dapr Agents' OpenAIChatClient for text generation.
 
 **2. Expected output:** The LLM will respond with the name of a famous dog (e.g., "Lassie", "Hachiko", etc.).
 
 **Run the structured text completion example:**
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - '"name":'
-  - '"breed":'
-  - '"reason":'
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python structured_completion.py
 ```
-<!-- END_STEP -->
 
 This example shows how to use Pydantic models to get structured data from LLMs.
 
@@ -110,37 +88,17 @@ You can use the OpenAIAudioClient in `dapr-agents` for basic tasks with the Open
 - Translating audio content to English.
 
 **1. Run the text to speech example:**
-
-
-<!-- STEP
-name: Run audio generation example
-expected_stdout_lines:
-  - "Audio saved to speech.mp3"
-  - "File speech.mp3 has been deleted."
--->
 ```bash
 python text_to_speech.py
 ```
-<!-- END_STEP -->
 
 **2. Run the speech to text transcription example:**
-
-<!-- STEP
-name: Run audio transcription example
-expected_stdout_lines:
-  - "Transcription:"
-  - "Success! The transcription contains at least 5 out of 7 words."
-output_match_mode: substring
--->
 ```bash
 python audio_transcription.py
 ```
-<!-- END_STEP -->
 
 
 **2. Run the speech to text translation example:**
-
-[//]: # (<!-- STEP)
 
 [//]: # (name: Run audio translation example)
 
@@ -158,24 +116,13 @@ python audio_transcription.py
 
 [//]: # (```)
 
-[//]: # (<!-- END_STEP -->)
-
 ### Embeddings
 You can use the `OpenAIEmbedder` in dapr-agents for generating text embeddings.
 
 **1. Embeddings a single text:**
-<!-- STEP
-name: Run audio transcription example
-expected_stdout_lines:
-  - "Embedding (first 5 values):"
-  - "Text 1 embedding (first 5 values):"
-  - "Text 2 embedding (first 5 values):"
-output_match_mode: substring
--->
 ```bash
 python embeddings.py
 ```
-<!-- END_STEP -->
 
 ## Troubleshooting
 1. **Authentication Errors**: If you encounter authentication failures, check your OpenAI API key in the `.env` file

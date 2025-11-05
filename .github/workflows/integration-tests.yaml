@@ -1,0 +1,200 @@
+name: Integration Tests
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    # Allow manual trigger for testing
+
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python_ver: ["3.10", "3.11", "3.12", "3.13"]
+    # Only run if comment contains "/ok-to-test" and is on a PR
+    # Also check that commenter is a maintainer/owner
+    # Or if it's a manual workflow_dispatch
+    if: |
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '/ok-to-test') &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR')) ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch'
+    steps:
+    - name: Get PR details
+      if: github.event_name == 'issue_comment'
+      id: pr
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr = context.payload.issue.pull_request;
+          if (!pr) {
+            core.setFailed('Not a pull request');
+            return;
+          }
+          const { data } = await github.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.payload.issue.number,
+          });
+          core.setOutput('head_sha', data.head.sha);
+          core.setOutput('head_ref', data.head.ref);
+          core.setOutput('head_repo', data.head.repo.full_name);
+    
+    - name: Checkout PR
+      if: github.event_name == 'issue_comment'
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ steps.pr.outputs.head_sha }}
+        repository: ${{ steps.pr.outputs.head_repo }}
+    
+    - name: Checkout
+      if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python_ver }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python_ver }}
+    
+    - name: Set up Docker
+      uses: docker/setup-docker-action@v3
+    
+    - name: Install Dapr CLI
+      run: |
+        wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
+    
+    - name: Initialize Dapr
+      run: |
+        dapr init
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    
+    - name: Install dependencies
+      run: |
+        uv venv
+        source .venv/bin/activate
+        uv pip install -e .
+        uv pip install -e ".[test]"
+    
+    - name: Verify secrets are available
+      run: |
+        if [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
+          echo "OPENAI_API_KEY secret is not available"
+          echo "This is expected for PRs from forks (GitHub doesn't expose secrets to forks for security)"
+          echo "For PRs from the same repository, check that secrets are configured in repository settings"
+        else
+          echo "OPENAI_API_KEY is available"
+        fi
+        
+        if [ -z "${{ secrets.ELEVENLABS_API_KEY }}" ]; then
+          echo "ELEVENLABS_API_KEY secret is not available"
+        else
+          echo "ELEVENLABS_API_KEY is available"
+        fi
+        
+        if [ -z "${{ secrets.NVIDIA_API_KEY }}" ]; then
+          echo "NVIDIA_API_KEY secret is not available"
+        else
+          echo "NVIDIA_API_KEY is available"
+        fi
+    
+    - name: Run Integration Tests
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: |
+        source .venv/bin/activate
+        pytest -m integration -v tests/integration/quickstarts/test_01_hello_world.py::TestHelloWorldQuickstart::test_basic_llm
+        # Run all integration tests in parallel (one file per quickstart directory)
+        # -n auto uses all available CPUs, or specify -n 4 for fixed number
+        # pytest -m integration -v -n auto tests/integration/quickstarts/
+
+  # Summary job that runs after all matrix jobs complete and comments on PR
+  comment-summary:
+    needs: integration-tests
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'issue_comment'
+    steps:
+    - name: Comment PR with test results summary
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const prNumber = context.payload.issue.number;
+          const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            run_id: context.runId,
+          });
+          
+          // Get all integration test jobs (one per Python version from matrix)
+          const testJobs = jobs.jobs.filter(job => job.name === 'integration-tests');
+          
+          // Build summary table
+          let summary = '## Integration Tests Summary\n\n';
+          summary += '| Python Version | Status |\n';
+          summary += '|----------------|--------|\n';
+          
+          let allPassed = true;
+          const pythonVersions = ['3.10', '3.11', '3.12', '3.13'];
+          
+          // Sort jobs by Python version order
+          for (const pythonVer of pythonVersions) {
+            const job = testJobs.find(j => 
+              j.steps.some(step => step.name && step.name.includes(pythonVer))
+            ) || testJobs[pythonVersions.indexOf(pythonVer)];
+            
+            if (job) {
+              const status = job.conclusion === 'success' ? '✅ PASSED' : '❌ FAILED';
+              const jobUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/job/${job.id}`;
+              summary += `| ${pythonVer} | [${status}](${jobUrl}) |\n`;
+              if (job.conclusion !== 'success') {
+                allPassed = false;
+              }
+            }
+          }
+          
+          summary += `\n**Overall Status:** ${allPassed ? '✅ All tests passed' : '❌ Some tests failed'}\n`;
+          summary += `**Workflow:** [View run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n`;
+          
+          // Find existing comment or create new one
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+          });
+          
+          const existingComment = comments.find(c => 
+            c.user.type === 'Bot' && 
+            c.body.includes('## Integration Tests Summary')
+          );
+          
+          if (existingComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existingComment.id,
+              body: summary,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: summary,
+            });
+          }
+    

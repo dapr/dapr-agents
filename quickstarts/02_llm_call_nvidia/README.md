@@ -39,21 +39,9 @@ Replace `your_api_key_here` with your actual Nvidia key.
 ### Text
 
 **1. Run the basic text completion example:**
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - "Response:"
-  - "Response with prompty:"
-  - "Response with user input:"
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python text_completion.py
 ```
-<!-- END_STEP -->
-
 The script demonstrates basic usage of Dapr Agents' NVIDIAChatClient for text generation:
 
 ```python
@@ -90,20 +78,9 @@ if response.get_message() is not None and "hello" in response.get_message().cont
 **2. Expected output:** The LLM will respond with the name of a famous dog (e.g., "Lassie", "Hachiko", etc.).
 
 **Run the structured text completion example:**
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - '"name":'
-  - '"breed":'
-  - '"reason":'
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python structured_completion.py
 ```
-<!-- END_STEP -->
 
 This example shows how to use Pydantic models to get structured data from LLMs:
 
@@ -142,18 +119,9 @@ response: Dog = llm.generate(
 You can use the `NVIDIAEmbedder` in dapr-agents for generating text embeddings.
 
 **1. Embeddings a single text:**
-<!-- STEP
-name: Run audio transcription example
-expected_stdout_lines:
-  - "Embedding (first 5 values):"
-  - "Text 1 embedding (first 5 values):"
-  - "Text 2 embedding (first 5 values):"
-output_match_mode: substring
--->
 ```bash
 python embeddings.py
 ```
-<!-- END_STEP -->
 
 ### Streaming
 

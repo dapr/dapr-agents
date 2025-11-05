@@ -51,20 +51,9 @@ spec:
 ```
 
 Run the basic text completion example:
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - "Response:"
-  - "Response with prompty:"
-  - "Response with user input:"
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 dapr run --app-id dapr-llm --resources-path ./components -- python text_completion.py
 ```
-<!-- END_STEP -->
 
 The script uses the `DaprChatClient` which connects to Dapr's `echo` LLM component:
 

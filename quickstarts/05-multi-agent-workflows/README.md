@@ -136,73 +136,20 @@ The workflow orchestrators manage the interaction between agents. Currently, Dap
 The project includes three dapr multi-app run configuration files (`dapr-random.yaml`, `dapr-roundrobin.yaml` and `dapr-llm.yaml` ) for running all services and an additional Client application for interacting with the agents.
 
 Start all services using the Dapr CLI:
-
-<!-- STEP
-name: Run text completion example
-match_order: none
-expected_stdout_lines:
-  - "Workflow started successfully!"
-  - "user:"
-  - "How to get to Mordor? We all need to help!"
-  - "assistant:"
-  - "user:"
-  - "assistant:"
-  - "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'RandomWorkflow'"
-timeout_seconds: 120
-output_match_mode: substring
-background: false
-sleep: 5
--->
 ```bash
 dapr run -f dapr-random.yaml 
 ```
-<!-- END_STEP -->
 
 
 You will see the agents engaging in a conversation about getting to Mordor, with different agents contributing based on their character.
 
 You can also run the RoundRobin and LLM-based orchestrators using `dapr-roundrobin.yaml` and `dapr-llm.yaml` respectively:
-
-<!-- STEP
-name: Run text completion example
-match_order: none
-expected_stdout_lines:
-  - "Workflow started successfully!"
-  - "user:"
-  - "How to get to Mordor? We all need to help!"
-  - "assistant:"
-  - "user:"
-  - "assistant:"
-  - "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'RoundRobinWorkflow'"
-timeout_seconds: 120
-output_match_mode: substring
-background: false
-sleep: 5
--->
 ```bash
 dapr run -f dapr-roundrobin.yaml 
 ```
-<!-- END_STEP -->
-
-<!-- STEP
-name: Run text completion example
-match_order: none
-expected_stdout_lines:
-  - "Workflow started successfully!"
-  - "user:"
-  - "How to get to Mordor? We all need to help!"
-  - "assistant:"
-  - "user:"
-  - "assistant:"
-  - "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'OrchestratorWorkflow'"
-timeout_seconds: 200
-output_match_mode: substring
-background: false
--->
 ```bash
 dapr run -f dapr-llm.yaml 
 ```
-<!-- END_STEP -->
 **Expected output:** The agents will engage in a conversation about getting to Mordor, with different agents contributing based on their character. Observe that in the logs, or checking the workflow state in [Redis Insights](https://dapr.github.io/dapr-agents/home/installation/#enable-redis-insights).
 
 ## Key Concepts

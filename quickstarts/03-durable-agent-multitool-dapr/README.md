@@ -13,26 +13,6 @@ It tests the Durable Agent with multiple tools using the Dapr Conversation API A
 <details open>
 <summary><strong>Option 1: Using uv (Recommended)</strong></summary>
 
-<!-- STEP
-name: Run DaprChatClient multitool example
-expected_stderr_lines:
-  - "Creating virtual environment"
-expected_stdout_lines:
-  - "What's the current weather in Boston, MA, then compute (14*7)+23, and finally search for the official tourism site for Boston?"
-  - "Function name: GetWeather"
-  - 'Arguments: {"location": "Boston, MA"}'
-  - " Boston, MA: 85"
-  - "Function name: Calculate"
-  - 'Arguments: {"expression": "(14*7)+23"}'
-  - "121.0"
-  - "Function name: WebSearch"
-  - 'Arguments: {"query": "official tourism site for Boston"'
-timeout_seconds: 30
-output_match_mode: substring
-match_order: none
--->
-
-
 ```bash
 # Create and activate virtual environment
 uv venv .venv
@@ -104,7 +84,6 @@ dapr run --resources-path $temp_resources_folder -- python multi_tool_agent_dapr
 rm -rf $temp_resources_folder
 ```
 
-<!-- END_STEP -->
 
 The temporary resources folder will be deleted after the Dapr sidecar is stopped or when the computer is restarted.
 

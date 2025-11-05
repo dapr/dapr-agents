@@ -39,7 +39,7 @@ pip install -r requirements.txt
 uv sync --all-extras
 
 # Generate lock file with all dependencies
-uv lock --all-extras
+uv lock
 ```
 
 ### Installing Dependencies
@@ -96,6 +96,37 @@ tox -e pytest tests/test_random_orchestrator.py
 # Run tests with coverage
 tox -e pytest --cov=dapr_agents
 ```
+
+### Integration Tests
+
+> Note: we do not use `pytest-docker-compose` intentionally here because it is not compatible with Python2, 
+and requires an old version of pyyaml < version6, but the rest of our project requires >6 for this pkg.
+
+Requires Dapr CLI to be installed.
+
+```
+# Install test dependencies
+pip install -e .[test]
+
+# Set API key (required)
+export OPENAI_API_KEY=your_key_here
+
+# Run all integration tests
+pytest tests/integration/quickstarts/ -v -m integration
+
+# Run specific test file
+pytest tests/integration/quickstarts/test_01_hello_world.py -v
+
+# Run specific test func
+pytest -m integration -v integration/quickstarts/test_01_hello_world.py::TestHelloWorldQuickstart::test_chain_tasks
+
+# Run with coverage
+pytest tests/integration/quickstarts/ -v -m integration --cov=dapr_agents
+```
+
+> Note: Parallel execution can be enabled with pytest-xdist using -n auto or -n <num>. Example: `pytest -n auto -m integration`.
+
+To use an existing venv to speed up local development time, then you can update the quickstarts to set `create_venv` to `True` as a parameter in `run_quickstart_script`. Alternatively, you can set the env var setting: `USE_EXISTING_VENV=true`.
 
 ## Code Quality
 
@@ -166,109 +197,6 @@ Mental model:
   - Config you wire at construction time → dataclasses.
   - Data the system processes/persists at runtime → Pydantic.
 
-## Contributing to Dapr Agents Quickstarts
-
-### Add runnable README tests with Mechanical Markdown
-
-We annotate README code blocks with lightweight metadata so they can be executed and validated automatically using [mechanical-markdown](https://github.com/dapr/mechanical-markdown).
-
-- **Install**:
-   ```bash
-   pip install mechanical-markdown
-   ```
-
-- **Annotate steps**: Wrap executable blocks with STEP markers (as in `01-hello-world/README.md`). Example:
-   ```markdown
-   <!-- STEP
-   name: Run a simple workflow example
-   expected_stderr_lines:
-   - "Creating virtual environment"
-   expected_stdout_lines:
-   - "Result:"
-   output_match_mode: substring
-   -->
-   ```
-   
-   ```bash
-   dapr run --app-id dapr-agent-wf -- python 04_chain_tasks.py
-   ```
-   
-   ```markdown
-   <!-- END_STEP -->
-   ```
-
-- **Run locally**:
-
-   ```bash
-   # cd to the directory you want to run mechanical markdown on
-   cd quickstarts/01-hello-world/
-
-   # run mechanical markdown on the README.md file
-   mm.py README.md
-   ```
-
-   Tip: Use dry-run first to see which commands will execute:
-   ```bash
-   mm.py --dry-run README.md
-   ```
-
-   Before running, export your `.env` so keys are available to the shell used by `mm.py`:
-   ```bash
-   # export the environment variables from the .env file if it is in the current directory
-   export $(grep -v '^#' .env | xargs)
-   ```
-
-- **Use the validate.sh script**:
-   This script will run the mechanical markdown script against the quickstarts directory you want to validate. It is a simpler wrapper around the mechanical markdown script.
-
-   ```bash
-   # cd to the quickstarts directory
-   cd quickstarts
-
-   # run the validate.sh script against the quickstarts directory you want to validate
-   ./validate.sh 01-hello-world
-   ```
-
-### Troubleshooting
-
-- Remember to setup the virtual environment and install the dependencies before running the mechanical markdown script.
-- You can also add the setup of the virtual environment and installation of the dependencies to the mechanical markdown script execution scope. For example:
-   ```markdown
-   <!-- STEP
-   name: Setup virtual environment
-   expected_stderr_lines:
-   - "Creating virtual environment"
-   -->
-   ```
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-   Your script run:
-   ```bash
-   source .venv/bin/activate
-   python my_script.py
-   ```
-
-   ```markdown
-   <!-- END_STEP -->
-   ```
-- If you have errors related to order of execution, you can use the `match_order` keyword to specify the order of execution. For example:
-   ```markdown
-   <!-- STEP
-   name: Run my script
-   match_order: none
-   -->
-   ```
-- Remember that mechanical markdown is YAML so follow YAML syntax. One issue at times is with strings and quotes inside of strings. You can use single quotes inside of double quotes and vice versa. For example:
-   ```markdown
-   <!-- STEP
-   name: Run my script
-   expected_stdout_lines:
-   - '"Hello, world!"'
-   -->
-   ```
 
 ### Using the env-template resolver
 
@@ -278,8 +206,3 @@ dapr run --resources-path $(quickstarts/resolve_env_templates.py quickstarts/01-
 ```
 
 The helper scans only `.yaml`/`.yml` files (non-recursive), replaces placeholders with matching env var values, writes processed files to a temp directory, and prints that directory path.
-
-### CI note
-
-Mechanical Markdown steps are not executed in CI yet due to the absence of a repository OpenAI API key. Please validate locally as shown above. Once CI secrets are provisioned, these steps can be enabled for automated verification.
-

@@ -20,7 +20,7 @@ dependencies = [
     "durabletask-dapr>=0.2.0a7",
     "pydantic>=2.11.3,<3.0.0",
     "jinja2>=3.1.0,<4.0.0",
-    "pyyaml>=6.0,<7.0.0",
+    "pyyaml>=6.0.1,<7.0.0",
     "requests>=2.32.4,<3.0.0",
     "openapi-pydantic>=0.5.0,<0.6.0",
     "rich>=13.9.4,<14.0.0",
@@ -58,7 +58,10 @@ test = [
     "pytest-asyncio>=0.23.0,<1.0.0",
     "pytest-cov>=4.1.0,<5.0.0",
     "pytest-mock>=3.12.0,<4.0.0",
+    "pytest-xdist>=3.0.0,<4.0.0",  # For parallel test execution on quickstart tests
     "httpx>=0.27.0,<1.0.0",  # For testing FastAPI endpoints
+    "pytest-timeout>=2.3.0,<3.0.0",
+    "docker>=7.0.0,<8.0.0"
 ]
 dev = [
     "mypy>=1.15.0,<2.0.0",
@@ -101,3 +104,11 @@ local_scheme = "node-and-date"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]
+# Show logs during test execution (INFO level and above for now)
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)8s] %(name)s: %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
