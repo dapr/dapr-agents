@@ -46,6 +46,9 @@ class DurableAgent(AgentBase):
 
     """
 
+    # Override agent category for workflow-based agents
+    _agent_category_override: Optional[str] = "durable-agent"
+
     def __init__(
         self,
         *,
@@ -61,7 +64,12 @@ class DurableAgent(AgentBase):
         # Infrastructure
         pubsub_config: AgentPubSubConfig,
         state_config: Optional[AgentStateConfig] = None,
-        registry_config: Optional[AgentRegistryConfig] = None,
+        registry_config: Optional[
+            AgentRegistryConfig
+        ] = None,  # TODO: Part of unified RegistryConfig
+        agent_registry_config: Optional[
+            AgentRegistryConfig
+        ] = None,  # TODO: Part of unified RegistryConfig
         # Memory / runtime
         memory_config: Optional[AgentMemoryConfig] = None,
         llm: Optional[ChatClientBase] = None,
@@ -87,7 +95,8 @@ class DurableAgent(AgentBase):
 
             pubsub_config: Dapr Pub/Sub configuration for triggers/broadcasts.
             state_config: Durable state configuration and model customization.
-            registry_config: Team registry configuration.
+            registry_config: Team registry configuration for pub/sub addressing.
+            agent_registry_config: Agent metadata registry config for agent discovery (optional, independent).
             execution_config: Execution dials for the agent run.
 
             memory_config: Conversation memory config; defaults to in-memory, or Dapr state-backed if available.
@@ -109,6 +118,7 @@ class DurableAgent(AgentBase):
             state_config=state_config,
             memory_config=memory_config,
             registry_config=registry_config,
+            agent_registry_config=agent_registry_config,
             execution_config=execution_config,
             agent_metadata=agent_metadata,
             llm=llm,
