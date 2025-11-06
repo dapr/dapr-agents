@@ -70,7 +70,7 @@ class DockerCodeExecutor(CodeExecutorBase):
     execution_container: Optional[Any] = Field(
         default=None, init=False, description="Persistent Docker container."
     )
-    container_workspace: Optional[str] = Field(
+    container_workspace: str = Field(
         default="/workspace", init=False, description="Mounted workspace in container."
     )
 
