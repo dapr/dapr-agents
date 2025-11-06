@@ -9,6 +9,13 @@ import shutil
 import ast
 import os
 
+try:
+    from docker import DockerClient
+    from docker.models.containers import Container
+    from docker.errors import DockerException
+except ImportError as e:
+    raise ImportError("Install 'docker' package with 'pip install docker'.") from e
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,14 +76,6 @@ class DockerCodeExecutor(CodeExecutorBase):
 
     def model_post_init(self, __context: Any) -> None:
         """Initializes the Docker client and ensures a reusable execution container is ready."""
-        try:
-            from docker import DockerClient
-            from docker.errors import DockerException
-        except ImportError as e:
-            raise ImportError(
-                "Install 'docker' package with 'pip install docker'."
-            ) from e
-
         try:
             self.docker_client: DockerClient = DockerClient.from_env()
         except DockerException as e:
