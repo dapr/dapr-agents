@@ -1,6 +1,7 @@
-from pydantic import BaseModel, PrivateAttr
+from pydantic import BaseModel, PrivateAttr, Field
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
+from dapr_agents.prompt.base import PromptTemplateBase
 
 
 class LLMClientBase(BaseModel, ABC):
@@ -8,13 +9,13 @@ class LLMClientBase(BaseModel, ABC):
     Abstract base class for LLM models.
     """
 
-    # Private attributes for provider and api
     _provider: str = PrivateAttr()
     _api: str = PrivateAttr()
-
-    # Private attributes for config and client
     _config: Any = PrivateAttr()
     _client: Any = PrivateAttr()
+    prompt_template: Optional[PromptTemplateBase] = Field(
+        default=None, description="Prompt template for rendering (optional)."
+    )
 
     @property
     def provider(self) -> str:

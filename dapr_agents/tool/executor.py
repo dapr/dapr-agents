@@ -1,24 +1,26 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union, Callable
 from pydantic import BaseModel, Field, PrivateAttr
 from rich.table import Table
 from rich.console import Console
 
-from dapr_agents.tool import AgentTool
+from dapr_agents.tool.base import AgentTool
 from dapr_agents.types import AgentToolExecutorError, ToolError
 
 logger = logging.getLogger(__name__)
 
 
+# The existing AgentBase class allows tools to be both Callable and AgentTool instances.
+# Therefore, the AgentToolExecutor must support both types of tools as well.
 class AgentToolExecutor(BaseModel):
     """
     Manages the registration and execution of tools, providing both sync and async interfaces.
 
     Attributes:
-        tools (List[AgentTool]): List of tools to register and manage.
+        tools (List[Union[AgentTool, Callable]]): List of tools to register and manage.
     """
 
-    tools: List[AgentTool] = Field(
+    tools: List[Union[AgentTool, Callable]] = Field(
         default_factory=list, description="List of tools to register and manage."
     )
     _tools_map: Dict[str, AgentTool] = PrivateAttr(default_factory=dict)
@@ -30,21 +32,37 @@ class AgentToolExecutor(BaseModel):
         logger.info(f"Tool Executor initialized with {len(self._tools_map)} tool(s).")
         super().model_post_init(__context)
 
-    def register_tool(self, tool: AgentTool) -> None:
+    def register_tool(self, tool: Union[AgentTool, Callable]) -> None:
         """
         Registers a tool instance, ensuring no duplicate names.
 
         Args:
-            tool (AgentTool): The tool to register.
+            tool (Union[AgentTool, Callable]): The tool to register.
 
         Raises:
             AgentToolExecutorError: If the tool name is already registered.
         """
-        if tool.name in self._tools_map:
-            logger.error(f"Attempted to register duplicate tool: {tool.name}")
-            raise AgentToolExecutorError(f"Tool '{tool.name}' is already registered.")
-        self._tools_map[tool.name] = tool
-        logger.info(f"Tool registered: {tool.name}")
+        # Convert callable to AgentTool if needed since we support both Callable and AgentTool instances.
+        if callable(tool) and not isinstance(tool, AgentTool):
+            try:
+                tool = AgentTool.from_func(tool)
+                logger.info(f"Converted callable to AgentTool: {tool.name}")
+            except Exception as e:
+                logger.error(f"Failed to convert callable to AgentTool: {e}")
+                raise AgentToolExecutorError(
+                    f"Failed to convert callable to AgentTool: {e}"
+                ) from e
+
+        if isinstance(tool, AgentTool):
+            if tool.name in self._tools_map:
+                logger.error(f"Attempted to register duplicate tool: {tool.name}")
+                raise AgentToolExecutorError(
+                    f"Tool '{tool.name}' is already registered."
+                )
+            self._tools_map[tool.name] = tool
+            logger.info(f"Tool registered: {tool.name}")
+        else:
+            raise TypeError(f"Unsupported tool type: {type(tool).__name__}")
 
     def get_tool(self, tool_name: str) -> Optional[AgentTool]:
         """

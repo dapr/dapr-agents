@@ -1,0 +1,6 @@
+dapr-agents[observability]
+opentelemetry-sdk>=1.35.0,<2.0.0
+opentelemetry-exporter-zipkin-json==1.25.0
+# For local development use local changes by commenting out the dapr-agents line above and uncommenting the line below:
+# -e ../../[observability]
+

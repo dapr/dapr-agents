@@ -80,11 +80,21 @@ class ChatPromptHelper:
                 elif isinstance(item, BaseMessage):
                     normalized_messages.append(item)
                 elif isinstance(item, dict):
+                    # For tool messages and assistant messages with tool calls,
+                    # preserve all fields by passing the entire dict as message_data
                     role = item.get("role", "user")
                     content = item.get("content", "")
-                    normalized_messages.append(
-                        validate_and_create_message(role, content, item)
-                    )
+                    if role == "tool" or (
+                        role == "assistant" and item.get("tool_calls")
+                    ):
+                        normalized_messages.append(
+                            validate_and_create_message(role, content, item)
+                        )
+                    else:
+                        # For other messages, create a new message with just role and content
+                        normalized_messages.append(
+                            validate_and_create_message(role, content, {})
+                        )
                 else:
                     raise ValueError(
                         f"Unsupported type in list for variable: {type(item)}"
@@ -92,9 +102,19 @@ class ChatPromptHelper:
         elif isinstance(variable_value, dict):
             role = variable_value.get("role", "user")
             content = variable_value.get("content", "")
-            normalized_messages.append(
-                validate_and_create_message(role, content, variable_value)
-            )
+            if role == "tool" or (
+                role == "assistant" and variable_value.get("tool_calls")
+            ):
+                # For tool messages and assistant messages with tool calls,
+                # preserve all fields by passing the entire dict as message_data
+                normalized_messages.append(
+                    validate_and_create_message(role, content, variable_value)
+                )
+            else:
+                # For other messages, create a new message with just role and content
+                normalized_messages.append(
+                    validate_and_create_message(role, content, {})
+                )
         else:
             raise ValueError(f"Unsupported type for variable: {type(variable_value)}")
 
@@ -192,6 +212,11 @@ class ChatPromptHelper:
         if role == "tool":
             return message_class(
                 content=content, tool_call_id=message_data.get("tool_call_id")
+            )
+        elif role == "assistant" and message_data.get("tool_calls") is not None:
+            # Pass tool_calls to AssistantMessage if present
+            return message_class(
+                content=content, tool_calls=message_data.get("tool_calls")
             )
         return message_class(content=content)
 

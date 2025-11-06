@@ -1,0 +1,4 @@
+dapr-agents
+
+# comment out this line if you are not developing dapr-agents locally
+#-e ../.. # dapr-agents local development

@@ -1,151 +1,237 @@
-from dapr.clients.grpc._response import (
-    BulkStatesResponse,
-    BulkStateItem,
-    StateResponse,
-    QueryResponse,
-)
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+
 from dapr.clients import DaprClient
-from dapr.clients.grpc._state import StateItem
+from dapr.clients.grpc._response import (
+    BulkStateItem,
+    BulkStatesResponse,
+    QueryResponse,
+    StateResponse,
+)
+from dapr.clients.grpc._state import StateItem, StateOptions
+
 from dapr_agents.storage.daprstores.base import DaprStoreBase
-from typing import Optional, Union, Dict, List, Tuple
+
+
+def _coerce_state_options(
+    state_options: Optional[Union[StateOptions, Dict[str, Any]]],
+) -> Optional[StateOptions]:
+    """
+    Convert a dict of state options into a `StateOptions` instance, or pass
+    through an existing `StateOptions`.
+
+    Args:
+        state_options: None, a dict matching `StateOptions` fields, or a `StateOptions`.
+
+    Returns:
+        A `StateOptions` instance or None.
+    """
+    if state_options is None or isinstance(state_options, StateOptions):
+        return state_options
+    return StateOptions(**state_options)
 
 
 class DaprStateStore(DaprStoreBase):
+    """
+    Thin wrapper around Dapr state APIs returning raw gRPC response types.
+
+    This class intentionally avoids JSON coercion, validation, prefixing, retries,
+    and mirroring. If you want those conveniences, use `StateStoreService`.
+    """
+
     def get_state(
         self,
         key: str,
-        state_metadata: Optional[Dict[str, str]] = dict(),
+        *,
+        state_metadata: Optional[Dict[str, str]] = None,
     ) -> StateResponse:
         """
-        Retrieves a value from the state store using the provided key.
+        Retrieve a single state item.
 
         Args:
-            key (str): The key for the state store item.
-            state_metadata (Dict[str, str], optional): Dapr metadata for state request
+            key: Key to fetch (as stored in the Dapr component).
+            state_metadata: Optional Dapr metadata for the request.
 
         Returns:
-            StateResponse: gRPC metadata returned from callee and value obtained from the state store
+            `StateResponse` containing bytes payload, etag, and metadata.
         """
         with DaprClient() as client:
-            response: StateResponse = client.get_state(
-                store_name=self.store_name, key=key, state_metadata=state_metadata
+            return client.get_state(
+                store_name=self.store_name,
+                key=key,
+                state_metadata=state_metadata,
             )
-            return response
 
     def try_get_state(
-        self, key: str, state_metadata: Optional[Dict[str, str]] = dict()
+        self,
+        key: str,
+        *,
+        state_metadata: Optional[Dict[str, str]] = None,
     ) -> Tuple[bool, Optional[dict]]:
         """
-        Attempts to retrieve a value from the state store using the provided key.
+        Attempt to get a JSON-encoded state item and decode it into a dict.
 
         Args:
-            key (str): The key for the state store item.
-            state_metadata (Dict[str, str], optional): Dapr metadata for state request.
+            key: Key to fetch.
+            state_metadata: Optional Dapr metadata.
 
         Returns:
-            Tuple[bool, Optional[dict]]: A tuple where the first element is a boolean indicating whether the state exists,
-                                        and the second element is the retrieved state data or None if not found.
+            (exists, payload_dict_or_none)
         """
-        with DaprClient() as client:
-            response: StateResponse = client.get_state(
-                store_name=self.store_name, key=key, state_metadata=state_metadata
-            )
-            if response and response.data:
-                return True, response.json()
-            return False, None
+        response = self.get_state(
+            key=key,
+            state_metadata=state_metadata,
+        )
+        if response and response.data:
+            return True, response.json()
+        return False, None
 
     def get_bulk_state(
         self,
         keys: List[str],
+        *,
         parallelism: int = 1,
         states_metadata: Optional[Dict[str, str]] = None,
     ) -> List[BulkStateItem]:
         """
-        Retrieves multiple values from the state store in bulk using a list of keys.
+        Retrieve multiple keys in one call.
 
         Args:
-            keys (List[str]): The keys to retrieve in bulk.
-            parallelism (int, optional): Number of keys to retrieve in parallel.
-            states_metadata (Dict[str, str], optional): Metadata for state request.
+            keys: Keys to fetch.
+            parallelism: How many to fetch in parallel (backend dependent).
+            states_metadata: Optional bulk metadata.
 
         Returns:
-            List[BulkStateItem]: A list of BulkStateItem objects representing the retrieved state.
+            List of `BulkStateItem`. Items with missing keys may have empty data.
         """
-        states_metadata = states_metadata or {}
-
         with DaprClient() as client:
             response: BulkStatesResponse = client.get_bulk_state(
                 store_name=self.store_name,
                 keys=keys,
                 parallelism=parallelism,
-                states_metadata=states_metadata,
+                states_metadata=states_metadata or {},
             )
-
-            if response and response.items:
-                return response.items
-            return []
+            return response.items or []
 
     def save_state(
         self,
         key: str,
         value: Union[str, bytes],
-        state_metadata: Optional[Dict[str, str]] = dict(),
-    ):
+        *,
+        state_metadata: Optional[Dict[str, str]] = None,
+        etag: Optional[str] = None,
+        state_options: Optional[Union[StateOptions, Dict[str, Any]]] = None,
+    ) -> None:
         """
-        Saves a key-value pair in the state store.
+        Save a single key with raw bytes/str value.
 
         Args:
-            key (str): The key to save.
-            value (Union[str, bytes]): The value to save.
-            state_metadata (Dict[str, str], optional): Dapr metadata for state request
+            key: Key to write.
+            value: Bytes or string payload (caller handles JSON if desired).
+            state_metadata: Optional Dapr metadata.
+            etag: Optional ETag for concurrency.
+            state_options: `StateOptions` or dict fields for options.
         """
+        options = _coerce_state_options(state_options)
         with DaprClient() as client:
             client.save_state(
                 store_name=self.store_name,
                 key=key,
                 value=value,
                 state_metadata=state_metadata,
+                etag=etag,
+                options=options,
             )
 
     def save_bulk_state(
-        self, states: List[StateItem], metadata: Optional[Dict[str, str]] = None
+        self,
+        states: List[StateItem],
+        metadata: Optional[Dict[str, str]] = None,
     ) -> None:
         """
-        Saves multiple key-value pairs to the state store in bulk.
+        Save multiple `StateItem`s. Caller constructs `StateItem` objects.
 
         Args:
-            states (List[StateItem]): The list of key-value pairs to save.
-            metadata (Dict[str, str], optional): Metadata for the save request.
+            states: List of StateItem to write.
+            metadata: Optional request metadata.
         """
         with DaprClient() as client:
             client.save_bulk_state(
-                store_name=self.store_name, states=states, metadata=metadata
+                store_name=self.store_name,
+                states=states,
+                metadata=metadata,
             )
 
-    def delete_state(self, key: str):
+    def delete_state(
+        self,
+        key: str,
+        *,
+        etag: Optional[str] = None,
+        state_options: Optional[Union[StateOptions, Dict[str, Any]]] = None,
+        state_metadata: Optional[Dict[str, str]] = None,
+    ) -> None:
         """
-        Deletes a key-value pair from the state store.
+        Delete a single key.
 
         Args:
-            key (str): The key to delete.
+            key: Key to delete.
+            etag: Optional ETag for concurrency.
+            state_options: `StateOptions` or dict of options.
+            state_metadata: Optional Dapr metadata.
         """
+        options = _coerce_state_options(state_options)
         with DaprClient() as client:
-            client.delete_state(store_name=self.store_name, key=key)
+            client.delete_state(
+                store_name=self.store_name,
+                key=key,
+                etag=etag,
+                state_options=options,
+                state_metadata=state_metadata,
+            )
 
     def query_state(
-        self, query: str, states_metadata: Optional[Dict[str, str]] = None
+        self,
+        query: str,
+        *,
+        states_metadata: Optional[Dict[str, str]] = None,
     ) -> QueryResponse:
         """
-        Queries the state store with a specific query.
+        Execute a state query (backend must support Dapr state queries).
 
         Args:
-            query (str): The query to be executed (in JSON format).
-            states_metadata (Dict[str, str], optional): Custom metadata for the state request.
+            query: JSON query string.
+            states_metadata: Optional Dapr metadata.
 
         Returns:
-            QueryResponse: Contains query results and metadata.
+            `QueryResponse` containing results and metadata.
         """
         with DaprClient() as client:
-            client.query_state(
-                store_name=self.store_name, query=query, states_metadata=states_metadata
+            return client.query_state(
+                store_name=self.store_name,
+                query=query,
+                states_metadata=states_metadata,
+            )
+
+    def execute_state_transaction(
+        self,
+        operations: Sequence[Dict[str, Any]],
+        *,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """
+        Execute a transactional batch of operations.
+
+        Args:
+            operations: Dapr transaction operations (upserts/deletes).
+            metadata: Optional request metadata.
+
+        Note:
+            Backend must support transactions (e.g., Redis in certain modes).
+        """
+        with DaprClient() as client:
+            client.execute_state_transaction(
+                store_name=self.store_name,
+                operations=list(operations),
+                metadata=metadata,
             )

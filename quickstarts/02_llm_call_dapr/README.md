@@ -51,45 +51,41 @@ spec:
 ```
 
 Run the basic text completion example:
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - "Response:"
-  - "Response with prompty:"
-  - "Response with user input:"
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 dapr run --app-id dapr-llm --resources-path ./components -- python text_completion.py
 ```
-<!-- END_STEP -->
 
 The script uses the `DaprChatClient` which connects to Dapr's `echo` LLM component:
 
 ```python
-from dapr_agents.llm import DaprChatClient
-from dapr_agents.types import UserMessage
 from dotenv import load_dotenv
+
+from dapr_agents.llm import DaprChatClient
+from dapr_agents.types import LLMChatResponse, UserMessage
 
 # Load environment variables from .env
 load_dotenv()
 
 # Basic chat completion
 llm = DaprChatClient()
-response = llm.generate("Name a famous dog!")
-print("Response: ", response.get_content())
+response: LLMChatResponse = llm.generate("Name a famous dog!")
+
+if response.get_message() is not None:
+    print("Response: ", response.get_message().content)
 
 # Chat completion using a prompty file for context
-llm = DaprChatClient.from_prompty('basic.prompty')
-response = llm.generate(input_data={"question":"What is your name?"})
-print("Response with prompty: ", response.get_content())
+llm = DaprChatClient.from_prompty("basic.prompty")
+response: LLMChatResponse = llm.generate(input_data={"question": "What is your name?"})
+
+if response.get_message() is not None:
+    print("Response with prompty: ", response.get_message().content)
 
 # Chat completion with user input
 llm = DaprChatClient()
-response = llm.generate(messages=[UserMessage("hello")])
-print("Response with user input: ", response.get_content())
+response: LLMChatResponse = llm.generate(messages=[UserMessage("hello")])
+
+if response.get_message() is not None and "hello" in response.get_message().content.lower():
+    print("Response with user input: ", response.get_message().content)
 ```
 
 **Expected output:** The echo component will simply return the prompts that were sent to it.
@@ -108,8 +104,35 @@ Now, let's switch to using OpenAI by changing just the environment variable in t
 DAPR_LLM_COMPONENT_DEFAULT=openai
 ```
 
-Since we are using Dapr Component to talk to OpenAI, we need to add the OpenAI API key to `components/openai.yaml` by replacing <OPENAI_API_KEY> with your actual API key:
+The OpenAI component configuration is in `components/openai.yaml`. You have two options to configure your API key:
 
+### Option 1: Using Environment Variables (Recommended)
+
+1. Create a `.env` file in the project root and add your OpenAI API key:
+```env
+OPENAI_API_KEY=your_api_key_here
+```
+
+2. When running the examples with Dapr, use the helper script to resolve environment variables:
+```bash
+# Get the environment variables from the .env file:
+export $(grep -v '^#' ../../.env | xargs)
+
+# Create a temporary resources folder with resolved environment variables
+temp_resources_folder=$(../resolve_env_templates.py ./components)
+
+# Run your dapr command with the temporary resources
+dapr run --app-id dapr-llm --resources-path $temp_resources_folder -- python text_completion.py
+
+# Clean up when done
+rm -rf $temp_resources_folder
+```
+
+Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
+
+### Option 2: Direct Component Configuration
+
+You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -119,12 +142,16 @@ spec:
   type: conversation.openai
   metadata:
     - name: key
-      value: <OPENAI_API_KEY>
+      value: "YOUR_OPENAI_API_KEY"
     - name: model
       value: gpt-4-turbo
     - name: cacheTTL
       value: 10m
 ```
+
+Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key.
+
+Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
 
 Run the application the same way as before:
 

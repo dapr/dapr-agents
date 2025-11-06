@@ -1,4 +1,5 @@
 from typing import Any, List
+import re
 
 
 def render_fstring_template(template: str, **kwargs: Any) -> str:
@@ -25,8 +26,7 @@ def extract_fstring_variables(template: str) -> List[str]:
     Returns:
         List[str]: A list of variable names found in the template.
     """
-    return [
-        var.strip("{}")
-        for var in template.split()
-        if var.startswith("{") and var.endswith("}")
-    ]
+    # Find all occurrences of {variable_name} in the template
+    # This will match {name}, {role}, etc. even when they're part of sentences
+    matches = re.findall(r"\{([^{}]+)\}", template)
+    return matches

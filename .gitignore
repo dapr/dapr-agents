@@ -6,6 +6,7 @@ test
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 
@@ -167,3 +168,16 @@ cython_debug/
 .idea
 
 .ruff_cache/
+
+# Quickstart outputs
+*_state.json
+quickstarts/**/*_state.json
+chroma_db/
+db/
+
+# Requirements files since we use pyproject.toml instead
+dev-requirements.txt
+
+docker-entrypoint-initdb.d/
+
+*requirements.txt

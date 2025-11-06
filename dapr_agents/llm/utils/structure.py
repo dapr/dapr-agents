@@ -18,7 +18,12 @@ from typing import (
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError, create_model
 
 from dapr_agents.tool.utils.function_calling import to_function_call_definition
-from dapr_agents.types import OAIJSONSchema, OAIResponseFormatSchema, StructureError
+from dapr_agents.types import (
+    AssistantMessage,
+    OAIJSONSchema,
+    OAIResponseFormatSchema,
+    StructureError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +213,7 @@ class StructureHandler:
 
     @staticmethod
     def extract_structured_response(
-        response: Any,
+        message: AssistantMessage,
         llm_provider: str,
         structured_mode: Literal["json", "function_call"] = "json",
     ) -> Union[str, Dict[str, Any]]:
@@ -216,7 +221,7 @@ class StructureHandler:
         Extracts the structured JSON string or content from the response.
 
         Args:
-            response (Any): The API response data to extract.
+            message (AssistantMessage): The API response data to extract.
             llm_provider (str): The LLM provider (e.g., 'openai').
             structured_mode (Literal["json", "function_call"]): The structured response mode.
 
@@ -228,17 +233,7 @@ class StructureHandler:
         """
         try:
             logger.debug(f"Processing structured response for mode: {structured_mode}")
-            if llm_provider in ("openai", "nvidia"):
-                # Extract the `choices` list from the response
-                choices = getattr(response, "choices", None)
-                if not choices or not isinstance(choices, list):
-                    raise StructureError("Response does not contain valid 'choices'.")
-
-                # Extract the message object
-                message = getattr(choices[0], "message", None)
-                if not message:
-                    raise StructureError("Response message is missing.")
-
+            if llm_provider in ("openai", "nvidia", "huggingface", "dapr"):
                 if structured_mode == "function_call":
                     tool_calls = getattr(message, "tool_calls", None)
                     if tool_calls:
@@ -264,7 +259,17 @@ class StructureHandler:
                     if not content:
                         raise StructureError("No content found for JSON mode.")
 
-                    logger.debug(f"Extracted JSON content: {content}")
+                    # Try to parse content as JSON first
+                    try:
+                        if isinstance(content, str):
+                            parsed = json.loads(content)
+                            logger.debug(f"Successfully parsed JSON content: {parsed}")
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
+
+                    # If parsing fails or content is not a string, return as is
+                    logger.debug(f"Returning raw content: {content}")
                     return content
 
                 else:
@@ -580,18 +585,26 @@ class StructureHandler:
 
         # Handle one or more BaseModels
         models = StructureHandler.resolve_all_pydantic_models(expected_type)
-        for model_cls in models:
-            try:
-                if isinstance(result, list):
-                    return [
-                        StructureHandler.validate_response(item, model_cls).model_dump()
-                        for item in result
-                    ]
-                else:
+        if models:
+            validation_errors = {}
+            for model_cls in models:
+                try:
+                    # Always validate the entire result against the model class
+                    # Don't try to validate individual list items
                     validated = StructureHandler.validate_response(result, model_cls)
                     return validated.model_dump()
-            except ValidationError:
-                continue
+                except ValidationError as e:
+                    validation_errors[model_cls.__name__] = e
+                    continue
+
+            # If we get here, all models failed validation
+            if validation_errors:
+                error_details = "\n".join(
+                    f"{model}: {error}" for model, error in validation_errors.items()
+                )
+                raise TypeError(
+                    f"Validation failed for all possible models:\n{error_details}"
+                )
 
         # Handle Union[str, dict, etc.]
         if origin is Union:
@@ -614,3 +627,30 @@ class StructureHandler:
             return adapter.validate_python(result)
         except ValidationError as e:
             raise TypeError(f"Validation failed for type {expected_type}: {e}")
+
+    @staticmethod
+    def ensure_json_only_system_prompt(params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Dapr's chat client (today) does NOT forward OpenAI-style `response_format`
+        (e.g., {"type":"json_schema", ...}). That means the model won't be hard-constrained
+        to your schema. As a fallback, we prepend a system message that instructs the
+        model to return strict JSON so downstream parsing doesn't break.
+
+        Note:
+        - Dapr uses "inputs" (not "messages") for the message array.
+        - If "inputs" isn't present (future providers), we fall back to "messages".
+        """
+        collection_key = "inputs" if "inputs" in params else "messages"
+        msgs = list(params.get(collection_key, []))
+        msgs.insert(
+            0,
+            {
+                "role": "system",
+                "content": (
+                    "Return ONLY a valid JSON object that matches the provided schema. "
+                    "No markdown, no code fences, no explanations—JSON object only."
+                ),
+            },
+        )
+        params[collection_key] = msgs
+        return params

@@ -126,6 +126,15 @@ class SentenceTransformerEmbedder(EmbedderBase):
             return embeddings[0].tolist()
         return embeddings.tolist()
 
+    def embed_query(
+        self, input: Union[str, List[str]]
+    ) -> Union[List[float], List[List[float]]]:
+        """
+        Alias for embed(input) as it is used for querying in some sections of the code.
+        TODO: remove this method after updating the code to use embed(input) directly or rename the method embed to embed_query
+        """
+        return self.embed(input)
+
     def __call__(
         self, input: Union[str, List[str]]
     ) -> Union[List[float], List[List[float]]]:
@@ -139,3 +148,13 @@ class SentenceTransformerEmbedder(EmbedderBase):
             Union[List[float], List[List[float]]]: Embedding vector(s) for the input(s).
         """
         return self.embed(input)
+
+    # Note: this is required for ChromaDB compatibility
+    def name(self) -> str:
+        """
+        Return the name of the embedder for ChromaDB compatibility.
+
+        Returns:
+            str: The name of the embedder model.
+        """
+        return f"sentence-transformer-{self.model}"

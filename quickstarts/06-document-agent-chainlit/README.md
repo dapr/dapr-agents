@@ -7,7 +7,7 @@ This quickstart demonstrates how to build a fully functional, enterprise-ready a
 - **Converse With Unstructured Data**: Users can upload documents and have them parsed, contextualized and be made chattable
 - **Conversational Memory**: The agent maintains context across interactions in the user's [database of choice](https://docs.dapr.io/reference/components-reference/supported-state-stores/)
 - **UI Interface**: Use an out-of-the-box, LLM-ready chat interface using [Chainlit](https://github.com/Chainlit/chainlit)
-- **Cloud agnostic**: Uploads are handled automatically by Dapr and can be configured to target [different backends](https://docs.dapr.io/reference/components-reference/supported-bindings)
+- **Cloud Agnostic**: Uploads are handled automatically by Dapr and can be configured to target [different backends](https://docs.dapr.io/reference/components-reference/supported-bindings)
 
 ## Prerequisites
 
@@ -15,6 +15,14 @@ This quickstart demonstrates how to build a fully functional, enterprise-ready a
 - pip package manager
 - OpenAI API key (for the OpenAI example)
 - [Dapr CLI installed](https://docs.dapr.io/getting-started/install-dapr-cli/)
+- Poppler (for PDF processing) - Install with:
+  - macOS: `brew install poppler`
+  - Ubuntu/Debian: `sudo apt-get install poppler-utils`
+  - Windows: Download from [poppler releases](https://github.com/oschwartz10612/poppler-windows/releases)
+- Tesseract OCR (for text extraction from images/PDFs) - Install with:
+  - macOS: `brew install tesseract`
+  - Ubuntu/Debian: `sudo apt-get install tesseract-ocr`
+  - Windows: Download from [tesseract releases](https://github.com/UB-Mannheim/tesseract/wiki)
 
 ## Environment Setup
 
@@ -70,9 +78,9 @@ Upload a PDF of your choice, or use the example `red_foxes.pdf` file in this exa
 
 #### Testing the agent's memory
 
-If you exit the app and restart it, the agent will remember all the previously uploaded documents and conversations. The state is stored in the binding component configured in `./components/filestorage.yaml`.
+If you exit the app and restart it, the agent will remember all the previously uploaded documents. The documents are stored in the binding component configured in `./components/filestorage.yaml`.
 
-When you insall Dapr using `dapr init`, Redis is installed by default and this is where the conversation memory is saved. To change it, edit the `./components/conversationmemory.yaml` file.
+When you install Dapr using `dapr init`, Redis is installed by default and this is where the conversation memory is saved. To change it, edit the `./components/conversationmemory.yaml` file.
 
 ## Summary
 

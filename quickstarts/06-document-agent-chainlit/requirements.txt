@@ -1,5 +1,5 @@
-dapr-agents>=0.5.0
-python-dotenv
-requests
-chainlit
-unstructured[all-docs]
+dapr-agents
+chainlit==2.6.8
+unstructured[all-docs]==0.18.11
+# For local development use local changes by commenting out the dapr-agents line above and uncommenting the line below:
+# -e ../../

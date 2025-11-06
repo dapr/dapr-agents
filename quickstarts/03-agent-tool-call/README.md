@@ -26,107 +26,67 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Create a `.env` file in the project root:
+The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
 
+### Option 1: Using Environment Variables (Recommended)
+
+1. Create a `.env` file in the project root and add your OpenAI API key:
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
 
-Replace `your_api_key_here` with your actual OpenAI API key.
+2. When running the examples with Dapr, use the helper script to resolve environment variables:
+```bash
+# Get the environment variables from the .env file:
+export $(grep -v '^#' ../../.env | xargs)
+
+# Create a temporary resources folder with resolved environment variables
+temp_resources_folder=$(../resolve_env_templates.py ./components)
+
+# Run your dapr command with the temporary resources
+dapr run --app-id weatheragent --resources-path $temp_resources_folder -- python weather_agent_dapr.py
+
+# Clean up when done
+rm -rf $temp_resources_folder
+```
+
+Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
+
+### Option 2: Direct Component Configuration
+
+You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
+```yaml
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: openai
+spec:
+  type: conversation.openai
+  metadata:
+    - name: key
+      value: "YOUR_OPENAI_API_KEY"
+```
+
+Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key.
+
+Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
 
 ## Examples
 
 ### Tool Creation and Agent Execution
 
-This example shows how to create tools and an agent that can use them:
+This example shows how to create tools and an agent that can use them.
 
-1. First, create the tools in `weather_tools.py`:
-
-```python
-from dapr_agents import tool
-from pydantic import BaseModel, Field
-
-class GetWeatherSchema(BaseModel):
-    location: str = Field(description="location to get weather for")
-
-@tool(args_model=GetWeatherSchema)
-def get_weather(location: str) -> str:
-    """Get weather information based on location."""
-    import random
-    temperature = random.randint(60, 80)
-    return f"{location}: {temperature}F."
-
-class JumpSchema(BaseModel):
-    distance: str = Field(description="Distance for agent to jump")
-
-@tool(args_model=JumpSchema)
-def jump(distance: str) -> str:
-    """Jump a specific distance."""
-    return f"I jumped the following distance {distance}"
-
-tools = [get_weather, jump]
-```
-
-2. Then, create the agent in `weather_agent.py`:
-
-```python
-import asyncio
-from weather_tools import tools
-from dapr_agents import Agent
-from dotenv import load_dotenv
-
-load_dotenv()
-
-AIAgent = Agent(
-    name="Stevie",
-    role="Weather Assistant",
-    goal="Assist Humans with weather related tasks.",
-    instructions=[
-        "Get accurate weather information",
-        "From time to time, you can also jump after answering the weather question."
-    ],
-    tools=tools
-)
-
-# Wrap your async call
-async def main():
-    await AIAgent.run("What is the weather in Virginia, New York and Washington DC?")
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-3. Run the weather agent:
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - "user:"
-  - "What is the weather in Virginia, New York and Washington DC?"
-  - "assistant:"
-  - "Function name: GetWeather (Call Id:"
-  - 'Arguments: {"location":'
-  - "assistant:"
-  - "Function name: GetWeather (Call Id:"
-  - 'Arguments: {"location":'
-  - "assistant:"
-  - "Function name: GetWeather (Call Id:"
-  - 'Arguments: {"location":'
-  - "GetWeather(tool)"
-  - "Virginia"
-  - "GetWeather(tool)"
-  - "New York"
-  - "GetWeather(tool)"
-  - "Washington DC"
-timeout_seconds: 30
-output_match_mode: substring
--->
+Run the weather agent:
 ```bash
 python weather_agent.py
 ```
-<!-- END_STEP -->
 
 **Expected output:** The agent will identify the locations and use the get_weather tool to fetch weather information for each city.
+
+**Other Examples:** You can also try the following agents with the same tools using `HuggingFace hub` and `NVIDIA` LLM chat clients. Make sure you add the `HUGGINGFACE_API_KEY` and `NVIDIA_API_KEY` to the `.env` file.
+- [HuggingFace Agent](./weather_agent_hf.py)
+- [NVIDIA Agent](./weather_agent_nv.py)
 
 ## Key Concepts
 
@@ -197,72 +157,113 @@ spec:
 
 Save the file in a `./components` dir.
 
-2. Enable Dapr memory in code
-
-```python
-import asyncio
-from weather_tools import tools
-from dapr_agents import Agent
-from dotenv import load_dotenv
-from dapr_agents.memory import ConversationDaprStateMemory
-
-load_dotenv()
-
-AIAgent = Agent(
-    name="Stevie",
-    role="Weather Assistant",
-    goal="Assist Humans with weather related tasks.",
-    instructions=[
-        "Get accurate weather information",
-        "From time to time, you can also jump after answering the weather question."
-    ],
-    memory=ConversationDaprStateMemory(store_name="historystore", session_id="some-id"),
-    tools=tools
-)
-
-# Wrap your async call
-async def main():
-    await AIAgent.run("What is the weather in Virginia, New York and Washington DC?")
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-3. Run the agent with Dapr
+2. Run the agent with Dapr
 
 ```bash
-dapr run --app-id weatheragent --resources-path ./components -- python weather_agent.py
+dapr run --app-id weatheragent --resources-path ./components -- python weather_agent_dapr.py
 ```
+
+## Observability with Phoenix Arize
+
+This section demonstrates how to add observability to your Dapr Agents using Phoenix Arize for distributed tracing and monitoring. You'll learn how to set up Phoenix with PostgreSQL backend and instrument your agent for comprehensive observability.
+
+### Phoenix Server Setup
+
+First, deploy Phoenix Arize server using Docker Compose with PostgreSQL backend for persistent storage.
+
+#### Prerequisites
+
+- Docker and Docker Compose installed on your system
+- Verify Docker is running: `docker info`
+
+#### Deploy Phoenix with PostgreSQL
+
+1. Use the provided [docker-compose.yml](./docker-compose.yml) file to set up a Phoenix server locally with PostgreSQL backend.
+2. Start the Phoenix server:
+
+```bash
+docker compose up --build
+```
+
+3. Verify Phoenix is running by navigating to [http://localhost:6006](http://localhost:6006)
+
+#### Note on Production Deployment
+For production deployments, ensure you:
+- Use persistent volumes for PostgreSQL data
+- Configure proper authentication and security
+- Pin Phoenix version (e.g., `arizephoenix/phoenix:4.0.0`)
+
+### Agent Observability Setup
+
+#### Install Observability Dependencies
+
+Install the updated requirements:
+
+```bash
+pip install -r requirements.txt
+```
+
+#### Instrumented Weather Agent
+
+Create and agent with Phoenix OpenTelemetry integration. For example, see [`weather_agent_tracing.py`](./weather_agent_tracing.py).
+
+Alternatively, you can use the DurableAgent with this same setup using [`weather_durable_agent_tracing.py`](./weather_durable_agent_tracing.py).
+
+#### Run with Observability
+
+1. Ensure Phoenix server is running (see setup steps above)
+
+2. Run the instrumented agent:
+
+```bash
+python weather_agent_tracing.py
+```
+
+Alternatively, you can run the DurableAgent using:
+```bash
+dapr run --app-id weatheragent --resources-path ./components -- python weather_durable_agent_tracing.py
+```
+
+3. View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
+
+![agent span results](AgentSpanResults.png)
+
+![agent trace chat](AgentChatMessage.png)
+
+### Observability Features
+
+Dapr Agents observability provides:
+
+- **W3C Trace Context**: Standards-compliant distributed tracing
+- **OpenTelemetry Integration**: Industry-standard instrumentation
+- **Phoenix UI Compatibility**: Rich visualization and analysis
+- **Automatic Instrumentation**: Zero-code tracing for agents and tools
+- **Performance Monitoring**: Detailed metrics and performance insights
+- **Error Tracking**: Comprehensive error capture and analysis
+
+### Troubleshooting Observability
+
+1. **Phoenix Connection Issues**: 
+   - Verify Phoenix server is running: `docker compose ps`
+   - Check port availability: `netstat -an | grep 6006`
+
+2. **Missing Traces**:
+   - Ensure `dapr-agents[observability]` is installed
+   - Verify instrumentation is called before agent execution
+
+3. **Docker Issues**:
+   - Check Docker daemon is running: `docker info`
+   - Verify PostgreSQL connectivity: `docker compose logs db`
 
 ## Available Agent Types
 
-Dapr Agents provides several agent implementations, each designed for different use cases:
+Dapr Agents provides two agent implementations, each designed for different use cases:
 
-### 1. Standard Agent (ToolCallAgent)
+### 1. Agent
 The default agent type, designed for tool execution and straightforward interactions. It receives your input, determines which tools to use, executes them directly, and provides the final answer. The reasoning process is mostly hidden from you, focusing instead on delivering concise responses.
 
-### 2. ReActAgent
-Implements the Reasoning-Action framework for more complex problem-solving with explicit thought processes.
-When you interact with it, you'll see explicit "Thought", "Action", and "Observation" steps as it works through your request, providing transparency into how it reaches conclusions.
-
-### 3. OpenAPIReActAgent
-There is one more agent that we didn't run in this quickstart. OpenAPIReActAgent specialized agent for working with OpenAPI specifications and API integrations. When you ask about working with an API, it will methodically identify relevant endpoints, construct proper requests with parameters, handle authentication, and execute API calls on your behalf.
-
-```python
-from dapr_agents import Agent
-from dapr_agents.tool.utils.openapi import OpenAPISpecParser
-from dapr_agents.storage import VectorStore
-
-# This agent type requires additional components
-openapi_agent = Agent(
-    name="APIExpert",
-    role="API Expert",
-    pattern="openapireact",  # Specify OpenAPIReAct pattern
-    spec_parser=OpenAPISpecParser(),
-    api_vector_store=VectorStore(),
-    auth_header={"Authorization": "Bearer token"}
-)
-```
+### 2. DurableAgent
+The DurableAgent class is a workflow-based agent that extends the standard Agent with Dapr Workflows for long-running, fault-tolerant, and durable execution. It provides persistent state management, automatic retry mechanisms, and deterministic execution across failures. We will see this agent in the next example: [Durable Agent](../03-durable-agent-tool-call/).
 
 ## Troubleshooting
 

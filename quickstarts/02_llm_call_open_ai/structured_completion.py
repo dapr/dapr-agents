@@ -1,9 +1,10 @@
 import json
 
+from dotenv import load_dotenv
+from pydantic import BaseModel
+
 from dapr_agents import OpenAIChatClient
 from dapr_agents.types import UserMessage
-from pydantic import BaseModel
-from dotenv import load_dotenv
 
 # Load environment variables from .env
 load_dotenv()
@@ -20,7 +21,7 @@ class Dog(BaseModel):
 llm = OpenAIChatClient()
 
 # Get structured response
-response = llm.generate(
+response: Dog = llm.generate(
     messages=[UserMessage("One famous dog in history.")], response_format=Dog
 )
 

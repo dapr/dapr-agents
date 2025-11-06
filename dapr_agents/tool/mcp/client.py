@@ -1,5 +1,5 @@
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Dict, List, Optional, Set, Any, Type, AsyncGenerator
+from typing import Dict, List, Optional, Set, Any, Type, AsyncIterator
 from types import TracebackType
 import asyncio
 import logging
@@ -10,6 +10,7 @@ from mcp.types import Tool as MCPTool, Prompt
 
 from dapr_agents.tool import AgentTool
 from dapr_agents.types import ToolError
+from dapr_agents.tool.mcp.transport import start_transport_session
 
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class MCPClient(BaseModel):
         allowed_tools: Optional set of tool names to include (when None, all tools are included)
         server_timeout: Timeout in seconds for server connections
         sse_read_timeout: Read timeout for SSE connections in seconds
+        persistent_connections: If True, keep persistent connections to all MCP servers for both tool calls and metadata. This is the recommended and robust mode for all transports except stateless HTTP. If False, ephemeral (per-call) sessions are used. Ephemeral is only safe for stateless HTTP.
     """
 
     allowed_tools: Optional[Set[str]] = Field(
@@ -38,8 +40,12 @@ class MCPClient(BaseModel):
     sse_read_timeout: float = Field(
         default=300.0, description="Read timeout for SSE connections in seconds"
     )
+    persistent_connections: bool = Field(
+        default=False,
+        description="If True, keep persistent connections to all MCP servers for both tool calls and metadata. This is the recommended and robust mode for all transports except stateless HTTP. If False, ephemeral (per-call) sessions are used. Ephemeral is only safe for stateless HTTP.",
+    )
 
-    # Private attributes not exposed in model schema
+    # Private attributes
     _exit_stack: AsyncExitStack = PrivateAttr(default_factory=AsyncExitStack)
     _sessions: Dict[str, ClientSession] = PrivateAttr(default_factory=dict)
     _server_tools: Dict[str, List[AgentTool]] = PrivateAttr(default_factory=dict)
@@ -47,18 +53,13 @@ class MCPClient(BaseModel):
     _task_locals: Dict[str, Any] = PrivateAttr(default_factory=dict)
     _server_configs: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict)
 
-    def model_post_init(self, __context: Any) -> None:
-        """Initialize the client after the model is created."""
-        logger.debug("Initializing MCP client")
-        super().model_post_init(__context)
-
     @asynccontextmanager
-    async def create_session(
+    async def create_ephemeral_session(
         self, server_name: str
-    ) -> AsyncGenerator[ClientSession, None]:
+    ) -> AsyncIterator[ClientSession]:
         """
-        Create an ephemeral session for the given server and yield it.
-        Used during tool execution to avoid reuse issues.
+        Context manager: yield a fresh, initialized session for a single tool call.
+        Ensures proper cleanup after use.
 
         Args:
             server_name: The server to create a session for.
@@ -66,139 +67,213 @@ class MCPClient(BaseModel):
         Yields:
             A short-lived, initialized MCP session.
         """
-        logger.debug(f"[MCP] Creating ephemeral session for server '{server_name}'")
-        session = await self._create_ephemeral_session(server_name)
+        config = self._server_configs.get(server_name)
+        if not config:
+            raise ToolError(f"No stored config found for server '{server_name}'")
+        async with AsyncExitStack() as stack:
+            transport = config["transport"]
+            params = config["params"]
+            try:
+                session = await start_transport_session(transport, params, stack)
+                await session.initialize()
+                yield session
+            except Exception as e:
+                logger.error(f"Failed to create ephemeral session: {e}")
+                raise ToolError(
+                    f"Could not create session for '{server_name}': {e}"
+                ) from e
+
+    async def connect(self, config: dict) -> None:
+        """
+        Connect to an MCP server using the modular connection layer.
+
+        Args:
+            config: dict
+        """
+        # Make a copy so we don't mutate the caller's config
+        config = dict(config)
+        server_name = config.pop("server_name", None)
+        transport = config.pop("transport", None)
+        if server_name in self._sessions:
+            raise RuntimeError(f"Server '{server_name}' is already connected")
         try:
-            yield session
-        finally:
-            # Session cleanup is managed by AsyncExitStack (via transport module)
-            pass
+            self._task_locals[server_name] = asyncio.current_task()
+            stack = self._exit_stack
+            if self.persistent_connections:
+                # Persistent: session is managed by the main exit stack
+                session = await start_transport_session(transport, config, stack)
+                await session.initialize()
+                self._server_configs[server_name] = {
+                    "transport": transport,
+                    "params": config,
+                }
+                logger.debug(
+                    f"Initialized session for server '{server_name}', loading tools and prompts"
+                )
+                await self._load_tools_from_session(server_name, session)
+                await self._load_prompts_from_session(server_name, session)
+                self._sessions[server_name] = session
+                logger.info(
+                    f"Successfully connected to MCP server '{server_name}' (persistent mode)"
+                )
+            else:
+                # Ephemeral: use a temporary AsyncExitStack for initial tool/prompt loading
+                async with AsyncExitStack() as ephemeral_stack:
+                    session = await start_transport_session(
+                        transport, config, ephemeral_stack
+                    )
+                    await session.initialize()
+                    self._server_configs[server_name] = {
+                        "transport": transport,
+                        "params": config,
+                    }
+                    logger.debug(
+                        f"Initialized ephemeral session for server '{server_name}', loading tools and prompts"
+                    )
+                    await self._load_tools_from_session(server_name, session)
+                    await self._load_prompts_from_session(server_name, session)
+                logger.info(
+                    f"Successfully connected to MCP server '{server_name}' (ephemeral mode)"
+                )
+        except Exception as e:
+            logger.error(f"Failed to connect to MCP server '{server_name}': {str(e)}")
+            self._sessions.pop(server_name, None)
+            self._task_locals.pop(server_name, None)
+            self._server_configs.pop(server_name, None)
+            raise
+
+    async def connect_many(self, server_configs: list) -> None:
+        """
+        Connect to multiple MCP servers of various types using the modular connection layer.
+
+        Args:
+            server_configs: List of dicts, each with keys:
+                - type: "stdio", "sse", "http", "streamable_http", "websocket"
+                - server_name: str
+                - command/args/env (for stdio)
+                - url/headers (for sse/http/streamable_http/websocket)
+                - timeout, sse_read_timeout, terminate_on_close, session_kwargs, etc.
+        """
+        for config in server_configs:
+            await self.connect(config)
+
+    async def connect_from_config(self, config_dict: Dict[str, Dict[str, Any]]) -> None:
+        """
+        Connect to multiple MCP servers using a config dict mapping server names to config dicts.
+
+        Args:
+            config_dict: Dict mapping server names to config dicts.
+        """
+        for server_name, config in config_dict.items():
+            config = dict(config)  # Copy to avoid mutating input
+            config["server_name"] = server_name
+            await self.connect(config)
+
+    async def connect_sse(
+        self,
+        server_name: str,
+        url: str,
+        headers: Optional[dict] = None,
+        timeout: Optional[float] = None,
+        sse_read_timeout: Optional[float] = None,
+        **kwargs,
+    ) -> None:
+        """
+        Convenience method to connect to an MCP server using SSE transport.
+
+        Args:
+            server_name: Name to register the server under.
+            url: URL of the SSE server endpoint.
+            headers: Optional HTTP headers to send.
+            timeout: Optional connection timeout in seconds.
+            sse_read_timeout: Optional SSE read timeout in seconds.
+            **kwargs: Additional transport-specific parameters.
+        """
+        config = {
+            "server_name": server_name,
+            "transport": "sse",
+            "url": url,
+        }
+        if headers is not None:
+            config["headers"] = headers
+        if timeout is not None:
+            config["timeout"] = timeout
+        if sse_read_timeout is not None:
+            config["sse_read_timeout"] = sse_read_timeout
+        config.update(kwargs)
+        await self.connect(config)
 
     async def connect_stdio(
         self,
         server_name: str,
         command: str,
-        args: List[str],
-        env: Optional[Dict[str, str]] = None,
+        args: Optional[list] = None,
+        env: Optional[dict] = None,
+        cwd: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """
-        Connect to an MCP server using stdio transport and store the connection
-        metadata for future dynamic reconnection if needed.
+        Convenience method to connect to an MCP server using stdio transport.
 
         Args:
-            server_name (str): Unique identifier for this server connection.
-            command (str): Executable to run.
-            args (List[str]): Command-line arguments.
-            env (Optional[Dict[str, str]]): Environment variables for the process.
-
-        Raises:
-            RuntimeError: If a server with the same name is already connected.
-            Exception: If connection setup or initialization fails.
+            server_name: Name to register the server under.
+            command: Command to launch the stdio server (e.g., 'python').
+            args: Optional list of command-line arguments.
+            env: Optional environment variables dict.
+            cwd: Optional working directory.
+            **kwargs: Additional transport-specific parameters.
         """
-        logger.info(
-            f"Connecting to MCP server '{server_name}' via stdio: {command} {args}"
-        )
+        config = {
+            "server_name": server_name,
+            "transport": "stdio",
+            "command": command,
+        }
+        if args is not None:
+            config["args"] = args
+        if env is not None:
+            config["env"] = env
+        if cwd is not None:
+            config["cwd"] = cwd
+        config.update(kwargs)
+        await self.connect(config)
 
-        if server_name in self._sessions:
-            raise RuntimeError(f"Server '{server_name}' is already connected")
-
-        try:
-            self._task_locals[server_name] = asyncio.current_task()
-
-            from dapr_agents.tool.mcp.transport import (
-                connect_stdio as transport_connect_stdio,
-            )
-
-            session = await transport_connect_stdio(
-                command=command, args=args, env=env, stack=self._exit_stack
-            )
-
-            await session.initialize()
-            self._sessions[server_name] = session
-
-            # Store how to reconnect this server later
-            self._server_configs[server_name] = {
-                "type": "stdio",
-                "params": {"command": command, "args": args, "env": env},
-            }
-
-            logger.debug(
-                f"Initialized session for server '{server_name}', loading tools and prompts"
-            )
-            await self._load_tools_from_session(server_name, session)
-            await self._load_prompts_from_session(server_name, session)
-            logger.info(f"Successfully connected to MCP server '{server_name}'")
-
-        except Exception as e:
-            logger.error(f"Failed to connect to MCP server '{server_name}': {str(e)}")
-            self._sessions.pop(server_name, None)
-            self._task_locals.pop(server_name, None)
-            self._server_configs.pop(server_name, None)
-            raise
-
-    async def connect_sse(
-        self, server_name: str, url: str, headers: Optional[Dict[str, str]] = None
+    async def connect_streamable_http(
+        self,
+        server_name: str,
+        url: str,
+        headers: Optional[dict] = None,
+        timeout: Optional[float] = None,
+        sse_read_timeout: Optional[float] = None,
+        terminate_on_close: Optional[bool] = None,
+        **kwargs,
     ) -> None:
         """
-        Connect to an MCP server using Server-Sent Events (SSE) transport and store
-        the connection metadata for future dynamic reconnection if needed.
+        Convenience method to connect to an MCP server using streamable HTTP transport.
 
         Args:
-            server_name (str): Unique identifier for this server connection.
-            url (str): The SSE endpoint URL.
-            headers (Optional[Dict[str, str]]): HTTP headers to include with the request.
-
-        Raises:
-            RuntimeError: If a server with the same name is already connected.
-            Exception: If connection setup or initialization fails.
+            server_name: Name to register the server under.
+            url: URL of the streamable HTTP server endpoint.
+            headers: Optional HTTP headers to send.
+            timeout: Optional connection timeout in seconds.
+            sse_read_timeout: Optional SSE read timeout in seconds.
+            terminate_on_close: Optional flag to terminate session on close.
+            **kwargs: Additional transport-specific parameters.
         """
-        logger.info(f"Connecting to MCP server '{server_name}' via SSE: {url}")
-
-        if server_name in self._sessions:
-            raise RuntimeError(f"Server '{server_name}' is already connected")
-
-        try:
-            self._task_locals[server_name] = asyncio.current_task()
-
-            from dapr_agents.tool.mcp.transport import (
-                connect_sse as transport_connect_sse,
-            )
-
-            session = await transport_connect_sse(
-                url=url,
-                headers=headers,
-                timeout=self.server_timeout,
-                read_timeout=self.sse_read_timeout,
-                stack=self._exit_stack,
-            )
-
-            await session.initialize()
-            self._sessions[server_name] = session
-
-            # Store how to reconnect this server later
-            self._server_configs[server_name] = {
-                "type": "sse",
-                "params": {
-                    "url": url,
-                    "headers": headers,
-                    "timeout": self.server_timeout,
-                    "read_timeout": self.sse_read_timeout,
-                },
-            }
-
-            logger.debug(
-                f"Initialized session for server '{server_name}', loading tools and prompts"
-            )
-            await self._load_tools_from_session(server_name, session)
-            await self._load_prompts_from_session(server_name, session)
-            logger.info(f"Successfully connected to MCP server '{server_name}'")
-
-        except Exception as e:
-            logger.error(f"Failed to connect to MCP server '{server_name}': {str(e)}")
-            self._sessions.pop(server_name, None)
-            self._task_locals.pop(server_name, None)
-            self._server_configs.pop(server_name, None)
-            raise
+        config = {
+            "server_name": server_name,
+            "transport": "streamable_http",
+            "url": url,
+        }
+        if headers is not None:
+            config["headers"] = headers
+        if timeout is not None:
+            config["timeout"] = timeout
+        if sse_read_timeout is not None:
+            config["sse_read_timeout"] = sse_read_timeout
+        if terminate_on_close is not None:
+            config["terminate_on_close"] = terminate_on_close
+        config.update(kwargs)
+        await self.connect(config)
 
     async def _load_tools_from_session(
         self, server_name: str, session: ClientSession
@@ -211,7 +286,6 @@ class MCPClient(BaseModel):
             session: The MCP client session
         """
         logger.debug(f"Loading tools from server '{server_name}'")
-
         try:
             # Get tools from the server
             tools_response = await session.list_tools()
@@ -273,40 +347,6 @@ class MCPClient(BaseModel):
             )
             self._server_prompts[server_name] = []
 
-    async def _create_ephemeral_session(self, server_name: str) -> ClientSession:
-        """
-        Create a fresh session for a single tool call.
-
-        Args:
-            server_name: The MCP server to connect to.
-
-        Returns:
-            A fully initialized ephemeral ClientSession.
-        """
-        config = self._server_configs.get(server_name)
-        if not config:
-            raise ToolError(f"No stored config found for server '{server_name}'")
-
-        try:
-            if config["type"] == "stdio":
-                from dapr_agents.tool.mcp.transport import connect_stdio
-
-                session = await connect_stdio(
-                    **config["params"], stack=self._exit_stack
-                )
-            elif config["type"] == "sse":
-                from dapr_agents.tool.mcp.transport import connect_sse
-
-                session = await connect_sse(**config["params"], stack=self._exit_stack)
-            else:
-                raise ToolError(f"Unknown transport type: {config['type']}")
-
-            await session.initialize()
-            return session
-        except Exception as e:
-            logger.error(f"Failed to create ephemeral session: {e}")
-            raise ToolError(f"Could not create session for '{server_name}': {e}") from e
-
     async def wrap_mcp_tool(self, server_name: str, mcp_tool: MCPTool) -> AgentTool:
         """
         Wrap an MCPTool as an AgentTool with dynamic session creation at runtime,
@@ -330,7 +370,7 @@ class MCPClient(BaseModel):
         def build_executor(client: MCPClient, server_name: str, tool_name: str):
             async def executor(**kwargs: Any) -> Any:
                 """
-                Execute the tool using a dynamically created session context.
+                Execute the tool using either a persistent or ephemeral session context.
 
                 Args:
                     kwargs: Input arguments to the tool.
@@ -341,12 +381,24 @@ class MCPClient(BaseModel):
                 Raises:
                     ToolError: If execution fails or response is malformed.
                 """
-                logger.info(f"[MCP] Executing tool '{tool_name}' with args: {kwargs}")
+                logger.debug(f"Executing tool '{tool_name}' with args: {kwargs}")
                 try:
-                    async with client.create_session(server_name) as session:
+                    if (
+                        client.persistent_connections
+                        and server_name in client._sessions
+                    ):
+                        session = client._sessions[server_name]
                         result = await session.call_tool(tool_name, kwargs)
-                        logger.debug(f"[MCP] Received result from tool '{tool_name}'")
-                        return client._process_tool_result(result)
+                        logger.debug(f"Used persistent session for tool '{tool_name}'")
+                    else:
+                        async with client.create_ephemeral_session(
+                            server_name
+                        ) as session:
+                            result = await session.call_tool(tool_name, kwargs)
+                            logger.debug(
+                                f"Used ephemeral session for tool '{tool_name}'"
+                            )
+                    return client._process_tool_result(result)
                 except Exception as e:
                     logger.exception(f"Execution failed for '{tool_name}'")
                     raise ToolError(
@@ -548,6 +600,8 @@ class MCPClient(BaseModel):
         Returns:
             List of server names that are currently connected
         """
+        if not self.persistent_connections:
+            return list(self._server_configs.keys())
         return list(self._sessions.keys())
 
     async def close(self) -> None:
@@ -591,49 +645,3 @@ class MCPClient(BaseModel):
     ) -> None:
         """Context manager exit - close all connections."""
         await self.close()
-
-
-def create_sync_mcp_client(*args, **kwargs) -> MCPClient:
-    """
-    Create an MCPClient with synchronous wrapper methods for each async method.
-
-    This allows the client to be used in synchronous code.
-
-    Args:
-        *args: Positional arguments for MCPClient constructor
-        **kwargs: Keyword arguments for MCPClient constructor
-
-    Returns:
-        An MCPClient with additional sync_* methods
-    """
-    client = MCPClient(*args, **kwargs)
-
-    # Add sync versions of async methods
-    def create_sync_wrapper(async_func):
-        def sync_wrapper(*args, **kwargs):
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    raise RuntimeError(
-                        f"Cannot call {async_func.__name__} synchronously in an async context. "
-                        f"Use {async_func.__name__} directly instead."
-                    )
-            except RuntimeError:
-                pass  # No event loop, which is fine for sync operation
-
-            return asyncio.run(async_func(*args, **kwargs))
-
-        # Copy metadata
-        sync_wrapper.__name__ = f"sync_{async_func.__name__}"
-        sync_wrapper.__doc__ = (
-            f"Synchronous version of {async_func.__name__}.\n\n{async_func.__doc__}"
-        )
-
-        return sync_wrapper
-
-    # Add sync wrappers for all async methods
-    client.sync_connect_stdio = create_sync_wrapper(client.connect_stdio)
-    client.sync_connect_sse = create_sync_wrapper(client.connect_sse)
-    client.sync_close = create_sync_wrapper(client.close)
-
-    return client

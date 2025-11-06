@@ -1,6 +1,6 @@
 # Elevenlabs LLM calls with Dapr Agents
 
-This quickstart demonstrates how to use Dapr Agents' LLM capabilities to interact with language models and generate both free-form text and structured data. You'll learn how to make basic calls to LLMs and how to extract structured information in a type-safe manner.
+This quickstart demonstrates how to use Dapr Agents to convert text to speech using the ElevenLabs API. You'll learn how to generate natural-sounding audio from text, configure voices and models, and save the resulting audio to a file in your Python application.
 
 ## Prerequisites
 
@@ -40,18 +40,9 @@ Replace `your_api_key_here` with your actual Elevenlabs API key.
 You can use the `ElevenLabsSpeechClient` in `dapr-agents` for text to speech capabilities of the Elevenlabs Audio API.
 
 **1. Run the text to speech example:**
-
-
-<!-- STEP
-name: Run audio generation example
-expected_stdout_lines:
-  - "Audio saved to output_speech.mp3"
-  - "File output_speech.mp3 has been deleted."
--->
 ```bash
 python text_to_speech.py
 ```
-<!-- END_STEP -->
 
 ## Key Concepts
 

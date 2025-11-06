@@ -1,9 +1,12 @@
 import chainlit as cl
-from dapr_agents import Agent
-from dapr_agents.memory import ConversationDaprStateMemory
+from dapr.clients import DaprClient
 from dotenv import load_dotenv
 from unstructured.partition.pdf import partition_pdf
-from dapr.clients import DaprClient
+
+from dapr_agents import Agent
+from dapr_agents.memory import ConversationDaprStateMemory
+from dapr_agents.types import AssistantMessage
+from dapr_agents import OpenAIChatClient
 
 load_dotenv()
 
@@ -21,6 +24,7 @@ agent = Agent(
     memory=ConversationDaprStateMemory(
         store_name="conversationstore", session_id="my-unique-id"
     ),
+    llm=OpenAIChatClient(model="gpt-3.5-turbo"),
 )
 
 
@@ -55,20 +59,22 @@ async def start():
         upload(file_bytes, text_file.name, "upload")
 
     # give the model the document to learn
-    response = await agent.run("This is a document element to learn: " + document_text)
+    response: AssistantMessage = await agent.run(
+        "This is a document element to learn: " + document_text
+    )
 
     await cl.Message(content=f"`{text_file.name}` uploaded.").send()
 
-    await cl.Message(content=response).send()
+    await cl.Message(content=response.content).send()
 
 
 @cl.on_message
 async def main(message: cl.Message):
     # chat to the model about the document
-    result = await agent.run(message.content)
+    result: AssistantMessage = await agent.run(message.content)
 
     await cl.Message(
-        content=result,
+        content=result.content,
     ).send()
 
 

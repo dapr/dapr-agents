@@ -39,104 +39,46 @@ Replace `your_api_key_here` with your actual OpenAI API key.
 ### Text
 
 **1. Run the basic text completion example:**
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - "Response:"
-  - "Response with prompty:"
-  - "Response with user input:"
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python text_completion.py
 ```
-<!-- END_STEP -->
 
-The script demonstrates basic usage of Dapr Agents' OpenAIChatClient for text generation:
-
-```python
-from dapr_agents import OpenAIChatClient
-from dapr_agents.types import UserMessage
-from dotenv import load_dotenv
-
-# Load environment variables from .env
-load_dotenv()
-
-# Basic chat completion
-llm = OpenAIChatClient()
-response = llm.generate("Name a famous dog!")
-
-if len(response.get_content()) > 0:
-    print("Response: ", response.get_content())
-
-# Chat completion using a prompty file for context
-llm = OpenAIChatClient.from_prompty('basic.prompty')
-response = llm.generate(input_data={"question":"What is your name?"})
-
-if len(response.get_content()) > 0:
-    print("Response with prompty: ", response.get_content())
-
-# Chat completion with user input
-llm = OpenAIChatClient()
-response = llm.generate(messages=[UserMessage("hello")])
-
-
-if len(response.get_content()) > 0 and "hello" in response.get_content().lower():
-    print("Response with user input: ", response.get_content())
-```
+The script demonstrates basic usage of Dapr Agents' OpenAIChatClient for text generation.
 
 **2. Expected output:** The LLM will respond with the name of a famous dog (e.g., "Lassie", "Hachiko", etc.).
 
 **Run the structured text completion example:**
-
-<!-- STEP
-name: Run text completion example
-expected_stdout_lines:
-  - '"name":'
-  - '"breed":'
-  - '"reason":'
-timeout_seconds: 30
-output_match_mode: substring
--->
 ```bash
 python structured_completion.py
 ```
-<!-- END_STEP -->
 
-This example shows how to use Pydantic models to get structured data from LLMs:
-
-```python
-import json
-
-from dapr_agents import OpenAIChatClient
-from dapr_agents.types import UserMessage
-from pydantic import BaseModel
-from dotenv import load_dotenv
-
-# Load environment variables from .env
-load_dotenv()
-
-# Define our data model
-class Dog(BaseModel):
-    name: str
-    breed: str
-    reason: str
-
-# Initialize the chat client
-llm = OpenAIChatClient()
-
-# Get structured response
-response = llm.generate(
-    messages=[UserMessage("One famous dog in history.")],
-    response_format=Dog
-)
-
-print(json.dumps(response.model_dump(), indent=2))
-```
+This example shows how to use Pydantic models to get structured data from LLMs.
 
 **Expected output:** A structured Dog object with name, breed, and reason fields (e.g., `Dog(name='Hachiko', breed='Akita', reason='Known for his remarkable loyalty...')`)
+
+### Streaming
+
+Our OpenAI chat client also support streaming responses, where you can process partial results as they arrive. Below are two examples:
+
+**1. Basic Streaming Example**
+
+Run the `text_completion_stream.py` script to see token‐by‐token output:
+
+```bash
+python text_completion_stream.py
+```
+
+This will print each partial chunk as it arrives, so you can build up the full answer in real time.
+
+**2. Streaming with Tool Calls:**
+
+Use `text_completion_stream_with_tools.py` to combine streaming with function‐call “tools”:
+
+```bash
+python text_completion_stream_with_tools.py
+```
+
+Here, the model can decide to call your `add_numbers` function mid‐stream, and you’ll see those calls (and their results) as they come in.
 
 ### Audio
 You can use the OpenAIAudioClient in `dapr-agents` for basic tasks with the OpenAI Audio API. We will explore:
@@ -146,37 +88,17 @@ You can use the OpenAIAudioClient in `dapr-agents` for basic tasks with the Open
 - Translating audio content to English.
 
 **1. Run the text to speech example:**
-
-
-<!-- STEP
-name: Run audio generation example
-expected_stdout_lines:
-  - "Audio saved to output_speech.mp3"
-  - "File output_speech.mp3 has been deleted."
--->
 ```bash
 python text_to_speech.py
 ```
-<!-- END_STEP -->
 
 **2. Run the speech to text transcription example:**
-
-<!-- STEP
-name: Run audio transcription example
-expected_stdout_lines:
-  - "Transcription:"
-  - "Success! The transcription contains at least 5 out of 7 words."
-output_match_mode: substring
--->
 ```bash
 python audio_transcription.py
 ```
-<!-- END_STEP -->
 
 
 **2. Run the speech to text translation example:**
-
-[//]: # (<!-- STEP)
 
 [//]: # (name: Run audio translation example)
 
@@ -194,24 +116,13 @@ python audio_transcription.py
 
 [//]: # (```)
 
-[//]: # (<!-- END_STEP -->)
-
 ### Embeddings
 You can use the `OpenAIEmbedder` in dapr-agents for generating text embeddings.
 
 **1. Embeddings a single text:**
-<!-- STEP
-name: Run audio transcription example
-expected_stdout_lines:
-  - "Embedding (first 5 values):"
-  - "Text 1 embedding (first 5 values):"
-  - "Text 2 embedding (first 5 values):"
-output_match_mode: substring
--->
 ```bash
 python embeddings.py
 ```
-<!-- END_STEP -->
 
 ## Troubleshooting
 1. **Authentication Errors**: If you encounter authentication failures, check your OpenAI API key in the `.env` file

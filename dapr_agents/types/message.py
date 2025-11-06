@@ -6,7 +6,7 @@ from pydantic import (
     model_validator,
     ConfigDict,
 )
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import json
 
 
@@ -119,25 +119,57 @@ class ToolCall(BaseModel):
     function: FunctionCall
 
 
+class FunctionCallChunk(BaseModel):
+    """
+    Represents a function call chunk in a streaming response, containing the function name and arguments.
+
+    Attributes:
+        name (str): The name of the function being called.
+        arguments (str): The JSON string representation of the function's arguments.
+    """
+
+    name: Optional[str] = None
+    arguments: Optional[str] = None
+
+
+class ToolCallChunk(BaseModel):
+    """
+    Represents a tool call chunk in a streaming response, containing the index, ID, type, and function call details.
+
+    Attributes:
+        index (int): The index of the tool call in the response.
+        id (str): Unique identifier for the tool call.
+        type (str): The type of the tool call.
+        function (FunctionCallChunk): The function call details associated with the tool call.
+    """
+
+    index: int
+    id: Optional[str] = None
+    type: Optional[str] = None
+    function: FunctionCallChunk
+
+
 class MessageContent(BaseMessage):
     """
-    Extends BaseMessage to include dynamic optional fields for tool and function calls.
+    Extends BaseMessage to include dynamic optional fields for tool calls, function calls, and tool call IDs.
 
-    Utilizes post-initialization validation to dynamically manage the inclusion of `tool_calls` and `function_call` fields based on their presence in the initialization data. Fields are only retained if they contain data, thus preventing serialization or display of `None` values, which helps maintain clean and concise object representations.
+    Utilizes post-initialization validation to dynamically manage the inclusion of `tool_calls`, `function_call`, and `tool_call_id` fields based on their presence in the initialization data. Fields are only retained if they contain data, thus preventing serialization or display of `None` values, which helps maintain clean and concise object representations.
 
     Attributes:
         tool_calls (List[ToolCall], optional): A list of tool calls added dynamically if provided in the initialization data.
         function_call (FunctionCall, optional): A function call added dynamically if provided in the initialization data.
+        tool_call_id (str, optional): Identifier for the specific tool call associated with the message, added dynamically if provided in the initialization data.
     """
 
     tool_calls: Optional[List[ToolCall]] = None
     function_call: Optional[FunctionCall] = None
+    tool_call_id: Optional[str] = None
 
     @model_validator(mode="after")
     def remove_empty_calls(self):
         attrList = []
         for attribute in self.__dict__:
-            if attribute in ("tool_calls", "function_call"):
+            if attribute in ("tool_calls", "function_call", "tool_call_id"):
                 if self.__dict__[attribute] is None:
                     attrList.append(attribute)
 
@@ -145,73 +177,6 @@ class MessageContent(BaseMessage):
             delattr(self, item)
 
         return self
-
-
-class Choice(BaseModel):
-    """
-    Represents a choice made by the model, detailing the reason for completion, its index, and the message content.
-
-    Attributes:
-        finish_reason (str): Reason why the model stopped generating text.
-        index (int): Index of the choice in a list of potential choices.
-        message (MessageContent): Content of the message chosen by the model.
-        logprobs (Optional[dict]): Log probabilities associated with the choice.
-    """
-
-    finish_reason: str
-    index: int
-    message: MessageContent
-    logprobs: Optional[dict]
-
-
-class ChatCompletion(BaseModel):
-    """
-    Represents the full response from the chat API, including all choices, metadata, and usage information.
-
-    Attributes:
-        choices (List[Choice]): List of choices provided by the model.
-        created (int): Timestamp when the response was created.
-        id (str): Unique identifier for the response.
-        model (str): Model used for generating the response.
-        object (str): Type of object returned.
-        usage (dict): Information about API usage for this request.
-    """
-
-    choices: List[Choice]
-    created: int
-    id: Optional[str] = None
-    model: str
-    object: Optional[str] = None
-    usage: dict
-
-    def get_message(self) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve the main message content from the first choice.
-        """
-        return self.choices[0].message.model_dump() if self.choices else None
-
-    def get_reason(self) -> Optional[str]:
-        """
-        Retrieve the reason for completion from the first choice.
-        """
-        return self.choices[0].finish_reason if self.choices else None
-
-    def get_tool_calls(self) -> Optional[List[ToolCall]]:
-        """
-        Retrieve tool calls from the first choice, if available.
-        """
-        return (
-            self.choices[0].message.tool_calls
-            if self.choices and self.choices[0].message.tool_calls
-            else None
-        )
-
-    def get_content(self) -> Optional[str]:
-        """
-        Retrieve the content from the first choice's message.
-        """
-        message = self.get_message()
-        return message.get("content") if message else None
 
 
 class SystemMessage(BaseMessage):
@@ -248,6 +213,7 @@ class AssistantMessage(BaseMessage):
     """
 
     role: str = "assistant"
+    refusal: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = None
     function_call: Optional[FunctionCall] = None
 
@@ -255,7 +221,7 @@ class AssistantMessage(BaseMessage):
     def remove_empty_calls(self):
         attrList = []
         for attribute in self.__dict__:
-            if attribute in ("tool_calls", "function_call"):
+            if attribute in ("tool_calls", "function_call", "refusal"):
                 if self.__dict__[attribute] is None:
                     attrList.append(attribute)
 
@@ -263,6 +229,28 @@ class AssistantMessage(BaseMessage):
             delattr(self, item)
 
         return self
+
+    def get_tool_calls(self) -> Optional[List[ToolCall]]:
+        """
+        Retrieve tool calls from the message if available.
+        """
+        if getattr(self, "tool_calls", None) is None:
+            return None
+        if isinstance(self.tool_calls, list):
+            return self.tool_calls
+        if isinstance(self.tool_calls, ToolCall):
+            return [self.tool_calls]
+
+    def has_tool_calls(self) -> bool:
+        """
+        Check if the message has tool calls.
+        """
+        if not hasattr(self, "tool_calls"):
+            return False
+        if self.tool_calls is not None:
+            return True
+        if isinstance(self.tool_calls, ToolCall):
+            return True
 
 
 class ToolMessage(BaseMessage):
@@ -276,6 +264,66 @@ class ToolMessage(BaseMessage):
 
     role: str = "tool"
     tool_call_id: str
+
+
+class LLMChatCandidate(BaseModel):
+    """
+    Represents a single candidate (output) from an LLM chat response.
+    Allows provider-specific extra fields (e.g., index, logprobs, etc.).
+
+    Attributes:
+        message (AssistantMessage): The assistant's message for this candidate.
+        finish_reason (Optional[str]): Why the model stopped generating text.
+        [Any other provider-specific fields, e.g., index, logprobs, etc.]
+    """
+
+    message: AssistantMessage
+    finish_reason: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class LLMChatResponse(BaseModel):
+    """
+    Unified response for LLM chat completions, supporting multiple providers.
+
+    Attributes:
+        results (List[LLMChatCandidate]): List of candidate outputs.
+        metadata (dict): Provider/model metadata (id, model, usage, etc.).
+    """
+
+    results: List[LLMChatCandidate]
+    metadata: dict = {}
+
+    def get_message(self) -> Optional[AssistantMessage]:
+        """
+        Retrieves the first message from the results if available.
+        """
+        return self.results[0].message if self.results else None
+
+
+class LLMChatCandidateChunk(BaseModel):
+    """
+    Represents a partial (streamed) candidate from an LLM provider, for real-time streaming.
+    """
+
+    content: Optional[str] = None
+    function_call: Optional[Dict[str, Any]] = None
+    refusal: Optional[str] = None
+    role: Optional[str] = None
+    tool_calls: Optional[List["ToolCallChunk"]] = None
+    finish_reason: Optional[str] = None
+    index: Optional[int] = None
+    logprobs: Optional[dict] = None
+
+
+class LLMChatResponseChunk(BaseModel):
+    """
+    Represents a partial (streamed) response from an LLM provider, for real-time streaming.
+    """
+
+    result: LLMChatCandidateChunk
+    metadata: Optional[dict] = None
 
 
 class AssistantFinalMessage(BaseModel):

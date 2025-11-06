@@ -11,7 +11,7 @@ repo_url: https://github.com/dapr/dapr-agents
 edit_uri: edit/main/docs/
 
 # Copyright
-copyright: Copyright &copy; 2024 Dapr maintainers
+copyright: Copyright &copy; 2025 Dapr maintainers
 
 theme:
   name: material

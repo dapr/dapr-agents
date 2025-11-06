@@ -17,33 +17,41 @@ class HFHubInferenceClientBase(LLMClientBase):
 
     model: Optional[str] = Field(
         default=None,
-        description="Model ID or URL for the Hugging Face API. Cannot be used with `base_url`. If set, the client will infer a model-specific endpoint.",
+        description="Model ID on Hugging Face Hub or a URL to a deployed endpoint. If not set, a recommended model may be chosen by your wrapper.",
+    )
+    hf_provider: Optional[str] = Field(
+        default="hf-inference",
+        description="Inference provider to use. Defaults to automatic selection based on available providers. Ignored if a custom endpoint URL is provided.",
     )
     token: Optional[Union[str, bool]] = Field(
         default=None,
-        description="Hugging Face token. Defaults to the locally saved token if not provided. Pass `False` to disable authentication.",
+        description="Hugging Face access token for authentication. If None, uses the locally saved token. Set to False to skip sending a token. Mutually exclusive with api_key.",
     )
     api_key: Optional[Union[str, bool]] = Field(
-        default=None,
-        description="Alias for `token` for compatibility with OpenAI's client. Cannot be used if `token` is set.",
+        default=None, description="Alias for token. Use only one of token or api_key."
     )
     base_url: Optional[str] = Field(
         default=None,
-        description="Base URL to run inference. Alias for `model`. Cannot be used if `model` is set.",
-    )
-    headers: Optional[Dict[str, str]] = Field(
-        default=None,
-        description="Additional headers to send to the server. Overrides the default authorization and user-agent headers.",
-    )
-    cookies: Optional[Dict[str, str]] = Field(
-        default=None, description="Additional cookies to send to the server."
-    )
-    proxies: Optional[Any] = Field(
-        default=None, description="Proxies to use for the request."
+        description="Custom endpoint URL for inference. Used for private deployments or TGI endpoints. Cannot be set if 'model' is a Hub ID.",
     )
     timeout: Optional[float] = Field(
         default=None,
-        description="The maximum number of seconds to wait for a response from the server. Loading a new model in Inference. API can take up to several minutes. Defaults to None, meaning it will loop until the server is available.",
+        description="Maximum seconds to wait for a response. If None, waits indefinitely. Useful for slow model loading.",
+    )
+    headers: Optional[Dict[str, str]] = Field(
+        default_factory=dict,
+        description="Extra HTTP headers to send with requests. Overrides defaults like authorization and user-agent.",
+    )
+    cookies: Optional[Dict[str, str]] = Field(
+        default_factory=dict, description="Extra cookies to send with requests."
+    )
+    proxies: Optional[Any] = Field(
+        default=None,
+        description="Proxy settings for HTTP requests. Use standard requests format.",
+    )
+    bill_to: Optional[str] = Field(
+        default=None,
+        description="Billing account for requests. Only used for enterprise/organization billing.",
     )
 
     @model_validator(mode="before")
@@ -115,6 +123,7 @@ class HFHubInferenceClientBase(LLMClientBase):
         """
         return HFInferenceClientConfig(
             model=self.model,
+            hf_provider=self.hf_provider,
             api_key=self.api_key,
             base_url=self.base_url,
             headers=self.headers,
@@ -130,6 +139,7 @@ class HFHubInferenceClientBase(LLMClientBase):
         config: HFInferenceClientConfig = self.config
         return InferenceClient(
             model=config.model,
+            provider=config.hf_provider,
             api_key=config.api_key,
             base_url=config.base_url,
             headers=config.headers,
@@ -154,6 +164,7 @@ class HFHubInferenceClientBase(LLMClientBase):
         """
         return cls(
             model=client_options.model,
+            hf_provider=client_options.hf_provider,
             api_key=client_options.api_key,
             token=client_options.token,
             base_url=client_options.base_url,

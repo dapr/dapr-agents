@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0.0", "setuptools_scm"]
+requires = ["setuptools>=61.0", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,6 +13,33 @@ license = {file = "LICENSE"}
 authors = [
     {name = "Dapr Authors", email = "dapr@dapr.io"}
 ]
+dependencies = [
+    "dapr>=1.16.0rc2",
+    "dapr-ext-fastapi>=1.16.0rc2",
+    "dapr-ext-workflow>=1.16.0rc2",
+    "durabletask-dapr>=0.2.0a7",
+    "pydantic>=2.11.3,<3.0.0",
+    "jinja2>=3.1.0,<4.0.0",
+    "pyyaml>=6.0.1,<7.0.0",
+    "requests>=2.32.4,<3.0.0",
+    "openapi-pydantic>=0.5.0,<0.6.0",
+    "rich>=13.9.4,<14.0.0",
+    "openai>=1.75.0,<2.0.0",
+    "azure-identity>=1.21.0,<2.0.0",
+    "huggingface_hub>=0.33.4,<1.0.0",
+    "colorama>=0.4.6,<1.0.0",
+    "regex>=2023.0.0,<2025.0.0",
+    "fastapi>=0.110.0,<1.0.0",
+    "uvicorn>=0.27.0,<1.0.0",
+    "aiohttp>=3.9.0,<4.0.0",
+    "cloudevents>=1.11.0,<2.0.0",
+    "numpy>=2.2.2,<3.0.0",
+    "mcp>=1.7.1,<2.0.0",
+    "websockets>=15.0.0,<16.0.0",
+    "python-dotenv>=1.1.1,<2.0.0",
+    "posthog<6.0.0",
+    "protobuf>=6.31.0,<7.0.0",
+]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
@@ -25,24 +52,37 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
-dependencies = [
-    "durabletask-dapr >= 0.2.0a7",
-    "pydantic == 2.11.3",
-    "openai == 1.75.0",
-    "openapi-pydantic == 0.5.1",
-    "openapi-schema-pydantic==1.2.4",
-    "regex >= 2023.12.25",
-    "Jinja2 >= 3.1.6",
-    "azure-identity == 1.21.0",
-    "dapr >= 1.15.0",
-    "dapr-ext-fastapi == 1.15.0",
-    "dapr-ext-workflow == 1.15.0",
-    "colorama == 0.4.6",
-    "cloudevents == 1.11.0",
-    "pyyaml == 6.0.2",
-    "rich == 13.9.4",
-    "huggingface_hub == 0.30.2",
-    "numpy == 2.2.2",
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0,<8.0.0",
+    "pytest-asyncio>=0.23.0,<1.0.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-mock>=3.12.0,<4.0.0",
+    "pytest-xdist>=3.0.0,<4.0.0",  # For parallel test execution on quickstart tests
+    "httpx>=0.27.0,<1.0.0",  # For testing FastAPI endpoints
+    "pytest-timeout>=2.3.0,<3.0.0",
+    "docker>=7.0.0,<8.0.0"
+]
+dev = [
+    "mypy>=1.15.0,<2.0.0",
+    "tox>=4.0.0,<5.0.0",
+    "pip-tools>=7.4.1,<8.0.0",
+    "cachetools>=6.1.0,<7.0.0",
+]
+observability = [
+    "opentelemetry-api>=1.35.0,<2.0.0",
+    "opentelemetry-exporter-otlp>=1.35.0,<2.0.0",
+    "opentelemetry-proto>=1.35.0,<2.0.0",
+    "opentelemetry-instrumentation-requests>=0.56b0,<0.57b0",
+    "wrapt>=1.14.0,<2.0.0",
+    "openinference-instrumentation>=0.1.0,<1.0.0",
+    "openinference-semantic-conventions>=0.1.0,<1.0.0",
+]
+vectorstore = [
+    "torch>=2.7.0",
+    "sentence-transformers>=4.1.0,<5.0.0",
+    "chromadb>=0.4.22,<2.0.0",
+    "nltk>=3.8.0,<4.0.0",
 ]
 
 [project.urls]
@@ -53,6 +93,22 @@ Source = "https://github.com/dapr/python-sdk"
 include = ["dapr_agents"]
 exclude = ["tests"]
 
+[tool.setuptools.package-data]
+dapr_agents = ["py.typed"]
+
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
-local_scheme = "no-local-version"
+local_scheme = "node-and-date"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]
+# Show logs during test execution (INFO level and above for now)
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)8s] %(name)s: %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"

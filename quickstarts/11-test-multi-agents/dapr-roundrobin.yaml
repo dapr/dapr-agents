@@ -1,0 +1,24 @@
+# https://docs.dapr.io/developing-applications/local-development/multi-app-dapr-run/multi-app-template/#template-properties
+version: 1
+common:
+  resourcesPath: ./components
+  logLevel: info
+  appLogDestination: console
+  daprdLogDestination: console
+
+apps:
+- appID: FrodoApp
+  appDirPath: ./services/frodo/
+  command: ["python3", "app.py"]
+
+- appID: SamApp
+  appDirPath: ./services/sam/
+  command: ["python3", "app.py"]
+
+- appID: RoundRobinApp
+  appDirPath: ./services/workflow-roundrobin/
+  command: ["python3", "app.py"]
+
+- appID: ClientApp
+  appDirPath: ./services/client/
+  command: ["python3", "pubsub_client.py", "--orchestrator", "roundrobin"]

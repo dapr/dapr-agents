@@ -1,10 +1,13 @@
-from dapr_agents.types.llm import OpenAIClientConfig, AzureOpenAIClientConfig
-from dapr_agents.llm.openai.client import AzureOpenAIClient, OpenAIClient
-from dapr_agents.llm.base import LLMClientBase
-from openai import OpenAI, AzureOpenAI
-from typing import Any, Optional, Union, Dict
-from pydantic import Field
 import logging
+from typing import Any, Dict, Optional, Union
+
+from openai import AzureOpenAI, OpenAI
+from pydantic import Field
+
+from dapr_agents.llm.base import LLMClientBase
+from dapr_agents.llm.openai.client.azure import AzureOpenAIClient
+from dapr_agents.llm.openai.client.openai import OpenAIClient
+from dapr_agents.types.llm import AzureOpenAIClientConfig, OpenAIClientConfig
 
 logger = logging.getLogger(__name__)
 

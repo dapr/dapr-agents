@@ -1,0 +1,4 @@
+dapr-agents[observability]
+arize-phoenix==11.37.0
+# For local development use local changes by commenting out the dapr-agents line above and uncommenting the line below:
+# -e ../../[observability]

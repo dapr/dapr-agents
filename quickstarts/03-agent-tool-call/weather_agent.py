@@ -1,7 +1,8 @@
 import asyncio
 from weather_tools import tools
-from dapr_agents import Agent
+from dapr_agents.agents.standalone import Agent
 from dotenv import load_dotenv
+from dapr_agents.llm.openai import OpenAIChatClient
 
 load_dotenv()
 
@@ -9,9 +10,11 @@ AIAgent = Agent(
     name="Stevie",
     role="Weather Assistant",
     goal="Assist Humans with weather related tasks.",
+    llm=OpenAIChatClient(model="gpt-4o-mini"),
     instructions=[
-        "Get accurate weather information",
-        "From time to time, you can also jump after answering the weather question.",
+        "Always answer the user's main weather question directly and clearly.",
+        "If you perform any additional actions (like jumping), summarize those actions and their results.",
+        "At the end, provide a concise summary that combines the weather information for all requested locations and any other actions you performed.",
     ],
     tools=tools,
 )

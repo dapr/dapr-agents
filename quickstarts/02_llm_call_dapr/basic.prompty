@@ -5,7 +5,7 @@ model:
     api: chat
     configuration:
         type: nvidia
-        name: meta/llama3-8b-instruct
+        name: HuggingFaceTB/SmolLM2-1.7B-Instruct
     parameters:
         max_tokens: 128
         temperature: 0.2
