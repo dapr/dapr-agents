@@ -119,14 +119,12 @@ class DockerCodeExecutor(CodeExecutorBase):
             ) from e
 
         try:
-            self.execution_container = self.docker_client.containers.get(
-                self.container_name
-            )
+            self.execution_container = self.client.containers.get(self.container_name)
             logger.info(f"Reusing existing container: {self.container_name}")
         except NotFound:
             logger.info(f"Creating a new container: {self.container_name}")
             self.create_container()
-            self.execution_container.start()
+            self.container.start()
             logger.info(f"Started container: {self.container_name}")
 
     def create_container(self) -> None:
@@ -214,9 +212,7 @@ class DockerCodeExecutor(CodeExecutorBase):
                 )
 
                 # Run command dynamically inside the running container
-                exec_result = await asyncio.to_thread(
-                    self.execution_container.exec_run, cmd
-                )
+                exec_result = await asyncio.to_thread(self.container.exec_run, cmd)
 
                 exit_code = exec_result.exit_code
                 logs = exec_result.output.decode("utf-8", errors="ignore").strip()
@@ -240,8 +236,8 @@ class DockerCodeExecutor(CodeExecutorBase):
                     )
 
             if self.auto_remove:
-                self.execution_container.stop()
-                logger.info(f"Container {self.execution_container.id} stopped.")
+                self.container.stop()
+                logger.info(f"Container {self.container.id} stopped.")
 
         return results
 
@@ -289,7 +285,7 @@ class DockerCodeExecutor(CodeExecutorBase):
             return
 
         command = f"python3 -m pip install {' '.join(packages)}"
-        result = await asyncio.to_thread(self.execution_container.exec_run, command)
+        result = await asyncio.to_thread(self.container.exec_run, command)
 
         if result.exit_code != 0:
             error_msg = result.output.decode().strip()
@@ -309,9 +305,7 @@ class DockerCodeExecutor(CodeExecutorBase):
             Exception: If log retrieval fails, an error message is logged.
         """
         try:
-            logs = self.execution_container.logs(stdout=True, stderr=True).decode(
-                "utf-8"
-            )
+            logs = self.container.logs(stdout=True, stderr=True).decode("utf-8")
             return logs
         except Exception as e:
             logger.error(f"Failed to retrieve container logs: {str(e)}")
