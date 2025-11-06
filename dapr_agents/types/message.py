@@ -240,6 +240,7 @@ class AssistantMessage(BaseMessage):
             return self.tool_calls
         if isinstance(self.tool_calls, ToolCall):
             return [self.tool_calls]
+        return None
 
     def has_tool_calls(self) -> bool:
         """
@@ -251,6 +252,7 @@ class AssistantMessage(BaseMessage):
             return True
         if isinstance(self.tool_calls, ToolCall):
             return True
+        return False
 
 
 class ToolMessage(BaseMessage):
