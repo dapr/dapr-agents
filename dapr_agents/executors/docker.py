@@ -1,5 +1,5 @@
 from dapr_agents.types.executor import ExecutionRequest, ExecutionResult
-from typing import List, Any, Optional, Union, Literal
+from typing import List, Any, Optional, Union, Literal, TypedDict
 from dapr_agents.executors import CodeExecutorBase
 from pydantic import Field
 import tempfile
@@ -10,6 +10,11 @@ import ast
 import os
 
 logger = logging.getLogger(__name__)
+
+
+class _RestartPolicy(TypedDict, total=False):
+    Name: Literal["on-failure", "always"]
+    MaximumRetryCount: int
 
 
 class DockerCodeExecutor(CodeExecutorBase):
@@ -30,8 +35,9 @@ class DockerCodeExecutor(CodeExecutorBase):
     execution_mode: str = Field(
         "detached", description="Execution mode: 'interactive' or 'detached'."
     )
-    restart_policy: str = Field(
-        "no", description="Container restart policy: 'no', 'on-failure', 'always'."
+    restart_policy: Optional[Literal["on-failure", "always"]] = Field(
+        default=None,
+        description="Container restart policy: 'on-failure', 'always'. Defaults to None.",
     )
     max_memory: str = Field("500m", description="Max memory for execution.")
     cpu_quota: int = Field(50000, description="CPU quota limit.")
@@ -127,7 +133,9 @@ class DockerCodeExecutor(CodeExecutorBase):
                 "Install 'docker' package with 'pip install docker'."
             ) from e
         try:
-            self.execution_container = self.docker_client.containers.create(
+            if self.restart_policy:
+                restart_policy: _RestartPolicy = {"Name": self.restart_policy}
+            self.execution_container = self.client.containers.create(
                 self.image,
                 name=self.container_name,
                 command="/bin/sh -c 'while true; do sleep 30; done'",
@@ -139,7 +147,7 @@ class DockerCodeExecutor(CodeExecutorBase):
                 mem_limit=self.max_memory,
                 cpu_quota=self.cpu_quota,
                 security_opt=["no-new-privileges"],
-                restart_policy={"Name": self.restart_policy},
+                restart_policy=restart_policy if self.restart_policy else None,
                 runtime=self.runtime,
                 working_dir=self.container_workspace,
                 volumes={
