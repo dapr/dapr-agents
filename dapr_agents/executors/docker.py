@@ -20,10 +20,8 @@ class _RestartPolicy(TypedDict, total=False):
 class DockerCodeExecutor(CodeExecutorBase):
     """Executes code securely inside a persistent Docker container with dynamic volume updates."""
 
-    image: Optional[str] = Field(
-        "python:3.9", description="Docker image used for execution."
-    )
-    container_name: Optional[str] = Field(
+    image: str = Field("python:3.9", description="Docker image used for execution.")
+    container_name: str = Field(
         "dapr_agents_code_executor", description="Name of the Docker container."
     )
     disable_network_access: bool = Field(
