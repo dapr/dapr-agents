@@ -77,10 +77,12 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
                 raise RuntimeError(
                     f"Failed to install requirements: {result.stderr}\n{result.stdout}"
                 )
-            
+
             # Override with editable dapr-agents from current repo changes (for PR testing)
             # This ensures we test against the current repo changes, so we test local changes before release
-            logger.info(f"Installing editable dapr-agents from {project_root} to override requirements.txt")
+            logger.info(
+                f"Installing editable dapr-agents from {project_root} to override requirements.txt"
+            )
             result = subprocess.run(
                 [
                     "uv",
