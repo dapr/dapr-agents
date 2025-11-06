@@ -100,10 +100,10 @@ class DockerCodeExecutor(CodeExecutorBase):
             raise RuntimeError("Docker not running or unreachable.") from e
 
         # Ensure the directory exists
-        os.makedirs(self.host_workspace, exist_ok=True)
+        os.makedirs(self.resolved_host_workspace, exist_ok=True)
 
         # Log the workspace path for visibility
-        logger.info(f"Using host workspace: {self.host_workspace}")
+        logger.info(f"Using host workspace: {self.resolved_host_workspace}")
 
         self.ensure_container()
 
@@ -156,7 +156,7 @@ class DockerCodeExecutor(CodeExecutorBase):
                 runtime=self.runtime,
                 working_dir=self.container_workspace,
                 volumes={
-                    self.host_workspace: {
+                    self.resolved_host_workspace: {
                         "bind": self.container_workspace,
                         "mode": self.volume_access_mode,
                     }
@@ -198,7 +198,9 @@ class DockerCodeExecutor(CodeExecutorBase):
                         await self._install_missing_packages(required_packages)
 
                 script_filename = f"script.{snippet.language}"
-                script_path_host = os.path.join(self.host_workspace, script_filename)
+                script_path_host = os.path.join(
+                    self.resolved_host_workspace, script_filename
+                )
                 script_path_container = f"{self.container_workspace}/{script_filename}"
 
                 # Write the script dynamically
@@ -231,10 +233,10 @@ class DockerCodeExecutor(CodeExecutorBase):
 
         finally:
             if self.auto_cleanup:
-                if os.path.exists(self.host_workspace):
-                    shutil.rmtree(self.host_workspace, ignore_errors=True)
+                if os.path.exists(self.resolved_host_workspace):
+                    shutil.rmtree(self.resolved_host_workspace, ignore_errors=True)
                     logger.info(
-                        f"Temporary workspace {self.host_workspace} cleaned up."
+                        f"Temporary workspace {self.resolved_host_workspace} cleaned up."
                     )
 
             if self.auto_remove:
