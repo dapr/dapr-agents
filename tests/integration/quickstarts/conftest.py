@@ -56,6 +56,7 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
         logger.info(f"Dependencies already installed for {quickstart_dir}")
     else:
         if requirements_file.exists():
+            # Install dependencies from requirements.txt first
             logger.info(f"Installing dependencies from {requirements_file} using uv")
             result = subprocess.run(
                 [
@@ -75,6 +76,31 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
             if result.returncode != 0:
                 raise RuntimeError(
                     f"Failed to install requirements: {result.stderr}\n{result.stdout}"
+                )
+
+            # Override with editable dapr-agents from current repo changes (for PR testing)
+            # This ensures we test against the current repo changes, so we test local changes before release
+            logger.info(
+                f"Installing editable dapr-agents from {project_root} to override requirements.txt"
+            )
+            result = subprocess.run(
+                [
+                    "uv",
+                    "pip",
+                    "install",
+                    "-e",
+                    str(project_root),
+                    "--python",
+                    str(venv_python),
+                ],
+                cwd=quickstart_dir,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to install editable dapr-agents: {result.stderr}\n{result.stdout}"
                 )
         else:
             # No requirements.txt - install editable dapr-agents for testing using uv

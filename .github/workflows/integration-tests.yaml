@@ -20,18 +20,41 @@ jobs:
       matrix:
         python_ver: ["3.10", "3.11", "3.12", "3.13"]
     # Only run if comment contains "/ok-to-test" and is on a PR
-    # Also check that commenter is a maintainer/owner
-    # Or if it's a manual workflow_dispatch
+    # Team membership will be verified for issue_comment events only
     if: |
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request &&
-       contains(github.event.comment.body, '/ok-to-test') &&
-       (github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'COLLABORATOR')) ||
+       contains(github.event.comment.body, '/ok-to-test')) ||
       github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch'
     steps:
+    - name: Check team membership - maintainers-dapr-agents
+      if: github.event_name == 'issue_comment'
+      id: check_maintainers
+      uses: tspascoal/get-user-teams-membership@v2
+      with:
+        username: ${{ github.event.comment.user.login }}
+        organization: ${{ github.repository_owner }}
+        team: maintainers-dapr-agents
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Check team membership - approvers-dapr-agent
+      if: github.event_name == 'issue_comment'
+      id: check_approvers
+      uses: tspascoal/get-user-teams-membership@v2
+      with:
+        username: ${{ github.event.comment.user.login }}
+        organization: ${{ github.repository_owner }}
+        team: approvers-dapr-agent
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Verify user is authorized
+      if: github.event_name == 'issue_comment' && steps.check_maintainers.outputs.isTeamMember != 'true' && steps.check_approvers.outputs.isTeamMember != 'true'
+      run: |
+        echo "User ${{ github.event.comment.user.login }} is not authorized to run this workflow."
+        echo "Must be a member of one of these teams: maintainers-dapr-agents, approvers-dapr-agent"
+        exit 1
+    
     - name: Get PR details
       if: github.event_name == 'issue_comment'
       id: pr
@@ -83,19 +106,11 @@ jobs:
       uses: astral-sh/setup-uv@v3
       with:
         version: "latest"
-    
-    - name: Install dependencies
-      run: |
-        uv venv
-        source .venv/bin/activate
-        uv pip install -e .
-        uv pip install -e ".[test]"
-
+        
     - name: Run Integration Tests
       env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       run: |
-        source .venv/bin/activate
         pytest -m integration -v tests/integration/quickstarts/test_01_*.py tests/integration/quickstarts/test_02_*.py
         # Run all integration tests in parallel (one file per quickstart directory)
         # -n auto uses all available CPUs, or specify -n 4 for fixed number
@@ -105,7 +120,7 @@ jobs:
   comment-summary:
     needs: integration-tests
     runs-on: ubuntu-latest
-    if: always() && github.event_name == 'issue_comment'
+    if: always() && needs.integration-tests.result != 'skipped' && github.event_name == 'issue_comment'
     permissions:
       pull-requests: write
       actions: read
@@ -125,8 +140,10 @@ jobs:
             run_id: context.runId,
           });
           
-          // Get all integration test jobs (one per Python version from matrix)
-          const testJobs = jobs.jobs.filter(job => job.name === 'integration-tests');
+          // Get all integration test jobs (matrix jobs have names like "integration-tests (3.10)")
+          const testJobs = jobs.jobs.filter(job => 
+            job.name === 'integration-tests' || job.name.startsWith('integration-tests (')
+          );
           
           // Build summary table
           let summary = '## Integration Tests Summary\n\n';
@@ -136,19 +153,35 @@ jobs:
           let allPassed = true;
           const pythonVersions = ['3.10', '3.11', '3.12', '3.13'];
           
-          // Sort jobs by Python version order
+          // Find jobs by Python version
           for (const pythonVer of pythonVersions) {
-            const job = testJobs.find(j => 
-              j.steps.some(step => step.name && step.name.includes(pythonVer))
-            ) || testJobs[pythonVersions.indexOf(pythonVer)];
+            // Try to find job by name first (matrix jobs: "integration-tests (3.10)")
+            let job = testJobs.find(j => j.name === `integration-tests (${pythonVer})`);
+            
+            // Fallback: find by Python version in steps
+            if (!job) {
+              job = testJobs.find(j => 
+                j.steps.some(step => step.name && step.name.includes(pythonVer))
+              );
+            }
+            
+            // Last fallback: use index
+            if (!job && testJobs.length > pythonVersions.indexOf(pythonVer)) {
+              job = testJobs[pythonVersions.indexOf(pythonVer)];
+            }
             
             if (job) {
-              const status = job.conclusion === 'success' ? '✅ PASSED' : '❌ FAILED';
+              const isSuccess = job.conclusion === 'success';
+              const status = isSuccess ? '✅ PASSED' : '❌ FAILED';
               const jobUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/job/${job.id}`;
               summary += `| ${pythonVer} | [${status}](${jobUrl}) |\n`;
-              if (job.conclusion !== 'success') {
+              if (!isSuccess) {
                 allPassed = false;
               }
+            } else {
+              // Job not found - mark as failed
+              summary += `| ${pythonVer} | ❌ NOT FOUND |\n`;
+              allPassed = false;
             }
           }
           
@@ -181,5 +214,10 @@ jobs:
               issue_number: prNumber,
               body: summary,
             });
+          }
+          
+          // Fail the job if any tests failed
+          if (!allPassed) {
+            core.setFailed('Integration tests failed');
           }
     
