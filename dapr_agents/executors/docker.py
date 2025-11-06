@@ -74,22 +74,30 @@ class DockerCodeExecutor(CodeExecutorBase):
         default="/workspace", init=False, description="Mounted workspace in container."
     )
 
+    @property
+    def resolved_host_workspace(self) -> str:
+        return self.host_workspace or os.path.join(
+            tempfile.gettempdir(), "dapr_agents_executor_workspace"
+        )
+
+    @property
+    def client(self) -> DockerClient:
+        if self.docker_client is None:
+            raise RuntimeError("Docker client not initialized")
+        return self.docker_client
+
+    @property
+    def container(self) -> Container:
+        if self.execution_container is None:
+            raise RuntimeError("Execution container not initialized")
+        return self.execution_container
+
     def model_post_init(self, __context: Any) -> None:
         """Initializes the Docker client and ensures a reusable execution container is ready."""
         try:
             self.docker_client: DockerClient = DockerClient.from_env()
         except DockerException as e:
             raise RuntimeError("Docker not running or unreachable.") from e
-
-        # Validate or Set the Host Workspace
-        if self.host_workspace:
-            self.host_workspace = os.path.abspath(
-                self.host_workspace
-            )  # Ensure absolute path
-        else:
-            self.host_workspace = os.path.join(
-                tempfile.gettempdir(), "dapr_agents_executor_workspace"
-            )
 
         # Ensure the directory exists
         os.makedirs(self.host_workspace, exist_ok=True)
