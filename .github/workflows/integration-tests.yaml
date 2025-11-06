@@ -11,6 +11,8 @@ permissions:
   contents: read
   pull-requests: read
   issues: write
+  members: read
+  organization: read
 
 jobs:
   integration-tests:
@@ -20,18 +22,53 @@ jobs:
       matrix:
         python_ver: ["3.10", "3.11", "3.12", "3.13"]
     # Only run if comment contains "/ok-to-test" and is on a PR
-    # Also check that commenter is a maintainer/owner
-    # Or if it's a manual workflow_dispatch
+    # Team membership will be verified for issue_comment events only
     if: |
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request &&
-       contains(github.event.comment.body, '/ok-to-test') &&
-       (github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'COLLABORATOR')) ||
+       contains(github.event.comment.body, '/ok-to-test')) ||
       github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch'
     steps:
+    - name: Verify team membership for PR comments to run tests
+      if: github.event_name == 'issue_comment'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const username = context.payload.comment.user.login;
+          const allowedTeams = ['maintainers-dapr-agents', 'approvers-dapr-agent'];
+          const org = context.repo.owner;
+          
+          let isTeamMember = false;
+          for (const teamSlug of allowedTeams) {
+            try {
+              await github.rest.teams.getMembershipForUserInOrg({
+                org: org,
+                team_slug: teamSlug,
+                username: username,
+              });
+              
+              console.log(`User ${username} is a member of team ${teamSlug}`);
+              isTeamMember = true;
+              break;
+            } catch (error) {
+              // User is not a member of this team, continue checking other teams
+              if (error.status === 404) {
+                console.log(`User ${username} is not a member of team ${teamSlug}`);
+                continue;
+              } else {
+                // Unexpected error, log but continue
+                console.log(`Error checking team ${teamSlug} membership: ${error.message}`);
+                continue;
+              }
+            }
+          }
+          
+          if (!isTeamMember) {
+            core.setFailed(`User ${username} is not authorized to run this workflow. Must be a member of one of these teams: ${allowedTeams.join(', ')}`);
+            return;
+          }
+    
     - name: Get PR details
       if: github.event_name == 'issue_comment'
       id: pr
@@ -88,7 +125,6 @@ jobs:
       env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       run: |
-        source .venv/bin/activate
         pytest -m integration -v tests/integration/quickstarts/test_01_*.py tests/integration/quickstarts/test_02_*.py
         # Run all integration tests in parallel (one file per quickstart directory)
         # -n auto uses all available CPUs, or specify -n 4 for fixed number
@@ -98,7 +134,7 @@ jobs:
   comment-summary:
     needs: integration-tests
     runs-on: ubuntu-latest
-    if: always() && github.event_name == 'issue_comment'
+    if: always() && needs.integration-tests.result != 'skipped' && github.event_name == 'issue_comment'
     permissions:
       pull-requests: write
       actions: read
