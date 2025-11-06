@@ -28,32 +28,19 @@ jobs:
       github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch'
     steps:
-    - name: Check team membership - maintainers-dapr-agents
+    - name: Simple check to verify user is authorized
       if: github.event_name == 'issue_comment'
-      id: check_maintainers
-      uses: tspascoal/get-user-teams-membership@v2
-      with:
-        username: ${{ github.event.comment.user.login }}
-        organization: ${{ github.repository_owner }}
-        team: maintainers-dapr-agents
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Check team membership - approvers-dapr-agent
-      if: github.event_name == 'issue_comment'
-      id: check_approvers
-      uses: tspascoal/get-user-teams-membership@v2
-      with:
-        username: ${{ github.event.comment.user.login }}
-        organization: ${{ github.repository_owner }}
-        team: approvers-dapr-agent
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Verify user is authorized
-      if: github.event_name == 'issue_comment' && steps.check_maintainers.outputs.isTeamMember != 'true' && steps.check_approvers.outputs.isTeamMember != 'true'
       run: |
-        echo "User ${{ github.event.comment.user.login }} is not authorized to run this workflow."
-        echo "Must be a member of one of these teams: maintainers-dapr-agents, approvers-dapr-agent"
-        exit 1
+        username="${{ github.event.comment.user.login }}"
+        allowed_users=("samcoyle" "yaron2" "Cyb3rWard0g")
+        
+        if [[ ! " ${allowed_users[@]} " =~ " ${username} " ]]; then
+          echo "User ${username} is not authorized to run this workflow."
+          echo "Must be one of: samcoyle, yaron2, Cyb3rWard0g"
+          exit 1
+        fi
+        
+        echo "User ${username} is authorized to run this workflow."
     
     - name: Get PR details
       if: github.event_name == 'issue_comment'
