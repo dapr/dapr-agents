@@ -1,6 +1,5 @@
 import os
 from typing import Dict, Optional, Any, Union
-from distutils.util import strtobool
 import logging
 import requests
 
@@ -24,6 +23,27 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_bool_env(value: str) -> bool:
+    """
+    Parse a string to boolean, similar to distutils.util.strtobool.
+
+    Args:
+        value: String value to parse (e.g., 'true', 'yes', '1', 'false', 'no', '0')
+
+    Returns:
+        Boolean value
+
+    Raises:
+        ValueError: If the value cannot be parsed as a boolean
+    """
+    if value.lower() in ("y", "yes", "t", "true", "on", "1"):
+        return True
+    elif value.lower() in ("n", "no", "f", "false", "off", "0"):
+        return False
+    else:
+        raise ValueError(f"Cannot parse '{value}' as boolean")
 
 
 class DaprHTTPClient(BaseModel):
@@ -59,8 +79,8 @@ class DaprHTTPClient(BaseModel):
         """Initialize the client after the model is created."""
 
         try:
-            otel_enabled: bool = bool(
-                strtobool(os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True"))
+            otel_enabled: bool = _parse_bool_env(
+                os.getenv("DAPR_AGENTS_OTEL_ENABLED", "True")
             )
         except ValueError:
             otel_enabled = False
