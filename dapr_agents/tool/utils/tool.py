@@ -94,7 +94,7 @@ class ToolHelper:
             )
 
         model_name = name or f"{func.__name__}Model"
-        if not has_type_hints:
+        if fields and not has_type_hints:
             logger.warning(
                 f"No type hints provided for function '{func.__name__}'. Defaulting to 'str'."
             )
