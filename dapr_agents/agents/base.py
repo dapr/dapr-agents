@@ -455,21 +455,24 @@ class AgentBase(AgentComponents):
     # Internal utilities
     # ------------------------------------------------------------------
     @staticmethod
-    def _run_asyncio_task(coro: Coroutine[Any, Any, Any]) -> None:
+    def _run_asyncio_task(coro: Coroutine[Any, Any, Any]) -> Any:
         """
         Execute an async coroutine from a synchronous context, creating a fresh loop if needed.
 
         Args:
             coro: The coroutine to execute.
+
+        Returns:
+            Any: The result of the coroutine execution.
         """
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            asyncio.run(coro)
+            return asyncio.run(coro)
         else:
             loop = asyncio.new_event_loop()
             try:
-                loop.run_until_complete(coro)
+                return loop.run_until_complete(coro)
             finally:
                 loop.close()
 

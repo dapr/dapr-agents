@@ -133,7 +133,7 @@ dapr run --app-id dapr-agent-research --resources-path components/ -- python 04_
 **How it works:**
 This fan-out/fan-in pattern combines sequential and parallel execution:
 1. First, `generate_questions()` executes sequentially
-2. Multiple `gather_information()` tasks run in parallel using `ctx.when_all()`
+2. Multiple `gather_information()` tasks run in parallel using `wf.when_all()`
 3. The workflow waits for all parallel tasks to complete
 4. Finally, `synthesize_results()` executes with all gathered data
 

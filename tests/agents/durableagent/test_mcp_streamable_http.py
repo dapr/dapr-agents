@@ -140,8 +140,7 @@ def durable_agent_with_mcp_tool(mock_mcp_tool, mock_mcp_session):
     return agent
 
 
-@pytest.mark.asyncio
-async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
+def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     # Test the mocked MCP tool (add) with DurableAgent
     instance_id = "test-instance-123"
 
@@ -170,7 +169,7 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     mock_ctx = Mock()
 
     # Call run_tool activity with new signature (ctx, payload)
-    await durable_agent_with_mcp_tool.run_tool(
+    result = durable_agent_with_mcp_tool.run_tool(
         mock_ctx,
         {
             "instance_id": instance_id,
@@ -182,12 +181,10 @@ async def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
         },
     )
 
-    # Verify via AgentWorkflowEntry
-    assert len(entry.tool_history) == 1
-    tool_entry = entry.tool_history[0]
-    assert tool_entry.tool_call_id == "call_123"
-    assert tool_entry.tool_name == tool_name
-    assert tool_entry.execution_result == "4"
+    # Verify the tool result structure
+    assert result["tool_call_id"] == "call_123"
+    assert result["tool_name"] == tool_name
+    assert result["execution_result"] == "4"  # Serialized as string
 
 
 # Shared fixture to start the math server with streamable HTTP
@@ -280,11 +277,16 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
         (n for n in tool_names if n.lower().startswith("add")), tool_names[0]
     )
 
-    # Create mock context
+    #  Create mock context
     mock_ctx = Mock()
 
     # Call run_tool activity with new signature (ctx, payload)
-    await agent.run_tool(
+    # Note: run_tool is synchronous but uses _run_asyncio_task internally,
+    # so when called from an async test context, we need to run it in a thread
+    import asyncio
+
+    result = await asyncio.to_thread(
+        agent.run_tool,
         mock_ctx,
         {
             "instance_id": instance_id,
@@ -296,9 +298,7 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
         },
     )
 
-    # Verify via AgentWorkflowEntry
-    assert len(entry.tool_history) == 1
-    tool_entry = entry.tool_history[0]
-    assert tool_entry.tool_call_id == "call_456"
-    assert tool_entry.tool_name == tool_name
-    assert tool_entry.execution_result == "4"
+    # Verify the tool result structure
+    assert result["tool_call_id"] == "call_456"
+    assert result["tool_name"] == tool_name
+    assert result["execution_result"] == "4"  # Serialized as string
