@@ -8,11 +8,11 @@ import dapr.ext.workflow as wf
 
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
+    AgentExecutionConfig,
     AgentMemoryConfig,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
-    AgentExecutionConfig,
     WorkflowGrpcOptions,
 )
 from dapr_agents.agents.prompting import AgentProfileConfig
@@ -32,6 +32,7 @@ from dapr_agents.types import (
 )
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.workflow.decorators.routers import message_router
+from dapr_agents.workflow.runners.agent import workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
 
@@ -145,6 +146,7 @@ class DurableAgent(AgentBase):
     # ------------------------------------------------------------------
     # Workflows / Activities
     # ------------------------------------------------------------------
+    @workflow_entry
     @message_router(message_model=TriggerAction)
     def agent_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
         """
@@ -244,7 +246,7 @@ class DurableAgent(AgentBase):
                         )
                         for idx, tc in enumerate(tool_calls)
                     ]
-                    yield ctx.when_all(parallel)
+                    yield wf.when_all(parallel)
                     task = None  # prepare for next turn
                     continue
 
