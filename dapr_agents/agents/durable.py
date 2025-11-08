@@ -31,6 +31,7 @@ from dapr_agents.types import (
     UserMessage,
 )
 from dapr_agents.types.workflow import DaprWorkflowStatus
+from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators.routers import message_router
 from dapr_agents.workflow.runners.agent import workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
@@ -413,12 +414,16 @@ class DurableAgent(AgentBase):
         self._sync_system_messages_with_state(instance_id, messages)
 
         # Persist the user's turn (if any) into the instance timeline + memory
-        user_message = self._get_last_user_message(messages)
-        user_copy = dict(user_message) if user_message else None
-        self._process_user_message(instance_id, task, user_copy)
+        # Only process and print user message if task is provided (initial turn)
+        if task:
+            user_message = self._get_last_user_message(messages)
+            user_copy = dict(user_message) if user_message else None
+            self._process_user_message(instance_id, task, user_copy)
 
-        if user_copy is not None:
-            self.text_formatter.print_message({str(k): v for k, v in user_copy.items()})
+            if user_copy is not None:
+                self.text_formatter.print_message(
+                    {str(k): v for k, v in user_copy.items()}
+                )
 
         tools = self.get_llm_tools()
         generate_kwargs = {
@@ -444,7 +449,7 @@ class DurableAgent(AgentBase):
         self.save_state()
         return as_dict
 
-    async def run_tool(
+    def run_tool(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
@@ -469,16 +474,16 @@ class DurableAgent(AgentBase):
         except json.JSONDecodeError as exc:
             raise AgentError(f"Invalid JSON in tool args: {exc}") from exc
 
-        result = await self.tool_executor.run_tool(fn_name, **args)
+        async def _execute_tool() -> Any:
+            return await self.tool_executor.run_tool(fn_name, **args)
 
-        # Safe serialization: JSON if possible, else string fallback.
-        if isinstance(result, str):
-            serialized_result = result
-        else:
-            try:
-                serialized_result = json.dumps(result)
-            except Exception:  # noqa: BLE001
-                serialized_result = str(result)
+        result = self._run_asyncio_task(_execute_tool())
+
+        # Debug: Log the actual result before serialization
+        logger.debug(f"Tool {fn_name} returned: {result} (type: {type(result)})")
+
+        # Serialize the tool result using centralized utility
+        serialized_result = serialize_tool_result(result)
 
         tool_result = {
             "tool_call_id": tool_call["id"],
@@ -496,7 +501,7 @@ class DurableAgent(AgentBase):
             role="tool",
         )
         agent_message = {
-            "id": tool_message.tool_call_id,
+            "tool_call_id": tool_message.tool_call_id,
             "role": "tool",
             "name": tool_message.name,
             "content": tool_message.content,
@@ -514,7 +519,7 @@ class DurableAgent(AgentBase):
                 }
             except Exception:
                 existing_ids = set()
-            if agent_message["id"] not in existing_ids:
+            if agent_message["tool_call_id"] not in existing_ids:
                 tool_message_model = (
                     self._message_coercer(agent_message)
                     if getattr(self, "_message_coercer", None)
@@ -529,6 +534,10 @@ class DurableAgent(AgentBase):
         # Always persist to memory + in-process tool history
         self.memory.add_message(tool_message)
         self.tool_history.append(history_entry)
+
+        # Print the tool result for visibility
+        self.text_formatter.print_message(agent_message)
+
         self.save_state()
         return tool_result
 
