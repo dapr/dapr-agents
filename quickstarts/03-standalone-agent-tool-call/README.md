@@ -207,8 +207,6 @@ pip install -r requirements.txt
 
 Create and agent with Phoenix OpenTelemetry integration. For example, see [`standalone_weather_agent_tracing.py`](./standalone_weather_agent_tracing.py).
 
-Alternatively, you can use the DurableAgent with this same setup using [`standalone_durable_agent_tracing.py`](./standalone_durable_agent_tracing.py).
-
 #### Run with Observability
 
 1. Ensure Phoenix server is running (see setup steps above)
