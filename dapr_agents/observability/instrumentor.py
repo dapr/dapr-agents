@@ -9,22 +9,22 @@ Span Hierarchy by Agent Type:
 
 **Regular Agent (Direct Execution):**
 - Agent.run (AGENT span) - Root span for agent execution
-  └── Agent.conversation (CHAIN span) - Processing and reasoning logic
-      ├── Agent.execute_tools (TOOL span) - Batch tool coordination
+  └── Agent._conversation_loop (CHAIN span) - Reasoning turns
+      ├── Agent._execute_tool_calls (TOOL span) - Batch tool coordination
       │   └── AgentToolExecutor.run_tool (TOOL span) - Individual tool execution
       └── ChatClient.generate (LLM span) - Language model interactions
 
 **DurableAgent (Workflow-based with Monitoring):**
-- WorkflowApp.run_and_monitor_workflow_async (AGENT span) - DurableAgent with lifecycle monitoring
-  └── DurableAgent.tool_calling_workflow (CHAIN span) - Workflow orchestration logic
-      ├── WorkflowTask.__call__ (TOOL span) - Tool execution via Dapr Workflow activities
-      └── WorkflowTask.__call__ (LLM span) - LLM calls via Dapr Workflow activities
+- WorkflowRunner.run_workflow_async (AGENT span when wait=True) - DurableAgent lifecycle
+  └── registered workflow entry (CHAIN span) - Orchestration logic
+      ├── registered activities (TOOL span) - Tool execution via workflow activities
+      └── registered activities (LLM span) - LLM calls via workflow activities
 
 **Orchestrators (Workflow-based, Fire-and-Forget):**
-- WorkflowApp.run_workflow (AGENT span) - Orchestrator execution without monitoring
-  └── Orchestrator.main_workflow (CHAIN span) - Multi-agent coordination workflow
-      ├── WorkflowTask.__call__ (TASK span) - Workflow orchestration activities
-      └── WorkflowTask.__call__ (LLM span) - LLM calls via Dapr Workflow activities
+- WorkflowRunner.run_workflow (AGENT span) - Orchestrator execution without monitoring
+  └── registered workflow entry (CHAIN span) - Multi-agent coordination workflow
+      ├── registered activities (TASK span) - Workflow orchestration activities
+      └── registered activities (LLM span) - LLM calls via workflow activities
 
 Key Features:
 - OpenInference semantic conventions for Phoenix UI visualization
@@ -60,9 +60,8 @@ from .wrappers import (
     ProcessIterationsWrapper,
     RunToolWrapper,
     WorkflowMonitorWrapper,
-    WorkflowRegistrationWrapper,
     WorkflowRunWrapper,
-    WorkflowTaskWrapper,
+    WorkflowActivityRegistrationWrapper,
 )
 
 logger = logging.getLogger(__name__)
@@ -201,202 +200,27 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
 
     def _apply_context_propagation_fix(self) -> None:
         """
-        Apply W3C Trace Context propagation fix for Dapr Workflow task execution.
-
-        Solves the critical issue where OpenTelemetry context is lost across Dapr
-        Workflow runtime boundaries due to serialization/deserialization and new
-        event loop creation. Implements monkey-patching of WorkflowApp._make_task_wrapper
-        to inject W3C context storage and retrieval mechanism.
-
-        Context Propagation Flow:
-        1. Extract W3C context during workflow task wrapper creation
-        2. Store context using workflow instance ID in thread-safe storage
-        3. Retrieve and restore context during workflow task execution
-        4. Maintain proper parent-child span relationships across boundaries
+        Ensure workflow activities run with restored W3C context by wrapping
+        ``WorkflowRuntime.register_activity``.
         """
-        logger.debug("Applying W3C context propagation fix for Dapr Workflows...")
-
         try:
-            # Import required Dapr Workflow components
-            from dapr_agents.workflow.base import WorkflowApp
-            import asyncio
-            import functools
-            from dapr.ext.workflow import WorkflowActivityContext
-
-            logger.debug(
-                "Successfully imported Dapr Workflow modules for context propagation"
+            wrap_function_wrapper(
+                module="dapr.ext.workflow.workflow_runtime",
+                name="WorkflowRuntime.register_activity",
+                wrapper=WorkflowActivityRegistrationWrapper(self._tracer),
             )
-
-            def run_sync_with_context(coro):
-                """
-                Execute coroutine synchronously while preserving OpenTelemetry context.
-
-                Handles event loop management and context attachment for workflow tasks
-                that may execute in new event loops created by the Dapr runtime.
-                """
-                # Capture current context BEFORE any event loop operations
-                current_context = None
-                current_span = None
-
-                if context_api:
-                    current_context = context_api.get_current()
-                    current_span = trace_api.get_current_span()
-                    logger.debug(
-                        f"Captured context for async execution: {current_span.get_span_context() if current_span else 'No span'}"
-                    )
-
-                async def context_wrapped_coro():
-                    """Run coroutine with preserved context."""
-                    if current_context:
-                        # Attach the captured context
-                        token = context_api.attach(current_context)
-                        try:
-                            return await coro
-                        finally:
-                            context_api.detach(token)
-                    else:
-                        return await coro
-
-                try:
-                    # Try to use existing event loop
-                    loop = asyncio.get_running_loop()
-                    return loop.run_until_complete(context_wrapped_coro())
-                except RuntimeError:
-                    # No running loop - create new one
-                    # TODO: eventually clean this up by using the tracing setup from dapr upstream
-                    # when we have trace propagation in the SDKs for workflows.
-                    try:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        return loop.run_until_complete(context_wrapped_coro())
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to run coroutine with new event loop: {e}"
-                        )
-                        # Fallback: run in thread pool to avoid blocking
-                        import concurrent.futures
-
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            future = executor.submit(
-                                lambda: asyncio.run(context_wrapped_coro())
-                            )
-                            return future.result()
-                    finally:
-                        try:
-                            if "loop" in locals() and not loop.is_closed():
-                                loop.close()
-                        except Exception as e:
-                            logger.debug(f"Error closing event loop: {e}")
-
-            def make_context_aware_task_wrapper(
-                self, task_name: str, method, task_instance
-            ):
-                """
-                Create enhanced task wrapper with W3C context propagation via storage.
-
-                This factory method creates workflow task wrappers that implement W3C Trace
-                Context propagation across Dapr Workflow runtime boundaries. The wrapper:
-
-                1. Extracts workflow instance ID from Dapr context structure
-                2. Retrieves stored W3C context using the instance ID
-                3. Associates global context with specific workflow instances
-                4. Executes tasks with proper OpenTelemetry context restoration
-
-                Args:
-                    task_name (str): Name of the workflow task being wrapped
-                    method: Task method reference for wrapping
-                    task_instance: Original task function or method instance
-
-                Returns:
-                    Callable: Enhanced wrapper function with W3C context propagation
-
-                Technical Implementation:
-                    - Uses WorkflowActivityContext for Dapr integration
-                    - Implements context_storage for thread-safe context management
-                    - Provides comprehensive error handling and debug logging
-                    - Maintains non-invasive approach (no parameter modification)
-                """
-                logger.debug(f"Creating context-aware wrapper for task: {task_name}")
-
-                @functools.wraps(method)
-                def wrapper(ctx, *args, **kwargs):
-                    logger.debug(f"Executing context-aware workflow task: {task_name}")
-
-                    # Create workflow activity context wrapper
-                    wf_ctx = WorkflowActivityContext(ctx)
-
-                    # Extract workflow instance ID from Dapr context structure
-                    instance_id = None
-                    try:
-                        inner_ctx = wf_ctx.get_inner_context()
-                        instance_id = getattr(inner_ctx, "workflow_id", None)
-                        logger.debug(f"Extracted workflow instance_id: {instance_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to extract workflow instance_id: {e}")
-
-                    # Implement W3C context storage and association
-                    from .context_storage import (
-                        store_workflow_context,
-                        get_workflow_context,
-                    )
-
-                    if instance_id:
-                        # Try to get instance-specific context first
-                        instance_context = get_workflow_context(
-                            f"__workflow_context_{instance_id}__"
-                        )
-                        if instance_context and instance_context.get("traceparent"):
-                            logger.debug(
-                                f"Found instance-specific context for {instance_id}"
-                            )
-                        else:
-                            logger.debug(
-                                f"No instance-specific context found for {instance_id}"
-                            )
-                    else:
-                        logger.warning(
-                            "No workflow instance_id - cannot access W3C context"
-                        )
-
-                    try:
-                        # Execute original task function without parameter modification
-                        call = task_instance(wf_ctx, *args, **kwargs)
-                        if asyncio.iscoroutine(call):
-                            result = run_sync_with_context(call)
-                        else:
-                            result = call
-
-                        logger.debug(
-                            f"Completed context-aware workflow task: {task_name}"
-                        )
-                        return result
-                    except Exception as e:
-                        logger.exception(
-                            f"Context-aware workflow task '{task_name}' failed: {e}"
-                        )
-                        raise
-
-                return wrapper
-
-            # Apply enhanced context-aware task wrapper to Dapr Workflow runtime
             logger.debug(
-                "Monkey patching WorkflowApp._make_task_wrapper for W3C context propagation"
+                "Instrumented WorkflowRuntime.register_activity for context propagation."
             )
-            original_method = getattr(WorkflowApp, "_make_task_wrapper", None)
-            logger.debug(f"Original _make_task_wrapper method: {original_method}")
-
-            WorkflowApp._make_task_wrapper = make_context_aware_task_wrapper
-            logger.debug(
-                "Applied W3C context propagation enhancement for Dapr Workflow tasks"
-            )
-
-        except ImportError as e:
+        except ImportError as exc:
             logger.warning(
-                f"Could not apply W3C context propagation fix (ImportError): {e}"
+                "Unable to import WorkflowRuntime for instrumentation: %s", exc
             )
-        except Exception as e:
+        except Exception as exc:  # noqa: BLE001
             logger.error(
-                f"Error applying W3C context propagation fix: {e}", exc_info=True
+                "Error applying workflow activity instrumentation: %s",
+                exc,
+                exc_info=True,
             )
 
     def _apply_agent_wrappers(self) -> None:
@@ -407,29 +231,26 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         (processing steps) for comprehensive agent execution tracing in Phoenix UI.
         """
         try:
-            from dapr_agents.agents.agent.agent import Agent
-            from dapr_agents.tool.executor import AgentToolExecutor
-
             # Main agent run wrapper (AGENT span - top level)
             # Note: This only instruments regular Agent.run, not DurableAgent.run
             # DurableAgent uses WorkflowMonitorWrapper instead
             wrap_function_wrapper(
-                module="dapr_agents.agents.agent.agent",
+                module="dapr_agents.agents.standalone",
                 name="Agent.run",
                 wrapper=AgentRunWrapper(self._tracer),
             )
 
             # Process iterations wrapper (CHAIN span - processing steps)
             wrap_function_wrapper(
-                module="dapr_agents.agents.agent.agent",
-                name="Agent.conversation",
+                module="dapr_agents.agents.standalone",
+                name="Agent._conversation_loop",
                 wrapper=ProcessIterationsWrapper(self._tracer),
             )
 
             # Tool execution batch wrapper (TOOL span - batch execution)
             wrap_function_wrapper(
-                module="dapr_agents.agents.agent.agent",
-                name="Agent.execute_tools",
+                module="dapr_agents.agents.standalone",
+                name="Agent._execute_tool_calls",
                 wrapper=ExecuteToolsWrapper(self._tracer),
             )
 
@@ -449,56 +270,22 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
 
     def _apply_workflow_wrappers(self) -> None:
         """
-        Apply observability wrappers for workflow orchestration methods.
-
-        Instruments DurableAgent workflow execution to create comprehensive AGENT spans
-        that capture the complete workflow lifecycle from start to completion, enabling
-        detailed monitoring of workflow orchestration in Phoenix UI.
+        Apply observability wrappers for workflow scheduling/monitoring APIs.
         """
         try:
-            from dapr_agents.workflow.base import WorkflowApp
-            from dapr_agents.workflow.task import WorkflowTask
-
             wrap_function_wrapper(
-                module="dapr_agents.workflow.base",
-                name="WorkflowApp.run_and_monitor_workflow_async",
+                module="dapr_agents.workflow.runners.base",
+                name="WorkflowRunner.run_workflow_async",
                 wrapper=WorkflowMonitorWrapper(self._tracer),
             )
 
             wrap_function_wrapper(
-                module="dapr_agents.workflow.base",
-                name="WorkflowApp.run_and_monitor_workflow_sync",
-                wrapper=WorkflowMonitorWrapper(self._tracer),
-            )
-
-            # This is necessary to create the parent workflow span for the 09 quickstart...
-            wrap_function_wrapper(
-                module="dapr_agents.workflow.base",
-                name="WorkflowApp.run_workflow",
+                module="dapr_agents.workflow.runners.base",
+                name="WorkflowRunner.run_workflow",
                 wrapper=WorkflowRunWrapper(self._tracer),
             )
-
-            # Instrument workflow registration to add AGENT spans for orchestrator workflows
-            wrap_function_wrapper(
-                module="dapr_agents.workflow.base",
-                name="WorkflowApp._register_workflows",
-                wrapper=WorkflowRegistrationWrapper(self._tracer),
-            )
-
-            # Instrument workflow registration to add AGENT spans for orchestrator workflows
-            wrap_function_wrapper(
-                module="dapr_agents.workflow.base",
-                name="WorkflowApp._register_workflows",
-                wrapper=WorkflowRegistrationWrapper(self._tracer),
-            )
-
-            wrap_function_wrapper(
-                module="dapr_agents.workflow.task",
-                name="WorkflowTask.__call__",
-                wrapper=WorkflowTaskWrapper(self._tracer),
-            )
-        except Exception as e:
-            logger.error(f"Error applying workflow wrappers: {e}", exc_info=True)
+        except Exception as e:  # noqa: BLE001
+            logger.error("Error applying workflow wrappers: %s", e, exc_info=True)
 
     def _apply_llm_wrappers(self) -> None:
         """
