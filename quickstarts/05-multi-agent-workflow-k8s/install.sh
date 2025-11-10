@@ -74,9 +74,10 @@ build_images () {
   echo "### Images built! ###"
   echo "### Pushing images to local registry... This takes a while... ###"
   docker push localhost:5001/workflow-llm:latest
-  docker push localhost:5001/elf:latest 
-  docker push localhost:5001/hobbit:latest
-  docker push localhost:5001/wizard:latest
+  docker push localhost:5001/frodo:latest
+  docker push localhost:5001/sam:latest
+  docker push localhost:5001/gandalf:latest
+  docker push localhost:5001/legolas:latest
   echo "#### Images pushed! ####"
 }
 

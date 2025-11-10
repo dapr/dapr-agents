@@ -93,28 +93,31 @@ Set up the SSE server for your MCP tools in `server.py`.
 
 ### Agent Creation
 
-Create the agent that connects to these tools in `app.py` over MCP with SSE transport:
+`app.py` now mirrors the durable service pattern used in other quickstarts:
+
+1. Connect to the MCP server via SSE and load tools.
+2. Build a `DurableAgent` with Dapr configs (`AgentPubSubConfig`, state, registry, memory, execution).
+3. Start the agent and host it via `AgentRunner().serve(agent, port=8001)`.
 
 ```python
-# Load MCP tools from server using SSE
-client = MCPClient()
-await client.connect_sse("local", url="http://localhost:8000/sse")
-tools = client.get_all_tools()
+tools = asyncio.run(_load_mcp_tools())
 
-# Create the Weather Agent using MCP tools
-weather_agent = DurableAgent(
-    role="Weather Assistant",
+agent = DurableAgent(
     name="Stevie",
-    goal="Help humans get weather and location info using smart tools.",
-    instructions=["Instrictions go here"],
+    role="Weather Assistant",
+    goal="Help humans get weather, travel, and location details using smart tools.",
+    instructions=[...],
     tools=tools,
-    message_bus_name="messagepubsub",
-    state_store_name="workflowstatestore",
-    state_key="workflow_state",
-    agents_registry_store_name="agentstatestore",
-    agents_registry_key="agents_registry",
-).as_service(port=8001)
- 
+    pubsub=pubsub_config,
+    registry=registry_config,
+    execution=execution_config,
+    memory=memory_config,
+    state=state_config,
+)
+agent.start()
+
+runner = AgentRunner()
+runner.serve(agent, port=8001)
 ```
 
 ### Running the Example
@@ -125,10 +128,15 @@ weather_agent = DurableAgent(
 python server.py --server_type sse --port 8000
 ```
 
-2. In a separate terminal window, start the agent with Dapr:
+2. In a separate terminal window, start the agent with Dapr (ensure components are rendered first):
 
 ```bash
-dapr run --app-id weatherappmcp  --dapr-http-port 3500 --resources-path ./components/ -- python app.py
+dapr run \
+  --app-id weatherappmcp \
+  --app-port 8001 \
+  --resources-path $temp_resources_folder \
+  -- python app.py
+rm -rf $temp_resources_folder
 ```
 
 3. Send a test request to the agent:
@@ -183,6 +191,7 @@ To explore STDIO transport, check out the related [MCP with STDIO Transport quic
 2. **Server Connection**: If you see SSE connection errors, make sure the server is running on the correct port
 3. **Dapr Setup**: Verify that Dapr is installed and that Redis is running for state stores
 4. **Module Import Errors**: Verify that all dependencies are installed correctly
+5. **gRPC Timeout**: For longer LLM responses set `DAPR_API_TIMEOUT_SECONDS=300` so the Dapr client waits beyond the 60 s default.
 
 ## Next Steps
 

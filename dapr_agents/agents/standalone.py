@@ -264,9 +264,13 @@ class Agent(AgentBase):
         pending_messages = list(messages)
         final_reply: Optional[AssistantMessage] = None
 
-        for turn in range(1, self.execution.max_iterations + 1):
-            logger.info("Iteration %d/%d started.", turn, self.execution.max_iterations)
-            try:
+        last_assistant_dict: Dict[str, Any] | None = None
+
+        try:
+            for turn in range(1, self.execution.max_iterations + 1):
+                logger.info(
+                    "Iteration %d/%d started.", turn, self.execution.max_iterations
+                )
                 response: LLMChatResponse = self.llm.generate(
                     messages=pending_messages,
                     tools=self.get_llm_tools(),
@@ -281,6 +285,7 @@ class Agent(AgentBase):
                     raise AgentError("LLM returned no assistant message.")
 
                 assistant_dict = assistant_message.model_dump()
+                last_assistant_dict = assistant_dict
                 self._save_assistant_message(instance_id, assistant_dict)
                 self.text_formatter.print_message(assistant_dict)
 
@@ -292,21 +297,50 @@ class Agent(AgentBase):
                             instance_id, tool_calls
                         )
                         pending_messages.extend(tool_msgs)
-                        if turn == self.execution.max_iterations:
-                            final_reply = assistant_message
-                            logger.info(
-                                "Reached max iterations after tool calls; stopping."
-                            )
-                            break
                         continue
 
                 final_reply = assistant_message
                 break
-            except Exception as exc:
-                logger.error("Error on turn %d: %s", turn, exc)
-                raise AgentError(f"Failed during chat generation: {exc}") from exc
+            else:
+                # Max iterations reached without a final reply; append a notice.
+                if last_assistant_dict:
+                    content = last_assistant_dict.get("content") or ""
+                    if content:
+                        content = content.rstrip() + "\n\n"
+                    content += (
+                        "I reached the maximum number of reasoning steps before I could finish. "
+                        "Please rephrase or provide more detail so I can try again."
+                    )
+                    last_assistant_dict["content"] = content
+                    final_reply = AssistantMessage(**last_assistant_dict)
+                else:
+                    final_reply = AssistantMessage(
+                        role="assistant",
+                        content=(
+                            "I reached the maximum number of reasoning steps before I could finish. "
+                            "Please rephrase or provide more detail so I can try again."
+                        ),
+                    )
+                message_dict = final_reply.model_dump()
+                self._save_assistant_message(instance_id, message_dict)
+                self.text_formatter.print_message(message_dict)
+                logger.warning(
+                    "Standalone agent hit max iterations (%d) without a final response.",
+                    self.execution.max_iterations,
+                )
+        except Exception as exc:
+            logger.error("Error during conversation loop: %s", exc)
+            final_reply = AssistantMessage(
+                role="assistant",
+                content=f"Error: {exc}",
+            )
+            message_dict = final_reply.model_dump()
+            self._save_assistant_message(instance_id, message_dict)
+            self.text_formatter.print_message(message_dict)
+            raise AgentError(f"Failed during chat generation: {exc}") from exc
+        finally:
+            self._update_instance_completion(instance_id, final_reply)
 
-        self._update_instance_completion(instance_id, final_reply)
         return final_reply
 
     async def _execute_tool_calls(

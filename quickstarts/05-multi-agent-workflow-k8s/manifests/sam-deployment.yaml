@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sam
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sam
+  template:
+    metadata:
+      annotations:
+        dapr.io/app-id: sam
+        dapr.io/enabled: "true"
+        dapr.io/metrics-port: "59193"
+      labels:
+        app: sam
+    spec:
+      containers:
+        - name: sam
+          image: localhost:5001/sam:latest
+          imagePullPolicy: Always
+          env:
+            - name: APP_ID
+              value: sam
+            - name: DAPR_METRICS_PORT
+              value: "59193"
+          envFrom:
+            - secretRef:
+                name: openai-secrets

@@ -64,7 +64,7 @@ class DurableAgent(AgentBase):
         system_prompt: Optional[str] = None,
         prompt_template: Optional[PromptTemplateBase] = None,
         # Infrastructure
-        pubsub: AgentPubSubConfig,
+        pubsub: Optional[AgentPubSubConfig] = None,
         state: Optional[AgentStateConfig] = None,
         registry: Optional[AgentRegistryConfig] = None,
         # Memory / runtime
@@ -91,7 +91,9 @@ class DurableAgent(AgentBase):
             system_prompt: System prompt override.
             prompt_template: Optional explicit prompt template instance.
 
-            pubsub: Dapr Pub/Sub configuration for triggers/broadcasts.
+            pubsub: Optional Dapr Pub/Sub configuration for triggers/broadcasts.
+                If omitted, the agent won't subscribe to any topics and can only be
+                triggered directly via AgentRunner.
             state: Durable state configuration (store/key + optional hooks).
             registry: Team registry configuration.
             execution: Execution dials for the agent run.
@@ -261,7 +263,22 @@ class DurableAgent(AgentBase):
                     )
                 break
             else:
-                raise AgentError("Workflow ended without generating a final response.")
+                # Loop exhausted without a terminating reply → surface a friendly notice.
+                base = final_message.get("content") or ""
+                if base:
+                    base = base.rstrip() + "\n\n"
+                base += (
+                    "I reached the maximum number of reasoning steps before I could finish. "
+                    "Please rephrase or provide more detail so I can try again."
+                )
+                final_message = {"role": "assistant", "content": base}
+                if not ctx.is_replaying:
+                    logger.warning(
+                        "Agent %s hit max iterations (%d) without a final response (instance=%s)",
+                        self.name,
+                        self.execution.max_iterations,
+                        ctx.instance_id,
+                    )
 
         except Exception as exc:  # noqa: BLE001
             logger.exception("Agent %s workflow failed: %s", self.name, exc)

@@ -1,18 +1,55 @@
-# Multi-Agent Event-Driven Workflows with Distributed Tracing
-This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using Dapr Agents, with comprehensive distributed tracing powered by Phoenix Arize. You'll learn how to set up agents as services, implement workflow orchestration, enable real-time agent collaboration through pub/sub messaging, and gain deep insights into agent interactions through distributed tracing.
+# Multi-Agent Workflows with Configuration Classes
+
+This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using **Agent Configuration Classes** from Dapr Agents. You'll learn how to set up agents as separate services, implement three different workflow orchestration patterns, and enable real-time agent collaboration through pub/sub messaging—all using the modern configuration-based approach.
+
+## What You'll Learn
+
+- How to use **Agent Configuration Classes** for production-ready multi-agent systems
+- Configure multiple agents with **AgentProfileConfig**, **AgentPubSubConfig**, **AgentStateConfig**, **AgentRegistryConfig**, and **AgentMemoryConfig**
+- Implement three orchestration patterns: **Random**, **Round-Robin**, and **LLM-based**
+- Deploy agents as separate microservices using **Dapr Multi-App Run**
+- Enable agent collaboration through pub/sub messaging and shared registries
+- Send messages to orchestrators or directly to individual agents
 
 ## Prerequisites
+
 - Python 3.10 (recommended)
 - pip package manager
-- OpenAI API key
-- Dapr CLI and Docker installed
-- PostgreSQL (for Phoenix Arize tracing backend)
+- Dapr CLI and Docker
+- OpenAI API key (or compatible LLM provider)
+
+## The Fellowship: Multi-Agent Architecture
+
+This quickstart features four agents from the Fellowship of the Ring, each with distinct roles and expertise:
+
+| Agent | Role | Expertise | Topic |
+|-------|------|-----------|-------|
+| **Frodo** | Hobbit & Ring-bearer | Endurance, stealth, burden-bearing | `fellowship.frodo.requests` |
+| **Sam** | Logistics & Support | Supplies, provisions, morale | `fellowship.sam.requests` |
+| **Gandalf** | Wizard & Loremaster | Strategy, magic, ancient knowledge | `fellowship.gandalf.requests` |
+| **Legolas** | Elf Scout & Marksman | Scouting, archery, terrain navigation | `fellowship.legolas.requests` |
+
+### Orchestration Patterns
+
+Three orchestrators coordinate the Fellowship:
+
+1. **Random Orchestrator** (`fellowship.orchestrator.random.requests`)
+   - Randomly selects an agent for each task
+   - Good for load distribution and testing
+
+2. **Round-Robin Orchestrator** (`fellowship.orchestrator.roundrobin.requests`)
+   - Cycles through agents sequentially
+   - Ensures fair task distribution
+
+3. **LLM Orchestrator** (`llm.orchestrator.requests`)
+   - AI-powered agent selection based on task content
+   - Intelligent routing to the most appropriate agent
 
 ## Environment Setup
 
 ```bash
 # Create a virtual environment
-python -m venv .venv
+python3.10 -m venv .venv
 
 # Activate the virtual environment
 # On Windows:
@@ -24,173 +61,315 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-
-
-## Observability with Phoenix Arize
-
-This section demonstrates how to add observability to your Dapr Agent workflows using Phoenix Arize for distributed tracing and monitoring. You'll learn how to set up Phoenix with PostgreSQL backend and instrument your workflow for comprehensive observability.
-
-### Phoenix Server Setup
-
-First, deploy Phoenix Arize server using Docker Compose with PostgreSQL backend for persistent storage.
-
-#### Prerequisites
-
-- Docker and Docker Compose installed on your system
-- Verify Docker is running: `docker info`
-
-#### Deploy Phoenix with PostgreSQL
-
-1. Use the [docker-compose.yml](./docker-compose.yml) file provided to set up a Phoenix server locally with PostgreSQL backend.
-
-2. Start the Phoenix server:
-
-```bash
-docker compose up --build
-```
-
-3. Verify Phoenix is running by navigating to [http://localhost:6006](http://localhost:6006)
-
-#### Install Observability Dependencies
-
-Install the updated requirements:
-
-```bash
-pip install -r requirements.txt
-```
-
 ## Configuration
 
-1. Create a `.env` file for your API keys:
+### Option 1: Using Environment Variables (Recommended)
 
+1. Create a `.env` file in the project root:
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
 
-2. Configure the OpenAI component. You have two options:
+2. Export environment variables before running:
+```bash
+# Get environment variables from .env file
+export $(grep -v '^#' ../../.env | xargs)
+```
 
-   a. Directly update the `key` in [components/openai.yaml](components/openai.yaml), and remove the secretKeyRef:
-   ```yaml
-   metadata:
-     - name: key
-       value: "YOUR_OPENAI_API_KEY"
-   ```
+### Option 2: Direct Component Configuration
 
-   b. Use environment variables (recommended):
-   ```bash
-   # Get the environment variables from the .env file exported to be use
-   export $(grep -v '^#' ../../.env | xargs)
-   ```
+Update the `key` in [components/openai.yaml](components/openai.yaml):
+```yaml
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: openai
+spec:
+  type: conversation.openai
+  metadata:
+    - name: key
+      value: "YOUR_OPENAI_API_KEY"
+```
 
-3. Make sure Dapr is initialized on your system:
+### Required Components
+
+Make sure Dapr is initialized:
 
 ```bash
 dapr init
 ```
 
-4. The quickstart includes the necessary Dapr components in the `components` directory:
-
-- `statestore.yaml`: Agent state configuration
-- `pubsub.yaml`: Pub/Sub message bus configuration
-- `workflowstate.yaml`: Workflow state configuration
-- `openai.yaml`: OpenAI component configuration
+This quickstart uses these Dapr components (in `components/` directory):
+- `openai.yaml`: LLM conversation component
+- `workflowstate.yaml`: Workflow state storage
+- `memorystore.yaml`: Conversation memory storage
+- `agentregistrystore.yaml`: Agent registry storage (shared across all agents)
+- `messagepubsub.yaml`: Pub/sub messaging for agent communication
 
 ## Project Structure
 
 ```
-components/               # Dapr configuration files
-├── statestore.yaml       # State store configuration
-├── pubsub.yaml           # Pub/Sub configuration
-└── workflowstate.yaml    # Workflow state configuration
-services/                 # Directory for agent services
-├── hobbit/               # First agent's service
-│   └── app.py            # FastAPI app for hobbit
-├── wizard/               # Second agent's service
-│   └── app.py            # FastAPI app for wizard
-├── elf/                  # Third agent's service
-│   └── app.py            # FastAPI app for elf
-└── workflow-random/      # Workflow orchestrator
-    └── app.py            # Workflow service
-└── workflow-roundrobin/  # Roundrobin orchestrator
-    └── app.py            # Workflow service    
-└── workflow-llm/         # LLM orchestrator
-    └── app.py            # Workflow service        
-dapr-random.yaml          # Multi-App Run Template using the random orchestrator
-dapr-roundrobin.yaml      # Multi-App Run Template using the roundrobin orchestrator
-dapr-llm.yaml             # Multi-App Run Template using the LLM orchestrator
+05-multi-agent-workflows-new/
+├── components/                    # Dapr configuration files
+│   ├── agentregistrystore.yaml    # Shared agent registry
+│   ├── memorystore.yaml           # Conversation memory
+│   ├── messagepubsub.yaml         # Pub/sub messaging
+│   ├── openai.yaml                # LLM provider
+│   └── workflowstate.yaml         # Workflow state
+├── services/                      # Agent and orchestrator services
+│   ├── frodo/                     # Frodo agent service
+│   │   └── app.py
+│   ├── sam/                       # Sam agent service
+│   │   └── app.py
+│   ├── gandalf/                   # Gandalf agent service
+│   │   └── app.py
+│   ├── legolas/                   # Legolas agent service
+│   │   └── app.py
+│   ├── workflow-random/           # Random orchestrator
+│   │   └── app.py
+│   ├── workflow-roundrobin/       # Round-robin orchestrator
+│   │   └── app.py
+│   ├── workflow-llm/              # LLM-based orchestrator
+│   │   └── app.py
+│   └── client/                    # Client for publishing messages
+│       └── pubsub_client.py
+├── dapr-random.yaml               # Multi-app config: Random orchestrator
+├── dapr-roundrobin.yaml           # Multi-app config: Round-robin orchestrator
+├── dapr-llm.yaml                  # Multi-app config: LLM orchestrator
+└── README.md
 ```
 
-## Examples
+## Agent Configuration with Config Classes
 
-### Agent Service Implementation
+Each agent in this quickstart uses the modern **Agent Configuration Classes** pattern. Here's how Frodo is configured:
 
-Each agent is implemented as a separate service. Here's an example for the Hobbit agent in [app.py](./services/hobbit/app.py).
-Similar implementations exist for the Wizard (Gandalf) and Elf (Legolas) agents.
+```python
+from dapr_agents.agents.durable import DurableAgent
+from dapr_agents.agents.configs import (
+    AgentMemoryConfig,
+    AgentPubSubConfig,
+    AgentRegistryConfig,
+    AgentStateConfig,
+)
+from dapr_agents.agents.prompting import AgentProfileConfig
 
-### Workflow Orchestrator Implementations
+# 1. Profile - Agent identity and behavior
+frodo_profile = AgentProfileConfig(
+    name="Frodo Baggins",
+    role="Hobbit & Ring-bearer",
+    goal="Carry the One Ring to Mount Doom...",
+    instructions=[...],
+    style_guidelines=[...],
+)
 
-The workflow orchestrators manage the interaction between agents. Currently, Dapr Agents support three workflow types: RoundRobin, Random, and LLM-based. Here's an example for the Random workflow orchestrator (you can find examples for RoundRobin and LLM-based orchestrators in the project).
+# 2. Pub/Sub - Event-driven messaging
+frodo_pubsub = AgentPubSubConfig(
+    pubsub_name="messagepubsub",
+    agent_topic="fellowship.frodo.requests",  # Direct messages
+    broadcast_topic="fellowship.broadcast",    # Team-wide
+)
 
-### Running the Multi-Agent System
+# 3. State - Workflow state persistence
+frodo_state = AgentStateConfig(
+    store=StateStoreService(
+        store_name="workflowstatestore",
+        key_prefix="frodo:"
+    )
+)
 
-The project includes three dapr multi-app run configuration files (`dapr-random.yaml`, `dapr-roundrobin.yaml` and `dapr-llm.yaml` ) for running all services and an additional Client application for interacting with the agents.
+# 4. Registry - Multi-agent coordination (SHARED)
+registry = AgentRegistryConfig(
+    store=StateStoreService(store_name="agentregistrystore"),
+    team_name="fellowship",  # All agents share this team
+)
 
-Start all services using the Dapr CLI:
+# 5. Memory - Conversation history
+frodo_memory = AgentMemoryConfig(
+    store=ConversationDaprStateMemory(
+        store_name="memorystore",
+        session_id="frodo-session",
+    )
+)
+
+# Assemble the agent
+frodo = DurableAgent(
+    profile=frodo_profile,
+    pubsub=frodo_pubsub,
+    state=frodo_state,
+    registry=registry,  # Shared registry enables coordination
+    memory=frodo_memory,
+    llm=llm,
+)
+```
+
+### Key Benefits of Configuration Classes
+
+1. **Shared Registry**: All agents use the same `team_name="fellowship"`, enabling discovery and coordination
+2. **Isolated State**: Each agent has its own state store with unique key prefix
+3. **Individual Topics**: Each agent subscribes to its own direct message topic
+4. **Broadcast Channel**: All agents can receive team-wide broadcasts via `fellowship.broadcast`
+5. **Type Safety**: Configuration classes provide validation and type checking
+
+## Running the Multi-Agent System
+
+The quickstart includes three Dapr Multi-App Run configurations, each showcasing a different orchestration pattern.
+
+### Option 1: Random Orchestrator
+
+Randomly selects agents for each task:
+
 ```bash
-dapr run -f dapr-random.yaml 
+dapr run -f dapr-random.yaml
 ```
 
+**What's running:**
+- ✅ Frodo agent
+- ✅ Sam agent  
+- ✅ Random orchestrator
+- ✅ Client (publishes to `fellowship.orchestrator.random.requests`)
 
-You will see the agents engaging in a conversation about getting to Mordor, with different agents contributing based on their character.
+### Option 2: Round-Robin Orchestrator
 
-You can also run the RoundRobin and LLM-based orchestrators using `dapr-roundrobin.yaml` and `dapr-llm.yaml` respectively:
+Cycles through agents sequentially:
+
 ```bash
-dapr run -f dapr-roundrobin.yaml 
+dapr run -f dapr-roundrobin.yaml
 ```
+
+**What's running:**
+- ✅ Frodo agent
+- ✅ Sam agent
+- ✅ Gandalf agent
+- ✅ Round-robin orchestrator
+- ✅ Client (publishes to `fellowship.orchestrator.roundrobin.requests`)
+
+### Option 3: LLM Orchestrator
+
+AI-powered agent selection based on task:
+
 ```bash
-dapr run -f dapr-llm.yaml 
+dapr run -f dapr-llm.yaml
 ```
-**Expected output:** The agents will engage in a conversation about getting to Mordor, with different agents contributing based on their character. Observe that in the logs, or checking the workflow state in [Redis Insights](https://dapr.github.io/dapr-agents/home/installation/#enable-redis-insights).
 
-## Key Concepts
-- **Agent Service**: Stateful service exposing an agent via API endpoints with independent lifecycle management
-- **Pub/Sub Messaging**: Event-driven communication between agents for real-time collaboration
-- **State Store**: Persistent storage for both agent registration and conversational memory
-- **Actor Model**: Self-contained, sequential message processing via Dapr's Virtual Actor pattern
-- **Workflow Orchestration**: Coordinating agent interactions in a durable and resilient manner
+**What's running:**
+- ✅ Frodo agent
+- ✅ Sam agent
+- ✅ Gandalf agent
+- ✅ LLM orchestrator
+- ✅ HTTP client (hits the orchestrator’s `/run` endpoint)
 
-## Workflow Types
-Dapr Agents supports multiple workflow orchestration patterns:
+### Triggering Workflows
 
-1. **RoundRobin**: Cycles through agents sequentially, ensuring equal task distribution
-2. **Random**: Selects agents randomly for tasks, useful for load balancing and testing
-3. **LLM-based**: Uses an LLM (default: OpenAI's models like gpt-4o) to intelligently select agents based on context and task requirements
+Each `dapr-*.yaml` spins up an `HttpClientApp` that keeps POSTing to `/run` until the orchestrator responds (max 10 tries with a 5s delay). You’ll see the returned instance ID printed in that client’s console.
 
-## Monitoring and Observability
-1. **Phoenix Arize**: Access comprehensive distributed tracing and agent interaction visualization at http://localhost:6006
-   - View detailed agent-to-agent communication flows
-   - Analyze conversation patterns and agent decision making
-   - Monitor workflow performance and bottlenecks
-   - Track LLM interactions and response times
-2. **Console Logs**: Monitor real-time workflow execution and agent interactions
-3. **Dapr Dashboard**: View components, configurations and service details at http://localhost:8080/
-4. **Zipkin Tracing**: Access additional distributed tracing at http://localhost:9411/zipkin/
-5. **Dapr Metrics**: Access agent performance metrics via (ex: HobbitApp) http://localhost:6001/metrics when configured
+If you prefer to drive the system via pub/sub (for multiple tasks, or to target a specific orchestrator), run:
+
+```bash
+python services/client/pubsub_client.py --orchestrator llm
+python services/client/pubsub_client.py --orchestrator random
+python services/client/pubsub_client.py --orchestrator roundrobin
+```
+
+That publishes `TriggerAction` messages onto the same topics the orchestrators subscribe to.
+
+
+### Expected Output
+
+You'll see logs from all services showing:
+1. **Agent startup**: Each agent registers with the fellowship registry
+2. **Client message**: Task published to orchestrator topic
+3. **Orchestration**: Orchestrator selects and routes to an agent
+4. **Agent response**: Selected agent processes the task
+5. **Workflow completion**: Final result logged
+
+## How Agent Coordination Works
+
+### 1. Shared Registry
+All agents register themselves in the fellowship registry:
+```python
+registry = AgentRegistryConfig(
+    store=StateStoreService(store_name="agentregistrystore"),
+    team_name="fellowship",  # SAME for all agents
+)
+```
+
+### 2. Message Flow
+
+**Via Orchestrator:**
+```
+Client → Orchestrator Topic → Orchestrator Logic → Agent Topic → Specific Agent
+```
+
+**Direct to Agent:**
+```
+Client → Agent Topic → Specific Agent
+```
+
+### 3. Agent Discovery
+
+Orchestrators query the registry to discover available agents:
+```python
+# Orchestrator can find all fellowship members
+available_agents = registry.get_team_members("fellowship")
+# Returns: [frodo, sam, gandalf, legolas]
+```
+
+### 4. Broadcast Messages
+
+Send to all agents simultaneously:
+```python
+# All agents subscribed to fellowship.broadcast receive this
+pubsub_client.py --topic fellowship.broadcast --task "Emergency: Nazgûl approaching!"
+```
+
+## Agent Profiles Summary
+
+### Frodo - Ring-bearer
+- **Focus**: Endurance, stealth, burden management
+- **Style**: Humble, determined, shows vulnerability but maintains courage
+- **Best for**: Tasks requiring persistence and careful navigation
+
+### Sam - Logistics Expert
+- **Focus**: Supplies, provisions, morale, practical support
+- **Style**: Warm, plain-spoken, grounded, loyal
+- **Best for**: Resource management and practical problem-solving
+
+### Gandalf - Wizard & Strategist
+- **Focus**: Strategy, lore, magic, long-term planning
+- **Style**: Wise, patient, mysterious yet clear in critical moments
+- **Best for**: Complex decisions requiring wisdom and foresight
+
+### Legolas - Scout & Marksman
+- **Focus**: Scouting, threat detection, terrain navigation, ranged tactics
+- **Style**: Graceful, precise, observant, elvish elegance
+- **Best for**: Reconnaissance and tactical positioning
 
 ## Troubleshooting
 
-1. **Service Startup**: If services fail to start, verify Dapr components configuration
-2. **Communication Issues**: Check Redis connection and pub/sub setup
-3. **Workflow Errors**: Check Zipkin traces for detailed request flows
-4. **Port Conflicts**: If ports are already in use, check which port is already in use
-5. **System Reset**: Clear Redis data through Redis Insights if needed
+### Issue: Agents not discovering each other
 
-## Next Steps
+**Solution:** Verify all agents use the same registry configuration:
+```python
+registry = AgentRegistryConfig(
+    store=StateStoreService(store_name="agentregistrystore"),
+    team_name="fellowship",  # Must be identical
+)
+```
 
-After completing this quickstart, you can:
+### Issue: Messages not reaching agents
 
-- Add more agents to the workflow
-- Switch to another workflow orchestration pattern (RoundRobin, LLM-based)
-- Extend agents with custom tools
-- Deploy agents and Dapr to a Kubernetes cluster. For more information on read [Deploy Dapr on a Kubernetes cluster](https://docs.dapr.io/operations/hosting/kubernetes/kubernetes-deploy)
-- Check out the [Cookbooks](../../cookbook/)
+**Solution:** Check topic names match between client and agent configurations:
+- Client publishes to: `fellowship.frodo.requests`
+- Agent subscribes to: `fellowship.frodo.requests` (must match exactly)
+
+### Issue: Orchestrator not finding agents
+
+**Solution:** Ensure orchestrator has access to the registry and agents are started first.
+
+## Learn More
+
+- **Configuration Classes Guide**: [`03-durable-agent-with-configs`](../03-durable-agent-with-configs/) - Complete guide to all configuration classes
+- **Simple Agent Example**: [`03-durable-agent-tool-call`](../03-durable-agent-tool-call/) - Basic single-agent pattern
+- **Message Router**: [`04-message-router-workflow`](../04-message-router-workflow/) - Pub/sub workflow patterns
+- **Dapr Multi-App Run**: [Dapr Documentation](https://docs.dapr.io/developing-applications/local-development/multi-app-dapr-run/)
+- **Dapr Pub/Sub**: [Pub/Sub Building Block](https://docs.dapr.io/developing-applications/building-blocks/pubsub/)

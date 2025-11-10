@@ -1,46 +1,89 @@
+#!/usr/bin/env python3
 import asyncio
 import logging
+
 from dotenv import load_dotenv
 
 from dapr_agents import DurableAgent
+from dapr_agents.agents.configs import (
+    AgentExecutionConfig,
+    AgentMemoryConfig,
+    AgentPubSubConfig,
+    AgentRegistryConfig,
+    AgentStateConfig,
+)
+from dapr_agents.memory import ConversationDaprStateMemory
+from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.tool.mcp import MCPClient
+from dapr_agents.workflow.runners import AgentRunner
 
 
-async def main():
+async def _load_mcp_tools() -> list:
+    client = MCPClient()
+    await client.connect_sse("local", url="http://localhost:8000/sse")
+    return client.get_all_tools()
+
+
+def main() -> None:
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO)
+
     try:
-        # Load MCP tools from server (stdio or sse)
-        client = MCPClient()
-        await client.connect_sse("local", url="http://localhost:8000/sse")
+        tools = asyncio.run(_load_mcp_tools())
+    except Exception:
+        logging.exception("Failed to load MCP tools via SSE")
+        return
 
-        # Convert MCP tools to AgentTool list
-        tools = client.get_all_tools()
+    # asyncio.run closes its loop; create a fresh default loop for sync workflow wiring.
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
-        # Create the Weather Agent using those tools
-        weather_agent = DurableAgent(
-            role="Weather Assistant",
-            name="Stevie",
-            goal="Help humans get weather and location info using smart tools.",
-            instructions=[
-                "Respond clearly and helpfully to weather-related questions.",
-                "Use tools when appropriate to fetch or simulate weather data.",
-                "You may sometimes jump after answering the weather question.",
-            ],
-            tools=tools,
-            message_bus_name="messagepubsub",
-            state_store_name="workflowstatestore",
-            state_key="workflow_state",
-            agents_registry_store_name="agentstatestore",
-            agents_registry_key="agents_registry",
-        ).as_service(port=8001)
+    pubsub = AgentPubSubConfig(
+        pubsub_name="messagepubsub",
+        agent_topic="weather.requests",
+        broadcast_topic="agents.broadcast",
+    )
+    state = AgentStateConfig(
+        store=StateStoreService(store_name="agentstatestore"),
+    )
+    registry = AgentRegistryConfig(
+        store=StateStoreService(store_name="agentregistrystore"),
+        team_name="weather-team",
+    )
+    execution = AgentExecutionConfig(max_iterations=4)
+    memory = AgentMemoryConfig(
+        store=ConversationDaprStateMemory(
+            store_name="conversationstore",
+            session_id="weather-session",
+        )
+    )
 
-        # Start the FastAPI agent service
-        await weather_agent.start()
+    agent = DurableAgent(
+        name="Stevie",
+        role="Weather Assistant",
+        goal="Help humans get weather, travel, and location details using smart tools.",
+        instructions=[
+            "Answer clearly and helpfully.",
+            "Call MCP tools when extra data improves accuracy.",
+        ],
+        tools=tools,
+        pubsub=pubsub,
+        registry=registry,
+        execution=execution,
+        memory=memory,
+        state=state,
+    )
+    agent.start()
 
-    except Exception as e:
-        logging.exception("Error starting weather agent service", exc_info=e)
+    runner = AgentRunner()
+    try:
+        runner.serve(agent, port=8001)
+    finally:
+        runner.shutdown()
+        agent.stop()
 
 
 if __name__ == "__main__":
-    load_dotenv()
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

@@ -1,0 +1,16 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: openai
+spec:
+  type: conversation.openai
+  version: v1
+  metadata:
+    - name: key
+      secretKeyRef:
+        name: openai-secrets
+        key: OPENAI_API_KEY
+    - name: model
+      value: gpt-4o-mini
+    - name: temperature
+      value: "0.8"

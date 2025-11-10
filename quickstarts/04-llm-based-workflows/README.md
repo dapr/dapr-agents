@@ -106,36 +106,57 @@ spec:
 
 ## Examples
 
-### 1. Sequential Task Execution
+### 1. Single LLM Activity (Free-Form)
 
-This example demonstrates the Chaining Pattern by executing two activities in sequence.
+Run the simplest possible LLM workflow—one activity that asks for a short biography.
 
-Run the sequential task chain workflow:
 ```bash
-dapr run --app-id dapr-agent-wf-sequence --resources-path components/ -- python 03_sequential_workflow.py
+dapr run --app-id dapr-agent-wf-single --resources-path $temp_resources_folder -- python 01_single_activity_workflow.py
 ```
 
-**How it works:**
-In this chaining pattern, the workflow executes tasks in strict sequence:
-1. The `get_character()` task executes first and returns a character name
-2. Only after completion, the `get_line()` task runs using that character name as input
-3. Each task awaits the previous task's completion before starting
+**Why start here?**
+- Shows how to define a workflow + activity with `WorkflowRuntime`
+- Demonstrates `@llm_activity` returning plain text
+- Uses `DaprWorkflowClient` to schedule and await a single run
 
-### 2. Parallel Task Execution
+### 2. Single LLM Activity (Structured Output)
 
-This example demonstrates the Fan-out/Fan-in Pattern with a research use case. It will execute 3 activities in parallel; then synchronize these activities do not proceed with the execution of subsequent activities until all preceding activities have completed.
+Extend the previous sample by enforcing a JSON schema with Pydantic.
 
-Run the parallel research workflow:
 ```bash
-dapr run --app-id dapr-agent-research --resources-path components/ -- python 04_parallel_workflow.py
+dapr run --app-id dapr-agent-wf-structured --resources-path $temp_resources_folder -- python 02_single_structured_activity_workflow.py
 ```
 
-**How it works:**
-This fan-out/fan-in pattern combines sequential and parallel execution:
-1. First, `generate_questions()` executes sequentially
-2. Multiple `gather_information()` tasks run in parallel using `wf.when_all()`
-3. The workflow waits for all parallel tasks to complete
-4. Finally, `synthesize_results()` executes with all gathered data
+**Key ideas**
+- `@llm_activity` can deserialize into typed models (e.g., `Dog`)
+- Perfect for downstream steps that expect strongly typed data
+
+### 3. Sequential Task Execution
+
+This workflow chains two LLM activities: pick a LOTR character, then fetch a famous quote.
+
+```bash
+dapr run --app-id dapr-agent-wf-sequence --resources-path $temp_resources_folder -- python 03_sequential_workflow.py
+```
+
+**How it works**
+1. `get_character()` runs first and returns a random character
+2. Once it completes, `get_line()` runs with the character as input
+3. Each activity waits for the previous one to finish before starting
+
+### 4. Parallel Task Execution
+
+The fan-out/fan-in pattern for research: generate questions, gather answers in parallel, then synthesize a report.
+
+```bash
+dapr run --app-id dapr-agent-research --resources-path $temp_resources_folder -- python 04_parallel_workflow.py
+```
+
+**How it works**
+1. `generate_questions()` runs sequentially to produce three prompts
+2. Multiple `gather_information()` activities run concurrently via `wf.when_all()`
+3. The workflow waits for all parallel calls to finish
+4. `synthesize_results()` produces the final report
 
 ## Integration with Dapr
 
@@ -152,7 +173,8 @@ Dapr Agents workflows leverage Dapr's core capabilities:
 2. **Redis Connection**: Ensure Redis is running (automatically installed by Dapr)
 3. **Dapr Initialization**: If components aren't found, verify Dapr is initialized with `dapr init`
 4. **API Key**: Check your OpenAI API key if authentication fails
+5. **gRPC Timeout**: For longer prompts/responses set `DAPR_API_TIMEOUT_SECONDS=300` so the Dapr client waits beyond the 60 s default.
 
 ## Next Steps
 
-After completing this quickstart, move on to the [Agent Based Workflow Quickstart](../04-agent-absed-workflows/README.md) to learn how to integrate the concept of an agent on specific activity steps.
+After completing this quickstart, move on to the [Agent-Based Workflow Quickstart](../04-agent-based-workflows/README.md) to learn how to integrate full agents into workflow steps.

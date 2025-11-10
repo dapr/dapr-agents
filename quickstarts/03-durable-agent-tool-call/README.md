@@ -41,7 +41,7 @@ OPENAI_API_KEY=your_api_key_here
 export $(grep -v '^#' ../../.env | xargs)
 
 # Create a temporary resources folder with resolved environment variables
-temp_resources_folder=$(../resolve_env_templates.py ./components)
+temp_resources_folder=$(../resolve_env_templates.py $temp_resources_folder)
 
 # Run your dapr command with the temporary resources
 dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent.py
@@ -90,11 +90,12 @@ dapr init
 start the agent with Dapr:
 
 ```bash
-dapr run --app-id durableweatherapp --resources-path ./components -- python durable_weather_agent.py
+dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_dapr.py
 ```
 
 ## Other Durable Agent
-You can also try the following Durable agents with the same tools using `HuggingFace hub` and `NVIDIA` LLM chat clients. Make sure you add the `HUGGINGFACE_API_KEY` and `NVIDIA_API_KEY` to the `.env` file.
+You can also try the following Durable agents with the same tools using `OpenAI`, `HuggingFace hub` and `NVIDIA` LLM chat clients. Make sure you add the `OPENAI_API_KEY` and `HUGGINGFACE_API_KEY` and `NVIDIA_API_KEY` to the `.env` file.
+- [OpenAI Durable Agent](./durable_weather_agent_openai.py)
 - [HuggingFace Durable Agent](./durable_weather_agent_hf.py)
 - [NVIDIA Durable Agent](./durable_weather_agent_nv.py)
 
@@ -104,7 +105,7 @@ Durable agents maintain state across runs, enabling workflows that require persi
 
 ## Custom Tools Example
 
-See `weather_tools.py` for sample tool definitions.
+See `agent_tools.py` for sample tool definitions.
 
 ## Observability with Phoenix Arize
 
@@ -157,7 +158,7 @@ See [`durable_weather_agent_tracing.py`](./durable_weather_agent_tracing.py) wit
 2. Run the instrumented Durable Agent:
 
 ```bash
-dapr run --app-id durableweatherapptracing --resources-path ./components -- python durable_weather_agent_tracing.py
+dapr run --app-id durableweatherapptracing --resources-path $temp_resources_folder -- python durable_weather_agent_tracing.py
 ```
 
 3. View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)

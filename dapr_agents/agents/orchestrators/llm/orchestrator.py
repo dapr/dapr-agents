@@ -16,6 +16,7 @@ from dapr_agents.agents.schemas import (
     TriggerAction,
 )
 from dapr_agents.workflow.decorators.routers import message_router
+from dapr_agents.workflow.runners.agent import workflow_entry
 from dapr_agents.agents.orchestrators.llm.prompts import (
     NEXT_STEP_PROMPT,
     PROGRESS_CHECK_PROMPT,
@@ -77,6 +78,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
         runtime.register_activity(self._process_agent_response_with_progress)
         runtime.register_activity(self._finalize_workflow_with_summary)
 
+    @workflow_entry
     @message_router(message_model=TriggerAction)
     def llm_orchestrator_workflow(
         self, ctx: wf.DaprWorkflowContext, message: Dict[str, Any]
@@ -190,6 +192,13 @@ class LLMOrchestrator(LLMOrchestratorBase):
             )
 
             if is_valid:
+                if not ctx.is_replaying:
+                    self.print_interaction(
+                        source_agent_name=self.name,
+                        target_agent_name=next_agent,
+                        message=instruction,
+                    )
+
                 result = yield ctx.call_activity(
                     self._execute_agent_task_with_progress_tracking,
                     input={

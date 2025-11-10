@@ -26,12 +26,12 @@ The script will:
 1. Install Kind with a local registry
 1. Install Bitnami Redis
 1. Install Dapr
-1. Build the images for [05-multi-agent-workflow-dapr-workflows](../05-multi-agent-workflow-dapr-workflows/)
+1. Build the images for [05-multi-agent-workflows](../05-multi-agent-workflows/)
 1. Push the images to local in-cluster registry
 1. Install the [components for the agents](./components/)
 1. Create the kubernetes secret form `.env` file
 1. Deploy the [manifests for the agents](./manifests/)
-1. Port forward the `workload-llm` pod on port `8004`
+1. Port forward the `workflow-llm` pod on port `8004`
 1. Trigger the workflow for getting to Morder by [k8s_http_client.py](./services/client/k8s_http_client.py)
 
 ### Install through manifests

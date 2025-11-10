@@ -59,6 +59,7 @@ OPENAI_API_KEY=your_api_key_here
 ```
 
 2. When running the examples with Dapr, use the helper script to resolve environment variables:
+
 ```bash
 # Get the environment variables from the .env file:
 export $(grep -v '^#' ../../.env | xargs)
@@ -115,41 +116,53 @@ This example shows how to create a basic agent with a custom tool.
 
 ### 3. Durable Agent
 
-A stateful agent that uses Dapr Workflows to ensure durability and persistence of agent reasoning.
+This example turns the TravelBuddy agent into a durable workflow-backed service. It uses the Dapr ChatClient (configured through `components/openai.yaml`) so remember to run `resolve_env_templates.py` and provide your `{YOUR_OPENAI_API_KEY}` before starting. Ensure `dapr init` has been run on your machine.
 
-We are using the Dapr ChatClient to interact with the OpenAI API. In the components folder, we have a `openai.yaml` file that contains the configuration for the OpenAI API.
-You need to replace the `{YOUR_OPENAI_API_KEY}` with your actual OpenAI API key.
+Choose one of the following entry points depending on how you want to host the agent:
 
-We are using the Dapr ChatClient to interact with the OpenAI API. In the components folder, we have a `openai.yaml` file that contains the configuration for the OpenAI API.
-You need to replace the `{YOUR_OPENAI_API_KEY}` with your actual OpenAI API key.
+| Script | Mode | When to use it |
+| --- | --- | --- |
+| `03_durable_agent_run.py` | **Direct run** | Fire a workflow immediately from the CLI and print the final response. |
+| `03_durable_agent_subscribe.py` | **Pub/Sub listener** | Keep the agent running so it reacts to pub/sub events (e.g., `@message_router`). |
+| `03_durable_agent_serve.py` | **Service mode** | Host the agent as an HTTP service (still wired to pub/sub) and trigger workflows via REST. |
 
-Make sure Dapr is initialized on your system:
+Each script defines the same TravelBuddy agent setup; use the command that matches the mode you need (remember to resolve the component templates first):
 
+#### Direct Run
 ```bash
-dapr init
+source .venv/bin/activate
+dapr run --app-id stateful-llm --resources-path $temp_resources_folder -- python 03_durable_agent_run.py
 ```
 
-Run the assistant agent example to see how to create a stateful agent with persistent memory.
+#### Pub/Sub Listener
+```bash
+source .venv/bin/activate
+dapr run --app-id stateful-llm --resources-path $temp_resources_folder -- python 03_durable_agent_subscribe.py
+```
 
-We are using the `resolve_env_templates.py` script to resolve the environment variables in the components folder and substitute them with the actual values in your environment, like the OpenAI API key.
+With the listener running, publish tasks using the included `message_client.py` (defaults to the `travel.requests` topic on the `messagepubsub` component):
 
 ```bash
 source .venv/bin/activate
-
-dapr run --app-id stateful-llm --dapr-http-port 3500 --resources-path $(../resolve_env_templates.py ./components) -- python 03_durable_agent.py
+dapr run \
+  --app-id travelbuddy-client \
+  --resources-path $temp_resources_folder \
+  -- python message_client.py "Plan a trip to Tokyo with two flight options"
 ```
 
-This example demonstrates a stateful travel planning assistant that:
-1. Remembers user context persistently (across restarts)
-2. Uses a tool to search for flight options
-3. Exposes a REST API for workflow interaction
-4. Stores execution state in Dapr workflow state stores
+#### Service Mode (HTTP + Pub/Sub)
+```bash
+dapr run \
+  --app-id stateful-llm \
+  --dapr-http-port 3500 \
+  --app-port 8001 \
+  --resources-path $temp_resources_folder \
+  -- python 03_durable_agent_serve.py
+```
 
-### Interacting with the Agent
+When running `03_durable_agent_serve.py`, the runner installs default REST endpoints so you can trigger workflows without additional code:
 
-Unlike simpler agents, this stateful agent exposes a REST API for workflow interactions:
-
-#### Start a new workflow:
+**Start a new workflow:**
 
 ```bash
 curl -i -X POST http://localhost:8001/run \
@@ -159,12 +172,21 @@ curl -i -X POST http://localhost:8001/run \
 
 You'll receive a workflow ID in response, which you can use to track progress.
 
-#### Check workflow status:
+**Check workflow status:**
 
 ```bash
-# Replace WORKFLOW_ID with the ID from the previous response
+curl -i -X GET http://localhost:8001/run/WORKFLOW_ID
+
+# You can also use the Dapr workflow API if you prefer:
 curl -i -X GET http://localhost:3500/v1.0/workflows/dapr/WORKFLOW_ID
 ```
+
+All three modes demonstrate the same durable travel-planning agent that:
+1. Remembers user context persistently (across restarts)
+2. Uses a tool to search for flight options
+3. Reacts to pub/sub triggers (`messagepubsub` / `travel.requests`)
+4. Exposes REST APIs for workflow interaction (service mode)
+5. Stores execution state in Dapr workflow state stores
 
 ### How It Works
 
@@ -179,7 +201,7 @@ The key components of this implementation are:
 
 3. **Tool Integration**: A flight search tool is defined using the `@tool` decorator, which automatically handles input validation and type conversion.
 
-4. **Service Exposure**: The agent exposes REST endpoints to start and manage workflows.
+4. **Trigger Exposure**: Depending on the entry point, the agent listens to pub/sub (`03_durable_agent_subscribe.py`), exposes REST endpoints (`03_durable_agent_serve.py`), or runs a single workflow directly (`03_durable_agent_run.py`).
 
 ### 4. Simple Workflow
 
@@ -188,7 +210,7 @@ Run the workflow example to see how to create a multi-step LLM process.
 ```bash
 source .venv/bin/activate
 
-dapr run --app-id dapr-agent-wf --resources-path $(../resolve_env_templates.py ./components) -- python 04_chain_tasks.py
+dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python 04_chain_tasks.py
 ```
 
 This example demonstrates how to create a workflow with multiple tasks.
@@ -215,17 +237,11 @@ pip install -e ".[vectorstore]"
 uv add sentence-transformers chromadb 'posthog<6.0.0'
 ```
 
-**Or install with extras:**
-From the root directory,
-```bash
-uv pip install -e ".[vectorstore]"
-```
-
 Run the vector store agent example to see how to create an agent that can search and store documents:
 ```bash
 source .venv/bin/activate
 
-dapr run --app-id vectorstore --resources-path $(../resolve_env_templates.py ./components) -- python 05_agent_with_vectorstore.py
+python 05_agent_with_vectorstore.py
 ```
 
 This example demonstrates how to create an agent with vector store capabilities, including logging, structured Document usage, and a tool to add a machine learning basics document.
@@ -238,7 +254,6 @@ This example demonstrates how to create an agent with vector store capabilities,
 - **@tool decorator**: A way to create tools that agents can use
 - **DurableAgent**: An agent that follows the Reasoning + Action pattern and achieves durability through Dapr Workflows
 - **VectorStore**: Persistent storage for document embeddings that enables semantic search capabilities
-- **WorkflowApp**: A Dapr-powered way to create stateful, multi-step processes
 
 ## Dapr Integration
 
