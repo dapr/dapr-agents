@@ -141,66 +141,7 @@ This quickstart uses these Dapr components (in `components/` directory):
 
 ## Agent Configuration with Config Classes
 
-Each agent in this quickstart uses the modern **Agent Configuration Classes** pattern. Here's how Frodo is configured:
-
-```python
-from dapr_agents.agents.durable import DurableAgent
-from dapr_agents.agents.configs import (
-    AgentMemoryConfig,
-    AgentPubSubConfig,
-    AgentRegistryConfig,
-    AgentStateConfig,
-)
-from dapr_agents.agents.prompting import AgentProfileConfig
-
-# 1. Profile - Agent identity and behavior
-frodo_profile = AgentProfileConfig(
-    name="Frodo Baggins",
-    role="Hobbit & Ring-bearer",
-    goal="Carry the One Ring to Mount Doom...",
-    instructions=[...],
-    style_guidelines=[...],
-)
-
-# 2. Pub/Sub - Event-driven messaging
-frodo_pubsub = AgentPubSubConfig(
-    pubsub_name="messagepubsub",
-    agent_topic="fellowship.frodo.requests",  # Direct messages
-    broadcast_topic="fellowship.broadcast",    # Team-wide
-)
-
-# 3. State - Workflow state persistence
-frodo_state = AgentStateConfig(
-    store=StateStoreService(
-        store_name="workflowstatestore",
-        key_prefix="frodo:"
-    )
-)
-
-# 4. Registry - Multi-agent coordination (SHARED)
-registry = AgentRegistryConfig(
-    store=StateStoreService(store_name="agentregistrystore"),
-    team_name="fellowship",  # All agents share this team
-)
-
-# 5. Memory - Conversation history
-frodo_memory = AgentMemoryConfig(
-    store=ConversationDaprStateMemory(
-        store_name="memorystore",
-        session_id="frodo-session",
-    )
-)
-
-# Assemble the agent
-frodo = DurableAgent(
-    profile=frodo_profile,
-    pubsub=frodo_pubsub,
-    state=frodo_state,
-    registry=registry,  # Shared registry enables coordination
-    memory=frodo_memory,
-    llm=llm,
-)
-```
+Each agent in this quickstart uses the latest **Agent Configuration Classes** updates.
 
 ### Key Benefits of Configuration Classes
 

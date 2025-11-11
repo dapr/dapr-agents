@@ -32,11 +32,11 @@ except ImportError:
 
 class AgentRunWrapper:
     """
-    Wrapper for Agent.run() method to create root AGENT spans for top-level execution.
+    Wrapper for `Agent.run()` to create the top-level AGENT span for standalone runs.
 
-    This wrapper instruments the primary Agent.run() method, creating the
-    root AGENT span that captures the complete agent execution lifecycle
-    including metadata extraction, input processing, and comprehensive tracing.
+    This only targets the in-process `Agent` (non-durable) implementation. Durable
+    agents execute inside Dapr Workflows and are therefore covered by the workflow
+    wrappers in this package.
 
     Key features:
     - Extracts comprehensive agent metadata (name, role, goal, tools, max_iterations)
@@ -113,9 +113,8 @@ class AgentRunWrapper:
         """
         Build comprehensive span attributes for agent execution tracing.
 
-        Extracts detailed agent metadata and processes input data to create
-        comprehensive OpenTelemetry span attributes that provide full visibility
-        into agent capabilities, configuration, and execution context.
+        Extracts agent metadata (profile role/goal, execution settings, tools, etc.)
+        and processes user input so spans render meaningful details in Phoenix.
 
         Args:
             instance (Agent): Agent instance with metadata attributes (role, goal, tools, etc.)
@@ -131,14 +130,28 @@ class AgentRunWrapper:
             INPUT_MIME_TYPE: "application/json",
             OUTPUT_MIME_TYPE: "application/json",
             "agent.name": agent_name,
-            "agent.role": getattr(instance, "role", None),
-            "agent.goal": getattr(instance, "goal", None),
-            "agent.tools": [tool.name for tool in getattr(instance, "tools", [])],
-            "agent.tools.count": len(getattr(instance, "tools", [])),
-            "agent.execution.max_iterations": getattr(
-                instance, "execution.max_iterations", None
-            ),
         }
+
+        profile = getattr(instance, "profile", None)
+        role = getattr(profile, "role", getattr(instance, "role", None))
+        goal = getattr(profile, "goal", getattr(instance, "goal", None))
+        execution = getattr(instance, "execution", None)
+
+        if role is not None:
+            attributes["agent.role"] = role
+        if goal is not None:
+            attributes["agent.goal"] = goal
+
+        tools = [
+            getattr(tool, "name", getattr(tool, "__name__", str(tool)))
+            for tool in getattr(instance, "tools", [])
+        ]
+        attributes["agent.tools"] = tools
+        attributes["agent.tools.count"] = len(tools)
+
+        max_iterations = getattr(execution, "max_iterations", None)
+        if max_iterations is not None:
+            attributes["agent.execution.max_iterations"] = max_iterations
 
         # Extract actual input value - the user's query/request
         if input_data:
@@ -304,11 +317,10 @@ class AgentRunWrapper:
 
 class ProcessIterationsWrapper:
     """
-    Wrapper for Agent.conversation() method to create CHAIN spans for processing logic.
+    Wrapper for `Agent._conversation_loop()` to create CHAIN spans per reasoning turn.
 
-    This wrapper instruments the Agent.conversation() method, creating
-    CHAIN spans that capture the iterative processing and workflow execution
-    within an agent's reasoning cycle.
+    The standalone agent now performs its entire loop inside `_conversation_loop`;
+    this wrapper surfaces each iteration so Phoenix shows the step-by-step progress.
 
     Key features:
     - Captures iterative processing flow and reasoning steps
@@ -332,16 +344,12 @@ class ProcessIterationsWrapper:
 
     def __call__(self, wrapped: Any, instance: Any, args: Any, kwargs: Any) -> Any:
         """
-        Wrap Agent.conversation() method with CHAIN span tracing.
-
-        Creates CHAIN spans that capture the iterative processing logic
-        and reasoning flow within agent execution, providing visibility
-        into the step-by-step processing workflow.
+        Wrap `_conversation_loop()` with CHAIN span tracing.
 
         Args:
-            wrapped (callable): Original Agent.conversation method to be instrumented
+            wrapped (callable): `_conversation_loop`
             instance (Agent): Agent instance containing metadata and configuration
-            args (tuple): Positional arguments passed to conversation method
+            args (tuple): Positional arguments passed to the method
             kwargs (dict): Keyword arguments passed to the original method
 
         Returns:
@@ -356,7 +364,7 @@ class ProcessIterationsWrapper:
 
         # Extract agent information for span naming
         agent_name = getattr(instance, "name", instance.__class__.__name__)
-        span_name = f"{agent_name}.conversation"
+        span_name = f"{agent_name}._conversation_loop"
 
         # Build span attributes
         attributes = {
@@ -391,10 +399,10 @@ class ProcessIterationsWrapper:
         iterative agent processing workflows.
 
         Args:
-            wrapped (callable): Original async conversation method to execute
+            wrapped (callable): `_conversation_loop`
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
-            span_name (str): Name for the created span (e.g., "MyAgent.conversation")
+            span_name (str): Name for the created span (e.g., "MyAgent._conversation_loop")
             attributes (dict): Span attributes including agent name and processing context
 
         Returns:
@@ -433,10 +441,10 @@ class ProcessIterationsWrapper:
         iterative agent processing workflows.
 
         Args:
-            wrapped (callable): Original sync conversation method to execute
+            wrapped (callable): `_conversation_loop`
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
-            span_name (str): Name for the created span (e.g., "MyAgent.conversation")
+            span_name (str): Name for the created span (e.g., "MyAgent._conversation_loop")
             attributes (dict): Span attributes including agent name and processing context
 
         Returns:

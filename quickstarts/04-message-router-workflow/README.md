@@ -137,40 +137,7 @@ spec:
 
 ### app.py
 
-The application entry point registers the workflow and sets up the pub/sub subscription:
-
-```python
-async def main() -> None:
-    runtime = wf.WorkflowRuntime()
-    
-    # Register the workflow (which is also the message handler)
-    runtime.register_workflow(blog_workflow)
-    runtime.register_activity(create_outline)
-    runtime.register_activity(write_post)
-
-    runtime.start()
-
-    try:
-        with DaprClient() as client:
-            # Register the pub/sub subscription
-            # register_message_routes discovers the @message_router decorator
-            # and automatically sets up subscription + validation
-            closers = register_message_routes(
-                targets=[blog_workflow],  # Pass the workflow itself
-                dapr_client=client,
-            )
-
-            try:
-                await _wait_for_shutdown()
-            finally:
-                for close in closers:
-                    try:
-                        close()
-                    except Exception:
-                        logger.exception("Error while closing subscription")
-    finally:
-        runtime.shutdown()
-```
+The application entry point registers the workflow and sets up the pub/sub subscription.
 
 **Key Points:**
 - `runtime.register_workflow(blog_workflow)` - Register the workflow with the runtime

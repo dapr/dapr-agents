@@ -136,6 +136,7 @@ dapr run \
   --app-port 8001 \
   --resources-path $temp_resources_folder \
   -- python app.py
+  
 rm -rf $temp_resources_folder
 ```
 

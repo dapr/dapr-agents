@@ -1,6 +1,6 @@
 # Durable Agent Tool Call with Dapr Agents
 
-This quickstart demonstrates how to create a **Durable Agent** with custom tools using Dapr Agents. You'll learn how to build a weather assistant that can fetch information and perform actions using defined tools through LLM-powered function calls, with stateful and durable execution.
+This quickstart builds on the standalone version and shows how to run the same weather assistant as a **DurableAgent**. The agent logic stays the same, but execution happens inside Dapr Workflows—so runs are fault-tolerant, replayable, and can be triggered via pub/sub or HTTP.
 
 ## Prerequisites
 
@@ -41,10 +41,10 @@ OPENAI_API_KEY=your_api_key_here
 export $(grep -v '^#' ../../.env | xargs)
 
 # Create a temporary resources folder with resolved environment variables
-temp_resources_folder=$(../resolve_env_templates.py $temp_resources_folder)
+temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent.py
+dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_dapr.py
 
 # Clean up when done
 rm -rf $temp_resources_folder
@@ -122,10 +122,11 @@ First, deploy Phoenix Arize server using Docker Compose with PostgreSQL backend 
 
 #### Deploy Phoenix with PostgreSQL
 
-1. Use the provided [docker-compose.yml](./docker-compose.yml) file to set up a Phoenix server locally with PostgreSQL backend.
-2. Start the Phoenix server:
+1. Use the provided [docker-compose.yml](./docker-compose.yml) file to set up Phoenix locally (PostgreSQL 18 + Phoenix).
+2. Start the Phoenix server (this also provisions the required Postgres volume):
 
 ```bash
+docker compose down -v   # optional: clean up old PG volumes
 docker compose up --build
 ```
 
