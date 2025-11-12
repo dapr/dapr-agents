@@ -526,13 +526,13 @@ def wait_for_port(host: str, port: int, timeout: int = 30) -> bool:
 class MCPServerContext:
     """
     Context manager for starting and stopping an MCP server in tests.
-    
+
     Usage:
         with MCPServerContext(quickstart_dir, server_type="sse", port=8000, env={}) as server:
             # Run your test here
             result = run_quickstart_script(...)
     """
-    
+
     def __init__(
         self,
         quickstart_dir: Path,
@@ -543,7 +543,7 @@ class MCPServerContext:
     ):
         """
         Initialize MCP server context.
-        
+
         Args:
             quickstart_dir: Directory containing the server.py file
             server_type: Type of server ("sse" or "streamable-http")
@@ -558,14 +558,16 @@ class MCPServerContext:
         self.timeout = timeout
         self.server_process = None
         self.logger = logging.getLogger(__name__)
-    
+
     def __enter__(self):
         """Start the MCP server and wait for it to be ready."""
         # Setup venv for the quickstart
         project_root = self.quickstart_dir.parent.parent
         venv_python = setup_quickstart_venv(self.quickstart_dir, project_root)
-        python_cmd = str(venv_python) if venv_python and venv_python.exists() else "python"
-        
+        python_cmd = (
+            str(venv_python) if venv_python and venv_python.exists() else "python"
+        )
+
         # Start MCP server in background
         server_script = self.quickstart_dir / "server.py"
         server_cmd = [
@@ -576,13 +578,13 @@ class MCPServerContext:
             "--port",
             str(self.port),
         ]
-        
+
         self.logger.info(f"Starting MCP server: {' '.join(server_cmd)}")
         full_env = os.environ.copy()
         full_env.update(self.env)
-        
+
         # Create process in a new process group so we can kill all children
-        if os.name == 'posix':
+        if os.name == "posix":
             self.server_process = subprocess.Popen(
                 server_cmd,
                 cwd=self.quickstart_dir,
@@ -602,29 +604,29 @@ class MCPServerContext:
                 text=True,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
-        
+
         # Wait for MCP server to be ready
         self.logger.info(f"Waiting for MCP server to start on port {self.port}...")
         if not _wait_for_port("localhost", self.port, timeout=self.timeout):
             self._terminate_server()
             raise RuntimeError(f"MCP server failed to start on port {self.port}")
-        
+
         self.logger.info("MCP server is ready")
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Terminate the MCP server."""
         self._terminate_server()
         return False  # Don't suppress exceptions
-    
+
     def _terminate_server(self):
         """Terminate the MCP server process."""
         if self.server_process is None:
             return
-        
+
         self.logger.info("Terminating MCP server...")
         try:
-            if os.name == 'posix':
+            if os.name == "posix":
                 try:
                     pgid = os.getpgid(self.server_process.pid)
                     os.killpg(pgid, signal.SIGTERM)
@@ -634,9 +636,11 @@ class MCPServerContext:
                 self.server_process.terminate()
             self.server_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            self.logger.warning("MCP server didn't terminate gracefully, sending SIGKILL...")
+            self.logger.warning(
+                "MCP server didn't terminate gracefully, sending SIGKILL..."
+            )
             try:
-                if os.name == 'posix':
+                if os.name == "posix":
                     try:
                         pgid = os.getpgid(self.server_process.pid)
                         os.killpg(pgid, signal.SIGKILL)
@@ -670,11 +674,11 @@ def _run_multi_app_with_completion_detection(
 ) -> subprocess.CompletedProcess:
     """
     Run a multi-app command, detect workflow completion, and gracefully shut down.
-    
+
     This is needed because `dapr run -f` runs continuously and `runner.serve()` is
     a long-running service. We monitor for completion and then send SIGTERM
     to gracefully shut down the orchestrator.
-    
+
     Args:
         cmd: Command to run
         cwd: Working directory
@@ -696,15 +700,17 @@ def _run_multi_app_with_completion_detection(
                 elif "llm" in yaml_name:
                     orchestrator_workflow_name = "llm_orchestrator_workflow"
                 break
-    
+
     logger.info(f"Running multi-app command with completion detection: {' '.join(cmd)}")
     if orchestrator_workflow_name:
-        logger.info(f"Looking for orchestrator workflow completion: {orchestrator_workflow_name}")
-    
+        logger.info(
+            f"Looking for orchestrator workflow completion: {orchestrator_workflow_name}"
+        )
+
     # Create process in a new process group so we can kill all children
     # This is important because `dapr run -f` spawns multiple child processes
     # and we need to ensure they all terminate when the test completes
-    if os.name == 'posix':  # Unix-like systems
+    if os.name == "posix":  # Unix-like systems
         process = subprocess.Popen(
             cmd,
             cwd=cwd,
@@ -726,7 +732,7 @@ def _run_multi_app_with_completion_detection(
             bufsize=1,  # Line buffered
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,  # Windows process group
         )
-    
+
     # Collect output while streaming
     stdout_lines = []
     stderr_lines = []
@@ -735,26 +741,31 @@ def _run_multi_app_with_completion_detection(
     completion_time = None
     completed_workflows = set()  # Track unique workflow types
     completion_count = {}  # Track count of each workflow type
-    
+
     # Pattern to match the specific log line format:
     # "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName '<name>'"
     # Also match FAILED status to detect quickstart failures early
     # This is the only format we want to match - it's from the Workflow Actor log
     completion_pattern = re.compile(
         r"workflow completed with status\s+['\"](ORCHESTRATION_STATUS_COMPLETED|ORCHESTRATION_STATUS_FAILED)['\"]\s+workflowName\s+['\"]([^'\"]+)['\"]",
-        re.IGNORECASE
+        re.IGNORECASE,
     )
-    
+
     def _stream_and_detect(pipe, log_func, prefix, lines_list):
         """Stream output from a pipe and detect completion."""
-        nonlocal orchestrator_completion_detected, orchestrator_failed, completion_time, completed_workflows, completion_count
+        nonlocal \
+            orchestrator_completion_detected, \
+            orchestrator_failed, \
+            completion_time, \
+            completed_workflows, \
+            completion_count
         try:
             for line in iter(pipe.readline, ""):
                 if line:
                     stripped = line.rstrip()
                     log_func(f"{prefix}{stripped}")
                     lines_list.append(line)
-                    
+
                     # Check for ORCHESTRATION_STATUS_COMPLETED or FAILED messages
                     # Only match the exact format: "workflow completed with status 'ORCHESTRATION_STATUS_*' workflowName '<name>'"
                     match = completion_pattern.search(line)
@@ -764,10 +775,16 @@ def _run_multi_app_with_completion_detection(
                         if workflow_name:
                             is_failed = "FAILED" in status.upper()
                             completed_workflows.add(workflow_name)
-                            completion_count[workflow_name] = completion_count.get(workflow_name, 0) + 1
+                            completion_count[workflow_name] = (
+                                completion_count.get(workflow_name, 0) + 1
+                            )
                             total_completions = sum(completion_count.values())
                             # Extract a snippet of the matched line for verification
-                            matched_snippet = match.group(0)[:100] if len(match.group(0)) > 100 else match.group(0)
+                            matched_snippet = (
+                                match.group(0)[:100]
+                                if len(match.group(0)) > 100
+                                else match.group(0)
+                            )
                             logger.debug(
                                 f"Matched line snippet: ...{matched_snippet}... "
                                 f"Extracted workflow: {workflow_name}, status: {status}"
@@ -778,9 +795,12 @@ def _run_multi_app_with_completion_detection(
                                 f"(instance {completion_count[workflow_name]} of this type, "
                                 f"{total_completions} total completions)"
                             )
-                            
+
                             # Check if this is the orchestrator's main workflow
-                            if orchestrator_workflow_name and workflow_name == orchestrator_workflow_name:
+                            if (
+                                orchestrator_workflow_name
+                                and workflow_name == orchestrator_workflow_name
+                            ):
                                 if not orchestrator_completion_detected:
                                     orchestrator_completion_detected = True
                                     orchestrator_failed = is_failed
@@ -796,18 +816,24 @@ def _run_multi_app_with_completion_detection(
                                             f"Unique workflow types: {len(completed_workflows)}, "
                                             f"Total completion instances: {total_completions}"
                                         )
-                    
+
                     # Also check for [agent-runner] completion message as a fallback
-                    if not orchestrator_completion_detected and "[agent-runner]" in line and "completed" in line.lower():
+                    if (
+                        not orchestrator_completion_detected
+                        and "[agent-runner]" in line
+                        and "completed" in line.lower()
+                    ):
                         # This is a fallback - if we see agent-runner completion, assume orchestrator is done
-                        if orchestrator_workflow_name is None:  # Only use fallback if we don't know the workflow name
+                        if (
+                            orchestrator_workflow_name is None
+                        ):  # Only use fallback if we don't know the workflow name
                             orchestrator_completion_detected = True
                             completion_time = time.time()
                             logger.info("Detected agent-runner completion (fallback)")
             pipe.close()
         except Exception as e:
             logger.warning(f"Error streaming output: {e}")
-    
+
     # Start threads to stream stdout and stderr
     stdout_thread = threading.Thread(
         target=_stream_and_detect,
@@ -821,10 +847,10 @@ def _run_multi_app_with_completion_detection(
     stderr_thread.daemon = True
     stdout_thread.start()
     stderr_thread.start()
-    
+
     start_time = time.time()
     check_interval = 0.5  # Check every 500ms
-    
+
     # Wait for orchestrator completion or timeout
     while time.time() - start_time < timeout:
         if orchestrator_completion_detected:
@@ -845,28 +871,30 @@ def _run_multi_app_with_completion_detection(
                 )
                 # Send SIGTERM to gracefully shut down the entire process group
                 try:
-                    if os.name == 'posix':
+                    if os.name == "posix":
                         # Kill the entire process group on Unix
                         try:
                             pgid = os.getpgid(process.pid)
                             os.killpg(pgid, signal.SIGTERM)
                         except (ProcessLookupError, OSError) as e:
                             # Process may have already exited
-                            logger.debug(f"Process already exited when sending SIGTERM: {e}")
+                            logger.debug(
+                                f"Process already exited when sending SIGTERM: {e}"
+                            )
                     else:
                         # On Windows, terminate the process (process group handling is different)
                         process.terminate()
                 except Exception as e:
                     logger.warning(f"Error sending SIGTERM: {e}")
                 break
-        
+
         time.sleep(check_interval)
-        
+
         # Check if process already exited
         if process.poll() is not None:
             logger.info("Process exited on its own")
             break
-    
+
     # Wait for process to terminate gracefully
     if process.poll() is None:
         try:
@@ -875,14 +903,16 @@ def _run_multi_app_with_completion_detection(
         except subprocess.TimeoutExpired:
             logger.warning("Process didn't terminate gracefully, sending SIGKILL...")
             try:
-                if os.name == 'posix':
+                if os.name == "posix":
                     # Kill the entire process group on Unix
                     try:
                         pgid = os.getpgid(process.pid)
                         os.killpg(pgid, signal.SIGKILL)
                     except (ProcessLookupError, OSError) as e:
                         # Process may have already exited
-                        logger.debug(f"Process already exited when sending SIGKILL: {e}")
+                        logger.debug(
+                            f"Process already exited when sending SIGKILL: {e}"
+                        )
                 else:
                     # On Windows, kill the process
                     process.kill()
@@ -893,11 +923,11 @@ def _run_multi_app_with_completion_detection(
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 logger.warning("Process still didn't terminate after SIGKILL")
-    
+
     # Wait for threads to finish reading
     stdout_thread.join(timeout=2)
     stderr_thread.join(timeout=2)
-    
+
     # Get any remaining output
     try:
         remaining_stdout, remaining_stderr = process.communicate(timeout=1)
@@ -907,11 +937,11 @@ def _run_multi_app_with_completion_detection(
             stderr_lines.append(remaining_stderr)
     except subprocess.TimeoutExpired:
         pass
-    
+
     stdout = "".join(stdout_lines)
     stderr = "".join(stderr_lines)
     returncode = process.returncode or 0  # If terminated gracefully, return 0
-    
+
     # Validate completion
     total_completions = sum(completion_count.values())
     if orchestrator_workflow_name:
@@ -941,19 +971,17 @@ def _run_multi_app_with_completion_detection(
                     f"Unique workflow types: {len(completed_workflows)} ({completion_summary}), "
                     f"Total completion instances: {total_completions}"
                 )
-    
+
     # If orchestrator failed, raise an error immediately
     if orchestrator_failed:
         raise RuntimeError(
             f"Orchestrator workflow '{orchestrator_workflow_name}' failed. "
             f"Check the logs above for details."
         )
-    
+
     if not orchestrator_completion_detected and time.time() - start_time >= timeout:
-        raise subprocess.TimeoutExpired(
-            cmd, timeout, output=stdout, stderr=stderr
-        )
-    
+        raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
+
     return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
 
 

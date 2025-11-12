@@ -274,7 +274,7 @@ class RandomOrchestrator(OrchestratorBase):
     def _select_random_speaker_activity(self, ctx: wf.WorkflowActivityContext) -> str:
         """
         Pick a random agent from the registry, avoiding the most recent speaker when possible.
-        
+
         TODO: This method selects from all registered agents in the team, including
         orchestrators. In the future, we may want to add health checks or availability
         checks to ensure selected agents are actually running and ready to receive triggers.

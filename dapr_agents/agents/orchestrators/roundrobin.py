@@ -255,7 +255,7 @@ class RoundRobinOrchestrator(OrchestratorBase):
     ) -> str:
         """
         Deterministic round-robin selection based on turn number.
-        
+
         TODO: This method selects from all registered agents in the team, including
         orchestrators. In the future, we may want to add health checks or availability
         checks to ensure selected agents are actually running and ready to receive triggers.

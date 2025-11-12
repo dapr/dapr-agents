@@ -49,7 +49,7 @@ class TestMCPClientStreamableHTTPQuickstart:
                     "wait_seconds": 10,  # Give agent time to connect to MCP server and start
                 },
             )
-            
+
             assert result.returncode == 0, (
                 f"Quickstart failed with return code {result.returncode}.\n"
                 f"STDOUT:\n{result.stdout}\n"
@@ -58,6 +58,6 @@ class TestMCPClientStreamableHTTPQuickstart:
             # expect some output
             assert len(result.stdout) > 0 or len(result.stderr) > 0
             # Verify MCP connection succeeded (should not see "Failed to load MCP tools" error)
-            assert "Failed to load MCP tools via streamable HTTP" not in result.stderr, (
-                "MCP server connection failed. Check that server started correctly."
-            )
+            assert (
+                "Failed to load MCP tools via streamable HTTP" not in result.stderr
+            ), "MCP server connection failed. Check that server started correctly."
