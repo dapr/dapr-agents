@@ -1249,7 +1249,7 @@ def _run_with_pubsub_trigger(
         message_client_app_id = "test-pubsub-client"
         message_client_dapr_port = (
             dapr_http_port + 100
-        )  # Use a different port to avoid conflicts
+        )
 
         # Extract resources path from the original command if it's using dapr run
         resources_path_for_client = cwd / "components"
@@ -1321,7 +1321,6 @@ def _run_with_pubsub_trigger(
         logger.info("Waiting for workflow to process message...")
         time.sleep(10)  # Give the workflow time to process
 
-        # Terminate the subscriber process
         logger.info("Terminating subscriber process...")
         process.terminate()
         try:
@@ -1338,7 +1337,7 @@ def _run_with_pubsub_trigger(
         )
 
     except Exception as e:
-        # Make sure to clean up the process
+        # Clean up the process
         try:
             process.terminate()
             process.wait(timeout=5)
