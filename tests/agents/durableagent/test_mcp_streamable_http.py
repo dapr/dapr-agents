@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import AgentWorkflowEntry, AgentWorkflowState
 from dapr_agents.tool.base import AgentTool
@@ -169,17 +169,20 @@ def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     mock_ctx = Mock()
 
     # Call run_tool activity with new signature (ctx, payload)
-    result = durable_agent_with_mcp_tool.run_tool(
-        mock_ctx,
-        {
-            "instance_id": instance_id,
-            "tool_call": {
-                "id": "call_123",
-                "type": "function",
-                "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
+    with patch.object(durable_agent_with_mcp_tool, "load_state"), patch.object(
+        durable_agent_with_mcp_tool, "save_state"
+    ):
+        result = durable_agent_with_mcp_tool.run_tool(
+            mock_ctx,
+            {
+                "instance_id": instance_id,
+                "tool_call": {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
+                },
             },
-        },
-    )
+        )
 
     # Verify the tool result structure
     assert result["tool_call_id"] == "call_123"
@@ -285,18 +288,19 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
     # so when called from an async test context, we need to run it in a thread
     import asyncio
 
-    result = await asyncio.to_thread(
-        agent.run_tool,
-        mock_ctx,
-        {
-            "instance_id": instance_id,
-            "tool_call": {
-                "id": "call_456",
-                "type": "function",
-                "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
+    with patch.object(agent, "load_state"), patch.object(agent, "save_state"):
+        result = await asyncio.to_thread(
+            agent.run_tool,
+            mock_ctx,
+            {
+                "instance_id": instance_id,
+                "tool_call": {
+                    "id": "call_456",
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": '{"a": 2, "b": 2}'},
+                },
             },
-        },
-    )
+        )
 
     # Verify the tool result structure
     assert result["tool_call_id"] == "call_456"
