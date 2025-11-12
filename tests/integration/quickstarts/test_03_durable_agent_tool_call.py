@@ -10,16 +10,130 @@ class TestDurableAgentToolCallQuickstart:
     @pytest.fixture(autouse=True)
     def setup(self, quickstarts_dir, openai_api_key):
         """Setup test environment."""
+        import os
+
         self.quickstart_dir = quickstarts_dir / "03-durable-agent-tool-call"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
-    def test_durable_weather_agent(self, dapr_runtime):  # noqa: ARG002
-        """Test durable weather agent example (durable_weather_agent.py).
+        # Add optional API keys if they're set for local development
+        if os.getenv("HUGGINGFACE_API_KEY"):
+            self.env["HUGGINGFACE_API_KEY"] = os.getenv("HUGGINGFACE_API_KEY")
+        if os.getenv("NVIDIA_API_KEY"):
+            self.env["NVIDIA_API_KEY"] = os.getenv("NVIDIA_API_KEY")
+
+    def test_durable_weather_agent_dapr(self, dapr_runtime):  # noqa: ARG002
+        """Test durable weather agent Dapr example (durable_weather_agent_dapr.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        script = self.quickstart_dir / "durable_weather_agent.py"
+        script = self.quickstart_dir / "durable_weather_agent_dapr.py"
+        result = run_quickstart_script(
+            script,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,  # Durable agents may take longer
+            use_dapr=True,
+            app_id="durableweatherapp",
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        # expect some output
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_durable_weather_agent_hf(self, dapr_runtime):  # noqa: ARG002
+        """Test durable weather agent HuggingFace example (durable_weather_agent_hf.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        import os
+
+        if not os.getenv("HUGGINGFACE_API_KEY"):
+            pytest.skip("HUGGINGFACE_API_KEY not set")
+
+        script = self.quickstart_dir / "durable_weather_agent_hf.py"
+        result = run_quickstart_script(
+            script,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,  # Durable agents may take longer
+            use_dapr=True,
+            app_id="durableweatherapp",
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        # expect some output
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_durable_weather_agent_nv(self, dapr_runtime):  # noqa: ARG002
+        """Test durable weather agent NVIDIA example (durable_weather_agent_nv.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        import os
+
+        if not os.getenv("NVIDIA_API_KEY"):
+            pytest.skip("NVIDIA_API_KEY not set")
+
+        script = self.quickstart_dir / "durable_weather_agent_nv.py"
+        result = run_quickstart_script(
+            script,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,  # Durable agents may take longer
+            use_dapr=True,
+            app_id="durableweatherapp",
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        # expect some output
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_durable_weather_agent_openai(self, dapr_runtime):  # noqa: ARG002
+        """Test durable weather agent OpenAI example (durable_weather_agent_openai.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        script = self.quickstart_dir / "durable_weather_agent_openai.py"
+        result = run_quickstart_script(
+            script,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,  # Durable agents may take longer
+            use_dapr=True,
+            app_id="durableweatherapp",
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        # expect some output
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_durable_weather_agent_tracing(self, dapr_runtime):  # noqa: ARG002
+        """Test durable weather agent tracing example (durable_weather_agent_tracing.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        script = self.quickstart_dir / "durable_weather_agent_tracing.py"
         result = run_quickstart_script(
             script,
             cwd=self.quickstart_dir,

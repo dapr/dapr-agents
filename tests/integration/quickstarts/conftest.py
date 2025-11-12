@@ -3,8 +3,12 @@ import subprocess
 import logging
 import tempfile
 import shutil
+import time
+import socket
+import threading
+import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 import pytest
 
 logger = logging.getLogger(__name__)
@@ -49,6 +53,12 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
     if not venv_python.exists():
         raise RuntimeError(f"Venv Python not found at {venv_python}")
 
+    venv_pip = venv_path / "bin" / "pip"
+    if not venv_pip.exists():
+        venv_pip = venv_path / "Scripts" / "pip.exe"
+    if not venv_pip.exists():
+        raise RuntimeError(f"Venv pip not found at {venv_pip}")
+
     requirements_file = quickstart_dir / "requirements.txt"
     # Skip installation if already done (for parallel execution)
     installed_marker = venv_path / ".installed"
@@ -56,17 +66,16 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
         logger.info(f"Dependencies already installed for {quickstart_dir}")
     else:
         if requirements_file.exists():
-            # Install dependencies from requirements.txt first
-            logger.info(f"Installing dependencies from {requirements_file} using uv")
+            # Install dependencies from requirements.txt first using venv's pip
+            logger.info(
+                f"Installing dependencies from {requirements_file} using venv pip"
+            )
             result = subprocess.run(
                 [
-                    "uv",
-                    "pip",
+                    str(venv_pip),
                     "install",
                     "-r",
                     str(requirements_file),
-                    "--python",
-                    str(venv_python),
                 ],
                 cwd=quickstart_dir,
                 capture_output=True,
@@ -85,13 +94,10 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
             )
             result = subprocess.run(
                 [
-                    "uv",
-                    "pip",
+                    str(venv_pip),
                     "install",
                     "-e",
                     str(project_root),
-                    "--python",
-                    str(venv_python),
                 ],
                 cwd=quickstart_dir,
                 capture_output=True,
@@ -103,19 +109,16 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
                     f"Failed to install editable dapr-agents: {result.stderr}\n{result.stdout}"
                 )
         else:
-            # No requirements.txt - install editable dapr-agents for testing using uv
+            # No requirements.txt - install editable dapr-agents for testing using venv's pip
             logger.info(
-                "No requirements.txt found, installing editable dapr-agents using uv"
+                "No requirements.txt found, installing editable dapr-agents using venv pip"
             )
             result = subprocess.run(
                 [
-                    "uv",
-                    "pip",
+                    str(venv_pip),
                     "install",
                     "-e",
                     str(project_root),
-                    "--python",
-                    str(venv_python),
                 ],
                 cwd=quickstart_dir,
                 capture_output=True,
@@ -142,7 +145,11 @@ def run_quickstart_script(
     app_id: Optional[str] = None,
     resources_path: Optional[Path] = None,
     dapr_http_port: int = 3500,
+    app_port: Optional[int] = None,
+    trigger_curl: Optional[Dict[str, Any]] = None,
+    trigger_pubsub: Optional[Dict[str, Any]] = None,
     create_venv: bool = True,
+    stream_logs: bool = False,
 ) -> subprocess.CompletedProcess:
     """
     Run a quickstart script and return the result.
@@ -163,8 +170,26 @@ def run_quickstart_script(
         app_id: Dapr app ID (required if use_dapr=True)
         resources_path: Path to Dapr resources/components (defaults to cwd/components)
         dapr_http_port: Dapr HTTP port (defaults to 3500)
+        app_port: App port for the application (e.g., 8001 for serve mode)
+        trigger_curl: Optional dict with curl trigger details. Format:
+            {
+                "url": "http://localhost:8001/run",
+                "method": "POST",
+                "data": {"task": "..."},
+                "headers": {"Content-Type": "application/json"},
+                "wait_seconds": 5  # Time to wait for server to start (default: 5)
+            }
+        trigger_pubsub: Optional dict with pubsub trigger details. Format:
+            {
+                "pubsub_name": "messagepubsub",
+                "topic": "travel.requests",
+                "data": {"task": "..."},
+                "wait_seconds": 5  # Time to wait for subscriber to start (default: 5)
+            }
         create_venv: Whether to create and use an ephemeral test venv (defaults to True).
                   Set to False or USE_EXISTING_VENV=true to use system Python instead.
+        stream_logs: If True, stream stdout/stderr to logger in real-time (defaults to False).
+                  Useful for debugging long-running tests.
     """
     full_env = os.environ.copy()
     if env:
@@ -181,9 +206,8 @@ def run_quickstart_script(
     # Setup venv if requested
     # For local dev, set USE_EXISTING_VENV=true to skip venv creation and use system Python
     # Or pass create_venv=False to use system Python
-    should_create_venv = create_venv and os.getenv(
-        "USE_EXISTING_VENV", ""
-    ).lower() not in ("true", "1")
+    use_existing_venv = os.getenv("USE_EXISTING_VENV", "").lower() in ("true", "1")
+    should_create_venv = create_venv and not use_existing_venv
 
     venv_python = None
     python_cmd = "python"  # Default fallback
@@ -192,10 +216,30 @@ def run_quickstart_script(
         if venv_python.exists():
             python_cmd = str(venv_python)
     else:
-        logger.info(
-            f"Using existing venv/system Python for {quickstart_dir} (create_venv=False or USE_EXISTING_VENV=true)"
-        )
-        python_cmd = "python"
+        if use_existing_venv:
+            logger.info(
+                f"Using existing venv/system Python for {quickstart_dir} (USE_EXISTING_VENV=true)"
+            )
+            # When using existing venv, prefer the active venv's Python if available
+            # This helps avoid uv warnings about venv mismatches when running with `uv run pytest`
+            if "VIRTUAL_ENV" in os.environ:
+                venv_python_path = Path(os.environ["VIRTUAL_ENV"]) / "bin" / "python"
+                if not venv_python_path.exists():
+                    venv_python_path = (
+                        Path(os.environ["VIRTUAL_ENV"]) / "Scripts" / "python.exe"
+                    )
+                if venv_python_path.exists():
+                    python_cmd = str(venv_python_path)
+                    logger.debug(f"Using active venv Python: {python_cmd}")
+                else:
+                    logger.debug(
+                        f"VIRTUAL_ENV set to {os.environ['VIRTUAL_ENV']} but Python not found, using system Python"
+                    )
+        else:
+            logger.info(
+                f"Using existing venv/system Python for {quickstart_dir} (create_venv=False)"
+            )
+        # If python_cmd is still "python", it will use system Python or whatever is in PATH
 
     if use_dapr:
         if not app_id:
@@ -237,26 +281,185 @@ def run_quickstart_script(
             str(dapr_http_port),
             "--resources-path",
             str(resources_path),
-            "--",
-            python_cmd,
-            str(script_path),
         ]
+        if app_port:
+            cmd.extend(["--app-port", str(app_port)])
+        cmd.extend(["--", python_cmd, str(script_path)])
     else:
         # Use venv python if available, otherwise system python
         cmd = [python_cmd, str(script_path)]
 
-    result = subprocess.run(
-        cmd,
-        cwd=cwd_path,
-        env=full_env,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    # If trigger_curl is provided, we need to run the process in the background,
+    # wait for the server to be ready, send the curl request, then terminate
+    if trigger_curl:
+        return _run_with_curl_trigger(
+            cmd, cwd_path, full_env, timeout, trigger_curl, app_port
+        )
+
+    # If trigger_pubsub is provided, we need to run the process in the background,
+    # wait for the subscriber to be ready, publish a message, then terminate
+    if trigger_pubsub:
+        return _run_with_pubsub_trigger(
+            cmd, cwd_path, full_env, timeout, trigger_pubsub, dapr_http_port
+        )
+
+    logger.info(f"running quickstart test cmd {cmd}")
+    if stream_logs:
+        result = _run_with_streaming(cmd, cwd_path, full_env, timeout)
+    else:
+        result = subprocess.run(
+            cmd,
+            cwd=cwd_path,
+            env=full_env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
 
     if result.returncode != 0:
         raise RuntimeError(
             f"Script {script_path} failed with return code {result.returncode}.\n"
+            f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+        )
+
+    return result
+
+
+def run_quickstart_multi_app(
+    dapr_yaml_path: Path,
+    cwd: Optional[Path] = None,
+    env: Optional[dict] = None,
+    timeout: int = 180,
+    trigger_curl: Optional[Dict[str, Any]] = None,
+    trigger_pubsub: Optional[Dict[str, Any]] = None,
+    create_venv: bool = True,
+    stream_logs: bool = False,
+) -> subprocess.CompletedProcess:
+    """
+    Run a quickstart using Dapr multi-app run (`dapr run -f`).
+
+    This function runs multiple apps together using a Dapr multi-app YAML file.
+    It mimics the user's setup process by creating venvs and installing dependencies.
+
+    Args:
+        dapr_yaml_path: Path to the Dapr multi-app YAML file (e.g., dapr-random.yaml)
+        cwd: Working directory (defaults to YAML file's parent directory)
+        env: Environment variables to set
+        timeout: Timeout in seconds
+        trigger_curl: Optional dict with curl trigger details (see run_quickstart_script)
+        trigger_pubsub: Optional dict with pubsub trigger details (see run_quickstart_script)
+        create_venv: Whether to create and use an ephemeral test venv (defaults to True).
+        stream_logs: If True, stream stdout/stderr to logger in real-time (defaults to False).
+                  Useful for debugging long-running tests.
+
+    Returns:
+        subprocess.CompletedProcess with the result
+    """
+    full_env = os.environ.copy()
+    if env:
+        full_env.update(env)
+
+    cwd_path = cwd or dapr_yaml_path.parent
+    quickstart_dir = cwd_path
+    project_root = (
+        quickstart_dir.parent.parent
+        if "quickstarts" in str(quickstart_dir)
+        else quickstart_dir.parent
+    )
+
+    # Setup venv if requested (same logic as run_quickstart_script)
+    use_existing_venv = os.getenv("USE_EXISTING_VENV", "").lower() in ("true", "1")
+    should_create_venv = create_venv and not use_existing_venv
+
+    venv_python = None
+    if should_create_venv:
+        venv_python = setup_quickstart_venv(quickstart_dir, project_root)
+    elif use_existing_venv:
+        logger.info(
+            f"Using existing venv/system Python for {quickstart_dir} (USE_EXISTING_VENV=true)"
+        )
+        if "VIRTUAL_ENV" in os.environ:
+            venv_python_path = Path(os.environ["VIRTUAL_ENV"]) / "bin" / "python"
+            if not venv_python_path.exists():
+                venv_python_path = (
+                    Path(os.environ["VIRTUAL_ENV"]) / "Scripts" / "python.exe"
+                )
+            if venv_python_path.exists():
+                venv_python = venv_python_path
+
+    # Resolve environment variables in components if needed
+    resources_path = quickstart_dir / "components"
+    if resources_path.exists():
+        project_root_path = (
+            quickstart_dir.parent.parent
+            if "quickstarts" in str(quickstart_dir)
+            else quickstart_dir.parent
+        )
+        resolve_script = project_root_path / "quickstarts" / "resolve_env_templates.py"
+        if resolve_script.exists():
+            resolve_python = (
+                str(venv_python) if venv_python and venv_python.exists() else "python"
+            )
+            resolve_result = subprocess.run(
+                [resolve_python, str(resolve_script), str(resources_path)],
+                cwd=cwd_path,
+                env=full_env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if resolve_result.returncode == 0:
+                resolved_path = resolve_result.stdout.strip()
+                if resolved_path and Path(resolved_path).exists():
+                    resources_path = Path(resolved_path)
+
+    # Build dapr run -f command
+    cmd = ["dapr", "run", "-f", str(dapr_yaml_path)]
+
+    # If trigger_curl is provided, we need to run the process in the background,
+    # wait for the server to be ready, send the curl request, then terminate
+    if trigger_curl:
+        # Extract app_port from trigger_curl if available
+        app_port = trigger_curl.get("app_port")
+        if not app_port and trigger_curl.get("url"):
+            try:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(trigger_curl["url"])
+                if parsed.port:
+                    app_port = parsed.port
+            except Exception:
+                pass
+        return _run_with_curl_trigger(
+            cmd, cwd_path, full_env, timeout, trigger_curl, app_port
+        )
+
+    # If trigger_pubsub is provided, we need to run the process in the background,
+    # wait for the subscriber to be ready, publish a message, then terminate
+    if trigger_pubsub:
+        # Extract dapr_http_port from YAML or use default
+        dapr_http_port = 3500  # Default, multi-app run uses default ports
+        return _run_with_pubsub_trigger(
+            cmd, cwd_path, full_env, timeout, trigger_pubsub, dapr_http_port
+        )
+
+    # Run the multi-app command with completion detection
+    # dapr run -f runs continuously, and runner.serve() is a long-running service.
+    # We need to detect workflow completion and then gracefully shut down.
+    if stream_logs:
+        result = _run_multi_app_with_completion_detection(
+            cmd, cwd_path, full_env, timeout
+        )
+    else:
+        # For non-streaming, we still need completion detection
+        # but we'll collect output first, then check for completion
+        result = _run_multi_app_with_completion_detection(
+            cmd, cwd_path, full_env, timeout
+        )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Multi-app run failed with return code {result.returncode}.\n"
             f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
         )
 
@@ -295,3 +498,598 @@ def cleanup_quickstart_venvs(request):
                         shutil.rmtree(venv_path)
                     except OSError as e:
                         logger.warning(f"Failed to remove {venv_path}: {e}")
+
+
+def _wait_for_port(host: str, port: int, timeout: int = 30) -> bool:
+    """Wait for a port to become available."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex((host, port))
+            sock.close()
+            if result == 0:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+def _stream_output(pipe, log_func, prefix=""):
+    """Stream output from a pipe to a logging function."""
+    try:
+        for line in iter(pipe.readline, ""):
+            if line:
+                log_func(f"{prefix}{line.rstrip()}")
+        pipe.close()
+    except Exception as e:
+        logger.warning(f"Error streaming output: {e}")
+
+
+def _run_multi_app_with_completion_detection(
+    cmd: list,
+    cwd: Path,
+    env: dict,
+    timeout: int,
+    orchestrator_workflow_name: Optional[str] = None,
+    grace_period: int = 3,
+) -> subprocess.CompletedProcess:
+    """
+    Run a multi-app command, detect workflow completion, and gracefully shut down.
+    
+    This is needed because `dapr run -f` runs continuously and `runner.serve()` is
+    a long-running service. We monitor for completion and then send SIGTERM
+    to gracefully shut down the orchestrator.
+    
+    Args:
+        cmd: Command to run
+        cwd: Working directory
+        env: Environment variables
+        timeout: Maximum time to wait
+        orchestrator_workflow_name: Expected orchestrator workflow name (e.g., 'random_workflow', 'round_robin_workflow', 'llm_orchestrator_workflow')
+        grace_period: Seconds to wait after completion before terminating
+    """
+    # Infer orchestrator workflow name from dapr YAML filename if not provided
+    if orchestrator_workflow_name is None:
+        # Try to infer from command (look for dapr-*.yaml)
+        for arg in cmd:
+            if "dapr-" in arg and arg.endswith(".yaml"):
+                yaml_name = Path(arg).stem
+                if "random" in yaml_name:
+                    orchestrator_workflow_name = "random_workflow"
+                elif "roundrobin" in yaml_name or "round-robin" in yaml_name:
+                    orchestrator_workflow_name = "round_robin_workflow"
+                elif "llm" in yaml_name:
+                    orchestrator_workflow_name = "llm_orchestrator_workflow"
+                break
+    
+    logger.info(f"Running multi-app command with completion detection: {' '.join(cmd)}")
+    if orchestrator_workflow_name:
+        logger.info(f"Looking for orchestrator workflow completion: {orchestrator_workflow_name}")
+    
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,  # Line buffered
+    )
+    
+    # Collect output while streaming
+    stdout_lines = []
+    stderr_lines = []
+    orchestrator_completion_detected = False
+    completion_time = None
+    completed_workflows = set()  # Track all completed workflows
+    
+    # Pattern to match ORCHESTRATION_STATUS_COMPLETED with workflow name
+    # Matches: ... ORCHESTRATION_STATUS_COMPLETED ... workflowName 'random_workflow'
+    # Example: workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'random_workflow'
+    completion_pattern = re.compile(
+        r"ORCHESTRATION_STATUS_COMPLETED.*?workflowName\s+['\"]([^'\"]+)['\"]",
+        re.IGNORECASE
+    )
+    
+    def _stream_and_detect(pipe, log_func, prefix, lines_list):
+        """Stream output from a pipe and detect completion."""
+        nonlocal orchestrator_completion_detected, completion_time, completed_workflows
+        try:
+            for line in iter(pipe.readline, ""):
+                if line:
+                    stripped = line.rstrip()
+                    log_func(f"{prefix}{stripped}")
+                    lines_list.append(line)
+                    
+                    # Check for ORCHESTRATION_STATUS_COMPLETED messages
+                    match = completion_pattern.search(line)
+                    if match:
+                        workflow_name = match.group(1)
+                        if workflow_name:
+                            completed_workflows.add(workflow_name)
+                            logger.info(f"Detected workflow completion: {workflow_name}")
+                            
+                            # Check if this is the orchestrator's main workflow
+                            if orchestrator_workflow_name and workflow_name == orchestrator_workflow_name:
+                                if not orchestrator_completion_detected:
+                                    orchestrator_completion_detected = True
+                                    completion_time = time.time()
+                                    logger.info(
+                                        f"Orchestrator workflow '{orchestrator_workflow_name}' completed! "
+                                        f"Total completed workflows: {len(completed_workflows)}"
+                                    )
+                    
+                    # Also check for [agent-runner] completion message as a fallback
+                    if not orchestrator_completion_detected and "[agent-runner]" in line and "completed" in line.lower():
+                        # This is a fallback - if we see agent-runner completion, assume orchestrator is done
+                        if orchestrator_workflow_name is None:  # Only use fallback if we don't know the workflow name
+                            orchestrator_completion_detected = True
+                            completion_time = time.time()
+                            logger.info("Detected agent-runner completion (fallback)")
+            pipe.close()
+        except Exception as e:
+            logger.warning(f"Error streaming output: {e}")
+    
+    # Start threads to stream stdout and stderr
+    stdout_thread = threading.Thread(
+        target=_stream_and_detect,
+        args=(process.stdout, logger.info, "[STDOUT] ", stdout_lines),
+    )
+    stderr_thread = threading.Thread(
+        target=_stream_and_detect,
+        args=(process.stderr, logger.warning, "[STDERR] ", stderr_lines),
+    )
+    stdout_thread.daemon = True
+    stderr_thread.daemon = True
+    stdout_thread.start()
+    stderr_thread.start()
+    
+    start_time = time.time()
+    check_interval = 0.5  # Check every 500ms
+    
+    # Wait for orchestrator completion or timeout
+    while time.time() - start_time < timeout:
+        if orchestrator_completion_detected:
+            # Wait for grace period after completion
+            elapsed = time.time() - completion_time
+            if elapsed >= grace_period:
+                logger.info(
+                    f"Grace period ({grace_period}s) elapsed after orchestrator completion. "
+                    f"Completed workflows: {sorted(completed_workflows)}. "
+                    f"Sending SIGTERM to shut down gracefully..."
+                )
+                # Send SIGTERM to gracefully shut down
+                try:
+                    process.terminate()
+                except Exception as e:
+                    logger.warning(f"Error sending SIGTERM: {e}")
+                break
+        
+        time.sleep(check_interval)
+        
+        # Check if process already exited
+        if process.poll() is not None:
+            logger.info("Process exited on its own")
+            break
+    
+    # Wait for process to terminate gracefully
+    if process.poll() is None:
+        try:
+            process.wait(timeout=10)
+            logger.info("Process terminated gracefully")
+        except subprocess.TimeoutExpired:
+            logger.warning("Process didn't terminate gracefully, sending SIGKILL...")
+            process.kill()
+            process.wait()
+    
+    # Wait for threads to finish reading
+    stdout_thread.join(timeout=2)
+    stderr_thread.join(timeout=2)
+    
+    # Get any remaining output
+    try:
+        remaining_stdout, remaining_stderr = process.communicate(timeout=1)
+        if remaining_stdout:
+            stdout_lines.append(remaining_stdout)
+        if remaining_stderr:
+            stderr_lines.append(remaining_stderr)
+    except subprocess.TimeoutExpired:
+        pass
+    
+    stdout = "".join(stdout_lines)
+    stderr = "".join(stderr_lines)
+    returncode = process.returncode or 0  # If terminated gracefully, return 0
+    
+    # Validate completion
+    if orchestrator_workflow_name:
+        if orchestrator_workflow_name not in completed_workflows:
+            logger.warning(
+                f"Orchestrator workflow '{orchestrator_workflow_name}' not found in completed workflows. "
+                f"Completed workflows: {sorted(completed_workflows)}"
+            )
+        else:
+            logger.info(
+                f"Successfully detected orchestrator workflow '{orchestrator_workflow_name}' completion. "
+                f"Total completed workflows: {len(completed_workflows)}"
+            )
+    
+    if not orchestrator_completion_detected and time.time() - start_time >= timeout:
+        raise subprocess.TimeoutExpired(
+            cmd, timeout, output=stdout, stderr=stderr
+        )
+    
+    return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
+
+
+def _run_with_streaming(
+    cmd: list,
+    cwd: Path,
+    env: dict,
+    timeout: int,
+) -> subprocess.CompletedProcess:
+    """Run a command with streaming output to logs."""
+    logger.info(f"Running command with streaming logs: {' '.join(cmd)}")
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,  # Line buffered
+    )
+
+    # Collect output while streaming
+    stdout_lines = []
+    stderr_lines = []
+
+    def _stream_and_collect(pipe, log_func, prefix, lines_list):
+        """Stream output from a pipe to a logging function and collect it."""
+        try:
+            for line in iter(pipe.readline, ""):
+                if line:
+                    stripped = line.rstrip()
+                    log_func(f"{prefix}{stripped}")
+                    lines_list.append(line)
+            pipe.close()
+        except Exception as e:
+            logger.warning(f"Error streaming output: {e}")
+
+    # Start threads to stream stdout and stderr
+    stdout_thread = threading.Thread(
+        target=_stream_and_collect,
+        args=(process.stdout, logger.info, "[STDOUT] ", stdout_lines),
+    )
+    stderr_thread = threading.Thread(
+        target=_stream_and_collect,
+        args=(process.stderr, logger.warning, "[STDERR] ", stderr_lines),
+    )
+    stdout_thread.daemon = True
+    stderr_thread.daemon = True
+    stdout_thread.start()
+    stderr_thread.start()
+
+    # Wait for process to complete
+    try:
+        returncode = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Process timed out after {timeout}s, killing...")
+        process.kill()
+        returncode = process.wait()
+        # Wait for threads to finish reading
+        stdout_thread.join(timeout=2)
+        stderr_thread.join(timeout=2)
+        # Get any remaining output
+        try:
+            remaining_stdout, remaining_stderr = process.communicate(timeout=1)
+            if remaining_stdout:
+                stdout_lines.append(remaining_stdout)
+            if remaining_stderr:
+                stderr_lines.append(remaining_stderr)
+        except subprocess.TimeoutExpired:
+            pass
+        stdout = "".join(stdout_lines)
+        stderr = "".join(stderr_lines)
+        raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
+
+    # Wait for threads to finish reading
+    stdout_thread.join(timeout=2)
+    stderr_thread.join(timeout=2)
+
+    # Get any remaining output
+    try:
+        remaining_stdout, remaining_stderr = process.communicate(timeout=1)
+        if remaining_stdout:
+            stdout_lines.append(remaining_stdout)
+        if remaining_stderr:
+            stderr_lines.append(remaining_stderr)
+    except subprocess.TimeoutExpired:
+        pass
+
+    stdout = "".join(stdout_lines)
+    stderr = "".join(stderr_lines)
+
+    return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
+
+
+def _run_with_curl_trigger(
+    cmd: list,
+    cwd: Path,
+    env: dict,
+    timeout: int,
+    trigger_curl: Dict[str, Any],
+    app_port: Optional[int],
+) -> subprocess.CompletedProcess:
+    """Run a command with a curl trigger for workflows that need to be triggered via curl."""
+    import requests
+
+    # Start the process in the background
+    logger.info(f"Starting process in background: {' '.join(cmd)}")
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    try:
+        # Wait for the server to be ready
+        wait_seconds = trigger_curl.get("wait_seconds", 5)
+        url = trigger_curl.get("url", "")
+
+        # Extract port from URL if app_port not provided
+        if app_port is None and url:
+            try:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(url)
+                if parsed.port:
+                    app_port = parsed.port
+            except Exception:
+                pass
+
+        if app_port:
+            logger.info(f"Waiting for server to start on port {app_port}...")
+            if not _wait_for_port("localhost", app_port, timeout=wait_seconds + 10):
+                logger.warning(
+                    f"Port {app_port} not ready after {wait_seconds + 10}s, proceeding anyway"
+                )
+        else:
+            logger.info(f"Waiting {wait_seconds}s for server to start...")
+            time.sleep(wait_seconds)
+
+        # Send the curl request
+        method = trigger_curl.get("method", "POST")
+        data = trigger_curl.get("data", {})
+        headers = trigger_curl.get("headers", {"Content-Type": "application/json"})
+
+        logger.info(f"Sending {method} request to {url}")
+        try:
+            if method.upper() == "POST":
+                response = requests.post(url, json=data, headers=headers, timeout=30)
+            elif method.upper() == "GET":
+                response = requests.get(url, headers=headers, timeout=30)
+            else:
+                response = requests.request(
+                    method, url, json=data, headers=headers, timeout=30
+                )
+
+            logger.info(f"Received response: {response.status_code}")
+            curl_output = f"HTTP {response.status_code}\n{response.text}"
+        except Exception as e:
+            logger.warning(f"Curl request failed: {e}")
+            curl_output = f"Curl request failed: {e}"
+
+        # Wait a bit for the process to handle the request
+        time.sleep(2)
+
+        # Terminate the process
+        logger.info("Terminating process...")
+        process.terminate()
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+
+        # Combine outputs
+        combined_stdout = f"{stdout}\n\n--- Curl Response ---\n{curl_output}"
+
+        return subprocess.CompletedProcess(
+            cmd, process.returncode, combined_stdout, stderr
+        )
+
+    except Exception as e:
+        # Make sure to clean up the process
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+        except Exception:
+            process.kill()
+        raise RuntimeError(f"Error running with curl trigger: {e}")
+
+
+def _run_with_pubsub_trigger(
+    cmd: list,
+    cwd: Path,
+    env: dict,
+    timeout: int,
+    trigger_pubsub: Dict[str, Any],
+    dapr_http_port: int,
+) -> subprocess.CompletedProcess:
+    """Run a command with a pubsub trigger for subscriber-based scripts.
+
+    Uses the actual message_client.py script from the quickstart directory
+    to publish messages, matching the user's workflow.
+    """
+    # Start the subscriber process in the background
+    logger.info(f"Starting subscriber process in background: {' '.join(cmd)}")
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    try:
+        # Wait for the subscriber to be ready
+        wait_seconds = trigger_pubsub.get("wait_seconds", 5)
+        logger.info(f"Waiting {wait_seconds}s for subscriber to start...")
+        time.sleep(wait_seconds)
+
+        # Find message_client.py in the quickstart directory
+        message_client_path = cwd / "message_client.py"
+        if not message_client_path.exists():
+            # Try parent directory if not found
+            message_client_path = cwd.parent / "message_client.py"
+
+        if not message_client_path.exists():
+            raise FileNotFoundError(
+                f"message_client.py not found in {cwd} or {cwd.parent}. "
+                "Cannot trigger pubsub without the message client script."
+            )
+
+        # Prepare the message client arguments
+        pubsub_name = trigger_pubsub.get("pubsub_name", "messagepubsub")
+        topic = trigger_pubsub.get("topic", "travel.requests")
+        data = trigger_pubsub.get("data", {})
+
+        # Build the task string - message_client.py accepts either a task string or --payload
+        if isinstance(data, str):
+            task = data
+        elif isinstance(data, dict):
+            if "task" in data:
+                task = data["task"]
+            else:
+                # If it's a dict without "task", convert to JSON payload
+                import json
+
+                task = None
+                payload_json = json.dumps(data)
+        else:
+            task = str(data)
+
+        # Determine which Python to use (same as the subscriber)
+        python_cmd = "python"
+        # Extract python command from the original cmd
+        # If using dapr run, python is after the "--" separator
+        if "--" in cmd:
+            dash_idx = cmd.index("--")
+            if dash_idx + 1 < len(cmd):
+                python_cmd = cmd[dash_idx + 1]
+        else:
+            # Not using dapr run, find python in the command
+            python_idx = next((i for i, arg in enumerate(cmd) if "python" in arg), None)
+            if python_idx is not None:
+                python_cmd = cmd[python_idx]
+
+        # Build the message client command
+        # Run message_client.py with dapr run so it has its own sidecar
+        # Both sidecars will use the same resources path, so they share the same pub/sub component
+        # Use a different app-id and port to avoid conflicts
+        message_client_app_id = "test-pubsub-client"
+        message_client_dapr_port = (
+            dapr_http_port + 100
+        )  # Use a different port to avoid conflicts
+
+        # Extract resources path from the original command if it's using dapr run
+        resources_path_for_client = cwd / "components"
+        if "dapr" in cmd and "run" in cmd:
+            try:
+                resources_idx = cmd.index("--resources-path")
+                if resources_idx + 1 < len(cmd):
+                    resources_path_for_client = Path(cmd[resources_idx + 1])
+            except ValueError:
+                pass  # --resources-path not found, use default
+
+        message_client_env = env.copy()
+
+        message_client_cmd = [
+            "dapr",
+            "run",
+            "--app-id",
+            message_client_app_id,
+            "--dapr-http-port",
+            str(message_client_dapr_port),
+            "--resources-path",
+            str(resources_path_for_client),
+            "--",
+            python_cmd,
+            str(message_client_path),
+            "--pubsub",
+            pubsub_name,
+            "--topic",
+            topic,
+        ]
+
+        if task:
+            message_client_cmd.append(task)
+        elif "payload_json" in locals():
+            message_client_cmd.extend(["--payload", payload_json])
+
+        # Add optional parameters
+        if "source" in trigger_pubsub:
+            message_client_cmd.extend(["--source", trigger_pubsub["source"]])
+        if "cloudevent_type" in trigger_pubsub:
+            message_client_cmd.extend(
+                ["--cloudevent-type", trigger_pubsub["cloudevent_type"]]
+            )
+
+        # Run the message client to publish the message
+        logger.info(f"Publishing message using: {' '.join(message_client_cmd)}")
+        try:
+            client_result = subprocess.run(
+                message_client_cmd,
+                cwd=cwd,
+                env=message_client_env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if client_result.returncode == 0:
+                logger.info("Published message successfully via message_client.py")
+                pubsub_output = f"Published via message_client.py\nSTDOUT: {client_result.stdout}\nSTDERR: {client_result.stderr}"
+            else:
+                logger.warning(
+                    f"Message client returned non-zero: {client_result.returncode}"
+                )
+                pubsub_output = f"Message client failed (code {client_result.returncode})\nSTDOUT: {client_result.stdout}\nSTDERR: {client_result.stderr}"
+        except Exception as e:
+            logger.warning(f"Pubsub publish failed: {e}")
+            pubsub_output = f"Pubsub publish failed: {e}"
+
+        # Wait for the workflow to complete (give it time to process)
+        logger.info("Waiting for workflow to process message...")
+        time.sleep(10)  # Give the workflow time to process
+
+        # Terminate the subscriber process
+        logger.info("Terminating subscriber process...")
+        process.terminate()
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+
+        # Combine outputs
+        combined_stdout = f"{stdout}\n\n--- Pubsub Trigger ---\n{pubsub_output}"
+
+        return subprocess.CompletedProcess(
+            cmd, process.returncode, combined_stdout, stderr
+        )
+
+    except Exception as e:
+        # Make sure to clean up the process
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+        except Exception:
+            process.kill()
+        raise RuntimeError(f"Error running with pubsub trigger: {e}")
