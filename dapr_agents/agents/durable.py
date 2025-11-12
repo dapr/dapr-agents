@@ -64,7 +64,7 @@ class DurableAgent(AgentBase):
         system_prompt: Optional[str] = None,
         prompt_template: Optional[PromptTemplateBase] = None,
         # Infrastructure
-        pubsub: AgentPubSubConfig,
+        pubsub: Optional[AgentPubSubConfig] = None,
         state: Optional[AgentStateConfig] = None,
         registry: Optional[AgentRegistryConfig] = None,
         # Memory / runtime
@@ -91,7 +91,9 @@ class DurableAgent(AgentBase):
             system_prompt: System prompt override.
             prompt_template: Optional explicit prompt template instance.
 
-            pubsub: Dapr Pub/Sub configuration for triggers/broadcasts.
+            pubsub: Optional Dapr Pub/Sub configuration for triggers/broadcasts.
+                If omitted, the agent won't subscribe to any topics and can only be
+                triggered directly via AgentRunner.
             state: Durable state configuration (store/key + optional hooks).
             registry: Team registry configuration.
             execution: Execution dials for the agent run.
@@ -177,7 +179,8 @@ class DurableAgent(AgentBase):
         source = metadata.get("source") or "direct"
 
         # Ensure we have the latest durable state for this turn.
-        self.load_state()
+        if self.state_store:
+            self.load_state()
 
         # Bootstrap instance entry (flexible to non-`instances` models).
         self.ensure_instance_exists(
@@ -261,7 +264,22 @@ class DurableAgent(AgentBase):
                     )
                 break
             else:
-                raise AgentError("Workflow ended without generating a final response.")
+                # Loop exhausted without a terminating reply → surface a friendly notice.
+                base = final_message.get("content") or ""
+                if base:
+                    base = base.rstrip() + "\n\n"
+                base += (
+                    "I reached the maximum number of reasoning steps before I could finish. "
+                    "Please rephrase or provide more detail so I can try again."
+                )
+                final_message = {"role": "assistant", "content": base}
+                if not ctx.is_replaying:
+                    logger.warning(
+                        "Agent %s hit max iterations (%d) without a final response (instance=%s)",
+                        self.name,
+                        self.execution.max_iterations,
+                        ctx.instance_id,
+                    )
 
         except Exception as exc:  # noqa: BLE001
             logger.exception("Agent %s workflow failed: %s", self.name, exc)
@@ -352,6 +370,10 @@ class DurableAgent(AgentBase):
                 - start_time: ISO8601 datetime string.
                 - trace_context: Optional tracing context.
         """
+        # Load latest state to ensure we have current data before modifying
+        if self.state_store:
+            self.load_state()
+
         instance_id = payload.get("instance_id")
         trace_context = payload.get("trace_context")
         input_value = payload.get("input_value", "Triggered without input.")
@@ -401,10 +423,14 @@ class DurableAgent(AgentBase):
         Raises:
             AgentError: If the LLM call fails or yields no message.
         """
+        # Load latest state to ensure we have current data
+        if self.state_store:
+            self.load_state()
+
         instance_id = payload.get("instance_id")
         task = payload.get("task")
 
-        chat_history = self._construct_messages_with_instance_history(instance_id)
+        chat_history = self._reconstruct_conversation_history(instance_id)
         messages = self.prompting_helper.build_initial_messages(
             user_input=task,
             chat_history=chat_history,
@@ -464,6 +490,10 @@ class DurableAgent(AgentBase):
         Raises:
             AgentError: If tool arguments contain invalid JSON.
         """
+        # Load latest state to ensure we have current data before modifying
+        if self.state_store:
+            self.load_state()
+
         tool_call = payload.get("tool_call", {})
         instance_id = payload.get("instance_id")
         fn_name = tool_call["function"]["name"]
@@ -531,8 +561,27 @@ class DurableAgent(AgentBase):
                 if hasattr(entry, "last_message"):
                     entry.last_message = tool_message_model
 
-        # Always persist to memory + in-process tool history
-        self.memory.add_message(tool_message)
+        tool_call_id = agent_message["tool_call_id"]
+        # Check if tool message already exists in memory
+        existing_memory_messages = self.memory.get_messages()
+        tool_exists_in_memory = False
+        for mem_msg in existing_memory_messages:
+            msg_dict = (
+                mem_msg.model_dump()
+                if hasattr(mem_msg, "model_dump")
+                else (mem_msg if isinstance(mem_msg, dict) else {})
+            )
+            if (
+                msg_dict.get("role") == "tool"
+                and msg_dict.get("tool_call_id") == tool_call_id
+            ):
+                tool_exists_in_memory = True
+                break
+
+        # Only add to persistent memory if not already present
+        if not tool_exists_in_memory:
+            self.memory.add_message(tool_message)
+
         self.tool_history.append(history_entry)
 
         # Print the tool result for visibility
@@ -630,6 +679,10 @@ class DurableAgent(AgentBase):
             payload: Dict with 'instance_id', 'final_output', 'end_time',
                      and optional 'triggering_workflow_instance_id'.
         """
+        # Load latest state to ensure we have current data before modifying
+        if self.state_store:
+            self.load_state()
+
         instance_id = payload.get("instance_id")
         final_output = payload.get("final_output", "")
         end_time = payload.get("end_time", "")

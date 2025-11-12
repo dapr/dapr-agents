@@ -96,6 +96,7 @@ if OPENINFERENCE_AVAILABLE:
     TOOL_CALL_FUNCTION_ARGUMENTS_JSON = (
         ToolCallAttributes.TOOL_CALL_FUNCTION_ARGUMENTS_JSON
     )
+    WORKFLOW_RUN_SUPPRESSION_KEY = "dapr_agents.workflow.skip_run_span"
 
 else:
     # Fallback constants - direct string values following SmolAgents pattern
@@ -133,6 +134,7 @@ else:
     # Tool call attributes
     TOOL_CALL_FUNCTION_NAME = "tool_call.function.name"
     TOOL_CALL_FUNCTION_ARGUMENTS_JSON = "tool_call.function.arguments_json"
+    WORKFLOW_RUN_SUPPRESSION_KEY = "dapr_agents.workflow.skip_run_span"
 
 # ============================================================================
 # Utility Functions with OpenInference Integration
@@ -208,6 +210,7 @@ __all__ = [
     # Tool call attributes
     "TOOL_CALL_FUNCTION_NAME",
     "TOOL_CALL_FUNCTION_ARGUMENTS_JSON",
+    "WORKFLOW_RUN_SUPPRESSION_KEY",
     # Helper functions
     "safe_json_dumps",
 ]

@@ -131,71 +131,30 @@ spec:
     value: "true"
 ```
 
+> ⏱️ **Long-running prompts?** Set `DAPR_API_TIMEOUT_SECONDS=300` in your shell to let the Dapr gRPC client wait longer than the default 60 seconds when scheduling or monitoring workflows.
+
 ## Sequential Agent Workflow
 
-This example demonstrates how to use agents as tasks in a sequential workflow for trip planning:
+This example shows how to chain multiple agents inside a Dapr workflow using the `@agent_activity` decorator. Each activity runs an agent with its own instructions, while the workflow orchestrates the overall plan.
 
-```python
-from dapr_agents.workflow import WorkflowApp, workflow, task
-from dapr.ext.workflow import DaprWorkflowContext
-from dapr_agents import Agent
-from dapr_agents.types import AssistantMessage
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
-# Define simple agents
-extractor = Agent(
-    name="DestinationExtractor",
-    role="Extract destination",
-    instructions=["Extract the main city from the user query"]
-)
-
-planner = Agent(
-    name="PlannerAgent",
-    role="Outline planner",
-    instructions=["Generate a 3-day outline for the destination"]
-)
-
-expander = Agent(
-    name="ItineraryAgent",
-    role="Itinerary expander",
-    instructions=["Expand the outline into a detailed plan"]
-)
-
-# Define tasks with agents
-@task(agent=extractor)
-def extract(user_msg: str) -> AssistantMessage:
-    pass
-
-@task(agent=planner)
-def plan(destination: str) -> AssistantMessage:
-    pass
-
-@task(agent=expander)
-def expand(outline: str) -> AssistantMessage:
-    pass
-
-# Orchestration
-@workflow(name="chained_planner_workflow")
-def chained_planner_workflow(ctx: DaprWorkflowContext, user_msg: str):
-    dest = yield ctx.call_activity(extract, input=user_msg)
-    outline = yield ctx.call_activity(plan, input=dest['content'])
-    itinerary = yield ctx.call_activity(expand, input=outline['content'])
-    return itinerary['content']
-
-if __name__ == "__main__":
-    wfapp = WorkflowApp()
-    
-    results = wfapp.run_and_monitor_workflow_sync(chained_planner_workflow, input="Plan a trip to Paris")
-    print(f"Trip Itinerary: {results}")
-```
-
-Run the sequential agent workflow:
+Run the workflow (render components first if you’re using `.env` placeholders):
 
 ```bash
-dapr run --app-id agent-workflow --resources-path components/ -- python sequential_workflow.py
+temp_resources_folder=$(../resolve_env_templates.py ./components)
+dapr run \
+  --app-id agent-workflow \
+  --resources-path "$temp_resources_folder" \
+  -- python sequential_workflow.py
+rm -rf "$temp_resources_folder"
+```
+
+The quickstart also includes tracing variants (`sequential_workflow_tracing.py`) and a multi-model version (`sequential_workflow_multi_model_tracing.py`) that shows how to instrument Phoenix OpenTelemetry and mix OpenAI/NVIDIA/Hugging Face agents in a single workflow.
+
+Run them the same way, swapping the script name:
+
+```bash
+dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow_tracing.py
+dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow_multi_model_tracing.py
 ```
 
 **How it works:**
@@ -241,39 +200,7 @@ pip install -r requirements.txt
 
 #### 1. Sequential Agent Workflow with Tracing
 
-This example adds observability to the sequential workflow using Phoenix Arize for distributed tracing:
-
-```python
-from dapr.ext.workflow import DaprWorkflowContext
-from dotenv import load_dotenv
-from phoenix.otel import register
-
-from dapr_agents import Agent
-from dapr_agents.observability import DaprAgentsInstrumentor
-from dapr_agents.types import AssistantMessage
-from dapr_agents.workflow import WorkflowApp, task, workflow
-
-# Load environment variables
-load_dotenv()
-
-# Register Dapr Agents with Phoenix OpenTelemetry
-tracer_provider = register(
-    project_name="dapr-agent-workflows",
-    protocol="http/protobuf",
-)
-# Initialize Dapr Agents OpenTelemetry instrumentor
-instrumentor = DaprAgentsInstrumentor()
-instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
-
-# Define agents and workflow (same as above)
-# ... agent definitions ...
-
-if __name__ == "__main__":
-    wfapp = WorkflowApp()
-    
-    results = wfapp.run_and_monitor_workflow_sync(chained_planner_workflow, input="Plan a trip to Paris")
-    print(f"Trip Itinerary: {results}")
-```
+This example adds observability to the sequential workflow using Phoenix Arize for distributed tracing.
 
 Run with tracing:
 
@@ -289,53 +216,7 @@ View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
 
 #### 2. Multi-Model Sequential Workflow with Tracing
 
-This example demonstrates using multiple LLM providers within a single workflow, with full observability:
-
-```python
-from dapr.ext.workflow import DaprWorkflowContext
-from dotenv import load_dotenv
-from phoenix.otel import register
-
-from dapr_agents import Agent, OpenAIChatClient, NVIDIAChatClient, HFHubChatClient
-from dapr_agents.observability import DaprAgentsInstrumentor
-from dapr_agents.types import AssistantMessage
-from dapr_agents.workflow import WorkflowApp, task, workflow
-
-# Load environment variables
-load_dotenv()
-
-# Register observability
-tracer_provider = register(
-    project_name="dapr-multi-model-agents",
-    protocol="http/protobuf",
-)
-instrumentor = DaprAgentsInstrumentor()
-instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
-
-# Define agents with different LLM providers
-extractor = Agent(
-    name="DestinationExtractor",
-    role="Extract destination",
-    instructions=["Extract the main city from the user query"],
-    llm=OpenAIChatClient(model="gpt-4o-mini")  # Using OpenAI
-)
-
-planner = Agent(
-    name="PlannerAgent", 
-    role="Outline planner",
-    instructions=["Generate a 3-day outline for the destination"],
-    llm=NVIDIAChatClient(model="meta/llama-3.1-8b-instruct")  # Using NVIDIA
-)
-
-expander = Agent(
-    name="ItineraryAgent",
-    role="Itinerary expander", 
-    instructions=["Expand the outline into a detailed plan"],
-    llm=HFHubChatClient(model="HuggingFaceTB/SmolLM3-3B")  # Using HuggingFace
-)
-
-# Same workflow definition...
-```
+This example demonstrates using multiple LLM providers within a single workflow, with full observability.
 
 Run with tracing:
 

@@ -21,6 +21,7 @@ from dapr_agents.agents.schemas import (
     TriggerAction,
 )
 from dapr_agents.workflow.decorators.routers import message_router
+from dapr_agents.workflow.runners.agent import workflow_entry
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ class RoundRobinOrchestrator(OrchestratorBase):
     # ------------------------------------------------------------------
     # Workflows
     # ------------------------------------------------------------------
+    @workflow_entry
     @message_router(message_model=TriggerAction)
     def round_robin_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
         """

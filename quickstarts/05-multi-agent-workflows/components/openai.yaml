@@ -7,14 +7,8 @@ spec:
   version: v1
   metadata:
   - name: key
-    # we could also use the key directly here but is not recommended
-    # value: "{{OPENAI_API_KEY}}"
-    secretKeyRef:  # using environment variable secret store
-      name: OPENAI_API_KEY
-      key:  OPENAI_API_KEY
+    value: "{{OPENAI_API_KEY}}"
   - name: model
-    value: gpt-5-2025-08-07
+    value: gpt-5-mini
   - name: temperature
     value: 1
-auth:
-  secretStore: envvar-secret-store

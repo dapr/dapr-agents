@@ -6,10 +6,9 @@ from .llm import LLMWrapper
 from .tool import ExecuteToolsWrapper, RunToolWrapper
 from .workflow import (
     WorkflowMonitorWrapper,
-    WorkflowRegistrationWrapper,
     WorkflowRunWrapper,
 )
-from .workflow_task import WorkflowTaskWrapper
+from .workflow_task import WorkflowActivityRegistrationWrapper
 
 __all__ = [
     "AgentRunWrapper",
@@ -18,7 +17,6 @@ __all__ = [
     "RunToolWrapper",
     "ProcessIterationsWrapper",
     "WorkflowMonitorWrapper",
-    "WorkflowRegistrationWrapper",
     "WorkflowRunWrapper",
-    "WorkflowTaskWrapper",
+    "WorkflowActivityRegistrationWrapper",
 ]

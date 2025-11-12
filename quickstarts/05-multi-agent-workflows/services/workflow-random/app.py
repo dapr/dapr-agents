@@ -1,31 +1,69 @@
-from dapr_agents import RandomOrchestrator
-from dapr_agents.agents.configs import AgentExecutionConfig
-from dotenv import load_dotenv
-import asyncio
 import logging
+import os
+
+from dotenv import load_dotenv
+
+import dapr.ext.workflow as wf
+from dapr_agents.agents.configs import (
+    AgentExecutionConfig,
+    AgentPubSubConfig,
+    AgentRegistryConfig,
+    AgentStateConfig,
+)
+from dapr_agents.agents.orchestrators.random import RandomOrchestrator
+from dapr_agents.storage.daprstores.stateservice import StateStoreService
+from dapr_agents.workflow.runners import AgentRunner
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("fellowship.orchestrator.random.app")
 
 
-async def main():
+def main() -> None:
+    orchestrator = RandomOrchestrator(
+        name=os.getenv("ORCHESTRATOR_NAME", "FellowshipRandom"),
+        pubsub=AgentPubSubConfig(
+            pubsub_name=os.getenv("PUBSUB_NAME", "messagepubsub"),
+            agent_topic=os.getenv(
+                "ORCHESTRATOR_TOPIC", "fellowship.orchestrator.random.requests"
+            ),
+            broadcast_topic=os.getenv("BROADCAST_TOPIC", "fellowship.broadcast"),
+        ),
+        state=AgentStateConfig(
+            store=StateStoreService(
+                store_name=os.getenv("WORKFLOW_STATE_STORE", "workflowstatestore"),
+                key_prefix="fellowship.random:",
+            ),
+        ),
+        registry=AgentRegistryConfig(
+            store=StateStoreService(
+                store_name=os.getenv("REGISTRY_STATE_STORE", "agentregistrystore")
+            ),
+            team_name=os.getenv("TEAM_NAME", "fellowship"),
+        ),
+        execution=AgentExecutionConfig(
+            max_iterations=int(os.getenv("MAX_ITERATIONS", "8"))
+        ),
+        agent_metadata={"legend": "One orchestrator to guide them all."},
+        timeout_seconds=int(os.getenv("TIMEOUT_SECONDS", "45")),
+        runtime=wf.WorkflowRuntime(),
+    )
+    orchestrator.start()
+
+    runner = AgentRunner()
     try:
-        workflow_service = RandomOrchestrator(
-            name="RandomOrchestrator",
-            message_bus_name="messagepubsub",
-            state_store_name="workflowstatestore",
-            state_key="workflow_state",
-            agents_registry_store_name="agentstatestore",
-            agents_registry_key="agents_registry",
-            broadcast_topic_name="beacon_channel",
-            execution=AgentExecutionConfig(max_iterations=3),
-        ).as_service(port=8004)
-
-        await workflow_service.start()
-    except Exception as e:
-        print(f"Error starting service: {e}")
+        runner.serve(orchestrator, port=8004)
+    finally:
+        runner.shutdown()
+        orchestrator.stop()
 
 
 if __name__ == "__main__":
-    load_dotenv()
-
-    logging.basicConfig(level=logging.INFO)
-
-    asyncio.run(main())
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

@@ -69,6 +69,8 @@ python 01_agent_zipkin.py
 
 **Expected output:** Visit `http://localhost:9411` in your browser and view the traces.
 
+![](./Standalone_Agent_zipkin.png)
+
 ### 2. Simple Agent with OpenTelemetry tracing (Jaeger)
 
 In this example, we'll use Jaeger as the tracing backend with an HTTP `OTLPSpanExporter` generic span exporter.
@@ -85,6 +87,8 @@ python 02_agent_otel.py
 ```
 
 **Expected output:** Visit `http://localhost:16686` in your browser and view the traces.
+
+![](./Standalone_Agent_otel.png)
 
 ## Next Steps
 

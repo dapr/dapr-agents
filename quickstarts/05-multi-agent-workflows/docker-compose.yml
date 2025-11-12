@@ -1,7 +1,7 @@
 # docker-compose.yml
 services:
   phoenix:
-    image: arizephoenix/phoenix:latest
+    image: arizephoenix/phoenix:latest # Must be greater than 4.0 version to work
     depends_on:
       - db
     ports:
@@ -20,7 +20,7 @@ services:
     ports:
       - 5432
     volumes:
-      - database_data:/var/lib/postgresql/data
+      - database_data:/var/lib/postgresql
 volumes:
   database_data:
     driver: local

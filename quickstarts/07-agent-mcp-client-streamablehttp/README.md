@@ -7,6 +7,7 @@ This quickstart demonstrates how to build a simple agent that uses tools exposed
 - Python 3.10 (recommended)
 - pip package manager
 - OpenAI API key
+- Dapr CLI and Docker (for Redis/pub-sub components)
 
 ## Environment Setup
 
@@ -26,50 +27,40 @@ pip install -r requirements.txt
 
 ## Configuration
 
-The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
+The quickstart ships with component templates under `components/`. They include:
+
+- `openai.yaml` for LLM access
+- Redis-backed state stores (`agentstatestore`, `agentregistrystore`, `conversationstore`, `workflowstatestore`)
+- `messagepubsub.yaml` for pub/sub triggers
 
 ### Option 1: Using Environment Variables (Recommended)
 
-1. Create a `.env` file in the project root and add your OpenAI API key:
+1. Create a `.env` file and add your OpenAI key:
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
 
-2. When running the examples with Dapr, use the helper script to resolve environment variables:
+2. Render the templates before running Dapr:
 ```bash
-# Get the environment variables from the .env file:
 export $(grep -v '^#' ../../.env | xargs)
-
-# Create a temporary resources folder with resolved environment variables
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
-# Run your dapr command with the temporary resources
-dapr run --app-id weatherappmcp --app-port 8001 --dapr-http-port 3500 --resources-path $temp_resources_folder -- python app.py
+dapr run \
+  --app-id weatherappmcp-http \
+  --app-port 8001 \
+  --resources-path "$temp_resources_folder" \
+  -- python app.py
 
-# Clean up when done
-rm -rf $temp_resources_folder
+rm -rf "$temp_resources_folder"
 ```
-
-Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
 
 ### Option 2: Direct Component Configuration
 
-You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
-```yaml
-apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: openai
-spec:
-  type: conversation.openai
-  metadata:
-    - name: key
-      value: "YOUR_OPENAI_API_KEY"
-```
+Edit `components/openai.yaml` and replace the `value` for `name: key` with your API key. Avoid committing secrets back to source control.
 
-Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key.
+### Additional Components
 
-Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
+Run `dapr init` so Redis and the sidecar are available. The provided YAML files already set `actorStateStore: "true"` for the workflow state store.
 
 ## Examples
 
@@ -93,29 +84,11 @@ Set up the server for your MCP tools in `server.py`.
 
 ### Agent Creation
 
-Create the agent that connects to these tools in `app.py` over MCP with Streamable HTTP transport:
+`app.py` now mirrors the other MCP quickstarts:
 
-```python
-# Load MCP tools from server using Streamable HTTP transport
-client = MCPClient()
-await client.connect_streamable_http(server_name="local", url="http://localhost:8000/mcp/")
-tools = client.get_all_tools()
-
-# Create the Weather Agent using MCP tools
-weather_agent = DurableAgent(
-    role="Weather Assistant",
-    name="Stevie",
-    goal="Help humans get weather and location info using smart tools.",
-    instructions=["Instrictions go here"],
-    tools=tools,
-    message_bus_name="messagepubsub",
-    state_store_name="workflowstatestore",
-    state_key="workflow_state",
-    agents_registry_store_name="agentstatestore",
-    agents_registry_key="agents_registry",
-).as_service(port=8001)
- 
-```
+1. Connect to the MCP server via streamable HTTP, fetch tools, and close the client.
+2. Configure a `DurableAgent` with pub/sub, memory, registry, and workflow state stores.
+3. Host the agent with `AgentRunner.serve(agent, port=8001)` so `/run` is exposed automatically.
 
 ### Running the Example
 
@@ -125,10 +98,16 @@ weather_agent = DurableAgent(
 python server.py --server_type streamable-http --port 8000
 ```
 
-2. In a separate terminal window, start the agent with Dapr:
+2. In another terminal, render the components and start the agent:
 
 ```bash
-dapr run --app-id weatherappmcp --app-port 8001 --dapr-http-port 3500 --resources-path ./components/ -- python app.py
+temp_resources_folder=$(../resolve_env_templates.py ./components)
+dapr run \
+  --app-id weatherappmcp-http \
+  --app-port 8001 \
+  --resources-path "$temp_resources_folder" \
+  -- python app.py
+rm -rf "$temp_resources_folder"
 ```
 
 3. Send a test request to the agent:
@@ -170,10 +149,11 @@ curl -X POST http://localhost:8001/run \
 
 ## Troubleshooting
 
-1. **OpenAI API Key**: Ensure your key is correctly set in the `.env` file
-2. **Server Connection**: If you see  connection errors, make sure the server is running on the correct port
-3. **Dapr Setup**: Verify that Dapr is installed and that Redis is running for state stores
-4. **Module Import Errors**: Verify that all dependencies are installed correctly
+1. **OpenAI API Key**: Ensure your key is present in `.env` or baked into `openai.yaml`.
+2. **Server Connection**: If the agent can’t load tools, confirm `server.py` is running in streamable HTTP mode on the correct port.
+3. **Dapr Setup**: Redis must be running (installed via `dapr init`). If you see `state store ... is not found`, ensure the rendered components were passed to `dapr run`.
+4. **gRPC Deadline**: For longer prompts/responses set `DAPR_API_TIMEOUT_SECONDS=300` so the Dapr client waits beyond the 60 s default.
+5. **Dependencies**: Run `pip install -r requirements.txt` to install `dapr-agents`, `starlette`, and other requirements.
 
 ## Next Steps
 

@@ -109,7 +109,6 @@ async def main():
             "Provide relevant information from stored documents",
         ],
         tools=[search_documents, add_document, add_machine_learning_doc],
-        vector_store=vector_store,
         llm=OpenAIChatClient(model="gpt-3.5-turbo"),
     )
     try:

@@ -104,13 +104,6 @@ First, install Postgres on your machine.
 
 #### Option 1: Using Docker
 
-Create the following directory and copy the sql files there:
-
-```bash
-mkdir docker-entrypoint-initdb.d
-cp schema.sql users.sql ./docker-entrypoint-initdb.d
-```
-
 Run the database container (Make sure you are in the quickstart directory):
 
 ```bash
@@ -176,10 +169,10 @@ docker run --rm -ti -p 8000:8000 \
 
 ### Load data to Postgres and create a knowledge base chat interface
 
-Run the agent:
+Run the agent (this will launch Chainlit on port 8001):
 
 ```bash
-dapr run --app-id sql --resources-path ./components -- chainlit run app.py -w --port 8001
+dapr run --app-id sql --resources-path $temp_resources_folder -- chainlit run app.py -w --port 8001
 ```
 
 Wait until the browser opens up. Once open, you're ready to talk to your Postgres database!
@@ -201,3 +194,11 @@ If you exit the app and restart it, the agent will remember all the previous con
 3. Chainlit loads and starts the agent UI in your browser.
 4. Users can now talk to their database in natural language and have the agent analyze the data.
 5. The conversation history is automatically managed by Dapr and saved in the state store configured in `./components/conversationmemory.yaml`.
+
+## Troubleshooting
+
+1. **OpenAI API Key**: Ensure your key is set in `.env` or baked into `components/openai.yaml`.
+2. **Postgres MCP Server**: The `crystaldba/postgres-mcp` container must be running on port 8000 before launching Chainlit.
+3. **Database Access**: The `.env` values for `DB_HOST`, `DB_USER`, etc., must match a reachable database. Run the provided SQL scripts if you use the sample data.
+4. **Dependencies**: Run `pip install -r requirements.txt` inside your virtual environment.
+5. **Dapr Timeout**: For long-running conversations set `DAPR_API_TIMEOUT_SECONDS=300` so the Dapr gRPC client waits beyond the 60 s default.

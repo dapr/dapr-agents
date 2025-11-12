@@ -47,7 +47,7 @@ export $(grep -v '^#' ../../.env | xargs)
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python sequential_workflow.py
+dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python 01_sequential_workflow.py
 
 # Clean up when done
 rm -rf $temp_resources_folder
@@ -164,6 +164,7 @@ Dapr Agents workflows leverage Dapr's core capabilities:
 2. **Redis Connection**: Ensure Redis is running (automatically installed by Dapr)
 3. **Dapr Initialization**: If components aren't found, verify Dapr is initialized with `dapr init`
 4. **API Key**: Check your OpenAI API key if authentication fails
+5. **GRPC Deadline Exceeded**: Set your `DAPR_API_TIMEOUT_SECONDS` environment variable to `300` so the Dapr gRPC client waits longer than the default 60 s before timing out long LLM calls.
 
 ## Next Steps
 

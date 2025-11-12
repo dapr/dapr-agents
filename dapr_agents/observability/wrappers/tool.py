@@ -28,9 +28,9 @@ except ImportError:
 
 class ExecuteToolsWrapper:
     """
-    Wrapper for Agent.execute_tools() method to create TOOL spans for batch tool execution.
+    Wrapper for `Agent._execute_tool_calls()` to emit TOOL spans for batched calls.
 
-    This wrapper instruments the Agent.execute_tools() method, creating
+    This wrapper instruments the `_execute_tool_calls()` helper, creating
     TOOL spans that capture batch tool execution operations within an agent's
     workflow with comprehensive tracing and error handling.
 
@@ -57,17 +57,13 @@ class ExecuteToolsWrapper:
 
     def __call__(self, wrapped: Any, instance: Any, args: Any, kwargs: Any) -> Any:
         """
-        Wrap Agent.execute_tools() method with comprehensive TOOL span tracing.
-
-        Creates TOOL spans that capture batch tool execution operations,
-        including input processing, tool coordination, and result aggregation
-        with proper OpenTelemetry context propagation.
+        Wrap `_execute_tool_calls()` with comprehensive TOOL span tracing.
 
         Args:
-            wrapped (callable): Original Agent.execute_tools method to be instrumented
-            instance (Agent): Agent instance containing tools and configuration
-            args (tuple): Positional arguments passed to execute_tools method
-            kwargs (dict): Keyword arguments passed to the original method
+            wrapped (callable): `_execute_tool_calls` coroutine to be instrumented
+            instance (Agent): Agent instance issuing the tool calls
+            args (tuple): Positional arguments passed to the helper
+            kwargs (dict): Keyword arguments forwarded to the helper
 
         Returns:
             Any: Result from wrapped method execution with span attributes capturing
@@ -79,9 +75,8 @@ class ExecuteToolsWrapper:
         ):
             return wrapped(*args, **kwargs)
 
-        # Extract agent information for span naming
         agent_name = getattr(instance, "name", instance.__class__.__name__)
-        span_name = f"{agent_name}.execute_tools"
+        span_name = f"{agent_name}.tool_batch"
 
         # Build span attributes
         attributes = {
@@ -110,15 +105,11 @@ class ExecuteToolsWrapper:
         """
         Handle asynchronous batch tool execution with comprehensive span tracing.
 
-        Manages async execute_tools execution by creating spans with proper
-        attribute handling, result aggregation, and error management for
-        coordinated tool execution workflows.
-
         Args:
-            wrapped (callable): Original async execute_tools method to execute
+            wrapped (callable): `_execute_tool_calls`
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
-            span_name (str): Name for the created span (e.g., "MyAgent.execute_tools")
+            span_name (str): Name for the created span (e.g., "MyAgent.tool_batch")
             attributes (dict): Span attributes including agent context and tool information
 
         Returns:
@@ -149,15 +140,11 @@ class ExecuteToolsWrapper:
         """
         Handle synchronous batch tool execution with comprehensive span tracing.
 
-        Manages sync execute_tools execution by creating spans with proper
-        attribute handling, result aggregation, and error management for
-        coordinated tool execution workflows.
-
         Args:
-            wrapped (callable): Original sync execute_tools method to execute
+            wrapped (callable): `_execute_tool_calls`
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
-            span_name (str): Name for the created span (e.g., "MyAgent.execute_tools")
+            span_name (str): Name for the created span (e.g., "MyAgent.tool_batch")
             attributes (dict): Span attributes including agent context and tool information
 
         Returns:
@@ -186,11 +173,10 @@ class ExecuteToolsWrapper:
 
 class RunToolWrapper:
     """
-    Wrapper for Agent.run_tool() method to create TOOL spans for individual tool execution.
+    Wrapper for `AgentToolExecutor.run_tool()` to emit TOOL spans per tool call.
 
-    This wrapper instruments the Agent.run_tool() method, creating individual
-    TOOL spans for each tool execution within an agent's workflow with
-    detailed tool identification and comprehensive tracing.
+    This wrapper instruments the executor layer, creating a span for each
+    tool function invocation regardless of which agent issued it.
 
     Key features:
     - Captures individual tool execution with tool name extraction and identification
@@ -215,16 +201,12 @@ class RunToolWrapper:
 
     def __call__(self, wrapped: Any, instance: Any, args: Any, kwargs: Any) -> Any:
         """
-        Wrap Agent.run_tool() method with comprehensive TOOL span tracing.
-
-        Creates individual TOOL spans for each tool execution with tool name
-        identification, input/output processing, and detailed attribute capture
-        for comprehensive tool execution visibility.
+        Wrap the executor method with TOOL span tracing.
 
         Args:
-            wrapped (callable): Original Agent.run_tool method to be instrumented
-            instance (Agent): Agent instance containing tool configurations
-            args (tuple): Positional arguments - typically (tool_name, tool_args)
+            wrapped (callable): Original `AgentToolExecutor.run_tool`
+            instance (AgentToolExecutor): Executor instance
+            args (tuple): Positional arguments - typically (tool_name, *tool_args)
             kwargs (dict): Keyword arguments passed to the original method
 
         Returns:

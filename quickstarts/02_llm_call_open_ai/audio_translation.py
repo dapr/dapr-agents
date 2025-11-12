@@ -6,7 +6,7 @@ load_dotenv()
 client = OpenAIAudioClient()
 
 # Specify the audio file to translate
-audio_file_path = "speech_spanish.mp3"
+audio_file_path = "speech.mp3"
 
 # Create a translation request
 translation_request = AudioTranslationRequest(

@@ -1,30 +1,64 @@
-from dapr_agents import RoundRobinOrchestrator
-from dotenv import load_dotenv
-import asyncio
 import logging
+import os
+
+from dotenv import load_dotenv
+
+import dapr.ext.workflow as wf
+from dapr_agents.agents.configs import (
+    AgentPubSubConfig,
+    AgentRegistryConfig,
+    AgentStateConfig,
+)
+from dapr_agents.agents.orchestrators.roundrobin import RoundRobinOrchestrator
+from dapr_agents.storage.daprstores.stateservice import StateStoreService
+from dapr_agents.workflow.runners import AgentRunner
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("fellowship.orchestrator.roundrobin.app")
 
 
-async def main():
+def main() -> None:
+    orchestrator = RoundRobinOrchestrator(
+        name=os.getenv("ORCHESTRATOR_NAME", "FellowshipRoundRobin"),
+        pubsub=AgentPubSubConfig(
+            pubsub_name=os.getenv("PUBSUB_NAME", "messagepubsub"),
+            agent_topic=os.getenv(
+                "ORCHESTRATOR_TOPIC", "fellowship.orchestrator.roundrobin.requests"
+            ),
+            broadcast_topic=os.getenv("BROADCAST_TOPIC", "fellowship.broadcast"),
+        ),
+        state=AgentStateConfig(
+            store=StateStoreService(
+                store_name=os.getenv("WORKFLOW_STATE_STORE", "workflowstatestore"),
+                key_prefix="fellowship.roundrobin:",
+            ),
+        ),
+        registry=AgentRegistryConfig(
+            store=StateStoreService(
+                store_name=os.getenv("REGISTRY_STATE_STORE", "agentregistrystore")
+            ),
+            team_name=os.getenv("TEAM_NAME", "fellowship"),
+        ),
+        agent_metadata={"legend": "Sends tasks in a fair rotation."},
+        runtime=wf.WorkflowRuntime(),
+    )
+    orchestrator.start()
+
+    runner = AgentRunner()
     try:
-        workflow_service = RoundRobinOrchestrator(
-            name="RoundRobinOrchestrator",
-            message_bus_name="messagepubsub",
-            state_store_name="workflowstatestore",
-            state_key="workflow_state",
-            agents_registry_store_name="agentstatestore",
-            agents_registry_key="agents_registry",
-            broadcast_topic_name="beacon_channel",
-            max_iterations=3,
-        ).as_service(port=8004)
-
-        await workflow_service.start()
-    except Exception as e:
-        print(f"Error starting service: {e}")
+        runner.serve(orchestrator, port=8004)
+    finally:
+        runner.shutdown()
+        orchestrator.stop()
 
 
 if __name__ == "__main__":
-    load_dotenv()
-
-    logging.basicConfig(level=logging.INFO)
-
-    asyncio.run(main())
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frodo
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frodo
+  template:
+    metadata:
+      annotations:
+        dapr.io/app-id: frodo
+        dapr.io/enabled: "true"
+        dapr.io/metrics-port: "59190"
+      labels:
+        app: frodo
+    spec:
+      containers:
+        - name: frodo
+          image: localhost:5001/frodo:latest
+          imagePullPolicy: Always
+          env:
+            - name: APP_ID
+              value: frodo
+            - name: DAPR_METRICS_PORT
+              value: "59190"
+          envFrom:
+            - secretRef:
+                name: openai-secrets

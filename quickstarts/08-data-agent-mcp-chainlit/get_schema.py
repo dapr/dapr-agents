@@ -1,5 +1,9 @@
+import logging
 import os
+
 import psycopg
+
+logger = logging.getLogger(__name__)
 
 
 def get_table_schema_as_dict():
@@ -27,7 +31,8 @@ def get_table_schema_as_dict():
                 tables = cur.fetchall()
 
                 for schema, table in tables:
-                    schema_data[f"{schema}.{table}"] = []
+                    key = f"{schema}.{table}"
+                    schema_data[key] = []
                     cur.execute(
                         """
                         SELECT column_name, data_type, is_nullable, column_default
@@ -40,7 +45,7 @@ def get_table_schema_as_dict():
                     columns = cur.fetchall()
 
                     for col in columns:
-                        schema_data[f"{schema}.{table}"].append(
+                        schema_data[key].append(
                             {
                                 "column_name": col[0],
                                 "data_type": col[1],
@@ -49,7 +54,8 @@ def get_table_schema_as_dict():
                             }
                         )
 
-                    return schema_data
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load schema metadata: %s", exc)
+        return {}
 
-    except Exception:
-        return False
+    return schema_data

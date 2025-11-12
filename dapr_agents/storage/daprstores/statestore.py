@@ -27,9 +27,20 @@ def _coerce_state_options(
     Returns:
         A `StateOptions` instance or None.
     """
-    if state_options is None or isinstance(state_options, StateOptions):
-        return state_options
-    return StateOptions(**state_options)
+    if state_options is None:
+        return None
+
+    # Prefer explicit dict detection first; newer typing helpers may wrap StateOptions
+    # in `typing.NewType`/Union-style aliases that `isinstance` cannot handle.
+    if isinstance(state_options, dict):
+        return StateOptions(**state_options)
+
+    # Fallback: treat any object exposing the expected attributes as StateOptions-like.
+    if hasattr(state_options, "consistency") and hasattr(state_options, "concurrency"):
+        return state_options  # type: ignore[return-value]
+
+    # When annotations or typing aliases wrap the class, fall back to constructing one.
+    return StateOptions(**dict(state_options))  # type: ignore[arg-type]
 
 
 class DaprStateStore(DaprStoreBase):
@@ -186,7 +197,7 @@ class DaprStateStore(DaprStoreBase):
                 store_name=self.store_name,
                 key=key,
                 etag=etag,
-                state_options=options,
+                options=options,
                 state_metadata=state_metadata,
             )
 

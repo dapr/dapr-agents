@@ -2,16 +2,26 @@ from __future__ import annotations
 
 from dapr.ext.workflow import DaprWorkflowContext
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 from dapr_agents.llm.dapr import DaprChatClient
 from dapr_agents.workflow.decorators import llm_activity
+from dapr_agents.workflow.decorators.routers import message_router
 
 load_dotenv()
+
+
+class StartBlogMessage(BaseModel):
+    topic: str = Field(min_length=1, description="Blog topic/title")
+
 
 # Initialize the LLM client and workflow runtime
 llm = DaprChatClient(component_name="openai")
 
 
+@message_router(
+    pubsub="messagepubsub", topic="blog.requests", message_model=StartBlogMessage
+)
 def blog_workflow(ctx: DaprWorkflowContext, wf_input: dict) -> str:
     """
     Workflow input must be JSON-serializable. We accept a dict like:

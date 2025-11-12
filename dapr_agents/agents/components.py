@@ -154,17 +154,17 @@ class AgentComponents:
         return self._pubsub
 
     @property
-    def message_bus_name(self) -> str:
-        """Return the Dapr pub/sub component name (bus)."""
+    def message_bus_name(self) -> Optional[str]:
+        """Return the Dapr pub/sub component name (bus), or None if no pubsub configured."""
         if not self._pubsub:
-            raise RuntimeError("No pubsub configuration available for this agent.")
+            return None
         return self._pubsub.pubsub_name
 
     @property
-    def agent_topic_name(self) -> str:
-        """Return the per-agent topic name."""
+    def agent_topic_name(self) -> Optional[str]:
+        """Return the per-agent topic name, or None if no pubsub configured."""
         if not self._pubsub:
-            raise RuntimeError("No pubsub configuration available for this agent.")
+            return None
         return self._pubsub.agent_topic or self.name
 
     @property

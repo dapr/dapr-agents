@@ -1,6 +1,6 @@
 # Durable Agent Tool Call with Dapr Agents
 
-This quickstart demonstrates how to create a **Durable Agent** with custom tools using Dapr Agents. You'll learn how to build a weather assistant that can fetch information and perform actions using defined tools through LLM-powered function calls, with stateful and durable execution.
+This quickstart builds on the standalone version and shows how to run the same weather assistant as a **DurableAgent**. The agent logic stays the same, but execution happens inside Dapr Workflows—so runs are fault-tolerant, replayable, and can be triggered via pub/sub or HTTP.
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ export $(grep -v '^#' ../../.env | xargs)
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent.py
+dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_dapr.py
 
 # Clean up when done
 rm -rf $temp_resources_folder
@@ -90,11 +90,12 @@ dapr init
 start the agent with Dapr:
 
 ```bash
-dapr run --app-id durableweatherapp --resources-path ./components -- python durable_weather_agent.py
+dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_dapr.py
 ```
 
 ## Other Durable Agent
-You can also try the following Durable agents with the same tools using `HuggingFace hub` and `NVIDIA` LLM chat clients. Make sure you add the `HUGGINGFACE_API_KEY` and `NVIDIA_API_KEY` to the `.env` file.
+You can also try the following Durable agents with the same tools using `OpenAI`, `HuggingFace hub` and `NVIDIA` LLM chat clients. Make sure you add the `OPENAI_API_KEY` and `HUGGINGFACE_API_KEY` and `NVIDIA_API_KEY` to the `.env` file.
+- [OpenAI Durable Agent](./durable_weather_agent_openai.py)
 - [HuggingFace Durable Agent](./durable_weather_agent_hf.py)
 - [NVIDIA Durable Agent](./durable_weather_agent_nv.py)
 
@@ -104,7 +105,7 @@ Durable agents maintain state across runs, enabling workflows that require persi
 
 ## Custom Tools Example
 
-See `weather_tools.py` for sample tool definitions.
+See `agent_tools.py` for sample tool definitions.
 
 ## Observability with Phoenix Arize
 
@@ -121,10 +122,11 @@ First, deploy Phoenix Arize server using Docker Compose with PostgreSQL backend 
 
 #### Deploy Phoenix with PostgreSQL
 
-1. Use the provided [docker-compose.yml](./docker-compose.yml) file to set up a Phoenix server locally with PostgreSQL backend.
-2. Start the Phoenix server:
+1. Use the provided [docker-compose.yml](./docker-compose.yml) file to set up Phoenix locally (PostgreSQL 18 + Phoenix).
+2. Start the Phoenix server (this also provisions the required Postgres volume):
 
 ```bash
+docker compose down -v   # optional: clean up old PG volumes
 docker compose up --build
 ```
 
@@ -157,7 +159,7 @@ See [`durable_weather_agent_tracing.py`](./durable_weather_agent_tracing.py) wit
 2. Run the instrumented Durable Agent:
 
 ```bash
-dapr run --app-id durableweatherapptracing --resources-path ./components -- python durable_weather_agent_tracing.py
+dapr run --app-id durableweatherapptracing --resources-path $temp_resources_folder -- python durable_weather_agent_tracing.py
 ```
 
 3. View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)

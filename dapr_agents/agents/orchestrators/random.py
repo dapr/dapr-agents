@@ -22,6 +22,7 @@ from dapr_agents.agents.schemas import (
     TriggerAction,
 )
 from dapr_agents.workflow.decorators.routers import message_router
+from dapr_agents.workflow.runners.agent import workflow_entry
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ class RandomOrchestrator(OrchestratorBase):
     # ------------------------------------------------------------------
     # Workflows
     # ------------------------------------------------------------------
+    @workflow_entry
     @message_router(message_model=TriggerAction)
     def random_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
         """
@@ -130,8 +132,7 @@ class RandomOrchestrator(OrchestratorBase):
 
             # Select agent
             selected_agent = yield ctx.call_activity(
-                self._select_random_speaker_activity,
-                input={},
+                self._select_random_speaker_activity
             )
             if not ctx.is_replaying:
                 logger.info("Selected '%s' for turn %d", selected_agent, turn)
@@ -270,18 +271,15 @@ class RandomOrchestrator(OrchestratorBase):
         except Exception:  # noqa: BLE001
             logger.exception("Failed to publish broadcast message.")
 
-    def _select_random_speaker_activity(
-        self,
-        ctx: wf.WorkflowActivityContext,
-    ) -> str:
+    def _select_random_speaker_activity(self, ctx: wf.WorkflowActivityContext) -> str:
         """Pick a random agent from the registry, avoiding the most recent speaker when possible."""
         try:
             agents_metadata = self.list_team_agents(
                 include_self=False, team=self.effective_team()
             )
-        except Exception:
-            logger.exception("Unable to load agents metadata; broadcast aborted.")
-            return
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Unable to load agents metadata; selection aborted.")
+            raise RuntimeError("Failed to select an agent.") from exc
 
         if not agents_metadata:
             raise ValueError("No agents available for selection.")

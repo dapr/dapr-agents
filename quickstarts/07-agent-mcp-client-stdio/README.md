@@ -7,6 +7,7 @@ This quickstart demonstrates how to build a simple agent that uses tools exposed
 - Python 3.10 (recommended)
 - pip package manager
 - OpenAI API key
+- Dapr CLI and Docker (for the state stores and pub/sub sidecars)
 
 ## Environment Setup
 
@@ -26,70 +27,67 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Create a `.env` file in the project root:
+The quickstart ships with Dapr component templates under `components/`. You can inject your OpenAI key via environment variables or by editing the component directly.
 
+### Option 1: Using Environment Variables (Recommended)
+
+1. Create a `.env` file in the project root and add your OpenAI API key:
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
 
-Replace `your_api_key_here` with your actual OpenAI API key.
+2. When running the example, resolve the templates before starting Dapr:
+```bash
+# Load env vars from the repo-level .env if present
+export $(grep -v '^#' ../../.env | xargs)
 
-## Examples
+# Render component templates with real secrets
+temp_resources_folder=$(../resolve_env_templates.py ./components)
 
-### MCP Tool Creation
+dapr run \
+  --app-id weatherappmcp-stdio \
+  --resources-path "$temp_resources_folder" \
+  -- python agent.py
 
-First, create MCP tools in `tools.py`:
+rm -rf "$temp_resources_folder"
+```
+
+### Option 2: Direct Component Configuration
+
+Update `components/openai.yaml` by replacing the `value` for `name: key` with your API key. This approach is convenient for demos but avoid committing secrets to source control.
+
+### Additional Components
+
+Make sure Dapr is initialized:
+```bash
+dapr init
+```
+The `components/` folder already includes Redis-backed state stores (`agentstatestore`, `agentregistrystore`, `conversationstore`), pub/sub, and workflow state components required by the durable agent.
+
+## MCP Tools
+
+`tools.py` defines the MCP tools using `FastMCP`. The STDIO transport starts this module as a subprocess automatically—no extra server process is required:
 
 ```python
 mcp = FastMCP("TestServer")
 
 @mcp.tool()
 async def get_weather(location: str) -> str:
-    """Get weather information for a specific location."""
     temperature = random.randint(60, 80)
     return f"{location}: {temperature}F."
 ```
 
-### Agent Creation
+## Running the Example
 
-Then, create the agent that connects to these tools in `agent.py` over MCP:
-
-```python
-client = MCPClient()
-
-# Connect to MCP server using STDIO transport
-await client.connect_stdio(
-    server_name="local",
-    command=sys.executable,  # Use the current Python interpreter
-    args=["tools.py"]  # Run tools.py directly
-)
-
-# Get available tools from the MCP instance
-tools = client.get_all_tools()
-
-# Create the Weather Agent using MCP tools
-weather_agent = Agent(
-    name="Stevie",
-    role="Weather Assistant",
-    goal="Help humans get weather and location info using MCP tools.",
-    instructions=["Instrictions go here"],
-    tools=tools,
-) 
-
-# Run a sample query
-result: AssistantMessage = await weather_agent.run("What is the weather in New York?")
-print(result.content)
-```
-
-### Running the Example
-
-Run the agent script:
-
+1. Render the components and start the agent (as shown above).
+2. In another terminal, send a request to the hosted endpoint:
 ```bash
-python agent.py
+curl -X POST http://localhost:8001/run \
+  -H "Content-Type: application/json" \
+  -d '{"task": "What is the weather in New York?"}'
 ```
 
-**Expected output:** The agent will initialize the MCP client, connect to the tools module via STDIO, and fetch weather information for New York using the MCP tools.
+The agent connects to the MCP tools over STDIO, reasons about the query, invokes `get_weather`, and returns the final response. Conversation history and tool traces are persisted in the configured Dapr state stores.
 
 ## Key Concepts
 
@@ -108,13 +106,12 @@ python agent.py
 - The client translates MCP tools into agent tools automatically
 
 ### Execution Flow
-1. Agent starts the tools module as a subprocess
-2. MCPClient connects to the subprocess via STDIO
-3. The agent receives a user query
-4. The LLM determines which MCP tool to use
-5. The agent sends the tool call to the tools subprocess
-6. The subprocess executes the tool and returns the result
-7. The agent formulates a response based on the tool result
+1. The agent renders Dapr components and starts the Workflow runtime.
+2. `MCPClient.connect_stdio()` launches `tools.py` as a subprocess and discovers available tools.
+3. An HTTP request to `/run` triggers the durable workflow (via `AgentRunner.serve`).
+4. The LLM decides whether to call an MCP tool.
+5. Tool calls are dispatched over STDIO; results flow back into the conversation loop.
+6. Final responses are returned to the HTTP caller and saved in Dapr state.
 
 ## Alternative: Using SSE Transport
 
@@ -128,9 +125,11 @@ To explore SSE transport, check out the related [MCP with SSE Transport quicksta
 
 ## Troubleshooting
 
-1. **OpenAI API Key**: Ensure your key is correctly set in the `.env` file
-2. **Subprocess Communication**: If you see STDIO errors, make sure tools.py can run independently
-3. **Module Import Errors**: Verify that all dependencies are installed correctly
+1. **OpenAI API Key**: Ensure the key is present in `.env` or baked into `openai.yaml`.
+2. **STDIO communication**: If the agent hangs while loading tools, run `python tools.py` manually to confirm it starts.
+3. **Dapr Components**: Redis must be running (provided by `dapr init`). Check the sidecar logs if you see `state store ... is not found`.
+4. **gRPC Deadline**: For long prompts/responses set `DAPR_API_TIMEOUT_SECONDS=300` so the Dapr client waits beyond the 60 s default.
+5. **Module Imports**: Run `pip install -r requirements.txt` to install `dapr-agents`, `fastmcp`, and other dependencies.
 
 ## Next Steps
 

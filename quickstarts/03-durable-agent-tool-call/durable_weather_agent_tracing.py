@@ -1,10 +1,11 @@
 import asyncio
 import logging
 
+from agent_tools import tools
 from dotenv import load_dotenv
-from weather_tools import tools
 
 from dapr_agents import DurableAgent
+from dapr_agents.workflow.runners import AgentRunner
 
 logging.basicConfig(level=logging.INFO)
 
@@ -13,6 +14,8 @@ load_dotenv()
 
 async def main():
     from phoenix.otel import register
+
+    logger = logging.getLogger(__name__)
 
     # Register OpenTelemetry tracer provider
     tracer_provider = register(
@@ -25,7 +28,7 @@ async def main():
     instrumentor = DaprAgentsInstrumentor()
     instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
 
-    # 1️⃣ Instantiate your agent
+    # Instantiate your agent
     weather_agent = DurableAgent(
         role="Weather Assistant",
         name="Stevie",
@@ -34,21 +37,40 @@ async def main():
             "Respond clearly and helpfully to weather-related questions.",
             "Use tools when appropriate to fetch weather data.",
         ],
-        message_bus_name="messagepubsub",
-        state_store_name="workflowstatestore",
-        state_key="workflow_state",
-        agents_registry_store_name="agentstatestore",
-        agents_registry_key="agents_registry",
         tools=tools,
     )
-    # 2️⃣ Start the agent service
-    result = await weather_agent.run("What's the weather in Boston?")
+    # Start the agent (registers workflows with the runtime)
+    weather_agent.start()
 
-    print(f"\n🎯 Final result: {result}")
-    print("📊 Check Phoenix UI at http://localhost:6006 for traces")
+    # Create an AgentRunner to execute the workflow
+    runner = AgentRunner()
 
-    return result
+    try:
+        prompt = "What's the weather in Boston?"
+
+        # Run the workflow and wait for completion
+        result = await runner.run(
+            weather_agent,
+            payload={"task": prompt},
+        )
+
+        print(f"\n🎯 Final result: {result}")
+        print("📊 Check Phoenix UI at http://localhost:6006 for traces")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error running workflow: {e}", exc_info=True)
+        raise
+    finally:
+        # Stop agent first (tears down durabletask runtime)
+        weather_agent.stop()
+        # Then shut down runner (unwire/close clients)
+        runner.shutdown()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
