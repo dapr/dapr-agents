@@ -758,7 +758,7 @@ def _run_multi_app_with_completion_detection(
             orchestrator_failed, \
             completion_time, \
             completed_workflows, \
-            completion_count
+            completion_count  # noqa: F824
         try:
             for line in iter(pipe.readline, ""):
                 if line:
