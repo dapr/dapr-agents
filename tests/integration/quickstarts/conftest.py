@@ -753,12 +753,7 @@ def _run_multi_app_with_completion_detection(
 
     def _stream_and_detect(pipe, log_func, prefix, lines_list):
         """Stream output from a pipe and detect completion."""
-        nonlocal \
-            orchestrator_completion_detected, \
-            orchestrator_failed, \
-            completion_time, \
-            completed_workflows, \
-            completion_count  # noqa: F824
+        nonlocal orchestrator_completion_detected, orchestrator_failed, completion_time, completed_workflows, completion_count  # noqa: F824
         try:
             for line in iter(pipe.readline, ""):
                 if line:
