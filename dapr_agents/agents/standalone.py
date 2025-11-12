@@ -175,7 +175,7 @@ class Agent(AgentBase):
         active_instance = instance_id or self._generate_instance_id()
 
         # Build initial messages with persistent + per-instance history
-        chat_history = self._construct_messages_with_instance_history(active_instance)
+        chat_history = self._reconstruct_conversation_history(active_instance)
         messages = self.prompting_helper.build_initial_messages(
             user_input=input_data,
             chat_history=chat_history,
@@ -236,7 +236,7 @@ class Agent(AgentBase):
         """
         self.load_state()
         active_instance = instance_id or self._generate_instance_id()
-        chat_history = self._construct_messages_with_instance_history(active_instance)
+        chat_history = self._reconstruct_conversation_history(active_instance)
         return self.prompting_helper.build_initial_messages(
             user_input=input_data,
             chat_history=chat_history,

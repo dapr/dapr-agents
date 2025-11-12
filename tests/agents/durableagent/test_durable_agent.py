@@ -431,7 +431,9 @@ class TestDurableAgent:
         # Mock the activity context and save_state
         mock_ctx = Mock()
 
-        with patch.object(basic_durable_agent, "save_state"):
+        with patch.object(basic_durable_agent, "save_state"), patch.object(
+            basic_durable_agent, "load_state"
+        ):
             basic_durable_agent.finalize_workflow(
                 mock_ctx,
                 {
@@ -487,7 +489,9 @@ class TestDurableAgent:
             # Mock the activity context and save_state
             mock_ctx = Mock()
 
-            with patch.object(basic_durable_agent, "save_state"):
+            with patch.object(basic_durable_agent, "save_state"), patch.object(
+                basic_durable_agent, "load_state"
+            ):
                 result = basic_durable_agent.run_tool(
                     mock_ctx,
                     {
@@ -741,7 +745,9 @@ class TestDurableAgent:
 
             mock_ctx = Mock()
 
-            with patch.object(basic_durable_agent, "save_state"):
+            with patch.object(basic_durable_agent, "save_state"), patch.object(
+                basic_durable_agent, "load_state"
+            ):
                 result = basic_durable_agent.run_tool(
                     mock_ctx,
                     {
@@ -805,7 +811,9 @@ class TestDurableAgent:
         )
 
         # Mock save_state to prevent actual persistence
-        with patch.object(basic_durable_agent, "save_state"):
+        with patch.object(basic_durable_agent, "save_state"), patch.object(
+            basic_durable_agent, "load_state"
+        ):
             mock_ctx = Mock()
 
             # Call run_tool activity which appends messages and tool_history
@@ -892,8 +900,8 @@ class TestDurableAgent:
         assert basic_durable_agent.tool_history[0].tool_call_id == "call_123"
         assert basic_durable_agent.tool_history[0].tool_name == "TestToolFunc"
 
-    def test_construct_messages_with_instance_history(self, basic_durable_agent):
-        """Test _construct_messages_with_instance_history helper method."""
+    def test_reconstruct_conversation_history(self, basic_durable_agent):
+        """Test test_reconstruct_conversation_history helper method."""
         from datetime import datetime, timezone
 
         instance_id = "test-instance-123"
@@ -918,9 +926,7 @@ class TestDurableAgent:
             start_time=datetime.now(timezone.utc),
         )
 
-        messages = basic_durable_agent._construct_messages_with_instance_history(
-            instance_id
-        )
+        messages = basic_durable_agent._reconstruct_conversation_history(instance_id)
 
         # Should include messages from instance history (system messages excluded from instance timeline)
         # Plus any messages from memory
