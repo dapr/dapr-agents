@@ -150,7 +150,7 @@ def run_quickstart_script(
     trigger_curl: Optional[Dict[str, Any]] = None,
     trigger_pubsub: Optional[Dict[str, Any]] = None,
     create_venv: bool = True,
-    stream_logs: bool = False,
+    stream_logs: bool = True,
 ) -> subprocess.CompletedProcess:
     """
     Run a quickstart script and return the result.
