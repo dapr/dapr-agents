@@ -1,4 +1,5 @@
 import os
+import signal
 import subprocess
 import logging
 import tempfile
@@ -517,6 +518,137 @@ def _wait_for_port(host: str, port: int, timeout: int = 30) -> bool:
     return False
 
 
+def wait_for_port(host: str, port: int, timeout: int = 30) -> bool:
+    """Wait for a port to become available"""
+    return _wait_for_port(host, port, timeout)
+
+
+class MCPServerContext:
+    """
+    Context manager for starting and stopping an MCP server in tests.
+    
+    Usage:
+        with MCPServerContext(quickstart_dir, server_type="sse", port=8000, env={}) as server:
+            # Run your test here
+            result = run_quickstart_script(...)
+    """
+    
+    def __init__(
+        self,
+        quickstart_dir: Path,
+        server_type: str = "sse",
+        port: int = 8000,
+        env: Optional[dict] = None,
+        timeout: int = 10,
+    ):
+        """
+        Initialize MCP server context.
+        
+        Args:
+            quickstart_dir: Directory containing the server.py file
+            server_type: Type of server ("sse" or "streamable-http")
+            port: Port to run the server on
+            env: Environment variables to pass to the server
+            timeout: Timeout in seconds to wait for server to start
+        """
+        self.quickstart_dir = quickstart_dir
+        self.server_type = server_type
+        self.port = port
+        self.env = env or {}
+        self.timeout = timeout
+        self.server_process = None
+        self.logger = logging.getLogger(__name__)
+    
+    def __enter__(self):
+        """Start the MCP server and wait for it to be ready."""
+        # Setup venv for the quickstart
+        project_root = self.quickstart_dir.parent.parent
+        venv_python = setup_quickstart_venv(self.quickstart_dir, project_root)
+        python_cmd = str(venv_python) if venv_python and venv_python.exists() else "python"
+        
+        # Start MCP server in background
+        server_script = self.quickstart_dir / "server.py"
+        server_cmd = [
+            python_cmd,
+            str(server_script),
+            "--server_type",
+            self.server_type,
+            "--port",
+            str(self.port),
+        ]
+        
+        self.logger.info(f"Starting MCP server: {' '.join(server_cmd)}")
+        full_env = os.environ.copy()
+        full_env.update(self.env)
+        
+        # Create process in a new process group so we can kill all children
+        if os.name == 'posix':
+            self.server_process = subprocess.Popen(
+                server_cmd,
+                cwd=self.quickstart_dir,
+                env=full_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                preexec_fn=os.setsid,  # Create new process group
+            )
+        else:  # Windows
+            self.server_process = subprocess.Popen(
+                server_cmd,
+                cwd=self.quickstart_dir,
+                env=full_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+        
+        # Wait for MCP server to be ready
+        self.logger.info(f"Waiting for MCP server to start on port {self.port}...")
+        if not _wait_for_port("localhost", self.port, timeout=self.timeout):
+            self._terminate_server()
+            raise RuntimeError(f"MCP server failed to start on port {self.port}")
+        
+        self.logger.info("MCP server is ready")
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Terminate the MCP server."""
+        self._terminate_server()
+        return False  # Don't suppress exceptions
+    
+    def _terminate_server(self):
+        """Terminate the MCP server process."""
+        if self.server_process is None:
+            return
+        
+        self.logger.info("Terminating MCP server...")
+        try:
+            if os.name == 'posix':
+                try:
+                    pgid = os.getpgid(self.server_process.pid)
+                    os.killpg(pgid, signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    pass
+            else:
+                self.server_process.terminate()
+            self.server_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.logger.warning("MCP server didn't terminate gracefully, sending SIGKILL...")
+            try:
+                if os.name == 'posix':
+                    try:
+                        pgid = os.getpgid(self.server_process.pid)
+                        os.killpg(pgid, signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+                else:
+                    self.server_process.kill()
+                self.server_process.wait(timeout=2)
+            except Exception as e:
+                self.logger.warning(f"Error killing MCP server: {e}")
+
+
 def _stream_output(pipe, log_func, prefix=""):
     """Stream output from a pipe to a logging function."""
     try:
@@ -569,34 +701,53 @@ def _run_multi_app_with_completion_detection(
     if orchestrator_workflow_name:
         logger.info(f"Looking for orchestrator workflow completion: {orchestrator_workflow_name}")
     
-    process = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,  # Line buffered
-    )
+    # Create process in a new process group so we can kill all children
+    # This is important because `dapr run -f` spawns multiple child processes
+    # and we need to ensure they all terminate when the test completes
+    if os.name == 'posix':  # Unix-like systems
+        process = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+            preexec_fn=os.setsid,  # Create new process group
+        )
+    else:  # Windows
+        process = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,  # Windows process group
+        )
     
     # Collect output while streaming
     stdout_lines = []
     stderr_lines = []
     orchestrator_completion_detected = False
+    orchestrator_failed = False
     completion_time = None
-    completed_workflows = set()  # Track all completed workflows
+    completed_workflows = set()  # Track unique workflow types
+    completion_count = {}  # Track count of each workflow type
     
-    # Pattern to match ORCHESTRATION_STATUS_COMPLETED with workflow name
-    # Matches: ... ORCHESTRATION_STATUS_COMPLETED ... workflowName 'random_workflow'
-    # Example: workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName 'random_workflow'
+    # Pattern to match the specific log line format:
+    # "workflow completed with status 'ORCHESTRATION_STATUS_COMPLETED' workflowName '<name>'"
+    # Also match FAILED status to detect quickstart failures early
+    # This is the only format we want to match - it's from the Workflow Actor log
     completion_pattern = re.compile(
-        r"ORCHESTRATION_STATUS_COMPLETED.*?workflowName\s+['\"]([^'\"]+)['\"]",
+        r"workflow completed with status\s+['\"](ORCHESTRATION_STATUS_COMPLETED|ORCHESTRATION_STATUS_FAILED)['\"]\s+workflowName\s+['\"]([^'\"]+)['\"]",
         re.IGNORECASE
     )
     
     def _stream_and_detect(pipe, log_func, prefix, lines_list):
         """Stream output from a pipe and detect completion."""
-        nonlocal orchestrator_completion_detected, completion_time, completed_workflows
+        nonlocal orchestrator_completion_detected, orchestrator_failed, completion_time, completed_workflows, completion_count
         try:
             for line in iter(pipe.readline, ""):
                 if line:
@@ -604,23 +755,47 @@ def _run_multi_app_with_completion_detection(
                     log_func(f"{prefix}{stripped}")
                     lines_list.append(line)
                     
-                    # Check for ORCHESTRATION_STATUS_COMPLETED messages
+                    # Check for ORCHESTRATION_STATUS_COMPLETED or FAILED messages
+                    # Only match the exact format: "workflow completed with status 'ORCHESTRATION_STATUS_*' workflowName '<name>'"
                     match = completion_pattern.search(line)
                     if match:
-                        workflow_name = match.group(1)
+                        status = match.group(1)
+                        workflow_name = match.group(2)
                         if workflow_name:
+                            is_failed = "FAILED" in status.upper()
                             completed_workflows.add(workflow_name)
-                            logger.info(f"Detected workflow completion: {workflow_name}")
+                            completion_count[workflow_name] = completion_count.get(workflow_name, 0) + 1
+                            total_completions = sum(completion_count.values())
+                            # Extract a snippet of the matched line for verification
+                            matched_snippet = match.group(0)[:100] if len(match.group(0)) > 100 else match.group(0)
+                            logger.debug(
+                                f"Matched line snippet: ...{matched_snippet}... "
+                                f"Extracted workflow: {workflow_name}, status: {status}"
+                            )
+                            status_label = "FAILED" if is_failed else "completed"
+                            logger.info(
+                                f"Detected workflow {status_label}: {workflow_name} "
+                                f"(instance {completion_count[workflow_name]} of this type, "
+                                f"{total_completions} total completions)"
+                            )
                             
                             # Check if this is the orchestrator's main workflow
                             if orchestrator_workflow_name and workflow_name == orchestrator_workflow_name:
                                 if not orchestrator_completion_detected:
                                     orchestrator_completion_detected = True
+                                    orchestrator_failed = is_failed
                                     completion_time = time.time()
-                                    logger.info(
-                                        f"Orchestrator workflow '{orchestrator_workflow_name}' completed! "
-                                        f"Total completed workflows: {len(completed_workflows)}"
-                                    )
+                                    if is_failed:
+                                        logger.error(
+                                            f"Orchestrator workflow '{orchestrator_workflow_name}' FAILED! "
+                                            f"This indicates a quickstart bug, not a test issue."
+                                        )
+                                    else:
+                                        logger.info(
+                                            f"Orchestrator workflow '{orchestrator_workflow_name}' completed! "
+                                            f"Unique workflow types: {len(completed_workflows)}, "
+                                            f"Total completion instances: {total_completions}"
+                                        )
                     
                     # Also check for [agent-runner] completion message as a fallback
                     if not orchestrator_completion_detected and "[agent-runner]" in line and "completed" in line.lower():
@@ -656,14 +831,31 @@ def _run_multi_app_with_completion_detection(
             # Wait for grace period after completion
             elapsed = time.time() - completion_time
             if elapsed >= grace_period:
+                # Build summary of completions
+                completion_summary = ", ".join(
+                    f"{name}({completion_count.get(name, 0)})"
+                    for name in sorted(completed_workflows)
+                )
+                total_completions = sum(completion_count.values())
                 logger.info(
                     f"Grace period ({grace_period}s) elapsed after orchestrator completion. "
-                    f"Completed workflows: {sorted(completed_workflows)}. "
+                    f"Unique workflow types: {len(completed_workflows)} ({completion_summary}), "
+                    f"Total completion instances: {total_completions}. "
                     f"Sending SIGTERM to shut down gracefully..."
                 )
-                # Send SIGTERM to gracefully shut down
+                # Send SIGTERM to gracefully shut down the entire process group
                 try:
-                    process.terminate()
+                    if os.name == 'posix':
+                        # Kill the entire process group on Unix
+                        try:
+                            pgid = os.getpgid(process.pid)
+                            os.killpg(pgid, signal.SIGTERM)
+                        except (ProcessLookupError, OSError) as e:
+                            # Process may have already exited
+                            logger.debug(f"Process already exited when sending SIGTERM: {e}")
+                    else:
+                        # On Windows, terminate the process (process group handling is different)
+                        process.terminate()
                 except Exception as e:
                     logger.warning(f"Error sending SIGTERM: {e}")
                 break
@@ -682,8 +874,25 @@ def _run_multi_app_with_completion_detection(
             logger.info("Process terminated gracefully")
         except subprocess.TimeoutExpired:
             logger.warning("Process didn't terminate gracefully, sending SIGKILL...")
-            process.kill()
-            process.wait()
+            try:
+                if os.name == 'posix':
+                    # Kill the entire process group on Unix
+                    try:
+                        pgid = os.getpgid(process.pid)
+                        os.killpg(pgid, signal.SIGKILL)
+                    except (ProcessLookupError, OSError) as e:
+                        # Process may have already exited
+                        logger.debug(f"Process already exited when sending SIGKILL: {e}")
+                else:
+                    # On Windows, kill the process
+                    process.kill()
+            except Exception as e:
+                # Process may have already exited
+                logger.debug(f"Error killing process group: {e}")
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                logger.warning("Process still didn't terminate after SIGKILL")
     
     # Wait for threads to finish reading
     stdout_thread.join(timeout=2)
@@ -704,17 +913,41 @@ def _run_multi_app_with_completion_detection(
     returncode = process.returncode or 0  # If terminated gracefully, return 0
     
     # Validate completion
+    total_completions = sum(completion_count.values())
     if orchestrator_workflow_name:
         if orchestrator_workflow_name not in completed_workflows:
+            completion_summary = ", ".join(
+                f"{name}({completion_count.get(name, 0)})"
+                for name in sorted(completed_workflows)
+            )
             logger.warning(
                 f"Orchestrator workflow '{orchestrator_workflow_name}' not found in completed workflows. "
-                f"Completed workflows: {sorted(completed_workflows)}"
+                f"Completed workflows: {completion_summary} (total instances: {total_completions})"
             )
         else:
-            logger.info(
-                f"Successfully detected orchestrator workflow '{orchestrator_workflow_name}' completion. "
-                f"Total completed workflows: {len(completed_workflows)}"
+            completion_summary = ", ".join(
+                f"{name}({completion_count.get(name, 0)})"
+                for name in sorted(completed_workflows)
             )
+            if orchestrator_failed:
+                logger.error(
+                    f"Orchestrator workflow '{orchestrator_workflow_name}' FAILED. "
+                    f"Unique workflow types: {len(completed_workflows)} ({completion_summary}), "
+                    f"Total completion instances: {total_completions}"
+                )
+            else:
+                logger.info(
+                    f"Successfully detected orchestrator workflow '{orchestrator_workflow_name}' completion. "
+                    f"Unique workflow types: {len(completed_workflows)} ({completion_summary}), "
+                    f"Total completion instances: {total_completions}"
+                )
+    
+    # If orchestrator failed, raise an error immediately
+    if orchestrator_failed:
+        raise RuntimeError(
+            f"Orchestrator workflow '{orchestrator_workflow_name}' failed. "
+            f"Check the logs above for details."
+        )
     
     if not orchestrator_completion_detected and time.time() - start_time >= timeout:
         raise subprocess.TimeoutExpired(
