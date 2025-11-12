@@ -1247,9 +1247,7 @@ def _run_with_pubsub_trigger(
         # Both sidecars will use the same resources path, so they share the same pub/sub component
         # Use a different app-id and port to avoid conflicts
         message_client_app_id = "test-pubsub-client"
-        message_client_dapr_port = (
-            dapr_http_port + 100
-        )
+        message_client_dapr_port = dapr_http_port + 100
 
         # Extract resources path from the original command if it's using dapr run
         resources_path_for_client = cwd / "components"
