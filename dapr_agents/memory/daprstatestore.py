@@ -85,23 +85,56 @@ class ConversationDaprStateMemory(MemoryBase):
             message (Union[Dict[str, Any], BaseMessage]): The message to add to the memory.
         """
         message = self._convert_to_dict(message)
-        message_id = str(uuid.uuid4())
-        message_key = self._get_message_key(message_id)
         message.update(
             {
                 "createdAt": datetime.now().isoformat() + "Z",
             }
         )
-        existing = self.get_messages()
-        existing.append(message)
-        logger.debug(
-            f"Adding message {message} with key {message_key} to session {self.session_id}"
-        )
-        self.dapr_store.save_state(
-            self.session_id,
-            json.dumps(existing),
-            state_metadata={"contentType": "application/json"},
-        )
+
+        # Retry loop for optimistic concurrency control
+        # TODO: make this nicer in future, but for durability this must all be atomic
+        max_attempts = 10
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = self.dapr_store.get_state(
+                    self.session_id,
+                    state_metadata={"contentType": "application/json"},
+                )
+
+                if response and response.data:
+                    existing = json.loads(response.data)
+                    etag = response.etag
+                else:
+                    existing = []
+                    etag = None
+
+                existing.append(message)
+                # Save with etag - will fail if someone else modified it
+                self.dapr_store.save_state(
+                    self.session_id,
+                    json.dumps(existing),
+                    state_metadata={"contentType": "application/json"},
+                    etag=etag,
+                )
+
+                # Success - exit retry loop
+                return
+
+            except Exception as exc:
+                if attempt == max_attempts:
+                    logger.exception(
+                        f"Failed to add message to session {self.session_id} after {max_attempts} attempts: {exc}"
+                    )
+                    raise
+                else:
+                    logger.warning(
+                        f"Conflict adding message to session {self.session_id} (attempt {attempt}/{max_attempts}): {exc}, retrying..."
+                    )
+                    # Brief exponential backoff with jitter
+                    import time
+                    import random
+
+                    time.sleep(min(0.1 * attempt, 0.5) * (1 + random.uniform(0, 0.25)))
 
     def add_messages(self, messages: List[Union[Dict[str, Any], BaseMessage]]) -> None:
         """
