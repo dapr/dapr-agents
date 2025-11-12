@@ -137,6 +137,101 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
     return venv_python
 
 
+def _get_project_root(quickstart_dir: Path) -> Path:
+    """Get the project root directory from a quickstart directory."""
+    return (
+        quickstart_dir.parent.parent
+        if "quickstarts" in str(quickstart_dir)
+        else quickstart_dir.parent
+    )
+
+
+def _setup_venv_and_python(
+    quickstart_dir: Path,
+    project_root: Path,
+    create_venv: bool = True,
+) -> tuple[Optional[Path], str]:
+    """
+    Setup venv and determine Python command to use.
+
+    Returns:
+        Tuple of (venv_python_path, python_cmd)
+    """
+    use_existing_venv = os.getenv("USE_EXISTING_VENV", "").lower() in ("true", "1")
+    should_create_venv = create_venv and not use_existing_venv
+
+    venv_python = None
+    python_cmd = "python"  # Default fallback
+
+    if should_create_venv:
+        venv_python = setup_quickstart_venv(quickstart_dir, project_root)
+        if venv_python.exists():
+            python_cmd = str(venv_python)
+    else:
+        if use_existing_venv:
+            logger.info(
+                f"Using existing venv/system Python for {quickstart_dir} (USE_EXISTING_VENV=true)"
+            )
+            # When using existing venv, prefer the active venv's Python if available
+            # This helps avoid uv warnings about venv mismatches when running with `uv run pytest`
+            if "VIRTUAL_ENV" in os.environ:
+                venv_python_path = Path(os.environ["VIRTUAL_ENV"]) / "bin" / "python"
+                if not venv_python_path.exists():
+                    venv_python_path = (
+                        Path(os.environ["VIRTUAL_ENV"]) / "Scripts" / "python.exe"
+                    )
+                if venv_python_path.exists():
+                    python_cmd = str(venv_python_path)
+                    venv_python = venv_python_path
+                    logger.debug(f"Using active venv Python: {python_cmd}")
+                else:
+                    logger.debug(
+                        f"VIRTUAL_ENV set to {os.environ['VIRTUAL_ENV']} but Python not found, using system Python"
+                    )
+        else:
+            logger.info(
+                f"Using existing venv/system Python for {quickstart_dir} (create_venv=False)"
+            )
+        # If python_cmd is still "python", it will use system Python or whatever is in PATH
+
+    return venv_python, python_cmd
+
+
+def _resolve_component_env_vars(
+    resources_path: Path,
+    cwd_path: Path,
+    venv_python: Optional[Path],
+    env: dict,
+) -> Path:
+    """
+    Resolve environment variables in component files if needed.
+
+    Returns:
+        Path to resolved components directory (may be a temp directory)
+    """
+    project_root_path = _get_project_root(cwd_path)
+    resolve_script = project_root_path / "quickstarts" / "resolve_env_templates.py"
+
+    if resolve_script.exists() and resources_path.exists():
+        resolve_python = (
+            str(venv_python) if venv_python and venv_python.exists() else "python"
+        )
+        resolve_result = subprocess.run(
+            [resolve_python, str(resolve_script), str(resources_path)],
+            cwd=cwd_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if resolve_result.returncode == 0:
+            resolved_path = resolve_result.stdout.strip()
+            if resolved_path and Path(resolved_path).exists():
+                return Path(resolved_path)
+
+    return resources_path
+
+
 def run_quickstart_script(
     script_path: Path,
     cwd: Optional[Path] = None,
@@ -189,7 +284,7 @@ def run_quickstart_script(
             }
         create_venv: Whether to create and use an ephemeral test venv (defaults to True).
                   Set to False or USE_EXISTING_VENV=true to use system Python instead.
-        stream_logs: If True, stream stdout/stderr to logger in real-time (defaults to False).
+        stream_logs: If True, stream stdout/stderr to logger in real-time (defaults to True).
                   Useful for debugging long-running tests.
     """
     full_env = os.environ.copy()
@@ -198,49 +293,11 @@ def run_quickstart_script(
 
     cwd_path = cwd or script_path.parent
     quickstart_dir = cwd_path
-    project_root = (
-        quickstart_dir.parent.parent
-        if "quickstarts" in str(quickstart_dir)
-        else quickstart_dir.parent
+    project_root = _get_project_root(quickstart_dir)
+
+    venv_python, python_cmd = _setup_venv_and_python(
+        quickstart_dir, project_root, create_venv
     )
-
-    # Setup venv if requested
-    # For local dev, set USE_EXISTING_VENV=true to skip venv creation and use system Python
-    # Or pass create_venv=False to use system Python
-    use_existing_venv = os.getenv("USE_EXISTING_VENV", "").lower() in ("true", "1")
-    should_create_venv = create_venv and not use_existing_venv
-
-    venv_python = None
-    python_cmd = "python"  # Default fallback
-    if should_create_venv:
-        venv_python = setup_quickstart_venv(quickstart_dir, project_root)
-        if venv_python.exists():
-            python_cmd = str(venv_python)
-    else:
-        if use_existing_venv:
-            logger.info(
-                f"Using existing venv/system Python for {quickstart_dir} (USE_EXISTING_VENV=true)"
-            )
-            # When using existing venv, prefer the active venv's Python if available
-            # This helps avoid uv warnings about venv mismatches when running with `uv run pytest`
-            if "VIRTUAL_ENV" in os.environ:
-                venv_python_path = Path(os.environ["VIRTUAL_ENV"]) / "bin" / "python"
-                if not venv_python_path.exists():
-                    venv_python_path = (
-                        Path(os.environ["VIRTUAL_ENV"]) / "Scripts" / "python.exe"
-                    )
-                if venv_python_path.exists():
-                    python_cmd = str(venv_python_path)
-                    logger.debug(f"Using active venv Python: {python_cmd}")
-                else:
-                    logger.debug(
-                        f"VIRTUAL_ENV set to {os.environ['VIRTUAL_ENV']} but Python not found, using system Python"
-                    )
-        else:
-            logger.info(
-                f"Using existing venv/system Python for {quickstart_dir} (create_venv=False)"
-            )
-        # If python_cmd is still "python", it will use system Python or whatever is in PATH
 
     if use_dapr:
         if not app_id:
@@ -248,29 +305,9 @@ def run_quickstart_script(
         if not resources_path:
             resources_path = cwd_path / "components"
 
-        # Check if components directory exists and resolve env vars if needed
-        project_root_path = (
-            cwd_path.parent.parent
-            if "quickstarts" in str(cwd_path)
-            else cwd_path.parent
+        resources_path = _resolve_component_env_vars(
+            resources_path, cwd_path, venv_python, full_env
         )
-        resolve_script = project_root_path / "quickstarts" / "resolve_env_templates.py"
-        if resolve_script.exists() and resources_path.exists():
-            resolve_python = (
-                str(venv_python) if venv_python and venv_python.exists() else "python"
-            )
-            resolve_result = subprocess.run(
-                [resolve_python, str(resolve_script), str(resources_path)],
-                cwd=cwd_path,
-                env=full_env,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if resolve_result.returncode == 0:
-                resolved_path = resolve_result.stdout.strip()
-                if resolved_path and Path(resolved_path).exists():
-                    resources_path = Path(resolved_path)
 
         # Build dapr run command
         cmd = [
@@ -362,57 +399,16 @@ def run_quickstart_multi_app(
 
     cwd_path = cwd or dapr_yaml_path.parent
     quickstart_dir = cwd_path
-    project_root = (
-        quickstart_dir.parent.parent
-        if "quickstarts" in str(quickstart_dir)
-        else quickstart_dir.parent
-    )
+    project_root = _get_project_root(quickstart_dir)
 
-    # Setup venv if requested (same logic as run_quickstart_script)
-    use_existing_venv = os.getenv("USE_EXISTING_VENV", "").lower() in ("true", "1")
-    should_create_venv = create_venv and not use_existing_venv
-
-    venv_python = None
-    if should_create_venv:
-        venv_python = setup_quickstart_venv(quickstart_dir, project_root)
-    elif use_existing_venv:
-        logger.info(
-            f"Using existing venv/system Python for {quickstart_dir} (USE_EXISTING_VENV=true)"
-        )
-        if "VIRTUAL_ENV" in os.environ:
-            venv_python_path = Path(os.environ["VIRTUAL_ENV"]) / "bin" / "python"
-            if not venv_python_path.exists():
-                venv_python_path = (
-                    Path(os.environ["VIRTUAL_ENV"]) / "Scripts" / "python.exe"
-                )
-            if venv_python_path.exists():
-                venv_python = venv_python_path
+    venv_python, _ = _setup_venv_and_python(quickstart_dir, project_root, create_venv)
 
     # Resolve environment variables in components if needed
     resources_path = quickstart_dir / "components"
     if resources_path.exists():
-        project_root_path = (
-            quickstart_dir.parent.parent
-            if "quickstarts" in str(quickstart_dir)
-            else quickstart_dir.parent
+        resources_path = _resolve_component_env_vars(
+            resources_path, cwd_path, venv_python, full_env
         )
-        resolve_script = project_root_path / "quickstarts" / "resolve_env_templates.py"
-        if resolve_script.exists():
-            resolve_python = (
-                str(venv_python) if venv_python and venv_python.exists() else "python"
-            )
-            resolve_result = subprocess.run(
-                [resolve_python, str(resolve_script), str(resources_path)],
-                cwd=cwd_path,
-                env=full_env,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if resolve_result.returncode == 0:
-                resolved_path = resolve_result.stdout.strip()
-                if resolved_path and Path(resolved_path).exists():
-                    resources_path = Path(resolved_path)
 
     # Build dapr run -f command
     cmd = ["dapr", "run", "-f", str(dapr_yaml_path)]
