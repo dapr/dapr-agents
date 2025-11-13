@@ -134,7 +134,7 @@ class DockerCodeExecutor(CodeExecutorBase):
                 detach=True,
                 stdin_open=True,
                 tty=(self.execution_mode == "interactive"),
-                auto_remove=False,
+                auto_remove=self.auto_remove,
                 network_disabled=self.disable_network_access,
                 mem_limit=self.max_memory,
                 cpu_quota=self.cpu_quota,
