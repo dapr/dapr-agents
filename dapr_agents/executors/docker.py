@@ -12,7 +12,7 @@ import os
 try:
     from docker import DockerClient
     from docker.models.containers import Container
-    from docker.errors import DockerException
+    from docker.errors import DockerException, NotFound, APIError
 except ImportError as e:
     raise ImportError("Install 'docker' package with 'pip install docker'.") from e
 
@@ -111,12 +111,6 @@ class DockerCodeExecutor(CodeExecutorBase):
 
     def ensure_container(self) -> None:
         """Ensures that the execution container exists. If not, it creates and starts one."""
-        try:
-            from docker.errors import NotFound
-        except ImportError as e:
-            raise ImportError(
-                "Install 'docker' package with 'pip install docker'."
-            ) from e
 
         try:
             self.execution_container = self.client.containers.get(self.container_name)
@@ -129,12 +123,7 @@ class DockerCodeExecutor(CodeExecutorBase):
 
     def create_container(self) -> None:
         """Creates a reusable Docker container."""
-        try:
-            from docker.errors import DockerException, APIError
-        except ImportError as e:
-            raise ImportError(
-                "Install 'docker' package with 'pip install docker'."
-            ) from e
+
         try:
             if self.restart_policy:
                 restart_policy: _RestartPolicy = {"Name": self.restart_policy}
