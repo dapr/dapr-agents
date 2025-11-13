@@ -39,6 +39,7 @@ dependencies = [
     "python-dotenv>=1.1.1,<2.0.0",
     "posthog<6.0.0",
     "protobuf>=6.31.0,<7.0.0",
+    "docker>=7.1.0",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
