@@ -35,3 +35,13 @@ class TestAgentsAsTasksInWorkflowsQuickstart:
             f"STDERR:\n{result.stderr}"
         )
         assert "Workflow started:" in result.stdout or len(result.stdout) > 0
+
+    def test_sequential_workflow_tracing(self):
+        pytest.skip(
+            "Skipping tracing test (test_sequential_workflow_tracing) in CI for now"
+        )
+
+    def test_sequential_workflow_multi_model_tracing(self):
+        pytest.skip(
+            "Skipping tracing test (test_sequential_workflow_multi_model_tracing) in CI for now"
+        )

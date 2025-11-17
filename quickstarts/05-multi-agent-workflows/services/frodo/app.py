@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from dotenv import load_dotenv
 
@@ -35,7 +36,9 @@ async def main() -> None:
     """
     # Shared infra (registry)
     registry = AgentRegistryConfig(
-        store=StateStoreService(store_name="agentregistrystore"),
+        store=StateStoreService(
+            store_name=os.getenv("REGISTRY_STATE_STORE", "agentregistrystore")
+        ),
         team_name="fellowship",
     )
 

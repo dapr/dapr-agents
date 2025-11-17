@@ -18,19 +18,25 @@ class TestMessageRouterWorkflowQuickstart:
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
+
+        This test starts the workflow app and triggers it by publishing a message
+        to the blog.requests topic, which will start the blog_workflow.
         """
-        # Note: This quickstart requires two processes:
-        # 1. The workflow app (app.py)
-        # 2. The message client (message_client.py)
-        # For integration tests, we'll just test that the app can start
         script = self.quickstart_dir / "app.py"
         result = run_quickstart_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=30,  # Just test startup, not full execution
+            timeout=120,
             use_dapr=True,
             app_id="message-router-app",
+            dapr_http_port=3500,
+            trigger_pubsub={
+                "pubsub_name": "messagepubsub",
+                "topic": "blog.requests",
+                "data": {"topic": "AI Agents"},
+                "wait_seconds": 5,
+            },
         )
 
         assert result.returncode == 0, (
@@ -38,3 +44,5 @@ class TestMessageRouterWorkflowQuickstart:
             f"STDOUT:\n{result.stdout}\n"
             f"STDERR:\n{result.stderr}"
         )
+        # expect some output
+        assert len(result.stdout) > 0 or len(result.stderr) > 0

@@ -47,13 +47,13 @@ class TestHelloWorldQuickstart:
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 
-    def test_durable_agent(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent example (03_durable_agent.py).
+    def test_durable_agent_run(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent run example (03_durable_agent_run.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        script_path = self.quickstart_dir / "03_durable_agent.py"
+        script_path = self.quickstart_dir / "03_durable_agent_run.py"
         result = run_quickstart_script(
             script_path,
             cwd=self.quickstart_dir,
@@ -62,6 +62,68 @@ class TestHelloWorldQuickstart:
             use_dapr=True,
             app_id="stateful-llm",
             dapr_http_port=3500,
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_durable_agent_serve(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent serve example (03_durable_agent_serve.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        script_path = self.quickstart_dir / "03_durable_agent_serve.py"
+        result = run_quickstart_script(
+            script_path,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,
+            use_dapr=True,
+            app_id="stateful-llm",
+            dapr_http_port=3500,
+            app_port=8001,
+            trigger_curl={
+                "url": "http://localhost:8001/run",
+                "method": "POST",
+                "data": {"task": "I want to find flights to Paris"},
+                "headers": {"Content-Type": "application/json"},
+                "wait_seconds": 5,
+            },
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_durable_agent_subscribe(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent subscribe example (03_durable_agent_subscribe.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        script_path = self.quickstart_dir / "03_durable_agent_subscribe.py"
+        result = run_quickstart_script(
+            script_path,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,
+            use_dapr=True,
+            app_id="stateful-llm",
+            dapr_http_port=3500,
+            trigger_pubsub={
+                "pubsub_name": "messagepubsub",
+                "topic": "travel.requests",
+                "data": {"task": "Plan a trip to Tokyo with two flight options"},
+                "wait_seconds": 5,
+            },
         )
 
         assert result.returncode == 0, (
@@ -88,3 +150,21 @@ class TestHelloWorldQuickstart:
             f"STDOUT:\n{result.stdout}\n"
             f"STDERR:\n{result.stderr}"
         )
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_agent_with_vectorstore(self):
+        """Test agent with vectorstore example (05_agent_with_vectorstore.py)."""
+        script_path = self.quickstart_dir / "05_agent_with_vectorstore.py"
+        result = run_quickstart_script(
+            script_path,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
