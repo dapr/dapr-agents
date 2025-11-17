@@ -13,7 +13,7 @@ class TestMCPClientStdioQuickstart:
         self.quickstart_dir = quickstarts_dir / "07-agent-mcp-client-stdio"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
-    def test_mcp_agent_stdio(self):
+    def test_mcp_agent_stdio(self, dapr_runtime):  # noqa: ARG002
         """Test MCP agent with STDIO transport (agent.py)."""
         script = self.quickstart_dir / "agent.py"
         result = run_quickstart_script(
@@ -21,6 +21,16 @@ class TestMCPClientStdioQuickstart:
             cwd=self.quickstart_dir,
             env=self.env,
             timeout=90,
+            use_dapr=True,
+            app_id="mcp-agent-stdio",
+            stream_logs=True,
+            trigger_curl={
+                "url": "http://localhost:8001/run",
+                "method": "POST",
+                "data": {"task": "What is the weather in New York?"},
+                "headers": {"Content-Type": "application/json"},
+                "wait_seconds": 10,
+            },
         )
 
         assert result.returncode == 0, (

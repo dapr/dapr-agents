@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -724,6 +724,7 @@ dependencies = [
     { name = "dapr" },
     { name = "dapr-ext-fastapi" },
     { name = "dapr-ext-workflow" },
+    { name = "docker" },
     { name = "durabletask-dapr" },
     { name = "fastapi" },
     { name = "huggingface-hub" },
@@ -789,6 +790,7 @@ requires-dist = [
     { name = "dapr", specifier = ">=1.16.0rc2" },
     { name = "dapr-ext-fastapi", specifier = ">=1.16.0rc2" },
     { name = "dapr-ext-workflow", specifier = ">=1.16.0rc2" },
+    { name = "docker", specifier = ">=7.1.0" },
     { name = "docker", marker = "extra == 'test'", specifier = ">=7.0.0,<8.0.0" },
     { name = "durabletask-dapr", specifier = ">=0.2.0a7" },
     { name = "fastapi", specifier = ">=0.110.0,<1.0.0" },

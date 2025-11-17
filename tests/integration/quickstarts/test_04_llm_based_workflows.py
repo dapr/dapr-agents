@@ -14,11 +14,6 @@ class TestLLMBasedWorkflowsQuickstart:
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_single_activity_workflow(self, dapr_runtime):  # noqa: ARG002
-        """Test single activity workflow (01_single_activity_workflow.py).
-
-        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
-        The fixture is needed for setup, even though we don't use the value directly.
-        """
         script = self.quickstart_dir / "01_single_activity_workflow.py"
         result = run_quickstart_script(
             script,
@@ -36,13 +31,45 @@ class TestLLMBasedWorkflowsQuickstart:
         )
         assert "Workflow started:" in result.stdout or "bio" in result.stdout.lower()
 
-    def test_sequential_workflow(self, dapr_runtime):  # noqa: ARG002
-        """Test sequential workflow (03_sequential_workflow.py).
+    def test_single_structured_activity_workflow(self, dapr_runtime):  # noqa: ARG002
+        script = self.quickstart_dir / "01_single_structured_activity_workflow.py"
+        result = run_quickstart_script(
+            script,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,  # Workflows with Dapr may take longer
+            use_dapr=True,
+            app_id="dapr-agent-wf-sequence",
+        )
 
-        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
-        The fixture is needed for setup, even though we don't use the value directly.
-        """
+        assert result.returncode == 0, (
+            f"Quickstart failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        assert "Workflow started:" in result.stdout or "bio" in result.stdout.lower()
+
+    def test_sequential_workflow(self, dapr_runtime):  # noqa: ARG002
         script = self.quickstart_dir / "03_sequential_workflow.py"
+        result = run_quickstart_script(
+            script,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=180,  # Sequential workflows may take longer
+            use_dapr=True,
+            app_id="dapr-agent-wf-sequence",
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        # expect some output
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_parallel_workflow(self, dapr_runtime):  # noqa: ARG002
+        script = self.quickstart_dir / "04_parallel_workflow.py"
         result = run_quickstart_script(
             script,
             cwd=self.quickstart_dir,

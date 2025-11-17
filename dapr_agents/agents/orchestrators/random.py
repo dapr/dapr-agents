@@ -272,7 +272,13 @@ class RandomOrchestrator(OrchestratorBase):
             logger.exception("Failed to publish broadcast message.")
 
     def _select_random_speaker_activity(self, ctx: wf.WorkflowActivityContext) -> str:
-        """Pick a random agent from the registry, avoiding the most recent speaker when possible."""
+        """
+        Pick a random agent from the registry, avoiding the most recent speaker when possible.
+
+        TODO: This method selects from all registered agents in the team, including
+        orchestrators. In the future, we may want to add health checks or availability
+        checks to ensure selected agents are actually running and ready to receive triggers.
+        """
         try:
             agents_metadata = self.list_team_agents(
                 include_self=False, team=self.effective_team()

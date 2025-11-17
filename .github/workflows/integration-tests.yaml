@@ -23,9 +23,7 @@ jobs:
     # Team membership will be verified for issue_comment events only
     if: |
       (github.event_name == 'issue_comment' &&
-       github.event.issue.pull_request &&
        contains(github.event.comment.body, '/ok-to-test')) ||
-      github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch'
     steps:
     - name: Simple check to verify user is authorized
@@ -106,8 +104,8 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       run: |
         
-        uv run pytest -m integration -v tests/integration/quickstarts/test_01_*.py tests/integration/quickstarts/test_02_*.py
-        # Run all integration tests in parallel (one file per quickstart directory)
+        uv run pytest -m integration -v tests/integration/quickstarts
+        # TODO: In future, run all integration tests in parallel (one file per quickstart directory)
         # -n auto uses all available CPUs, or specify -n 4 for fixed number
         # pytest -m integration -v -n auto tests/integration/quickstarts/
 
