@@ -48,7 +48,6 @@ class OrchestratorBase(AgentComponents):
         default_bundle: Optional[StateModelBundle] = None,
         final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
-
         super().__init__(
             name=name,
             pubsub=pubsub,

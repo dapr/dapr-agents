@@ -173,7 +173,7 @@ class RoundRobinOrchestrator(OrchestratorBase):
             raise RuntimeError(
                 "RoundRobin workflow completed without producing a final output."
             )
-        
+
         self._invoke_final_summary_callback(final_output)
         return final_output
 
