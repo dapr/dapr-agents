@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import random
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Callable
 
 import dapr.ext.workflow as wf
 from durabletask import task as dt_task
@@ -54,6 +54,7 @@ class RandomOrchestrator(OrchestratorBase):
         workflow_grpc: Optional[WorkflowGrpcOptions] = None,
         timeout_seconds: int = 60,
         runtime: Optional[wf.WorkflowRuntime] = None,
+        final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -64,6 +65,7 @@ class RandomOrchestrator(OrchestratorBase):
             agent_metadata=agent_metadata,
             workflow_grpc=workflow_grpc,
             runtime=runtime,
+            final_summary_callback=final_summary_callback,
         )
         self.timeout = max(1, timeout_seconds)
         self.current_speaker: Optional[str] = None

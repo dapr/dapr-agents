@@ -46,7 +46,7 @@ def main() -> None:
             team_name=os.getenv("TEAM_NAME", "fellowship"),
         ),
         execution=AgentExecutionConfig(
-            max_iterations=int(os.getenv("MAX_ITERATIONS", "8"))
+            max_iterations=int(os.getenv("MAX_ITERATIONS", "1"))
         ),
         agent_metadata={"legend": "One orchestrator to guide them all."},
         timeout_seconds=int(os.getenv("TIMEOUT_SECONDS", "45")),
