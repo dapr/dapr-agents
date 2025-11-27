@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, Literal, Optional, TypeVar, Union
 
 from fastapi import Body, FastAPI, HTTPException
 
+from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.runners.base import WorkflowRunner
 from dapr_agents.workflow.utils.core import get_decorated_methods
@@ -28,6 +29,7 @@ class AgentRunner(WorkflowRunner):
 
     def __init__(
         self,
+        agent: DurableAgent,
         *,
         name: str = "agent-runner",
         wf_client=None,
@@ -51,6 +53,8 @@ class AgentRunner(WorkflowRunner):
             auto_install_signals=auto_install_signals,
         )
         self._default_http_paths: set[str] = set()
+        self.agent = agent
+        self.agent.start()
 
     async def run(
         self,
@@ -368,7 +372,6 @@ class AgentRunner(WorkflowRunner):
 
     def serve(
         self,
-        agent: Any,
         *,
         app: Optional[FastAPI] = None,
         host: str = "0.0.0.0",
@@ -404,17 +407,17 @@ class AgentRunner(WorkflowRunner):
         fastapi_app = app or FastAPI(title="Dapr Agent Service", version="1.0.0")
 
         self.subscribe(
-            agent,
+            self.agent,
             delivery_mode=delivery_mode,
             queue_maxsize=queue_maxsize,
         )
 
-        self._wire_http_routes(agent=agent, fastapi_app=fastapi_app)
+        self._wire_http_routes(agent=self.agent, fastapi_app=fastapi_app)
 
         if expose_entry:
             self._mount_service_routes(
                 fastapi_app=fastapi_app,
-                agent=agent,
+                agent=self.agent,
                 entry_path=entry_path,
                 status_path=status_path,
                 workflow_component=workflow_component,
