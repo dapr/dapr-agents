@@ -71,14 +71,12 @@ def main() -> None:
         runtime=wf.WorkflowRuntime(),
         final_summary_callback=on_summary,
     )
-    orchestrator.start()
 
     runner = AgentRunner()
     try:
         runner.serve(orchestrator, port=8004)
     finally:
-        runner.shutdown()
-        orchestrator.stop()
+        runner.shutdown(orchestrator)
 
 
 if __name__ == "__main__":

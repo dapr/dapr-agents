@@ -28,9 +28,6 @@ async def main():
         llm=OpenAIChatClient(model="gpt-4o-mini"),
         tools=tools,
     )
-    # Start the agent (registers workflows with the runtime)
-    weather_agent.start()
-
     # Create an AgentRunner to execute the workflow
     runner = AgentRunner()
 
@@ -49,10 +46,8 @@ async def main():
         logger.error(f"Error running workflow: {e}", exc_info=True)
         raise
     finally:
-        # Stop agent first (tears down durabletask runtime)
-        weather_agent.stop()
         # Then shut down runner (unwire/close clients)
-        runner.shutdown()
+        runner.shutdown(weather_agent)
 
 
 if __name__ == "__main__":

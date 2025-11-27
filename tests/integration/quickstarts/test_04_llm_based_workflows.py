@@ -32,7 +32,7 @@ class TestLLMBasedWorkflowsQuickstart:
         assert "Workflow started:" in result.stdout or "bio" in result.stdout.lower()
 
     def test_single_structured_activity_workflow(self, dapr_runtime):  # noqa: ARG002
-        script = self.quickstart_dir / "01_single_structured_activity_workflow.py"
+        script = self.quickstart_dir / "02_single_structured_activity_workflow.py"
         result = run_quickstart_script(
             script,
             cwd=self.quickstart_dir,

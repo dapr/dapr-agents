@@ -4,7 +4,7 @@ import asyncio
 import functools
 import inspect
 import logging
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional, TypeVar
 
 from dapr.ext.workflow import WorkflowActivityContext  # type: ignore
 
@@ -22,6 +22,29 @@ from dapr_agents.workflow.utils.activities import (
 )
 
 logger = logging.getLogger(__name__)
+
+R = TypeVar("R")
+
+
+def workflow_entry(func: Callable[..., R]) -> Callable[..., R]:
+    """
+    Mark a method/function as the workflow entrypoint for an Agent.
+
+    This decorator does not wrap the function; it simply annotates the callable
+    with `_is_workflow_entry = True` so AgentRunner can discover it on the agent
+    instance via reflection.
+
+    Usage:
+        class MyAgent:
+            @workflow_entry
+            def my_workflow(self, ctx: DaprWorkflowContext, wf_input: dict) -> str:
+                ...
+
+    Returns:
+        The same callable (unmodified), with an identifying attribute.
+    """
+    setattr(func, "_is_workflow_entry", True)  # type: ignore[attr-defined]
+    return func
 
 
 def llm_activity(

@@ -16,7 +16,7 @@ from dapr_agents.agents.schemas import (
     TriggerAction,
 )
 from dapr_agents.workflow.decorators.routers import message_router
-from dapr_agents.workflow.runners.agent import workflow_entry
+from dapr_agents.workflow.decorators import workflow_entry
 from dapr_agents.agents.orchestrators.llm.prompts import (
     NEXT_STEP_PROMPT,
     PROGRESS_CHECK_PROMPT,

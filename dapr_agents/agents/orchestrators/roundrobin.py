@@ -21,7 +21,7 @@ from dapr_agents.agents.schemas import (
     TriggerAction,
 )
 from dapr_agents.workflow.decorators.routers import message_router
-from dapr_agents.workflow.runners.agent import workflow_entry
+from dapr_agents.workflow.decorators import workflow_entry
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
 
 logger = logging.getLogger(__name__)
