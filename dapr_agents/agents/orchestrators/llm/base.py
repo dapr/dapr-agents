@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 
 import dapr.ext.workflow as wf
 
@@ -53,6 +53,7 @@ class LLMOrchestratorBase(OrchestratorBase):
         workflow_grpc: Optional[WorkflowGrpcOptions] = None,
         runtime: Optional[wf.WorkflowRuntime] = None,
         workflow_client: Optional[wf.DaprWorkflowClient] = None,
+        final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
         """
         Initializes the LLMOrchestrator with the provided configurations.
@@ -81,6 +82,7 @@ class LLMOrchestratorBase(OrchestratorBase):
             runtime=runtime,
             workflow_client=workflow_client,
             default_bundle=build_llm_state_bundle(),
+            final_summary_callback=final_summary_callback,
         )
 
         # Memory wiring setup
