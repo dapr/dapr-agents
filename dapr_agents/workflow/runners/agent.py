@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
-import threading
-from typing import Any, Callable, Dict, Literal, Optional, TypeVar, Union
+from threading import Lock, Thread
+from typing import Any, Callable, Dict, Literal, Optional, TypeVar, Union, List
 
 from fastapi import Body, FastAPI, HTTPException
 
+from dapr_agents.agents.components import AgentComponents
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.runners.base import WorkflowRunner
@@ -53,9 +54,15 @@ class AgentRunner(WorkflowRunner):
         )
         self._default_http_paths: set[str] = set()
 
+        # In-memory store of managed agents - used for handling shutdown
+        self._managed_agents: List[
+            AgentComponents
+        ] = []  # AgentComponents is the lowest common denominator between orchestrators and agents.
+        self._lock: Lock = Lock()
+
     async def run(
         self,
-        agent: Any,
+        agent: AgentComponents,
         payload: Optional[Union[str, Dict[str, Any]]] = None,
         *,
         instance_id: Optional[str] = None,
@@ -97,6 +104,9 @@ class AgentRunner(WorkflowRunner):
         except RuntimeError:
             # The agent is already started
             pass
+        with self._lock:
+            if agent not in self._managed_agents:
+                self._managed_agents.append(agent)
 
         entry = self.discover_entry(agent)
         logger.debug("[%s] Discovered workflow entry: %s", self._name, entry.__name__)
@@ -113,7 +123,7 @@ class AgentRunner(WorkflowRunner):
 
     def run_sync(
         self,
-        agent: Any,
+        agent: AgentComponents,
         payload: Optional[Union[str, Dict[str, Any]]] = None,
         *,
         instance_id: Optional[str] = None,
@@ -208,13 +218,13 @@ class AgentRunner(WorkflowRunner):
                 finally:
                     loop.close()
 
-        t = threading.Thread(target=_runner, daemon=True)
+        t = Thread(target=_runner, daemon=True)
         t.start()
         return fut.result()
 
     def register_routes(
         self,
-        agent: Any,
+        agent: AgentComponents,
         *,
         fastapi_app: Optional[FastAPI] = None,
         delivery_mode: Literal["sync", "async"] = "sync",
@@ -243,6 +253,9 @@ class AgentRunner(WorkflowRunner):
         except RuntimeError:
             # The agent is already started
             pass
+        with self._lock:
+            if agent not in self._managed_agents:
+                self._managed_agents.append(agent)
 
         self._wire_pubsub_routes(
             agent=agent,
@@ -257,7 +270,9 @@ class AgentRunner(WorkflowRunner):
         if fastapi_app is not None:
             self._wire_http_routes(agent=agent, fastapi_app=fastapi_app)
 
-    def _build_pubsub_specs(self, agent: Any, config: Any) -> list[PubSubRouteSpec]:
+    def _build_pubsub_specs(
+        self, agent: AgentComponents, config: Any
+    ) -> list[PubSubRouteSpec]:
         handlers = get_decorated_methods(agent, "_is_message_handler")
         if not handlers:
             return []
@@ -292,7 +307,7 @@ class AgentRunner(WorkflowRunner):
     def _wire_pubsub_routes(
         self,
         *,
-        agent: Any,
+        agent: AgentComponents,
         delivery_mode: Literal["sync", "async"],
         queue_maxsize: int,
         await_result: bool,
@@ -331,7 +346,9 @@ class AgentRunner(WorkflowRunner):
         self._pubsub_closers.extend(closers)
         self._wired_pubsub = True
 
-    def _wire_http_routes(self, *, agent: Any, fastapi_app: Optional[FastAPI]) -> None:
+    def _wire_http_routes(
+        self, *, agent: AgentComponents, fastapi_app: Optional[FastAPI]
+    ) -> None:
         if fastapi_app is None or self._wired_http:
             return
 
@@ -344,7 +361,7 @@ class AgentRunner(WorkflowRunner):
 
     def subscribe(
         self,
-        agent: Any,
+        agent: AgentComponents,
         *,
         delivery_mode: Literal["sync", "async"] = "sync",
         queue_maxsize: int = 1024,
@@ -375,6 +392,10 @@ class AgentRunner(WorkflowRunner):
             # The agent is already started
             pass
 
+        with self._lock:
+            if agent not in self._managed_agents:
+                self._managed_agents.append(agent)
+
         self._wire_pubsub_routes(
             agent=agent,
             delivery_mode=delivery_mode,
@@ -388,7 +409,7 @@ class AgentRunner(WorkflowRunner):
 
     def serve(
         self,
-        agent: Any,
+        agent: AgentComponents,
         *,
         app: Optional[FastAPI] = None,
         host: str = "0.0.0.0",
@@ -429,6 +450,10 @@ class AgentRunner(WorkflowRunner):
         except RuntimeError:
             # The agent is already started
             pass
+
+        with self._lock:
+            if agent not in self._managed_agents:
+                self._managed_agents.append(agent)
 
         self.subscribe(
             agent,
@@ -482,7 +507,7 @@ class AgentRunner(WorkflowRunner):
         self,
         *,
         fastapi_app: FastAPI,
-        agent: Any,
+        agent: AgentComponents,
         entry_path: str,
         status_path: str,
         workflow_component: str,
@@ -557,7 +582,7 @@ class AgentRunner(WorkflowRunner):
         )
         logger.info("Mounted default workflow status endpoint at %s", status_path)
 
-    def shutdown(self, agent: Any) -> None:
+    def shutdown(self, agent: Optional[AgentComponents]) -> None:
         """
         Unwire subscriptions and close owned clients.
 
@@ -567,9 +592,21 @@ class AgentRunner(WorkflowRunner):
         Returns:
             None
         """
+
+        if agent:
+            # We need to shutdown a single agent
+            # First verify we're managing it
+            with self._lock:
+                if agent in self._managed_agents:
+                    agent.stop()  # This is safe as they'll return None if not started
+                    self._managed_agents.remove(agent)
+            return
         try:
             self.unwire_pubsub()
         finally:
-            agent.stop()
+            with self._lock:
+                agents = list(self._managed_agents)
+            for ag in agents:
+                ag.stop()
             self._close_dapr_client()
             self._close_wf_client()
