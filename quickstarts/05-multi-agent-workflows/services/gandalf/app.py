@@ -97,18 +97,16 @@ async def main() -> None:
         memory=gandalf_memory,
         llm=llm,
     )
-    gandalf.start()
 
     # ---------------------------
     # PubSub routing & shutdown
     # ---------------------------
-    runner = AgentRunner()
+    runner = AgentRunner(gandalf)
     try:
         runner.register_routes(gandalf)
         await wait_for_shutdown()
     finally:
         runner.shutdown()
-        gandalf.stop()
 
 
 if __name__ == "__main__":

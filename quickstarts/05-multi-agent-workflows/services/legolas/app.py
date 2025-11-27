@@ -95,18 +95,16 @@ async def main() -> None:
         memory=legolas_memory,
         llm=llm,
     )
-    legolas.start()
 
     # ---------------------------
     # PubSub routing & shutdown
     # ---------------------------
-    runner = AgentRunner()
+    runner = AgentRunner(legolas)
     try:
         runner.register_routes(legolas)
         await wait_for_shutdown()
     finally:
         runner.shutdown()
-        legolas.stop()
 
 
 if __name__ == "__main__":

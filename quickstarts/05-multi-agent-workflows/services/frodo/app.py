@@ -95,19 +95,17 @@ async def main() -> None:
         memory=frodo_memory,
         llm=llm,
     )
-    frodo.start()
 
     # ---------------------------
     # PubSub routing & shutdown
     # ---------------------------
-    runner = AgentRunner()
+    runner = AgentRunner(frodo)
     try:
         # Expose both agents’ endpoints
         runner.register_routes(frodo)
         await wait_for_shutdown()
     finally:
         runner.shutdown()
-        frodo.stop()
 
 
 if __name__ == "__main__":

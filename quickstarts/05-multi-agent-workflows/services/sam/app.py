@@ -98,19 +98,17 @@ async def main() -> None:
         memory=sam_memory,
         llm=llm,
     )
-    sam.start()
 
     # ---------------------------
     # PubSub routing & shutdown
     # ---------------------------
-    runner = AgentRunner()
+    runner = AgentRunner(sam)
     try:
         # Expose both agents’ endpoints
         runner.register_routes(sam)
         await wait_for_shutdown()
     finally:
         runner.shutdown()
-        sam.stop()
 
 
 if __name__ == "__main__":

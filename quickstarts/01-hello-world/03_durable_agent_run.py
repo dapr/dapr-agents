@@ -76,9 +76,8 @@ async def main() -> None:
         memory=memory,
         state=state,
     )
-    travel_planner.start()
 
-    runner = AgentRunner()
+    runner = AgentRunner(travel_planner)
     prompt = "I want to find flights to Paris"
 
     try:
@@ -91,7 +90,6 @@ async def main() -> None:
         print(f"Error running workflow: {e}")
         raise
     finally:
-        travel_planner.stop()
         runner.shutdown()
 
 

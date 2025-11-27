@@ -78,15 +78,12 @@ async def main() -> None:
         memory=memory,
         state=state,
     )
-    agent.start()
-
-    runner = AgentRunner()
+    runner = AgentRunner(agent)
     try:
         runner.subscribe(agent)
         await wait_for_shutdown()
     finally:
         runner.shutdown()
-        agent.stop()
 
 
 if __name__ == "__main__":

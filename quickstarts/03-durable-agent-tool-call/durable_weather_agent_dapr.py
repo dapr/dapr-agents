@@ -25,11 +25,9 @@ async def main():
         ],
         tools=tools,
     )
-    # Start the agent (registers workflows with the runtime)
-    weather_agent.start()
 
     # Create an AgentRunner to execute the workflow
-    runner = AgentRunner()
+    runner = AgentRunner(weather_agent)
 
     try:
         prompt = "What's the weather in Boston?"
@@ -46,8 +44,6 @@ async def main():
         logger.error(f"Error running workflow: {e}", exc_info=True)
         raise
     finally:
-        # Stop agent first (tears down durabletask runtime)
-        weather_agent.stop()
         # Then shut down runner (unwire/close clients)
         runner.shutdown()
 
