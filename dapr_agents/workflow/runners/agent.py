@@ -92,7 +92,11 @@ class AgentRunner(WorkflowRunner):
             wait,
             timeout_in_seconds,
         )
-        agent.start()
+        try:
+            agent.start()
+        except RuntimeError:
+            # The agent is already started
+            pass
 
         entry = self.discover_entry(agent)
         logger.debug("[%s] Discovered workflow entry: %s", self._name, entry.__name__)
@@ -234,7 +238,11 @@ class AgentRunner(WorkflowRunner):
             log_outcome: Whether to log the final outcome of awaited workflows.
         """
 
-        agent.start()
+        try:
+            agent.start()
+        except RuntimeError:
+            # The agent is already started
+            pass
 
         self._wire_pubsub_routes(
             agent=agent,
@@ -360,7 +368,12 @@ class AgentRunner(WorkflowRunner):
         Returns:
             The runner (to allow fluent chaining).
         """
-        agent.start()
+
+        try:
+            agent.start()
+        except RuntimeError:
+            # The agent is already started
+            pass
 
         self._wire_pubsub_routes(
             agent=agent,
@@ -408,8 +421,14 @@ class AgentRunner(WorkflowRunner):
         Returns:
             The FastAPI application with the workflow routes.
         """
+
         fastapi_app = app or FastAPI(title="Dapr Agent Service", version="1.0.0")
-        agent.start()
+
+        try:
+            agent.start()
+        except RuntimeError:
+            # The agent is already started
+            pass
 
         self.subscribe(
             agent,
@@ -422,7 +441,7 @@ class AgentRunner(WorkflowRunner):
         if expose_entry:
             self._mount_service_routes(
                 fastapi_app=fastapi_app,
-                agent=self.agent,
+                agent=agent,
                 entry_path=entry_path,
                 status_path=status_path,
                 workflow_component=workflow_component,
