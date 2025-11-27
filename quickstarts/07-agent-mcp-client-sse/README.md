@@ -115,8 +115,8 @@ agent = DurableAgent(
     state=state_config,
 )
 
-runner = AgentRunner(agent)
-runner.serve(port=8001)
+runner = AgentRunner()
+runner.serve(agent, port=8001)
 ```
 
 ### Running the Example

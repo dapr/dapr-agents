@@ -99,13 +99,13 @@ async def main() -> None:
     # ---------------------------
     # PubSub routing & shutdown
     # ---------------------------
-    runner = AgentRunner(frodo)
+    runner = AgentRunner()
     try:
         # Expose both agents’ endpoints
         runner.register_routes(frodo)
         await wait_for_shutdown()
     finally:
-        runner.shutdown()
+        runner.shutdown(frodo)
 
 
 if __name__ == "__main__":

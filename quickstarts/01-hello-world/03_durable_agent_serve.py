@@ -77,11 +77,11 @@ def main() -> None:
         state=state,
     )
 
-    runner = AgentRunner(agent)
+    runner = AgentRunner()
     try:
-        runner.serve(port=8001)
+        runner.serve(agent, port=8001)
     finally:
-        runner.shutdown()
+        runner.shutdown(agent)
 
 
 if __name__ == "__main__":

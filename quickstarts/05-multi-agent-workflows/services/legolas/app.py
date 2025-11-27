@@ -99,12 +99,12 @@ async def main() -> None:
     # ---------------------------
     # PubSub routing & shutdown
     # ---------------------------
-    runner = AgentRunner(legolas)
+    runner = AgentRunner()
     try:
         runner.register_routes(legolas)
         await wait_for_shutdown()
     finally:
-        runner.shutdown()
+        runner.shutdown(legolas)
 
 
 if __name__ == "__main__":

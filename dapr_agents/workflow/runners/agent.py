@@ -29,7 +29,6 @@ class AgentRunner(WorkflowRunner):
 
     def __init__(
         self,
-        agent: DurableAgent,
         *,
         name: str = "agent-runner",
         wf_client=None,
@@ -53,8 +52,6 @@ class AgentRunner(WorkflowRunner):
             auto_install_signals=auto_install_signals,
         )
         self._default_http_paths: set[str] = set()
-        self.agent = agent
-        self.agent.start()
 
     async def run(
         self,
@@ -95,6 +92,7 @@ class AgentRunner(WorkflowRunner):
             wait,
             timeout_in_seconds,
         )
+        agent.start()
 
         entry = self.discover_entry(agent)
         logger.debug("[%s] Discovered workflow entry: %s", self._name, entry.__name__)
@@ -235,6 +233,9 @@ class AgentRunner(WorkflowRunner):
             fetch_payloads: Whether to fetch input/output payloads for awaited workflows.
             log_outcome: Whether to log the final outcome of awaited workflows.
         """
+
+        agent.start()
+
         self._wire_pubsub_routes(
             agent=agent,
             delivery_mode=delivery_mode,
@@ -359,6 +360,8 @@ class AgentRunner(WorkflowRunner):
         Returns:
             The runner (to allow fluent chaining).
         """
+        agent.start()
+
         self._wire_pubsub_routes(
             agent=agent,
             delivery_mode=delivery_mode,
@@ -372,6 +375,7 @@ class AgentRunner(WorkflowRunner):
 
     def serve(
         self,
+        agent: Any,
         *,
         app: Optional[FastAPI] = None,
         host: str = "0.0.0.0",
@@ -405,14 +409,15 @@ class AgentRunner(WorkflowRunner):
             The FastAPI application with the workflow routes.
         """
         fastapi_app = app or FastAPI(title="Dapr Agent Service", version="1.0.0")
+        agent.start()
 
         self.subscribe(
-            self.agent,
+            agent,
             delivery_mode=delivery_mode,
             queue_maxsize=queue_maxsize,
         )
 
-        self._wire_http_routes(agent=self.agent, fastapi_app=fastapi_app)
+        self._wire_http_routes(agent=agent, fastapi_app=fastapi_app)
 
         if expose_entry:
             self._mount_service_routes(
@@ -533,9 +538,12 @@ class AgentRunner(WorkflowRunner):
         )
         logger.info("Mounted default workflow status endpoint at %s", status_path)
 
-    def shutdown(self) -> None:
+    def shutdown(self, agent: Any) -> None:
         """
         Unwire subscriptions and close owned clients.
+
+        Args:
+            agent: Durable agent instance.
 
         Returns:
             None
@@ -543,6 +551,6 @@ class AgentRunner(WorkflowRunner):
         try:
             self.unwire_pubsub()
         finally:
-            self.agent.stop()
+            agent.stop()
             self._close_dapr_client()
             self._close_wf_client()

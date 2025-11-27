@@ -101,12 +101,12 @@ async def main() -> None:
     # ---------------------------
     # PubSub routing & shutdown
     # ---------------------------
-    runner = AgentRunner(gandalf)
+    runner = AgentRunner()
     try:
         runner.register_routes(gandalf)
         await wait_for_shutdown()
     finally:
-        runner.shutdown()
+        runner.shutdown(gandalf)
 
 
 if __name__ == "__main__":

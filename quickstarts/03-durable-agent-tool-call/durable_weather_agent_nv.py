@@ -30,7 +30,7 @@ async def main():
         tools=tools,
     )
     # Create an AgentRunner to execute the workflow
-    runner = AgentRunner(weather_agent)
+    runner = AgentRunner()
 
     try:
         prompt = "What's the weather in Boston?"
@@ -48,7 +48,7 @@ async def main():
         raise
     finally:
         # Then shut down runner (unwire/close clients)
-        runner.shutdown()
+        runner.shutdown(weather_agent)
 
 
 if __name__ == "__main__":
