@@ -1,16 +1,16 @@
-"""Integration tests for 02_llm_call_elevenlabs quickstart."""
+"""Integration tests for 02-llm-call-elevenlabs quickstart."""
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_script
 
 
 @pytest.mark.integration
 class TestLLMCallElevenLabsQuickstart:
-    """Integration tests for 02_llm_call_elevenlabs quickstart."""
+    """Integration tests for 02-llm-call-elevenlabs quickstart."""
 
     @pytest.fixture(autouse=True)
     def setup(self, quickstarts_dir, elevenlabs_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "02_llm_call_elevenlabs"
+        self.quickstart_dir = quickstarts_dir / "02-llm-call-elevenlabs"
         self.env = {"ELEVENLABS_API_KEY": elevenlabs_api_key}
 
     def test_text_to_speech(self):

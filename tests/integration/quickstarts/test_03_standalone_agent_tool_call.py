@@ -120,3 +120,21 @@ class TestStandaloneAgentToolCallQuickstart:
         )
         # expect some output
         assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_standalone_agent_with_vectorstore(self):
+        """Test standalone agent with vectorstore example (standalone_agent_with_vectorstore.py)."""
+        script = self.quickstart_dir / "standalone_agent_with_vectorstore.py"
+        result = run_quickstart_script(
+            script,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        # expect some output
+        assert len(result.stdout) > 0 or len(result.stderr) > 0

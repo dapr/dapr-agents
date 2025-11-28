@@ -1,16 +1,16 @@
-"""Integration tests for 02_llm_call_hugging_face quickstart."""
+"""Integration tests for 02-llm-call-hugging-face quickstart."""
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_script
 
 
 @pytest.mark.integration
 class TestLLMCallHuggingFaceQuickstart:
-    """Integration tests for 02_llm_call_hugging_face quickstart."""
+    """Integration tests for 02-llm-call-hugging-face quickstart."""
 
     @pytest.fixture(autouse=True)
     def setup(self, quickstarts_dir, huggingface_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "02_llm_call_hugging_face"
+        self.quickstart_dir = quickstarts_dir / "02-llm-call-hugging-face"
         self.env = {"HUGGINGFACE_API_KEY": huggingface_api_key}
 
     def test_text_completion(self):

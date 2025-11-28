@@ -37,7 +37,7 @@ dapr init
 
 ## LLM Configuration
 
-For this example, we'll be using the OpenAI client that is used by default. To target different LLMs, see [this example](../02_llm_call_dapr/README.md).
+For this example, we'll be using the OpenAI client that is used by default. To target different LLMs, see [this example](../02-llm-call-dapr/README.md).
 
 The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
 

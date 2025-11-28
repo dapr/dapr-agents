@@ -50,7 +50,7 @@ Learn how to interact with Language Models using Dapr Agents' `DaprChatClient`:
 
 This quickstart shows basic text generation using plain text prompts and templates. Using the `DaprChatClient` you can target different LLM providers without changing your agent's code.
 
-[Go to Dapr LLM Call](./02_llm_call_dapr)
+[Go to Dapr LLM Call](./02-llm-call-dapr)
 
 ### LLM Call with OpenAI Client
 
@@ -61,10 +61,10 @@ Learn how to interact with Language Models using Dapr Agents and native LLM clie
 
 This quickstart shows both basic text generation and structured data extraction from LLMs. This quickstart uses the OpenAIChatClient which allows you to use audio and perform embeddings in addition to chat completion. 
 
-*Note: Other quickstarts for specific clients are available for [Elevenlabs](./02_llm_call_elevenlabs), [Hugging Face](./02_llm_call_hugging_face), and [Nvidia](./02_llm_call_nvidia).*
+*Note: Other quickstarts for specific clients are available for [Elevenlabs](./02-llm-call-elevenlabs), [Hugging Face](./02-llm-call-hugging-face), and [Nvidia](./02-llm-call-nvidia).*
 
 
-[Go to OpenAI LLM call](./02_llm_call_open_ai)
+[Go to OpenAI LLM call](./02-llm-call-open-ai)
 
 ### Agent Tool Call
 
@@ -72,12 +72,12 @@ Create your first AI agent with custom tools:
 
 - **Tool Definition**: Creating reusable tools with the @tool decorator
 - **Agent Configuration**: Setting up agents with roles, goals, and tools
-- **Tool Definition**: Custom tools with the @tool decorator
 - **Function Calling**: Enabling LLMs to execute Python functions
+- **Vector Store Integration**: Building agents with document search and storage capabilities
 
-This quickstart demonstrates how to build a weather assistant that can fetch information and perform actions.
+This quickstart demonstrates how to build a weather assistant that can fetch information and perform actions, including examples with vector stores for document retrieval.
 
-[Go to Agent Tool Call](./03-agent-tool-call)
+[Go to Agent Tool Call](./03-standalone-agent-tool-call)
 
 ### Durable Agent Tool Call (with Dapr Workflows)
 
@@ -213,6 +213,31 @@ Build a fully functional, agent that lets users ask any question of their Postgr
 This quickstart demonstrates how to build a database agent with memory and chat capabilities, using Dapr, MCP, and Chainlit.
 
 [Go to Conversational Agent over Postgres with MCP](./08-data-agent-mcp-chainlit)
+
+### Agent Observability
+
+Learn how to add observability to standalone Dapr Agents using distributed tracing:
+
+- **Zipkin Integration**: Set up end-to-end tracing with Zipkin
+- **OpenTelemetry Support**: Use Jaeger as a tracing backend with OTLP
+- **Distributed Tracing**: Monitor agent execution and tool calls across the system
+
+This quickstart demonstrates how to instrument standalone agents for comprehensive observability and debugging.
+
+[Go to Agent Observability](./09-agent-observability)
+
+### Agents as Activities in Workflows with Observability
+
+Learn how to use AI agents as activities within Dapr workflows and add observability using Phoenix Arize:
+
+- **Agent Activities**: Use agents as workflow activities with the `@activity` decorator
+- **Workflow Orchestration**: Chain multiple agents in sequential workflows
+- **Multi-Model Support**: Mix different LLM providers (OpenAI, NVIDIA, Hugging Face) in a single workflow
+- **Phoenix Observability**: Comprehensive distributed tracing and monitoring with Phoenix Arize
+
+This quickstart demonstrates how to build resilient, stateful workflows that leverage agents for intelligent activity execution, decision-making, and multi-step reasoning, with full observability.
+
+[Go to Agents as Activities in Workflows with Observability](./09-agents-as-activities-observability)
 
 ### Contributing to Dapr Agents Quickstarts
 
