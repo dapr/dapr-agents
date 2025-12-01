@@ -1,16 +1,16 @@
-"""Integration tests for 02_llm_call_dapr quickstart."""
+"""Integration tests for 02-llm-call-dapr quickstart."""
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_script
 
 
 @pytest.mark.integration
 class TestLLMCallDaprQuickstart:
-    """Integration tests for 02_llm_call_dapr quickstart."""
+    """Integration tests for 02-llm-call-dapr quickstart."""
 
     @pytest.fixture(autouse=True)
     def setup(self, quickstarts_dir, openai_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "02_llm_call_dapr"
+        self.quickstart_dir = quickstarts_dir / "02-llm-call-dapr"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_text_completion(self, dapr_runtime):  # noqa: ARG002

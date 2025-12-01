@@ -4,11 +4,28 @@ This quickstart demonstrates how to create an AI agent with custom tools using D
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- Python 3.10+ (recommended)
+- [uv package manager](https://docs.astral.sh/uv/getting-started/installation/) (optional, but recommended)
 - OpenAI API key
 
 ## Environment Setup
+
+<details open>
+<summary><strong>Option 1: Using uv (Recommended)</strong></summary>
+
+```bash
+# Create and activate virtual environment
+uv venv .venv
+source .venv/bin/activate
+
+# Install core dependencies
+uv pip install -r requirements.txt
+```
+
+</details>
+
+<details>
+<summary><strong>Option 2: Using pip</strong></summary>
 
 ```bash
 # Create a virtual environment
@@ -23,6 +40,8 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 ```
+
+</details>
 
 ## Configuration
 
@@ -88,6 +107,21 @@ python standalone_weather_agent_openai.py
 - [HuggingFace Agent](./standalone_weather_agent_hf.py)
 - [NVIDIA Agent](./standalone_weather_agent_nv.py)
 
+### Agent with Vector Store
+
+This example demonstrates how to create a standalone agent with vector store capabilities for document search and storage.
+
+**Note:** The vectorstore dependencies are included in `requirements.txt`. If you've already installed dependencies using the Environment Setup section above, you're ready to run this example.
+
+Run the vector store agent example to see how to create an agent that can search and store documents:
+```bash
+source .venv/bin/activate
+
+python standalone_agent_with_vectorstore.py
+```
+
+This example demonstrates how to create an agent with vector store capabilities, including logging, structured Document usage, and a tool to add a machine learning basics document.
+
 ## Key Concepts
 
 ### Tool Definition
@@ -100,6 +134,7 @@ python standalone_weather_agent_openai.py
 - The `role`, `goal`, and `instructions` guide the agent's behavior
 - Tools are provided as a list for the agent to use
 - Agent Memory keeps the conversation history that the agent can reference
+- VectorStore: Persistent storage for document embeddings that enables semantic search capabilities
 
 
 ### Execution Flow
