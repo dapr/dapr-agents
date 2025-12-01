@@ -389,13 +389,17 @@ class MCPClient(BaseModel):
                         and server_name in client._sessions
                     ):
                         session = client._sessions[server_name]
-                        result: CallToolResult = await session.call_tool(tool_name, kwargs)
+                        result: CallToolResult = await session.call_tool(
+                            tool_name, kwargs
+                        )
                         logger.debug(f"Used persistent session for tool '{tool_name}'")
                     else:
                         async with client.create_ephemeral_session(
                             server_name
                         ) as session:
-                            result: CallToolResult = await session.call_tool(tool_name, kwargs)
+                            result: CallToolResult = await session.call_tool(
+                                tool_name, kwargs
+                            )
                             logger.debug(
                                 f"Used ephemeral session for tool '{tool_name}'"
                             )
@@ -403,12 +407,15 @@ class MCPClient(BaseModel):
                 except (ValidationError, ToolError, Exception) as e:
                     logger.error(f"Validation error parsing tool result: {str(e)}")
                     return CallToolResult(
-                        isError = True,
-                        content = [TextContent(
-                            type="text",
-                            text=f"Validation error on Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
-                        )]
+                        isError=True,
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=f"Validation error on Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
+                            )
+                        ],
                     )
+
             return executor
 
         # Build executor using dynamic context-managed session resolution
@@ -448,13 +455,12 @@ class MCPClient(BaseModel):
         Returns:
             Processed result as CallToolResult
         """
-            
-        return CallToolResult(
-            isError = result.isError,
-            content = result.content,
-            structuredContent = result.structuredContent,
-        )
 
+        return CallToolResult(
+            isError=result.isError,
+            content=result.content,
+            structuredContent=result.structuredContent,
+        )
 
     def get_all_tools(self) -> List[AgentTool]:
         """
