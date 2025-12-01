@@ -162,6 +162,7 @@ class ToolExecutionRecord(BaseModel):
 
 class TextContent(BaseModel):
     """Simple text content block."""
+
     type: str = "text"
     text: str
 
@@ -170,6 +171,7 @@ class ToolResult(BaseModel):
     """
     Standardized result from tool execution.
     """
+
     content: List[TextContent] = Field(default_factory=list)
     structuredContent: Optional[dict[str, Any]] = None
     isError: bool = False
