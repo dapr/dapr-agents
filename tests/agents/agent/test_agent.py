@@ -225,10 +225,13 @@ class TestAgent:
         )
 
         # Call the actual internal method that executes tool calls
-        with pytest.raises(
-            AgentError, match=f"Error executing tool '{error_tool.name}': .*Tool failed"
-        ):
-            await agent_with_tools._execute_tool_calls("test-instance", [tool_call])
+        tool_record = await agent_with_tools._execute_tool_calls(
+            "test-instance", [tool_call]
+        )
+
+        # Verify the error result
+        assert "isError=True" in tool_record[0]["content"]
+        assert "Tool failed" in tool_record[0]["content"]
 
     async def test_conversation_max_reached(self, basic_agent):
         """Test that agent stops immediately when there are no tool calls."""
@@ -300,10 +303,10 @@ class TestAgent:
         tool_call.function = mock_function
 
         # Call the actual internal method
-        with pytest.raises(
-            AgentError, match=f"Error executing tool '{error_tool.name}': .*Tool failed"
-        ):
-            await agent_with_tools._run_tool_call("test-instance", tool_call)
+        result = await agent_with_tools._run_tool_call("test-instance", tool_call)
+
+        # Verify the error result - content should contain error message
+        assert "Tool failed" in result["content"]
 
     def test_agent_properties(self, basic_agent):
         """Test agent properties."""

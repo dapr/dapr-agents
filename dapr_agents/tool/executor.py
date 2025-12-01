@@ -5,7 +5,7 @@ from rich.table import Table
 from rich.console import Console
 
 from dapr_agents.tool.base import AgentTool
-from dapr_agents.types import AgentToolExecutorError, ToolError
+from dapr_agents.types import AgentToolExecutorError, ToolError, ToolResult, TextContent
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +132,12 @@ class AgentToolExecutor(BaseModel):
             return tool(*args, **kwargs)
         except ToolError as e:
             logger.error(f"Tool execution error in '{tool_name}': {e}")
-            raise AgentToolExecutorError(str(e)) from e
+            return ToolResult(
+                content=[
+                    TextContent(text=f"Error executing tool '{tool_name}': {str(e)}")
+                ],
+                isError=True,
+            )
         except Exception as e:
             logger.error(f"Unexpected error in '{tool_name}': {e}")
             raise AgentToolExecutorError(
