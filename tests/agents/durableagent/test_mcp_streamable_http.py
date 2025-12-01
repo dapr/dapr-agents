@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
+from mcp.types import CallToolResult
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import AgentWorkflowEntry, AgentWorkflowState
 from dapr_agents.tool.base import AgentTool
@@ -237,7 +238,7 @@ async def test_add_tool_with_real_server_http(start_math_server_http):
         (n for n in tool_names if n.lower().startswith("add")), tool_names[0]
     )
     result = await agent.tool_executor.run_tool(tool_name, a=2, b=2)
-    assert result == "4"
+    assert result.structuredContent["result"] == 4
 
 
 @pytest.mark.asyncio
@@ -302,7 +303,11 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
             },
         )
 
+    execution_result: CallToolResult = CallToolResult.model_validate_json(
+        result["execution_result"]
+    )
+
     # Verify the tool result structure
     assert result["tool_call_id"] == "call_456"
     assert result["tool_name"] == tool_name
-    assert result["execution_result"] == "4"  # Serialized as string
+    assert execution_result.structuredContent["result"] == 4
