@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from mcp.types import CallToolResult
+from dapr_agents.tool.mcp.schema import create_pydantic_model_from_schema
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import AgentWorkflowEntry, AgentWorkflowState
 from dapr_agents.tool.base import AgentTool
@@ -125,7 +126,18 @@ def durable_agent_with_mcp_tool(mock_mcp_tool, mock_mcp_session):
     from dapr_agents.agents.configs import AgentPubSubConfig, AgentStateConfig
     from dapr_agents.storage.daprstores.stateservice import StateStoreService
 
-    agent_tool = AgentTool.from_mcp(mock_mcp_tool, session=mock_mcp_session)
+    async def mock_executor(**kwargs):
+        result = await mock_mcp_session.call_tool(mock_mcp_tool.name, kwargs)
+        return result
+
+    args_model = create_pydantic_model_from_schema(mock_mcp_tool.inputSchema, "AddArgs")
+
+    agent_tool = AgentTool(
+        name=mock_mcp_tool.name,
+        description=mock_mcp_tool.description,
+        args_model=args_model,
+        func=mock_executor,
+    )
 
     agent = DurableAgent(
         name="TestDurableAgent",
