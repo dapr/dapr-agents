@@ -158,3 +158,37 @@ class ToolExecutionRecord(BaseModel):
         None,
         description="Result of the tool execution, if available.",
     )
+
+
+class TextContent(BaseModel):
+    """Simple text content block."""
+
+    type: str = "text"
+    text: str
+
+
+class ToolResult(BaseModel):
+    """
+    Standardized result from tool execution.
+    """
+
+    content: List[TextContent] = Field(default_factory=list)
+    structuredContent: Optional[dict[str, Any]] = None
+    isError: bool = False
+
+    @classmethod
+    def success(cls, result: Any, text: Optional[str] = None) -> "ToolResult":
+        """Create a successful result."""
+        return cls(
+            content=[TextContent(text=text or str(result))],
+            structuredContent={"result": result} if result is not None else None,
+            isError=False,
+        )
+
+    @classmethod
+    def error(cls, message: str) -> "ToolResult":
+        """Create an error result."""
+        return cls(
+            content=[TextContent(text=message)],
+            isError=True,
+        )

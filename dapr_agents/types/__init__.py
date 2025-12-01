@@ -29,6 +29,8 @@ from .tools import (
     OAIFunctionDefinition,
     OAIToolDefinition,
     ToolExecutionRecord,
+    TextContent,
+    ToolResult,
 )
 
 __all__ = [
@@ -63,4 +65,6 @@ __all__ = [
     "OAIFunctionDefinition",
     "OAIToolDefinition",
     "ToolExecutionRecord",
+    "TextContent",
+    "ToolResult",
 ]

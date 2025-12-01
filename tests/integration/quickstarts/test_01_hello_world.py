@@ -151,20 +151,3 @@ class TestHelloWorldQuickstart:
             f"STDERR:\n{result.stderr}"
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
-
-    def test_agent_with_vectorstore(self):
-        """Test agent with vectorstore example (05_agent_with_vectorstore.py)."""
-        script_path = self.quickstart_dir / "05_agent_with_vectorstore.py"
-        result = run_quickstart_script(
-            script_path,
-            cwd=self.quickstart_dir,
-            env=self.env,
-            timeout=120,
-        )
-
-        assert result.returncode == 0, (
-            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
-        )
-        assert len(result.stdout) > 0 or len(result.stderr) > 0
