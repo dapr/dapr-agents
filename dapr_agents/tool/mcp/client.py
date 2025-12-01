@@ -405,13 +405,14 @@ class MCPClient(BaseModel):
                             )
                     return client._process_tool_result(result)
                 except (ValidationError, ToolError, Exception) as e:
-                    logger.error(f"Validation error parsing tool result: {str(e)}")
+                    err_type = type(e).__name__
+                    logger.error(f"{err_type} running tool: {str(e)}")
                     return CallToolResult(
                         isError=True,
                         content=[
                             TextContent(
                                 type="text",
-                                text=f"Validation error on Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
+                                text=f"{err_type} during Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
                             )
                         ],
                     )
