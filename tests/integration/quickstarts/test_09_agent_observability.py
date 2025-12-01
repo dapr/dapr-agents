@@ -1,4 +1,4 @@
-"""Integration tests for 01-hello-world-observability quickstart."""
+"""Integration tests for 09-agent-observability quickstart."""
 import pytest
 import time
 import requests
@@ -7,13 +7,13 @@ from tests.integration.quickstarts.conftest import run_quickstart_script
 
 
 @pytest.mark.integration
-class TestHelloWorldObservabilityQuickstart:
-    """Integration tests for 01-hello-world-observability quickstart."""
+class TestAgentObservabilityQuickstart:
+    """Integration tests for 09-agent-observability quickstart."""
 
     @pytest.fixture(autouse=True)
     def setup(self, quickstarts_dir, openai_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "01-hello-world-observability"
+        self.quickstart_dir = quickstarts_dir / "09-agent-observability"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_zipkin_tracing(self, zipkin_service):

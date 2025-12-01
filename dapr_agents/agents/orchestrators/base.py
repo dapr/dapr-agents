@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Coroutine
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Callable
 
 import dapr.ext.workflow as wf
 
@@ -46,22 +46,8 @@ class OrchestratorBase(AgentComponents):
         runtime: Optional[wf.WorkflowRuntime] = None,
         workflow_client: Optional[wf.DaprWorkflowClient] = None,
         default_bundle: Optional[StateModelBundle] = None,
+        final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
-        """
-        Initialize the orchestrator base.
-
-        Args:
-            name: Orchestrator name.
-            pubsub: Pub/Sub settings used to address agents via topics.
-            state: Durable state settings (if the orchestrator persists anything).
-            registry: Agent registry configuration for discovery.
-            agent_metadata: Extra metadata to store in the registry; ``orchestrator=True``
-                is enforced automatically.
-            workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
-            runtime: Optional pre-existing workflow runtime to attach to.
-            workflow_client: Optional DaprWorkflowClient for dependency injection/testing.
-            default_bundle: Optional state schema bundle (injected by orchestrator subclass).
-        """
         super().__init__(
             name=name,
             pubsub=pubsub,
@@ -70,6 +56,8 @@ class OrchestratorBase(AgentComponents):
             workflow_grpc_options=workflow_grpc,
             default_bundle=default_bundle,
         )
+
+        self._final_summary_callback = final_summary_callback
 
         self.execution: AgentExecutionConfig = execution or AgentExecutionConfig()
         try:
@@ -99,6 +87,22 @@ class OrchestratorBase(AgentComponents):
 
         # Presentation helper (console)
         self._text_formatter = ColorTextFormatter()
+
+    # ------------------------------------------------------------------
+    # Callback-safe helper method
+    # ------------------------------------------------------------------
+    def _invoke_final_summary_callback(self, summary: str) -> None:
+        """
+        Invoke the user-supplied final summary callback (if any).
+
+        This MUST be called only during non-replay execution paths.
+        """
+        cb = getattr(self, "_final_summary_callback", None)
+        if cb and callable(cb):
+            try:
+                cb(summary)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Final summary callback failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Lifecycle

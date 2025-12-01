@@ -1,16 +1,16 @@
-"""Integration tests for 02_llm_call_nvidia quickstart."""
+"""Integration tests for 02-llm-call-nvidia quickstart."""
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_script
 
 
 @pytest.mark.integration
 class TestLLMCallNvidiaQuickstart:
-    """Integration tests for 02_llm_call_nvidia quickstart."""
+    """Integration tests for 02-llm-call-nvidia quickstart."""
 
     @pytest.fixture(autouse=True)
     def setup(self, quickstarts_dir, nvidia_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "02_llm_call_nvidia"
+        self.quickstart_dir = quickstarts_dir / "02-llm-call-nvidia"
         self.env = {"NVIDIA_API_KEY": nvidia_api_key}
 
     def test_text_completion(self):

@@ -217,34 +217,6 @@ This example demonstrates how to create a workflow with multiple tasks.
 
 **Expected output:** The workflow will create an outline about AI Agents and then generate a blog post based on that outline.
 
-### 5. Agent with Vector Store
-
-**Prerequisites:** This example requires vectorstore dependencies. Install them using one of these methods:
-
-**Using pip (recommended):**
-```bash
-pip install sentence-transformers chromadb 'posthog<6.0.0'
-```
-
-**Or install with extras:**
-From the root directory,
-```bash
-pip install -e ".[vectorstore]"
-```
-
-**Using uv:**
-```bash
-uv add sentence-transformers chromadb 'posthog<6.0.0'
-```
-
-Run the vector store agent example to see how to create an agent that can search and store documents:
-```bash
-source .venv/bin/activate
-
-python 05_agent_with_vectorstore.py
-```
-
-This example demonstrates how to create an agent with vector store capabilities, including logging, structured Document usage, and a tool to add a machine learning basics document.
 
 ## Key Concepts
 
@@ -253,7 +225,6 @@ This example demonstrates how to create an agent with vector store capabilities,
 - **Agent**: A class that combines an LLM with tools and instructions
 - **@tool decorator**: A way to create tools that agents can use
 - **DurableAgent**: An agent that follows the Reasoning + Action pattern and achieves durability through Dapr Workflows
-- **VectorStore**: Persistent storage for document embeddings that enables semantic search capabilities
 
 ## Dapr Integration
 
@@ -278,4 +249,4 @@ In the later quickstarts, you'll see explicit Dapr integration through state sto
 
 ## Next Steps
 
-After completing these examples, move on to the [LLM Call quickstart](../02_llm_call_open_ai/README.md) to learn more about structured outputs from LLMs.
+After completing these examples, move on to the [LLM Call quickstart](../02-llm-call-open-ai/README.md) to learn more about structured outputs from LLMs.

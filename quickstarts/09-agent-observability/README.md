@@ -92,4 +92,4 @@ python 02_agent_otel.py
 
 ## Next Steps
 
-After completing these examples, move on to the [LLM Call quickstart](../02_llm_call_open_ai/README.md) to learn more about structured outputs from LLMs.
+After completing these examples, move on to the [Agents as Activities in Workflows with Observability](../09-agents-as-activities-observability/README.md) quickstart to learn how to add observability to workflow-based agent orchestration.

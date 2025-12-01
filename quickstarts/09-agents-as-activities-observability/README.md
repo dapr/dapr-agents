@@ -1,6 +1,6 @@
-# Agents as Tasks in Workflows with Dapr Agents
+# Agents as Activities in Workflows with Dapr Agents
 
-This quickstart demonstrates how to use AI agents as tasks within Dapr workflows, enabling sophisticated orchestration of agent-based automation. You'll learn how to build resilient, stateful workflows that leverage agents for intelligent task execution, decision-making, and multi-step reasoning.
+This quickstart demonstrates how to use AI agents as activities within Dapr workflows, enabling sophisticated orchestration of agent-based automation. You'll learn how to build resilient, stateful workflows that leverage agents for intelligent activity execution, decision-making, and multi-step reasoning. Additionally, this quickstart demonstrates how to add observability to Dapr Agent workflows with Phoenix Arize for distributed tracing and monitoring.
 
 ## Prerequisites
 
@@ -158,9 +158,9 @@ dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- pyth
 ```
 
 **How it works:**
-1. The `extract` task uses an agent to extract the destination from the user query
-2. The `plan` task uses a different agent to create a 3-day outline for that destination  
-3. The `expand` task uses a third agent to expand the outline into a detailed itinerary
+1. The `extract` activity uses an agent to extract the destination from the user query
+2. The `plan` activity uses a different agent to create a 3-day outline for that destination  
+3. The `expand` activity uses a third agent to expand the outline into a detailed itinerary
 4. Each agent has specialized instructions and capabilities for its specific role
 
 ## Observability with Phoenix Arize
@@ -211,7 +211,7 @@ dapr run --app-id agent-workflow-tracing --resources-path components/ -- python 
 View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
 
 
-![Agents as Tasks Sequence](./agents-as-tasks-tracing.png)
+![Agents as Activities Sequence](./agents-as-activities-tracing.png)
 
 
 #### 2. Multi-Model Sequential Workflow with Tracing
@@ -226,27 +226,27 @@ dapr run --app-id multi-model-workflow --resources-path components/ -- python se
 
 View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
 
-![Agents as Tasks Sequence (Multi-Model) with OpenAI endpoint and Tracing](./agents-as-tasks-multi-model-tracing-oai.png)
+![Agents as Activities Sequence (Multi-Model) with OpenAI endpoint and Tracing](./agents-as-activities-multi-model-tracing-oai.png)
 
-![Agents as Tasks Sequence (Multi-Model) with NVIDIA endpoint and Tracing](./agents-as-tasks-multi-model-tracing-nv.png)
+![Agents as Activities Sequence (Multi-Model) with NVIDIA endpoint and Tracing](./agents-as-activities-multi-model-tracing-nv.png)
 
-![Agents as Tasks Sequence (Multi-Model) with HuggingFace Hub endpoint and Tracing](./agents-as-tasks-multi-model-tracing-hf.png)
+![Agents as Activities Sequence (Multi-Model) with HuggingFace Hub endpoint and Tracing](./agents-as-activities-multi-model-tracing-hf.png)
 
 ## Key Concepts
 
-### Agent as Task Pattern
-- Agents can be used directly as workflow tasks using the `@task(agent=agent_instance)` decorator
+### Agent as Activity Pattern
+- Agents can be used directly as workflow activities using the `@activity(agent=agent_instance)` decorator
 - Each agent operates independently with its own instructions and capabilities
 - Agents receive input from previous workflow steps and pass output to subsequent steps
 
 ### Workflow Orchestration  
 - The `@workflow` decorator defines the orchestration logic
-- `yield ctx.call_activity()` executes tasks sequentially
-- Agent results are automatically serialized and passed between tasks
+- `yield ctx.call_activity()` executes activities sequentially
+- Agent results are automatically serialized and passed between activities
 
 ### Multi-Model Integration
 - Different agents can use different LLM providers within the same workflow
-- Enables leveraging the strengths of different models for specific tasks
+- Enables leveraging the strengths of different models for specific activities
 - All interactions are traced for comprehensive observability
 
 ### Observability Features
@@ -256,7 +256,7 @@ Dapr Agent workflows with observability provide:
 - **W3C Trace Context**: Standards-compliant distributed tracing across workflow steps
 - **OpenTelemetry Integration**: Industry-standard instrumentation for workflows and agents
 - **Phoenix UI Compatibility**: Rich visualization of workflow execution and agent interactions
-- **Automatic Instrumentation**: Zero-code tracing for workflow tasks and agent operations
+- **Automatic Instrumentation**: Zero-code tracing for workflow activities and agent operations
 - **Performance Monitoring**: Detailed metrics for workflow execution and agent performance
 - **Error Tracking**: Comprehensive error capture across the entire workflow
 
@@ -266,7 +266,7 @@ Dapr Agent workflows leverage Dapr's core capabilities:
 
 - **Durability**: Workflows survive process restarts or crashes
 - **State Management**: Workflow state is persisted in a distributed state store  
-- **Actor Model**: Agent tasks run as reliable, stateful actors within the workflow
+- **Actor Model**: Agent activities run as reliable, stateful actors within the workflow
 - **Event Handling**: Workflows can react to external events and agent responses
 
 ## Troubleshooting
