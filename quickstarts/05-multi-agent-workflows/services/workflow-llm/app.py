@@ -50,8 +50,11 @@ def main() -> None:
         team_name=team_name,
     )
     execution = AgentExecutionConfig(
-        max_iterations=int(os.getenv("MAX_ITERATIONS", "8"))
+        max_iterations=int(os.getenv("MAX_ITERATIONS", "1"))
     )
+
+    def on_summary(summary: str):
+        print("Journey complete! Summary:", summary, flush=True)
 
     orchestrator = LLMOrchestrator(
         name=orchestrator_name,
@@ -66,6 +69,7 @@ def main() -> None:
         },
         timeout_seconds=int(os.getenv("TIMEOUT_SECONDS", "45")),
         runtime=wf.WorkflowRuntime(),
+        final_summary_callback=on_summary,
     )
     orchestrator.start()
 

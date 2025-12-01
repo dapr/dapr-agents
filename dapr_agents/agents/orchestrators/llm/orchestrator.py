@@ -284,6 +284,8 @@ class LLMOrchestrator(LLMOrchestratorBase):
                 )
                 if not ctx.is_replaying:
                     logger.info("Workflow %s finalized.", instance_id)
+
+                self._invoke_final_summary_callback(final_summary)
                 return final_summary
             else:
                 task_text = task_results["content"]
