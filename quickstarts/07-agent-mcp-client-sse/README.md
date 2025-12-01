@@ -114,7 +114,6 @@ agent = DurableAgent(
     memory=memory_config,
     state=state_config,
 )
-agent.start()
 
 runner = AgentRunner()
 runner.serve(agent, port=8001)

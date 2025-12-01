@@ -32,8 +32,7 @@ from dapr_agents.types import (
 )
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
-from dapr_agents.workflow.decorators.routers import message_router
-from dapr_agents.workflow.runners.agent import workflow_entry
+from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
 

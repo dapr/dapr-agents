@@ -98,7 +98,6 @@ async def main() -> None:
         memory=sam_memory,
         llm=llm,
     )
-    sam.start()
 
     # ---------------------------
     # PubSub routing & shutdown
@@ -109,8 +108,7 @@ async def main() -> None:
         runner.register_routes(sam)
         await wait_for_shutdown()
     finally:
-        runner.shutdown()
-        sam.stop()
+        runner.shutdown(sam)
 
 
 if __name__ == "__main__":

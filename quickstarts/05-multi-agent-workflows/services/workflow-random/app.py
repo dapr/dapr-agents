@@ -52,14 +52,12 @@ def main() -> None:
         timeout_seconds=int(os.getenv("TIMEOUT_SECONDS", "45")),
         runtime=wf.WorkflowRuntime(),
     )
-    orchestrator.start()
 
     runner = AgentRunner()
     try:
         runner.serve(orchestrator, port=8004)
     finally:
-        runner.shutdown()
-        orchestrator.stop()
+        runner.shutdown(orchestrator)
 
 
 if __name__ == "__main__":

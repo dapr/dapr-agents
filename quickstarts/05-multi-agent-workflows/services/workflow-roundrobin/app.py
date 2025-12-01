@@ -47,14 +47,12 @@ def main() -> None:
         agent_metadata={"legend": "Sends tasks in a fair rotation."},
         runtime=wf.WorkflowRuntime(),
     )
-    orchestrator.start()
 
     runner = AgentRunner()
     try:
         runner.serve(orchestrator, port=8004)
     finally:
-        runner.shutdown()
-        orchestrator.stop()
+        runner.shutdown(orchestrator)
 
 
 if __name__ == "__main__":

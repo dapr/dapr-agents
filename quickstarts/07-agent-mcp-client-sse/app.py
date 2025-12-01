@@ -72,14 +72,12 @@ def main() -> None:
         memory=memory,
         state=state,
     )
-    agent.start()
 
     runner = AgentRunner()
     try:
         runner.serve(agent, port=8001)
     finally:
-        runner.shutdown()
-        agent.stop()
+        runner.shutdown(agent)
 
 
 if __name__ == "__main__":
