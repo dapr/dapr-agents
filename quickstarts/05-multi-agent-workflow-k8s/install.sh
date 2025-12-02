@@ -122,5 +122,5 @@ kubectl port-forward -n default svc/workflow-llm 8004:80 &>/dev/null &
 echo "### Port forwarded the workflow-llm pod... ###"
 
 echo "### Trigger workflow... ###"
-python3.10 -m pip install -r "${BASE_DIR}/services/client/requirements.txt" &>/dev/null
-python3.10 "${BASE_DIR}/services/client/k8s_http_client.py"
+python3 -m pip install -r "${BASE_DIR}/services/client/requirements.txt" &>/dev/null
+python3 "${BASE_DIR}/services/client/k8s_http_client.py"
