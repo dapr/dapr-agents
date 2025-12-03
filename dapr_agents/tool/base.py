@@ -1,12 +1,16 @@
 import inspect
 import logging
-from typing import Callable, Type, Optional, Any, Dict
+from typing import TYPE_CHECKING, Callable, Type, Optional, Any, Dict
 from inspect import signature, Parameter
 from pydantic import BaseModel, Field, ValidationError, model_validator, PrivateAttr
 from mcp.types import CallToolResult, TextContent
 from dapr_agents.tool.utils.tool import ToolHelper
 from dapr_agents.tool.utils.function_calling import to_function_call_definition
 from dapr_agents.types import ToolError
+
+if TYPE_CHECKING:
+    from mcp.types import Tool as MCPTool
+    from mcp import ClientSession
 
 logger = logging.getLogger(__name__)
 
