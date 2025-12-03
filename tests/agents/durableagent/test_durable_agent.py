@@ -448,7 +448,7 @@ class TestDurableAgent:
         assert entry.end_time is not None
 
     def test_run_tool(self, basic_durable_agent, mock_tool):
-        """Test that run_tool atomically executes and persists tool results."""
+        """Test that run_tool executes a tool and returns the result without persisting state."""
         from datetime import datetime, timezone
 
         instance_id = "test-instance-123"
@@ -486,37 +486,28 @@ class TestDurableAgent:
                 "2024-01-01T00:00:00Z".replace("Z", "+00:00")
             )
 
-            # Mock the activity context and save_state
+            # Mock the activity context
             mock_ctx = Mock()
 
-            with patch.object(basic_durable_agent, "save_state"), patch.object(
-                basic_durable_agent, "load_state"
-            ):
-                result = basic_durable_agent.run_tool(
-                    mock_ctx,
-                    {
-                        "tool_call": tool_call,
-                        "instance_id": instance_id,
-                        "time": test_time.isoformat(),
-                        "order": 1,
-                    },
-                )
+            result = basic_durable_agent.run_tool(
+                mock_ctx,
+                {
+                    "tool_call": tool_call,
+                    "instance_id": instance_id,
+                    "time": test_time.isoformat(),
+                    "order": 1,
+                },
+            )
 
             # Verify tool was executed and result was returned
             assert result["tool_call_id"] == "call_123"
-            assert result["tool_name"] == "test_tool"
-            assert result["execution_result"] == "tool_result"
+            assert result["name"] == "test_tool"
+            assert result["content"] == "tool_result"
 
-            # Verify state was updated atomically
+            # Verify that instance state was NOT modified by run_tool
             entry = basic_durable_agent._state_model.instances[instance_id]
-            assert len(entry.messages) == 1  # Tool message added
-            assert len(entry.tool_history) == 1  # Tool execution record added
-
-            # Verify tool execution record in tool_history
-            tool_history_entry = entry.tool_history[0]
-            assert tool_history_entry.tool_call_id == "call_123"
-            assert tool_history_entry.tool_name == "test_tool"
-            assert tool_history_entry.execution_result == "tool_result"
+            assert len(entry.messages) == 0  # No tool message added by run_tool
+            assert len(entry.tool_history) == 0  # No tool history added by run_tool
 
     def test_record_initial_entry(self, basic_durable_agent):
         """Test record_initial_entry helper method."""
@@ -711,7 +702,7 @@ class TestDurableAgent:
         assert result is None
 
     def test_create_tool_message_objects(self, basic_durable_agent):
-        """Test that tool message objects are created correctly (via run_tool activity)."""
+        """Test that tool message dicts are created correctly by run_tool and persisted by save_tool_results."""
         from datetime import datetime, timezone
 
         instance_id = "test-instance-123"
@@ -745,25 +736,34 @@ class TestDurableAgent:
 
             mock_ctx = Mock()
 
-            with patch.object(basic_durable_agent, "save_state"), patch.object(
-                basic_durable_agent, "load_state"
-            ):
-                result = basic_durable_agent.run_tool(
-                    mock_ctx,
-                    {
-                        "tool_call": tool_call,
-                        "instance_id": instance_id,
-                        "time": datetime.now(timezone.utc).isoformat(),
-                        "order": 1,
-                    },
-                )
+            result = basic_durable_agent.run_tool(
+                mock_ctx,
+                {
+                    "tool_call": tool_call,
+                    "instance_id": instance_id,
+                    "time": datetime.now(timezone.utc).isoformat(),
+                    "order": 1,
+                },
+            )
 
         # Verify the tool result structure
         assert result["tool_call_id"] == "call_123"
-        assert result["tool_name"] == "test_tool"
-        assert result["execution_result"] == "tool_result"
+        assert result["name"] == "test_tool"
+        assert result["content"] == "tool_result"
 
-        # Verify messages and history were added to instance
+        # Now call save_tool_results to persist the results
+        with patch.object(basic_durable_agent, "save_state"), patch.object(
+            basic_durable_agent, "load_state"
+        ):
+            basic_durable_agent.save_tool_results(
+                mock_ctx,
+                {
+                    "tool_results": [result],
+                    "instance_id": instance_id,
+                },
+            )
+
+        # Verify messages were added to instance by save_tool_results
         entry = basic_durable_agent._state_model.instances[instance_id]
         assert len(entry.messages) == 1
         assert entry.messages[0].role == "tool"
@@ -772,13 +772,8 @@ class TestDurableAgent:
         )  # Check tool_call_id, not the message UUID id
         assert entry.messages[0].name == "test_tool"
 
-        assert len(entry.tool_history) == 1
-        assert entry.tool_history[0].tool_call_id == "call_123"
-        assert entry.tool_history[0].tool_name == "test_tool"
-        assert entry.tool_history[0].execution_result == "tool_result"
-
     def test_append_tool_message_to_instance(self, basic_durable_agent):
-        """Test that tool messages are appended to instance via run_tool activity."""
+        """Test that tool messages are appended to instance via save_tool_results activity."""
         instance_id = "test-instance-123"
 
         # Set up instance using AgentWorkflowEntry
@@ -810,40 +805,48 @@ class TestDurableAgent:
             tools=list(basic_durable_agent.tools)
         )
 
-        # Mock save_state to prevent actual persistence
+        mock_ctx = Mock()
+
+        # Call run_tool activity which executes the tool and returns result dict
+        result = basic_durable_agent.run_tool(
+            mock_ctx,
+            {
+                "instance_id": instance_id,
+                "tool_call": {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {
+                        "name": "TestToolFunc",  # Tool name is CamelCase version of function name
+                        "arguments": '{"x": "test"}',  # Pass string to match type hint default
+                    },
+                },
+            },
+        )
+
+        # run_tool does NOT persist state, so entry should be unchanged
+        assert len(entry.messages) == 0
+        assert len(entry.tool_history) == 0
+
         with patch.object(basic_durable_agent, "save_state"), patch.object(
             basic_durable_agent, "load_state"
         ):
-            mock_ctx = Mock()
-
-            # Call run_tool activity which appends messages and tool_history
-            basic_durable_agent.run_tool(
+            basic_durable_agent.save_tool_results(
                 mock_ctx,
                 {
+                    "tool_results": [result],
                     "instance_id": instance_id,
-                    "tool_call": {
-                        "id": "call_123",
-                        "type": "function",
-                        "function": {
-                            "name": "TestToolFunc",  # Tool name is CamelCase version of function name
-                            "arguments": '{"x": "test"}',  # Pass string to match type hint default
-                        },
-                    },
                 },
             )
 
-        # Verify entry was updated with message and tool_history
+        # Verify entry was updated with message by save_tool_results
         assert len(entry.messages) == 1
         assert entry.messages[0].role == "tool"
         assert (
             entry.messages[0].tool_call_id == "call_123"
         )  # Check tool_call_id, not the message UUID id
-        assert len(entry.tool_history) == 1
-        assert entry.tool_history[0].tool_call_id == "call_123"
-        assert entry.tool_history[0].tool_name == "TestToolFunc"
 
     def test_update_agent_memory_and_history(self, basic_durable_agent):
-        """Test that memory and history are updated via run_tool activity."""
+        """Test that memory is updated via save_tool_results activity."""
         instance_id = "test-instance-123"
 
         # Set up instance using AgentWorkflowEntry
@@ -875,30 +878,49 @@ class TestDurableAgent:
             tools=list(basic_durable_agent.tools)
         )
 
-        # Mock save_state to prevent actual persistence
-        with patch.object(basic_durable_agent, "save_state"):
-            mock_ctx = Mock()
+        mock_ctx = Mock()
 
-            # Call run_tool activity which updates memory and history
-            basic_durable_agent.run_tool(
+        # Call run_tool activity which executes the tool and returns result
+        result = basic_durable_agent.run_tool(
+            mock_ctx,
+            {
+                "instance_id": instance_id,
+                "tool_call": {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {
+                        "name": "TestToolFunc",
+                        "arguments": '{"x": "test"}',
+                    },
+                },
+            },
+        )
+
+        # Verify run_tool returns proper result dict
+        assert result["tool_call_id"] == "call_123"
+        assert result["name"] == "TestToolFunc"
+        assert result["content"] == "tool_result"
+
+        # Mock save_state to prevent actual persistence and track memory.add_message calls
+        with patch.object(basic_durable_agent, "save_state"), patch.object(
+            basic_durable_agent, "load_state"
+        ), patch.object(
+            type(basic_durable_agent.memory), "add_message"
+        ) as mock_add_message:
+            # Call save_tool_results which updates memory
+            basic_durable_agent.save_tool_results(
                 mock_ctx,
                 {
+                    "tool_results": [result],
                     "instance_id": instance_id,
-                    "tool_call": {
-                        "id": "call_123",
-                        "type": "function",
-                        "function": {
-                            "name": "TestToolFunc",
-                            "arguments": '{"x": "test"}',
-                        },
-                    },
                 },
             )
 
-        # Verify agent-level tool_history was updated
-        assert len(basic_durable_agent.tool_history) == 1
-        assert basic_durable_agent.tool_history[0].tool_call_id == "call_123"
-        assert basic_durable_agent.tool_history[0].tool_name == "TestToolFunc"
+            # Verify memory.add_message was called with the tool message
+            mock_add_message.assert_called_once()
+            call_arg = mock_add_message.call_args[0][0]
+            assert call_arg.tool_call_id == "call_123"
+            assert call_arg.name == "TestToolFunc"
 
     def test_reconstruct_conversation_history(self, basic_durable_agent):
         """Test test_reconstruct_conversation_history helper method."""
