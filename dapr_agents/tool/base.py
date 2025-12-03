@@ -3,7 +3,7 @@ import logging
 from typing import Callable, Type, Optional, Any, Dict
 from inspect import signature, Parameter
 from pydantic import BaseModel, Field, ValidationError, model_validator, PrivateAttr
-
+from mcp.types import CallToolResult, TextContent
 from dapr_agents.tool.utils.tool import ToolHelper
 from dapr_agents.tool.utils.function_calling import to_function_call_definition
 from dapr_agents.types import ToolError
@@ -64,6 +64,127 @@ class AgentTool(BaseModel):
         """
         ToolHelper.check_docstring(func)
         return cls(func=func)
+
+    @classmethod
+    def from_mcp(
+        cls,
+        mcp_tool: "MCPTool",
+        session: "Optional[ClientSession]" = None,
+        connection: Any = None,
+    ) -> "AgentTool":
+        """
+        Create an AgentTool from an MCPTool and a session or connection.
+
+        Args:
+            mcp_tool: The MCPTool object to wrap.
+            session: An active MCP ClientSession (preferred).
+            connection: Optional connection config (if no session provided).
+
+        Returns:
+            AgentTool: A ready-to-use AgentTool instance.
+        """
+        if session is None and connection is None:
+            raise ValueError("Either a session or a connection config must be provided")
+
+        tool_name = mcp_tool.name
+        tool_docs = mcp_tool.description or ""
+
+        async def executor(**kwargs: Any) -> Any:
+            try:
+                logger.debug(f"Calling MCP tool '{tool_name}' with args: {kwargs}")
+                if session is not None:
+                    result = await session.call_tool(tool_name, kwargs)
+                else:
+                    logger.debug(f"Starting transport session for tool '{tool_name}'")
+                    from dapr_agents.tool.mcp.transport import start_transport_session
+
+                    async with start_transport_session(connection) as tool_session:
+                        await tool_session.initialize()
+                        result = await tool_session.call_tool(tool_name, kwargs)
+                tool_result = CallToolResult(
+                    isError=False,
+                    content=[TextContent(type="text", text=str(result))],
+                    structuredContent={},
+                )
+                return tool_result
+            except (ValidationError, ToolError, Exception) as e:
+                err_type = type(e).__name__
+                logger.error(f"{err_type} running tool: {str(e)}")
+                return CallToolResult(
+                    isError=True,
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=f"{err_type} during Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
+                        )
+                    ],
+                )
+
+        # Optionally generate args model from input schema
+        tool_args_model = None
+        if getattr(mcp_tool, "inputSchema", None):
+            try:
+                from dapr_agents.tool.mcp.schema import (
+                    create_pydantic_model_from_schema,
+                )
+
+                tool_args_model = create_pydantic_model_from_schema(
+                    mcp_tool.inputSchema, f"{tool_name}Args"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to create schema for tool '{tool_name}': {e}")
+                pass
+
+        return cls(
+            name=tool_name,
+            description=tool_docs,
+            func=executor,
+            args_model=tool_args_model,
+        )
+
+    @classmethod
+    def from_mcp_many(
+        cls,
+        mcp_tools: list,
+        session: "ClientSession" = None,
+        connection: Any = None,
+    ) -> list:
+        """
+        Batch-create AgentTool objects from a list of MCPTool objects.
+
+        Args:
+            mcp_tools (List[MCPTool]): List of MCP tool objects to convert.
+            session: An active MCP ClientSession (preferred).
+            connection: Optional connection config (if no session provided).
+
+        Returns:
+            List[AgentTool]: List of ready-to-use AgentTool objects.
+        """
+        return [
+            cls.from_mcp(
+                tool,
+                session=session,
+                connection=connection,
+            )
+            for tool in mcp_tools
+        ]
+
+    @classmethod
+    async def from_mcp_session(cls, session: "ClientSession") -> list:
+        """
+        Fetch all tools and wrap them as AgentTool objects.
+
+        Args:
+            session: An active MCP ClientSession.
+
+        Returns:
+            List[AgentTool]: List of ready-to-use AgentTool objects.
+        """
+        mcp_tools_response = await session.list_tools()
+        return cls.from_mcp_many(
+            mcp_tools_response.tools,
+            session=session,
+        )
 
     def model_post_init(self, __context: Any) -> None:
         """

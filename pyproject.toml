@@ -40,6 +40,7 @@ dependencies = [
     "posthog<6.0.0",
     "protobuf>=6.31.0,<7.0.0",
     "docker>=7.1.0",
+    "toolbox-core>=0.5.3",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",

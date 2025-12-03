@@ -1,3 +1,4 @@
+import json
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from mcp.types import CallToolResult
@@ -199,8 +200,10 @@ def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
 
     # Verify the tool result structure
     assert result["tool_call_id"] == "call_123"
-    assert result["tool_name"] == tool_name
-    assert result["execution_result"] == "4"  # Serialized as string
+    assert result["name"] == tool_name
+    structured_result = json.loads(result["content"])
+    assert len(structured_result["content"]) == 1  # should only have 1 result
+    assert structured_result["content"][0]["text"] == "4"  # Serialized as string
 
 
 # Shared fixture to start the math server with streamable HTTP
