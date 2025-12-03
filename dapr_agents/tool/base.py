@@ -289,7 +289,6 @@ class AgentTool(BaseModel):
     def from_toolbox_many(
         cls,
         toolbox_tools: list,
-        process_result_fn: Optional[Callable[[str], Any]] = None,
     ) -> list:
         """
         Batch-create AgentTool objects from a list of ToolboxSyncTool objects.
