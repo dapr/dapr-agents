@@ -1,4 +1,3 @@
-import json
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from mcp.types import CallToolResult
