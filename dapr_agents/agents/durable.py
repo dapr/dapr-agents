@@ -249,7 +249,16 @@ class DurableAgent(AgentBase):
                         )
                         for idx, tc in enumerate(tool_calls)
                     ]
-                    yield wf.when_all(parallel)
+                    tool_results: List[Dict[str, Any]] = yield wf.when_all(parallel)
+
+                    yield ctx.call_activity(
+                        self.save_tool_results,
+                        input={
+                            "tool_results": tool_results,
+                            "instance_id": ctx.instance_id,
+                        },
+                    )
+
                     task = None  # prepare for next turn
                     continue
 
