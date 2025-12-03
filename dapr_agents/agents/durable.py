@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 import dapr.ext.workflow as wf
 
@@ -359,6 +359,49 @@ class DurableAgent(AgentBase):
         self.memory.add_message(
             UserMessage(name=source, content=message_content, role="user")
         )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _reconstruct_conversation_history(
+        self, instance_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Build conversation history from per-instance state.
+
+        Args:
+            instance_id: Workflow instance identifier.
+
+        Returns:
+            Message history for this specific workflow instance.
+        """
+        container = self._get_entry_container()
+        entry = container.get(instance_id) if container else None
+
+        instance_messages: List[Dict[str, Any]] = []
+        if entry and hasattr(entry, "messages"):
+            for msg in getattr(entry, "messages"):
+                serialized = self._serialize_message(msg)
+                if serialized.get("role") != "system":
+                    instance_messages.append(serialized)
+
+        if instance_messages:
+            return instance_messages
+
+        persistent_memory: List[Dict[str, Any]] = []
+        try:
+            for msg in self.memory.get_messages():
+                try:
+                    persistent_memory.append(self._serialize_message(msg))
+                except TypeError:
+                    logger.debug(
+                        "Unsupported memory message type %s; skipping.", type(msg)
+                    )
+        except Exception:
+            logger.debug("Unable to load persistent memory.", exc_info=True)
+
+        return persistent_memory
 
     # ------------------------------------------------------------------
     # Activities
