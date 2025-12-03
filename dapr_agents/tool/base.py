@@ -295,7 +295,6 @@ class AgentTool(BaseModel):
 
         Args:
             toolbox_tools: List of ToolboxSyncTool objects to convert.
-            process_result_fn: Optional function to process the tool result.
 
         Returns:
             List[AgentTool]: List of ready-to-use AgentTool objects.
