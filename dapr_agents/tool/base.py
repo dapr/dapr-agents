@@ -1,9 +1,9 @@
 import inspect
 import logging
-from typing import Callable, Type, Optional, Any, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Type, Optional, Any, Dict
 from inspect import signature, Parameter
 from pydantic import BaseModel, Field, ValidationError, model_validator, PrivateAttr
-
+from mcp.types import CallToolResult, TextContent
 from dapr_agents.tool.utils.tool import ToolHelper
 from dapr_agents.tool.utils.function_calling import to_function_call_definition
 from dapr_agents.types import ToolError
@@ -73,9 +73,8 @@ class AgentTool(BaseModel):
     def from_mcp(
         cls,
         mcp_tool: "MCPTool",
-        session: "ClientSession" = None,
+        session: "Optional[ClientSession]" = None,
         connection: Any = None,
-        process_result_fn=None,
     ) -> "AgentTool":
         """
         Create an AgentTool from an MCPTool and a session or connection.
@@ -84,7 +83,6 @@ class AgentTool(BaseModel):
             mcp_tool: The MCPTool object to wrap.
             session: An active MCP ClientSession (preferred).
             connection: Optional connection config (if no session provided).
-            process_result_fn: Optional function to process the tool result.
 
         Returns:
             AgentTool: A ready-to-use AgentTool instance.
@@ -107,28 +105,24 @@ class AgentTool(BaseModel):
                     async with start_transport_session(connection) as tool_session:
                         await tool_session.initialize()
                         result = await tool_session.call_tool(tool_name, kwargs)
-                if process_result_fn:
-                    return process_result_fn(result)
-                # Default: extract text content
-                if hasattr(result, "isError") and result.isError:
-                    error_message = "Unknown error"
-                    if hasattr(result, "content") and result.content:
-                        for content in result.content:
-                            if hasattr(content, "text"):
-                                error_message = content.text
-                                break
-                    raise ToolError(f"MCP tool error: {error_message}")
-                if hasattr(result, "content") and result.content:
-                    text_contents = [
-                        c.text for c in result.content if hasattr(c, "text")
-                    ]
-                    if len(text_contents) == 1:
-                        return text_contents[0]
-                    elif text_contents:
-                        return text_contents
-                return str(result)
-            except Exception as e:
-                raise ToolError(f"Error executing tool '{tool_name}': {str(e)}") from e
+                tool_result = CallToolResult(
+                    isError=False,
+                    content=[TextContent(type="text", text=str(result))],
+                    structuredContent={},
+                )
+                return tool_result
+            except (ValidationError, ToolError, Exception) as e:
+                err_type = type(e).__name__
+                logger.error(f"{err_type} running tool: {str(e)}")
+                return CallToolResult(
+                    isError=True,
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=f"{err_type} during Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
+                        )
+                    ],
+                )
 
         # Optionally generate args model from input schema
         tool_args_model = None
@@ -158,7 +152,6 @@ class AgentTool(BaseModel):
         mcp_tools: list,
         session: "ClientSession" = None,
         connection: Any = None,
-        process_result_fn=None,
     ) -> list:
         """
         Batch-create AgentTool objects from a list of MCPTool objects.
@@ -167,7 +160,6 @@ class AgentTool(BaseModel):
             mcp_tools (List[MCPTool]): List of MCP tool objects to convert.
             session: An active MCP ClientSession (preferred).
             connection: Optional connection config (if no session provided).
-            process_result_fn: Optional function to process the tool result.
 
         Returns:
             List[AgentTool]: List of ready-to-use AgentTool objects.
@@ -177,21 +169,17 @@ class AgentTool(BaseModel):
                 tool,
                 session=session,
                 connection=connection,
-                process_result_fn=process_result_fn,
             )
             for tool in mcp_tools
         ]
 
     @classmethod
-    async def from_mcp_session(
-        cls, session: "ClientSession", process_result_fn=None
-    ) -> list:
+    async def from_mcp_session(cls, session: "ClientSession") -> list:
         """
         Fetch all tools and wrap them as AgentTool objects.
 
         Args:
             session: An active MCP ClientSession.
-            process_result_fn: Optional function to process the tool result.
 
         Returns:
             List[AgentTool]: List of ready-to-use AgentTool objects.
@@ -200,7 +188,6 @@ class AgentTool(BaseModel):
         return cls.from_mcp_many(
             mcp_tools_response.tools,
             session=session,
-            process_result_fn=process_result_fn,
         )
 
     def model_post_init(self, __context: Any) -> None:

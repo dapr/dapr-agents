@@ -34,12 +34,13 @@ dependencies = [
     "aiohttp>=3.9.0,<4.0.0",
     "cloudevents>=1.11.0,<2.0.0",
     "numpy>=2.2.2,<3.0.0",
-    "mcp>=1.7.1,<2.0.0",
+    "mcp>=1.20.0,<2.0.0",
     "websockets>=15.0.0,<16.0.0",
     "python-dotenv>=1.1.1,<2.0.0",
     "posthog<6.0.0",
     "protobuf>=6.31.0,<7.0.0",
     "docker>=7.1.0",
+    "toolbox-core>=0.5.3",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
