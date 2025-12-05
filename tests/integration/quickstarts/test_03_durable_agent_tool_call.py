@@ -150,3 +150,65 @@ class TestDurableAgentToolCallQuickstart:
         )
         # expect some output
         assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_durable_weather_agent_serve(self, dapr_runtime):  # noqa: ARG002
+        """Test durable weather agent serve example (durable_weather_agent_serve.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        script = self.quickstart_dir / "durable_weather_agent_serve.py"
+        result = run_quickstart_script(
+            script,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,
+            use_dapr=True,
+            app_id="durableweatherapp",
+            dapr_http_port=3500,
+            app_port=8001,
+            trigger_curl={
+                "url": "http://localhost:8001/run",
+                "method": "POST",
+                "data": {"task": "What's the weather in New York?"},
+                "headers": {"Content-Type": "application/json"},
+                "wait_seconds": 5,
+            },
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart script '{script}' failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_durable_weather_agent_subscribe(self, dapr_runtime):  # noqa: ARG002
+        """Test durable weather agent subscribe example (durable_weather_agent_subscribe.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        script = self.quickstart_dir / "durable_weather_agent_subscribe.py"
+        result = run_quickstart_script(
+            script,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=120,
+            use_dapr=True,
+            app_id="durableweatherapp",
+            dapr_http_port=3500,
+            trigger_pubsub={
+                "pubsub_name": "messagepubsub",
+                "topic": "weather.requests",
+                "data": {"task": "What's the weather in Boston?"},
+                "wait_seconds": 5,
+            },
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart script '{script}' failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        assert len(result.stdout) > 0 or len(result.stderr) > 0

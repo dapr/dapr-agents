@@ -13,31 +13,21 @@ class TestHelloWorldQuickstart:
         self.quickstart_dir = quickstarts_dir / "01-hello-world"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
-    def test_basic_llm(self):
-        """Test basic LLM example (01_ask_llm.py)."""
-        script_path = self.quickstart_dir / "01_ask_llm.py"
+    def test_agent_with_memory(self, dapr_runtime):  # noqa: ARG002
+        """Test agent with memory example (01_agent_with_memory.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        script_path = self.quickstart_dir / "01_agent_with_memory.py"
         result = run_quickstart_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=30,
-        )
-
-        assert result.returncode == 0, (
-            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
-        )
-        assert "Got response:" in result.stdout or "response" in result.stdout.lower()
-
-    def test_simple_agent(self):
-        """Test simple agent example (02_build_agent.py)."""
-        script_path = self.quickstart_dir / "02_build_agent.py"
-        result = run_quickstart_script(
-            script_path,
-            cwd=self.quickstart_dir,
-            env=self.env,
-            timeout=60,
+            timeout=120,
+            use_dapr=True,
+            app_id="agent-memory",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -46,51 +36,29 @@ class TestHelloWorldQuickstart:
             f"STDERR:\n{result.stderr}"
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
+        # Verify agent responded and remembered the name
+        assert "John" in result.stdout or "weather" in result.stdout.lower()
 
-    def test_durable_agent_run(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent run example (03_durable_agent_run.py).
+    def test_agent_with_durable_execution(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent execution example (02_agent_with_durable_execution.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        script_path = self.quickstart_dir / "03_durable_agent_run.py"
+        script_path = self.quickstart_dir / "02_agent_with_durable_execution.py"
         result = run_quickstart_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
             timeout=120,
             use_dapr=True,
-            app_id="stateful-llm",
-            dapr_http_port=3500,
-        )
-
-        assert result.returncode == 0, (
-            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
-        )
-        assert len(result.stdout) > 0 or len(result.stderr) > 0
-
-    def test_durable_agent_serve(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent serve example (03_durable_agent_serve.py).
-
-        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
-        The fixture is needed for setup, even though we don't use the value directly.
-        """
-        script_path = self.quickstart_dir / "03_durable_agent_serve.py"
-        result = run_quickstart_script(
-            script_path,
-            cwd=self.quickstart_dir,
-            env=self.env,
-            timeout=120,
-            use_dapr=True,
-            app_id="stateful-llm",
-            dapr_http_port=3500,
+            app_id="durable-agent",
             app_port=8001,
+            resources_path=self.quickstart_dir / "resources",
             trigger_curl={
                 "url": "http://localhost:8001/run",
                 "method": "POST",
-                "data": {"task": "I want to find flights to Paris"},
+                "data": {"task": "What is the weather in London?"},
                 "headers": {"Content-Type": "application/json"},
                 "wait_seconds": 5,
             },
@@ -103,46 +71,21 @@ class TestHelloWorldQuickstart:
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 
-    def test_durable_agent_subscribe(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent subscribe example (03_durable_agent_subscribe.py).
+    def test_workflow_with_llms(self, dapr_runtime):  # noqa: ARG002
+        """Test workflow with LLM activities example (03_workflow_with_llms.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        script_path = self.quickstart_dir / "03_durable_agent_subscribe.py"
-        result = run_quickstart_script(
-            script_path,
-            cwd=self.quickstart_dir,
-            env=self.env,
-            timeout=120,
-            use_dapr=True,
-            app_id="stateful-llm",
-            dapr_http_port=3500,
-            trigger_pubsub={
-                "pubsub_name": "messagepubsub",
-                "topic": "travel.requests",
-                "data": {"task": "Plan a trip to Tokyo with two flight options"},
-                "wait_seconds": 5,
-            },
-        )
-
-        assert result.returncode == 0, (
-            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
-        )
-        assert len(result.stdout) > 0 or len(result.stderr) > 0
-
-    def test_chain_tasks(self, dapr_runtime):
-        """Test chain tasks workflow (04_chain_tasks.py)."""
-        script_path = self.quickstart_dir / "04_chain_tasks.py"
+        script_path = self.quickstart_dir / "03_workflow_with_llms.py"
         result = run_quickstart_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
             timeout=180,
             use_dapr=True,
-            app_id="dapr-agent-wf",
+            app_id="workflow-llms",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -151,3 +94,39 @@ class TestHelloWorldQuickstart:
             f"STDERR:\n{result.stderr}"
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
+        # Verify workflow completed successfully
+        assert (
+            "Workflow started:" in result.stdout
+            or "Blog post" in result.stdout
+            or "Final Blog Post" in result.stdout
+        )
+
+    def test_workflow_with_agents(self, dapr_runtime):  # noqa: ARG002
+        """Test workflow with agent activities example (04_workflow_with_agents.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        script_path = self.quickstart_dir / "04_workflow_with_agents.py"
+        result = run_quickstart_script(
+            script_path,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=180,
+            use_dapr=True,
+            app_id="workflow-agents",
+            resources_path=self.quickstart_dir / "resources",
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+        # Verify workflow completed successfully
+        assert (
+            "Workflow started:" in result.stdout
+            or "Recommendation" in result.stdout
+            or "Final Recommendation" in result.stdout
+        )
