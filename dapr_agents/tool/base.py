@@ -2,7 +2,14 @@ import inspect
 import logging
 from typing import TYPE_CHECKING, Callable, Type, Optional, Any, Dict
 from inspect import signature, Parameter
-from pydantic import BaseModel, Field, ValidationError, model_validator, PrivateAttr
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    model_validator,
+    PrivateAttr,
+    create_model,
+)
 from mcp.types import CallToolResult, TextContent
 from dapr_agents.tool.utils.tool import ToolHelper
 from dapr_agents.tool.utils.function_calling import to_function_call_definition
@@ -11,6 +18,7 @@ from dapr_agents.types import ToolError
 if TYPE_CHECKING:
     from mcp.types import Tool as MCPTool
     from mcp import ClientSession
+    from toolbox_core.sync_tool import ToolboxSyncTool
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +197,96 @@ class AgentTool(BaseModel):
             mcp_tools_response.tools,
             session=session,
         )
+
+    @classmethod
+    def from_toolbox(
+        cls,
+        toolbox_tool: "ToolboxSyncTool",
+    ) -> "AgentTool":
+        """
+        Create an AgentTool from a ToolboxSyncTool.
+
+        Args:
+            toolbox_tool: A ToolboxSyncTool instance from toolbox-core.
+
+        Returns:
+            AgentTool: A ready-to-use AgentTool instance.
+        """
+        tool_name = toolbox_tool._name
+        tool_description = toolbox_tool._description
+
+        def executor(**kwargs: Any) -> Any:
+            try:
+                logger.debug(f"Calling Toolbox tool '{tool_name}' with args: {kwargs}")
+                result = toolbox_tool(**kwargs)
+                tool_result = CallToolResult(
+                    isError=False,
+                    content=[TextContent(type="text", text=str(result))],
+                    structuredContent={},
+                )
+                return tool_result
+            except (ValidationError, ToolError, Exception) as e:
+                err_type = type(e).__name__
+                logger.error(f"{err_type} running tool: {str(e)}")
+                return CallToolResult(
+                    isError=True,
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=f"{err_type} during Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
+                        )
+                    ],
+                )
+
+        tool_args_model = None
+        try:
+            params = toolbox_tool._params
+            if params and len(params) > 0:
+                field_definitions = {}
+                for param in params:
+                    annotation = (
+                        param.annotation if hasattr(param, "annotation") else Any
+                    )
+                    if param.required:
+                        field_definitions[param.name] = (annotation, ...)
+                    else:
+                        field_definitions[param.name] = (Optional[annotation], None)
+                if field_definitions:
+                    tool_args_model = create_model(
+                        f"{tool_name}Args", **field_definitions
+                    )
+            else:
+                # Create empty model to avoid infering kwargs onto model
+                tool_args_model = create_model(f"{tool_name}Args")
+        except Exception as e:
+            logger.warning(
+                f"Failed to create args model for Toolbox tool '{tool_name}': {e}"
+            )
+            # Failed to create model from params, fallback to empty model
+            tool_args_model = create_model(f"{tool_name}Args")
+
+        return cls(
+            name=tool_name,
+            description=tool_description,
+            func=executor,
+            args_model=tool_args_model,
+        )
+
+    @classmethod
+    def from_toolbox_many(
+        cls,
+        toolbox_tools: list,
+    ) -> list:
+        """
+        Batch-create AgentTool objects from a list of ToolboxSyncTool objects.
+
+        Args:
+            toolbox_tools: List of ToolboxSyncTool objects to convert.
+
+        Returns:
+            List[AgentTool]: List of ready-to-use AgentTool objects.
+        """
+        return [cls.from_toolbox(tool) for tool in toolbox_tools]
 
     def model_post_init(self, __context: Any) -> None:
         """
