@@ -58,6 +58,7 @@ class TestAgentBaseClass:
         """Create an agent with tools."""
         mock_tool = Mock(spec=AgentTool)
         mock_tool.name = "test_tool"
+        mock_tool.description = "A tool for testing."
         return ConcreteAgentBase(
             name="ToolAgent", tools=[mock_tool], llm=mock_llm_client
         )
