@@ -85,7 +85,29 @@ class MockWorkflowActivityContext:
 
 
 class MockDaprClient:
-    pass
+    """Mock DaprClient that supports context manager and returns properly structured responses."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    def get_state(self, store_name, key, **kwargs):
+        """Return a mock state response with proper structure."""
+        response = MagicMock()
+        response.data = None
+        response.etag = None
+        response.json = MagicMock(return_value={})
+        return response
+
+    def save_state(self, store_name, key, value, **kwargs):
+        """Mock save_state that does nothing."""
+        pass
+
+    def delete_state(self, store_name, key, **kwargs):
+        """Mock delete_state that does nothing."""
+        pass
 
 
 class MockConversationInput:
