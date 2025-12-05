@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 import dapr.ext.workflow as wf
 
@@ -249,7 +249,16 @@ class DurableAgent(AgentBase):
                         )
                         for idx, tc in enumerate(tool_calls)
                     ]
-                    yield wf.when_all(parallel)
+                    tool_results: List[Dict[str, Any]] = yield wf.when_all(parallel)
+
+                    yield ctx.call_activity(
+                        self.save_tool_results,
+                        input={
+                            "tool_results": tool_results,
+                            "instance_id": ctx.instance_id,
+                        },
+                    )
+
                     task = None  # prepare for next turn
                     continue
 
@@ -350,6 +359,49 @@ class DurableAgent(AgentBase):
         self.memory.add_message(
             UserMessage(name=source, content=message_content, role="user")
         )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _reconstruct_conversation_history(
+        self, instance_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Build conversation history from per-instance state.
+
+        Args:
+            instance_id: Workflow instance identifier.
+
+        Returns:
+            Message history for this specific workflow instance.
+        """
+        container = self._get_entry_container()
+        entry = container.get(instance_id) if container else None
+
+        instance_messages: List[Dict[str, Any]] = []
+        if entry and hasattr(entry, "messages"):
+            for msg in getattr(entry, "messages"):
+                serialized = self._serialize_message(msg)
+                if serialized.get("role") != "system":
+                    instance_messages.append(serialized)
+
+        if instance_messages:
+            return instance_messages
+
+        persistent_memory: List[Dict[str, Any]] = []
+        try:
+            for msg in self.memory.get_messages():
+                try:
+                    persistent_memory.append(self._serialize_message(msg))
+                except TypeError:
+                    logger.debug(
+                        "Unsupported memory message type %s; skipping.", type(msg)
+                    )
+        except Exception:
+            logger.debug("Unable to load persistent memory.", exc_info=True)
+
+        return persistent_memory
 
     # ------------------------------------------------------------------
     # Activities
@@ -478,23 +530,18 @@ class DurableAgent(AgentBase):
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Execute a single tool call and persist results to state/memory.
+        Execute a single tool call.
 
         Args:
             payload: Keys 'tool_call', 'instance_id', 'time', 'order'.
 
         Returns:
-            Tool execution record as a dict.
+            ToolMessage as a dict.
 
         Raises:
             AgentError: If tool arguments contain invalid JSON.
         """
-        # Load latest state to ensure we have current data before modifying
-        if self.state_store:
-            self.load_state()
-
         tool_call = payload.get("tool_call", {})
-        instance_id = payload.get("instance_id")
         fn_name = tool_call["function"]["name"]
         raw_args = tool_call["function"].get("arguments", "")
 
@@ -514,80 +561,72 @@ class DurableAgent(AgentBase):
         # Serialize the tool result using centralized utility
         serialized_result = serialize_tool_result(result)
 
-        tool_result = {
-            "tool_call_id": tool_call["id"],
-            "tool_name": fn_name,
-            "tool_args": args,
-            "execution_result": serialized_result,
-        }
-        history_entry = ToolExecutionRecord(**tool_result)
-
-        # Build the tool message for both memory and (optionally) per-instance timeline
-        tool_message = ToolMessage(
-            tool_call_id=tool_result["tool_call_id"],
-            name=tool_result["tool_name"],
-            content=tool_result["execution_result"],
+        tool_result = ToolMessage(
+            content=serialized_result,
             role="tool",
+            name=fn_name,
+            tool_call_id=tool_call["id"],
         )
-        agent_message = {
-            "tool_call_id": tool_message.tool_call_id,
-            "role": "tool",
-            "name": tool_message.name,
-            "content": tool_message.content,
-        }
 
-        # Append to durable state if the entry/timeline exists (with de-dupe)
+        # Print the tool result for visibility
+        self.text_formatter.print_message(tool_result)
+
+        return tool_result.model_dump()
+
+    def save_tool_results(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> None:
+        """
+        Save tool results to memory in the correct order.
+
+        This activity is called after all parallel tool executions complete.
+        It writes all tool results to memory sequentially, ensuring correct
+        ordering for OpenAI API compliance.
+
+        Args:
+            payload: Keys 'tool_results' (list of tool result dicts) and 'instance_id'.
+        """
+        if self.state_store:
+            self.load_state()
+
+        tool_results_raw: List[Dict[str, Any]] = payload.get("tool_results", [])
+        tool_results: List[ToolMessage] = [ToolMessage(**tr) for tr in tool_results_raw]
+        instance_id: str = payload.get("instance_id", "")
+
         container = self._get_entry_container()
         entry = container.get(instance_id) if container else None
+
+        existing_tool_ids: set[str] = set()
         if entry is not None and hasattr(entry, "messages"):
-            # Skip if this tool_call_id already recorded
-            try:
-                existing_ids = {
-                    getattr(m, "id", None) or getattr(m, "tool_call_id", None)
-                    for m in getattr(entry, "messages")
-                }
-            except Exception:
-                existing_ids = set()
-            if agent_message["tool_call_id"] not in existing_ids:
+            for msg in getattr(entry, "messages"):
+                try:
+                    tid = getattr(msg, "tool_call_id", None)
+                    if tid:
+                        existing_tool_ids.add(tid)
+                except Exception:
+                    pass
+
+        for tool_result in tool_results:
+            tool_call_id = tool_result.tool_call_id
+
+            if tool_call_id in existing_tool_ids:
+                logger.debug(f"Tool result {tool_call_id} already in entry, skipping")
+                continue
+
+            if entry is not None and hasattr(entry, "messages"):
                 tool_message_model = (
-                    self._message_coercer(agent_message)
+                    self._message_coercer(tool_result.model_dump())
                     if getattr(self, "_message_coercer", None)
-                    else self._message_dict_to_message_model(agent_message)
+                    else self._message_dict_to_message_model(tool_result.model_dump())
                 )
                 entry.messages.append(tool_message_model)
-                if hasattr(entry, "tool_history"):
-                    entry.tool_history.append(history_entry)
                 if hasattr(entry, "last_message"):
                     entry.last_message = tool_message_model
 
-        tool_call_id = agent_message["tool_call_id"]
-        # Check if tool message already exists in memory
-        existing_memory_messages = self.memory.get_messages()
-        tool_exists_in_memory = False
-        for mem_msg in existing_memory_messages:
-            msg_dict = (
-                mem_msg.model_dump()
-                if hasattr(mem_msg, "model_dump")
-                else (mem_msg if isinstance(mem_msg, dict) else {})
-            )
-            if (
-                msg_dict.get("role") == "tool"
-                and msg_dict.get("tool_call_id") == tool_call_id
-            ):
-                tool_exists_in_memory = True
-                break
-
-        # Only add to persistent memory if not already present
-        if not tool_exists_in_memory:
-            self.memory.add_message(tool_message)
-
-        self.tool_history.append(history_entry)
-
-        # Print the tool result for visibility
-        self.text_formatter.print_message(agent_message)
+            self.memory.add_message(tool_result)
+            logger.debug(f"Added tool result {tool_call_id} to memory")
 
         self.save_state()
-        return tool_result
 
     def broadcast_message_to_agents(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -799,6 +838,7 @@ class DurableAgent(AgentBase):
         runtime.register_activity(self.record_initial_entry)
         runtime.register_activity(self.call_llm)
         runtime.register_activity(self.run_tool)
+        runtime.register_activity(self.save_tool_results)
         runtime.register_activity(self.broadcast_message_to_agents)
         runtime.register_activity(self.send_response_back)
         runtime.register_activity(self.finalize_workflow)

@@ -4,8 +4,9 @@ from types import TracebackType
 import asyncio
 import logging
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, ValidationError, Field, PrivateAttr
 from mcp import ClientSession
+from mcp.types import CallToolResult, TextContent
 from mcp.types import Tool as MCPTool, Prompt
 
 from dapr_agents.tool import AgentTool
@@ -388,22 +389,33 @@ class MCPClient(BaseModel):
                         and server_name in client._sessions
                     ):
                         session = client._sessions[server_name]
-                        result = await session.call_tool(tool_name, kwargs)
+                        result: CallToolResult = await session.call_tool(
+                            tool_name, kwargs
+                        )
                         logger.debug(f"Used persistent session for tool '{tool_name}'")
                     else:
                         async with client.create_ephemeral_session(
                             server_name
                         ) as session:
-                            result = await session.call_tool(tool_name, kwargs)
+                            result: CallToolResult = await session.call_tool(
+                                tool_name, kwargs
+                            )
                             logger.debug(
                                 f"Used ephemeral session for tool '{tool_name}'"
                             )
                     return client._process_tool_result(result)
-                except Exception as e:
-                    logger.exception(f"Execution failed for '{tool_name}'")
-                    raise ToolError(
-                        f"Error executing tool '{tool_name}': {str(e)}"
-                    ) from e
+                except (ValidationError, ToolError, Exception) as e:
+                    err_type = type(e).__name__
+                    logger.error(f"{err_type} running tool: {str(e)}")
+                    return CallToolResult(
+                        isError=True,
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=f"{err_type} during Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
+                            )
+                        ],
+                    )
 
             return executor
 
@@ -434,7 +446,7 @@ class MCPClient(BaseModel):
             args_model=args_model,
         )
 
-    def _process_tool_result(self, result: Any) -> Any:
+    def _process_tool_result(self, result: CallToolResult) -> CallToolResult:
         """
         Process the result from an MCP tool call.
 
@@ -442,35 +454,14 @@ class MCPClient(BaseModel):
             result: The result from calling an MCP tool
 
         Returns:
-            Processed result in a format expected by AgentTool
-
-        Raises:
-            ToolError: If the result indicates an error
+            Processed result as CallToolResult
         """
-        # Handle error result
-        if hasattr(result, "isError") and result.isError:
-            error_message = "Unknown error"
-            if hasattr(result, "content") and result.content:
-                for content in result.content:
-                    if hasattr(content, "text"):
-                        error_message = content.text
-                        break
-            raise ToolError(f"MCP tool error: {error_message}")
 
-        # Extract text content from result
-        if hasattr(result, "content") and result.content:
-            text_contents = []
-            for content in result.content:
-                if hasattr(content, "text"):
-                    text_contents.append(content.text)
-
-            # Return single string if only one content item
-            if len(text_contents) == 1:
-                return text_contents[0]
-            elif text_contents:
-                return text_contents
-        # Fallback for unexpected formats
-        return str(result)
+        return CallToolResult(
+            isError=result.isError,
+            content=result.content,
+            structuredContent=result.structuredContent,
+        )
 
     def get_all_tools(self) -> List[AgentTool]:
         """
