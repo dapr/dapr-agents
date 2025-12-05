@@ -193,6 +193,15 @@ def patch_openai_client(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def patch_dapr_client(monkeypatch):
+    """Patch DaprClient at the module level where it's actually used."""
+    monkeypatch.setattr(
+        "dapr_agents.storage.daprstores.statestore.DaprClient",
+        MockDaprClient,
+    )
+
+
+@pytest.fixture(autouse=True)
 def set_llm_component_default_env(monkeypatch):
     """Ensure DAPR_LLM_COMPONENT_DEFAULT is set for all tests."""
     monkeypatch.setenv("DAPR_LLM_COMPONENT_DEFAULT", "openai")
