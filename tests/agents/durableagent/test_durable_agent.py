@@ -96,6 +96,9 @@ class TestDurableAgent:
         mock.prompt_template = None
         # Set the class name to avoid OpenAI validation
         mock.__class__.__name__ = "MockLLMClient"
+        mock.provider = "MockOpenAIProvider"
+        mock.api = "MockOpenAIAPI"
+        mock.model = "gpt-4o-mock"
         return mock
 
     @pytest.fixture
@@ -257,8 +260,8 @@ class TestDurableAgent:
         assert metadata["name"] == "TestDurableAgent"
         assert metadata["role"] == "Test Durable Assistant"
         assert metadata["goal"] == "Help with testing"
-        assert metadata["topic_name"] == "TestDurableAgent"
-        assert metadata["pubsub_name"] == "testpubsub"
+        assert metadata["pubsub.agent_name"] == "TestDurableAgent"
+        assert metadata["pubsub.name"] == "testpubsub"
         assert metadata["orchestrator"] is False
 
     def test_tool_calling_workflow_initialization(
