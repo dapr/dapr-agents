@@ -443,7 +443,7 @@ def cleanup_quickstart_venv_per_module(request):
         return
 
     # Try to determine the quickstart directory from the test file path
-    # Test files are named like test_01_hello_world.py and correspond to quickstarts/01-hello-world
+    # Test files are named like test_01_dapr_agents_fundamentals.py and correspond to quickstarts/01-dapr-agents-fundamentals
     test_file_path = None
     if hasattr(request, "path"):
         test_file_path = Path(request.path)
@@ -453,8 +453,8 @@ def cleanup_quickstart_venv_per_module(request):
         test_file_path = Path(request.node.fspath)
 
     if test_file_path:
-        # Extract quickstart name from test file (e.g., test_01_hello_world.py -> 01-hello-world)
-        test_file_name = test_file_path.stem  # e.g., "test_01_hello_world"
+        # Extract quickstart name from test file (e.g., test_01_dapr_agents_fundamentals.py -> 01-dapr-agents-fundamentals)
+        test_file_name = test_file_path.stem  # e.g., "test_01_dapr_agents_fundamentals"
         if test_file_name.startswith("test_"):
             # Try to match quickstart directory patterns
             project_root = Path(__file__).parent.parent.parent.parent
@@ -472,7 +472,7 @@ def cleanup_quickstart_venv_per_module(request):
                 if quickstart_dir.exists():
                     _cleanup_quickstart_venv(quickstart_dir)
                 else:
-                    # Try to find by number prefix (e.g., "01" -> "01-hello-world")
+                    # Try to find by number prefix (e.g., "01" -> "01-dapr-agents-fundamentals")
                     test_num = (
                         test_file_name.split("_")[1] if "_" in test_file_name else None
                     )
@@ -591,7 +591,7 @@ def cleanup_quickstart_venvs(request):
     Cleanup ephemeral test venvs after all tests complete.
 
     Note: Venvs are created in each quickstart directory as `ephemeral_test_venv`.
-    Example: `quickstarts/01-hello-world/ephemeral_test_venv`
+    Example: `quickstarts/01-dapr-agents-fundamentals/ephemeral_test_venv`
     These are cleaned up after tests complete, unless USE_EXISTING_VENV is set.
 
     This is a fallback cleanup in case the per-module cleanup didn't catch everything after all quickstart tests run.
@@ -1292,11 +1292,7 @@ def _run_with_pubsub_trigger(
     trigger_pubsub: Dict[str, Any],
     dapr_http_port: int,
 ) -> subprocess.CompletedProcess:
-    """Run a command with a pubsub trigger for subscriber-based scripts.
-
-    Uses the actual message_client.py script from the quickstart directory
-    to publish messages, matching the user's workflow.
-    """
+    """Run a command with a pubsub trigger for subscriber-based scripts."""
     # Start the subscriber process in the background
     logger.info(f"Starting subscriber process in background: {' '.join(cmd)}")
     process = subprocess.Popen(
@@ -1314,121 +1310,55 @@ def _run_with_pubsub_trigger(
         logger.info(f"Waiting {wait_seconds}s for subscriber to start...")
         time.sleep(wait_seconds)
 
-        # Find message_client.py in the quickstart directory
-        message_client_path = cwd / "message_client.py"
-        if not message_client_path.exists():
-            # Try parent directory if not found
-            message_client_path = cwd.parent / "message_client.py"
-
-        if not message_client_path.exists():
-            raise FileNotFoundError(
-                f"message_client.py not found in {cwd} or {cwd.parent}. "
-                "Cannot trigger pubsub without the message client script."
-            )
-
-        # Prepare the message client arguments
         pubsub_name = trigger_pubsub.get("pubsub_name", "messagepubsub")
         topic = trigger_pubsub.get("topic", "travel.requests")
         data = trigger_pubsub.get("data", {})
 
-        # Build the task string - message_client.py accepts either a task string or --payload
-        if isinstance(data, str):
-            task = data
-        elif isinstance(data, dict):
-            if "task" in data:
-                task = data["task"]
-            else:
-                # If it's a dict without "task", convert to JSON payload
-                import json
+        # Build payload for dapr publish
+        import json
 
-                task = None
-                payload_json = json.dumps(data)
+        if isinstance(data, dict):
+            payload_json = json.dumps(data)
         else:
-            task = str(data)
+            payload_json = json.dumps({"task": str(data)})
 
-        # Determine which Python to use (same as the subscriber)
-        python_cmd = "python"
-        # Extract python command from the original cmd
-        # If using dapr run, python is after the "--" separator
-        if "--" in cmd:
-            dash_idx = cmd.index("--")
-            if dash_idx + 1 < len(cmd):
-                python_cmd = cmd[dash_idx + 1]
-        else:
-            # Not using dapr run, find python in the command
-            python_idx = next((i for i, arg in enumerate(cmd) if "python" in arg), None)
-            if python_idx is not None:
-                python_cmd = cmd[python_idx]
-
-        # Build the message client command
-        # Run message_client.py with dapr run so it has its own sidecar
-        # Both sidecars will use the same resources path, so they share the same pub/sub component
-        # Use a different app-id and port to avoid conflicts
-        message_client_app_id = "test-pubsub-client"
-        message_client_dapr_port = dapr_http_port + 100
-
-        # Extract resources path from the original command if it's using dapr run
-        resources_path_for_client = cwd / "components"
-        if "dapr" in cmd and "run" in cmd:
-            try:
-                resources_idx = cmd.index("--resources-path")
-                if resources_idx + 1 < len(cmd):
-                    resources_path_for_client = Path(cmd[resources_idx + 1])
-            except ValueError:
-                pass  # --resources-path not found, use default
-
-        message_client_env = env.copy()
-
-        message_client_cmd = [
+        publish_cmd = [
             "dapr",
-            "run",
-            "--app-id",
-            message_client_app_id,
+            "publish",
             "--dapr-http-port",
-            str(message_client_dapr_port),
-            "--resources-path",
-            str(resources_path_for_client),
-            "--",
-            python_cmd,
-            str(message_client_path),
+            str(dapr_http_port),
             "--pubsub",
             pubsub_name,
             "--topic",
             topic,
+            "--data",
+            payload_json,
         ]
 
-        if task:
-            message_client_cmd.append(task)
-        elif "payload_json" in locals():
-            message_client_cmd.extend(["--payload", payload_json])
-
-        # Add optional parameters
-        if "source" in trigger_pubsub:
-            message_client_cmd.extend(["--source", trigger_pubsub["source"]])
-        if "cloudevent_type" in trigger_pubsub:
-            message_client_cmd.extend(
-                ["--cloudevent-type", trigger_pubsub["cloudevent_type"]]
-            )
-
-        # Run the message client to publish the message
-        logger.info(f"Publishing message using: {' '.join(message_client_cmd)}")
+        logger.info(f"Publishing message using: {' '.join(publish_cmd)}")
         try:
             client_result = subprocess.run(
-                message_client_cmd,
+                publish_cmd,
                 cwd=cwd,
-                env=message_client_env,
+                env=env,
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
             if client_result.returncode == 0:
-                logger.info("Published message successfully via message_client.py")
-                pubsub_output = f"Published via message_client.py\nSTDOUT: {client_result.stdout}\nSTDERR: {client_result.stderr}"
+                logger.info("Published message successfully via dapr publish")
+                pubsub_output = (
+                    f"Published via dapr publish\nSTDOUT: {client_result.stdout}\n"
+                    f"STDERR: {client_result.stderr}"
+                )
             else:
                 logger.warning(
-                    f"Message client returned non-zero: {client_result.returncode}"
+                    f"dapr publish returned non-zero: {client_result.returncode}"
                 )
-                pubsub_output = f"Message client failed (code {client_result.returncode})\nSTDOUT: {client_result.stdout}\nSTDERR: {client_result.stderr}"
+                pubsub_output = (
+                    f"dapr publish failed (code {client_result.returncode})\n"
+                    f"STDOUT: {client_result.stdout}\nSTDERR: {client_result.stderr}"
+                )
         except Exception as e:
             logger.warning(f"Pubsub publish failed: {e}")
             pubsub_output = f"Pubsub publish failed: {e}"

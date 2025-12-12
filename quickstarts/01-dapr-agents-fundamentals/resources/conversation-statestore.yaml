@@ -1,16 +1,12 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: messagepubsub
+  name: conversation-statestore
 spec:
-  type: pubsub.redis
+  type: state.redis
   version: v1
   metadata:
     - name: redisHost
       value: localhost:6379
     - name: redisPassword
       value: ""
-    - name: consumerID
-      value: "travel-planner-group"
-    - name: enableTLS
-      value: "false"

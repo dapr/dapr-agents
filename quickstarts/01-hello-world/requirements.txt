@@ -1,3 +1,0 @@
-dapr-agents
-# For local development using the local repo in editable mode, use:
-# -e ../../

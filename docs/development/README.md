@@ -163,10 +163,10 @@ export OPENAI_API_KEY=your_key_here
 pytest tests/integration/quickstarts/ -v -m integration
 
 # Run specific test file
-pytest tests/integration/quickstarts/test_01_hello_world.py -v
+pytest tests/integration/quickstarts/test_01_dapr_agents_fundamentals.py -v
 
 # Run specific test func
-pytest -m integration -v integration/quickstarts/test_01_hello_world.py::TestHelloWorldQuickstart::test_chain_tasks
+pytest -m integration -v integration/quickstarts/test_01_dapr_agents_fundamentals.py::TestHelloWorldQuickstart::test_chain_tasks
 
 # Run with coverage
 pytest tests/integration/quickstarts/ -v -m integration --cov=dapr_agents
@@ -250,7 +250,7 @@ Mental model:
 
 For Dapr component files that reference environment variables (e.g., `{{OPENAI_API_KEY}}` or `${{OPENAI_API_KEY}}`), use the helper to render a temporary resources folder and pass it to Dapr:
 ```bash
-dapr run --resources-path $(quickstarts/resolve_env_templates.py quickstarts/01-hello-world/components) -- python 03_durable_agent.py
+dapr run --resources-path $(quickstarts/resolve_env_templates.py quickstarts/01-dapr-agents-fundamentals/components) -- python 03_durable_agent.py
 ```
 
 The helper scans only `.yaml`/`.yml` files (non-recursive), replaces placeholders with matching env var values, writes processed files to a temp directory, and prints that directory path.

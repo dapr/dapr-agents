@@ -24,7 +24,7 @@ cd dapr-agents/quickstarts
 dapr init
 ```
 
-3. Choose a quickstart from the list below. Or click [here](./01-hello-world) to start with Hello-World.
+3. Choose a quickstart from the list below. Or click [here](./01-dapr-agents-fundamentals) to start with Hello-World.
 
 ## Available Quickstarts
 
@@ -37,7 +37,7 @@ A rapid introduction to Dapr Agents core concepts through simple demonstrations:
 - **ReAct Pattern**: Implementing reasoning and action cycles in agents
 - **Simple Workflows**: Setting up multi-step LLM processes
 
-[Go to Hello World](./01-hello-world)
+[Go to Hello World](./01-dapr-agents-fundamentals)
 
 ### LLM Call with Dapr Chat Client
 

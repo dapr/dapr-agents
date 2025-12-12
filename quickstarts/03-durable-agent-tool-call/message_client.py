@@ -13,7 +13,7 @@ from dapr.clients import DaprClient
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Publish a TriggerAction to the TravelBuddy agent topic."
+        description="Publish a TriggerAction to the Weather Assistant agent topic."
     )
     parser.add_argument(
         "--pubsub",
@@ -22,13 +22,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--topic",
-        default="travel.requests",
-        help="Topic to publish to (default: travel.requests).",
+        default="weather.requests",
+        help="Topic to publish to (default: weather.requests).",
     )
     parser.add_argument(
         "task",
         nargs="?",
-        default="I want to find flights to Paris",
+        default="What's the weather in Boston?",
         help="Simple task string to send (ignored if --payload is set).",
     )
     parser.add_argument(
@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--source",
-        default="quickstarts.travelbuddy.client",
+        default="quickstarts.weather.client",
         help="Metadata source identifier attached to the payload.",
     )
     parser.add_argument(

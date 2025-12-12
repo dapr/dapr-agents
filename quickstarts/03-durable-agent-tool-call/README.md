@@ -86,11 +86,70 @@ dapr init
 ```
 
 ## Running the Example
+ 
+Durable agents maintain state across runs, enabling workflows that require persistence, recovery, and coordination. This is useful for long-running tasks, multi-step workflows, and agent collaboration.
 
-start the agent with Dapr:
+Choose one of the following entry points depending on how you want to host the agent:
+
+| Script | Mode | When to use it |
+| --- | --- | --- |
+| `durable_weather_agent_dapr.py` | **Direct run** | Fire a workflow immediately from the CLI and print the final response. |
+| `durable_weather_agent_subscribe.py` | **Pub/Sub listener** | Keep the agent running so it reacts to pub/sub events (e.g., `@message_router`). |
+| `durable_weather_agent_serve.py` | **Service mode** | Host the agent as an HTTP service (still wired to pub/sub) and trigger workflows via REST. |
+
+Each script defines the same Weather Assistant agent setup; use the command that matches the mode you need (remember to resolve the component templates first):
+
+### Direct Run
+```bash
+source .venv/bin/activate
+dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_dapr.py
+```
+
+### Pub/Sub Listener
+```bash
+source .venv/bin/activate
+dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_subscribe.py
+```
+
+With the listener running, publish tasks using the included `message_client.py` (defaults to the `weather.requests` topic on the `messagepubsub` component):
 
 ```bash
-dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_dapr.py
+source .venv/bin/activate
+dapr run \
+  --app-id weather-client \
+  --resources-path $temp_resources_folder \
+  -- python message_client.py "What's the weather in Boston?"
+```
+
+### Service Mode (HTTP + Pub/Sub)
+```bash
+dapr run \
+  --app-id durableweatherapp \
+  --dapr-http-port 3500 \
+  --app-port 8001 \
+  --resources-path $temp_resources_folder \
+  -- python durable_weather_agent_serve.py
+```
+
+When running `durable_weather_agent_serve.py`, the runner installs default REST endpoints so you can trigger workflows without additional code:
+
+**Start a new workflow:**
+
+```bash
+curl -i -X POST http://localhost:8001/run \
+  -H "Content-Type: application/json" \
+  -d '{"task": "What'\''s the weather in New York?"}'
+```
+
+You'll receive a workflow ID in response, which you can use to track progress.
+
+**Check workflow status:**
+
+```bash
+curl -i -X GET http://localhost:8001/run/WORKFLOW_ID
+
+# You can also use the Dapr workflow API if you prefer:
+curl -i -X GET http://localhost:3500/v1.0/workflows/dapr/WORKFLOW_ID
 ```
 
 ## Other Durable Agent
@@ -99,9 +158,29 @@ You can also try the following Durable agents with the same tools using `OpenAI`
 - [HuggingFace Durable Agent](./durable_weather_agent_hf.py)
 - [NVIDIA Durable Agent](./durable_weather_agent_nv.py)
 
-## About Durable Agents
 
-Durable agents maintain state across runs, enabling workflows that require persistence, recovery, and coordination. This is useful for long-running tasks, multi-step workflows, and agent collaboration.
+All three modes demonstrate the same durable weather assistant agent that:
+1. Remembers user context persistently (across restarts)
+2. Uses tools to fetch weather and location information
+3. Reacts to pub/sub triggers (`messagepubsub` / `weather.requests`)
+4. Exposes REST APIs for workflow interaction (service mode)
+5. Stores execution state in Dapr workflow state stores
+
+### How It Works
+
+The key components of this implementation are:
+
+1. **Persistent Memory**: The agent stores conversation state in Dapr's state store, enabling it to remember context across sessions and system restarts.
+
+2. **Workflow Orchestration**: Long-running tasks are managed through Dapr's workflow system, providing:
+   - Durability - workflows survive process crashes
+   - Observability - track status and progress
+   - Recoverability - automatic retry on failures
+
+3. **Tool Integration**: Weather and utility tools are defined using the `@tool` decorator, which automatically handles input validation and type conversion.
+
+4. **Trigger Exposure**: Depending on the entry point, the agent listens to pub/sub (`durable_weather_agent_subscribe.py`), exposes REST endpoints (`durable_weather_agent_serve.py`), or runs a single workflow directly (`durable_weather_agent_dapr.py`).
+
 
 ## Custom Tools Example
 

@@ -1,16 +1,12 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: workflowstatestore
+  name: message-pubsub
 spec:
-  type: state.redis
+  type: pubsub.redis
   version: v1
   metadata:
   - name: redisHost
     value: localhost:6379
   - name: redisPassword
     value: ""
-  - name: actorStateStore
-    value: "true"
-  - name: keyPrefix
-    value: none

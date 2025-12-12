@@ -1,7 +1,7 @@
 import time
 
 import dapr.ext.workflow as wf
-from dapr.ext.workflow import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext, WorkflowRuntime
 from dotenv import load_dotenv
 
 from dapr_agents.llm.dapr import DaprChatClient
@@ -10,23 +10,23 @@ from dapr_agents.workflow.decorators import llm_activity
 load_dotenv()
 
 # Initialize workflow runtime + LLM client
-runtime = wf.WorkflowRuntime()
-llm = DaprChatClient(component_name="openai")
+wfr = WorkflowRuntime()
+llm = DaprChatClient(component_name="llm-provider")
 
 
-@runtime.workflow(name="analyze_topic")
+@wfr.workflow(name="analyze_topic")
 def analyze_topic(ctx: DaprWorkflowContext, topic: str):
     # Each step is durable and can be retried
     outline = yield ctx.call_activity(create_outline, input=topic)
-    if not ctx.is_replaying and len(outline) > 0:
+    if len(outline) > 0:
         print("Outline:", outline, flush=True)
     blog_post = yield ctx.call_activity(write_blog, input=outline)
-    if not ctx.is_replaying and len(blog_post) > 0:
+    if len(blog_post) > 0:
         print("Blog post:", blog_post, flush=True)
     return blog_post
 
 
-@runtime.activity(name="create_outline")
+@wfr.activity(name="create_outline")
 @llm_activity(
     prompt="Create a very short outline about the topic '{topic}'. Provide 5 bullet points only.",
     llm=llm,
@@ -36,7 +36,7 @@ def create_outline(ctx, topic: str) -> str:
     pass
 
 
-@runtime.activity(name="write_blog")
+@wfr.activity(name="write_blog")
 @llm_activity(
     prompt="Write a short (2 paragraphs) friendly blog post following this outline:\n{outline}",
     llm=llm,
@@ -46,7 +46,7 @@ def write_blog(ctx, outline: str) -> str:
 
 
 if __name__ == "__main__":
-    runtime.start()
+    wfr.start()
     time.sleep(5)  # give the runtime time to initialize
 
     client = wf.DaprWorkflowClient()
@@ -70,4 +70,4 @@ if __name__ == "__main__":
             print("Failure message:", fd.message)
             print("Stack trace:\n", fd.stack_trace)
 
-    runtime.shutdown()
+    wfr.shutdown()
