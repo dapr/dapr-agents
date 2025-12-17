@@ -527,7 +527,7 @@ class AgentRunner(WorkflowRunner):
         if entry_path not in self._default_http_paths:
             self._default_http_paths.add(entry_path)
 
-            async def _start_workflow(body: dict = Body(default_factory=dict)) -> dict:
+            async def _start_workflow(body: dict[str, str] = Body(default_factory=dict)) -> dict[str, str]:
                 payload = body or None
                 instance_id = await self.run(
                     agent,
