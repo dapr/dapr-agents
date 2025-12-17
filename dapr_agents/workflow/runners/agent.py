@@ -527,7 +527,9 @@ class AgentRunner(WorkflowRunner):
         if entry_path not in self._default_http_paths:
             self._default_http_paths.add(entry_path)
 
-            async def _start_workflow(body: dict[str, str] = Body(default_factory=dict)) -> dict[str, str]:
+            async def _start_workflow(
+                body: dict[str, str] = Body(default_factory=dict),
+            ) -> dict[str, str]:
                 payload = body or None
                 instance_id = await self.run(
                     agent,
@@ -539,7 +541,7 @@ class AgentRunner(WorkflowRunner):
                     "instance_id": instance_id if instance_id else "",
                     "status_url": f"/run/{instance_id if instance_id else ''}",
                 }
-            
+
             async def _terminate_workflow(instance_id: str) -> dict[str, str]:
                 await asyncio.to_thread(
                     self._wf_client.terminate_workflow,
@@ -547,7 +549,7 @@ class AgentRunner(WorkflowRunner):
                     output="Terminated by user request",
                 )
                 return {"instance_id": instance_id, "status": "terminated"}
-            
+
             async def _purge_workflow(instance_id: str) -> dict[str, str]:
                 self._wf_client.purge_workflow(
                     instance_id=instance_id,
@@ -566,14 +568,14 @@ class AgentRunner(WorkflowRunner):
                 _terminate_workflow,
                 methods=["POST"],
                 summary="Terminate workflow instance",
-                tags=["workflow"]
+                tags=["workflow"],
             )
             fastapi_app.add_api_route(
                 entry_path + "/{instance_id}/purge",
                 _purge_workflow,
                 methods=["POST"],
                 summary="Purge workflow instance",
-                tags=["workflow"]
+                tags=["workflow"],
             )
 
             logger.info("Mounted default workflow entry endpoint at %s", entry_path)
