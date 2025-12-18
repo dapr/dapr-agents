@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import timedelta
 import json
 import logging
 from typing import Any, Dict, Iterable, List, Optional
+from os import getenv
 
 import dapr.ext.workflow as wf
 
@@ -14,6 +16,7 @@ from dapr_agents.agents.configs import (
     AgentRegistryConfig,
     AgentStateConfig,
     WorkflowGrpcOptions,
+    WorkflowRetryPolicy,
 )
 from dapr_agents.agents.prompting import AgentProfileConfig
 from dapr_agents.agents.schemas import (
@@ -26,7 +29,6 @@ from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.types import (
     AgentError,
     LLMChatResponse,
-    ToolExecutionRecord,
     ToolMessage,
     UserMessage,
 )
@@ -76,6 +78,7 @@ class DurableAgent(AgentBase):
         agent_metadata: Optional[Dict[str, Any]] = None,
         workflow_grpc: Optional[WorkflowGrpcOptions] = None,
         runtime: Optional[wf.WorkflowRuntime] = None,
+        retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -104,6 +107,7 @@ class DurableAgent(AgentBase):
             agent_metadata: Extra metadata to publish to the registry.
             workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
             runtime: Optional pre-existing workflow runtime to attach to.
+            retry_policy: Durable retry policy configuration.
         """
         super().__init__(
             pubsub=pubsub,
@@ -131,6 +135,28 @@ class DurableAgent(AgentBase):
         self._runtime_owned = runtime is None
         self._registered = False
         self._started = False
+
+        try:
+            retries = int(getenv("DAPR_API_MAX_RETRIES", ""))
+        except ValueError:
+            retries = retry_policy.max_attempts
+
+        if retries < 1:
+            raise (
+                ValueError("max_attempts or DAPR_API_MAX_RETRIES must be at least 1.")
+            )
+
+        self._retry_policy: wf.RetryPolicy = wf.RetryPolicy(
+            max_number_of_attempts=retries,
+            first_retry_interval=timedelta(
+                seconds=retry_policy.initial_backoff_seconds
+            ),
+            max_retry_interval=timedelta(seconds=retry_policy.max_backoff_seconds),
+            backoff_coefficient=retry_policy.backoff_multiplier,
+            retry_timeout=timedelta(seconds=retry_policy.retry_timeout)
+            if retry_policy.retry_timeout
+            else None,
+        )
 
     # ------------------------------------------------------------------
     # Runtime accessors
@@ -203,6 +229,7 @@ class DurableAgent(AgentBase):
                 "start_time": ctx.current_utc_datetime.isoformat(),
                 "trace_context": otel_span_context,
             },
+            retry_policy=self._retry_policy,
         )
 
         final_message: Dict[str, Any] = {}
@@ -226,6 +253,7 @@ class DurableAgent(AgentBase):
                         "instance_id": ctx.instance_id,
                         "time": ctx.current_utc_datetime.isoformat(),
                     },
+                    retry_policy=self._retry_policy,
                 )
 
                 tool_calls = assistant_response.get("tool_calls") or []
@@ -246,6 +274,7 @@ class DurableAgent(AgentBase):
                                 "time": ctx.current_utc_datetime.isoformat(),
                                 "order": idx,
                             },
+                            retry_policy=self._retry_policy,
                         )
                         for idx, tc in enumerate(tool_calls)
                     ]
@@ -257,6 +286,7 @@ class DurableAgent(AgentBase):
                             "tool_results": tool_results,
                             "instance_id": ctx.instance_id,
                         },
+                        retry_policy=self._retry_policy,
                     )
 
                     task = None  # prepare for next turn
@@ -298,6 +328,7 @@ class DurableAgent(AgentBase):
             yield ctx.call_activity(
                 self.broadcast_message_to_agents,
                 input={"message": final_message},
+                retry_policy=self._retry_policy,
             )
 
         # Optionally send a direct response back to the trigger origin.
@@ -309,6 +340,7 @@ class DurableAgent(AgentBase):
                     "target_agent": source,
                     "target_instance_id": trigger_instance_id,
                 },
+                retry_policy=self._retry_policy,
             )
 
         # Finalize the workflow entry in durable state.
@@ -320,6 +352,7 @@ class DurableAgent(AgentBase):
                 "end_time": ctx.current_utc_datetime.isoformat(),
                 "triggering_workflow_instance_id": trigger_instance_id,
             },
+            retry_policy=self._retry_policy,
         )
 
         if not ctx.is_replaying:

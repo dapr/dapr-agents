@@ -2,7 +2,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, MutableMapping, Optional, Sequence, Type
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    MutableMapping,
+    Optional,
+    Sequence,
+    Type,
+    Union,
+)
 
 from pydantic import BaseModel
 
@@ -265,3 +275,23 @@ class AgentExecutionConfig:
     # TODO: add stop_at_tokens
     max_iterations: int = 10
     tool_choice: Optional[str] = "auto"
+
+
+@dataclass
+class WorkflowRetryPolicy:
+    """
+    Configuration for durable retry policies in workflows.
+
+    Attributes:
+        max_attempts: Maximum number of retry attempts.
+        initial_backoff_seconds: Initial backoff interval in seconds.
+        max_backoff_seconds: Maximum backoff interval in seconds.
+        backoff_multiplier: Multiplier for exponential backoff.
+        retry_timeout: Optional total timeout for all retries in seconds.
+    """
+
+    max_attempts: Optional[int] = 1
+    initial_backoff_seconds: Optional[int] = 5
+    max_backoff_seconds: Optional[int] = 30
+    backoff_multiplier: Optional[float] = 1.5
+    retry_timeout: Optional[Union[int, None]] = None

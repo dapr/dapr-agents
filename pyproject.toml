@@ -102,6 +102,7 @@ dapr_agents = ["py.typed"]
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
 local_scheme = "node-and-date"
+fallback_version = "0.0.0.dev0"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

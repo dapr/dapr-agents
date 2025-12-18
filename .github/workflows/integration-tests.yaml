@@ -62,14 +62,14 @@ jobs:
     
     - name: Checkout PR
       if: github.event_name == 'issue_comment'
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         ref: ${{ steps.pr.outputs.head_sha }}
         repository: ${{ steps.pr.outputs.head_repo }}
     
     - name: Checkout
       if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
     
     - name: Set up Python ${{ matrix.python_ver }}
       uses: actions/setup-python@v5
