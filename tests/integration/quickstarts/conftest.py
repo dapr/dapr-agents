@@ -100,7 +100,7 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
                 env=install_env,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=180,
             )
 
             # If that works, we're done
@@ -125,7 +125,7 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
                     env=install_env,
                     capture_output=True,
                     text=True,
-                    timeout=120,
+                    timeout=180,
                 )
 
             # If uv still fails with externally managed error, fall back to venv pip
@@ -143,7 +143,7 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
                     env=install_env,
                     capture_output=True,
                     text=True,
-                    timeout=120,
+                    timeout=180,
                 )
 
             if result.returncode != 0:

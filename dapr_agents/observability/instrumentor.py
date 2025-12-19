@@ -46,12 +46,9 @@ import logging
 from typing import Any, Collection
 
 from .constants import (
-    OPENTELEMETRY_AVAILABLE,
-    WRAPT_AVAILABLE,
     BaseInstrumentor,
     trace_api,
     logs_api,
-    context_api,
     wrap_function_wrapper,
 )
 from .wrappers import (
@@ -158,14 +155,6 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                      - tracer_provider: Optional OpenTelemetry tracer provider
                      - Additional provider-specific configuration
         """
-        # Validate required dependencies for instrumentation
-        if not OPENTELEMETRY_AVAILABLE:
-            logger.warning("OpenTelemetry not available - instrumentation disabled")
-            return
-
-        if not WRAPT_AVAILABLE:
-            logger.warning("wrapt not available - instrumentation disabled")
-            return
 
         # Initialize logger for the instrumentor
         self._initialize_logger(kwargs)

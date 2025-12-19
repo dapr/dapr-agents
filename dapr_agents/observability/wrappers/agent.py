@@ -15,15 +15,10 @@ from ..constants import (
     context_api,
 )
 from ..utils import bind_arguments, extract_content_from_result, get_input_value
+from openinference.instrumentation import get_attributes_from_context
 
 logger = logging.getLogger(__name__)
 
-try:
-    from openinference.instrumentation import get_attributes_from_context
-except ImportError:
-    raise ImportError(
-        "OpenInference not installed - please install with `pip install dapr-agents[observability]`"
-    )
 
 # ============================================================================
 # Agent Execution Wrapper

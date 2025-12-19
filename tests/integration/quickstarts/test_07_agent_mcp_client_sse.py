@@ -36,7 +36,7 @@ class TestMCPClientSSEQuickstart:
                 script,
                 cwd=self.quickstart_dir,
                 env=self.env,
-                timeout=120,
+                timeout=180,
                 use_dapr=True,
                 app_id="mcp-agent-sse",
                 app_port=8001,

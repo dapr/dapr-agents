@@ -24,13 +24,7 @@ from ..message_processors import (
     process_llm_response,
 )
 from ..utils import bind_arguments, serialize_tools_for_tracing, strip_method_args
-
-try:
-    from openinference.instrumentation import get_attributes_from_context
-except ImportError:
-    raise ImportError(
-        "OpenInference not installed - please install with `pip install dapr-agents[observability]`"
-    )
+from openinference.instrumentation import get_attributes_from_context
 
 logger = logging.getLogger(__name__)
 

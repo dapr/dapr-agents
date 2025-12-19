@@ -20,7 +20,7 @@ class TestLLMCallHuggingFaceQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,  # HuggingFace models can be slow
+            timeout=180,  # HuggingFace models can be slow
         )
 
         assert result.returncode == 0, (
@@ -38,7 +38,7 @@ class TestLLMCallHuggingFaceQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,  # HuggingFace models can be slow
+            timeout=180,  # HuggingFace models can be slow
         )
 
         assert result.returncode == 0, (
@@ -56,7 +56,7 @@ class TestLLMCallHuggingFaceQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,  # HuggingFace models can be slow
+            timeout=180,  # HuggingFace models can be slow
         )
 
         assert result.returncode == 0, (
@@ -74,7 +74,7 @@ class TestLLMCallHuggingFaceQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,  # HuggingFace models can be slow
+            timeout=180,  # HuggingFace models can be slow
         )
 
         assert result.returncode == 0, (
@@ -92,7 +92,7 @@ class TestLLMCallHuggingFaceQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,  # HuggingFace models can be slow
+            timeout=180,  # HuggingFace models can be slow
         )
 
         assert result.returncode == 0, (

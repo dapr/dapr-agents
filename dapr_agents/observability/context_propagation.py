@@ -16,27 +16,17 @@ W3C Trace Context Format:
 import logging
 from typing import Any, Dict, Optional
 
-try:
-    from opentelemetry import trace
-    from opentelemetry.trace.propagation.tracecontext import (
-        TraceContextTextMapPropagator,
-    )
 
-    OPENTELEMETRY_AVAILABLE = True
-except ImportError:
-    # OpenTelemetry is not available - context propagation will be disabled
-    # To enable observability features, install: pip install dapr-agents[observability]
-    trace = None
-    TraceContextTextMapPropagator = None
-    OPENTELEMETRY_AVAILABLE = False
+from opentelemetry import trace
+from opentelemetry.trace.propagation.tracecontext import (
+    TraceContextTextMapPropagator,
+)
+
 
 logger = logging.getLogger(__name__)
 
 # Global W3C Trace Context propagator instance for consistent context handling
-if OPENTELEMETRY_AVAILABLE:
-    _propagator = TraceContextTextMapPropagator()
-else:
-    _propagator = None
+_propagator = TraceContextTextMapPropagator()
 
 
 def extract_otel_context() -> Dict[str, Any]:
@@ -62,9 +52,6 @@ def extract_otel_context() -> Dict[str, Any]:
         If OpenTelemetry is not available, returns empty dict.
         Install with: pip install dapr-agents[observability]
     """
-    if not OPENTELEMETRY_AVAILABLE:
-        logger.debug("OpenTelemetry not available - cannot extract context")
-        return {}
 
     if not _propagator or not trace:
         logger.debug(
@@ -128,9 +115,6 @@ def restore_otel_context(otel_context: Optional[Dict[str, Any]]) -> Optional[obj
         If OpenTelemetry dependencies are not installed, this returns None.
         Install with: pip install dapr-agents[observability]
     """
-    if not OPENTELEMETRY_AVAILABLE:
-        logger.debug("OpenTelemetry not available - cannot restore context")
-        return None
 
     if not _propagator or not trace:
         logger.debug(

@@ -826,6 +826,14 @@ dependencies = [
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "openai" },
     { name = "openapi-pydantic" },
+    { name = "openinference-instrumentation" },
+    { name = "openinference-semantic-conventions" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp" },
+    { name = "opentelemetry-exporter-zipkin-json" },
+    { name = "opentelemetry-instrumentation-grpc" },
+    { name = "opentelemetry-instrumentation-requests" },
+    { name = "opentelemetry-proto" },
     { name = "posthog" },
     { name = "protobuf" },
     { name = "pydantic" },
@@ -837,6 +845,7 @@ dependencies = [
     { name = "toolbox-core" },
     { name = "uvicorn" },
     { name = "websockets" },
+    { name = "wrapt" },
 ]
 
 [package.optional-dependencies]
@@ -845,16 +854,6 @@ dev = [
     { name = "mypy" },
     { name = "pip-tools" },
     { name = "tox" },
-]
-observability = [
-    { name = "openinference-instrumentation" },
-    { name = "openinference-semantic-conventions" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp" },
-    { name = "opentelemetry-instrumentation-grpc" },
-    { name = "opentelemetry-instrumentation-requests" },
-    { name = "opentelemetry-proto" },
-    { name = "wrapt" },
 ]
 test = [
     { name = "docker" },
@@ -897,13 +896,14 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2.2,<3.0.0" },
     { name = "openai", specifier = ">=1.75.0,<2.0.0" },
     { name = "openapi-pydantic", specifier = ">=0.5.0,<0.6.0" },
-    { name = "openinference-instrumentation", marker = "extra == 'observability'", specifier = ">=0.1.0,<1.0.0" },
-    { name = "openinference-semantic-conventions", marker = "extra == 'observability'", specifier = ">=0.1.0,<1.0.0" },
-    { name = "opentelemetry-api", marker = "extra == 'observability'", specifier = ">=1.35.0,<2.0.0" },
-    { name = "opentelemetry-exporter-otlp", marker = "extra == 'observability'", specifier = ">=1.35.0,<2.0.0" },
-    { name = "opentelemetry-instrumentation-grpc", marker = "extra == 'observability'", specifier = ">=0.60b0" },
-    { name = "opentelemetry-instrumentation-requests", marker = "extra == 'observability'", specifier = ">=0.60b0" },
-    { name = "opentelemetry-proto", marker = "extra == 'observability'", specifier = ">=1.35.0,<2.0.0" },
+    { name = "openinference-instrumentation", specifier = ">=0.1.0,<1.0.0" },
+    { name = "openinference-semantic-conventions", specifier = ">=0.1.0,<1.0.0" },
+    { name = "opentelemetry-api", specifier = ">=1.35.0,<2.0.0" },
+    { name = "opentelemetry-exporter-otlp", specifier = ">=1.35.0,<2.0.0" },
+    { name = "opentelemetry-exporter-zipkin-json", specifier = ">=1.39.1" },
+    { name = "opentelemetry-instrumentation-grpc", specifier = ">=0.60b0" },
+    { name = "opentelemetry-instrumentation-requests", specifier = ">=0.60b0" },
+    { name = "opentelemetry-proto", specifier = ">=1.35.0,<2.0.0" },
     { name = "pip-tools", marker = "extra == 'dev'", specifier = ">=7.4.1,<8.0.0" },
     { name = "posthog", specifier = "<6.0.0" },
     { name = "protobuf", specifier = ">=6.31.0,<7.0.0" },
@@ -925,9 +925,9 @@ requires-dist = [
     { name = "tox", marker = "extra == 'dev'", specifier = ">=4.0.0,<5.0.0" },
     { name = "uvicorn", specifier = ">=0.27.0,<1.0.0" },
     { name = "websockets", specifier = ">=15.0.0,<16.0.0" },
-    { name = "wrapt", marker = "extra == 'observability'", specifier = ">=1.14.0,<2.0.0" },
+    { name = "wrapt", specifier = ">=1.14.0,<2.0.0" },
 ]
-provides-extras = ["test", "dev", "observability", "vectorstore"]
+provides-extras = ["test", "dev", "vectorstore"]
 
 [[package]]
 name = "dapr-ext-fastapi"
@@ -2719,6 +2719,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/80/04/2a08fa9c0214ae38880df01e8bfae12b067ec0793446578575e5080d6545/opentelemetry_exporter_otlp_proto_http-1.39.1.tar.gz", hash = "sha256:31bdab9745c709ce90a49a0624c2bd445d31a28ba34275951a6a362d16a0b9cb", size = 17288, upload-time = "2025-12-11T13:32:42.029Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/95/f1/b27d3e2e003cd9a3592c43d099d2ed8d0a947c15281bf8463a256db0b46c/opentelemetry_exporter_otlp_proto_http-1.39.1-py3-none-any.whl", hash = "sha256:d9f5207183dd752a412c4cd564ca8875ececba13be6e9c6c370ffb752fd59985", size = 19641, upload-time = "2025-12-11T13:32:22.248Z" },
+]
+
+[[package]]
+name = "opentelemetry-exporter-zipkin-json"
+version = "1.39.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c7/31/95c1b93db1f29089d67d921afb4fdd88495e93c71e85766e1fd2d886f38d/opentelemetry_exporter_zipkin_json-1.39.1.tar.gz", hash = "sha256:26429783aed37b332b1289694ce2f4ba70fae6bba5a8f77b509a6743bf8a05c6", size = 16555, upload-time = "2025-12-11T13:32:44.436Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e8/8d/a2e65c773b898d9143b101b2e5302b03fb6a572b8c6679d656ad3f96718b/opentelemetry_exporter_zipkin_json-1.39.1-py3-none-any.whl", hash = "sha256:f90812c92c9c37edce0fcbb4303ebf587c171a1effc05508f50641831a9e44cd", size = 16333, upload-time = "2025-12-11T13:32:26.478Z" },
 ]
 
 [[package]]

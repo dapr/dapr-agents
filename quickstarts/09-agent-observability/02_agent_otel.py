@@ -45,7 +45,7 @@ async def main():
 
     # Instrument Dapr Agents
     instrumentor = DaprAgentsInstrumentor()
-    instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
+    instrumentor.instrument(tracer_provider=tracer_provider)
 
     # Run the agent
     try:
