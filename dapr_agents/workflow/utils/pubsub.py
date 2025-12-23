@@ -245,11 +245,12 @@ async def send_message_to_agent(
         )
         return
 
-    topic = meta.get("topic_name")
-    pubsub_name = meta.get("pubsub_name")
+    pubsub = meta.get("pubsub", {})
+    topic = pubsub.get("agent_topic")
+    pubsub_name = pubsub.get("name")
     if not topic or not pubsub_name:
         logger_.warning(
-            "Agent '%s' metadata missing topic_name/pubsub_name; skipping message.",
+            "Agent '%s' metadata missing agent_topic/pubsub_name; skipping message.",
             target_agent,
         )
         return
