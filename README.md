@@ -106,7 +106,11 @@ pip install dapr-agents
 
 ### Run The Quickstarts
 
-To start running Dapr Agents locally, see our [quickstarts](./quickstarts/README.md).
+For a high level introduction to the fundamentals of Dapr Agents, see our [quickstarts](./quickstarts/README.md).
+
+### Run The Examples
+
+Once you've gotten a feel for the fundamentals of the project in the quickstarts, then dive deeper with the [examples](./examples/README.md).
 
 ## Get Involved
 

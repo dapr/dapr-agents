@@ -1,4 +1,0 @@
-dapr-agents
-elevenlabs
-# For local development use local changes by commenting out the dapr-agentsline above and uncommenting the line below:
-# -e ../../

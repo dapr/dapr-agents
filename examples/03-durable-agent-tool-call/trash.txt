@@ -1,0 +1,52 @@
+Key: "agent_sessions"
+Value: {
+  "session_ids": ["Stevie-session", "session-123", ...]
+}
+
+Key: "agent_session_<session_id>"
+Value: {
+  "session_id": "Stevie-session",
+  "created_at": "2025-12-17T08:59:00Z",
+  "last_updated": "2025-12-17T09:15:00Z",
+  "workflow_instance_ids": ["a8723e3a...", "b1234c5d...", ...],  // ordered list
+  "metadata": {
+    "agent_name": "Stevie",
+    "user_id": "optional-user-id"  // if you want cross-session user tracking
+  }
+}
+
+Key: "agent_workflow_<instance_id>"
+Value: {
+  "workflow_instance_id": "a8723e3a3a154687822b6a836b8f412f",
+  "session_id": "Stevie-session",
+  "input_value": "What's the weather in Boston?",
+  "output": "It's 72°F in Boston right now...",
+  "status": "completed",  // or "running", "failed"
+  "start_time": "2025-12-17T14:59:00.777046Z",
+  "end_time": "2025-12-17T14:59:15.085605Z",
+  "source": "direct",
+  "triggering_workflow_instance_id": null,
+  "trace_context": {...},  // OTel context
+  "last_message_id": "9204eb60-13da-4899-9e2d-908636b4b3f6",  // pointer to last message
+  // NO messages array, NO system_messages, NO tool_history
+}
+
+Key: "agent_session_<session_id>:messages"  // or just use session_id as key
+Value: [
+  {
+    "id": "99479812-5078-4130-9534-a600eaaa0dd7",
+    "workflow_instance_id": "a8723e3a3a154687822b6a836b8f412f",  // NEW FIELD
+    "role": "user",
+    "content": "What's the weather in Boston?",
+    "createdAt": "2025-12-17T08:59:00.866399Z"
+  },
+  {
+    "id": "60da6139-9315-44de-9b74-8b7fe785ac3d",
+    "workflow_instance_id": "a8723e3a3a154687822b6a836b8f412f",  // NEW FIELD
+    "role": "assistant",
+    "name": "Stevie",
+    "tool_calls": [...],
+    "createdAt": "2025-12-17T08:59:04.201161Z"
+  },
+  // ... more messages
+]
