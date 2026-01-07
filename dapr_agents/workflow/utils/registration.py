@@ -237,8 +237,7 @@ def _subscribe_message_bindings(
         return []
 
     loop = _resolve_loop(loop)
-    if subscribe is None:
-        subscribe = dapr_client.subscribe_with_handler  # type: ignore[assignment]
+    # subscribe defaults to None (handled in loop for streaming)
     if delivery_mode not in ("sync", "async"):
         raise ValueError("delivery_mode must be 'sync' or 'async'")
 
@@ -484,22 +483,106 @@ def _subscribe_message_bindings(
 
     # subscribe one composite handler per (pubsub, topic)
     for (pubsub_name, topic_name), group in grouped.items():
+        # Validate dead_letter_topic consistency
+        dl_topics = {b.dead_letter_topic for b in group}
+        if len(dl_topics) > 1:
+            logger.warning(
+                "Multiple dead_letter_topics found for %s:%s %s. Using %s.",
+                pubsub_name,
+                topic_name,
+                dl_topics,
+                group[0].dead_letter_topic,
+            )
+
         handler_fn = _composite_handler_fn(group)
-        close_fn = subscribe(  # type: ignore[misc]
-            pubsub_name=pubsub_name,
-            topic=topic_name,
-            handler_fn=handler_fn,
-            dead_letter_topic=group[0].dead_letter_topic,
-        )
-        logger.info(
-            "Subscribed COMPOSITE(%d handlers) to pubsub=%s topic=%s (delivery=%s await=%s)",
-            len(group),
-            pubsub_name,
-            topic_name,
-            delivery_mode,
-            await_result,
-        )
-        closers.append(close_fn)
+        
+        if subscribe is not None:
+            # Legacy/Custom subscription injection
+            close_fn = subscribe(
+                pubsub_name=pubsub_name,
+                topic=topic_name,
+                handler_fn=handler_fn,
+                dead_letter_topic=group[0].dead_letter_topic,
+            )
+            logger.info(
+                "Subscribed (Custom/Legacy) to pubsub=%s topic=%s",
+                pubsub_name,
+                topic_name,
+            )
+            closers.append(close_fn)
+        else:
+            # Streaming subscription (Default)
+            subscription = dapr_client.subscribe(
+                pubsub_name=pubsub_name,
+                topic=topic_name,
+                dead_letter_topic=group[0].dead_letter_topic,
+            )
+            
+            def _consumer_loop(
+                sub: Any, 
+                h_fn: Callable[[SubscriptionMessage], TopicEventResponse],
+                p_name: str,
+                t_name: str
+            ) -> None:
+                logger.info("Starting stream consumer for %s:%s", p_name, t_name)
+                try:
+                    for message in sub:
+                        if message is None:
+                            continue
+                        try:
+                            response = h_fn(message)
+                            if response.status == "success":
+                                sub.respond_success(message)
+                            elif response.status == "retry":
+                                sub.respond_retry(message)
+                            elif response.status == "drop":
+                                sub.respond_drop(message)
+                            else:
+                                logger.warning("Unknown status %s, retrying", response.status)
+                                sub.respond_retry(message)
+                        except Exception:
+                            logger.exception("Handler exception in stream %s:%s", p_name, t_name)
+                            # Default to retry on handler crash
+                            try:
+                                sub.respond_retry(message)
+                            except Exception:
+                                logger.warning("Failed to send retry response for %s:%s", p_name, t_name, exc_info=True)
+                except Exception as e:
+                    # If closed explicitly, we might get an error or simple exit
+                    logger.debug("Stream consumer %s:%s exited: %s", p_name, t_name, e)
+                finally:
+                    sub.close()
+
+            # Start consumer in a separate thread to avoid blocking the event loop
+            import threading
+            t = threading.Thread(
+                target=_consumer_loop, 
+                args=(subscription, handler_fn, pubsub_name, topic_name),
+                daemon=True  # Ensure process can exit if thread hangs
+            )
+            t.start()
+            
+            def _make_streaming_closer(sub: Any, thread: threading.Thread) -> Callable[[], None]:
+                def _close() -> None:
+                    try:
+                        sub.close()  # Signal the subscription to stop
+                    except Exception:
+                        logger.debug("Error closing subscription", exc_info=True)
+                    
+                    # Wait for thread to finish with a timeout
+                    thread.join(timeout=10.0)
+                    if thread.is_alive():
+                        logger.warning("Consumer thread for %s:%s did not stop within timeout; abandoning.", pubsub_name, topic_name)
+                return _close
+
+            closers.append(_make_streaming_closer(subscription, t))
+            logger.info(
+                "Subscribed STREAMING to pubsub=%s topic=%s (delivery=%s await=%s)",
+                pubsub_name,
+                topic_name,
+                delivery_mode,
+                await_result,
+            )
 
     if worker_tasks:
 
