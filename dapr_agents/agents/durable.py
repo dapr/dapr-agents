@@ -17,6 +17,7 @@ from dapr_agents.agents.configs import (
     AgentStateConfig,
     WorkflowGrpcOptions,
     WorkflowRetryPolicy,
+    AgentObservabilityConfig,
 )
 from dapr_agents.agents.prompting import AgentProfileConfig
 from dapr_agents.agents.schemas import (
@@ -79,6 +80,7 @@ class DurableAgent(AgentBase):
         workflow_grpc: Optional[WorkflowGrpcOptions] = None,
         runtime: Optional[wf.WorkflowRuntime] = None,
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
+        agent_observability: Optional[AgentObservabilityConfig] = None,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -108,6 +110,7 @@ class DurableAgent(AgentBase):
             workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
             runtime: Optional pre-existing workflow runtime to attach to.
             retry_policy: Durable retry policy configuration.
+            agent_observability: Observability configuration for tracing/logging.
         """
         super().__init__(
             pubsub=pubsub,
@@ -127,6 +130,7 @@ class DurableAgent(AgentBase):
             llm=llm,
             tools=tools,
             prompt_template=prompt_template,
+            agent_observability=agent_observability,
         )
 
         apply_grpc_options(self.workflow_grpc_options)

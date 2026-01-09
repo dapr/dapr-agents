@@ -24,7 +24,7 @@ tracer_provider = register(
     protocol="http/protobuf",
 )
 instrumentor = DaprAgentsInstrumentor()
-instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
+instrumentor.instrument(tracer_provider=tracer_provider)
 
 runtime = wf.WorkflowRuntime()
 llm = DaprChatClient(component_name="openai")

@@ -32,7 +32,7 @@ async def main():
     )
     # Initialize Dapr Agents OpenTelemetry instrumentor
     instrumentor = DaprAgentsInstrumentor()
-    instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
+    instrumentor.instrument(tracer_provider=tracer_provider)
 
     await AIAgent.run("What is the weather in Virginia, New York and Washington DC?")
 

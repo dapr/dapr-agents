@@ -2,6 +2,7 @@
 import pytest
 import sys
 import os
+import json
 import tempfile
 import shutil
 from unittest.mock import MagicMock
@@ -87,16 +88,34 @@ class MockWorkflowActivityContext:
 class MockDaprClient:
     """Mock DaprClient that supports context manager and returns properly structured responses."""
 
+    def __init__(self, runtime_config=None, http_timeout_seconds=10):
+        """Initialize mock with optional runtime config for observability tests."""
+        self.runtime_config = runtime_config or {}
+        self.query_state = MagicMock()
+
     def __enter__(self):
         return self
 
     def __exit__(self, *args):
         pass
 
+    def __call__(self, *args, **kwargs):
+        """Support being called as a constructor."""
+        return self
+
     def get_state(self, store_name, key, **kwargs):
         """Return a mock state response with proper structure."""
         response = MagicMock()
-        response.data = None
+
+        # Handle runtime config from statestore for observability tests
+        if store_name == "agent-runtimestatestore" and key == "agent_runtime":
+            if self.runtime_config:
+                response.data = json.dumps(self.runtime_config).encode("utf-8")
+            else:
+                response.data = None
+        else:
+            response.data = None
+
         response.etag = None
         response.json = MagicMock(return_value={})
         return response
@@ -110,9 +129,18 @@ class MockDaprClient:
         pass
 
     def get_metadata(self):
-        """Mock get_metadata that returns empty metadata."""
+        """Mock get_metadata that returns empty metadata or with runtime statestore."""
         response = MagicMock()
-        response.registered_components = []
+
+        components = []
+        # Add runtime statestore component if runtime config is provided
+        if self.runtime_config:
+            runtime_component = MagicMock()
+            runtime_component.type = "state.redis"
+            runtime_component.name = "agent-runtimestatestore"
+            components.append(runtime_component)
+
+        response.registered_components = components
         response.application_id = "test-app-id"
         return response
 

@@ -178,8 +178,8 @@ class WorkflowRunner(SignalMixin):
         try:
             self.unwire_pubsub()
         finally:
-            self._close_dapr_client()
             self._close_wf_client()
+            self._close_dapr_client()
 
     def _ensure_dapr_client(self) -> None:
         """

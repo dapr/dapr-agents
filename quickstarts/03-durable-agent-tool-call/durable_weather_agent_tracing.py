@@ -26,7 +26,7 @@ async def main():
     from dapr_agents.observability import DaprAgentsInstrumentor
 
     instrumentor = DaprAgentsInstrumentor()
-    instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
+    instrumentor.instrument(tracer_provider=tracer_provider)
 
     # Instantiate your agent
     weather_agent = DurableAgent(
@@ -62,6 +62,8 @@ async def main():
     finally:
         # Then shut down runner (unwire/close clients)
         runner.shutdown(weather_agent)
+
+        exit(0)
 
 
 if __name__ == "__main__":

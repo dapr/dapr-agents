@@ -23,7 +23,6 @@ from .constants import (
     LLM_TOKEN_COUNT_TOTAL,
     MESSAGE_CONTENT,
     MESSAGE_ROLE,
-    OPENINFERENCE_AVAILABLE,
     safe_json_dumps,
 )
 
@@ -220,22 +219,18 @@ def get_input_message_attributes(oi_messages: List[Dict[str, Any]]) -> Dict[str,
     Returns:
         Dict[str, Any]: Span attributes for input messages
     """
-    if OPENINFERENCE_AVAILABLE:
-        try:
-            from openinference.instrumentation import get_llm_input_message_attributes
+    try:
+        from openinference.instrumentation import get_llm_input_message_attributes
 
-            attributes = get_llm_input_message_attributes(oi_messages)
-            logger.debug(
-                f"Generated {len(attributes)} input message attributes using OpenInference"
-            )
-            return attributes
-        except Exception as e:
-            logger.warning(
-                f"OpenInference get_llm_input_message_attributes failed: {e}, using fallback"
-            )
-            return {}
-    else:
-        logger.debug("OpenInference not available, skipping input message attributes")
+        attributes = get_llm_input_message_attributes(oi_messages)
+        logger.debug(
+            f"Generated {len(attributes)} input message attributes using OpenInference"
+        )
+        return attributes
+    except Exception as e:
+        logger.warning(
+            f"OpenInference get_llm_input_message_attributes failed: {e}, using fallback"
+        )
         return {}
 
 
@@ -373,22 +368,18 @@ def get_output_message_attributes(oi_messages: List[Dict[str, Any]]) -> Dict[str
     Returns:
         Dict[str, Any]: Span attributes for output messages
     """
-    if OPENINFERENCE_AVAILABLE:
-        try:
-            from openinference.instrumentation import get_llm_output_message_attributes
+    try:
+        from openinference.instrumentation import get_llm_output_message_attributes
 
-            attributes = get_llm_output_message_attributes(oi_messages)
-            logger.debug(
-                f"Generated {len(attributes)} output message attributes using OpenInference"
-            )
-            return attributes
-        except Exception as e:
-            logger.warning(
-                f"OpenInference get_llm_output_message_attributes failed: {e}, using fallback"
-            )
-            return get_fallback_output_attributes(oi_messages[0] if oi_messages else {})
-    else:
-        logger.debug("OpenInference not available, using fallback output attributes")
+        attributes = get_llm_output_message_attributes(oi_messages)
+        logger.debug(
+            f"Generated {len(attributes)} output message attributes using OpenInference"
+        )
+        return attributes
+    except Exception as e:
+        logger.warning(
+            f"OpenInference get_llm_output_message_attributes failed: {e}, using fallback"
+        )
         return get_fallback_output_attributes(oi_messages[0] if oi_messages else {})
 
 
