@@ -24,13 +24,16 @@ jobs:
       uses: actions/setup-python@v6
       with:
         python-version: "3.10"
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install setuptools wheel tox
+        uv sync --extra=dev
     - name: Run Autoformatter
       run: |
-        tox -e ruff
+        uv run tox -e ruff
         statusResult=$(git status -u --porcelain)
         if [ -z "$statusResult" ]
         then
@@ -41,7 +44,7 @@ jobs:
         fi
     - name: Run Linter
       run: |
-        tox -e flake8
+        uv run tox -e flake8
 
   build:
     needs: lint
@@ -56,19 +59,16 @@ jobs:
       uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python_ver }}
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install setuptools wheel tox
-    - name: Install package and test dependencies
-      run: |
-        pip cache purge
-        pip install --upgrade pip setuptools wheel
-        pip install -e .
-        pip install -e .[test]
+        uv sync --extra test --extra dev
     - name: Check Typing
       run: |
-        tox -e type
+        uv run tox -e type
     - name: Run Tests
       run: |
-        tox -e pytest
+        uv run tox -e pytest
