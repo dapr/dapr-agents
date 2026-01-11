@@ -111,6 +111,9 @@ vectorstore = [
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.8.0,<4.0.0",
 ]
+redis = [
+    "redisvl>=0.4.0,<1.0.0",
+]
 
 [tool.uv.dependency-groups]
 vectorstore = {requires-python = ">=3.11,<3.14"}
