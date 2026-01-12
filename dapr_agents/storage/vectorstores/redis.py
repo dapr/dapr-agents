@@ -89,7 +89,9 @@ class RedisVectorStore(VectorStoreBase):
             self.index.create(overwrite=False)
             logger.info(f"RedisVectorStore index '{self.index_name}' created.")
         else:
-            logger.info(f"RedisVectorStore connected to existing index '{self.index_name}'.")
+            logger.info(
+                f"RedisVectorStore connected to existing index '{self.index_name}'."
+            )
 
         super().model_post_init(__context)
 
@@ -212,11 +214,13 @@ class RedisVectorStore(VectorStoreBase):
                             metadata = ast.literal_eval(metadata)
                         except (ValueError, SyntaxError):
                             metadata = {}
-                        results.append({
-                            "id": doc.get("doc_id", doc_id),
-                            "document": doc.get("document", ""),
-                            "metadata": metadata,
-                        })
+                        results.append(
+                            {
+                                "id": doc.get("doc_id", doc_id),
+                                "document": doc.get("document", ""),
+                                "metadata": metadata,
+                            }
+                        )
             else:
                 # Get all documents by querying with a match-all
                 from redisvl.query import FilterQuery
@@ -232,11 +236,13 @@ class RedisVectorStore(VectorStoreBase):
                         metadata = ast.literal_eval(metadata)
                     except (ValueError, SyntaxError):
                         metadata = {}
-                    results.append({
-                        "id": doc.get("doc_id", ""),
-                        "document": doc.get("document", ""),
-                        "metadata": metadata,
-                    })
+                    results.append(
+                        {
+                            "id": doc.get("doc_id", ""),
+                            "document": doc.get("document", ""),
+                            "metadata": metadata,
+                        }
+                    )
 
             return results
 
@@ -314,12 +320,14 @@ class RedisVectorStore(VectorStoreBase):
                         metadata = ast.literal_eval(metadata)
                     except (ValueError, SyntaxError):
                         metadata = {}
-                    all_results.append({
-                        "id": doc.get("doc_id", ""),
-                        "document": doc.get("document", ""),
-                        "metadata": metadata,
-                        "vector_distance": doc.get("vector_distance", 0.0),
-                    })
+                    all_results.append(
+                        {
+                            "id": doc.get("doc_id", ""),
+                            "document": doc.get("document", ""),
+                            "metadata": metadata,
+                            "vector_distance": doc.get("vector_distance", 0.0),
+                        }
+                    )
 
             return all_results
 
