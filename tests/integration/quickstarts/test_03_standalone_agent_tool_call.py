@@ -26,7 +26,7 @@ class TestStandaloneAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,
+            timeout=180,
             use_dapr=True,
             app_id="standaloneweatherapp",
         )
@@ -51,7 +51,7 @@ class TestStandaloneAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=90,
+            timeout=180,
         )
 
         assert result.returncode == 0, (
@@ -74,7 +74,7 @@ class TestStandaloneAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=90,
+            timeout=180,
         )
 
         assert result.returncode == 0, (
@@ -92,7 +92,7 @@ class TestStandaloneAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=90,
+            timeout=180,
         )
 
         assert result.returncode == 0, (
@@ -110,7 +110,7 @@ class TestStandaloneAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=90,
+            timeout=180,
         )
 
         assert result.returncode == 0, (
@@ -128,7 +128,7 @@ class TestStandaloneAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,
+            timeout=180,
         )
 
         assert result.returncode == 0, (

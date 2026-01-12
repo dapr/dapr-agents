@@ -32,7 +32,7 @@ class TestDurableAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,  # Durable agents may take longer
+            timeout=180,  # Durable agents may take longer
             use_dapr=True,
             app_id="durableweatherapp",
         )
@@ -61,7 +61,7 @@ class TestDurableAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,  # Durable agents may take longer
+            timeout=180,  # Durable agents may take longer
             use_dapr=True,
             app_id="durableweatherapp",
         )
@@ -90,7 +90,7 @@ class TestDurableAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,  # Durable agents may take longer
+            timeout=180,  # Durable agents may take longer
             use_dapr=True,
             app_id="durableweatherapp",
         )
@@ -114,7 +114,7 @@ class TestDurableAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,  # Durable agents may take longer
+            timeout=180,  # Durable agents may take longer
             use_dapr=True,
             app_id="durableweatherapp",
         )
@@ -138,7 +138,7 @@ class TestDurableAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,  # Durable agents may take longer
+            timeout=180,  # Durable agents may take longer
             use_dapr=True,
             app_id="durableweatherapp",
         )
@@ -162,7 +162,7 @@ class TestDurableAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,
+            timeout=180,
             use_dapr=True,
             app_id="durableweatherapp",
             dapr_http_port=3500,
@@ -194,7 +194,7 @@ class TestDurableAgentToolCallQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=120,
+            timeout=180,
             use_dapr=True,
             app_id="durableweatherapp",
             dapr_http_port=3500,

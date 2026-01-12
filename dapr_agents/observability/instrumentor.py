@@ -43,15 +43,12 @@ W3C Trace Context format (traceparent/tracestate headers) and thread-safe storag
 """
 
 import logging
-from typing import Any, Collection
+from typing import Any, Collection, Optional
 
 from .constants import (
-    OPENTELEMETRY_AVAILABLE,
-    WRAPT_AVAILABLE,
     BaseInstrumentor,
     trace_api,
     logs_api,
-    context_api,
     wrap_function_wrapper,
 )
 from .wrappers import (
@@ -66,6 +63,7 @@ from .wrappers import (
 )
 
 from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient
+from opentelemetry.trace import TracerProvider
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +117,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         super().__init__()
         self._tracer = None
         self._logger = None
+        self._grpc_instrumentor: Optional[GrpcInstrumentorClient] = None
 
     def instrumentation_dependencies(self) -> Collection[str]:
         """
@@ -127,21 +126,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         Returns:
             Collection[str]: Package names that must be available for instrumentation
         """
-        return ("dapr-agents",)
-
-    def instrument(self, **kwargs: Any) -> None:
-        """
-        Public method to instrument Dapr Agents with OpenTelemetry tracing.
-
-        This method is called by users to enable instrumentation. It delegates
-        to the private _instrument method which contains the actual implementation.
-
-        Args:
-            **kwargs: Instrumentation configuration including:
-                     - tracer_provider: Optional OpenTelemetry tracer provider
-                     - Additional provider-specific configuration
-        """
-        self._instrument(**kwargs)
+        return ()
 
     def _instrument(self, **kwargs: Any) -> None:
         """
@@ -158,14 +143,6 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                      - tracer_provider: Optional OpenTelemetry tracer provider
                      - Additional provider-specific configuration
         """
-        # Validate required dependencies for instrumentation
-        if not OPENTELEMETRY_AVAILABLE:
-            logger.warning("OpenTelemetry not available - instrumentation disabled")
-            return
-
-        if not WRAPT_AVAILABLE:
-            logger.warning("wrapt not available - instrumentation disabled")
-            return
 
         # Initialize logger for the instrumentor
         self._initialize_logger(kwargs)
@@ -187,7 +164,8 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         self._apply_llm_wrappers()
 
         # Instrument gRPC client for context propagation to Dapr sidecar
-        GrpcInstrumentorClient().instrument()
+        self._grpc_instrumentor = GrpcInstrumentorClient()
+        self._grpc_instrumentor.instrument()
 
         logger.info("✅ Dapr Agents OpenTelemetry instrumentation enabled")
 
@@ -381,6 +359,18 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         Args:
             **kwargs: Uninstrumentation configuration (unused)
         """
+        logger.debug("Uninstrumenting Dapr Agents OpenTelemetry instrumentation")
+
+        try:
+            tracer_provider: TracerProvider = trace_api.get_tracer_provider()
+            if hasattr(tracer_provider, "force_flush"):
+                tracer_provider.force_flush(timeout_millis=5000)  # type: ignore
+                logger.debug("Flushed tracer provider spans")
+        except Exception:  # noqa: BLE001
+            logger.exception("Error while shutting down tracer provider", exc_info=True)
+
+        self._grpc_instrumentor = None
+        self._logger = None
         self._tracer = None
         logger.info("Dapr Agents OpenTelemetry instrumentation disabled")
 

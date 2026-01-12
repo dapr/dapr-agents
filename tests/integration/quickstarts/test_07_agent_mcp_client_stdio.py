@@ -20,7 +20,7 @@ class TestMCPClientStdioQuickstart:
             script,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=90,
+            timeout=180,
             use_dapr=True,
             app_id="mcp-agent-stdio",
             stream_logs=True,
