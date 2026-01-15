@@ -18,7 +18,16 @@ from dapr_agents.agents.configs import (
     WorkflowGrpcOptions,
     StateModelBundle,
 )
-from dapr_agents.agents.schemas import AgentWorkflowEntry
+from dapr_agents.agents.schemas import (
+    AgentWorkflowEntry,
+    AgentMetadataSchema,
+    RegistryMetadata,
+    LLMMetadata,
+    PubSubMetadata,
+    MemoryMetadata,
+    ToolMetadata,
+    AgentMetadata,
+)
 from dapr_agents.storage.daprstores.stateservice import (
     StateStoreError,
 )
@@ -459,7 +468,7 @@ class AgentComponents:
     def register_agentic_system(
         self,
         *,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[AgentMetadataSchema] = None,
         team: Optional[str] = None,
     ) -> None:
         """
@@ -475,42 +484,10 @@ class AgentComponents:
             )
             return
 
-        payload = dict(metadata or {})
-        payload.setdefault("name", self.name)
-        if "agent" not in payload:
-            payload["agent"] = {}
-
-        payload["agent"]["type"] = type(self).__name__
-        payload.setdefault("registered_at", datetime.now(timezone.utc).isoformat())
-
-        if self._pubsub is not None:
-            if "pubsub" not in payload:
-                payload["pubsub"] = {}
-
-            payload["pubsub"]["agent_name"] = self.agent_topic_name
-            payload["pubsub"]["name"] = self.message_bus_name
-
-            if self.broadcast_topic_name:
-                payload["pubsub"]["broadcast_topic"] = self.broadcast_topic_name
-            if self._pubsub.agent_topic is not None:
-                payload["pubsub"]["agent_topic"] = self._pubsub.agent_topic
-
-        if self._state is not None:
-            payload["agent"]["statestore"] = self._state.store.store_name
-
-        if self._registry is not None:
-            if "registry" not in payload:
-                payload["registry"] = {}
-
-            payload["registry"]["statestore"] = self._registry.store.store_name
-
-            if self._registry.team_name is not None:
-                payload["registry"]["team"] = self._registry.team_name
-
         self._upsert_agent_entry(
             team=self._effective_team(team),
             agent_name=self.name,
-            agent_metadata=payload,
+            agent_metadata=metadata.model_dump(mode="json") if metadata else {},
         )
 
     def deregister_agentic_system(self, *, team: Optional[str] = None) -> None:
