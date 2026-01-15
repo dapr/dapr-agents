@@ -286,12 +286,12 @@ class TestDurableAgent:
         metadata = basic_durable_agent.agent_metadata
 
         assert metadata is not None
-        assert metadata["agent"]["name"] == "TestDurableAgent"
-        assert metadata["agent"]["role"] == "Test Durable Assistant"
-        assert metadata["agent"]["goal"] == "Help with testing"
-        assert metadata["pubsub"]["agent_name"] == "TestDurableAgent"
-        assert metadata["pubsub"]["name"] == "testpubsub"
-        assert metadata["agent"]["orchestrator"] is False
+        assert metadata.agent.name == "TestDurableAgent"
+        assert metadata.agent.role == "Test Durable Assistant"
+        assert metadata.agent.goal == "Help with testing"
+        assert metadata.pubsub.agent_name == "TestDurableAgent"
+        assert metadata.pubsub.name == "testpubsub"
+        assert metadata.agent.orchestrator is False
 
     def test_tool_calling_workflow_initialization(
         self, basic_durable_agent, mock_workflow_context

@@ -36,6 +36,10 @@ class TestAgent:
         mock.prompt_template = None
         # Set the class name to avoid OpenAI validation
         mock.__class__.__name__ = "MockLLMClient"
+        # Add string attributes for metadata validation
+        mock.provider = "test_provider"
+        mock.api = "test_api"
+        mock.model = "test_model"
         return mock
 
     @pytest.fixture
