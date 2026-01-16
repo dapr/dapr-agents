@@ -268,6 +268,7 @@ class AgentBase(AgentComponents):
             workflow_grpc_options=workflow_grpc,
         )
 
+        self.instrumentor: Optional[DaprAgentsInstrumentor] = None
         self._setup_agent_runtime_configuration()
 
         # -----------------------------
@@ -1098,8 +1099,8 @@ class AgentBase(AgentComponents):
                 tracer_provider.add_span_processor(span_processor)
                 trace.set_tracer_provider(tracer_provider)
 
-            instrumentor = DaprAgentsInstrumentor()
-            instrumentor.instrument(
+            self.instrumentor = DaprAgentsInstrumentor()
+            self.instrumentor.instrument(
                 tracer_provider=tracer_provider,
                 logger_provider=logger_provider,
             )

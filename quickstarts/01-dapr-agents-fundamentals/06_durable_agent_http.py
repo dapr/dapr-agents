@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from dapr_agents.llm import DaprChatClient
 
 from dapr_agents import DurableAgent
@@ -21,7 +23,7 @@ def main() -> None:
         memory=AgentMemoryConfig(
             store=ConversationDaprStateMemory(
                 store_name="conversation-statestore",
-                session_id="04-durable-agent-http",
+                session_id=Path(__file__).stem,
             )
         ),
         # This is where the execution state is stored

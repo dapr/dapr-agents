@@ -11,26 +11,20 @@ This quickstart demonstrates how to build a fully functional, enterprise-ready a
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- uv package manager
 - OpenAI API key (for the OpenAI example)
 - [Dapr CLI installed](https://docs.dapr.io/getting-started/install-dapr-cli/)
 
 ## Environment Setup
 
 ```bash
-# Create a virtual environment
-python3.10 -m venv .venv
-
+uv venv
 # Activate the virtual environment 
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
 source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
+uv sync --active
 # Initialize Dapr
 dapr init
 ```

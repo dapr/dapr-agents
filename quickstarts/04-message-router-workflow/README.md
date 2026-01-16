@@ -17,25 +17,20 @@ The `@message_router` decorator is applied **directly to the workflow function**
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- uv package manager
 - OpenAI API key
 - Dapr CLI and Docker installed
 
 ## Environment Setup
 
 ```bash
-# Create a virtual environment
-python3.10 -m venv .venv
-
-# Activate the virtual environment
+uv venv
+# Activate the virtual environment 
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
 source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+uv sync --active
 ```
 
 ## Configuration

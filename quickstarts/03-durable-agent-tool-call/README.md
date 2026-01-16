@@ -4,24 +4,20 @@ This quickstart builds on the standalone version and shows how to run the same w
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- Python >= 3.11
+- uv package manager
 - OpenAI API key
 
 ## Environment Setup
 
 ```bash
-# Create a virtual environment
-python3.10 -m venv .venv
-
+uv venv
 # Activate the virtual environment 
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
 source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+uv sync --active
 ```
 
 ## Configuration

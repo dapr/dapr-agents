@@ -4,8 +4,7 @@ This quickstart provides a hands-on introduction to setting up full end-to-end t
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- uv package manager
 - OpenAI API key
 - Zipkin
 - Jaeger
@@ -15,18 +14,13 @@ This quickstart provides a hands-on introduction to setting up full end-to-end t
 ### Option 1: Using pip (Recommended)
 
 ```bash
-# Create a virtual environment
-python3.10 -m venv .venv
-
+uv venv
 # Activate the virtual environment 
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
 source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
+uv sync --active
 ```
 
 ### Option 2: Using uv 

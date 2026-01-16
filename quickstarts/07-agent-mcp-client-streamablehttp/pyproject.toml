@@ -1,0 +1,13 @@
+[project]
+name = "07-agent-mcp-client-streamablehttp"
+version = "0.1.0"
+requires-python = ">=3.11, <3.14"
+dependencies = [
+    "dapr-agents",
+    "python-dotenv>=1.2.1",
+    "starlette>=0.48.0",
+    "websockets>=12.0",
+]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }

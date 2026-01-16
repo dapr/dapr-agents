@@ -4,44 +4,21 @@ This quickstart demonstrates how to create an AI agent with custom tools using D
 
 ## Prerequisites
 
-- Python 3.10+ (recommended)
-- [uv package manager](https://docs.astral.sh/uv/getting-started/installation/) (optional, but recommended)
+- Python >= 3.11
+- uv package manager
 - OpenAI API key
 
 ## Environment Setup
 
-<details open>
-<summary><strong>Option 1: Using uv (Recommended)</strong></summary>
-
 ```bash
-# Create and activate virtual environment
-uv venv .venv
-source .venv/bin/activate
-
-# Install core dependencies
-uv pip install -r requirements.txt
-```
-
-</details>
-
-<details>
-<summary><strong>Option 2: Using pip</strong></summary>
-
-```bash
-# Create a virtual environment
-python3.10 -m venv .venv
-
+uv venv
 # Activate the virtual environment 
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
 source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+uv sync --active
 ```
-
-</details>
 
 ## Configuration
 

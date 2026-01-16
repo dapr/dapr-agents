@@ -587,7 +587,7 @@ class AgentRunner(WorkflowRunner):
         )
         logger.info("Mounted default workflow status endpoint at %s", status_path)
 
-    def shutdown(self, agent: Optional[AgentComponents]) -> None:
+    def shutdown(self, agent: Optional[AgentComponents] = None) -> None:
         """
         Unwire subscriptions and close owned clients.
 
@@ -603,6 +603,7 @@ class AgentRunner(WorkflowRunner):
             # First verify we're managing it
             with self._lock:
                 if agent in self._managed_agents:
+                    agent.instrumentor.uninstrument()
                     agent.stop()  # This is safe as they'll return None if not started
                     self._managed_agents.remove(agent)
                 if len(self._managed_agents) == 0:
@@ -618,6 +619,7 @@ class AgentRunner(WorkflowRunner):
             with self._lock:
                 agents = list(self._managed_agents)
             for ag in agents:
+                agent.instrumentor.uninstrument()
                 ag.stop()
             self._close_wf_client()
             self._close_dapr_client()
