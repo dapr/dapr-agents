@@ -5,14 +5,13 @@ import os
 
 from dotenv import load_dotenv
 
-import dapr.ext.workflow as wf
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
 )
-from dapr_agents.agents.orchestrators.llm import LLMOrchestrator
+from dapr_agents.agents import DurableAgent
 from dapr_agents.llm.openai import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.workflow.runners import AgentRunner
@@ -50,13 +49,10 @@ def main() -> None:
         team_name=team_name,
     )
     execution = AgentExecutionConfig(
-        max_iterations=int(os.getenv("MAX_ITERATIONS", "1"))
+        max_iterations=int(os.getenv("MAX_ITERATIONS", "2"))
     )
 
-    def on_summary(summary: str):
-        print("Journey complete! Summary:", summary, flush=True)
-
-    orchestrator = LLMOrchestrator(
+    orchestrator = DurableAgent(
         name=orchestrator_name,
         llm=OpenAIChatClient(),
         pubsub=pubsub,
@@ -67,9 +63,7 @@ def main() -> None:
             "type": "LLMOrchestrator",
             "description": "LLM-driven Orchestrator",
         },
-        timeout_seconds=int(os.getenv("TIMEOUT_SECONDS", "45")),
-        runtime=wf.WorkflowRuntime(),
-        final_summary_callback=on_summary,
+        orchestrator=True,
     )
 
     runner = AgentRunner()
