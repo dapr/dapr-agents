@@ -110,6 +110,7 @@ class AgentBase(AgentComponents):
         # Execution
         execution: Optional[AgentExecutionConfig] = None,
         agent_observability: Optional[AgentObservabilityConfig] = None,
+        orchestrator: bool = False,
     ) -> None:
         """
         Initialize an agent with behavior + infrastructure.
@@ -141,6 +142,7 @@ class AgentBase(AgentComponents):
             workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
             execution: Execution dials for the agent run.
             agent_observability: Observability configuration for tracing/logging.
+            orchestrator: Whether this agent is an orchestrator (affects registration).
         """
         # Resolve and validate profile (ensures non-empty name).
         resolved_profile = self._build_profile(
@@ -154,6 +156,7 @@ class AgentBase(AgentComponents):
         )
         self.profile = resolved_profile
         self.name = resolved_profile.name  # type: ignore[assignment]
+        self.orchestrator = orchestrator
 
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
@@ -355,7 +358,7 @@ class AgentBase(AgentComponents):
         base_meta: Dict[str, Any] = {}
         base_meta["agent"] = {
             "appid": self.appid,
-            "orchestrator": False,
+            "orchestrator": self.orchestrator,
             "role": self.profile.role,
             "goal": self.profile.goal,
             "name": self.profile.name,
