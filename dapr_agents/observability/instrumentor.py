@@ -364,7 +364,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         try:
             tracer_provider: TracerProvider = trace_api.get_tracer_provider()
             if hasattr(tracer_provider, "force_flush"):
-                tracer_provider.force_flush(timeout_millis=5000)  # type: ignore
+                tracer_provider.force_flush()  # type: ignore
                 logger.debug("Flushed tracer provider spans")
             if hasattr(tracer_provider, "shutdown"):
                 tracer_provider.shutdown()  # type: ignore
@@ -385,10 +385,40 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         logger.info("Dapr Agents OpenTelemetry instrumentation disabled")
 
 
+def flush_and_shutdown_tracer_and_logger_provider() -> None:
+    """
+    Force flush the tracer and logger providers to ensure traces and logs are sent before exit.
+    
+    This utility function can be called during shutdown to prevent hanging
+    when BatchSpanProcessor has pending spans or BatchLogRecordProcessor has pending logs.
+   
+    """
+    try:
+        tracer_provider = trace_api.get_tracer_provider()
+        if hasattr(tracer_provider, "force_flush"):
+            tracer_provider.force_flush()  # type: ignore
+            logger.info("Flushed tracer provider spans")
+         # Shutdown the tracer provider to stop BatchSpanProcessor background threads
+        if hasattr(tracer_provider, "shutdown"):
+            tracer_provider.shutdown()  # type: ignore
+            logger.info("Shut down tracer provider background threads")
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"Error flushing tracer provider: {e}")
+
+    try:
+        logger_provider = logs_api.get_logger_provider()
+        if hasattr(logger_provider, "shutdown"):
+            logger_provider.shutdown()  # type: ignore
+            logger.info("Shut down logger provider")
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"Error shutting down logger provider: {e}")
+
+
 # ============================================================================
 # Exported Classes
 # ============================================================================
 
 __all__ = [
     "DaprAgentsInstrumentor",
+    "flush_and_shutdown_tracer_and_logger_provider",
 ]

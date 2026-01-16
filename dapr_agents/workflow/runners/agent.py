@@ -17,6 +17,7 @@ from dapr_agents.workflow.utils.registration import (
     register_http_routes,
     register_message_routes,
 )
+from dapr_agents.observability.instrumentor import flush_and_shutdown_tracer_and_logger_provider
 
 logger = logging.getLogger(__name__)
 
@@ -612,6 +613,11 @@ class AgentRunner(WorkflowRunner):
                     finally:
                         self._close_wf_client()
                         self._close_dapr_client()
+            # NOTE: BatchSpanProcessor may have pending spans,
+            # so we need to flush the tracer and logger providers to ensure traces and logs are sent.
+            # This is bc BatchSpanProcessor uses background threads to export spans,
+            # so if the tracing exporter endpoint is not available or slow, those threads hang, blocking agent exit.
+            flush_and_shutdown_tracer_and_logger_provider()
             return
         try:
             self.unwire_pubsub()
@@ -623,3 +629,8 @@ class AgentRunner(WorkflowRunner):
                 ag.stop()
             self._close_wf_client()
             self._close_dapr_client()
+            # NOTE: BatchSpanProcessor may have pending spans,
+            # so we need to flush the tracer and logger providers to ensure traces and logs are sent.
+            # This is bc BatchSpanProcessor uses background threads to export spans,
+            # so if the tracing exporter endpoint is not available or slow, those threads hang, blocking agent exit.
+            flush_and_shutdown_tracer_and_logger_provider()

@@ -258,8 +258,11 @@ class TestHelloWorldQuickstart:
             or "Final Recommendation" in result.stdout
         )
 
-    def test_10_durable_agent_tracing(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent tracing example (10_durable_agent_tracing.py)."""
+    def test_10_durable_agent_tracing(self, dapr_runtime, zipkin_service):  # noqa: ARG002
+        """Test durable agent tracing example (10_durable_agent_tracing.py).
+        
+        Note: zipkin_service fixture ensures Zipkin is running before this test runs.
+        """
         script_path = self.quickstart_dir / "10_durable_agent_tracing.py"
         result = run_quickstart_script(
             script_path,
