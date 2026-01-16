@@ -2,10 +2,37 @@ from dapr_agents.storage.vectorstores import VectorStoreBase
 from dapr_agents.document.embedder.base import EmbedderBase
 from typing import List, Dict, Optional, Iterable, Any, Union
 from pydantic import Field, ConfigDict
+import ast
 import uuid
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Optional dependencies - imported at module level to avoid repeated imports
+try:
+    from redisvl.index import SearchIndex
+    from redisvl.schema import IndexSchema
+    from redisvl.query import VectorQuery, FilterQuery
+    from redisvl.redis.utils import array_to_buffer
+except ImportError:
+    SearchIndex = None  # type: ignore
+    IndexSchema = None  # type: ignore
+    VectorQuery = None  # type: ignore
+    FilterQuery = None  # type: ignore
+    array_to_buffer = None  # type: ignore
+
+try:
+    from redis import Redis
+except ImportError:
+    Redis = None  # type: ignore
+
+# Constants to avoid magic strings
+DOC_KEY_SUFFIX = "_doc"
+EMBEDDING_DTYPE = "float32"
+FIELD_DOC_ID = "doc_id"
+FIELD_DOCUMENT = "document"
+FIELD_METADATA = "metadata"
+FIELD_EMBEDDING = "embedding"
 
 
 class RedisVectorStore(VectorStoreBase):
@@ -14,7 +41,7 @@ class RedisVectorStore(VectorStoreBase):
     Supports storing, querying, and filtering documents with embeddings.
     """
 
-    redis_url: str = Field(
+    url: str = Field(
         default="redis://localhost:6379",
         description="Redis connection URL.",
     )
@@ -26,7 +53,7 @@ class RedisVectorStore(VectorStoreBase):
         ...,
         description="Embedding function for embedding generation.",
     )
-    embedding_dims: int = Field(
+    embedding_dimensions: int = Field(
         default=384,
         description="Dimensionality of the embedding vectors.",
     )
@@ -39,21 +66,23 @@ class RedisVectorStore(VectorStoreBase):
         description="Redis storage type (hash or json).",
     )
 
-    index: Optional[Any] = Field(
+    search_index: Optional[Any] = Field(
         default=None, init=False, description="RedisVL SearchIndex instance."
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @property
+    def _key_prefix(self) -> str:
+        """Returns the key prefix used for storing documents in Redis."""
+        return f"{self.index_name}{DOC_KEY_SUFFIX}"
 
     def model_post_init(self, __context: Any) -> None:
         """
         Post-initialization setup for RedisVectorStore.
         Creates the search index with the specified schema.
         """
-        try:
-            from redisvl.index import SearchIndex
-            from redisvl.schema import IndexSchema
-        except ImportError:
+        if SearchIndex is None or IndexSchema is None:
             raise ImportError(
                 "The `redisvl` library is required to use this store. "
                 "Install it using `pip install redisvl`."
@@ -62,18 +91,18 @@ class RedisVectorStore(VectorStoreBase):
         schema_dict = {
             "index": {
                 "name": self.index_name,
-                "prefix": f"{self.index_name}_doc",
+                "prefix": self._key_prefix,
                 "storage_type": self.storage_type,
             },
             "fields": [
-                {"name": "doc_id", "type": "tag"},
-                {"name": "document", "type": "text"},
-                {"name": "metadata", "type": "text"},
+                {"name": FIELD_DOC_ID, "type": "tag"},
+                {"name": FIELD_DOCUMENT, "type": "text"},
+                {"name": FIELD_METADATA, "type": "text"},
                 {
-                    "name": "embedding",
+                    "name": FIELD_EMBEDDING,
                     "type": "vector",
                     "attrs": {
-                        "dims": self.embedding_dims,
+                        "dims": self.embedding_dimensions,
                         "algorithm": "flat",
                         "distance_metric": self.distance_metric,
                     },
@@ -82,11 +111,10 @@ class RedisVectorStore(VectorStoreBase):
         }
 
         schema = IndexSchema.from_dict(schema_dict)
-        self.index = SearchIndex(schema, redis_url=self.redis_url)
+        self.search_index = SearchIndex(schema, redis_url=self.url)
 
-        # Create index if it doesn't exist
-        if not self.index.exists():
-            self.index.create(overwrite=False)
+        if not self.search_index.exists():
+            self.search_index.create(overwrite=False)
             logger.info(f"RedisVectorStore index '{self.index_name}' created.")
         else:
             logger.info(
@@ -116,9 +144,7 @@ class RedisVectorStore(VectorStoreBase):
         Returns:
             List[str]: List of IDs for the added documents.
         """
-        try:
-            from redisvl.redis.utils import array_to_buffer
-        except ImportError:
+        if array_to_buffer is None:
             raise ImportError(
                 "The `redisvl` library is required. Install it using `pip install redisvl`."
             )
@@ -139,14 +165,16 @@ class RedisVectorStore(VectorStoreBase):
             data = []
             for i, doc in enumerate(documents_list):
                 record = {
-                    "doc_id": ids[i],
-                    "document": doc,
-                    "metadata": str(metadatas[i]),
-                    "embedding": array_to_buffer(embeddings[i], dtype="float32"),
+                    FIELD_DOC_ID: ids[i],
+                    FIELD_DOCUMENT: doc,
+                    FIELD_METADATA: str(metadatas[i]),
+                    FIELD_EMBEDDING: array_to_buffer(
+                        embeddings[i], dtype=EMBEDDING_DTYPE
+                    ),
                 }
                 data.append(record)
 
-            self.index.load(data, id_field="doc_id")
+            self.search_index.load(data, id_field=FIELD_DOC_ID)
             logger.info(f"Added {len(documents_list)} documents to RedisVectorStore.")
             return ids
 
@@ -164,20 +192,17 @@ class RedisVectorStore(VectorStoreBase):
         Returns:
             Optional[bool]: True if deletion was successful, False otherwise.
         """
-        try:
-            from redis import Redis
-        except ImportError:
+        if Redis is None:
             raise ImportError(
                 "The `redis` library is required. Install it using `pip install redis`."
             )
 
         try:
-            client = Redis.from_url(self.redis_url)
-            prefix = f"{self.index_name}_doc"
+            client = Redis.from_url(self.url)
 
             deleted_count = 0
             for doc_id in ids:
-                key = f"{prefix}:{doc_id}"
+                key = f"{self._key_prefix}:{doc_id}"
                 result = client.delete(key)
                 deleted_count += result
 
@@ -200,46 +225,46 @@ class RedisVectorStore(VectorStoreBase):
         Returns:
             List[Dict]: A list of dictionaries containing document data.
         """
+        if FilterQuery is None:
+            raise ImportError(
+                "The `redisvl` library is required. Install it using `pip install redisvl`."
+            )
+
+        results = []
+
         try:
-            import ast
-
-            results = []
-
             if ids is not None:
                 for doc_id in ids:
-                    doc = self.index.fetch(doc_id)
+                    doc = self.search_index.fetch(doc_id)
                     if doc:
-                        metadata = doc.get("metadata", "{}")
+                        metadata = doc.get(FIELD_METADATA, "{}")
                         try:
                             metadata = ast.literal_eval(metadata)
                         except (ValueError, SyntaxError):
                             metadata = {}
                         results.append(
                             {
-                                "id": doc.get("doc_id", doc_id),
-                                "document": doc.get("document", ""),
+                                "id": doc.get(FIELD_DOC_ID, doc_id),
+                                "document": doc.get(FIELD_DOCUMENT, ""),
                                 "metadata": metadata,
                             }
                         )
             else:
-                # Get all documents by querying with a match-all
-                from redisvl.query import FilterQuery
-
                 query = FilterQuery(
-                    return_fields=["doc_id", "document", "metadata"],
-                    num_results=10000,  # Large number to get all
+                    return_fields=[FIELD_DOC_ID, FIELD_DOCUMENT, FIELD_METADATA],
+                    num_results=10000, 
                 )
-                docs = self.index.query(query)
+                docs = self.search_index.query(query)
                 for doc in docs:
-                    metadata = doc.get("metadata", "{}")
+                    metadata = doc.get(FIELD_METADATA, "{}")
                     try:
                         metadata = ast.literal_eval(metadata)
                     except (ValueError, SyntaxError):
                         metadata = {}
                     results.append(
                         {
-                            "id": doc.get("doc_id", ""),
-                            "document": doc.get("document", ""),
+                            "id": doc.get(FIELD_DOC_ID, ""),
+                            "document": doc.get(FIELD_DOCUMENT, ""),
                             "metadata": metadata,
                         }
                     )
@@ -256,7 +281,7 @@ class RedisVectorStore(VectorStoreBase):
         The index structure is preserved.
         """
         try:
-            self.index.clear()
+            self.search_index.clear()
             logger.info(f"RedisVectorStore index '{self.index_name}' cleared.")
         except Exception as e:
             logger.error(f"Failed to reset RedisVectorStore: {e}")
@@ -280,16 +305,12 @@ class RedisVectorStore(VectorStoreBase):
         Returns:
             List[Dict]: A list of dictionaries containing the search results.
         """
-        try:
-            from redisvl.query import VectorQuery
-        except ImportError:
+        if VectorQuery is None:
             raise ImportError(
                 "The `redisvl` library is required. Install it using `pip install redisvl`."
             )
 
         try:
-            import ast
-
             if query_texts is not None:
                 if isinstance(query_texts, str):
                     query_texts = [query_texts]
@@ -308,22 +329,22 @@ class RedisVectorStore(VectorStoreBase):
             for embedding in query_embeddings:
                 query = VectorQuery(
                     vector=embedding,
-                    vector_field_name="embedding",
-                    return_fields=["doc_id", "document", "metadata"],
+                    vector_field_name=FIELD_EMBEDDING,
+                    return_fields=[FIELD_DOC_ID, FIELD_DOCUMENT, FIELD_METADATA],
                     num_results=k,
                 )
-                results = self.index.query(query)
+                results = self.search_index.query(query)
 
                 for doc in results:
-                    metadata = doc.get("metadata", "{}")
+                    metadata = doc.get(FIELD_METADATA, "{}")
                     try:
                         metadata = ast.literal_eval(metadata)
                     except (ValueError, SyntaxError):
                         metadata = {}
                     all_results.append(
                         {
-                            "id": doc.get("doc_id", ""),
-                            "document": doc.get("document", ""),
+                            "id": doc.get(FIELD_DOC_ID, ""),
+                            "document": doc.get(FIELD_DOCUMENT, ""),
                             "metadata": metadata,
                             "vector_distance": doc.get("vector_distance", 0.0),
                         }
@@ -343,7 +364,7 @@ class RedisVectorStore(VectorStoreBase):
             int: The number of documents in the index.
         """
         try:
-            info = self.index.info()
+            info = self.search_index.info()
             return int(info.get("num_docs", 0))
         except Exception as e:
             logger.error(f"Failed to count documents: {e}")

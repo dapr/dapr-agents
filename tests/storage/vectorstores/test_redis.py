@@ -41,15 +41,15 @@ class TestRedisVectorStore:
             store = RedisVectorStore(
                 index_name=redis_index_name,
                 embedding_function=embedder,
-                embedding_dims=384,  # all-MiniLM-L6-v2 produces 384-dim embeddings
-                redis_url="redis://localhost:6379",
+                embedding_dimensions=384,  # all-MiniLM-L6-v2 produces 384-dim embeddings
+                url="redis://localhost:6379",
             )
             yield store
             # Cleanup after test
             try:
-                store.index.delete(drop=True)
-            except Exception:
-                pass
+                store.search_index.delete(drop=True)
+            except Exception as cleanup_error:
+                pytest.fail(f"Failed to cleanup Redis index: {cleanup_error}")
         except Exception as e:
             pytest.skip(f"Redis not available: {e}")
 
@@ -59,15 +59,15 @@ class TestRedisVectorStore:
             vector_store = RedisVectorStore(
                 index_name=redis_index_name,
                 embedding_function=embedder,
-                embedding_dims=384,
+                embedding_dimensions=384,
             )
             assert vector_store is not None
             assert vector_store.index_name == redis_index_name
             # Cleanup
             try:
-                vector_store.index.delete(drop=True)
-            except Exception:
-                pass
+                vector_store.search_index.delete(drop=True)
+            except Exception as cleanup_error:
+                pytest.fail(f"Failed to cleanup Redis index: {cleanup_error}")
         except Exception as e:
             pytest.skip(f"Redis not available: {e}")
 
@@ -92,7 +92,7 @@ class TestRedisVectorStore:
                 vector_store = RedisVectorStore(
                     index_name=name,
                     embedding_function=embedder,
-                    embedding_dims=384,
+                    embedding_dimensions=384,
                 )
                 stores.append(vector_store)
                 assert vector_store is not None
@@ -103,9 +103,9 @@ class TestRedisVectorStore:
         # Cleanup
         for store in stores:
             try:
-                store.index.delete(drop=True)
-            except Exception:
-                pass
+                store.search_index.delete(drop=True)
+            except Exception as cleanup_error:
+                pytest.fail(f"Failed to cleanup Redis index: {cleanup_error}")
 
     def test_vectorstore_distance_metrics(self, embedder):
         """Test creating vector stores with different distance metrics."""
@@ -117,7 +117,7 @@ class TestRedisVectorStore:
                 vector_store = RedisVectorStore(
                     index_name=f"test_metric_{metric}_{i}",
                     embedding_function=embedder,
-                    embedding_dims=384,
+                    embedding_dimensions=384,
                     distance_metric=metric,
                 )
                 stores.append(vector_store)
@@ -129,6 +129,6 @@ class TestRedisVectorStore:
         # Cleanup
         for store in stores:
             try:
-                store.index.delete(drop=True)
-            except Exception:
-                pass
+                store.search_index.delete(drop=True)
+            except Exception as cleanup_error:
+                pytest.fail(f"Failed to cleanup Redis index: {cleanup_error}")
