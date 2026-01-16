@@ -20,20 +20,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
-    - name: Set up Python 3.10
+    - name: Set up Python 3.11
       uses: actions/setup-python@v6
       with:
-        python-version: "3.10"
+        python-version: "3.11"
     - name: Install uv
       uses: astral-sh/setup-uv@v3
       with:
         version: "latest"
-    - name: Install dependencies
-      run: |
-        uv sync --extra=dev
     - name: Run Autoformatter
       run: |
-        uv run tox -e ruff
+        uv run --no-sync --with tox tox -e ruff
         statusResult=$(git status -u --porcelain)
         if [ -z "$statusResult" ]
         then
@@ -42,9 +39,15 @@ jobs:
             echo "Source files are not formatted correctly. Run 'tox -e ruff' to autoformat."
             exit 1
         fi
+    - name: Clean up tox env
+      if: always()
+      run: rm -rf .tox/ruff
     - name: Run Linter
       run: |
-        uv run tox -e flake8
+        uv run --no-sync --with tox tox -e flake8
+    - name: Clean up tox env
+      if: always()
+      run: rm -rf .tox/flake8
 
   build:
     needs: lint
@@ -52,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python_ver: ["3.10", "3.11", "3.12", "3.13"]
+        python_ver: ["3.11", "3.12", "3.13", "3.14"]
     steps:
     - uses: actions/checkout@v6
     - name: Set up Python ${{ matrix.python_ver }}
@@ -65,7 +68,7 @@ jobs:
         version: "latest"
     - name: Install dependencies
       run: |
-        uv sync --extra test --extra dev
+        uv sync --group test
     - name: Check Typing
       run: |
         uv run tox -e type

@@ -25,7 +25,7 @@ tracer_provider = register(
     protocol="http/protobuf",
 )
 instrumentor = DaprAgentsInstrumentor()
-instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
+instrumentor.instrument(tracer_provider=tracer_provider)
 
 runtime = wf.WorkflowRuntime()
 
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     )
 
     logger.info("Workflow started: %s", instance_id)
-    state = client.wait_for_workflow_completion(instance_id)
+    state = client.wait_for_workflow_completion(instance_id, timeout_in_seconds=60)
 
     if not state:
         logger.error("No state returned (instance may not exist).")

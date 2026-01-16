@@ -20,13 +20,7 @@ from ..constants import (
 from ..context_propagation import extract_otel_context
 from ..context_storage import store_workflow_context
 from ..utils import bind_arguments
-
-try:
-    from openinference.instrumentation import get_attributes_from_context
-except ImportError:
-    raise ImportError(
-        "OpenInference not installed - please install with `pip install dapr-agents[observability]`"
-    )
+from openinference.instrumentation import get_attributes_from_context
 
 logger = logging.getLogger(__name__)
 

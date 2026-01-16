@@ -1,15 +1,26 @@
-FROM debian:12-slim@sha256:d5d3f9c23164ea16f31852f95bd5959aad1c5e854332fe00f7b3a20fcc9f635c AS build
-RUN apt-get update && \
-    apt-get install --no-install-suggests --no-install-recommends --yes python3-venv gcc libpython3-dev && \
-    python3.11 -m venv /venv && \
-    /venv/bin/pip install --upgrade pip setuptools wheel
+FROM astral/uv:python3.13-bookworm-slim@sha256:ae4e4c788a13a5a57c35740d1f648c0701936bf4e546b7e197d1210691977b6d AS build
 
-FROM build AS build-venv
-COPY ./quickstarts/05-multi-agent-workflows/requirements.txt /requirements.txt
-RUN /venv/bin/pip install --disable-pip-version-check -r /requirements.txt
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
-FROM gcr.io/distroless/python3-debian12@sha256:8ce6bba3f793ba7d834467dfe18983c42f9b223604970273e9e3a22b1891fc27
-COPY --from=build-venv /venv /venv
-COPY ./quickstarts/05-multi-agent-workflows/services/gandalf/app.py /app/app.py
 WORKDIR /app
-ENTRYPOINT ["/venv/bin/python3", "app.py"]
+
+ENV UV_NO_DEV=1
+ENV UV_PYTHON_DOWNLOADS=0
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-install-project --package 05-multi-agent-workflows
+COPY uv.lock pyproject.toml /app/
+COPY dapr_agents /app/dapr_agents
+COPY quickstarts/05-multi-agent-workflows/services/gandalf/app.py /app/app.py
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-editable --package 05-multi-agent-workflows
+
+FROM python:3.13-slim-bookworm@sha256:b8d8b990ebe2431dc5d96e0ea7f87a01d0d4b7bb79cd72e071d043c54b46ae83
+
+COPY --from=build /app /app
+ENV PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app
+ENTRYPOINT ["/app/.venv/bin/python", "app.py"]

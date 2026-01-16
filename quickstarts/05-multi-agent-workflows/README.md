@@ -13,10 +13,21 @@ This quickstart demonstrates how to create and orchestrate event-driven workflow
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- uv package manager
 - Dapr CLI and Docker
 - OpenAI API key (or compatible LLM provider)
+
+## Environment Setup
+
+```bash
+uv venv
+# Activate the virtual environment 
+# On Windows:
+.venv\Scripts\activate
+# On macOS/Linux:
+source .venv/bin/activate
+uv sync --active
+```
 
 ## The Fellowship: Multi-Agent Architecture
 

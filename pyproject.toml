@@ -8,16 +8,16 @@ dynamic = ["version"]
 description = "Agentic Workflows Made Simple"
 keywords = ["dapr", "agents", "workflows"]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {file = "LICENSE"}
 authors = [
     {name = "Dapr Authors", email = "dapr@dapr.io"}
 ]
 dependencies = [
-    "dapr>=1.16.0rc2",
-    "dapr-ext-fastapi>=1.16.0rc2",
-    "dapr-ext-workflow>=1.16.0rc2",
-    "durabletask-dapr>=0.2.0a14",
+    "dapr>=1.16.0",
+    "dapr-ext-fastapi>=1.16.0",
+    "dapr-ext-workflow>=1.16.0",
+    "durabletask-dapr==0.2.0a14",
     "pydantic>=2.11.3,<3.0.0",
     "jinja2>=3.1.0,<4.0.0",
     "pyyaml>=6.0.1,<7.0.0",
@@ -36,11 +36,19 @@ dependencies = [
     "numpy>=2.2.2,<3.0.0",
     "mcp>=1.20.0,<2.0.0",
     "websockets>=15.0.0,<16.0.0",
-    "python-dotenv>=1.1.1,<2.0.0",
     "posthog<8.0.0",
     "protobuf>=6.31.0,<7.0.0",
     "docker>=7.1.0",
     "toolbox-core>=0.5.3",
+    "opentelemetry-api>=1.35.0,<2.0.0",
+    "opentelemetry-exporter-otlp>=1.35.0,<2.0.0",
+    "opentelemetry-proto>=1.35.0,<2.0.0",
+    "opentelemetry-instrumentation-requests>=0.60b0",
+    "opentelemetry-instrumentation-grpc>=0.60b0",
+    "wrapt>=1.14.0,<2.0.0",
+    "openinference-instrumentation>=0.1.0,<1.0.0",
+    "openinference-semantic-conventions>=0.1.0,<1.0.0",
+    "opentelemetry.exporter.zipkin.json>=1.39.1",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -55,6 +63,21 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+vectorstore = [
+    "torch>=2.7.0",
+    "sentence-transformers>=4.1.0,<5.0.0",
+    "chromadb>=0.4.22,<2.0.0",
+    "nltk>=3.8.0,<4.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15.0,<2.0.0",
+    "tox>=4.0.0,<5.0.0",
+    "pip-tools>=7.4.1,<8.0.0",
+    "cachetools>=6.1.0,<7.0.0",
+    "ruff>=0.14.11",
+]
 test = [
     "pytest>=7.0.0,<8.0.0",
     "pytest-asyncio>=0.23.0,<1.0.0",
@@ -65,22 +88,6 @@ test = [
     "pytest-timeout>=2.3.0,<3.0.0",
     "docker>=7.0.0,<8.0.0"
 ]
-dev = [
-    "mypy>=1.15.0,<2.0.0",
-    "tox>=4.0.0,<5.0.0",
-    "pip-tools>=7.4.1,<8.0.0",
-    "cachetools>=6.1.0,<7.0.0",
-]
-observability = [
-    "opentelemetry-api>=1.35.0,<2.0.0",
-    "opentelemetry-exporter-otlp>=1.35.0,<2.0.0",
-    "opentelemetry-proto>=1.35.0,<2.0.0",
-    "opentelemetry-instrumentation-requests>=0.60b0",
-    "opentelemetry-instrumentation-grpc>=0.60b0",
-    "wrapt>=1.14.0,<2.0.0",
-    "openinference-instrumentation>=0.1.0,<1.0.0",
-    "openinference-semantic-conventions>=0.1.0,<1.0.0",
-]
 vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<5.0.0",
@@ -90,6 +97,9 @@ vectorstore = [
 redis = [
     "redisvl>=0.4.0,<1.0.0",
 ]
+
+[tool.uv.dependency-groups]
+vectorstore = {requires-python = ">=3.11,<3.14"}
 
 [project.urls]
 Documentation = "https://github.com/dapr/docs"
@@ -119,3 +129,27 @@ log_cli = true
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(name)s: %(message)s"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+
+[tool.uv.workspace]
+members = [
+    "quickstarts/01-dapr-agents-fundamentals",
+    "quickstarts/02-llm-call-dapr",
+    "quickstarts/02-llm-call-elevenlabs",
+    "quickstarts/02-llm-call-hugging-face",
+    "quickstarts/02-llm-call-nvidia",
+    "quickstarts/02-llm-call-open-ai",
+    "quickstarts/03-durable-agent-tool-call",
+    "quickstarts/03-standalone-agent-tool-call",
+    "quickstarts/04-agent-based-workflows",
+    "quickstarts/04-llm-based-workflows",
+    "quickstarts/04-message-router-workflow",
+    "quickstarts/05-multi-agent-workflow-k8s",
+    "quickstarts/05-multi-agent-workflows",
+    "quickstarts/06-document-agent-chainlit",
+    "quickstarts/07-agent-mcp-client-stdio",
+    "quickstarts/07-agent-mcp-client-sse",
+    "quickstarts/07-agent-mcp-client-streamablehttp",
+    "quickstarts/08-data-agent-mcp-chainlit",
+    "quickstarts/09-agent-observability",
+    "quickstarts/09-agents-as-activities-observability",
+]

@@ -7,7 +7,7 @@ spec:
   version: v1
   metadata:
     - name: redisHost
-      value: dapr-redis-master:6379
+      value: dapr-redis:6379
     - name: redisPassword
       secretKeyRef:
         name: dapr-redis

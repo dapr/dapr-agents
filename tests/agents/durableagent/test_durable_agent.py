@@ -70,7 +70,7 @@ def patch_dapr_check(monkeypatch):
 class MockDaprClient:
     """Mock DaprClient that supports context manager protocol"""
 
-    def __init__(self):
+    def __init__(self, http_timeout_seconds=10):
         self.get_state = MagicMock(return_value=Mock(data=None, json=lambda: {}))
         self.save_state = MagicMock()
         self.delete_state = MagicMock()
@@ -286,12 +286,12 @@ class TestDurableAgent:
         metadata = basic_durable_agent.agent_metadata
 
         assert metadata is not None
-        assert metadata["name"] == "TestDurableAgent"
-        assert metadata["role"] == "Test Durable Assistant"
-        assert metadata["goal"] == "Help with testing"
+        assert metadata["agent"]["name"] == "TestDurableAgent"
+        assert metadata["agent"]["role"] == "Test Durable Assistant"
+        assert metadata["agent"]["goal"] == "Help with testing"
         assert metadata["pubsub"]["agent_name"] == "TestDurableAgent"
         assert metadata["pubsub"]["name"] == "testpubsub"
-        assert metadata["orchestrator"] is False
+        assert metadata["agent"]["orchestrator"] is False
 
     def test_tool_calling_workflow_initialization(
         self, basic_durable_agent, mock_workflow_context

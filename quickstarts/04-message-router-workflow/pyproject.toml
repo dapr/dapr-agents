@@ -1,0 +1,11 @@
+[project]
+name = "04-message-router-workflow"
+version = "0.1.0"
+requires-python = ">=3.11, <3.14"
+dependencies = [
+    "dapr-agents",
+    "python-dotenv>=1.2.1",
+]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }

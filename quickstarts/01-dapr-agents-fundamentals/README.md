@@ -20,7 +20,7 @@ These examples form the foundation of the Dapr Agents programming model and illu
 ---
 ## Prerequisites
 
-- Python 3.10+ (https://www.python.org/downloads/)
+- Python >= 3.11 (https://www.python.org/downloads/)
 - Docker (https://docs.docker.com/get-docker/)
 - Dapr CLI (https://docs.dapr.io/getting-started/install-dapr-cli/)
 - uv package manager (https://docs.astral.sh/uv/getting-started/installation/)
@@ -29,31 +29,18 @@ These examples form the foundation of the Dapr Agents programming model and illu
 ## Environment Setup
 
 <details open>
-<summary><strong>Option 1: Using uv (Recommended)</strong></summary>
+<summary><strong>Install dependencies</strong></summary>
 
 ```bash
-uv venv .venv
+uv venv
+# Activate the virtual environment 
+# On Windows:
+.venv\Scripts\activate
+# On macOS/Linux:
 source .venv/bin/activate
-uv pip install -r requirements.txt
+uv sync --active
 ```
  
-</details>
-
-<details>
-<summary><strong>Option 2: Using pip</strong></summary>
-
-```bash
-python3.10 -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS/Linux
-source .venv/bin/activate
-
-pip install -r requirements.txt
-```
-
 </details>
 
 ## OpenAI Configuration

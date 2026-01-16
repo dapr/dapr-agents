@@ -1,0 +1,13 @@
+[project]
+name = "06-document-agent-chainlit"
+version = "0.1.0"
+requires-python = ">=3.11, <3.14"
+dependencies = [
+    "chainlit==2.6.8",
+    "dapr-agents",
+    "python-dotenv>=1.2.1",
+    "unstructured[all-docs]==0.18.11",
+]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }

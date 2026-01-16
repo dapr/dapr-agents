@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from os import getenv
+from enum import StrEnum
 from dataclasses import dataclass, field
 from typing import (
     Any,
@@ -26,6 +28,10 @@ _JINJA_PLACEHOLDER_PATTERN = re.compile(r"(?<!\{)\{\s*(\w+)\s*\}(?!\})")
 
 def _ensure_jinja_placeholders(text: str) -> str:
     return _JINJA_PLACEHOLDER_PATTERN.sub(r"{{\1}}", text)
+
+
+def _empty_headers() -> Dict[str, str]:
+    return {}
 
 
 # Type hooks for state customization
@@ -295,3 +301,96 @@ class WorkflowRetryPolicy:
     max_backoff_seconds: Optional[int] = 30
     backoff_multiplier: Optional[float] = 1.5
     retry_timeout: Optional[Union[int, None]] = None
+
+
+class AgentTracingExporter(StrEnum):
+    """
+    Supported tracing exporters for Dapr Agents observability.
+    """
+
+    OTLP_GRPC = "otlp_grpc"
+    OTLP_HTTP = "otlp_http"
+    ZIPKIN = "zipkin"
+    CONSOLE = "console"
+
+
+class AgentLoggingExporter(StrEnum):
+    """
+    Supported logging exporters for Dapr Agents observability.
+    """
+
+    CONSOLE = "console"
+    OTLP_GRPC = "otlp_grpc"
+    OTLP_HTTP = "otlp_http"
+
+
+@dataclass
+class AgentObservabilityConfig:
+    """
+    Configuration settings for Dapr Agents observability features.
+
+    Attributes:
+        enabled: Enable/Disable observability.
+        headers: Optional headers for observability exporters.
+        auth_token: Optional authentication token for exporters.
+        endpoint: Optional endpoint URL for observability exporters.
+        service_name: Optional service name for observability data.
+        logging_enabled: Enable/disable logging observability.
+        logging_exporter: Logging exporter type.
+        tracing_enabled: Enable/disable tracing observability.
+        tracing_exporter: Tracing exporter type.
+    """
+
+    enabled: Optional[bool] = None
+    headers: Dict[str, str] = field(default_factory=_empty_headers)
+    auth_token: Optional[str] = None
+    endpoint: Optional[str] = None
+    service_name: Optional[str] = None
+    logging_enabled: Optional[bool] = None
+    logging_exporter: Optional[AgentLoggingExporter] = None
+    tracing_enabled: Optional[bool] = None
+    tracing_exporter: Optional[AgentTracingExporter] = None
+
+    @classmethod
+    def from_env(cls) -> "AgentObservabilityConfig":
+        """Create observability config from environment variables."""
+        headers: Dict[str, str] = {}
+        if token := getenv("OTEL_TOKEN"):
+            headers["Authorization"] = token
+
+        logging_exporter: Optional[AgentLoggingExporter] = None
+        if logging_exporter_str := getenv("OTEL_LOGGING_EXPORTER"):
+            try:
+                logging_exporter = AgentLoggingExporter(logging_exporter_str)
+            except (ValueError, KeyError):
+                logging_exporter = AgentLoggingExporter.CONSOLE
+
+        tracing_exporter: Optional[AgentTracingExporter] = None
+        if tracing_exporter_str := getenv("OTEL_TRACING_EXPORTER"):
+            try:
+                tracing_exporter = AgentTracingExporter(tracing_exporter_str)
+            except (ValueError, KeyError):
+                tracing_exporter = AgentTracingExporter.CONSOLE
+
+        enabled: Optional[bool] = None
+        if getenv("OTEL_ENABLED") is not None:
+            enabled = getenv("OTEL_ENABLED", "false").lower() == "true"
+
+        logging_enabled: Optional[bool] = None
+        if getenv("OTEL_LOGGING_ENABLED") is not None:
+            logging_enabled = getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
+
+        tracing_enabled: Optional[bool] = None
+        if getenv("OTEL_TRACING_ENABLED") is not None:
+            tracing_enabled = getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
+
+        return cls(
+            enabled=enabled,
+            headers=headers,
+            endpoint=getenv("OTEL_ENDPOINT"),
+            service_name=getenv("OTEL_SERVICE_NAME"),
+            logging_enabled=logging_enabled,
+            logging_exporter=logging_exporter,
+            tracing_enabled=tracing_enabled,
+            tracing_exporter=tracing_exporter,
+        )
