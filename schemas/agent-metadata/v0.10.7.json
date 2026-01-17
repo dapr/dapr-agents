@@ -1,0 +1,2018 @@
+{
+  "$defs": {
+    "AgentMetadata": {
+      "description": "Metadata about an agent's configuration and capabilities.",
+      "properties": {
+        "appid": {
+          "description": "Dapr application ID of the agent",
+          "title": "Appid",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type of the agent (e.g., standalone, durable)",
+          "title": "Type",
+          "type": "string"
+        },
+        "orchestrator": {
+          "default": false,
+          "description": "Indicates if the agent is an orchestrator",
+          "title": "Orchestrator",
+          "type": "boolean"
+        },
+        "role": {
+          "default": "",
+          "description": "Role of the agent",
+          "title": "Role",
+          "type": "string"
+        },
+        "goal": {
+          "default": "",
+          "description": "High-level objective of the agent",
+          "title": "Goal",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "description": "Namememory of the agent",
+          "title": "Name",
+          "type": "string"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Instructions for the agent",
+          "title": "Instructions"
+        },
+        "statestore": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dapr state store component name used by the agent",
+          "title": "Statestore"
+        },
+        "system_prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "System prompt guiding the agent's behavior",
+          "title": "System Prompt"
+        }
+      },
+      "required": [
+        "appid",
+        "type"
+      ],
+      "title": "AgentMetadata",
+      "type": "object"
+    },
+    "AzureOpenAIModelConfig": {
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "API key to authenticate the Azure OpenAI API",
+          "title": "Api Key"
+        },
+        "azure_ad_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure Active Directory token for authentication",
+          "title": "Azure Ad Token"
+        },
+        "organization": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure organization associated with the OpenAI resource",
+          "title": "Organization"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure project associated with the OpenAI resource",
+          "title": "Project"
+        },
+        "api_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "2024-07-01-preview",
+          "description": "API version for Azure OpenAI models",
+          "title": "Api Version"
+        },
+        "azure_endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure endpoint for Azure OpenAI models",
+          "title": "Azure Endpoint"
+        },
+        "azure_deployment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure deployment for Azure OpenAI models",
+          "title": "Azure Deployment"
+        },
+        "azure_client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Client ID for Managed Identity authentication.",
+          "title": "Azure Client Id"
+        },
+        "type": {
+          "const": "azure_openai",
+          "default": "azure_openai",
+          "description": "Type of the model, must always be 'azure_openai'",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "AzureOpenAIModelConfig",
+      "type": "object"
+    },
+    "HFHubChatCompletionParams": {
+      "description": "Specific settings for Hugging Face Hub Chat Completion endpoint.",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The model to use for chat-completion. Can be a model ID or a URL to a deployed Inference Endpoint.",
+          "title": "Model"
+        },
+        "frequency_penalty": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.0,
+          "description": "Penalizes new tokens based on their existing frequency in the text so far.",
+          "title": "Frequency Penalty"
+        },
+        "logit_bias": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Modify the likelihood of specified tokens appearing in the completion.",
+          "title": "Logit Bias"
+        },
+        "logprobs": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Whether to return log probabilities of the output tokens or not.",
+          "title": "Logprobs"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 100,
+          "description": "Maximum number of tokens allowed in the response.",
+          "title": "Max Tokens"
+        },
+        "n": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UNUSED. Included for compatibility.",
+          "title": "N"
+        },
+        "presence_penalty": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.0,
+          "description": "Penalizes new tokens based on their presence in the text so far.",
+          "title": "Presence Penalty"
+        },
+        "response_format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Grammar constraints. Can be either a JSONSchema or a regex.",
+          "title": "Response Format"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seed for reproducible control flow.",
+          "title": "Seed"
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Up to four strings which trigger the end of the response.",
+          "title": "Stop"
+        },
+        "stream": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Enable realtime streaming of responses.",
+          "title": "Stream"
+        },
+        "stream_options": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Options for streaming completions.",
+          "title": "Stream Options"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 1.0,
+          "description": "Controls randomness of the generations.",
+          "title": "Temperature"
+        },
+        "top_logprobs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of most likely tokens to return at each position.",
+          "title": "Top Logprobs"
+        },
+        "top_p": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fraction of the most likely next words to sample from.",
+          "title": "Top P"
+        },
+        "tool_choice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The tool to use for the completion. Defaults to 'auto'.",
+          "title": "Tool Choice"
+        },
+        "tool_prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A prompt to be appended before the tools.",
+          "title": "Tool Prompt"
+        },
+        "tools": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A list of tools the model may call.",
+          "title": "Tools"
+        }
+      },
+      "title": "HFHubChatCompletionParams",
+      "type": "object"
+    },
+    "HFHubModelConfig": {
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model ID on Hugging Face Hub or a URL to a deployed endpoint. If not set, a recommended model may be chosen by your wrapper.",
+          "title": "Model"
+        },
+        "hf_provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "auto",
+          "description": "Inference provider to use. Defaults to automatic selection based on available providers. Ignored if a custom endpoint URL is provided.",
+          "title": "Hf Provider"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hugging Face access token for authentication. If None, uses the locally saved token. Set to False to skip sending a token. Mutually exclusive with api_key.",
+          "title": "Token"
+        },
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Alias for token. Use only one of token or api_key.",
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom endpoint URL for inference. Used for private deployments or TGI endpoints. Cannot be set if 'model' is a Hub ID.",
+          "title": "Base Url"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum seconds to wait for a response. If None, waits indefinitely. Useful for slow model loading.",
+          "title": "Timeout"
+        },
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Extra HTTP headers to send with requests. Overrides defaults like authorization and user-agent.",
+          "title": "Headers"
+        },
+        "cookies": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Extra cookies to send with requests.",
+          "title": "Cookies"
+        },
+        "proxies": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Proxy settings for HTTP requests. Use standard requests format.",
+          "title": "Proxies"
+        },
+        "bill_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Billing account for requests. Only used for enterprise/organization billing.",
+          "title": "Bill To"
+        },
+        "type": {
+          "const": "huggingface",
+          "default": "huggingface",
+          "description": "Type of the model, must always be 'huggingface'",
+          "title": "Type",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "description": "Name of the model available through Hugging Face",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "title": "HFHubModelConfig",
+      "type": "object"
+    },
+    "LLMMetadata": {
+      "description": "LLM configuration information.",
+      "properties": {
+        "client": {
+          "description": "LLM client used by the agent",
+          "title": "Client",
+          "type": "string"
+        },
+        "provider": {
+          "description": "LLM provider used by the agent",
+          "title": "Provider",
+          "type": "string"
+        },
+        "api": {
+          "default": "unknown",
+          "description": "API type used by the LLM client",
+          "title": "Api",
+          "type": "string"
+        },
+        "model": {
+          "default": "unknown",
+          "description": "Model name or identifier",
+          "title": "Model",
+          "type": "string"
+        },
+        "component_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dapr component name for the LLM client",
+          "title": "Component Name"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Base URL for the LLM API if applicable",
+          "title": "Base Url"
+        },
+        "azure_endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure endpoint if using Azure OpenAI",
+          "title": "Azure Endpoint"
+        },
+        "azure_deployment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure deployment name if using Azure OpenAI",
+          "title": "Azure Deployment"
+        },
+        "prompt_template": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Prompt template used by the agent",
+          "title": "Prompt Template"
+        },
+        "prompty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Prompty"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Prompty template name if used"
+        }
+      },
+      "required": [
+        "client",
+        "provider"
+      ],
+      "title": "LLMMetadata",
+      "type": "object"
+    },
+    "MemoryMetadata": {
+      "description": "Memory configuration information.",
+      "properties": {
+        "type": {
+          "description": "Type of memory used by the agent",
+          "title": "Type",
+          "type": "string"
+        },
+        "statestore": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dapr state store component name for memory",
+          "title": "Statestore"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default session ID for the agent's memory",
+          "title": "Session Id"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "MemoryMetadata",
+      "type": "object"
+    },
+    "NVIDIAChatCompletionParams": {
+      "description": "Specific settings for the Chat Completion endpoint.",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the model to use",
+          "title": "Model"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 2.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0,
+          "description": "Sampling temperature",
+          "title": "Temperature"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of tokens to generate. Can be None or a positive integer.",
+          "title": "Max Tokens"
+        },
+        "top_p": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 1.0,
+          "description": "Nucleus sampling probability mass",
+          "title": "Top P"
+        },
+        "frequency_penalty": {
+          "anyOf": [
+            {
+              "maximum": 2.0,
+              "minimum": -2.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.0,
+          "description": "Frequency penalty",
+          "title": "Frequency Penalty"
+        },
+        "presence_penalty": {
+          "anyOf": [
+            {
+              "maximum": 2.0,
+              "minimum": -2.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.0,
+          "description": "Presence penalty",
+          "title": "Presence Penalty"
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop sequences",
+          "title": "Stop"
+        },
+        "stream": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Whether to stream responses",
+          "title": "Stream"
+        },
+        "logit_bias": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Modify likelihood of specified tokens",
+          "title": "Logit Bias"
+        },
+        "logprobs": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Whether to return log probabilities",
+          "title": "Logprobs"
+        },
+        "top_logprobs": {
+          "anyOf": [
+            {
+              "maximum": 20,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of top log probabilities to return",
+          "title": "Top Logprobs"
+        },
+        "n": {
+          "anyOf": [
+            {
+              "maximum": 128,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 1,
+          "description": "Number of chat completion choices to generate",
+          "title": "N"
+        },
+        "tools": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "List of tools the model may call",
+          "title": "Tools"
+        },
+        "tool_choice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Controls which tool is called",
+          "title": "Tool Choice"
+        }
+      },
+      "title": "NVIDIAChatCompletionParams",
+      "type": "object"
+    },
+    "NVIDIAModelConfig": {
+      "properties": {
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "https://integrate.api.nvidia.com/v1",
+          "description": "Base URL for the NVIDIA API",
+          "title": "Base Url"
+        },
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "API key to authenticate the NVIDIA API",
+          "title": "Api Key"
+        },
+        "type": {
+          "const": "nvidia",
+          "default": "nvidia",
+          "description": "Type of the model, must always be 'nvidia'",
+          "title": "Type",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "description": "Name of the model available through NVIDIA",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "title": "NVIDIAModelConfig",
+      "type": "object"
+    },
+    "OpenAIChatCompletionParams": {
+      "description": "Specific settings for the Chat Completion endpoint.",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the model to use",
+          "title": "Model"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 2.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0,
+          "description": "Sampling temperature",
+          "title": "Temperature"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of tokens to generate. Can be None or a positive integer.",
+          "title": "Max Tokens"
+        },
+        "top_p": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 1.0,
+          "description": "Nucleus sampling probability mass",
+          "title": "Top P"
+        },
+        "frequency_penalty": {
+          "anyOf": [
+            {
+              "maximum": 2.0,
+              "minimum": -2.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.0,
+          "description": "Frequency penalty",
+          "title": "Frequency Penalty"
+        },
+        "presence_penalty": {
+          "anyOf": [
+            {
+              "maximum": 2.0,
+              "minimum": -2.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.0,
+          "description": "Presence penalty",
+          "title": "Presence Penalty"
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop sequences",
+          "title": "Stop"
+        },
+        "stream": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Whether to stream responses",
+          "title": "Stream"
+        },
+        "logit_bias": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Modify likelihood of specified tokens",
+          "title": "Logit Bias"
+        },
+        "logprobs": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Whether to return log probabilities",
+          "title": "Logprobs"
+        },
+        "top_logprobs": {
+          "anyOf": [
+            {
+              "maximum": 20,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of top log probabilities to return",
+          "title": "Top Logprobs"
+        },
+        "n": {
+          "anyOf": [
+            {
+              "maximum": 128,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 1,
+          "description": "Number of chat completion choices to generate",
+          "title": "N"
+        },
+        "response_format": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "enum": [
+                  "text",
+                  "json_object"
+                ],
+                "type": "string"
+              },
+              "propertyNames": {
+                "const": "type"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Format of the response",
+          "title": "Response Format"
+        },
+        "tools": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "List of tools the model may call",
+          "title": "Tools"
+        },
+        "tool_choice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Controls which tool is called",
+          "title": "Tool Choice"
+        },
+        "function_call": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Controls which function is called",
+          "title": "Function Call"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seed for deterministic sampling",
+          "title": "Seed"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unique identifier representing the end-user",
+          "title": "User"
+        }
+      },
+      "title": "OpenAIChatCompletionParams",
+      "type": "object"
+    },
+    "OpenAIModelConfig": {
+      "properties": {
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Base URL for the OpenAI API",
+          "title": "Base Url"
+        },
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "API key to authenticate the OpenAI API",
+          "title": "Api Key"
+        },
+        "organization": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Organization name for OpenAI",
+          "title": "Organization"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OpenAI project name.",
+          "title": "Project"
+        },
+        "type": {
+          "const": "openai",
+          "default": "openai",
+          "description": "Type of the model, must always be 'openai'",
+          "title": "Type",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "description": "Name of the OpenAI model",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "title": "OpenAIModelConfig",
+      "type": "object"
+    },
+    "OpenAITextCompletionParams": {
+      "description": "Specific configs for the text completions endpoint.",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the model to use",
+          "title": "Model"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 2.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0,
+          "description": "Sampling temperature",
+          "title": "Temperature"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of tokens to generate. Can be None or a positive integer.",
+          "title": "Max Tokens"
+        },
+        "top_p": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 1.0,
+          "description": "Nucleus sampling probability mass",
+          "title": "Top P"
+        },
+        "frequency_penalty": {
+          "anyOf": [
+            {
+              "maximum": 2.0,
+              "minimum": -2.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.0,
+          "description": "Frequency penalty",
+          "title": "Frequency Penalty"
+        },
+        "presence_penalty": {
+          "anyOf": [
+            {
+              "maximum": 2.0,
+              "minimum": -2.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.0,
+          "description": "Presence penalty",
+          "title": "Presence Penalty"
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop sequences",
+          "title": "Stop"
+        },
+        "stream": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Whether to stream responses",
+          "title": "Stream"
+        },
+        "best_of": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of best completions to generate",
+          "title": "Best Of"
+        },
+        "echo": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Whether to echo the prompt",
+          "title": "Echo"
+        },
+        "logprobs": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Include log probabilities",
+          "title": "Logprobs"
+        },
+        "suffix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Suffix to append to the prompt",
+          "title": "Suffix"
+        }
+      },
+      "title": "OpenAITextCompletionParams",
+      "type": "object"
+    },
+    "Prompty": {
+      "description": "A class to handle loading and formatting of Prompty templates for language models workflows.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "",
+          "description": "Name of the Prompty file.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "",
+          "description": "Description of the Prompty file.",
+          "title": "Description"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "1.0",
+          "description": "Version of the Prompty.",
+          "title": "Version"
+        },
+        "authors": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": [],
+          "description": "List of authors for the Prompty.",
+          "title": "Authors"
+        },
+        "tags": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": [],
+          "description": "Tags to categorize the Prompty.",
+          "title": "Tags"
+        },
+        "model": {
+          "$ref": "#/$defs/PromptyModelConfig",
+          "description": "Model configuration. Can be either OpenAI or Azure OpenAI."
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Input parameters for the Prompty. These define the expected inputs.",
+          "title": "Inputs",
+          "type": "object"
+        },
+        "sample": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sample input or the path to a sample file for testing the Prompty.",
+          "title": "Sample"
+        },
+        "outputs": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": {},
+          "description": "Optional outputs for the Prompty. Defines expected output format.",
+          "title": "Outputs"
+        },
+        "content": {
+          "description": "The prompt messages defined in the Prompty file.",
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "content"
+      ],
+      "title": "Prompty",
+      "type": "object"
+    },
+    "PromptyModelConfig": {
+      "properties": {
+        "api": {
+          "default": "chat",
+          "description": "The API to use, either 'chat' or 'completion'",
+          "enum": [
+            "chat",
+            "completion"
+          ],
+          "title": "Api",
+          "type": "string"
+        },
+        "configuration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OpenAIModelConfig"
+            },
+            {
+              "$ref": "#/$defs/AzureOpenAIModelConfig"
+            },
+            {
+              "$ref": "#/$defs/HFHubModelConfig"
+            },
+            {
+              "$ref": "#/$defs/NVIDIAModelConfig"
+            }
+          ],
+          "description": "Model configuration settings",
+          "title": "Configuration"
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OpenAITextCompletionParams"
+            },
+            {
+              "$ref": "#/$defs/OpenAIChatCompletionParams"
+            },
+            {
+              "$ref": "#/$defs/HFHubChatCompletionParams"
+            },
+            {
+              "$ref": "#/$defs/NVIDIAChatCompletionParams"
+            }
+          ],
+          "description": "Parameters for the model request",
+          "title": "Parameters"
+        },
+        "response": {
+          "default": "first",
+          "description": "Determines if full response or just the first one is returned",
+          "enum": [
+            "first",
+            "full"
+          ],
+          "title": "Response",
+          "type": "string"
+        }
+      },
+      "required": [
+        "configuration",
+        "parameters"
+      ],
+      "title": "PromptyModelConfig",
+      "type": "object"
+    },
+    "PubSubMetadata": {
+      "description": "Pub/Sub configuration information.",
+      "properties": {
+        "agent_name": {
+          "description": "Pub/Sub topic the agent subscribes to",
+          "title": "Agent Name",
+          "type": "string"
+        },
+        "name": {
+          "description": "Pub/Sub component name",
+          "title": "Name",
+          "type": "string"
+        },
+        "broadcast_topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pub/Sub topic for broadcasting messages",
+          "title": "Broadcast Topic"
+        },
+        "agent_topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pub/Sub topic for direct agent messages",
+          "title": "Agent Topic"
+        }
+      },
+      "required": [
+        "agent_name",
+        "name"
+      ],
+      "title": "PubSubMetadata",
+      "type": "object"
+    },
+    "RegistryMetadata": {
+      "description": "Registry configuration information.",
+      "properties": {
+        "statestore": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the statestore component for the registry",
+          "title": "Statestore"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the team registry",
+          "title": "Name"
+        }
+      },
+      "title": "RegistryMetadata",
+      "type": "object"
+    },
+    "ToolMetadata": {
+      "description": "Metadata about a tool available to the agent.",
+      "properties": {
+        "tool_name": {
+          "description": "Name of the tool",
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_description": {
+          "description": "Description of the tool's functionality",
+          "title": "Tool Description",
+          "type": "string"
+        },
+        "tool_args": {
+          "description": "Arguments for the tool",
+          "title": "Tool Args",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_name",
+        "tool_description",
+        "tool_args"
+      ],
+      "title": "ToolMetadata",
+      "type": "object"
+    }
+  },
+  "description": "Schema for agent metadata including schema version.",
+  "properties": {
+    "schema_version": {
+      "description": "Version of the schema used for the agent metadata.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "agent": {
+      "$ref": "#/$defs/AgentMetadata",
+      "description": "Agent configuration and capabilities"
+    },
+    "name": {
+      "description": "Name of the agent",
+      "title": "Name",
+      "type": "string"
+    },
+    "registered_at": {
+      "description": "ISO 8601 timestamp of registration",
+      "title": "Registered At",
+      "type": "string"
+    },
+    "pubsub": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PubSubMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Pub/sub configuration if enabled"
+    },
+    "memory": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Memory configuration if enabled"
+    },
+    "llm": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LLMMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "LLM configuration"
+    },
+    "registry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RegistryMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Registry configuration"
+    },
+    "tools": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/ToolMetadata"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Available tools",
+      "title": "Tools"
+    },
+    "max_iterations": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Maximum iterations for agent execution",
+      "title": "Max Iterations"
+    },
+    "tool_choice": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Tool choice strategy",
+      "title": "Tool Choice"
+    },
+    "agent_metadata": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Additional metadata about the agent",
+      "title": "Agent Metadata"
+    }
+  },
+  "required": [
+    "schema_version",
+    "agent",
+    "name",
+    "registered_at"
+  ],
+  "title": "AgentMetadataSchema",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "0.10.7"
+}
