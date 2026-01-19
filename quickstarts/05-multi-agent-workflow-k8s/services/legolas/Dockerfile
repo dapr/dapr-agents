@@ -17,7 +17,7 @@ COPY quickstarts/05-multi-agent-workflows/services/legolas/app.py /app/app.py
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-editable --package 05-multi-agent-workflows
 
-FROM python:3.13-slim-bookworm@sha256:b8d8b990ebe2431dc5d96e0ea7f87a01d0d4b7bb79cd72e071d043c54b46ae83
+FROM python:3.13-slim-bookworm@sha256:97e9392d12279f8c180eb80f0c7c0f3dfe5650f0f2573f7ad770aea58f75ed12
 
 COPY --from=build /app /app
 ENV PATH="/app/.venv/bin:$PATH"
