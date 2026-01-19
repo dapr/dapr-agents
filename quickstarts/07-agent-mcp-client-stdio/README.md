@@ -4,25 +4,20 @@ This quickstart demonstrates how to build a simple agent that uses tools exposed
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- uv package manager
 - OpenAI API key
 - Dapr CLI and Docker (for the state stores and pub/sub sidecars)
 
 ## Environment Setup
 
 ```bash
-# Create a virtual environment
-python3.10 -m venv .venv
-
+uv venv
 # Activate the virtual environment 
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
 source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+uv sync --active
 ```
 
 ## Configuration

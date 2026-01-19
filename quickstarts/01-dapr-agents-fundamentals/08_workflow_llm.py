@@ -57,7 +57,7 @@ if __name__ == "__main__":
     )
     print(f"Workflow started: {instance_id}", flush=True)
 
-    state = client.wait_for_workflow_completion(instance_id)
+    state = client.wait_for_workflow_completion(instance_id, timeout_in_seconds=60)
     if not state:
         print("No workflow state returned.")
     elif state.runtime_status.name == "COMPLETED":

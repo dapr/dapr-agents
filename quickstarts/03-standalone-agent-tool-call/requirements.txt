@@ -1,7 +1,0 @@
-# with optional extras required for the vectorstore example
-dapr-agents[vectorstore]
-python-dotenv
-arize-phoenix
-# For local development using the local repo in editable mode with optional extras, use:
-# -e ../../[vectorstore]
-

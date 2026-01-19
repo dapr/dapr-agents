@@ -2,25 +2,25 @@ services:
   workflow-llm:
     image: localhost:5001/workflow-llm:latest
     build:
-      context: ../
-      dockerfile: ./05-multi-agent-workflow-k8s/services/workflow-llm/Dockerfile
+      context: ../../
+      dockerfile: ./quickstarts/05-multi-agent-workflow-k8s/services/workflow-llm/Dockerfile
   frodo:
     image: localhost:5001/frodo:latest
     build:
-      context: ../
-      dockerfile: ./05-multi-agent-workflow-k8s/services/frodo/Dockerfile
+      context: ../../
+      dockerfile: ./quickstarts/05-multi-agent-workflow-k8s/services/frodo/Dockerfile
   sam:
     image: localhost:5001/sam:latest
     build:
-      context: ../
-      dockerfile: ./05-multi-agent-workflow-k8s/services/sam/Dockerfile
+      context: ../../
+      dockerfile: ./quickstarts/05-multi-agent-workflow-k8s/services/sam/Dockerfile
   gandalf:
     image: localhost:5001/gandalf:latest
     build:
-      context: ../
-      dockerfile: ./05-multi-agent-workflow-k8s/services/gandalf/Dockerfile
+      context: ../../
+      dockerfile: ./quickstarts/05-multi-agent-workflow-k8s/services/gandalf/Dockerfile
   legolas:
     image: localhost:5001/legolas:latest
     build:
-      context: ../
-      dockerfile: ./05-multi-agent-workflow-k8s/services/legolas/Dockerfile
+      context: ../../
+      dockerfile: ./quickstarts/05-multi-agent-workflow-k8s/services/legolas/Dockerfile

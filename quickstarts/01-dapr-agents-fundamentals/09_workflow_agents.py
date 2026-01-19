@@ -1,3 +1,4 @@
+from pathlib import Path
 import time
 
 import dapr.ext.workflow as wf
@@ -46,7 +47,7 @@ triage_agent = Agent(
     memory=AgentMemoryConfig(
         store=ConversationDaprStateMemory(
             store_name="conversation-statestore",
-            session_id="04-support-triage",
+            session_id=f"{Path(__file__).stem}-triage",
         )
     ),
 )
@@ -62,7 +63,7 @@ expert_agent = Agent(
     memory=AgentMemoryConfig(
         store=ConversationDaprStateMemory(
             store_name="conversation-statestore",
-            session_id="04-support-expert",
+            session_id=f"{Path(__file__).stem}-expert",
         )
     ),
 )
@@ -119,7 +120,7 @@ if __name__ == "__main__":
     )
     print(f"Workflow started: {instance_id}", flush=True)
 
-    state = client.wait_for_workflow_completion(instance_id)
+    state = client.wait_for_workflow_completion(instance_id, timeout_in_seconds=60)
     if not state:
         print("No workflow state returned.")
     elif state.runtime_status.name == "COMPLETED":
