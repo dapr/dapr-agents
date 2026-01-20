@@ -49,6 +49,7 @@ dependencies = [
     "openinference-instrumentation>=0.1.0,<1.0.0",
     "openinference-semantic-conventions>=0.1.0,<1.0.0",
     "opentelemetry.exporter.zipkin.json>=1.39.1",
+    "tiktoken>=0.9.0",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
