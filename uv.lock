@@ -127,14 +127,12 @@ source = { virtual = "quickstarts/02-llm-call-open-ai" }
 dependencies = [
     { name = "dapr-agents" },
     { name = "python-dotenv" },
-    { name = "tiktoken" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "dapr-agents", editable = "." },
     { name = "python-dotenv", specifier = ">=1.2.1" },
-    { name = "tiktoken", specifier = "==0.9.0" },
 ]
 
 [[package]]
