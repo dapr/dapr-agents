@@ -1,4 +1,5 @@
 """Integration tests for 02-llm-call-open-ai quickstart."""
+
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_script
 

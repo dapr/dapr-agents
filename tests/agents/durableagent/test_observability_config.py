@@ -1,4 +1,5 @@
 """Test cases for observability configuration in agents."""
+
 import os
 import pytest
 from unittest.mock import Mock

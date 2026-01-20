@@ -1,4 +1,5 @@
 """Tests for tool result serialization utilities."""
+
 import json
 
 import pytest

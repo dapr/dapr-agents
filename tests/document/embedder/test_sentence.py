@@ -38,9 +38,9 @@ class TestSentenceTransformerEmbedder:
 
         assert isinstance(result, list), "Result should be a list"
         assert len(result) > 0, "Result should not be empty"
-        assert all(
-            isinstance(x, float) for x in result
-        ), "All elements should be floats"
+        assert all(isinstance(x, float) for x in result), (
+            "All elements should be floats"
+        )
 
     def test_embedder_with_different_texts(self, test_model_name):
         """Test embedder with various text inputs."""

@@ -417,8 +417,7 @@ class WorkflowRunner(SignalMixin):
         fetch_payloads: bool = ...,
         detach: Literal[True],
         log: bool = ...,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     @overload
     async def run_workflow_async(
@@ -431,8 +430,7 @@ class WorkflowRunner(SignalMixin):
         fetch_payloads: bool = ...,
         detach: Literal[False] = ...,
         log: bool = ...,
-    ) -> Optional[str]:
-        ...
+    ) -> Optional[str]: ...
 
     async def run_workflow_async(
         self,

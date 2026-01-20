@@ -1,4 +1,5 @@
 """Integration tests for 04-llm-based-workflows quickstart."""
+
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_script
 

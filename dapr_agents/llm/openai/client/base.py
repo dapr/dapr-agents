@@ -56,9 +56,9 @@ class OpenAIClientBase(LLMClientBase):
         self._provider = "openai"
 
         # Set up the private config and client attributes
-        self._config: Union[
-            AzureOpenAIClientConfig, OpenAIClientConfig
-        ] = self.get_config()
+        self._config: Union[AzureOpenAIClientConfig, OpenAIClientConfig] = (
+            self.get_config()
+        )
         self._client: Union[AzureOpenAI, OpenAI] = self.get_client()
         return super().model_post_init(__context)
 

@@ -1,4 +1,5 @@
 """Integration tests for 07-agent-mcp-client-streamablehttp quickstart."""
+
 import pytest
 from tests.integration.quickstarts.conftest import (
     run_quickstart_script,

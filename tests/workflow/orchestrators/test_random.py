@@ -1,4 +1,5 @@
 """Tests for the RandomOrchestrator."""
+
 import pytest
 from unittest.mock import MagicMock, patch
 from dapr_agents.agents.orchestrators import RandomOrchestrator
@@ -52,10 +53,13 @@ async def test_process_input(orchestrator_config):
 
 def test_select_random_speaker(orchestrator_config):
     """Test the _select_random_speaker_activity task."""
-    with patch("dapr.ext.workflow.WorkflowRuntime") as mock_runtime, patch.object(
-        RandomOrchestrator,
-        "list_team_agents",
-        return_value={"agent1": {"name": "agent1"}, "agent2": {"name": "agent2"}},
+    with (
+        patch("dapr.ext.workflow.WorkflowRuntime") as mock_runtime,
+        patch.object(
+            RandomOrchestrator,
+            "list_team_agents",
+            return_value={"agent1": {"name": "agent1"}, "agent2": {"name": "agent2"}},
+        ),
     ):
         mock_runtime.return_value = MagicMock()
         orchestrator = RandomOrchestrator(**orchestrator_config)

@@ -1,6 +1,7 @@
 """
 Reusable signal handling mixin for graceful shutdown across different service types.
 """
+
 import asyncio
 import logging
 from typing import Optional

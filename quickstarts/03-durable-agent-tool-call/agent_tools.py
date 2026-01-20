@@ -95,7 +95,7 @@ class SearchSchema(BaseModel):
 def web_search(query: str, limit: int = 3) -> List[str]:
     """Fake web search that returns example links for a query."""
     base = "https://example.org/search?q="
-    return [f"{base}{query}&n={i+1}" for i in range(limit)]
+    return [f"{base}{query}&n={i + 1}" for i in range(limit)]
 
 
 tools = [get_weather, jump, calculate, web_search]

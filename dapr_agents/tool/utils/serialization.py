@@ -1,4 +1,5 @@
 """Utility functions for serializing tool execution results."""
+
 import json
 from typing import Any
 
