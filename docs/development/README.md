@@ -144,7 +144,7 @@ The project uses several tools to maintain code quality:
 
 ```bash
 # Run linting
-uv run flake8
+uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
 
 # Run code formatting
 uv run ruff
@@ -170,7 +170,7 @@ uv run type
 
 4. Run code quality checks:
    ```bash
-   uv run flake8
+   uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
    uv run ruff
    uv run type
    ```
