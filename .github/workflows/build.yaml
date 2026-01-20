@@ -36,7 +36,7 @@ jobs:
         then
             exit 0
         else
-            echo "Source files are not formatted correctly. Run 'uv run ruff' to autoformat."
+            echo "Source files are not formatted correctly. Run 'uv run ruff format' to autoformat."
             exit 1
         fi
     - name: Run Linter
