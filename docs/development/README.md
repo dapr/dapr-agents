@@ -147,10 +147,13 @@ The project uses several tools to maintain code quality:
 uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
 
 # Run code formatting
-uv run ruff
+uv run ruff format
 
 # Run type checking
-uv run type
+uv run mypy --config-file mypy.ini
+
+## Run all combined
+uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"
 ```
 
 ## Development Workflow
@@ -158,12 +161,12 @@ uv run type
 ### Option 1 - Using pip:
 1. Install development dependencies:
    ```bash
-   uv sync
+   uv sync --group test
    ```
 
 2. Run tests before making changes:
    ```bash
-   uv run pytest
+   uv run pytest tests -m "not integration"
    ```
 
 3. Make your changes
@@ -171,13 +174,13 @@ uv run type
 4. Run code quality checks:
    ```bash
    uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
-   uv run ruff
-   uv run type
+   uv run ruff format
+   uv run mypy --config-file mypy.ini
    ```
 
 5. Run tests again:
    ```bash
-   uv run pytest
+   uv run pytest tests -m "not integration"
    ```
 
 6. Submit your changes

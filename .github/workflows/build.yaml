@@ -30,7 +30,7 @@ jobs:
         version: "latest"
     - name: Run Autoformatter
       run: |
-        uv run ruff
+        uv run ruff format
         statusResult=$(git status -u --porcelain)
         if [ -z "$statusResult" ]
         then
@@ -64,7 +64,7 @@ jobs:
         uv sync --group test
     - name: Check Typing
       run: |
-        uv run type
+        uv run mypy --config-file mypy.ini
     - name: Run Tests
       run: |
-        uv run pytest
+        uv run pytest tests -m "not integration"
