@@ -98,13 +98,13 @@ The project uses pytest for testing. To run tests:
 
 ```bash
 # Run all tests
-tox -e pytest
+uv run pytest
 
 # Run specific test file
-tox -e pytest tests/test_random_orchestrator.py
+uv run pytest tests/test_random_orchestrator.py
 
 # Run tests with coverage
-tox -e pytest --cov=dapr_agents
+uv run pytest --cov=dapr_agents
 ```
 
 ### Integration Tests
@@ -144,13 +144,13 @@ The project uses several tools to maintain code quality:
 
 ```bash
 # Run linting
-tox -e flake8
+uv run flake8
 
 # Run code formatting
-tox -e ruff
+uv run ruff
 
 # Run type checking
-tox -e type
+uv run type
 ```
 
 ## Development Workflow
@@ -163,21 +163,21 @@ tox -e type
 
 2. Run tests before making changes:
    ```bash
-   tox -e pytest
+   uv run pytest
    ```
 
 3. Make your changes
 
 4. Run code quality checks:
    ```bash
-   tox -e flake8
-   tox -e ruff
-   tox -e type
+   uv run flake8
+   uv run ruff
+   uv run type
    ```
 
 5. Run tests again:
    ```bash
-   tox -e pytest
+   uv run pytest
    ```
 
 6. Submit your changes
