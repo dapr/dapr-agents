@@ -48,7 +48,7 @@ spec:
 
 Run the basic text completion example:
 ```bash
-dapr run --app-id dapr-llm --resources-path ./components -- python text_completion.py
+uv run dapr run --app-id dapr-llm --resources-path ./components -- python text_completion.py
 ```
 
 The script uses the `DaprChatClient` which connects to Dapr's `echo` LLM component:
@@ -172,7 +172,7 @@ Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, 
 Run the application the same way as before:
 
 ```bash
-dapr run --app-id dapr-llm --resources-path components/ -- python text_completion.py
+uv run dapr run --app-id dapr-llm --resources-path components/ -- python text_completion.py
 ```
 
 **Expected output:** The OpenAI component will respond with a different reply to each prompt.
@@ -242,7 +242,7 @@ This resiliency configuration applies only to the `awsbedrock` component and set
 Run the application the same way as before:
 
 ```bash
-dapr run --app-id dapr-llm --resources-path components/ -- python text_completion.py
+uv run dapr run --app-id dapr-llm --resources-path components/ -- python text_completion.py
 ```
 
 When you run this, you'll see output showing Dapr's retry mechanism in action:

@@ -62,7 +62,7 @@ If you leave the YAML file as-is, the example will run without uploading the fil
 Run the agent:
 
 ```bash
-dapr run --app-id doc-agent --resources-path ./components -- chainlit run app.py -w
+uv run dapr run --app-id doc-agent --resources-path ./components -- chainlit run app.py -w
 ```
 
 Wait until the browser opens up. Once open, you're ready to upload any document and start asking questions about it!

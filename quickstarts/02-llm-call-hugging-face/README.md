@@ -25,7 +25,7 @@ uv sync --active
 
 **1. Run the basic text completion example:**
 ```bash
-python text_completion.py
+uv run python text_completion.py
 ```
 
 The script demonstrates basic usage of the DaprChatClient for text generation:
@@ -64,7 +64,7 @@ if response.get_message() is not None and "hello" in response.get_message().cont
 
 **Run the structured text completion example:**
 ```bash
-python structured_completion.py
+uv run python structured_completion.py
 ```
 
 This example shows how to use Pydantic models to get structured data from LLMs:
@@ -119,7 +119,7 @@ Our Hugging Face chat client also support streaming responses, where you can pro
 Run the `text_completion_stream.py` script to see token‐by‐token output:
 
 ```bash
-python text_completion_stream.py
+uv run python text_completion_stream.py
 ```
 
 The scripts:
@@ -149,7 +149,7 @@ This will print each partial chunk as it arrives, so you can build up the full a
 Use `text_completion_stream_with_tools.py` to combine streaming with function‐call “tools”:
 
 ```bash
-python text_completion_stream_with_tools.py
+uv run python text_completion_stream_with_tools.py
 ```
 
 ```python

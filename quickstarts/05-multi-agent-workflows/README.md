@@ -228,9 +228,9 @@ Each `dapr-*.yaml` spins up an `HttpClientApp` that keeps POSTing to `/run` unti
 If you prefer to drive the system via pub/sub (for multiple tasks, or to target a specific orchestrator), run:
 
 ```bash
-python services/client/pubsub_client.py --orchestrator llm
-python services/client/pubsub_client.py --orchestrator random
-python services/client/pubsub_client.py --orchestrator roundrobin
+uv run python services/client/pubsub_client.py --orchestrator llm
+uv run python services/client/pubsub_client.py --orchestrator random
+uv run python services/client/pubsub_client.py --orchestrator roundrobin
 ```
 
 That publishes `TriggerAction` messages onto the same topics the orchestrators subscribe to.

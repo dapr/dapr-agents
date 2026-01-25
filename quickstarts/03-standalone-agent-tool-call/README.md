@@ -115,7 +115,7 @@ Run the vector store agent example to see how to create an agent that can search
 ```bash
 source .venv/bin/activate
 
-python standalone_agent_with_vectorstore.py
+uv run python standalone_agent_with_vectorstore.py
 ```
 
 This example demonstrates how to create an agent with vector store capabilities, including logging, structured Document usage, and a tool to add a machine learning basics document.

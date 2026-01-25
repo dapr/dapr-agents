@@ -44,7 +44,7 @@ export $(grep -v '^#' ../../.env | xargs)
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow.py
+uv run dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow.py
 
 # Clean up when done
 rm -rf $temp_resources_folder
@@ -62,7 +62,7 @@ Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Ob
 $temp_resources_folder = python ../resolve_env_templates.py ./components
 
 # Run your dapr command with the temporary resources
-dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow.py
+uv run dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow.py
 
 # Clean up when done
 Remove-Item -Recurse -Force $temp_resources_folder
@@ -168,8 +168,8 @@ The quickstart also includes tracing variants (`sequential_workflow_tracing.py`)
 Run them the same way, swapping the script name:
 
 ```bash
-dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow_tracing.py
-dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow_multi_model_tracing.py
+uv run dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow_tracing.py
+uv run dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow_multi_model_tracing.py
 ```
 
 **How it works:**
@@ -220,7 +220,7 @@ This example adds observability to the sequential workflow using Phoenix Arize f
 Run with tracing:
 
 ```bash
-dapr run --app-id agent-workflow-tracing --resources-path components/ -- python sequential_workflow_tracing.py
+uv run dapr run --app-id agent-workflow-tracing --resources-path components/ -- python sequential_workflow_tracing.py
 ```
 
 View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
@@ -236,7 +236,7 @@ This example demonstrates using multiple LLM providers within a single workflow,
 Run with tracing:
 
 ```bash
-dapr run --app-id multi-model-workflow --resources-path components/ -- python sequential_workflow_multi_model_tracing.py
+uv run dapr run --app-id multi-model-workflow --resources-path components/ -- python sequential_workflow_multi_model_tracing.py
 ```
 
 View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)

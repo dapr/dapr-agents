@@ -42,7 +42,7 @@ export $(grep -v '^#' ../../.env | xargs)
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_dapr.py
+uv run dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_dapr.py
 
 # Clean up when done
 rm -rf $temp_resources_folder
@@ -60,7 +60,7 @@ Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Ob
 $temp_resources_folder = python ../resolve_env_templates.py ./components
 
 # Run your dapr command with the temporary resources
-dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_dapr.py
+uv run dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_dapr.py
 
 # Clean up when done
 Remove-Item -Recurse -Force $temp_resources_folder
@@ -124,7 +124,7 @@ dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- p
 ### Pub/Sub Listener
 ```bash
 source .venv/bin/activate
-dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_subscribe.py
+uv run dapr run --app-id durableweatherapp --resources-path $temp_resources_folder -- python durable_weather_agent_subscribe.py
 ```
 
 With the listener running, publish tasks using the included `message_client.py` (defaults to the `weather.requests` topic on the `messagepubsub` component):
@@ -254,7 +254,7 @@ See [`durable_weather_agent_tracing.py`](./durable_weather_agent_tracing.py) wit
 2. Run the instrumented Durable Agent:
 
 ```bash
-dapr run --app-id durableweatherapptracing --resources-path $temp_resources_folder -- python durable_weather_agent_tracing.py
+uv run dapr run --app-id durableweatherapptracing --resources-path $temp_resources_folder -- python durable_weather_agent_tracing.py
 ```
 
 3. View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)

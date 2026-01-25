@@ -56,7 +56,7 @@ export $(grep -v '^#' ../../.env | xargs)
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python workflow.py
+uv run dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python workflow.py
 
 # Clean up when done
 rm -rf $temp_resources_folder
@@ -74,7 +74,7 @@ Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Ob
 $temp_resources_folder = python ../resolve_env_templates.py ./components
 
 # Run your dapr command with the temporary resources
-dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python workflow.py
+uv run dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python workflow.py
 
 # Clean up when done
 Remove-Item -Recurse -Force $temp_resources_folder

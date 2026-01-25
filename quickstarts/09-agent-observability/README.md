@@ -58,7 +58,7 @@ docker run --rm -d -p 9411:9411 --name zipkin openzipkin/zipkin
 
 Run the agent example to see how to create an agent with custom tools:
 ```bash
-python 01_agent_zipkin.py
+uv run python 01_agent_zipkin.py
 ```
 
 **Expected output:** Visit `http://localhost:9411` in your browser and view the traces.
@@ -77,7 +77,7 @@ docker run -d -e COLLECTOR_OTLP_ENABLED=true -p 4318:4318 -p 16686:16686 jaegert
 
 Run the agent example to see how to create an agent with custom tools:
 ```bash
-python 02_agent_otel.py
+uv run python 02_agent_otel.py
 ```
 
 **Expected output:** Visit `http://localhost:16686` in your browser and view the traces.
