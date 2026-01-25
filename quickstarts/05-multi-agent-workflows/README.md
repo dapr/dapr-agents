@@ -82,9 +82,20 @@ OPENAI_API_KEY=your_api_key_here
 ```
 
 2. Export environment variables before running:
+
+#### macOS / Linux (Bash)
 ```bash
 # Get environment variables from .env file
 export $(grep -v '^#' ../../.env | xargs)
+```
+
+#### Windows (PowerShell)
+```powershell
+# Get the environment variables from the .env file:
+Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object {
+    $name, $value = $_.Split('=', 2)
+    [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
+}
 ```
 
 ### Option 2: Direct Component Configuration
