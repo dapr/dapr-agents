@@ -44,7 +44,7 @@ async def main() -> None:
         ),
         # This is where the agent registry is found
         registry=AgentRegistryConfig(
-            store=StateStoreService(store_name="agents-registry"),
+            store=StateStoreService(store_name="agent-registry"),
         ),
     )
 
