@@ -463,8 +463,9 @@ class TestDurableAgent:
         # Mock the activity context and save_state
         mock_ctx = Mock()
 
-        with patch.object(basic_durable_agent, "save_state"), patch.object(
-            basic_durable_agent, "load_state"
+        with (
+            patch.object(basic_durable_agent, "save_state"),
+            patch.object(basic_durable_agent, "load_state"),
         ):
             basic_durable_agent.finalize_workflow(
                 mock_ctx,
@@ -499,19 +500,19 @@ class TestDurableAgent:
             if not hasattr(basic_durable_agent._state_model, "instances"):
                 basic_durable_agent._state_model.instances = {}
 
-            basic_durable_agent._state_model.instances[
-                instance_id
-            ] = AgentWorkflowEntry(
-                input_value="Test task",
-                source="test_source",
-                triggering_workflow_instance_id=None,
-                workflow_instance_id=instance_id,
-                workflow_name="AgenticWorkflow",
-                status="RUNNING",
-                messages=[],
-                tool_history=[],
-                end_time=None,
-                start_time=datetime.now(timezone.utc),
+            basic_durable_agent._state_model.instances[instance_id] = (
+                AgentWorkflowEntry(
+                    input_value="Test task",
+                    source="test_source",
+                    triggering_workflow_instance_id=None,
+                    workflow_instance_id=instance_id,
+                    workflow_name="AgenticWorkflow",
+                    status="RUNNING",
+                    messages=[],
+                    tool_history=[],
+                    end_time=None,
+                    start_time=datetime.now(timezone.utc),
+                )
             )
 
             test_time = datetime.fromisoformat(
@@ -784,8 +785,9 @@ class TestDurableAgent:
         assert result["content"] == "tool_result"
 
         # Now call save_tool_results to persist the results
-        with patch.object(basic_durable_agent, "save_state"), patch.object(
-            basic_durable_agent, "load_state"
+        with (
+            patch.object(basic_durable_agent, "save_state"),
+            patch.object(basic_durable_agent, "load_state"),
         ):
             basic_durable_agent.save_tool_results(
                 mock_ctx,
@@ -859,8 +861,9 @@ class TestDurableAgent:
         assert len(entry.messages) == 0
         assert len(entry.tool_history) == 0
 
-        with patch.object(basic_durable_agent, "save_state"), patch.object(
-            basic_durable_agent, "load_state"
+        with (
+            patch.object(basic_durable_agent, "save_state"),
+            patch.object(basic_durable_agent, "load_state"),
         ):
             basic_durable_agent.save_tool_results(
                 mock_ctx,
@@ -934,11 +937,13 @@ class TestDurableAgent:
         assert result["content"] == "tool_result"
 
         # Mock save_state to prevent actual persistence and track memory.add_message calls
-        with patch.object(basic_durable_agent, "save_state"), patch.object(
-            basic_durable_agent, "load_state"
-        ), patch.object(
-            type(basic_durable_agent.memory), "add_message"
-        ) as mock_add_message:
+        with (
+            patch.object(basic_durable_agent, "save_state"),
+            patch.object(basic_durable_agent, "load_state"),
+            patch.object(
+                type(basic_durable_agent.memory), "add_message"
+            ) as mock_add_message,
+        ):
             # Call save_tool_results which updates memory
             basic_durable_agent.save_tool_results(
                 mock_ctx,
@@ -1195,30 +1200,30 @@ class TestDurableAgent:
             result = e.value
 
         # Verify that retry_policy was passed to critical activities
-        assert (
-            len(call_activity_calls) >= 5
-        ), f"Expected at least 3 activity calls, got {len(call_activity_calls)}"
+        assert len(call_activity_calls) >= 5, (
+            f"Expected at least 3 activity calls, got {len(call_activity_calls)}"
+        )
 
         # All activities should have retry_policy parameter
         for call in call_activity_calls:
             assert "retry_policy" in call, f"Missing retry_policy in call: {call}"
-            assert (
-                call["retry_policy"] == basic_durable_agent._retry_policy
-            ), f"Expected retry_policy {basic_durable_agent._retry_policy}, got {call['retry_policy']}"
+            assert call["retry_policy"] == basic_durable_agent._retry_policy, (
+                f"Expected retry_policy {basic_durable_agent._retry_policy}, got {call['retry_policy']}"
+            )
 
         # Verify the key activities were called
         activity_names = [
             getattr(call["activity"], "__name__", str(call["activity"]))
             for call in call_activity_calls
         ]
-        assert (
-            "record_initial_entry" in activity_names
-        ), f"Missing record_initial_entry in {activity_names}"
+        assert "record_initial_entry" in activity_names, (
+            f"Missing record_initial_entry in {activity_names}"
+        )
         assert "call_llm" in activity_names, f"Missing call_llm in {activity_names}"
         assert "run_tool" in activity_names, f"Missing run_tool in {activity_names}"
-        assert (
-            "save_tool_results" in activity_names
-        ), f"Missing save_tool_results in {activity_names}"
-        assert (
-            "finalize_workflow" in activity_names
-        ), f"Missing finalize_workflow in {activity_names}"
+        assert "save_tool_results" in activity_names, (
+            f"Missing save_tool_results in {activity_names}"
+        )
+        assert "finalize_workflow" in activity_names, (
+            f"Missing finalize_workflow in {activity_names}"
+        )

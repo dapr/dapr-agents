@@ -1,4 +1,5 @@
 """Integration tests for 06-document-agent-chainlit quickstart."""
+
 import pytest
 
 

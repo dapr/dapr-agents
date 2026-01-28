@@ -1,4 +1,5 @@
 """Integration tests for 08-data-agent-chainlit quickstart."""
+
 import pytest
 
 

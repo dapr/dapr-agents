@@ -473,8 +473,9 @@ class AgentComponents:
         metadata: Optional[AgentMetadataSchema] = None,
         team: Optional[str] = None,
     ) -> None:
-        
-        AgentRegistryAdapter(registry=self._registry, framework="dapr-agents", agent=self)  # type: ignore[arg-type]
+        AgentRegistryAdapter(
+            registry=self._registry, framework="dapr-agents", agent=self
+        )  # type: ignore[arg-type]
 
     def deregister_agentic_system(self, *, team: Optional[str] = None) -> None:
         """
@@ -581,7 +582,6 @@ class AgentComponents:
         meta = dict(self._base_metadata)
         meta["partitionKey"] = key
         return meta
-
 
     def _get_entry_container(self) -> Optional[dict]:
         """

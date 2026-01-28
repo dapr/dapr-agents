@@ -1,4 +1,5 @@
 """Integration tests for 03-durable-agent-tool-call quickstart."""
+
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_script
 

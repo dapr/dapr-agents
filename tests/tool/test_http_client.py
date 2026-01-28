@@ -1,4 +1,5 @@
 """Tests for DaprHTTPClient and related utilities."""
+
 import os
 from unittest.mock import patch
 
@@ -16,12 +17,12 @@ class TestParseBoolEnv:
         for value in true_values:
             assert _parse_bool_env(value) is True, f"Failed for value: {value}"
             # Test case insensitivity
-            assert (
-                _parse_bool_env(value.upper()) is True
-            ), f"Failed for uppercase: {value.upper()}"
-            assert (
-                _parse_bool_env(value.title()) is True
-            ), f"Failed for titlecase: {value.title()}"
+            assert _parse_bool_env(value.upper()) is True, (
+                f"Failed for uppercase: {value.upper()}"
+            )
+            assert _parse_bool_env(value.title()) is True, (
+                f"Failed for titlecase: {value.title()}"
+            )
 
     def test_parse_false_values(self):
         """Test parsing various string representations of False."""
@@ -29,12 +30,12 @@ class TestParseBoolEnv:
         for value in false_values:
             assert _parse_bool_env(value) is False, f"Failed for value: {value}"
             # Test case insensitivity
-            assert (
-                _parse_bool_env(value.upper()) is False
-            ), f"Failed for uppercase: {value.upper()}"
-            assert (
-                _parse_bool_env(value.title()) is False
-            ), f"Failed for titlecase: {value.title()}"
+            assert _parse_bool_env(value.upper()) is False, (
+                f"Failed for uppercase: {value.upper()}"
+            )
+            assert _parse_bool_env(value.title()) is False, (
+                f"Failed for titlecase: {value.title()}"
+            )
 
     def test_parse_invalid_values(self):
         """Test that invalid values raise ValueError."""
