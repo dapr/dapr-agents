@@ -1,3 +1,4 @@
+from importlib.metadata import version, PackageNotFoundError
 from dapr_agents.agents.standalone import Agent
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
@@ -16,6 +17,7 @@ from dapr_agents.agents.orchestrators import (
     RandomOrchestrator,
     RoundRobinOrchestrator,
 )
+from dapr_agents.agents import AgentMetadataSchema
 
 __all__ = [
     "Agent",
@@ -32,8 +34,14 @@ __all__ = [
     "OpenAIEmbeddingClient",
     "AgentTool",
     "tool",
-    "AgenticWorkflow",
     "LLMOrchestrator",
     "RandomOrchestrator",
     "RoundRobinOrchestrator",
+    "AgentMetadataSchema",
 ]
+
+try:
+    __version__ = version("dapr-agents")
+except PackageNotFoundError:
+    # This should only happen during development
+    __version__ = "0.0.0.dev0"

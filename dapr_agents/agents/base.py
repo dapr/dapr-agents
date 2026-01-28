@@ -34,7 +34,6 @@ from dapr_agents.llm.utils.defaults import get_default_llm
 from dapr_agents.memory import ConversationDaprStateMemory, ConversationListMemory
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.storage.daprstores.stateservice import (
-    StateStoreError,
     StateStoreService,
 )
 from dapr_agents.tool.base import AgentTool
@@ -66,6 +65,7 @@ from opentelemetry.sdk._logs.export import (
     ConsoleLogRecordExporter,
 )
 from dapr_agents.observability import DaprAgentsInstrumentor
+
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,7 @@ class AgentBase:
         self.appid = (
             None  # We set the appid to None as standalone agents may not have one
         )
+        self.agent_metadata = agent_metadata or {}
 
         try:
             with DaprClient(http_timeout_seconds=10) as _client:
@@ -273,6 +274,12 @@ class AgentBase:
         self._setup_agent_runtime_configuration()
 
         # -----------------------------
+        # Registry wiring
+        # -----------------------------
+
+        self._registry = registry
+
+        # -----------------------------
         # Memory wiring
         # -----------------------------
         self._memory = memory or AgentMemoryConfig()
@@ -351,94 +358,13 @@ class AgentBase:
         except Exception:  # noqa: BLE001
             logger.warning("Agent failed to load persisted state; starting fresh.")
 
-        # -----------------------------
-        # Agent metadata & registry registration (from AgentComponents)
-        # -----------------------------
-        base_meta: Dict[str, Any] = {}
-        base_meta["agent"] = {
-            "appid": self.appid,
-            "orchestrator": False,
-            "role": self.profile.role,
-            "goal": self.profile.goal,
-            "name": self.profile.name,
-            "instructions": list(self.profile.instructions),
-        }
-
-        if self.profile.system_prompt:
-            base_meta["agent"]["system_prompt"] = self.profile.system_prompt
-
-        if self.pubsub is not None:
-            pubsub_meta: Dict[str, Any] = {}
-            pubsub_meta["agent_name"] = self.agent_topic_name
-            pubsub_meta["name"] = self.message_bus_name
-            base_meta["pubsub"] = pubsub_meta
-
-        if self.memory:
-            memory_meta: Dict[str, Any] = {}
-            memory_meta["type"] = type(self.memory).__name__
-            if getattr(self.memory, "store_name", None) is not None:
-                memory_meta["statestore"] = self.memory.store_name
-            if getattr(self.memory, "session_id", None) is not None:
-                memory_meta["session_id"] = self.memory.session_id
-            base_meta["memory"] = memory_meta
-
-        if self.llm:
-            llm_meta: Dict[str, Any] = {}
-            llm_meta["client"] = type(self.llm).__name__
-            llm_meta["provider"] = getattr(self.llm, "provider", "unknown")
-            llm_meta["api"] = getattr(self.llm, "api", "unknown")
-            llm_meta["model"] = getattr(self.llm, "model", "unknown")
-            if hasattr(self.llm, "component_name") and self.llm.component_name:
-                llm_meta["component_name"] = self.llm.component_name
-            # Include endpoint info (non-sensitive)
-            if hasattr(self.llm, "base_url") and self.llm.base_url:
-                llm_meta["base_url"] = self.llm.base_url
-            if hasattr(self.llm, "azure_endpoint") and self.llm.azure_endpoint:
-                llm_meta["azure_endpoint"] = self.llm.azure_endpoint
-            if hasattr(self.llm, "azure_deployment") and self.llm.azure_deployment:
-                llm_meta["azure_deployment"] = self.llm.azure_deployment
-            if self.llm.prompt_template is not None:
-                llm_meta["prompt_template"] = type(self.llm.prompt_template).__name__
-            if hasattr(self.llm, "prompty") and self.llm.prompty is not None:
-                llm_meta["prompty"] = self.llm.prompty
-            base_meta["llm"] = llm_meta
-
-        if self.execution:
-            if (
-                hasattr(self.execution, "max_iterations")
-                and self.execution.max_iterations is not None
-            ):
-                base_meta["max_iterations"] = self.execution.max_iterations
-            if (
-                hasattr(self.execution, "tool_choice")
-                and self.execution.tool_choice is not None
-            ):
-                base_meta["tool_choice"] = self.execution.tool_choice
-
-        if self.tools and len(self.tools) > 0:
-            tools_list = [
-                {
-                    "tool_name": tool.name,
-                    "tool_description": tool.description,
-                    "tool_args": tool.args_schema,
-                }
-                for tool in self.tools
-            ]
-            base_meta["tools"] = tools_list
-
-        merged_meta = {**base_meta, **(agent_metadata or {})}
-        self.agent_metadata = merged_meta
         if self.registry_state is not None:
             try:
-                self.register_agentic_system(metadata=merged_meta)
-            except StateStoreError:
+                self.register_agentic_system()
+            except Exception:  # noqa: BLE001
                 logger.warning(
-                    "Could not register agent metadata; registry unavailable."
+                    "Could not register orchestrator in registry.", exc_info=True
                 )
-        else:
-            logger.debug(
-                "Registry configuration not provided; skipping agent registration."
-            )
 
     # ------------------------------------------------------------------
     # DaprInfra delegation properties and methods
