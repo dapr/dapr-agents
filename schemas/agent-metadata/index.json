@@ -1,8 +1,0 @@
-{
-  "current_version": "0.10.7",
-  "schema_url": "https://raw.githubusercontent.com/dapr/dapr-agents/main/schemas/agent-metadata/v0.10.7.json",
-  "available_versions": [
-    "v0.10.7",
-    "v0.10.6"
-  ]
-}
