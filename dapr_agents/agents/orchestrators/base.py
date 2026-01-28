@@ -66,11 +66,10 @@ class OrchestratorBase(AgentComponents):
             self.execution.max_iterations = 10
 
         # Ensure registry entry marks this as an orchestrator
-        meta = dict(agent_metadata or {})
-        meta.setdefault("orchestrator", True)
+        self.orchestrator = True
         if self.registry_state is not None:
             try:
-                self.register_agentic_system(metadata=meta)
+                self.register_agentic_system()
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "Could not register orchestrator in registry.", exc_info=True

@@ -20,16 +20,6 @@ from dapr_agents.agents.configs import (
 )
 from dapr_agents.agents.schemas import (
     AgentWorkflowEntry,
-    AgentMetadataSchema,
-    RegistryMetadata,
-    LLMMetadata,
-    PubSubMetadata,
-    MemoryMetadata,
-    ToolMetadata,
-    AgentMetadata,
-)
-from dapr_agents.storage.daprstores.stateservice import (
-    StateStoreError,
 )
 from dapr_agents.types.workflow import DaprWorkflowStatus
 
@@ -469,10 +459,11 @@ class AgentComponents:
     # ------------------------------------------------------------------
     def register_agentic_system(
         self,
-        *,
-        metadata: Optional[AgentMetadataSchema] = None,
-        team: Optional[str] = None,
     ) -> None:
+        if self._registry is None or self.registry_state is None:
+            raise RuntimeError(
+                "registry_state must be provided to use agent registry"
+            )
         AgentRegistryAdapter(
             registry=self._registry, framework="dapr-agents", agent=self
         )  # type: ignore[arg-type]

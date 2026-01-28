@@ -357,6 +357,14 @@ class AgentBase(AgentComponents):
         except Exception:  # noqa: BLE001
             logger.warning("Agent failed to load persisted state; starting fresh.")
 
+        if self.registry_state is not None:
+            try:
+                self.register_agentic_system()
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Could not register orchestrator in registry.", exc_info=True
+                )
+
     # ------------------------------------------------------------------
     # Presentation helpers
     # ------------------------------------------------------------------
