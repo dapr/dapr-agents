@@ -31,14 +31,20 @@ These examples form the foundation of the Dapr Agents programming model and illu
 <details open>
 <summary><strong>Install dependencies</strong></summary>
 
+> Note
+> Run these commands from the **repository root** (`dapr-agents/`), not from an individual quickstart directory.
+> `uv` discovers dependencies and workspace configuration from the top-level `pyproject.toml`.
+
 ```bash
-uv venv
-# Activate the virtual environment 
-# On Windows:
-.venv\Scripts\activate
+uv python install 3.11
+uv venv .venv --python 3.11
+# Activate and sync the virtual environment
+# On Windows: .venv\Scripts\activate
+
 # On macOS/Linux:
-source .venv/bin/activate
-uv sync --active
+source .venv/bin/activate 
+
+uv sync
 ```
  
 </details>
