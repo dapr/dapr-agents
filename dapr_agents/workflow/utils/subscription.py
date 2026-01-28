@@ -205,7 +205,7 @@ def _attach_metadata_to_payload(parsed: Any, metadata: Optional[dict]) -> None:
         else:
             setattr(parsed, METADATA_KEY, metadata)
     except Exception:
-        logger.debug("Could not attach %s to payload; continuing.", METADATA_KEY)
+        logger.debug(f"Could not attach {METADATA_KEY} to payload; continuing.")
 
 
 def _serialize_workflow_input(parsed: Any) -> Tuple[dict, Optional[dict]]:
@@ -238,34 +238,29 @@ def _log_workflow_outcome(
 ) -> None:
     """Log workflow completion status."""
     if not state:
-        logger.warning("[wf] %s: no state (timeout/missing).", instance_id)
+        logger.warning(f"[wf] {instance_id}: no state (timeout/missing).")
         return
 
     status = state.runtime_status
     if status == WorkflowStatus.COMPLETED:
         if log_outcome:
-            logger.debug(
-                "[wf] %s COMPLETED output=%s",
-                instance_id,
-                getattr(state, "serialized_output", None),
-            )
+            output = getattr(state, "serialized_output", None)
+            logger.debug(f"[wf] {instance_id} COMPLETED output={output}")
         return
 
     failure = getattr(state, "failure_details", None)
     if failure:
+        error_type = getattr(failure, "error_type", None)
+        error_message = getattr(failure, "message", None)
+        stack_trace = getattr(failure, "stack_trace", "") or ""
         logger.error(
-            "[wf] %s FAILED type=%s message=%s\n%s",
-            instance_id,
-            getattr(failure, "error_type", None),
-            getattr(failure, "message", None),
-            getattr(failure, "stack_trace", "") or "",
+            f"[wf] {instance_id} FAILED type={error_type} message={error_message}\n{stack_trace}"
         )
     else:
+        status_name = status.name if hasattr(status, "name") else str(status)
+        custom_status = getattr(state, "serialized_custom_status", None)
         logger.error(
-            "[wf] %s finished with status=%s custom_status=%s",
-            instance_id,
-            status.name if hasattr(status, "name") else str(status),
-            getattr(state, "serialized_custom_status", None),
+            f"[wf] {instance_id} finished with status={status_name} custom_status={custom_status}"
         )
 
 
@@ -283,9 +278,7 @@ def _shutdown_thread(
     try:
         subscription.close()
     except Exception:
-        logger.exception(
-            "Error closing subscription for %s:%s", pubsub_name, topic_name
-        )
+        logger.exception(f"Error closing subscription for {pubsub_name}:{topic_name}")
 
     thread.join(timeout=THREAD_SHUTDOWN_TIMEOUT_SECONDS)
     if thread.is_alive():
@@ -332,7 +325,7 @@ def _subscribe_message_bindings(
                 timeout_in_seconds=await_timeout,
             )
         except Exception:
-            logger.exception("[wf] %s: error while waiting for completion", instance_id)
+            logger.exception(f"[wf] {instance_id}: error while waiting for completion")
             return None
 
     async def _await_and_log(instance_id: str) -> None:
@@ -345,22 +338,16 @@ def _subscribe_message_bindings(
         try:
             wf_input, _ = _serialize_workflow_input(parsed)
 
-            logger.debug(
-                "Scheduling workflow: %s | input=%s",
-                getattr(bound_workflow, "__name__", str(bound_workflow)),
-                json.dumps(wf_input, ensure_ascii=False, indent=2),
-            )
+            workflow_name = getattr(bound_workflow, "__name__", str(bound_workflow))
+            input_json = json.dumps(wf_input, ensure_ascii=False, indent=2)
+            logger.debug(f"Scheduling workflow: {workflow_name} | input={input_json}")
 
             instance_id = await asyncio.to_thread(
                 wf_client.schedule_new_workflow,
                 workflow=bound_workflow,
                 input=wf_input,
             )
-            logger.debug(
-                "Scheduled workflow=%s instance=%s",
-                getattr(bound_workflow, "__name__", str(bound_workflow)),
-                instance_id,
-            )
+            logger.debug(f"Scheduled workflow={workflow_name} instance={instance_id}")
 
             if await_result and delivery_mode == DELIVERY_MODE_SYNC:
                 state = await asyncio.to_thread(_wait_for_completion, instance_id)
@@ -415,9 +402,7 @@ def _subscribe_message_bindings(
                         try:
                             if deduper.seen(candidate_id):
                                 logger.debug(
-                                    "Duplicate detected id=%s topic=%s; dropping.",
-                                    candidate_id,
-                                    topic_name,
+                                    f"Duplicate detected id={candidate_id} topic={topic_name}; dropping."
                                 )
                                 return TopicEventResponse(STATUS_SUCCESS)
                             deduper.mark(candidate_id)
@@ -463,9 +448,7 @@ def _subscribe_message_bindings(
                             continue
 
                     logger.warning(
-                        "No matching schema for topic=%r; dropping. raw=%r",
-                        topic_name,
-                        event_data,
+                        f"No matching schema for topic={topic_name!r}; dropping. raw={event_data!r}"
                     )
                     return TopicEventResponse(STATUS_DROP)
 
@@ -489,7 +472,7 @@ def _subscribe_message_bindings(
             ps_name: str,
             t_name: str,
         ) -> None:
-            logger.debug("Starting stream consumer for %s:%s", ps_name, t_name)
+            logger.debug(f"Starting stream consumer for {ps_name}:{t_name}")
             try:
                 for msg in sub:
                     if msg is None:
@@ -504,25 +487,23 @@ def _subscribe_message_bindings(
                             sub.respond_drop(msg)
                         else:
                             logger.warning(
-                                "Unknown status %s, retrying", response.status
+                                f"Unknown status {response.status}, retrying"
                             )
                             sub.respond_retry(msg)
                     except Exception:
                         logger.exception(
-                            "Handler exception in stream %s:%s", ps_name, t_name
+                            f"Handler exception in stream {ps_name}:{t_name}"
                         )
                         try:
                             sub.respond_retry(msg)
                         except Exception:
                             logger.exception(
-                                "Failed to send retry response for %s:%s",
-                                ps_name,
-                                t_name,
+                                f"Failed to send retry response for {ps_name}:{t_name}"
                             )
                             raise
             except Exception as exc:
                 logger.exception(
-                    "Stream consumer %s:%s exited with error", ps_name, t_name
+                    f"Stream consumer {ps_name}:{t_name} exited with error"
                 )
                 raise exc
             finally:
@@ -553,11 +534,8 @@ def _subscribe_message_bindings(
             _make_closer(subscription, consumer_thread, pubsub_name, topic_name)
         )
         logger.debug(
-            "Subscribed streaming to pubsub=%s topic=%s (delivery=%s await=%s)",
-            pubsub_name,
-            topic_name,
-            delivery_mode,
-            await_result,
+            f"Subscribed streaming to pubsub={pubsub_name} topic={topic_name} "
+            f"(delivery={delivery_mode} await={await_result})"
         )
 
     if worker_tasks:
