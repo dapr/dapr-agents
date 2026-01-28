@@ -44,7 +44,6 @@ from dapr_agents.llm.utils.defaults import get_default_llm
 from dapr_agents.memory import ConversationDaprStateMemory, ConversationListMemory
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.storage.daprstores.stateservice import (
-    StateStoreError,
     StateStoreService,
 )
 from dapr_agents.tool.base import AgentTool
@@ -75,6 +74,7 @@ from opentelemetry.sdk._logs.export import (
     ConsoleLogRecordExporter,
 )
 from dapr_agents.observability import DaprAgentsInstrumentor
+
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +171,7 @@ class AgentBase(AgentComponents):
         self.appid = (
             None  # We set the appid to None as standalone agents may not have one
         )
+        self.agent_metadata = agent_metadata or {}
 
         try:
             with DaprClient(http_timeout_seconds=10) as _client:
@@ -365,91 +366,6 @@ class AgentBase(AgentComponents):
             self.load_state()
         except Exception:  # noqa: BLE001
             logger.warning("Agent failed to load persisted state; starting fresh.")
-
-        # -----------------------------
-        # Agent metadata & registry registration (from AgentComponents)
-        # -----------------------------
-        try:
-            schema_version = version("dapr-agents")
-        except PackageNotFoundError:
-            schema_version = "0.0.0.dev0"
-
-        self.agent_metadata: AgentMetadataSchema = AgentMetadataSchema(
-            schema_version=schema_version,
-            agent=AgentMetadata(
-                appid=self.appid if self.appid is not None else "",
-                type=type(self).__name__,
-                orchestrator=False,
-                role=self.profile.role,
-                goal=self.profile.goal,
-                name=self.profile.name,
-                instructions=list(self.profile.instructions),
-                statestore=self._state.store.store_name
-                if self._state is not None
-                else "",
-                system_prompt=self.profile.system_prompt,
-            ),
-            name=self.profile.name,
-            registered_at=datetime.now(timezone.utc).isoformat(),
-            pubsub=PubSubMetadata(
-                agent_name=self.agent_topic_name if self.agent_topic_name else "",
-                name=self.message_bus_name if self.message_bus_name else "",
-                broadcast_topic=self.broadcast_topic_name
-                if self.broadcast_topic_name
-                else "",
-                agent_topic=self.agent_topic_name if self.agent_topic_name else "",
-            ),
-            memory=MemoryMetadata(
-                type=type(self.memory).__name__,
-                session_id=getattr(self.memory, "session_id", None),
-                statestore=getattr(self.memory, "store_name", None),
-            ),
-            llm=LLMMetadata(
-                client=type(self.llm).__name__,
-                provider=getattr(self.llm, "provider", "unknown"),
-                api=getattr(self.llm, "api", "unknown"),
-                model=getattr(self.llm, "model", "unknown"),
-                component_name=getattr(self.llm, "component_name", None),
-                base_url=getattr(self.llm, "base_url", None),
-                azure_endpoint=getattr(self.llm, "azure_endpoint", None),
-                azure_deployment=getattr(self.llm, "azure_deployment", None),
-                prompt_template=type(self.llm.prompt_template).__name__,
-                prompty=self.llm.prompty
-                if hasattr(self.llm, "prompty") and self.llm.prompty is not None
-                else None,
-            ),
-            registry=RegistryMetadata(
-                statestore=self._registry.store.store_name
-                if self._registry is not None
-                else None,
-                name=self._registry.team_name if self._registry is not None else None,
-            ),
-            tools=[
-                ToolMetadata(
-                    tool_name=tool.name,
-                    tool_description=tool.description,
-                    tool_args=json.dumps(tool.args_schema)
-                    if tool.args_schema
-                    else "{}",
-                )
-                for tool in self.tools
-            ],
-            max_iterations=self.execution.max_iterations,
-            tool_choice=self.execution.tool_choice,
-            agent_metadata=agent_metadata,
-        )
-
-        if self.registry_state is not None:
-            try:
-                self.register_agentic_system(metadata=self.agent_metadata)
-            except StateStoreError:
-                logger.warning(
-                    "Could not register agent metadata; registry unavailable."
-                )
-        else:
-            logger.debug(
-                "Registry configuration not provided; skipping agent registration."
-            )
 
     # ------------------------------------------------------------------
     # Presentation helpers

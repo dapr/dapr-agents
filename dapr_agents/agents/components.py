@@ -33,6 +33,8 @@ from dapr_agents.storage.daprstores.stateservice import (
 )
 from dapr_agents.types.workflow import DaprWorkflowStatus
 
+from dapr.ext.agent_core import AgentRegistryAdapter
+
 
 logger = logging.getLogger(__name__)
 
@@ -471,24 +473,8 @@ class AgentComponents:
         metadata: Optional[AgentMetadataSchema] = None,
         team: Optional[str] = None,
     ) -> None:
-        """
-        Upsert this agent's metadata in the team registry.
-
-        Args:
-            metadata: Additional metadata to store for this agent.
-            team: Team override; falls back to configured default team.
-        """
-        if not self.registry_state:
-            logger.debug(
-                "No registry configured; skipping registration for %s", self.name
-            )
-            return
-
-        self._upsert_agent_entry(
-            team=self._effective_team(team),
-            agent_name=self.name,
-            agent_metadata=metadata.model_dump(mode="json") if metadata else {},
-        )
+        
+        AgentRegistryAdapter(registry=self._registry, framework="dapr-agents", agent=self)  # type: ignore[arg-type]
 
     def deregister_agentic_system(self, *, team: Optional[str] = None) -> None:
         """
@@ -547,103 +533,6 @@ class AgentComponents:
             logger.error("Failed to retrieve agents metadata: %s", exc, exc_info=True)
             raise RuntimeError(f"Error retrieving agents metadata: {str(exc)}") from exc
 
-    def _mutate_registry_entry(
-        self,
-        *,
-        team: Optional[str],
-        mutator: Callable[[Dict[str, Any]], Optional[Dict[str, Any]]],
-        max_attempts: Optional[int] = None,
-    ) -> None:
-        """
-        Apply a mutation to the team registry with optimistic concurrency.
-
-        Args:
-            team: Team identifier.
-            mutator: Function that returns the updated registry dict (or None for no-op).
-            max_attempts: Override for concurrency retries; defaults to init value.
-
-        Raises:
-            StateStoreError: If the mutation fails after retries due to contention.
-        """
-        if not self.registry_state:
-            raise RuntimeError(
-                "registry_state must be provided to mutate the agent registry"
-            )
-
-        key = self._team_registry_key(team)
-        meta = self._state_metadata_for_key(key)
-        attempts = max_attempts or self._max_etag_attempts
-
-        self._ensure_registry_initialized(key=key, meta=meta)
-
-        for attempt in range(1, attempts + 1):
-            try:
-                current, etag = self.registry_state.load_with_etag(
-                    key=key,
-                    default={},
-                    state_metadata=meta,
-                )
-                if not isinstance(current, dict):
-                    current = {}
-
-                updated = mutator(dict(current))
-                if updated is None:
-                    return
-
-                self.registry_state.save(
-                    key=key,
-                    value=updated,
-                    etag=etag,
-                    state_metadata=meta,
-                    state_options=self._save_options,
-                )
-                return
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Conflict during registry mutation (attempt %d/%d) for '%s': %s",
-                    attempt,
-                    attempts,
-                    key,
-                    exc,
-                )
-                logger.info(updated)
-                if attempt == attempts:
-                    raise StateStoreError(
-                        f"Failed to mutate agent registry key '{key}' after {attempts} attempts."
-                    ) from exc
-                # Jittered backoff to reduce thundering herd during contention.
-                time.sleep(min(1.0 * attempt, 3.0) * (1 + random.uniform(0, 0.25)))
-
-    def _upsert_agent_entry(
-        self,
-        *,
-        team: Optional[str],
-        agent_name: str,
-        agent_metadata: Dict[str, Any],
-        max_attempts: Optional[int] = None,
-    ) -> None:
-        """
-        Insert/update a single agent record in the team registry.
-
-        Args:
-            team: Team identifier.
-            agent_name: Agent name (key).
-            agent_metadata: Metadata value to write.
-            max_attempts: Override retry attempts.
-        """
-
-        def mutator(current: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-            if current.get(agent_name) == agent_metadata:
-                return None
-            current[agent_name] = agent_metadata
-            return current
-
-        self._mutate_registry_entry(
-            team=team,
-            mutator=mutator,
-            max_attempts=max_attempts,
-        )
-
     def _remove_agent_entry(
         self,
         *,
@@ -693,27 +582,6 @@ class AgentComponents:
         meta["partitionKey"] = key
         return meta
 
-    def _ensure_registry_initialized(self, *, key: str, meta: Dict[str, str]) -> None:
-        """
-        Ensure a registry document exists to create an ETag for concurrency control.
-
-        Args:
-            key: Registry document key.
-            meta: Dapr state metadata to use for the operation.
-        """
-        current, etag = self.registry_state.load_with_etag(  # type: ignore[union-attr]
-            key=key,
-            default={},
-            state_metadata=meta,
-        )
-        if etag is None:
-            self.registry_state.save(  # type: ignore[union-attr]
-                key=key,
-                value={},
-                etag=None,
-                state_metadata=meta,
-                state_options=self._save_options,
-            )
 
     def _get_entry_container(self) -> Optional[dict]:
         """
