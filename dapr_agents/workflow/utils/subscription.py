@@ -1,6 +1,9 @@
+"""Streaming pub/sub subscription utilities for workflow message routing."""
+
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 from collections import defaultdict
@@ -8,10 +11,12 @@ from dataclasses import asdict, dataclass, is_dataclass
 from typing import (
     Any,
     Callable,
+    Dict,
     List,
     Literal,
     Optional,
     Protocol,
+    Tuple,
     Type,
 )
 
@@ -19,7 +24,7 @@ import dapr.ext.workflow as wf
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import TopicEventResponse
 from dapr.common.pubsub.subscription import SubscriptionMessage
-from dapr.ext.workflow.workflow_state import WorkflowState
+from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 
 from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
@@ -27,6 +32,21 @@ from dapr_agents.workflow.utils.routers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Delivery mode constants
+DELIVERY_MODE_SYNC: Literal["sync"] = "sync"
+DELIVERY_MODE_ASYNC: Literal["async"] = "async"
+
+# Topic event response status constants
+STATUS_SUCCESS = "success"
+STATUS_RETRY = "retry"
+STATUS_DROP = "drop"
+
+# Metadata key for attaching message metadata to payloads
+METADATA_KEY = "_message_metadata"
+
+# Thread shutdown timeout in seconds
+THREAD_SHUTDOWN_TIMEOUT_SECONDS = 10.0
 
 
 class DedupeBackend(Protocol):
@@ -38,11 +58,22 @@ class DedupeBackend(Protocol):
 
 
 SchedulerFn = Callable[[Callable[..., Any], dict], Optional[str]]
+TopicKey = Tuple[str, str]
+BindingSchemaPair = Tuple["MessageRouteBinding", Type[Any]]
 
 
 @dataclass
 class MessageRouteBinding:
-    """Internal binding definition for a message route."""
+    """Internal binding definition for a message route.
+
+    Attributes:
+        handler: The workflow callable to invoke when a matching message arrives.
+        schemas: List of Pydantic/dataclass models to validate incoming payloads.
+        pubsub: The Dapr pub/sub component name.
+        topic: The topic to subscribe to.
+        dead_letter_topic: Optional topic for failed messages.
+        name: Human-readable name for logging (typically the handler function name).
+    """
 
     handler: Callable[..., Any]
     schemas: List[Type[Any]]
@@ -52,103 +83,250 @@ class MessageRouteBinding:
     name: str
 
 
-def resolve_loop(
+def _resolve_event_loop(
     loop: Optional[asyncio.AbstractEventLoop],
 ) -> asyncio.AbstractEventLoop:
+    """Resolve the event loop to use for async operations.
+
+    Args:
+        loop: Optional explicitly provided event loop.
+
+    Returns:
+        The resolved event loop.
+
+    Raises:
+        RuntimeError: If no event loop is available and none was provided.
+    """
     if loop is not None:
         return loop
     try:
         return asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError(
+                    "Event loop is closed. Provide an active event loop."
+                )
+            return loop
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "No running event loop available. "
+                "Provide an explicit loop or run from within an async context."
+            ) from exc
 
 
-def subscribe_message_bindings(
+def _validate_delivery_mode(delivery_mode: str) -> None:
+    """Validate that delivery_mode is one of the allowed values."""
+    if delivery_mode not in (DELIVERY_MODE_SYNC, DELIVERY_MODE_ASYNC):
+        raise ValueError(
+            f"delivery_mode must be '{DELIVERY_MODE_SYNC}' or '{DELIVERY_MODE_ASYNC}', "
+            f"got '{delivery_mode}'"
+        )
+
+
+def _validate_dead_letter_topics(bindings: List[MessageRouteBinding]) -> None:
+    """Validate that bindings don't have conflicting dead letter topics.
+
+    Raises:
+        ValueError: If multiple different dead_letter_topics are configured
+            for bindings that share the same (pubsub, topic).
+    """
+    by_topic: Dict[TopicKey, set] = defaultdict(set)
+    for binding in bindings:
+        key = (binding.pubsub, binding.topic)
+        if binding.dead_letter_topic:
+            by_topic[key].add(binding.dead_letter_topic)
+
+    for topic_key, dead_letter_topics in by_topic.items():
+        if len(dead_letter_topics) > 1:
+            raise ValueError(
+                f"Multiple dead_letter_topics configured for {topic_key[0]}:{topic_key[1]}: "
+                f"{dead_letter_topics}. Only one dead_letter_topic is supported per topic."
+            )
+
+
+def _group_bindings_by_topic(
+    bindings: List[MessageRouteBinding],
+) -> Dict[TopicKey, List[MessageRouteBinding]]:
+    """Group bindings by (pubsub, topic) key."""
+    bindings_by_topic_key: Dict[TopicKey, List[MessageRouteBinding]] = defaultdict(list)
+    for binding in bindings:
+        key = (binding.pubsub, binding.topic)
+        bindings_by_topic_key[key].append(binding)
+    return dict(bindings_by_topic_key)
+
+
+def _build_binding_schema_pairs(
+    bindings: List[MessageRouteBinding],
+) -> List[BindingSchemaPair]:
+    """Build a list of (binding, schema) pairs for message routing.
+
+    Each binding can have multiple schemas; this flattens them into pairs
+    to try in order when matching incoming messages.
+    """
+    pairs: List[BindingSchemaPair] = []
+    for binding in bindings:
+        schemas = binding.schemas or [dict]
+        for schema in schemas:
+            pairs.append((binding, schema))
+    return pairs
+
+
+def _order_pairs_by_cloudevent_type(
+    pairs: List[BindingSchemaPair],
+    cloudevent_type: Optional[str],
+) -> List[BindingSchemaPair]:
+    """Reorder binding-schema pairs to prioritize those matching the CloudEvent type.
+
+    If the CloudEvent 'type' header matches a schema's class name, those pairs
+    are tried first, followed by the remaining pairs in original order.
+    """
+    if not cloudevent_type:
+        return pairs
+
+    matching_ce_type_pairs = [
+        pair for pair in pairs if getattr(pair[1], "__name__", "") == cloudevent_type
+    ]
+    if not matching_ce_type_pairs:
+        return pairs
+
+    remaining_pairs = [pair for pair in pairs if pair not in matching_ce_type_pairs]
+    return matching_ce_type_pairs + remaining_pairs
+
+
+def _attach_metadata_to_payload(parsed: Any, metadata: Optional[dict]) -> None:
+    """Attach message metadata to the parsed payload (best effort)."""
+    if metadata is None:
+        return
+    try:
+        if isinstance(parsed, dict):
+            parsed[METADATA_KEY] = metadata
+        else:
+            setattr(parsed, METADATA_KEY, metadata)
+    except Exception:
+        logger.debug("Could not attach %s to payload; continuing.", METADATA_KEY)
+
+
+def _serialize_workflow_input(parsed: Any) -> Tuple[dict, Optional[dict]]:
+    """Convert parsed message to workflow input dict and extract metadata."""
+    metadata: Optional[dict] = None
+
+    if isinstance(parsed, dict):
+        wf_input = dict(parsed)
+        metadata = wf_input.get(METADATA_KEY)
+    elif hasattr(parsed, "model_dump"):
+        metadata = getattr(parsed, METADATA_KEY, None)
+        wf_input = parsed.model_dump()
+    elif is_dataclass(parsed):
+        metadata = getattr(parsed, METADATA_KEY, None)
+        wf_input = asdict(parsed)
+    else:
+        metadata = getattr(parsed, METADATA_KEY, None)
+        wf_input = {"data": parsed}
+
+    if metadata:
+        wf_input[METADATA_KEY] = dict(metadata)
+
+    return wf_input, metadata
+
+
+def _log_workflow_outcome(
+    instance_id: str,
+    state: Optional[WorkflowState],
+    log_outcome: bool,
+) -> None:
+    """Log workflow completion status."""
+    if not state:
+        logger.warning("[wf] %s: no state (timeout/missing).", instance_id)
+        return
+
+    status = state.runtime_status
+    if status == WorkflowStatus.COMPLETED:
+        if log_outcome:
+            logger.debug(
+                "[wf] %s COMPLETED output=%s",
+                instance_id,
+                getattr(state, "serialized_output", None),
+            )
+        return
+
+    failure = getattr(state, "failure_details", None)
+    if failure:
+        logger.error(
+            "[wf] %s FAILED type=%s message=%s\n%s",
+            instance_id,
+            getattr(failure, "error_type", None),
+            getattr(failure, "message", None),
+            getattr(failure, "stack_trace", "") or "",
+        )
+    else:
+        logger.error(
+            "[wf] %s finished with status=%s custom_status=%s",
+            instance_id,
+            status.name if hasattr(status, "name") else str(status),
+            getattr(state, "serialized_custom_status", None),
+        )
+
+
+def _shutdown_thread(
+    thread: threading.Thread,
+    subscription: Any,
+    pubsub_name: str,
+    topic_name: str,
+) -> None:
+    """Shutdown a consumer thread, raising if it becomes a zombie.
+
+    Raises:
+        RuntimeError: If the thread does not stop within the timeout.
+    """
+    try:
+        subscription.close()
+    except Exception:
+        logger.exception(
+            "Error closing subscription for %s:%s", pubsub_name, topic_name
+        )
+
+    thread.join(timeout=THREAD_SHUTDOWN_TIMEOUT_SECONDS)
+    if thread.is_alive():
+        raise RuntimeError(
+            f"Consumer thread for {pubsub_name}:{topic_name} did not stop within "
+            f"{THREAD_SHUTDOWN_TIMEOUT_SECONDS}s timeout. Thread may be a zombie."
+        )
+
+
+def _subscribe_message_bindings(
     bindings: List[MessageRouteBinding],
     *,
     dapr_client: DaprClient,
-    loop: Optional[asyncio.AbstractEventLoop],
+    loop: asyncio.AbstractEventLoop,
     delivery_mode: Literal["sync", "async"],
     queue_maxsize: int,
     deduper: Optional[DedupeBackend],
-    scheduler: Optional[SchedulerFn],
-    wf_client: Optional[wf.DaprWorkflowClient],
+    wf_client: wf.DaprWorkflowClient,
     await_result: bool,
     await_timeout: Optional[int],
     fetch_payloads: bool,
     log_outcome: bool,
 ) -> List[Callable[[], None]]:
-    if not bindings:
-        return []
+    """Internal implementation of streaming subscriptions.
 
-    loop = resolve_loop(loop)
-    if delivery_mode not in ("sync", "async"):
-        raise ValueError("delivery_mode must be 'sync' or 'async'")
-
+    This function sets up streaming subscriptions for all bindings,
+    grouping by (pubsub, topic) to create one subscription per unique topic.
+    """
     queue: Optional[asyncio.Queue] = None
     worker_tasks: List[asyncio.Task] = []
 
-    if delivery_mode == "async":
-        if not loop or not loop.is_running():
+    if delivery_mode == DELIVERY_MODE_ASYNC:
+        if not loop.is_running():
             raise RuntimeError(
-                "delivery_mode='async' requires an active running event loop."
+                f"delivery_mode='{DELIVERY_MODE_ASYNC}' requires an active running event loop."
             )
         queue = asyncio.Queue(maxsize=max(1, queue_maxsize))
 
-    _wf_client = wf_client or wf.DaprWorkflowClient()
-
-    def _default_scheduler(
-        workflow_callable: Callable[..., Any], wf_input: dict
-    ) -> Optional[str]:
-        try:
-            import json
-
-            logger.debug(
-                "-> Scheduling workflow: %s | input=%s",
-                getattr(workflow_callable, "__name__", str(workflow_callable)),
-                json.dumps(wf_input, ensure_ascii=False, indent=2),
-            )
-        except Exception:
-            logger.warning("Could not serialize wf_input for logging", exc_info=True)
-        return _wf_client.schedule_new_workflow(
-            workflow=workflow_callable, input=wf_input
-        )
-
-    _scheduler: SchedulerFn = scheduler or _default_scheduler
-
-    def _log_state(instance_id: str, state: Optional[WorkflowState]) -> None:
-        if not state:
-            logger.warning("[wf] %s: no state (timeout/missing).", instance_id)
-            return
-        status = getattr(state.runtime_status, "name", str(state.runtime_status))
-        if status == "COMPLETED":
-            if log_outcome:
-                logger.info(
-                    "[wf] %s COMPLETED output=%s",
-                    instance_id,
-                    getattr(state, "serialized_output", None),
-                )
-            return
-        failure = getattr(state, "failure_details", None)
-        if failure:
-            logger.error(
-                "[wf] %s FAILED type=%s message=%s\n%s",
-                instance_id,
-                getattr(failure, "error_type", None),
-                getattr(failure, "message", None),
-                getattr(failure, "stack_trace", "") or "",
-            )
-        else:
-            logger.error(
-                "[wf] %s finished with status=%s custom_status=%s",
-                instance_id,
-                status,
-                getattr(state, "serialized_custom_status", None),
-            )
-
     def _wait_for_completion(instance_id: str) -> Optional[WorkflowState]:
         try:
-            return _wf_client.wait_for_workflow_completion(
+            return wf_client.wait_for_workflow_completion(
                 instance_id,
                 fetch_payloads=fetch_payloads,
                 timeout_in_seconds=await_timeout,
@@ -159,272 +337,223 @@ def subscribe_message_bindings(
 
     async def _await_and_log(instance_id: str) -> None:
         state = await asyncio.to_thread(_wait_for_completion, instance_id)
-        _log_state(instance_id, state)
+        _log_workflow_outcome(instance_id, state, log_outcome)
 
-    async def _schedule(
+    async def _schedule_workflow(
         bound_workflow: Callable[..., Any], parsed: Any
     ) -> TopicEventResponse:
         try:
-            metadata: Optional[dict] = None
-            if isinstance(parsed, dict):
-                wf_input = dict(parsed)
-                metadata = wf_input.get("_message_metadata")
-            elif hasattr(parsed, "model_dump"):
-                metadata = getattr(parsed, "_message_metadata", None)
-                wf_input = parsed.model_dump()
-            elif is_dataclass(parsed):
-                metadata = getattr(parsed, "_message_metadata", None)
-                wf_input = asdict(parsed)
-            else:
-                metadata = getattr(parsed, "_message_metadata", None)
-                wf_input = {"data": parsed}
+            wf_input, _ = _serialize_workflow_input(parsed)
 
-            if metadata:
-                wf_input["_message_metadata"] = dict(metadata)
+            logger.debug(
+                "Scheduling workflow: %s | input=%s",
+                getattr(bound_workflow, "__name__", str(bound_workflow)),
+                json.dumps(wf_input, ensure_ascii=False, indent=2),
+            )
 
-            instance_id = await asyncio.to_thread(_scheduler, bound_workflow, wf_input)
-            logger.info(
+            instance_id = await asyncio.to_thread(
+                wf_client.schedule_new_workflow,
+                workflow=bound_workflow,
+                input=wf_input,
+            )
+            logger.debug(
                 "Scheduled workflow=%s instance=%s",
                 getattr(bound_workflow, "__name__", str(bound_workflow)),
                 instance_id,
             )
 
-            if await_result and delivery_mode == "sync":
+            if await_result and delivery_mode == DELIVERY_MODE_SYNC:
                 state = await asyncio.to_thread(_wait_for_completion, instance_id)
-                _log_state(instance_id, state)
-                if state and getattr(state.runtime_status, "name", "") == "COMPLETED":
-                    return TopicEventResponse("success")
-                return TopicEventResponse("retry")
+                _log_workflow_outcome(instance_id, state, log_outcome)
+                if state and state.runtime_status == WorkflowStatus.COMPLETED:
+                    return TopicEventResponse(STATUS_SUCCESS)
+                return TopicEventResponse(STATUS_RETRY)
 
             asyncio.create_task(_await_and_log(instance_id))
-            return TopicEventResponse("success")
+            return TopicEventResponse(STATUS_SUCCESS)
         except Exception:
             logger.exception("Workflow scheduling failed; requesting retry.")
-            return TopicEventResponse("retry")
+            return TopicEventResponse(STATUS_RETRY)
 
     if queue is not None:
 
-        async def _worker() -> None:
+        async def _async_worker() -> None:
+            assert queue is not None
             while True:
                 workflow_callable, payload = await queue.get()
                 try:
-                    await _schedule(workflow_callable, payload)
+                    await _schedule_workflow(workflow_callable, payload)
                 except Exception:
-                    logger.exception("Async worker crashed while scheduling workflow.")
+                    logger.exception("Async worker error while scheduling workflow.")
+                    raise
                 finally:
                     queue.task_done()
 
         for _ in range(max(1, len(bindings))):
-            worker_tasks.append(loop.create_task(_worker()))  # type: ignore[union-attr]
+            worker_tasks.append(loop.create_task(_async_worker()))
 
-    # ---------------- NEW: group by (pubsub, topic) and build ONE composite handler per topic -------------
-    grouped: dict[tuple[str, str], list[MessageRouteBinding]] = defaultdict(list)
-    for b in bindings:
-        grouped[(b.pubsub, b.topic)].append(b)
-
-    def _composite_handler_fn(
-        group: list[MessageRouteBinding],
-    ) -> Callable[[SubscriptionMessage], TopicEventResponse]:
-        # Flatten a plan: [(binding, model), ...] preserving declaration order
-        plan: list[tuple[MessageRouteBinding, Type[Any]]] = []
-        for b in group:
-            for m in b.schemas or [dict]:
-                plan.append((b, m))
-
-        def handler(message: SubscriptionMessage) -> TopicEventResponse:
-            try:
-                event_data, metadata = extract_cloudevent_data(message)
-
-                # Optional: simple idempotency hook
-                if deduper is not None:
-                    candidate_id = (metadata or {}).get(
-                        "id"
-                    ) or f"{group[0].topic}:{hash(str(event_data))}"
-                    try:
-                        if deduper.seen(candidate_id):
-                            logger.info(
-                                "Duplicate detected id=%s topic=%s; dropping.",
-                                candidate_id,
-                                group[0].topic,
-                            )
-                            return TopicEventResponse("success")
-                        deduper.mark(candidate_id)
-                    except Exception:
-                        logger.debug("Dedupe backend error; continuing.", exc_info=True)
-
-                # (Optional) fast-path by CloudEvent type == model name (if publisher sets ce-type)
-                ce_type = (metadata or {}).get("type")
-                ordered_iter = plan
-                if ce_type:
-                    preferred = [
-                        pair
-                        for pair in plan
-                        if getattr(pair[1], "__name__", "") == ce_type
-                    ]
-                    if preferred:
-                        # Try preferred models first, then the rest
-                        tail = [pair for pair in plan if pair not in preferred]
-                        ordered_iter = preferred + tail
-
-                # Try to validate against each model and dispatch to its handler
-                for binding, model in ordered_iter:
-                    try:
-                        payload = (
-                            event_data
-                            if isinstance(event_data, dict)
-                            else {"data": event_data}
-                        )
-                        parsed = validate_message_model(model, payload)
-                        # attach metadata
-                        try:
-                            if isinstance(parsed, dict):
-                                parsed["_message_metadata"] = metadata
-                            else:
-                                setattr(parsed, "_message_metadata", metadata)
-                        except Exception:
-                            logger.debug(
-                                "Could not attach _message_metadata; continuing.",
-                                exc_info=True,
-                            )
-
-                        # enqueue/schedule to the right handler
-                        if delivery_mode == "async":
-                            assert queue is not None
-                            loop.call_soon_threadsafe(
-                                queue.put_nowait,
-                                (binding.handler, parsed),  # type: ignore[union-attr]
-                            )
-                            return TopicEventResponse("success")
-
-                        if loop and loop.is_running():
-                            fut = asyncio.run_coroutine_threadsafe(
-                                _schedule(binding.handler, parsed), loop
-                            )
-                            return fut.result()
-
-                        return asyncio.run(_schedule(binding.handler, parsed))
-
-                    except Exception:
-                        # Not a match for this model → keep trying
-                        continue
-
-                # No model matched for this topic → drop (or switch to "retry" if you prefer)
-                logger.warning(
-                    "No matching schema for topic=%r; dropping. raw=%r",
-                    group[0].topic,
-                    event_data,
-                )
-                return TopicEventResponse("drop")
-
-            except Exception:
-                logger.exception("Message handler error; requesting retry.")
-                return TopicEventResponse("retry")
-
-        return handler
-
+    bindings_by_topic_key = _group_bindings_by_topic(bindings)
     closers: List[Callable[[], None]] = []
 
-    # subscribe one composite handler per (pubsub, topic)
-    for (pubsub_name, topic_name), group in grouped.items():
-        # Validate dead_letter_topic consistency
-        dl_topics = {b.dead_letter_topic for b in group}
-        if len(dl_topics) > 1:
-            logger.warning(
-                "Multiple dead_letter_topics found for %s:%s %s. Using %s.",
-                pubsub_name,
-                topic_name,
-                dl_topics,
-                group[0].dead_letter_topic,
-            )
+    for (pubsub_name, topic_name), topic_bindings in bindings_by_topic_key.items():
+        binding_schema_pairs = _build_binding_schema_pairs(topic_bindings)
+        dead_letter_topic = topic_bindings[0].dead_letter_topic
 
-        handler_fn = _composite_handler_fn(group)
+        def _create_message_handler(
+            pairs: List[BindingSchemaPair],
+        ) -> Callable[[SubscriptionMessage], TopicEventResponse]:
+            """Create a composite handler for a topic that routes to the correct binding."""
 
-        # Streaming subscription (Default)
+            def handler(message: SubscriptionMessage) -> TopicEventResponse:
+                try:
+                    event_data, metadata = extract_cloudevent_data(message)
+
+                    if deduper is not None:
+                        candidate_id = (metadata or {}).get("id") or (
+                            f"{topic_name}:{hash(str(event_data))}"
+                        )
+                        try:
+                            if deduper.seen(candidate_id):
+                                logger.debug(
+                                    "Duplicate detected id=%s topic=%s; dropping.",
+                                    candidate_id,
+                                    topic_name,
+                                )
+                                return TopicEventResponse(STATUS_SUCCESS)
+                            deduper.mark(candidate_id)
+                        except Exception:
+                            logger.debug(
+                                "Dedupe backend error; continuing.", exc_info=True
+                            )
+
+                    cloudevent_type = (metadata or {}).get("type")
+                    ordered_pairs = _order_pairs_by_cloudevent_type(
+                        pairs, cloudevent_type
+                    )
+
+                    for binding, schema in ordered_pairs:
+                        try:
+                            payload = (
+                                event_data
+                                if isinstance(event_data, dict)
+                                else {"data": event_data}
+                            )
+                            parsed = validate_message_model(schema, payload)
+                            _attach_metadata_to_payload(parsed, metadata)
+
+                            if delivery_mode == DELIVERY_MODE_ASYNC:
+                                assert queue is not None
+                                loop.call_soon_threadsafe(
+                                    queue.put_nowait,
+                                    (binding.handler, parsed),
+                                )
+                                return TopicEventResponse(STATUS_SUCCESS)
+
+                            if loop.is_running():
+                                fut = asyncio.run_coroutine_threadsafe(
+                                    _schedule_workflow(binding.handler, parsed), loop
+                                )
+                                return fut.result()
+
+                            return asyncio.run(
+                                _schedule_workflow(binding.handler, parsed)
+                            )
+
+                        except Exception:
+                            continue
+
+                    logger.warning(
+                        "No matching schema for topic=%r; dropping. raw=%r",
+                        topic_name,
+                        event_data,
+                    )
+                    return TopicEventResponse(STATUS_DROP)
+
+                except Exception:
+                    logger.exception("Message handler error; requesting retry.")
+                    return TopicEventResponse(STATUS_RETRY)
+
+            return handler
+
+        handler_fn = _create_message_handler(binding_schema_pairs)
+
         subscription = dapr_client.subscribe(
             pubsub_name=pubsub_name,
             topic=topic_name,
-            dead_letter_topic=group[0].dead_letter_topic,
+            dead_letter_topic=dead_letter_topic,
         )
 
-        def _consumer_loop(
-            subscription: Any,
-            handler_fn: Callable[[SubscriptionMessage], TopicEventResponse],
-            pubsub_name: str,
-            topic_name: str,
+        def _run_consumer_loop(
+            sub: Any,
+            handler: Callable[[SubscriptionMessage], TopicEventResponse],
+            ps_name: str,
+            t_name: str,
         ) -> None:
-            logger.info("Starting stream consumer for %s:%s", pubsub_name, topic_name)
+            logger.debug("Starting stream consumer for %s:%s", ps_name, t_name)
             try:
-                for message in subscription:
-                    if message is None:
+                for msg in sub:
+                    if msg is None:
                         continue
                     try:
-                        response = handler_fn(message)
-                        if response.status == "success":
-                            subscription.respond_success(message)
-                        elif response.status == "retry":
-                            subscription.respond_retry(message)
-                        elif response.status == "drop":
-                            subscription.respond_drop(message)
+                        response = handler(msg)
+                        if response.status == STATUS_SUCCESS:
+                            sub.respond_success(msg)
+                        elif response.status == STATUS_RETRY:
+                            sub.respond_retry(msg)
+                        elif response.status == STATUS_DROP:
+                            sub.respond_drop(msg)
                         else:
                             logger.warning(
                                 "Unknown status %s, retrying", response.status
                             )
-                            subscription.respond_retry(message)
+                            sub.respond_retry(msg)
                     except Exception:
                         logger.exception(
-                            "Handler exception in stream %s:%s",
-                            pubsub_name,
-                            topic_name,
+                            "Handler exception in stream %s:%s", ps_name, t_name
                         )
-                        # Default to retry on handler crash
                         try:
-                            subscription.respond_retry(message)
+                            sub.respond_retry(msg)
                         except Exception:
                             logger.exception(
                                 "Failed to send retry response for %s:%s",
-                                pubsub_name,
-                                topic_name,
+                                ps_name,
+                                t_name,
                             )
-            except Exception as e:
-                # If closed explicitly, we might get an error or simple exit
-                logger.debug(
-                    "Stream consumer %s:%s exited: %s", pubsub_name, topic_name, e
+                            raise
+            except Exception as exc:
+                logger.exception(
+                    "Stream consumer %s:%s exited with error", ps_name, t_name
                 )
+                raise exc
             finally:
-                subscription.close()
+                try:
+                    sub.close()
+                except Exception:
+                    pass
 
-        # Start consumer in a separate thread to avoid blocking the event loop
-        t = threading.Thread(
-            target=_consumer_loop,
+        consumer_thread = threading.Thread(
+            target=_run_consumer_loop,
             args=(subscription, handler_fn, pubsub_name, topic_name),
-            daemon=True,  # Ensure process can exit if thread hangs
+            daemon=True,
         )
-        t.start()
+        consumer_thread.start()
 
-        def _make_streaming_closer(
+        def _make_closer(
             sub: Any,
             thread: threading.Thread,
+            ps_name: str,
+            t_name: str,
         ) -> Callable[[], None]:
             def _close() -> None:
-                try:
-                    sub.close()  # Signal the subscription to stop
-                except Exception:
-                    logger.debug("Error closing subscription", exc_info=True)
-
-                # Wait for thread to finish with a timeout
-                thread.join(timeout=10.0)
-                if thread.is_alive():
-                    logger.warning(
-                        "Consumer thread for %s:%s did not stop within timeout; abandoning.",
-                        pubsub_name,
-                        topic_name,
-                    )
+                _shutdown_thread(thread, sub, ps_name, t_name)
 
             return _close
 
-        closers.append(_make_streaming_closer(subscription, t))
-        logger.info(
-            "Subscribed STREAMING to pubsub=%s topic=%s (delivery=%s await=%s)",
+        closers.append(
+            _make_closer(subscription, consumer_thread, pubsub_name, topic_name)
+        )
+        logger.debug(
+            "Subscribed streaming to pubsub=%s topic=%s (delivery=%s await=%s)",
             pubsub_name,
             topic_name,
             delivery_mode,
@@ -446,3 +575,65 @@ def subscribe_message_bindings(
         closers.append(_make_cancel_all(worker_tasks))
 
     return closers
+
+
+def subscribe_message_bindings(
+    bindings: List[MessageRouteBinding],
+    *,
+    dapr_client: DaprClient,
+    loop: Optional[asyncio.AbstractEventLoop],
+    delivery_mode: Literal["sync", "async"],
+    queue_maxsize: int,
+    deduper: Optional[DedupeBackend],
+    scheduler: Optional[SchedulerFn],
+    wf_client: Optional[wf.DaprWorkflowClient],
+    await_result: bool,
+    await_timeout: Optional[int],
+    fetch_payloads: bool,
+    log_outcome: bool,
+) -> List[Callable[[], None]]:
+    """Set up streaming subscriptions for message route bindings.
+
+    Args:
+        bindings: List of message route bindings to subscribe.
+        dapr_client: Active Dapr client for creating subscriptions.
+        loop: Event loop for async operations (required for async delivery mode).
+        delivery_mode: 'sync' blocks the Dapr thread; 'async' enqueues onto workers.
+        queue_maxsize: Max in-flight messages for async mode.
+        deduper: Optional idempotency backend.
+        scheduler: Unused (retained for API compatibility).
+        wf_client: Workflow client for scheduling workflows.
+        await_result: If True (sync only), wait for workflow completion.
+        await_timeout: Timeout in seconds when awaiting workflow completion.
+        fetch_payloads: Include payloads when waiting for completion.
+        log_outcome: Log workflow completion status.
+
+    Returns:
+        List of closer functions to unsubscribe and cleanup resources.
+
+    Raises:
+        ValueError: If delivery_mode is invalid or dead_letter_topics conflict.
+        RuntimeError: If async mode is used without a running event loop.
+    """
+    if not bindings:
+        return []
+
+    _validate_delivery_mode(delivery_mode)
+    _validate_dead_letter_topics(bindings)
+
+    resolved_loop = _resolve_event_loop(loop)
+    resolved_wf_client = wf_client or wf.DaprWorkflowClient()
+
+    return _subscribe_message_bindings(
+        bindings,
+        dapr_client=dapr_client,
+        loop=resolved_loop,
+        delivery_mode=delivery_mode,
+        queue_maxsize=queue_maxsize,
+        deduper=deduper,
+        wf_client=resolved_wf_client,
+        await_result=await_result,
+        await_timeout=await_timeout,
+        fetch_payloads=fetch_payloads,
+        log_outcome=log_outcome,
+    )
