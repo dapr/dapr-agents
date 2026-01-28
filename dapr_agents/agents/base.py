@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from decimal import __version__
 import json
 import logging
 from datetime import datetime, timezone
-from importlib.metadata import version, PackageNotFoundError
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union, Coroutine
 
 from dapr.clients import DaprClient
@@ -15,15 +13,7 @@ from dapr.clients.grpc._response import (
     StateResponse,
     GetBulkSecretResponse,
 )
-from dapr_agents.agents.schemas import (
-    AgentMetadataSchema,
-    RegistryMetadata,
-    LLMMetadata,
-    PubSubMetadata,
-    MemoryMetadata,
-    ToolMetadata,
-    AgentMetadata,
-)
+
 from dapr_agents.agents.components import AgentComponents
 from dapr_agents.agents.configs import (
     AgentLoggingExporter,
