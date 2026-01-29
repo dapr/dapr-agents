@@ -1,6 +1,6 @@
 from dapr_agents.storage.vectorstores import VectorStoreBase
 from dapr_agents.document.embedder.base import EmbedderBase
-from typing import List, Dict, Optional, Iterable, Any, Union
+from typing import List, Dict, Literal, Optional, Iterable, Any, Union
 from pydantic import Field, ConfigDict
 import ast
 import uuid
@@ -8,7 +8,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Optional dependencies - imported at module level to avoid repeated imports
 try:
     from redisvl.index import SearchIndex
     from redisvl.schema import IndexSchema
@@ -26,7 +25,6 @@ try:
 except ImportError:
     Redis = None  # type: ignore
 
-# Constants to avoid magic strings
 DOC_KEY_SUFFIX = "_doc"
 EMBEDDING_DTYPE = "float32"
 FIELD_DOC_ID = "doc_id"
@@ -57,11 +55,13 @@ class RedisVectorStore(VectorStoreBase):
         default=384,
         description="Dimensionality of the embedding vectors.",
     )
-    distance_metric: str = Field(
+    distance_metric: Literal["cosine", "l2", "ip"] = Field(
         default="cosine",
-        description="Distance metric for similarity search (cosine, l2, ip).",
+        description="Distance metric for similarity search. "
+        "Based on Redis vector search supported distance metrics: "
+        "https://redis.io/docs/latest/develop/ai/search-and-query/vectors/",
     )
-    storage_type: str = Field(
+    storage_type: Literal["hash", "json"] = Field(
         default="hash",
         description="Redis storage type (hash or json).",
     )
@@ -179,7 +179,7 @@ class RedisVectorStore(VectorStoreBase):
             return ids
 
         except Exception as e:
-            logger.error(f"Failed to add documents: {e}")
+            logger.exception(f"Failed to add documents: {e}")
             raise
 
     def delete(self, ids: List[str]) -> Optional[bool]:
@@ -190,7 +190,7 @@ class RedisVectorStore(VectorStoreBase):
             ids (List[str]): The IDs of the documents to delete.
 
         Returns:
-            Optional[bool]: True if deletion was successful, False otherwise.
+            Optional[bool]: True if any documents were deleted, None on failure.
         """
         if Redis is None:
             raise ImportError(
@@ -206,12 +206,12 @@ class RedisVectorStore(VectorStoreBase):
                 result = client.delete(key)
                 deleted_count += result
 
-            logger.info(f"Deleted {deleted_count} documents from RedisVectorStore.")
+            logger.debug(f"Deleted {deleted_count} documents from RedisVectorStore.")
             return deleted_count > 0
 
         except Exception as e:
-            logger.error(f"Failed to delete documents: {e}")
-            return False
+            logger.exception(f"Failed to delete documents: {e}")
+            return None
 
     def get(self, ids: Optional[List[str]] = None) -> List[Dict]:
         """
@@ -272,7 +272,7 @@ class RedisVectorStore(VectorStoreBase):
             return results
 
         except Exception as e:
-            logger.error(f"Failed to retrieve documents: {e}")
+            logger.exception(f"Failed to retrieve documents: {e}")
             raise
 
     def reset(self):
@@ -282,9 +282,9 @@ class RedisVectorStore(VectorStoreBase):
         """
         try:
             self.search_index.clear()
-            logger.info(f"RedisVectorStore index '{self.index_name}' cleared.")
+            logger.debug(f"RedisVectorStore index '{self.index_name}' cleared.")
         except Exception as e:
-            logger.error(f"Failed to reset RedisVectorStore: {e}")
+            logger.exception(f"Failed to reset RedisVectorStore: {e}")
             raise
 
     def search_similar(
@@ -310,21 +310,21 @@ class RedisVectorStore(VectorStoreBase):
                 "The `redisvl` library is required. Install it using `pip install redisvl`."
             )
 
+        if query_texts is None and query_embeddings is None:
+            raise ValueError(
+                "Either query_texts or query_embeddings must be provided."
+            )
+
+        if query_texts is not None:
+            if isinstance(query_texts, str):
+                query_texts = [query_texts]
+            query_embeddings = self.embedding_function(query_texts)
+
+        # Handle single embedding
+        if isinstance(query_embeddings[0], (int, float)):
+            query_embeddings = [query_embeddings]
+
         try:
-            if query_texts is not None:
-                if isinstance(query_texts, str):
-                    query_texts = [query_texts]
-                query_embeddings = self.embedding_function(query_texts)
-
-            if query_embeddings is None:
-                raise ValueError(
-                    "Either query_texts or query_embeddings must be provided."
-                )
-
-            # Handle single embedding
-            if isinstance(query_embeddings[0], (int, float)):
-                query_embeddings = [query_embeddings]
-
             all_results = []
             for embedding in query_embeddings:
                 query = VectorQuery(
@@ -353,7 +353,7 @@ class RedisVectorStore(VectorStoreBase):
             return all_results
 
         except Exception as e:
-            logger.error(f"An error occurred during similarity search: {e}")
+            logger.exception(f"An error occurred during similarity search: {e}")
             return []
 
     def count(self) -> int:
@@ -367,5 +367,5 @@ class RedisVectorStore(VectorStoreBase):
             info = self.search_index.info()
             return int(info.get("num_docs", 0))
         except Exception as e:
-            logger.error(f"Failed to count documents: {e}")
+            logger.exception(f"Failed to count documents: {e}")
             return 0
