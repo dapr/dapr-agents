@@ -30,25 +30,18 @@ jobs:
         version: "latest"
     - name: Run Autoformatter
       run: |
-        uv run --no-sync --with tox tox -e ruff
+        uv run ruff format
         statusResult=$(git status -u --porcelain)
         if [ -z "$statusResult" ]
         then
             exit 0
         else
-            echo "Source files are not formatted correctly. Run 'tox -e ruff' to autoformat."
+            echo "Source files are not formatted correctly. Run 'uv run ruff format' to autoformat."
             exit 1
         fi
-    - name: Clean up tox env
-      if: always()
-      run: rm -rf .tox/ruff
     - name: Run Linter
       run: |
-        uv run --no-sync --with tox tox -e flake8
-    - name: Clean up tox env
-      if: always()
-      run: rm -rf .tox/flake8
-
+        uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
   build:
     needs: lint
     runs-on: ubuntu-latest
@@ -71,7 +64,7 @@ jobs:
         uv sync --group test
     - name: Check Typing
       run: |
-        uv run tox -e type
+        uv run mypy --config-file mypy.ini
     - name: Run Tests
       run: |
-        uv run tox -e pytest
+        uv run pytest tests -m "not integration"

@@ -1,4 +1,5 @@
 """Integration tests for 09-agent-observability quickstart."""
+
 import pytest
 import time
 import requests

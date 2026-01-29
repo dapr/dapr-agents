@@ -8,8 +8,8 @@ from typing import Any, Callable, Dict, Literal, Optional, TypeVar, Union, List
 
 from fastapi import Body, FastAPI, HTTPException
 
-from dapr_agents.agents.components import AgentComponents
 from dapr_agents.agents.durable import DurableAgent
+from dapr_agents.agents.orchestrators.base import OrchestratorBase
 from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.runners.base import WorkflowRunner
 from dapr_agents.workflow.utils.core import get_decorated_methods
@@ -56,13 +56,13 @@ class AgentRunner(WorkflowRunner):
 
         # In-memory store of managed agents - used for handling shutdown
         self._managed_agents: List[
-            AgentComponents
-        ] = []  # AgentComponents is the lowest common denominator between orchestrators and agents.
+            Union[DurableAgent, OrchestratorBase]
+        ] = []  # Union type covers both durable agents and orchestrators.
         self._lock: Lock = Lock()
 
     async def run(
         self,
-        agent: AgentComponents,
+        agent: Union[DurableAgent, OrchestratorBase],
         payload: Optional[Union[str, Dict[str, Any]]] = None,
         *,
         instance_id: Optional[str] = None,
@@ -123,7 +123,7 @@ class AgentRunner(WorkflowRunner):
 
     def run_sync(
         self,
-        agent: AgentComponents,
+        agent: Union[DurableAgent, OrchestratorBase],
         payload: Optional[Union[str, Dict[str, Any]]] = None,
         *,
         instance_id: Optional[str] = None,
@@ -224,7 +224,7 @@ class AgentRunner(WorkflowRunner):
 
     def register_routes(
         self,
-        agent: AgentComponents,
+        agent: Union[DurableAgent, OrchestratorBase],
         *,
         fastapi_app: Optional[FastAPI] = None,
         delivery_mode: Literal["sync", "async"] = "sync",
@@ -271,7 +271,7 @@ class AgentRunner(WorkflowRunner):
             self._wire_http_routes(agent=agent, fastapi_app=fastapi_app)
 
     def _build_pubsub_specs(
-        self, agent: AgentComponents, config: Any
+        self, agent: Union[DurableAgent, OrchestratorBase], config: Any
     ) -> list[PubSubRouteSpec]:
         handlers = get_decorated_methods(agent, "_is_message_handler")
         if not handlers:
@@ -307,7 +307,7 @@ class AgentRunner(WorkflowRunner):
     def _wire_pubsub_routes(
         self,
         *,
-        agent: AgentComponents,
+        agent: Union[DurableAgent, OrchestratorBase],
         delivery_mode: Literal["sync", "async"],
         queue_maxsize: int,
         await_result: bool,
@@ -347,7 +347,10 @@ class AgentRunner(WorkflowRunner):
         self._wired_pubsub = True
 
     def _wire_http_routes(
-        self, *, agent: AgentComponents, fastapi_app: Optional[FastAPI]
+        self,
+        *,
+        agent: Union[DurableAgent, OrchestratorBase],
+        fastapi_app: Optional[FastAPI],
     ) -> None:
         if fastapi_app is None or self._wired_http:
             return
@@ -361,7 +364,7 @@ class AgentRunner(WorkflowRunner):
 
     def subscribe(
         self,
-        agent: AgentComponents,
+        agent: Union[DurableAgent, OrchestratorBase],
         *,
         delivery_mode: Literal["sync", "async"] = "sync",
         queue_maxsize: int = 1024,
@@ -409,7 +412,7 @@ class AgentRunner(WorkflowRunner):
 
     def serve(
         self,
-        agent: AgentComponents,
+        agent: Union[DurableAgent, OrchestratorBase],
         *,
         app: Optional[FastAPI] = None,
         host: str = "0.0.0.0",
@@ -512,7 +515,7 @@ class AgentRunner(WorkflowRunner):
         self,
         *,
         fastapi_app: FastAPI,
-        agent: AgentComponents,
+        agent: Union[DurableAgent, OrchestratorBase],
         entry_path: str,
         status_path: str,
         workflow_component: str,
@@ -587,7 +590,9 @@ class AgentRunner(WorkflowRunner):
         )
         logger.info("Mounted default workflow status endpoint at %s", status_path)
 
-    def shutdown(self, agent: Optional[AgentComponents]) -> None:
+    def shutdown(
+        self, agent: Optional[Union[DurableAgent, OrchestratorBase]] = None
+    ) -> None:
         """
         Unwire subscriptions and close owned clients.
 

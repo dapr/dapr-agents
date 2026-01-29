@@ -14,10 +14,10 @@ authors = [
     {name = "Dapr Authors", email = "dapr@dapr.io"}
 ]
 dependencies = [
-    "dapr>=1.16.0",
-    "dapr-ext-fastapi>=1.16.0",
-    "dapr-ext-workflow>=1.16.0",
-    "durabletask-dapr==0.2.0a14",
+    "dapr>=1.17.0rc2",
+    "dapr-ext-fastapi>=1.17.0rc2",
+    "dapr-ext-workflow>=1.17.0rc2",
+    "durabletask-dapr>=0.2.0a15",
     "pydantic>=2.11.3,<3.0.0",
     "jinja2>=3.1.0,<4.0.0",
     "pyyaml>=6.0.1,<7.0.0",
@@ -49,6 +49,7 @@ dependencies = [
     "openinference-instrumentation>=0.1.0,<1.0.0",
     "openinference-semantic-conventions>=0.1.0,<1.0.0",
     "opentelemetry.exporter.zipkin.json>=1.39.1",
+    "tiktoken>=0.9.0",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -74,9 +75,9 @@ vectorstore = [
 [dependency-groups]
 dev = [
     "mypy>=1.15.0,<2.0.0",
-    "tox>=4.0.0,<5.0.0",
     "pip-tools>=7.4.1,<8.0.0",
     "cachetools>=6.1.0,<7.0.0",
+    "flake8>=7.3.0",
     "ruff>=0.14.11",
 ]
 test = [

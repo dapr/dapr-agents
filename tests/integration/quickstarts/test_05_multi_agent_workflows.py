@@ -1,4 +1,5 @@
 """Integration tests for 05-multi-agent-workflows quickstart."""
+
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_multi_app
 

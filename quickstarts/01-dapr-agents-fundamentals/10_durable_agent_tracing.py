@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from pathlib import Path
 
 from dapr_agents.llm import DaprChatClient
 
@@ -28,7 +29,7 @@ async def main() -> None:
         memory=AgentMemoryConfig(
             store=ConversationDaprStateMemory(
                 store_name="conversation-statestore",
-                session_id="08-durable-agent-trace",
+                session_id=Path(__file__).stem,
             )
         ),
         state=AgentStateConfig(

@@ -60,7 +60,7 @@ metadata:
     value: "{{OPENAI_API_KEY}}"
 ```
 
-Replace `OPENAI_API_KEY` with your actual OpenAI API key.
+Replace `OPENAI_API_KEY` with your actual OpenAI API key. If you are using a different provider, make sure that you keep the name of the component as `llm-provider`.
 
 ---
 

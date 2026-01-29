@@ -28,7 +28,7 @@ from dapr_agents.types.workflow import DaprWorkflowStatus
 logger = logging.getLogger(__name__)
 
 
-class AgentComponents:
+class DaprInfra:
     """
     Thin infrastructure layer for agents/orchestrators.
 

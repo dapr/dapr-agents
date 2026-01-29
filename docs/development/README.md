@@ -98,13 +98,13 @@ The project uses pytest for testing. To run tests:
 
 ```bash
 # Run all tests
-tox -e pytest
+uv run pytest
 
 # Run specific test file
-tox -e pytest tests/test_random_orchestrator.py
+uv run pytest tests/test_random_orchestrator.py
 
 # Run tests with coverage
-tox -e pytest --cov=dapr_agents
+uv run pytest --cov=dapr_agents
 ```
 
 ### Integration Tests
@@ -144,13 +144,16 @@ The project uses several tools to maintain code quality:
 
 ```bash
 # Run linting
-tox -e flake8
+uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
 
 # Run code formatting
-tox -e ruff
+uv run ruff format
 
 # Run type checking
-tox -e type
+uv run mypy --config-file mypy.ini
+
+## Run all combined
+uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"
 ```
 
 ## Development Workflow
@@ -158,26 +161,26 @@ tox -e type
 ### Option 1 - Using pip:
 1. Install development dependencies:
    ```bash
-   uv sync
+   uv sync --group test
    ```
 
 2. Run tests before making changes:
    ```bash
-   tox -e pytest
+   uv run pytest tests -m "not integration"
    ```
 
 3. Make your changes
 
 4. Run code quality checks:
    ```bash
-   tox -e flake8
-   tox -e ruff
-   tox -e type
+   uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+   uv run ruff format
+   uv run mypy --config-file mypy.ini
    ```
 
 5. Run tests again:
    ```bash
-   tox -e pytest
+   uv run pytest tests -m "not integration"
    ```
 
 6. Submit your changes

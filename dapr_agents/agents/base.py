@@ -14,7 +14,7 @@ from dapr.clients.grpc._response import (
     GetBulkSecretResponse,
 )
 
-from dapr_agents.agents.components import AgentComponents
+from dapr_agents.agents.components import DaprInfra
 from dapr_agents.agents.configs import (
     AgentLoggingExporter,
     AgentMemoryConfig,
@@ -43,6 +43,7 @@ from dapr_agents.types import AssistantMessage, ToolExecutionRecord, UserMessage
 
 from opentelemetry import trace
 from opentelemetry import _logs
+from opentelemetry.sdk._logs import LoggingHandler
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
@@ -69,7 +70,7 @@ from dapr_agents.observability import DaprAgentsInstrumentor
 logger = logging.getLogger(__name__)
 
 
-class AgentBase(AgentComponents):
+class AgentBase:
     """
     Base class for agent behavior.
 
@@ -79,7 +80,7 @@ class AgentBase(AgentComponents):
     - Tool exposure and execution adapter.
     - Conversation memory management (configurable; defaults provided).
 
-    Infrastructure (pub/sub, durable state, registry) is provided by `AgentComponents`.
+    Infrastructure (pub/sub, durable state, registry) is provided by `DaprInfra`.
     """
 
     def __init__(
@@ -256,8 +257,8 @@ class AgentBase(AgentComponents):
                 "Dapr sidecar not responding; proceeding without auto-configuration."
             )
 
-        # Wire infrastructure via AgentComponents.
-        super().__init__(
+        # Wire infrastructure via DaprInfra (composition).
+        self._infra = DaprInfra(
             name=self.name,
             pubsub=pubsub,
             state=state,
@@ -438,6 +439,106 @@ class AgentBase(AgentComponents):
             logger.debug(
                 "Registry configuration not provided; skipping agent registration."
             )
+
+    # ------------------------------------------------------------------
+    # DaprInfra delegation properties and methods
+    # ------------------------------------------------------------------
+    @property
+    def pubsub(self):
+        """Delegate to DaprInfra."""
+        return self._infra.pubsub
+
+    @property
+    def registry_state(self):
+        """Delegate to DaprInfra."""
+        return self._infra.registry_state
+
+    @property
+    def agent_topic_name(self):
+        """Delegate to DaprInfra."""
+        return self._infra.agent_topic_name
+
+    @property
+    def message_bus_name(self):
+        """Delegate to DaprInfra."""
+        return self._infra.message_bus_name
+
+    @property
+    def broadcast_topic_name(self):
+        """Delegate to DaprInfra."""
+        return self._infra.broadcast_topic_name
+
+    @property
+    def workflow_grpc_options(self):
+        """Delegate to DaprInfra."""
+        return self._infra.workflow_grpc_options
+
+    @property
+    def state_store(self):
+        """Delegate to DaprInfra."""
+        return self._infra.state_store
+
+    @property
+    def _state_model(self):
+        """Delegate to DaprInfra."""
+        return self._infra._state_model
+
+    @property
+    def state(self):
+        """Delegate to DaprInfra."""
+        return self._infra.state
+
+    @property
+    def workflow_state(self):
+        """Delegate to DaprInfra."""
+        return self._infra.workflow_state
+
+    def load_state(self):
+        """Delegate to DaprInfra."""
+        return self._infra.load_state()
+
+    def save_state(self):
+        """Delegate to DaprInfra."""
+        return self._infra.save_state()
+
+    def register_agentic_system(self, *, metadata=None, team=None):
+        """Delegate to DaprInfra."""
+        return self._infra.register_agentic_system(metadata=metadata, team=team)
+
+    def get_agents_metadata(
+        self, *, exclude_self=True, exclude_orchestrator=False, team=None
+    ):
+        """Delegate to DaprInfra."""
+        return self._infra.get_agents_metadata(
+            exclude_self=exclude_self,
+            exclude_orchestrator=exclude_orchestrator,
+            team=team,
+        )
+
+    def sync_system_messages(self, instance_id, all_messages):
+        """Delegate to DaprInfra."""
+        return self._infra.sync_system_messages(
+            instance_id=instance_id, all_messages=all_messages
+        )
+
+    def _get_entry_container(self):
+        """Delegate to DaprInfra."""
+        return self._infra._get_entry_container()
+
+    def _message_dict_to_message_model(self, message):
+        """Delegate to DaprInfra."""
+        return self._infra._message_dict_to_message_model(message)
+
+    def ensure_instance_exists(
+        self, *, instance_id, input_value, triggering_workflow_instance_id, time=None
+    ):
+        """Delegate to DaprInfra."""
+        return self._infra.ensure_instance_exists(
+            instance_id=instance_id,
+            input_value=input_value,
+            triggering_workflow_instance_id=triggering_workflow_instance_id,
+            time=time,
+        )
 
     # ------------------------------------------------------------------
     # Presentation helpers
@@ -927,7 +1028,11 @@ class AgentBase(AgentComponents):
 
         try:
             enabled = self._runtime_conf.get("OTEL_ENABLED", "false").lower() == "true"
-            auth_token = self._runtime_conf.get("OTEL_TOKEN") or None
+            auth_token = (
+                self._runtime_secrets.get("OTEL_TOKEN")
+                or self._runtime_conf.get("OTEL_TOKEN")
+                or None
+            )
             endpoint = self._runtime_conf.get("OTEL_ENDPOINT") or None
             service_name = self._runtime_conf.get("OTEL_SERVICE_NAME") or None
             logging_enabled = (
@@ -1060,7 +1165,10 @@ class AgentBase(AgentComponents):
                     case AgentLoggingExporter.OTLP_HTTP:
                         log_processor = BatchLogRecordProcessor(
                             OTLPHTTPLogExporter(
-                                endpoint=_endpoint, headers=otlp_headers
+                                endpoint=f"{_endpoint}/v1/logs"
+                                if "/v1/logs" not in _endpoint
+                                else _endpoint,
+                                headers=otlp_headers,
                             )
                         )
                     case _:
@@ -1069,6 +1177,10 @@ class AgentBase(AgentComponents):
                         )
 
                 logger_provider.add_log_record_processor(log_processor)
+                handler = LoggingHandler(
+                    level=logging.NOTSET, logger_provider=logger_provider
+                )
+                logging.getLogger().addHandler(handler)
                 _logs.set_logger_provider(logger_provider)
 
             tracer_provider = None
@@ -1088,10 +1200,17 @@ class AgentBase(AgentComponents):
                         )
                     case AgentTracingExporter.OTLP_HTTP:
                         tracing_exporter = OTLPHTTPSpanExporter(
-                            endpoint=_endpoint, headers=otlp_headers
+                            endpoint=f"{_endpoint}/v1/traces"
+                            if "/v1/traces" not in _endpoint
+                            else _endpoint,
+                            headers=otlp_headers,
                         )
                     case AgentTracingExporter.ZIPKIN:
-                        tracing_exporter = ZipkinExporter(endpoint=_endpoint)
+                        tracing_exporter = ZipkinExporter(
+                            endpoint=f"{_endpoint}/api/v2/spans"
+                            if "/api/v2/spans" not in _endpoint
+                            else _endpoint
+                        )
                     case _:
                         tracing_exporter = ConsoleSpanExporter()
 

@@ -1,4 +1,5 @@
 """Shared fixtures for integration tests."""
+
 import os
 import subprocess
 import pytest

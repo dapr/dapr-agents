@@ -1,4 +1,4 @@
-FROM astral/uv:python3.13-bookworm-slim@sha256:ae4e4c788a13a5a57c35740d1f648c0701936bf4e546b7e197d1210691977b6d AS build
+FROM astral/uv:python3.13-bookworm-slim@sha256:8068e4cdafbe0f4beab1d323b6809727e925f85ec209637027d045fc7dbf5b46 AS build
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
@@ -17,7 +17,7 @@ COPY quickstarts/05-multi-agent-workflows/services/workflow-llm/app.py /app/app.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-editable --package 05-multi-agent-workflows
 
-FROM python:3.13-slim-bookworm@sha256:b8d8b990ebe2431dc5d96e0ea7f87a01d0d4b7bb79cd72e071d043c54b46ae83
+FROM python:3.13-slim-bookworm@sha256:97e9392d12279f8c180eb80f0c7c0f3dfe5650f0f2573f7ad770aea58f75ed12
 
 COPY --from=build /app /app
 ENV PATH="/app/.venv/bin:$PATH"
