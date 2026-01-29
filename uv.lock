@@ -1401,6 +1401,7 @@ dependencies = [
 vectorstore = [
     { name = "chromadb" },
     { name = "nltk" },
+    { name = "redisvl" },
     { name = "sentence-transformers" },
     { name = "torch" },
 ]
@@ -1466,6 +1467,7 @@ requires-dist = [
     { name = "protobuf", specifier = ">=6.31.0,<7.0.0" },
     { name = "pydantic", specifier = ">=2.11.3,<3.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1,<7.0.0" },
+    { name = "redisvl", marker = "extra == 'vectorstore'", specifier = ">=0.4.0,<1.0.0" },
     { name = "regex", specifier = ">=2023.0.0,<2026.0.0" },
     { name = "requests", specifier = ">=2.32.4,<3.0.0" },
     { name = "rich", specifier = ">=13.9.4,<15.0.0" },
