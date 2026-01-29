@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'win32'",
@@ -678,6 +678,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a4/b2/e990deaad2eba163c2d6f6af967495263efd4cefdf8545f17ddf3846e221/arize_phoenix_otel-0.12.1.tar.gz", hash = "sha256:0150cdc586abbd3cca49168352f94501d59c2690cab5d283a5e0689bb3dc1234", size = 16402, upload-time = "2025-06-24T15:58:34.914Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/46/27/be2ead7273ecf3be0c5b3ebf9e4bccedcd49ab45a7909e82588f56189cd2/arize_phoenix_otel-0.12.1-py3-none-any.whl", hash = "sha256:85167dd061d7d4e14c98edd5733afe151da8027d69f2ecfe29a6aa2484906fa3", size = 13871, upload-time = "2025-06-24T15:58:33.702Z" },
+]
+
+[[package]]
+name = "async-timeout"
+version = "5.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a5/ae/136395dfbfe00dfc94da3f3e136d0b13f394cba8f4841120e34226265780/async_timeout-5.0.1.tar.gz", hash = "sha256:d9321a7a3d5a6a5e187e824d2fa0793ce379a202935782d555d6e9d2735677d3", size = 9274, upload-time = "2024-11-06T16:41:39.6Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/ba/e2081de779ca30d473f21f5b30e0e737c438205440784c7dfc81efc2b029/async_timeout-5.0.1-py3-none-any.whl", hash = "sha256:39e3809566ff85354557ec2398b55e096c8364bacac9405a7a1fa429e77fe76c", size = 6233, upload-time = "2024-11-06T16:41:37.9Z" },
 ]
 
 [[package]]
@@ -1397,6 +1406,7 @@ dependencies = [
 vectorstore = [
     { name = "chromadb" },
     { name = "nltk" },
+    { name = "redisvl" },
     { name = "sentence-transformers" },
     { name = "torch" },
 ]
@@ -1422,6 +1432,7 @@ test = [
 vectorstore = [
     { name = "chromadb" },
     { name = "nltk" },
+    { name = "redisvl" },
     { name = "sentence-transformers" },
     { name = "torch" },
 ]
@@ -1458,6 +1469,7 @@ requires-dist = [
     { name = "protobuf", specifier = ">=6.31.0,<7.0.0" },
     { name = "pydantic", specifier = ">=2.11.3,<3.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1,<7.0.0" },
+    { name = "redisvl", marker = "extra == 'vectorstore'", specifier = ">=0.4.0,<1.0.0" },
     { name = "regex", specifier = ">=2023.0.0,<2026.0.0" },
     { name = "requests", specifier = ">=2.32.4,<3.0.0" },
     { name = "rich", specifier = ">=13.9.4,<14.0.0" },
@@ -1490,10 +1502,11 @@ test = [
     { name = "pytest-xdist", specifier = ">=3.0.0,<4.0.0" },
 ]
 vectorstore = [
-    { name = "chromadb", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=0.4.22,<2.0.0" },
-    { name = "nltk", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=3.8.0,<4.0.0" },
-    { name = "sentence-transformers", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=4.1.0,<5.0.0" },
-    { name = "torch", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=2.7.0" },
+    { name = "chromadb", specifier = ">=0.4.22,<2.0.0" },
+    { name = "nltk", specifier = ">=3.8.0,<4.0.0" },
+    { name = "redisvl", specifier = ">=0.4.0,<1.0.0" },
+    { name = "sentence-transformers", specifier = ">=4.1.0,<5.0.0" },
+    { name = "torch", specifier = ">=2.7.0" },
 ]
 
 [[package]]
@@ -5303,6 +5316,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-ulid"
+version = "3.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/40/7e/0d6c82b5ccc71e7c833aed43d9e8468e1f2ff0be1b3f657a6fcafbb8433d/python_ulid-3.1.0.tar.gz", hash = "sha256:ff0410a598bc5f6b01b602851a3296ede6f91389f913a5d5f8c496003836f636", size = 93175, upload-time = "2025-08-18T16:09:26.305Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6c/a0/4ed6632b70a52de845df056654162acdebaf97c20e3212c559ac43e7216e/python_ulid-3.1.0-py3-none-any.whl", hash = "sha256:e2cdc979c8c877029b4b7a38a6fba3bc4578e4f109a308419ff4d3ccf0a46619", size = 11577, upload-time = "2025-08-18T16:09:25.047Z" },
+]
+
+[[package]]
 name = "pytz"
 version = "2025.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5419,6 +5441,37 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/85/33/cd87d92b23f0b06e8914a61cea6850c6d495ca027f669fab7a379041827a/rapidfuzz-3.14.3-pp311-pypy311_pp73-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1faa0f8f76ba75fd7b142c984947c280ef6558b5067af2ae9b8729b0a0f99ede", size = 1352187, upload-time = "2025-11-01T11:54:45.518Z" },
     { url = "https://files.pythonhosted.org/packages/22/20/9d30b4a1ab26aac22fff17d21dec7e9089ccddfe25151d0a8bb57001dc3d/rapidfuzz-3.14.3-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1e6eefec45625c634926a9fd46c9e4f31118ac8f3156fff9494422cee45207e6", size = 3101472, upload-time = "2025-11-01T11:54:47.255Z" },
     { url = "https://files.pythonhosted.org/packages/b1/ad/fa2d3e5c29a04ead7eaa731c7cd1f30f9ec3c77b3a578fdf90280797cbcb/rapidfuzz-3.14.3-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:56fefb4382bb12250f164250240b9dd7772e41c5c8ae976fd598a32292449cc5", size = 1511361, upload-time = "2025-11-01T11:54:49.057Z" },
+]
+
+[[package]]
+name = "redis"
+version = "7.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "async-timeout", marker = "python_full_version < '3.11.3'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/43/c8/983d5c6579a411d8a99bc5823cc5712768859b5ce2c8afe1a65b37832c81/redis-7.1.0.tar.gz", hash = "sha256:b1cc3cfa5a2cb9c2ab3ba700864fb0ad75617b41f01352ce5779dabf6d5f9c3c", size = 4796669, upload-time = "2025-11-19T15:54:39.961Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/f0/8956f8a86b20d7bb9d6ac0187cf4cd54d8065bc9a1a09eb8011d4d326596/redis-7.1.0-py3-none-any.whl", hash = "sha256:23c52b208f92b56103e17c5d06bdc1a6c2c0b3106583985a76a18f83b265de2b", size = 354159, upload-time = "2025-11-19T15:54:38.064Z" },
+]
+
+[[package]]
+name = "redisvl"
+version = "0.13.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jsonpath-ng" },
+    { name = "ml-dtypes" },
+    { name = "numpy" },
+    { name = "pydantic" },
+    { name = "python-ulid" },
+    { name = "pyyaml" },
+    { name = "redis" },
+    { name = "tenacity" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/d6/8f3235b272e3a2370698d7524aad2dec15f53c5be5d6726ba41056844f69/redisvl-0.13.2.tar.gz", hash = "sha256:f34c4350922ac469c45d90b5db65c49950e6aa8706331931b000f631ff9a0f4a", size = 737736, upload-time = "2025-12-19T09:22:07.787Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/93/81ea5c45637ce7fe2fdaf214d5e1b91afe96a472edeb9b659e24d3710dfb/redisvl-0.13.2-py3-none-any.whl", hash = "sha256:dd998c6acc54f13526d464ad6b6e6f0c4cf6985fb2c7a1655bdf8ed8e57a4c01", size = 192760, upload-time = "2025-12-19T09:22:06.301Z" },
 ]
 
 [[package]]
