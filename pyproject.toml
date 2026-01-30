@@ -66,7 +66,7 @@ classifiers = [
 [project.optional-dependencies]
 vectorstore = [
     "torch>=2.7.0",
-    "sentence-transformers>=4.1.0,<5.0.0",
+    "sentence-transformers>=4.1.0,<6.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.8.0,<4.0.0",
 ]
@@ -91,7 +91,7 @@ test = [
 ]
 vectorstore = [
     "torch>=2.7.0",
-    "sentence-transformers>=4.1.0,<5.0.0",
+    "sentence-transformers>=4.1.0,<6.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.8.0,<4.0.0",
 ]

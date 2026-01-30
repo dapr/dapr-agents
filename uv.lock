@@ -1443,7 +1443,7 @@ requires-dist = [
     { name = "regex", specifier = ">=2023.0.0,<2026.0.0" },
     { name = "requests", specifier = ">=2.32.4,<3.0.0" },
     { name = "rich", specifier = ">=13.9.4,<15.0.0" },
-    { name = "sentence-transformers", marker = "extra == 'vectorstore'", specifier = ">=4.1.0,<5.0.0" },
+    { name = "sentence-transformers", marker = "extra == 'vectorstore'", specifier = ">=4.1.0,<6.0.0" },
     { name = "tiktoken", specifier = ">=0.9.0" },
     { name = "toolbox-core", specifier = ">=0.5.3" },
     { name = "torch", marker = "extra == 'vectorstore'", specifier = ">=2.7.0" },
@@ -1474,7 +1474,7 @@ test = [
 vectorstore = [
     { name = "chromadb", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=0.4.22,<2.0.0" },
     { name = "nltk", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=3.8.0,<4.0.0" },
-    { name = "sentence-transformers", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=4.1.0,<5.0.0" },
+    { name = "sentence-transformers", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=4.1.0,<6.0.0" },
     { name = "torch", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=2.7.0" },
 ]
 
