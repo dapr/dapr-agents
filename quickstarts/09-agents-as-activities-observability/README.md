@@ -34,6 +34,8 @@ HUGGINGFACE_API_KEY=your_huggingface_api_key_here  # Optional, for multi-model e
 ```
 
 2. When running the examples with Dapr, use the helper script to resolve environment variables:
+
+#### macOS / Linux (Bash)
 ```bash
 # Get the environment variables from the .env file:
 export $(grep -v '^#' ../../.env | xargs)
@@ -42,10 +44,28 @@ export $(grep -v '^#' ../../.env | xargs)
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow.py
+uv run dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow.py
 
 # Clean up when done
 rm -rf $temp_resources_folder
+```
+
+#### Windows (PowerShell)
+```powershell
+# Get the environment variables from the .env file:
+Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object {
+    $name, $value = $_.Split('=', 2)
+    [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
+}
+
+# Create a temporary resources folder with resolved environment variables
+$temp_resources_folder = python ../resolve_env_templates.py ./components
+
+# Run your dapr command with the temporary resources
+uv run dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow.py
+
+# Clean up when done
+Remove-Item -Recurse -Force $temp_resources_folder
 ```
 
 Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
@@ -148,8 +168,8 @@ The quickstart also includes tracing variants (`sequential_workflow_tracing.py`)
 Run them the same way, swapping the script name:
 
 ```bash
-dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow_tracing.py
-dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow_multi_model_tracing.py
+uv run dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow_tracing.py
+uv run dapr run --app-id agent-workflow --resources-path $temp_resources_folder -- python sequential_workflow_multi_model_tracing.py
 ```
 
 **How it works:**
@@ -200,7 +220,7 @@ This example adds observability to the sequential workflow using Phoenix Arize f
 Run with tracing:
 
 ```bash
-dapr run --app-id agent-workflow-tracing --resources-path components/ -- python sequential_workflow_tracing.py
+uv run dapr run --app-id agent-workflow-tracing --resources-path components/ -- python sequential_workflow_tracing.py
 ```
 
 View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
@@ -216,7 +236,7 @@ This example demonstrates using multiple LLM providers within a single workflow,
 Run with tracing:
 
 ```bash
-dapr run --app-id multi-model-workflow --resources-path components/ -- python sequential_workflow_multi_model_tracing.py
+uv run dapr run --app-id multi-model-workflow --resources-path components/ -- python sequential_workflow_multi_model_tracing.py
 ```
 
 View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)

@@ -48,7 +48,7 @@ spec:
 
 Run the basic text completion example:
 ```bash
-dapr run --app-id dapr-llm --resources-path ./components -- python text_completion.py
+uv run dapr run --app-id dapr-llm --resources-path ./components -- python text_completion.py
 ```
 
 The script uses the `DaprChatClient` which connects to Dapr's `echo` LLM component:
@@ -110,6 +110,8 @@ OPENAI_API_KEY=your_api_key_here
 ```
 
 2. When running the examples with Dapr, use the helper script to resolve environment variables:
+
+#### macOS / Linux (Bash)
 ```bash
 # Get the environment variables from the .env file:
 export $(grep -v '^#' ../../.env | xargs)
@@ -122,6 +124,24 @@ dapr run --app-id dapr-llm --resources-path $temp_resources_folder -- python tex
 
 # Clean up when done
 rm -rf $temp_resources_folder
+```
+
+#### Windows (PowerShell)
+```powershell
+# Get the environment variables from the .env file:
+Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object {
+    $name, $value = $_.Split('=', 2)
+    [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
+}
+
+# Create a temporary resources folder with resolved environment variables
+$temp_resources_folder = python ../resolve_env_templates.py ./components
+
+# Run your dapr command with the temporary resources
+dapr run --app-id dapr-llm --resources-path $temp_resources_folder -- python text_completion.py
+
+# Clean up when done
+Remove-Item -Recurse -Force $temp_resources_folder
 ```
 
 Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
@@ -152,7 +172,7 @@ Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, 
 Run the application the same way as before:
 
 ```bash
-dapr run --app-id dapr-llm --resources-path components/ -- python text_completion.py
+uv run dapr run --app-id dapr-llm --resources-path components/ -- python text_completion.py
 ```
 
 **Expected output:** The OpenAI component will respond with a different reply to each prompt.
@@ -222,7 +242,7 @@ This resiliency configuration applies only to the `awsbedrock` component and set
 Run the application the same way as before:
 
 ```bash
-dapr run --app-id dapr-llm --resources-path components/ -- python text_completion.py
+uv run dapr run --app-id dapr-llm --resources-path components/ -- python text_completion.py
 ```
 
 When you run this, you'll see output showing Dapr's retry mechanism in action:

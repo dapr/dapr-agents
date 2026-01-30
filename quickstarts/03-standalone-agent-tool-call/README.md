@@ -7,6 +7,8 @@ This quickstart demonstrates how to create an AI agent with custom tools using D
 - Python >= 3.11
 - uv package manager
 - OpenAI API key
+- [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/)
+- Run `dapr init` to initialize the Dapr runtime
 
 ## Environment Setup
 
@@ -32,18 +34,37 @@ OPENAI_API_KEY=your_api_key_here
 ```
 
 2. When running the examples with Dapr, use the helper script to resolve environment variables:
+#### macOS / Linux (Bash)
 ```bash
 # Get the environment variables from the .env file:
-export $(grep -v '^#' ../../.env | xargs)
+export $(grep -v '^#' .env | xargs)
 
 # Create a temporary resources folder with resolved environment variables
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id weatheragent --resources-path $temp_resources_folder -- python standalone_weather_agent_dapr.py
+uv run dapr run --app-id weatheragent --resources-path $temp_resources_folder -- python standalone_weather_agent_dapr.py
 
 # Clean up when done
 rm -rf $temp_resources_folder
+```
+
+#### Windows (PowerShell)
+```powershell
+# Get the environment variables from the .env file:
+Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object {
+    $name, $value = $_.Split('=', 2)
+    [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
+}
+
+# Create a temporary resources folder with resolved environment variables
+$temp_resources_folder = python ../resolve_env_templates.py ./components
+
+# Run your dapr command with the temporary resources
+uv run dapr run --app-id weatheragent --resources-path $temp_resources_folder -- python standalone_weather_agent_dapr.py
+
+# Clean up when done
+Remove-Item -Recurse -Force $temp_resources_folder
 ```
 
 Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
@@ -75,7 +96,7 @@ This example shows how to create tools and an agent that can use them.
 
 Run the weather agent:
 ```bash
-python standalone_weather_agent_openai.py
+uv run python standalone_weather_agent_openai.py
 ```
 
 **Expected output:** The agent will identify the locations and use the get_weather tool to fetch weather information for each city.
@@ -94,7 +115,7 @@ Run the vector store agent example to see how to create an agent that can search
 ```bash
 source .venv/bin/activate
 
-python standalone_agent_with_vectorstore.py
+uv run python standalone_agent_with_vectorstore.py
 ```
 
 This example demonstrates how to create an agent with vector store capabilities, including logging, structured Document usage, and a tool to add a machine learning basics document.
@@ -172,7 +193,7 @@ Save the file in a `./components` dir.
 2. Run the agent with Dapr
 
 ```bash
-dapr run --app-id weatheragent --resources-path $temp_resources_folder -- python standalone_weather_agent_dapr.py
+uv run dapr run --app-id weatheragent --resources-path $temp_resources_folder -- python standalone_weather_agent_dapr.py
 ```
 
 ## Observability with Phoenix Arize
@@ -226,12 +247,12 @@ Create and agent with Phoenix OpenTelemetry integration. For example, see [`stan
 2. Run the instrumented agent:
 
 ```bash
-python standalone_weather_agent_tracing.py
+uv run python standalone_weather_agent_tracing.py
 ```
 
 Alternatively, you can run the DurableAgent using:
 ```bash
-dapr run --app-id weatheragent --resources-path ./components -- python standalone_durable_agent_tracing.py
+uv run dapr run --app-id weatheragent --resources-path ./components -- python standalone_durable_agent_tracing.py
 ```
 
 3. View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
@@ -278,8 +299,10 @@ The DurableAgent class is a workflow-based agent that extends the standard Agent
 ## Troubleshooting
 
 1. **OpenAI API Key**: Ensure your key is correctly set in the `.env` file
-2. **Tool Execution Errors**: Check tool function implementations for exceptions
-3. **Module Import Errors**: Verify that requirements are installed correctly
+2. **YAML Syntax Error**: If you see `did not find expected key`, check the indentation in your `./components/*.yaml` files. The list items under `metadata:` must be indented with at least 4 spaces.
+3. **daprd missing**: If you see `cannot find the path specified` for `daprd.exe`, run `dapr init`.
+4. **Tool Execution Errors**: Check tool function implementations for exceptions
+5. **Module Import Errors**: Verify that requirements are installed correctly
 
 ## Next Steps
 

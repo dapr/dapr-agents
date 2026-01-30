@@ -90,7 +90,7 @@ Set up the server for your MCP tools in `server.py`.
 1. Start the MCP server in Streamable HTTP mode:
 
 ```bash
-python server.py --server_type streamable-http --port 8000
+uv run python server.py --server_type streamable-http --port 8000
 ```
 
 2. In another terminal, render the components and start the agent:

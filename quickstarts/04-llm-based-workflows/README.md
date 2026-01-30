@@ -36,6 +36,7 @@ OPENAI_API_KEY=your_api_key_here
 
 2. When running the examples with Dapr, use the helper script to resolve environment variables:
 
+#### macOS / Linux (Bash)
 ```bash
 # Get the environment variables from the .env file:
 export $(grep -v '^#' ../../.env | xargs)
@@ -44,10 +45,28 @@ export $(grep -v '^#' ../../.env | xargs)
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python sequential_workflow.py
+uv run dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python sequential_workflow.py
 
 # Clean up when done
 rm -rf $temp_resources_folder
+```
+
+#### Windows (PowerShell)
+```powershell
+# Get the environment variables from the .env file:
+Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object {
+    $name, $value = $_.Split('=', 2)
+    [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
+}
+
+# Create a temporary resources folder with resolved environment variables
+$temp_resources_folder = python ../resolve_env_templates.py ./components
+
+# Run your dapr command with the temporary resources
+uv run dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python sequential_workflow.py
+
+# Clean up when done
+Remove-Item -Recurse -Force $temp_resources_folder
 ```
 
 > The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
@@ -107,7 +126,7 @@ spec:
 Run the simplest possible LLM workflow—one activity that asks for a short biography.
 
 ```bash
-dapr run --app-id dapr-agent-wf-single --resources-path $temp_resources_folder -- python 01_single_activity_workflow.py
+uv run dapr run --app-id dapr-agent-wf-single --resources-path $temp_resources_folder -- python 01_single_activity_workflow.py
 ```
 
 **Why start here?**
@@ -120,7 +139,7 @@ dapr run --app-id dapr-agent-wf-single --resources-path $temp_resources_folder -
 Extend the previous sample by enforcing a JSON schema with Pydantic.
 
 ```bash
-dapr run --app-id dapr-agent-wf-structured --resources-path $temp_resources_folder -- python 02_single_structured_activity_workflow.py
+uv run dapr run --app-id dapr-agent-wf-structured --resources-path $temp_resources_folder -- python 02_single_structured_activity_workflow.py
 ```
 
 **Key ideas**
@@ -132,7 +151,7 @@ dapr run --app-id dapr-agent-wf-structured --resources-path $temp_resources_fold
 This workflow chains two LLM activities: pick a LOTR character, then fetch a famous quote.
 
 ```bash
-dapr run --app-id dapr-agent-wf-sequence --resources-path $temp_resources_folder -- python 03_sequential_workflow.py
+uv run dapr run --app-id dapr-agent-wf-sequence --resources-path $temp_resources_folder -- python 03_sequential_workflow.py
 ```
 
 **How it works**
@@ -145,7 +164,7 @@ dapr run --app-id dapr-agent-wf-sequence --resources-path $temp_resources_folder
 The fan-out/fan-in pattern for research: generate questions, gather answers in parallel, then synthesize a report.
 
 ```bash
-dapr run --app-id dapr-agent-research --resources-path $temp_resources_folder -- python 04_parallel_workflow.py
+uv run dapr run --app-id dapr-agent-research --resources-path $temp_resources_folder -- python 04_parallel_workflow.py
 ```
 
 **How it works**
