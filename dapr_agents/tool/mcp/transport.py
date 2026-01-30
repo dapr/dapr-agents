@@ -4,8 +4,9 @@ import logging
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.client.websocket import websocket_client
+from httpx import AsyncClient
 
 from dapr_agents.types.tools import (
     SseServerParameters,
@@ -102,11 +103,12 @@ async def start_streamable_http_session(
     server_params = StreamableHTTPServerParameters(**params)
     try:
         read_stream, write_stream, _ = await stack.enter_async_context(
-            streamablehttp_client(
+            streamable_http_client(
                 url=server_params.url,
-                headers=server_params.headers,
-                timeout=server_params.timeout,
-                sse_read_timeout=server_params.sse_read_timeout,
+                http_client=AsyncClient(
+                    timeout=server_params.timeout.seconds,
+                    headers=server_params.headers,
+                ),
                 terminate_on_close=server_params.terminate_on_close,
             )
         )
