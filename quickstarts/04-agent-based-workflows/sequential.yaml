@@ -22,6 +22,11 @@ apps:
   command: ["python3", "expander_agent.py"]
   appPort: 8003
 
-- appID: workflow
+- appID: manager
   appDirPath: ./
-  command: ["python3", "01_sequential_workflow.py"]
+  command: ["python3", "manager_agent.py"]
+  appPort: 8004
+
+# - appID: workflow
+#   appDirPath: ./
+#   command: ["python3", "01_sequential_workflow.py"]

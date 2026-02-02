@@ -144,6 +144,29 @@ itinerary = yield ctx.call_activity(expand_itinerary, input=outline["content"])
 return itinerary["content"]
 ```
 
+### 2. Manager Agent Orchestration (manager_agent.py)
+
+This is an alternative option to the explicit workflow orchestrator with a durable manager agent that uses tools to call the same three agents.
+
+Run
+
+```bash
+dapr run -f sequential.yaml
+```
+
+Trigger the manager with a task (HTTP service mode):
+
+```bash
+curl -i -X POST http://localhost:8004/run \
+  -H "Content-Type: application/json" \
+  -d '{"task": "Plan a trip to Paris."}'
+```
+
+How It Works
+
+* The manager agent is a `DurableAgent` that exposes three tools: `call_extractor`, `call_planner`, and `call_expander`.
+* Each tool schedules a local workflow that calls the target agent as a child workflow (`agent_workflow`).
+* The manager chains tool calls (destination → outline → itinerary) and returns the final itinerary.
 ## Integration with Dapr
 
 Dapr Agents workflows leverage Dapr's core capabilities:

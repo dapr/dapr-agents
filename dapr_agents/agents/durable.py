@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import inspect
 import json
 import logging
 from typing import Any, Dict, Iterable, List, Optional
@@ -269,20 +270,44 @@ class DurableAgent(AgentBase):
                             len(tool_calls),
                             turn,
                         )
-                    parallel = [
-                        ctx.call_activity(
-                            self.run_tool,
-                            input={
-                                "tool_call": tc,
-                                "instance_id": ctx.instance_id,
-                                "time": ctx.current_utc_datetime.isoformat(),
-                                "order": idx,
-                            },
-                            retry_policy=self._retry_policy,
+                    tool_results_with_order: List[tuple[int, Dict[str, Any]]] = []
+                    activity_indices: List[int] = []
+                    activity_calls = []
+                    for idx, tc in enumerate(tool_calls):
+                        if self._tool_call_needs_workflow_context(tc):
+                            tool_result = yield from self._run_tool_with_workflow_context(
+                                ctx, tc, idx
+                            )
+                            tool_results_with_order.append((idx, tool_result))
+                        else:
+                            activity_indices.append(idx)
+                            activity_calls.append(
+                                ctx.call_activity(
+                                    self.run_tool,
+                                    input={
+                                        "tool_call": tc,
+                                        "instance_id": ctx.instance_id,
+                                        "time": ctx.current_utc_datetime.isoformat(),
+                                        "order": idx,
+                                    },
+                                    retry_policy=self._retry_policy,
+                                )
+                            )
+
+                    if activity_calls:
+                        activity_results: List[Dict[str, Any]] = yield wf.when_all(
+                            activity_calls
                         )
-                        for idx, tc in enumerate(tool_calls)
+                        tool_results_with_order.extend(
+                            zip(activity_indices, activity_results)
+                        )
+
+                    tool_results = [
+                        result
+                        for _, result in sorted(
+                            tool_results_with_order, key=lambda item: item[0]
+                        )
                     ]
-                    tool_results: List[Dict[str, Any]] = yield wf.when_all(parallel)
 
                     yield ctx.call_activity(
                         self.save_tool_results,
@@ -443,6 +468,60 @@ class DurableAgent(AgentBase):
     # ------------------------------------------------------------------
     # Activities
     # ------------------------------------------------------------------
+    def _tool_call_needs_workflow_context(self, tool_call: Dict[str, Any]) -> bool:
+        fn_name = tool_call.get("function", {}).get("name")
+        if not fn_name:
+            return False
+        tool = self.tool_executor.get_tool(fn_name)
+        if not tool:
+            return False
+        func = tool.func or tool._run
+        try:
+            return "_workflow_ctx" in inspect.signature(func).parameters
+        except (ValueError, TypeError):
+            return False
+
+    def _run_tool_with_workflow_context(
+        self,
+        ctx: wf.DaprWorkflowContext,
+        tool_call: Dict[str, Any],
+        order: int,
+    ):
+        fn_name = tool_call["function"]["name"]
+        raw_args = tool_call["function"].get("arguments", "")
+
+        try:
+            args = json.loads(raw_args) if raw_args else {}
+        except json.JSONDecodeError as exc:
+            raise AgentError(f"Invalid JSON in tool args: {exc}") from exc
+
+        tool = self.tool_executor.get_tool(fn_name)
+        if not tool:
+            raise AgentError(f"Tool '{fn_name}' not found.")
+
+        func = tool.func or tool._run
+        validated_args = tool._validate_and_prepare_args(func, **args)
+        if self._tool_call_needs_workflow_context(tool_call):
+            validated_args["_workflow_ctx"] = ctx
+
+        result = func(**validated_args)
+        if inspect.isgenerator(result):
+            result = yield from result
+        elif inspect.iscoroutine(result):
+            raise AgentError(
+                f"Tool '{fn_name}' returned a coroutine. Workflow-context tools must be sync or generator-based."
+            )
+
+        serialized_result = serialize_tool_result(result)
+        tool_result = ToolMessage(
+            content=serialized_result,
+            role="tool",
+            name=fn_name,
+            tool_call_id=tool_call["id"],
+        )
+        self.text_formatter.print_message(tool_result)
+        return tool_result.model_dump()
+
     def record_initial_entry(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
