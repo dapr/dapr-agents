@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from unittest.mock import MagicMock
 from pydantic import BaseModel, Field
 
-from dapr_agents.workflow.decorators.routers import message_router
+from dapr_agents.workflow.decorators.decorators import message_router
 from dapr_agents.workflow.utils.routers import (
     extract_message_models,
     extract_cloudevent_data,

@@ -12,6 +12,7 @@ from mcp.types import Tool as MCPTool, Prompt
 from dapr_agents.tool import AgentTool
 from dapr_agents.types import ToolError
 from dapr_agents.tool.mcp.transport import start_transport_session
+from opentelemetry import trace
 
 
 logger = logging.getLogger(__name__)
@@ -382,40 +383,47 @@ class MCPClient(BaseModel):
                 Raises:
                     ToolError: If execution fails or response is malformed.
                 """
-                logger.debug(f"Executing tool '{tool_name}' with args: {kwargs}")
-                try:
-                    if (
-                        client.persistent_connections
-                        and server_name in client._sessions
-                    ):
-                        session = client._sessions[server_name]
-                        result: CallToolResult = await session.call_tool(
-                            tool_name, kwargs
-                        )
-                        logger.debug(f"Used persistent session for tool '{tool_name}'")
-                    else:
-                        async with client.create_ephemeral_session(
-                            server_name
-                        ) as session:
+                tracer = trace.get_tracer(__name__)
+                with tracer.start_as_current_span("MCPClient.tool_execute") as span:
+                    span.set_attribute("mcp.server_name", server_name)
+                    span.set_attribute("mcp.tool_name", tool_name)
+                    span.set_attribute("mcp.tool_args", str(kwargs))
+                    logger.debug(f"Executing tool '{tool_name}' with args: {kwargs}")
+                    try:
+                        if (
+                            client.persistent_connections
+                            and server_name in client._sessions
+                        ):
+                            session = client._sessions[server_name]
                             result: CallToolResult = await session.call_tool(
                                 tool_name, kwargs
                             )
                             logger.debug(
-                                f"Used ephemeral session for tool '{tool_name}'"
+                                f"Used persistent session for tool '{tool_name}'"
                             )
-                    return client._process_tool_result(result)
-                except (ValidationError, ToolError, Exception) as e:
-                    err_type = type(e).__name__
-                    logger.error(f"{err_type} running tool: {str(e)}")
-                    return CallToolResult(
-                        isError=True,
-                        content=[
-                            TextContent(
-                                type="text",
-                                text=f"{err_type} during Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
-                            )
-                        ],
-                    )
+                        else:
+                            async with client.create_ephemeral_session(
+                                server_name
+                            ) as session:
+                                result: CallToolResult = await session.call_tool(
+                                    tool_name, kwargs
+                                )
+                                logger.debug(
+                                    f"Used ephemeral session for tool '{tool_name}'"
+                                )
+                        return client._process_tool_result(result)
+                    except (ValidationError, ToolError, Exception) as e:
+                        err_type = type(e).__name__
+                        logger.error(f"{err_type} running tool: {str(e)}")
+                        return CallToolResult(
+                            isError=True,
+                            content=[
+                                TextContent(
+                                    type="text",
+                                    text=f"{err_type} during Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
+                                )
+                            ],
+                        )
 
             return executor
 

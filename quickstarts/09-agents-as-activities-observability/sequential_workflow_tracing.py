@@ -6,85 +6,32 @@ import time
 
 import dapr.ext.workflow as wf
 from dapr.ext.workflow import DaprWorkflowContext
-from dotenv import load_dotenv
-from phoenix.otel import register
 
-from dapr_agents import Agent
-from dapr_agents.llm.dapr import DaprChatClient
-from dapr_agents.observability import DaprAgentsInstrumentor
-from dapr_agents.workflow.decorators import agent_activity
-
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# OpenTelemetry instrumentation (Phoenix)
-tracer_provider = register(
-    project_name="dapr-weather-agents",
-    protocol="http/protobuf",
-)
-instrumentor = DaprAgentsInstrumentor()
-instrumentor.instrument(tracer_provider=tracer_provider)
-
 runtime = wf.WorkflowRuntime()
-llm = DaprChatClient(component_name="openai")
-
-
-extractor = Agent(
-    name="DestinationExtractor",
-    role="Extract destination",
-    instructions=[
-        "Extract the main city from the user's message.",
-        "Return only the city name, nothing else.",
-    ],
-    llm=llm,
-)
-
-planner = Agent(
-    name="PlannerAgent",
-    role="Trip planner",
-    instructions=[
-        "Create a concise 3-day outline for the given destination.",
-        "Balance culture, food, and leisure activities.",
-    ],
-    llm=llm,
-)
-
-expander = Agent(
-    name="ItineraryAgent",
-    role="Itinerary expander",
-    llm=llm,
-    instructions=[
-        "Expand a 3-day outline into a detailed itinerary.",
-        "Include Morning, Afternoon, and Evening sections each day.",
-    ],
-)
 
 
 @runtime.workflow(name="chained_planner_workflow")
 def chained_planner_workflow(ctx: DaprWorkflowContext, user_msg: str) -> str:
-    dest = yield ctx.call_activity(extract_destination, input=user_msg)
-    outline = yield ctx.call_activity(plan_outline, input=dest["content"])
-    itinerary = yield ctx.call_activity(expand_itinerary, input=outline["content"])
-    return itinerary["content"]
-
-
-@runtime.activity(name="extract_destination")
-@agent_activity(agent=extractor)
-def extract_destination(ctx) -> dict:
-    pass
-
-
-@runtime.activity(name="plan_outline")
-@agent_activity(agent=planner)
-def plan_outline(ctx) -> dict:
-    pass
-
-
-@runtime.activity(name="expand_itinerary")
-@agent_activity(agent=expander)
-def expand_itinerary(ctx) -> dict:
-    pass
+    """Plan a 3-day trip using chained agent activities."""
+    dest = yield ctx.call_child_workflow(
+        workflow="agent_workflow",
+        input={"task": user_msg},
+        app_id="extractor",
+    )
+    outline = yield ctx.call_child_workflow(
+        workflow="agent_workflow",
+        input={"task": dest.get("content")},
+        app_id="planner",
+    )
+    itinerary = yield ctx.call_child_workflow(
+        workflow="agent_workflow",
+        input={"task": outline.get("content")},
+        app_id="expander",
+    )
+    return itinerary.get("content")
 
 
 if __name__ == "__main__":

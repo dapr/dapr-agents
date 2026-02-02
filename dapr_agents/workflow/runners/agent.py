@@ -608,8 +608,12 @@ class AgentRunner(WorkflowRunner):
             # First verify we're managing it
             with self._lock:
                 if agent in self._managed_agents:
-                    if agent.instrumentor is not None:
-                        agent.instrumentor.uninstrument()
+                    try:
+                        if agent.instrumentor is not None:
+                            agent.instrumentor.uninstrument()
+                    except AttributeError:
+                        # this happens if the agent has no instrumentor
+                        pass
                     agent.stop()  # This is safe as they'll return None if not started
                     self._managed_agents.remove(agent)
                 if len(self._managed_agents) == 0:
@@ -625,8 +629,12 @@ class AgentRunner(WorkflowRunner):
             with self._lock:
                 agents = list(self._managed_agents)
             for ag in agents:
-                if ag.instrumentor is not None:
-                    ag.instrumentor.uninstrument()
+                try:
+                    if ag.instrumentor is not None:
+                        ag.instrumentor.uninstrument()
+                except AttributeError:
+                    # this happens if the agent has no instrumentor
+                    pass
                 ag.stop()
             self._close_wf_client()
             self._close_dapr_client()

@@ -1,7 +1,7 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: workflow-statestore
+  name: agent-workflow
 spec:
   type: state.redis
   version: v1

@@ -3,7 +3,6 @@ name = "09-agents-as-activities-observability"
 version = "0.1.0"
 requires-python = ">=3.11, <3.14"
 dependencies = [
-    "arize-phoenix>=12.16.0",
     "dapr-agents",
     "python-dotenv>=1.2.1",
 ]

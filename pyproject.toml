@@ -43,13 +43,13 @@ dependencies = [
     "opentelemetry-api>=1.35.0,<2.0.0",
     "opentelemetry-exporter-otlp>=1.35.0,<2.0.0",
     "opentelemetry-proto>=1.35.0,<2.0.0",
-    "opentelemetry-instrumentation-requests>=0.60b0",
     "opentelemetry-instrumentation-grpc>=0.60b0",
     "wrapt>=1.14.0,<2.0.0",
     "openinference-instrumentation>=0.1.0,<1.0.0",
     "openinference-semantic-conventions>=0.1.0,<1.0.0",
     "opentelemetry.exporter.zipkin.json>=1.39.1",
     "tiktoken>=0.9.0",
+    "opentelemetry-instrumentation-httpx>=0.60b1",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",

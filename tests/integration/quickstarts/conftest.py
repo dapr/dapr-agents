@@ -9,6 +9,8 @@ import threading
 import re
 from pathlib import Path
 from typing import Optional, Dict, Any
+import yaml
+import tempfile
 import pytest
 
 logger = logging.getLogger(__name__)
@@ -57,11 +59,8 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
     # The venv's Python is typically a symlink, but we want to use it directly, not resolve it
     venv_python = venv_python.absolute()
 
-    # Skip installation if already done (for parallel execution)
-    installed_marker = venv_path / ".installed"
-    if installed_marker.exists():
-        logger.info(f"Dependencies already installed for {quickstart_dir}")
-    else:
+    # Always run uv sync (it's fast when dependencies are already installed)
+    if True:
         # Set up environment to ensure uv uses the venv Python
         # Add venv's bin directory to PATH so uv can find the venv Python
         venv_bin = venv_path / "bin"
@@ -85,7 +84,7 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
             """Try uv sync from workspace root"""
             # Run uv sync from workspace root to ensure all workspace dependencies are available
             result = subprocess.run(
-                ["uv", "sync", "--frozen"],
+                ["uv", "sync", "--frozen", "--all-extras"],
                 cwd=project_root,
                 env=install_env,
                 capture_output=True,
@@ -105,8 +104,24 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
 
         try_uv_install("requirements")
 
-        # Mark as installed so if we're running in parallel, we don't reinstall the dependencies.
-        installed_marker.touch()
+        # Also sync quickstart-specific dependencies if it has its own pyproject.toml
+        quickstart_pyproject = quickstart_dir / "pyproject.toml"
+        if quickstart_pyproject.exists():
+            logger.info(
+                f"Syncing quickstart-specific dependencies from {quickstart_pyproject}"
+            )
+            result = subprocess.run(
+                ["uv", "sync", "--frozen"],
+                cwd=quickstart_dir,
+                env=install_env,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to install quickstart dependencies: {result.stderr}\n{result.stdout}"
+                )
 
     return venv_python
 
@@ -460,15 +475,38 @@ def run_quickstart_multi_app(
 
     venv_python, _ = _setup_venv_and_python(quickstart_dir, project_root, create_venv)
 
-    # Resolve environment variables in components if needed
+    # Resolve environment variables in components or resources
+    tmp_path = None
     resources_path = quickstart_dir / "components"
     if resources_path.exists():
-        resources_path = _resolve_component_env_vars(
+        tmp_path = _resolve_component_env_vars(
             resources_path, cwd_path, venv_python, full_env
         )
 
+    # Build modified YAML with tmp_path if needed
+    yaml_to_use = dapr_yaml_path
+    if tmp_path and tmp_path != resources_path:
+        with open(dapr_yaml_path, "r") as f:
+            yaml_data = yaml.safe_load(f)
+        if yaml_data and "common" in yaml_data:
+            yaml_data["common"]["resourcesPath"] = str(tmp_path)
+        # Update appDirPath for each app to use absolute path to quickstart_dir
+        # This ensures scripts are found even when YAML is in a temp directory
+        if yaml_data and "apps" in yaml_data:
+            for app in yaml_data["apps"]:
+                if "appDirPath" in app:
+                    app_dir = app["appDirPath"]
+                    # If relative path, resolve it relative to quickstart_dir
+                    if not Path(app_dir).is_absolute():
+                        app["appDirPath"] = str((quickstart_dir / app_dir).resolve())
+        temp_dir = tempfile.mkdtemp(prefix="rendered_yaml_")
+        temp_yaml_path = Path(temp_dir) / dapr_yaml_path.name
+        with open(temp_yaml_path, "w") as f:
+            yaml.dump(yaml_data, f)
+        yaml_to_use = temp_yaml_path
+
     # Build dapr run -f command
-    cmd = ["dapr", "run", "-f", str(dapr_yaml_path)]
+    cmd = ["dapr", "run", "-f", str(yaml_to_use)]
 
     # If trigger_curl is provided, we need to run the process in the background,
     # wait for the server to be ready, send the curl request, then terminate
@@ -841,25 +879,27 @@ def _run_multi_app_with_completion_detection(
                             )
 
                             # Check if this is the orchestrator's main workflow
-                            if (
-                                orchestrator_workflow_name
-                                and workflow_name == orchestrator_workflow_name
-                            ):
-                                if not orchestrator_completion_detected:
-                                    orchestrator_completion_detected = True
-                                    orchestrator_failed = is_failed
-                                    completion_time = time.time()
-                                    if is_failed:
-                                        logger.error(
-                                            f"Orchestrator workflow '{orchestrator_workflow_name}' FAILED! "
-                                            f"This indicates a quickstart bug, not a test issue."
-                                        )
-                                    else:
-                                        logger.info(
-                                            f"Orchestrator workflow '{orchestrator_workflow_name}' completed! "
-                                            f"Unique workflow types: {len(completed_workflows)}, "
-                                            f"Total completion instances: {total_completions}"
-                                        )
+                            # If orchestrator_workflow_name is None, treat the first completed workflow as the orchestrator
+                            is_orchestrator = (
+                                orchestrator_workflow_name is None
+                                or workflow_name == orchestrator_workflow_name
+                            )
+
+                            if is_orchestrator and not orchestrator_completion_detected:
+                                orchestrator_completion_detected = True
+                                orchestrator_failed = is_failed
+                                completion_time = time.time()
+                                if is_failed:
+                                    logger.error(
+                                        f"Orchestrator workflow '{workflow_name}' FAILED! "
+                                        f"This indicates a quickstart bug, not a test issue."
+                                    )
+                                else:
+                                    logger.info(
+                                        f"Orchestrator workflow '{workflow_name}' completed! "
+                                        f"Unique workflow types: {len(completed_workflows)}, "
+                                        f"Total completion instances: {total_completions}"
+                                    )
 
                     # Also check for [agent-runner] completion message as a fallback
                     if (
@@ -1260,8 +1300,8 @@ def _run_with_pubsub_trigger(
         publish_cmd = [
             "dapr",
             "publish",
-            "--dapr-http-port",
-            str(dapr_http_port),
+            "--publish-app-id",
+            "e2e-test-publisher",
             "--pubsub",
             pubsub_name,
             "--topic",

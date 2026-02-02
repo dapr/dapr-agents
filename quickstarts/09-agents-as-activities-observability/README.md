@@ -130,7 +130,7 @@ spec:
 
 ## Sequential Agent Workflow
 
-This example shows how to chain multiple agents inside a Dapr workflow using the `@agent_activity` decorator. Each activity runs an agent with its own instructions, while the workflow orchestrates the overall plan.
+This example shows how to chain multiple agents inside a Dapr workflow by orchestrating agent-backed activities as child workflows. Each activity calls an agent with its own instructions using `ctx.call_child_workflow`, while the workflow orchestrates the overall plan.
 
 Run the workflow (render components first if you’re using `.env` placeholders):
 

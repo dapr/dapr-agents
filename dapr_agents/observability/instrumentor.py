@@ -63,6 +63,7 @@ from .wrappers import (
 )
 
 from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.trace import TracerProvider
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         self._tracer = None
         self._logger = None
         self._grpc_instrumentor: Optional[GrpcInstrumentorClient] = None
+        self._httpx_instrumentor: Optional[HTTPXClientInstrumentor] = None
 
     def instrumentation_dependencies(self) -> Collection[str]:
         """
@@ -162,6 +164,10 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
 
         # LLM provider integrations
         self._apply_llm_wrappers()
+
+        # Instrument HTTPX client for context propagation through MCPClient connection
+        self._httpx_instrumentor = HTTPXClientInstrumentor()
+        self._httpx_instrumentor.instrument()
 
         # Instrument gRPC client for context propagation to Dapr sidecar
         self._grpc_instrumentor = GrpcInstrumentorClient()

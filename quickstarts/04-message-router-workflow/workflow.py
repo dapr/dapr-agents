@@ -5,8 +5,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from dapr_agents.llm.dapr import DaprChatClient
-from dapr_agents.workflow.decorators import llm_activity
-from dapr_agents.workflow.decorators.routers import message_router
+from dapr_agents.workflow.decorators.decorators import message_router
 
 load_dotenv()
 
@@ -33,19 +32,17 @@ def blog_workflow(ctx: DaprWorkflowContext, wf_input: dict) -> str:
     return post
 
 
-@llm_activity(
-    prompt="Create a short outline about {topic}. Output 3-5 bullet points.",
-    llm=llm,
-)
 async def create_outline(ctx, topic: str) -> str:
-    # Implemented by the decorator; body can be empty.
-    pass
+    return str(
+        llm.generate(
+            prompt=f"Create a short outline about {topic}. Output 3-5 bullet points."
+        )
+    )
 
 
-@llm_activity(
-    prompt="Write a short blog post following this outline:\n{outline}",
-    llm=llm,
-)
 async def write_post(ctx, outline: str) -> str:
-    # Implemented by the decorator; body can be empty.
-    pass
+    return str(
+        llm.generate(
+            prompt=f"Write a short blog post following this outline:\n{outline}"
+        )
+    )

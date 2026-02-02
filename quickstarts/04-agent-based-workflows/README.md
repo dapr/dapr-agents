@@ -1,6 +1,6 @@
 # Agent-based Workflow Patterns
 
-This quickstart demonstrates how to orchestrate agentic tasks using Dapr Workflows and the `@agent_activity` decorator from Dapr Agents. You’ll learn how to compose multi-step workflows that call autonomous agents—each powered by LLMs—for reasoning, decision-making, and task execution.
+This quickstart demonstrates how to orchestrate agentic tasks using Dapr Workflows and agent-backed activities. You’ll learn how to compose multi-step workflows that call autonomous agents—each powered by LLMs—for reasoning, decision-making, and task execution.
 
 ## Prerequisites
 
@@ -130,8 +130,7 @@ How It Works
 
 #### Code Highlights
 
-* `@agent_activity` decorator: Wraps an activity function so that Dapr automatically delegates its implementation to an Agent.
-The function body can remain empty (pass); execution is routed through the agent’s reasoning loop.
+* Agent-backed activities: Use `ctx.call_child_workflow` to delegate execution to an Agent. The workflow coordinates agent tasks by calling each agent as a child workflow.
 * Agents: Each agent defines:
     * name, role, and instructions
     * a shared llm client (DaprChatClient)

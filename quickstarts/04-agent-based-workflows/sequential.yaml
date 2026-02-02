@@ -1,0 +1,27 @@
+# https://docs.dapr.io/developing-applications/local-development/multi-app-dapr-run/multi-app-template/#template-properties
+version: 1
+common:
+  resourcesPath: ./components
+  logLevel: info
+  appLogDestination: console
+  daprdLogDestination: console
+
+apps:
+- appID: extractor
+  appDirPath: ./
+  command: ["python3", "extractor_agent.py"]
+  appPort: 8001
+
+- appID: planner
+  appDirPath: ./
+  command: ["python3", "planner_agent.py"]
+  appPort: 8002
+
+- appID: expander
+  appDirPath: ./
+  command: ["python3", "expander_agent.py"]
+  appPort: 8003
+
+- appID: workflow
+  appDirPath: ./
+  command: ["python3", "01_sequential_workflow.py"]

@@ -36,7 +36,6 @@ members = [
     "07-agent-mcp-client-stdio",
     "07-agent-mcp-client-streamablehttp",
     "08-data-agent-mcp-chainlit",
-    "09-agent-observability",
     "09-agents-as-activities-observability",
     "dapr-agents",
 ]
@@ -344,33 +343,16 @@ requires-dist = [
 ]
 
 [[package]]
-name = "09-agent-observability"
-version = "0.1.0"
-source = { virtual = "quickstarts/09-agent-observability" }
-dependencies = [
-    { name = "dapr-agents" },
-    { name = "python-dotenv" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "dapr-agents", editable = "." },
-    { name = "python-dotenv", specifier = ">=1.2.1" },
-]
-
-[[package]]
 name = "09-agents-as-activities-observability"
 version = "0.1.0"
 source = { virtual = "quickstarts/09-agents-as-activities-observability" }
 dependencies = [
-    { name = "arize-phoenix" },
     { name = "dapr-agents" },
     { name = "python-dotenv" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "arize-phoenix", specifier = ">=12.16.0" },
     { name = "dapr-agents", editable = "." },
     { name = "python-dotenv", specifier = ">=1.2.1" },
 ]
@@ -1377,7 +1359,7 @@ dependencies = [
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-exporter-zipkin-json" },
     { name = "opentelemetry-instrumentation-grpc" },
-    { name = "opentelemetry-instrumentation-requests" },
+    { name = "opentelemetry-instrumentation-httpx" },
     { name = "opentelemetry-proto" },
     { name = "posthog" },
     { name = "protobuf" },
@@ -1452,7 +1434,7 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.35.0,<2.0.0" },
     { name = "opentelemetry-exporter-zipkin-json", specifier = ">=1.39.1" },
     { name = "opentelemetry-instrumentation-grpc", specifier = ">=0.60b0" },
-    { name = "opentelemetry-instrumentation-requests", specifier = ">=0.60b0" },
+    { name = "opentelemetry-instrumentation-httpx", specifier = ">=0.60b1" },
     { name = "opentelemetry-proto", specifier = ">=1.35.0,<2.0.0" },
     { name = "posthog", specifier = "<8.0.0" },
     { name = "protobuf", specifier = ">=6.31.0,<7.0.0" },
@@ -3701,6 +3683,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ff/e0/c140acb1b67070adac96562f3214a2d37e0a3dc248cea0d4feab3871ea81/opentelemetry_instrumentation_haystack-0.50.1.tar.gz", hash = "sha256:f50e592c7f4f08ff1055d559485077b18459c6bb8f30c69af18647868481b1f6", size = 4504, upload-time = "2025-12-16T08:26:59.535Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e2/d3/80542a8040cde83bd611e5b0c7a342619f25db2522e6856abc20ef866405/opentelemetry_instrumentation_haystack-0.50.1-py3-none-any.whl", hash = "sha256:541bfab709c09b73cdc6f878f503432115d14d92b883891493f54b961ad68333", size = 7536, upload-time = "2025-12-16T08:26:25.361Z" },
+]
+
+[[package]]
+name = "opentelemetry-instrumentation-httpx"
+version = "0.60b1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "opentelemetry-util-http" },
+    { name = "wrapt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/86/08/11208bcfcab4fc2023252c3f322aa397fd9ad948355fea60f5fc98648603/opentelemetry_instrumentation_httpx-0.60b1.tar.gz", hash = "sha256:a506ebaf28c60112cbe70ad4f0338f8603f148938cb7b6794ce1051cd2b270ae", size = 20611, upload-time = "2025-12-11T13:37:01.661Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/43/59/b98e84eebf745ffc75397eaad4763795bff8a30cbf2373a50ed4e70646c5/opentelemetry_instrumentation_httpx-0.60b1-py3-none-any.whl", hash = "sha256:f37636dd742ad2af83d896ba69601ed28da51fa4e25d1ab62fde89ce413e275b", size = 15701, upload-time = "2025-12-11T13:36:04.56Z" },
 ]
 
 [[package]]
