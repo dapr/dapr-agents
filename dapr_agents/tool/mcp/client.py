@@ -464,11 +464,29 @@ class MCPClient(BaseModel):
         Returns:
             Processed result as CallToolResult
         """
-
+        is_error = False
+        if hasattr(result, "status"):
+            # mcp pkg uses status: "success" or "error"
+            is_error = getattr(result, "status") == "error"
+        elif hasattr(result, "is_error"):
+            is_error = getattr(result, "is_error")
+        elif hasattr(result, "isError"):
+            is_error = getattr(result, "isError")
+        
+        # Sometimes MCP servers return validation errors without setting error status, 
+        # so we check the content for error indicators
+        if not is_error and result.content:
+            error_indicators = ["error", "missing", "invalid", "failed", "exception"]
+            content_text = " ".join(
+                str(c.text) if hasattr(c, "text") else str(c) for c in result.content
+            ).lower()
+            if any(indicator in content_text for indicator in error_indicators):
+                is_error = True
+        
         return CallToolResult(
-            isError=result.isError,
+            isError=is_error,
             content=result.content,
-            structuredContent=result.structuredContent,
+            structuredContent=getattr(result, "structuredContent", None),
         )
 
     def get_all_tools(self) -> List[AgentTool]:
