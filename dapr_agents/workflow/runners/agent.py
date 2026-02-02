@@ -609,7 +609,8 @@ class AgentRunner(WorkflowRunner):
             with self._lock:
                 if agent in self._managed_agents:
                     try:
-                        agent.instrumentor.uninstrument()
+                        if agent.instrumentor is not None:
+                            agent.instrumentor.uninstrument()
                     except AttributeError:
                         # this happens if the agent has no instrumentor
                         pass
@@ -629,7 +630,8 @@ class AgentRunner(WorkflowRunner):
                 agents = list(self._managed_agents)
             for ag in agents:
                 try:
-                    agent.instrumentor.uninstrument()
+                    if ag.instrumentor is not None:
+                        ag.instrumentor.uninstrument()
                 except AttributeError:
                     # this happens if the agent has no instrumentor
                     pass
