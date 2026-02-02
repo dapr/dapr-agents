@@ -34,7 +34,7 @@ dependencies = [
     "aiohttp>=3.9.0,<4.0.0",
     "cloudevents>=1.11.0,<2.0.0",
     "numpy>=2.2.2,<3.0.0",
-    "mcp>=1.20.0,<2.0.0",
+    "mcp>=1.26.0,<2.0.0",
     "websockets>=15.0.0,<17.0.0",
     "posthog<8.0.0",
     "protobuf>=6.31.0,<7.0.0",
