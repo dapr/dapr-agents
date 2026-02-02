@@ -117,7 +117,7 @@ Workflow Overview
 Run
 
 ```bash
-dapr run --app-id dapr-agent-planner --resources-path components/ -- python 01_sequential_workflow.py
+dapr run -f sequential.yaml
 ```
 
 How It Works
