@@ -461,9 +461,7 @@ class DaprInfra:
         self,
     ) -> None:
         if self._registry is None or self.registry_state is None:
-            raise RuntimeError(
-                "registry_state must be provided to use agent registry"
-            )
+            raise RuntimeError("registry_state must be provided to use agent registry")
         AgentRegistryAdapter.create_from_stack(registry=self._registry)
 
     def deregister_agentic_system(self, *, team: Optional[str] = None) -> None:
