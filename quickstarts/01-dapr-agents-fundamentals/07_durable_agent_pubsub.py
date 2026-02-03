@@ -28,23 +28,23 @@ async def main() -> None:
         # Configure the agent to use Dapr State Store for conversation history.
         memory=AgentMemoryConfig(
             store=ConversationDaprStateMemory(
-                store_name="conversation-statestore",
+                store_name="agent-memory",
                 session_id=Path(__file__).stem,
             )
         ),
         # This is where the execution state is stored
         state=AgentStateConfig(
-            store=StateStoreService(store_name="workflow-statestore"),
+            store=StateStoreService(store_name="agent-workflow"),
         ),
         # This is where the agent listens for incoming tasks.
         pubsub=AgentPubSubConfig(
-            pubsub_name="message-pubsub",
+            pubsub_name="agent-pubsub",
             agent_topic="weather.requests",
             broadcast_topic="agents.broadcast",
         ),
         # This is where the agent registry is found
         registry=AgentRegistryConfig(
-            store=StateStoreService(store_name="agents-registry"),
+            store=StateStoreService(store_name="agent-registry"),
         ),
     )
 

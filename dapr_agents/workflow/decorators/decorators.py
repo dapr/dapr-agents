@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import Any, Callable, List, Literal, Optional, Type, get_type_hints
+from typing import Any, Callable, List, Literal, Optional, Type, TypeVar, get_type_hints
 
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.routers import extract_message_models
@@ -10,6 +10,29 @@ from dapr_agents.workflow.utils.routers import extract_message_models
 logger = logging.getLogger(__name__)
 
 HttpMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
+
+R = TypeVar("R")
+
+
+def workflow_entry(func: Callable[..., R]) -> Callable[..., R]:
+    """
+    Mark a method/function as the workflow entrypoint for an Agent.
+
+    This decorator does not wrap the function; it simply annotates the callable
+    with `_is_workflow_entry = True` so AgentRunner can discover it on the agent
+    instance via reflection.
+
+    Usage:
+        class MyAgent:
+            @workflow_entry
+            def my_workflow(self, ctx: DaprWorkflowContext, wf_input: dict) -> str:
+                ...
+
+    Returns:
+        The same callable (unmodified), with an identifying attribute.
+    """
+    setattr(func, "_is_workflow_entry", True)  # type: ignore[attr-defined]
+    return func
 
 
 def message_router(

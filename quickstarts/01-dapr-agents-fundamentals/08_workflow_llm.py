@@ -5,7 +5,6 @@ from dapr.ext.workflow import DaprWorkflowContext, WorkflowRuntime
 from dotenv import load_dotenv
 
 from dapr_agents.llm.dapr import DaprChatClient
-from dapr_agents.workflow.decorators import llm_activity
 
 load_dotenv()
 
@@ -27,22 +26,21 @@ def analyze_topic(ctx: DaprWorkflowContext, topic: str):
 
 
 @wfr.activity(name="create_outline")
-@llm_activity(
-    prompt="Create a very short outline about the topic '{topic}'. Provide 5 bullet points only.",
-    llm=llm,
-)
 def create_outline(ctx, topic: str) -> str:
-    # The llm_activity decorator handles the actual LLM invocation.
-    pass
+    return str(
+        llm.generate(
+            prompt=f"Create a very short outline about the topic '{topic}'. Provide 5 bullet points only."
+        )
+    )
 
 
 @wfr.activity(name="write_blog")
-@llm_activity(
-    prompt="Write a short (2 paragraphs) friendly blog post following this outline:\n{outline}",
-    llm=llm,
-)
 def write_blog(ctx, outline: str) -> str:
-    pass
+    return str(
+        llm.generate(
+            prompt=f"Write a short (2 paragraphs) friendly blog post following this outline:\n{outline}"
+        )
+    )
 
 
 if __name__ == "__main__":

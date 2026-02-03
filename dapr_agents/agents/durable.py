@@ -133,7 +133,8 @@ class DurableAgent(AgentBase):
             agent_observability=agent_observability,
         )
 
-        apply_grpc_options(self.workflow_grpc_options)
+        grpc_options = getattr(self, "workflow_grpc_options", None)
+        apply_grpc_options(grpc_options)
 
         self._runtime: wf.WorkflowRuntime = runtime or wf.WorkflowRuntime()
         self._runtime_owned = runtime is None
@@ -249,7 +250,6 @@ class DurableAgent(AgentBase):
                         self.execution.max_iterations,
                         ctx.instance_id,
                     )
-
                 assistant_response: Dict[str, Any] = yield ctx.call_activity(
                     self.call_llm,
                     input={
@@ -283,7 +283,6 @@ class DurableAgent(AgentBase):
                         for idx, tc in enumerate(tool_calls)
                     ]
                     tool_results: List[Dict[str, Any]] = yield wf.when_all(parallel)
-
                     yield ctx.call_activity(
                         self.save_tool_results,
                         input={
@@ -292,7 +291,6 @@ class DurableAgent(AgentBase):
                         },
                         retry_policy=self._retry_policy,
                     )
-
                     task = None  # prepare for next turn
                     continue
 
@@ -511,12 +509,12 @@ class DurableAgent(AgentBase):
         Raises:
             AgentError: If the LLM call fails or yields no message.
         """
+        instance_id = payload.get("instance_id")
+        task = payload.get("task")
+
         # Load latest state to ensure we have current data
         if self.state_store:
             self.load_state()
-
-        instance_id = payload.get("instance_id")
-        task = payload.get("task")
 
         chat_history = self._reconstruct_conversation_history(instance_id)
         messages = self.prompting_helper.build_initial_messages(
@@ -550,7 +548,6 @@ class DurableAgent(AgentBase):
         try:
             response: LLMChatResponse = self.llm.generate(**generate_kwargs)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("LLM generate failed: %s", exc)
             raise AgentError(str(exc)) from exc
 
         assistant_message = response.get_message()
@@ -581,7 +578,6 @@ class DurableAgent(AgentBase):
         tool_call = payload.get("tool_call", {})
         fn_name = tool_call["function"]["name"]
         raw_args = tool_call["function"].get("arguments", "")
-
         try:
             args = json.loads(raw_args) if raw_args else {}
         except json.JSONDecodeError as exc:
@@ -592,7 +588,6 @@ class DurableAgent(AgentBase):
 
         result = self._run_asyncio_task(_execute_tool())
 
-        # Debug: Log the actual result before serialization
         logger.debug(f"Tool {fn_name} returned: {result} (type: {type(result)})")
 
         # Serialize the tool result using centralized utility
@@ -607,7 +602,6 @@ class DurableAgent(AgentBase):
 
         # Print the tool result for visibility
         self.text_formatter.print_message(tool_result)
-
         return tool_result.model_dump()
 
     def save_tool_results(

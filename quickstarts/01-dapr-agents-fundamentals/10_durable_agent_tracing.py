@@ -28,12 +28,12 @@ async def main() -> None:
         llm=DaprChatClient(component_name="llm-provider"),
         memory=AgentMemoryConfig(
             store=ConversationDaprStateMemory(
-                store_name="conversation-statestore",
+                store_name="agent-memory",
                 session_id=Path(__file__).stem,
             )
         ),
         state=AgentStateConfig(
-            store=StateStoreService(store_name="workflow-statestore"),
+            store=StateStoreService(store_name="agent-workflow"),
         ),
         agent_observability=AgentObservabilityConfig(
             enabled=True,

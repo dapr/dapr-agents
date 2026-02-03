@@ -23,7 +23,7 @@ dependencies = [
     "pyyaml>=6.0.1,<7.0.0",
     "requests>=2.32.4,<3.0.0",
     "openapi-pydantic>=0.5.0,<0.6.0",
-    "rich>=13.9.4,<14.0.0",
+    "rich>=13.9.4,<15.0.0",
     "openai>=1.75.0,<3.0.0",
     "azure-identity>=1.21.0,<2.0.0",
     "huggingface_hub>=0.33.4,<1.0.0",
@@ -34,8 +34,8 @@ dependencies = [
     "aiohttp>=3.9.0,<4.0.0",
     "cloudevents>=1.11.0,<2.0.0",
     "numpy>=2.2.2,<3.0.0",
-    "mcp>=1.20.0,<2.0.0",
-    "websockets>=15.0.0,<16.0.0",
+    "mcp>=1.26.0,<2.0.0",
+    "websockets>=15.0.0,<17.0.0",
     "posthog<8.0.0",
     "protobuf>=6.31.0,<7.0.0",
     "docker>=7.1.0",
@@ -43,12 +43,13 @@ dependencies = [
     "opentelemetry-api>=1.35.0,<2.0.0",
     "opentelemetry-exporter-otlp>=1.35.0,<2.0.0",
     "opentelemetry-proto>=1.35.0,<2.0.0",
-    "opentelemetry-instrumentation-requests>=0.60b0",
     "opentelemetry-instrumentation-grpc>=0.60b0",
     "wrapt>=1.14.0,<2.0.0",
     "openinference-instrumentation>=0.1.0,<1.0.0",
     "openinference-semantic-conventions>=0.1.0,<1.0.0",
     "opentelemetry.exporter.zipkin.json>=1.39.1",
+    "tiktoken>=0.9.0",
+    "opentelemetry-instrumentation-httpx>=0.60b1",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -65,7 +66,7 @@ classifiers = [
 [project.optional-dependencies]
 vectorstore = [
     "torch>=2.7.0",
-    "sentence-transformers>=4.1.0,<5.0.0",
+    "sentence-transformers>=4.1.0,<6.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.8.0,<4.0.0",
 ]
@@ -73,9 +74,9 @@ vectorstore = [
 [dependency-groups]
 dev = [
     "mypy>=1.15.0,<2.0.0",
-    "tox>=4.0.0,<5.0.0",
     "pip-tools>=7.4.1,<8.0.0",
     "cachetools>=6.1.0,<7.0.0",
+    "flake8>=7.3.0",
     "ruff>=0.14.11",
 ]
 test = [
@@ -90,7 +91,7 @@ test = [
 ]
 vectorstore = [
     "torch>=2.7.0",
-    "sentence-transformers>=4.1.0,<5.0.0",
+    "sentence-transformers>=4.1.0,<6.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.8.0,<4.0.0",
 ]

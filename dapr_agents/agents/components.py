@@ -29,7 +29,7 @@ from dapr.ext.agent_core import AgentRegistryAdapter
 logger = logging.getLogger(__name__)
 
 
-class AgentComponents:
+class DaprInfra:
     """
     Thin infrastructure layer for agents/orchestrators.
 
