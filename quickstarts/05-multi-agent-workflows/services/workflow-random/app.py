@@ -3,14 +3,13 @@ import os
 
 from dotenv import load_dotenv
 
-import dapr.ext.workflow as wf
+from dapr_agents.agents import DurableAgent
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
 )
-from dapr_agents.agents.orchestrators.random import RandomOrchestrator
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.workflow.runners import AgentRunner
 
@@ -24,7 +23,7 @@ logger = logging.getLogger("fellowship.orchestrator.random.app")
 
 
 def main() -> None:
-    orchestrator = RandomOrchestrator(
+    orchestrator = DurableAgent(
         name=os.getenv("ORCHESTRATOR_NAME", "FellowshipRandom"),
         pubsub=AgentPubSubConfig(
             pubsub_name=os.getenv("PUBSUB_NAME", "messagepubsub"),
@@ -49,8 +48,8 @@ def main() -> None:
             max_iterations=int(os.getenv("MAX_ITERATIONS", "1"))
         ),
         agent_metadata={"legend": "One orchestrator to guide them all."},
-        timeout_seconds=int(os.getenv("TIMEOUT_SECONDS", "45")),
-        runtime=wf.WorkflowRuntime(),
+        orchestrator=True,
+        orchestration_mode="random",  # Random agent selection with avoidance
     )
 
     runner = AgentRunner()

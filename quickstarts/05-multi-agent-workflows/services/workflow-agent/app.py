@@ -60,10 +60,11 @@ def main() -> None:
         registry=registry,
         execution=execution,
         agent_metadata={
-            "type": "LLMOrchestrator",
-            "description": "LLM-driven Orchestrator",
+            "type": "AgentOrchestrator",
+            "description": "Plan-based LLM-driven Orchestrator",
         },
         orchestrator=True,
+        orchestration_mode="agent",  # Plan-based orchestration with LLM decisions
     )
 
     runner = AgentRunner()

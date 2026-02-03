@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --package 05-multi-agent-workflows
 COPY uv.lock pyproject.toml /app/
 COPY dapr_agents /app/dapr_agents
-COPY quickstarts/05-multi-agent-workflows/services/workflow-llm/app.py /app/app.py
+COPY quickstarts/05-multi-agent-workflows/services/workflow-agent/app.py /app/app.py
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-editable --package 05-multi-agent-workflows
 
