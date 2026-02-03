@@ -52,10 +52,9 @@ class RoundRobinOrchestrationStrategy(OrchestrationStrategy):
         # Sort agent names for deterministic ordering
         agent_names = sorted(agents.keys())
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Initialized round-robin orchestration with {len(agent_names)} agents: {agent_names}"
-            )
+        logger.info(
+            f"Initialized round-robin orchestration with {len(agent_names)} agents: {agent_names}"
+        )
 
         return {
             "agent_names": agent_names,
@@ -105,11 +104,10 @@ class RoundRobinOrchestrationStrategy(OrchestrationStrategy):
             # First turn, just use the original task
             instruction = task
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Round-robin turn {turn}: Selected agent '{next_agent}' "
-                f"(index {agent_index} of {len(agent_names)})"
-            )
+        logger.info(
+            f"Round-robin turn {turn}: Selected agent '{next_agent}' "
+            f"(index {agent_index} of {len(agent_names)})"
+        )
 
         return {
             "agent": next_agent,
@@ -134,9 +132,8 @@ class RoundRobinOrchestrationStrategy(OrchestrationStrategy):
         Returns:
             Updated state with last_response stored
         """
-        if not ctx.is_replaying:
-            agent_name = response.get("name", "unknown")
-            logger.info(f"Processed response from agent '{agent_name}'")
+        agent_name = response.get("name", "unknown")
+        logger.info(f"Processed response from agent '{agent_name}'")
 
         return {
             "updated_state": {
@@ -196,8 +193,7 @@ class RoundRobinOrchestrationStrategy(OrchestrationStrategy):
                 "Round-robin orchestration completed with no agent responses."
             )
 
-        if not ctx.is_replaying:
-            logger.info("Round-robin orchestration finalized")
+        logger.info("Round-robin orchestration finalized")
 
         return {
             "role": "assistant",

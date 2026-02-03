@@ -55,10 +55,9 @@ class RandomOrchestrationStrategy(OrchestrationStrategy):
 
         agent_names = list(agents.keys())
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Initialized random orchestration with {len(agent_names)} agents: {agent_names}"
-            )
+        logger.info(
+            f"Initialized random orchestration with {len(agent_names)} agents: {agent_names}"
+        )
 
         return {
             "agent_names": agent_names,
@@ -108,11 +107,10 @@ class RandomOrchestrationStrategy(OrchestrationStrategy):
             # First turn, just use the original task
             instruction = task
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Random turn {turn}: Selected agent '{next_agent}' "
-                f"(previous: {previous_agent or 'none'})"
-            )
+        logger.info(
+            f"Random turn {turn}: Selected agent '{next_agent}' "
+            f"(previous: {previous_agent or 'none'})"
+        )
 
         return {
             "agent": next_agent,
@@ -164,8 +162,7 @@ class RandomOrchestrationStrategy(OrchestrationStrategy):
         """
         agent_name = response.get("name", "unknown")
 
-        if not ctx.is_replaying:
-            logger.info(f"Processed response from agent '{agent_name}'")
+        logger.info(f"Processed response from agent '{agent_name}'")
 
         return {
             "updated_state": {
@@ -224,8 +221,7 @@ class RandomOrchestrationStrategy(OrchestrationStrategy):
             # No responses collected (shouldn't happen in normal operation)
             final_content = "Random orchestration completed with no agent responses."
 
-        if not ctx.is_replaying:
-            logger.info("Random orchestration finalized")
+        logger.info("Random orchestration finalized")
 
         return {
             "role": "assistant",
