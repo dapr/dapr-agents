@@ -17,7 +17,6 @@ from dapr_agents.agents.orchestrators import (
     RandomOrchestrator,
     RoundRobinOrchestrator,
 )
-from dapr_agents.agents import AgentMetadataSchema
 
 __all__ = [
     "Agent",
@@ -37,7 +36,6 @@ __all__ = [
     "LLMOrchestrator",
     "RandomOrchestrator",
     "RoundRobinOrchestrator",
-    "AgentMetadataSchema",
 ]
 
 try:

@@ -464,9 +464,7 @@ class DaprInfra:
             raise RuntimeError(
                 "registry_state must be provided to use agent registry"
             )
-        AgentRegistryAdapter(
-            registry=self._registry, framework="dapr-agents", agent=self
-        )  # type: ignore[arg-type]
+        AgentRegistryAdapter.create_from_stack(registry=self._registry)
 
     def deregister_agentic_system(self, *, team: Optional[str] = None) -> None:
         """

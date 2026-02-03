@@ -358,13 +358,7 @@ class AgentBase:
         except Exception:  # noqa: BLE001
             logger.warning("Agent failed to load persisted state; starting fresh.")
 
-        if self.registry_state is not None:
-            try:
-                self.register_agentic_system()
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "Could not register orchestrator in registry.", exc_info=True
-                )
+        self.register_agentic_system()
 
     # ------------------------------------------------------------------
     # DaprInfra delegation properties and methods
@@ -427,9 +421,9 @@ class AgentBase:
         """Delegate to DaprInfra."""
         return self._infra.save_state()
 
-    def register_agentic_system(self, *, metadata=None, team=None):
+    def register_agentic_system(self):
         """Delegate to DaprInfra."""
-        return self._infra.register_agentic_system(metadata=metadata, team=team)
+        return self._infra.register_agentic_system()
 
     def get_agents_metadata(
         self, *, exclude_self=True, exclude_orchestrator=False, team=None
