@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from datetime import datetime, timezone
 import json
 import logging
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Literal
 from os import getenv
 
 import dapr.ext.workflow as wf
-from pydantic import BaseModel
 
+from dapr_agents.agents.orchestration import (
+    OrchestrationStrategy,
+    AgentOrchestrationStrategy,
+    RoundRobinOrchestrationStrategy,
+    RandomOrchestrationStrategy,
+)
 from dapr_agents.agents.orchestrators.llm.prompts import (
     NEXT_STEP_PROMPT,
     PROGRESS_CHECK_PROMPT,
     SUMMARY_GENERATION_PROMPT,
-    TASK_INITIAL_PROMPT,
     TASK_PLANNING_PROMPT,
 )
 from dapr_agents.agents.orchestrators.llm.schemas import (
@@ -106,6 +109,7 @@ class DurableAgent(AgentBase):
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
         agent_observability: Optional[AgentObservabilityConfig] = None,
         orchestrator: bool = False,
+        orchestration_mode: Optional[Literal["agent", "roundrobin", "random"]] = None,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -137,6 +141,9 @@ class DurableAgent(AgentBase):
             retry_policy: Durable retry policy configuration.
             agent_observability: Observability configuration for tracing/logging.
             orchestrator: Whether this agent is an orchestrator (affects registration).
+            orchestration_mode: Orchestration strategy to use when orchestrator=True.
+                Options: "agent" (plan-based with LLM), "roundrobin" (sequential),
+                "random" (random with avoidance). Defaults to "agent" if orchestrator=True.
         """
         super().__init__(
             pubsub=pubsub,
@@ -189,6 +196,32 @@ class DurableAgent(AgentBase):
             if retry_policy.retry_timeout
             else None,
         )
+
+        # Initialize orchestration strategy if this agent is an orchestrator
+        self._orchestration_strategy: Optional[OrchestrationStrategy] = None
+        if self.orchestrator:
+            # Default to "agent" mode if no mode specified
+            mode = orchestration_mode or "agent"
+
+            if mode == "agent":
+                self._orchestration_strategy = AgentOrchestrationStrategy(
+                    llm=self.llm,
+                    activities=self,
+                )
+            elif mode == "roundrobin":
+                self._orchestration_strategy = RoundRobinOrchestrationStrategy()
+            elif mode == "random":
+                self._orchestration_strategy = RandomOrchestrationStrategy()
+            else:
+                raise ValueError(
+                    f"Invalid orchestration_mode: {mode}. "
+                    f"Must be one of: 'agent', 'roundrobin', 'random'"
+                )
+
+            # Store orchestrator name for strategy finalization
+            self._orchestration_strategy.orchestrator_name = self.name
+
+            logger.info(f"Initialized orchestrator '{self.name}' with mode '{mode}'")
 
     # ------------------------------------------------------------------
     # Runtime accessors
@@ -268,318 +301,114 @@ class DurableAgent(AgentBase):
         turn = 0
 
         try:
-            for turn in range(1, self.execution.max_iterations + 1):
+            # Delegate to orchestration workflow if this agent is an orchestrator
+            if self._orchestration_strategy:
                 if not ctx.is_replaying:
-                    logger.debug(
-                        "Agent %s turn %d/%d (instance=%s)",
+                    logger.info(
+                        "Agent %s delegating to orchestration_workflow (instance=%s)",
                         self.name,
-                        turn,
-                        self.execution.max_iterations,
                         ctx.instance_id,
                     )
-                
-                if self.orchestrator:
-                    agents = yield ctx.call_activity(self._get_available_agents)
 
-                    if turn == 1:
-                        init = yield ctx.call_activity(
-                            self.call_llm,
-                            input={
-                                "instance_id": ctx.instance_id,
-                                "task": f"{TASK_PLANNING_PROMPT.format(
-                                    task=task, agents=agents, plan_schema=schemas.plan
-                                )}",
-                                "time": ctx.current_utc_datetime.isoformat(),
-                                "response_format": IterablePlanStep.model_construct().model_dump_json(),
-                            },
-                        )
-
-                        content = init.get("content", "{}")
-                        try:
-                            parsed_content = json.loads(content)
-                            plan = parsed_content.get("objects", [])
-                        except json.JSONDecodeError as e:
-                            logger.error(f"Failed to parse LLM response content: {e}")
-                            plan = []
-
-                        if not ctx.is_replaying:
-                            logger.info(
-                                "Received plan from initialization with %d steps", len(plan)
-                            )
-
-                        if not ctx.is_replaying:
-                            logger.info(
-                                "Broadcasting initial plan with %d steps to all agents",
-                                len(plan),
-                            )
-                        yield ctx.call_activity(
-                            self.broadcast_message_to_agents,
-                            input={"message": plan},
-                        )
-                        if not ctx.is_replaying:
-                            logger.info("Initial plan broadcast completed")
-                        
-                        plan_content = json.dumps({"objects": plan}, indent=2)
-                        plan_message = {
-                            "role": "assistant",
-                            "name": self.name,
-                            "content": plan_content,
-                        }
-                        yield ctx.call_activity(
-                            self._save_plan_message,
-                            input={
-                                "instance_id": ctx.instance_id,
-                                "plan_message": plan_message,
-                                "time": ctx.current_utc_datetime.isoformat(),
-                            },
-                            retry_policy=self._retry_policy,
-                        )
-                    
-                    else:
-                        container = self._get_entry_container()
-                        entry = container.get(ctx.instance_id) if container else None
-                        messages = getattr(entry, "messages") if entry and hasattr(entry, "messages") else []
-                        plan = self.get_plan_from_messages(messages) or []
-                        if not ctx.is_replaying:
-                            logger.info(
-                                "Loaded plan from state with %d steps (turn %d)",
-                                len(plan),
-                                turn,
-                            )
-                        if len(plan) == 0:
-                            if not ctx.is_replaying:
-                                logger.info(
-                                    "No plan found in state; ending workflow for agent %s (instance=%s)",
-                                    self.name,
-                                    ctx.instance_id,
-                                )
-                            raise AgentError("No plan available; cannot continue orchestration.")
-                        
-                    next_step = yield ctx.call_activity(
-                        self.call_llm,
-                        input={
-                            "task": f"{NEXT_STEP_PROMPT.format(
-                                task=task,
-                                agents=agents,
-                                plan=plan,
-                                next_step_schema=schemas.next_step,
-                            )}",
-                            "time": ctx.current_utc_datetime.isoformat(),
-                            "response_format": NextStep.model_construct().model_dump_json(),
-                        },
-                    )
-
-                    try:
-                        parsed_content = json.loads(next_step.get("content", "{}"))
-                        next_agent = parsed_content.get("next_agent")
-                        instruction = parsed_content.get("instruction")
-                        step_id = parsed_content.get("step")
-                        substep_id = parsed_content.get("substep")
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse LLM response content: {e}")
-                        next_agent = None
-                        instruction = None
-                        step_id = None
-                        substep_id = None
-
-                    if not ctx.is_replaying:
-                        logger.info(f"Next step decided: agent={next_agent}, step={step_id}, substep={substep_id}, instruction={instruction}")
-
-                    is_valid = yield ctx.call_activity(
-                        self._validate_next_step,
-                        input={
-                            "instance_id": ctx.instance_id,
-                            "plan": self._convert_plan_objects_to_dicts(plan),
-                            "step": step_id,
-                            "substep": substep_id,
-                        },
-                    )
-
-                    if is_valid:
-                        if not ctx.is_replaying:
-                            self.print_interaction(
-                                source_agent_name=self.name,
-                                target_agent_name=next_agent,
-                                message=instruction,
-                        )
-                            
-                        agents = self.list_team_agents(include_self=False, team=self.effective_team())
-                        agent_appId = agents[next_agent]["agent"]["appid"]
-
-                        retry_policy = wf.RetryPolicy(
-                            max_number_of_attempts=2,
-                            first_retry_interval=timedelta(milliseconds=100),
-                            max_retry_interval=timedelta(seconds=3),
-                        )
-
-                        if not ctx.is_replaying:
-                            logger.info(f"Invoking agent {next_agent} at app ID {agent_appId} for step {step_id}, substep {substep_id}")
-
-                        result = yield ctx.call_child_workflow(
-                            workflow="agent_workflow",
-                            input={"task": instruction },
-                            app_id=agent_appId,
-                            retry_policy=retry_policy,
-                        )
-
-                        if not ctx.is_replaying:
-                            self.print_interaction(
-                                source_agent_name=result.get("name", ""),
-                                target_agent_name=self.name,
-                                message=result.get("content", ""),
-                            )
-                        target = find_step_in_plan(plan, step_id, substep_id)
-                        if target:
-                            target["status"] = "completed"
-                        plan = update_step_statuses(plan)
-
-                        processed = yield ctx.call_activity(
-                            self.call_llm,
-                            input={
-                                "task": f"{PROGRESS_CHECK_PROMPT.format(
-                                    task=task,
-                                    plan=plan,
-                                    step=step_id,
-                                    substep=substep_id,
-                                    results=result.get("content", ""),
-                                    progress_check_schema=schemas.progress_check,
-                                )}",
-                                "time": ctx.current_utc_datetime.isoformat(),
-                                "response_format": ProgressCheckOutput.model_construct().model_dump_json(),
-                            }
-                        )
-
-                        progress = yield ctx.call_activity(
-                            self._parse_progress, 
-                            input={
-                                "content": processed.get("content", ""),
-                                "instance_id": ctx.instance_id,
-                                "plan_objects": plan,
-                            },
-                        )
-
-                        plan = progress["plan"]
-                        verdict = progress["verdict"]
-
-                        plan_content = json.dumps({"objects": plan}, indent=2)
-                        plan_message = {
-                            "role": "assistant",
-                            "name": self.name,
-                            "content": plan_content,
-                        }
-                        yield ctx.call_activity(
-                            self._save_plan_message,
-                            input={
-                                "instance_id": ctx.instance_id,
-                                "plan_message": plan_message,
-                                "time": ctx.current_utc_datetime.isoformat(),
-                            },
-                            retry_policy=self._retry_policy,
-                        )
-
-                    else:
-                        verdict = "continue"
-                        processed = {
-                            "name": self.name,
-                            "role": "user",
-                            "content": f"Step {step_id}, substep {substep_id} not found. Adjusting workflow…",
-                        }
-                    
-                    if verdict != "continue" or turn == self.execution.max_iterations:
-                        final_message = yield ctx.call_activity(
-                            self._finalize_workflow_with_summary,
-                            input={
-                                "instance_id": ctx.instance_id,
-                                "task": task or "",
-                                "verdict": verdict
-                                if verdict != "continue"
-                                else "max_iterations_reached",
-                                "plan_objects": self._convert_plan_objects_to_dicts(plan),
-                                "step_id": step_id,
-                                "substep_id": substep_id,
-                                "agent": next_agent if is_valid else self.name,
-                                "result": processed["content"],
-                                "wf_time": ctx.current_utc_datetime.isoformat(),
-                            },
-                        )
-                        if not ctx.is_replaying:
-                            logger.info("Workflow %s finalized.", ctx.instance_id)
-
-                        return final_message
-                    else:
-                        task = processed["content"]
-                        continue
-
-                assistant_response: Dict[str, Any] = yield ctx.call_activity(
-                    self.call_llm,
+                final_message = yield ctx.call_child_workflow(
+                    workflow=self.orchestration_workflow,
                     input={
                         "task": task,
                         "instance_id": ctx.instance_id,
-                        "time": ctx.current_utc_datetime.isoformat(),
+                        "triggering_workflow_instance_id": trigger_instance_id,
+                        "start_time": ctx.current_utc_datetime.isoformat(),
                     },
                     retry_policy=self._retry_policy,
                 )
 
-                tool_calls = assistant_response.get("tool_calls") or []
-                if tool_calls:
+                if not ctx.is_replaying:
+                    logger.info(
+                        "Orchestration workflow completed (instance=%s)",
+                        ctx.instance_id,
+                    )
+
+            # Standard agent execution loop
+            else:
+                for turn in range(1, self.execution.max_iterations + 1):
                     if not ctx.is_replaying:
                         logger.debug(
-                            "Agent %s executing %d tool call(s) on turn %d",
+                            "Agent %s turn %d/%d (instance=%s)",
                             self.name,
-                            len(tool_calls),
                             turn,
+                            self.execution.max_iterations,
+                            ctx.instance_id,
                         )
-                    parallel = [
-                        ctx.call_activity(
-                            self.run_tool,
-                            input={
-                                "tool_call": tc,
-                                "instance_id": ctx.instance_id,
-                                "time": ctx.current_utc_datetime.isoformat(),
-                                "order": idx,
-                            },
-                            retry_policy=self._retry_policy,
-                        )
-                        for idx, tc in enumerate(tool_calls)
-                    ]
-                    tool_results: List[Dict[str, Any]] = yield wf.when_all(parallel)
-                    yield ctx.call_activity(
-                        self.save_tool_results,
+
+                    assistant_response: Dict[str, Any] = yield ctx.call_activity(
+                        self.call_llm,
                         input={
-                            "tool_results": tool_results,
+                            "task": task,
                             "instance_id": ctx.instance_id,
+                            "time": ctx.current_utc_datetime.isoformat(),
                         },
                         retry_policy=self._retry_policy,
                     )
-                    task = None  # prepare for next turn
-                    continue
 
-                final_message = assistant_response
-                if not ctx.is_replaying:
-                    logger.debug(
-                        "Agent %s produced final response on turn %d (instance=%s)",
-                        self.name,
-                        turn,
-                        ctx.instance_id,
+                    tool_calls = assistant_response.get("tool_calls") or []
+                    if tool_calls:
+                        if not ctx.is_replaying:
+                            logger.debug(
+                                "Agent %s executing %d tool call(s) on turn %d",
+                                self.name,
+                                len(tool_calls),
+                                turn,
+                            )
+                        parallel = [
+                            ctx.call_activity(
+                                self.run_tool,
+                                input={
+                                    "tool_call": tc,
+                                    "instance_id": ctx.instance_id,
+                                    "time": ctx.current_utc_datetime.isoformat(),
+                                    "order": idx,
+                                },
+                                retry_policy=self._retry_policy,
+                            )
+                            for idx, tc in enumerate(tool_calls)
+                        ]
+                        tool_results: List[Dict[str, Any]] = yield wf.when_all(parallel)
+                        yield ctx.call_activity(
+                            self.save_tool_results,
+                            input={
+                                "tool_results": tool_results,
+                                "instance_id": ctx.instance_id,
+                            },
+                            retry_policy=self._retry_policy,
+                        )
+                        task = None  # prepare for next turn
+                        continue
+
+                    final_message = assistant_response
+                    if not ctx.is_replaying:
+                        logger.debug(
+                            "Agent %s produced final response on turn %d (instance=%s)",
+                            self.name,
+                            turn,
+                            ctx.instance_id,
+                        )
+                    break
+                else:
+                    # Loop exhausted without a terminating reply → surface a friendly notice.
+                    base = final_message.get("content") or ""
+                    if base:
+                        base = base.rstrip() + "\n\n"
+                    base += (
+                        "I reached the maximum number of reasoning steps before I could finish. "
+                        "Please rephrase or provide more detail so I can try again."
                     )
-                break
-            else:
-                # Loop exhausted without a terminating reply → surface a friendly notice.
-                base = final_message.get("content") or ""
-                if base:
-                    base = base.rstrip() + "\n\n"
-                base += (
-                    "I reached the maximum number of reasoning steps before I could finish. "
-                    "Please rephrase or provide more detail so I can try again."
-                )
-                final_message = {"role": "assistant", "content": base}
-                if not ctx.is_replaying:
-                    logger.warning(
-                        "Agent %s hit max iterations (%d) without a final response (instance=%s)",
-                        self.name,
-                        self.execution.max_iterations,
-                        ctx.instance_id,
-                    )
+                    final_message = {"role": "assistant", "content": base}
+                    if not ctx.is_replaying:
+                        logger.warning(
+                            "Agent %s hit max iterations (%d) without a final response (instance=%s)",
+                            self.name,
+                            self.execution.max_iterations,
+                            ctx.instance_id,
+                        )
 
         except Exception as exc:  # noqa: BLE001
             logger.exception("Agent %s workflow failed: %s", self.name, exc)
@@ -631,6 +460,480 @@ class DurableAgent(AgentBase):
             )
 
         return final_message
+
+    @workflow_entry
+    def orchestration_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
+        """Dedicated orchestration workflow using strategy pattern.
+
+        This is an internal workflow called via call_child_workflow from agent_workflow.
+        It is NOT triggered directly by pub/sub messages - agent_workflow is the sole
+        external entry point.
+
+        Args:
+            ctx: Dapr workflow context
+            message: Input dict with task, instance_id, triggering_workflow_instance_id, start_time
+
+        Returns:
+            Final message dict to be returned to caller
+        """
+        task = message.get("task")
+        instance_id = message.get("instance_id")
+
+        if not ctx.is_replaying:
+            logger.info(
+                f"Orchestration workflow started for instance {instance_id} with task: {task}"
+            )
+
+        # Get available agents
+        agents = yield ctx.call_activity(
+            self._get_available_agents,
+            retry_policy=self._retry_policy,
+        )
+
+        # Initialize orchestration state via strategy
+        # For AgentOrchestrationStrategy, this requires an LLM call to generate the plan
+        if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+            # Generate plan using LLM
+            plan_prompt = TASK_PLANNING_PROMPT.format(
+                task=task, agents=agents, plan_schema=schemas.plan
+            )
+            init_response = yield ctx.call_activity(
+                self.call_llm,
+                input={
+                    "instance_id": instance_id,
+                    "task": plan_prompt,
+                    "time": ctx.current_utc_datetime.isoformat(),
+                    "response_format": IterablePlanStep.model_construct().model_dump_json(),
+                },
+                retry_policy=self._retry_policy,
+            )
+
+            # Parse the plan from LLM response
+            content = init_response.get("content", "{}")
+            try:
+                parsed_content = json.loads(content)
+                plan = parsed_content.get("objects", [])
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse LLM response content: {e}")
+                plan = []
+
+            if not ctx.is_replaying:
+                logger.info(f"Received plan from initialization with {len(plan)} steps")
+
+            # Broadcast initial plan to team
+            yield ctx.call_activity(
+                self.broadcast_message_to_agents,
+                input={"message": plan},
+                retry_policy=self._retry_policy,
+            )
+
+            # Save plan message to state
+            plan_content = json.dumps({"objects": plan}, indent=2)
+            plan_message = {
+                "role": "assistant",
+                "name": self.name,
+                "content": plan_content,
+            }
+            yield ctx.call_activity(
+                self._save_plan_message,
+                input={
+                    "instance_id": instance_id,
+                    "plan_message": plan_message,
+                    "time": ctx.current_utc_datetime.isoformat(),
+                },
+                retry_policy=self._retry_policy,
+            )
+
+            orch_state = {
+                "task": task,
+                "agents": agents,
+                "plan": plan,
+                "task_history": [],
+                "verdict": None,
+            }
+        else:
+            # For simpler strategies, just call the initialize method
+            orch_state = yield ctx.call_activity(
+                self._initialize_orchestration,
+                input={"task": task, "agents": agents, "instance_id": instance_id},
+                retry_policy=self._retry_policy,
+            )
+
+        # Main orchestration loop
+        for turn in range(1, self.execution.max_iterations + 1):
+            if not ctx.is_replaying:
+                logger.debug(
+                    f"Orchestration turn {turn}/{self.execution.max_iterations} (instance={instance_id})"
+                )
+
+            # Strategy selects next agent and instruction
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                # For agent strategy, use LLM to select next step
+                plan = orch_state.get("plan", [])
+
+                # Load plan from state if not in first turn
+                if turn > 1:
+                    container = self._get_entry_container()
+                    entry = container.get(instance_id) if container else None
+                    messages = (
+                        getattr(entry, "messages", [])
+                        if entry and hasattr(entry, "messages")
+                        else []
+                    )
+                    plan = self.get_plan_from_messages(messages) or plan
+
+                    if not ctx.is_replaying:
+                        logger.info(
+                            f"Loaded plan from state with {len(plan)} steps (turn {turn})"
+                        )
+
+                    if len(plan) == 0:
+                        raise AgentError(
+                            "No plan available; cannot continue orchestration."
+                        )
+
+                # Use LLM to select next step
+                next_step_prompt = NEXT_STEP_PROMPT.format(
+                    task=task,
+                    agents=agents,
+                    plan=plan,
+                    next_step_schema=schemas.next_step,
+                )
+                next_step_response = yield ctx.call_activity(
+                    self.call_llm,
+                    input={
+                        "task": next_step_prompt,
+                        "time": ctx.current_utc_datetime.isoformat(),
+                        "response_format": NextStep.model_construct().model_dump_json(),
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                # Parse next step from LLM response
+                try:
+                    parsed_content = json.loads(next_step_response.get("content", "{}"))
+                    next_agent = parsed_content.get("next_agent")
+                    instruction = parsed_content.get("instruction")
+                    step_id = parsed_content.get("step")
+                    substep_id = parsed_content.get("substep")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse LLM response content: {e}")
+                    raise AgentError(f"Failed to parse next step from LLM: {e}")
+
+                if not ctx.is_replaying:
+                    logger.info(
+                        f"Next step decided: agent={next_agent}, step={step_id}, "
+                        f"substep={substep_id}, instruction={instruction}"
+                    )
+
+                # Validate step exists in plan
+                is_valid = yield ctx.call_activity(
+                    self._validate_next_step,
+                    input={
+                        "instance_id": instance_id,
+                        "plan": self._convert_plan_objects_to_dicts(plan),
+                        "step": step_id,
+                        "substep": substep_id,
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                if not is_valid:
+                    if not ctx.is_replaying:
+                        logger.warning(
+                            f"Step {step_id}, substep {substep_id} not found in plan; skipping turn"
+                        )
+                    orch_state["verdict"] = "continue"
+                    continue
+
+                action = {
+                    "agent": next_agent,
+                    "instruction": instruction,
+                    "metadata": {"step_id": step_id, "substep_id": substep_id},
+                }
+
+                # Update state with current step info for later processing
+                orch_state["current_step_id"] = step_id
+                orch_state["current_substep_id"] = substep_id
+                orch_state["plan"] = plan
+
+            else:
+                # For simpler strategies, delegate to activity
+                action = yield ctx.call_activity(
+                    self._select_next_action,
+                    input={"state": orch_state, "turn": turn, "task": task},
+                    retry_policy=self._retry_policy,
+                )
+
+            next_agent = action["agent"]
+            instruction = action["instruction"]
+
+            if not ctx.is_replaying:
+                logger.info(
+                    f"Turn {turn}: Selected agent '{next_agent}' with instruction: {instruction[:100]}..."
+                )
+
+            # Trigger agent via child workflow
+            agents_metadata = self.list_team_agents(
+                include_self=False, team=self.effective_team()
+            )
+            agent_appid = agents_metadata[next_agent]["agent"]["appid"]
+
+            result = yield ctx.call_child_workflow(
+                workflow="agent_workflow",
+                input={"task": instruction},
+                app_id=agent_appid,
+                retry_policy=self._retry_policy,
+            )
+
+            if not ctx.is_replaying:
+                logger.info(
+                    f"Turn {turn}: Agent '{next_agent}' responded: {result.get('content', '')[:100]}..."
+                )
+
+            # Process response via strategy
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                # For agent strategy, use LLM to check progress and update plan
+                plan = orch_state.get("plan", [])
+                step_id = orch_state.get("current_step_id")
+                substep_id = orch_state.get("current_substep_id")
+
+                # Mark step as completed
+                target = find_step_in_plan(plan, step_id, substep_id)
+                if target:
+                    target["status"] = "completed"
+                plan = update_step_statuses(plan)
+
+                # Use LLM to validate progress
+                progress_prompt = PROGRESS_CHECK_PROMPT.format(
+                    task=task,
+                    plan=plan,
+                    step=step_id,
+                    substep=substep_id,
+                    results=result.get("content", ""),
+                    progress_check_schema=schemas.progress_check,
+                )
+                progress_response = yield ctx.call_activity(
+                    self.call_llm,
+                    input={
+                        "task": progress_prompt,
+                        "time": ctx.current_utc_datetime.isoformat(),
+                        "response_format": ProgressCheckOutput.model_construct().model_dump_json(),
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                # Parse progress check results
+                progress = yield ctx.call_activity(
+                    self._parse_progress,
+                    input={
+                        "content": progress_response.get("content", ""),
+                        "instance_id": instance_id,
+                        "plan_objects": plan,
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                plan = progress["plan"]
+                verdict = progress["verdict"]
+
+                # Save updated plan to state
+                plan_content = json.dumps({"objects": plan}, indent=2)
+                plan_message = {
+                    "role": "assistant",
+                    "name": self.name,
+                    "content": plan_content,
+                }
+                yield ctx.call_activity(
+                    self._save_plan_message,
+                    input={
+                        "instance_id": instance_id,
+                        "plan_message": plan_message,
+                        "time": ctx.current_utc_datetime.isoformat(),
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                # Update orchestration state
+                orch_state["plan"] = plan
+                orch_state["verdict"] = verdict
+                orch_state["last_agent"] = next_agent
+                orch_state["last_result"] = result.get("content", "")
+
+            else:
+                # For simpler strategies, delegate to activity
+                process_result = yield ctx.call_activity(
+                    self._process_orchestration_response,
+                    input={
+                        "state": orch_state,
+                        "response": result,
+                        "action": action,
+                        "task": task,
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                orch_state = process_result["updated_state"]
+                verdict = process_result.get("verdict", "continue")
+
+            # Check if should continue
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                # For agent strategy, check verdict and turn count
+                verdict = orch_state.get("verdict", "continue")
+                should_continue = (verdict == "continue") and (
+                    turn < self.execution.max_iterations
+                )
+            else:
+                # For simpler strategies, delegate to activity
+                should_continue = yield ctx.call_activity(
+                    self._should_continue_orchestration,
+                    input={"state": orch_state, "turn": turn},
+                    retry_policy=self._retry_policy,
+                )
+
+            if not should_continue:
+                if not ctx.is_replaying:
+                    logger.info(f"Orchestration stopping after turn {turn}")
+                break
+
+        # Finalize orchestration
+        if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+            # For agent strategy, generate summary using LLM
+            plan = orch_state.get("plan", [])
+            verdict = orch_state.get("verdict", "continue")
+            step_id = orch_state.get("current_step_id")
+            substep_id = orch_state.get("current_substep_id")
+            last_agent = orch_state.get("last_agent", "")
+            last_result = orch_state.get("last_result", "")
+
+            # If verdict is still "continue", we hit max iterations
+            if verdict == "continue":
+                verdict = "max_iterations_reached"
+
+            # Use LLM to generate final summary
+            summary_prompt = SUMMARY_GENERATION_PROMPT.format(
+                task=task,
+                verdict=verdict,
+                plan=plan,
+                step=step_id,
+                substep=substep_id,
+                agent=last_agent,
+                result=last_result,
+            )
+            summary_response = yield ctx.call_activity(
+                self.call_llm,
+                input={
+                    "task": summary_prompt,
+                    "time": ctx.current_utc_datetime.isoformat(),
+                },
+                retry_policy=self._retry_policy,
+            )
+
+            final_message = {
+                "role": "assistant",
+                "content": summary_response.get("content", "Orchestration completed."),
+                "name": self.name,
+            }
+
+        else:
+            # For simpler strategies, delegate to activity
+            final_message = yield ctx.call_activity(
+                self._finalize_orchestration,
+                input={"state": orch_state, "task": task, "instance_id": instance_id},
+                retry_policy=self._retry_policy,
+            )
+
+        if not ctx.is_replaying:
+            logger.info(f"Orchestration workflow completed for instance {instance_id}")
+
+        return final_message
+
+    # ------------------------------------------------------------------
+    # Strategy Delegation Activities
+    # ------------------------------------------------------------------
+
+    def _initialize_orchestration(self, ctx: Any, payload: dict) -> dict:
+        """Initialize orchestration state via strategy.
+
+        Args:
+            ctx: Activity context
+            payload: Dict with task, agents, instance_id
+
+        Returns:
+            Initial orchestration state from strategy
+        """
+        if not self._orchestration_strategy:
+            raise AgentError("No orchestration strategy configured")
+
+        return self._orchestration_strategy.initialize(
+            ctx, payload["task"], payload["agents"]
+        )
+
+    def _select_next_action(self, ctx: Any, payload: dict) -> dict:
+        """Select next agent and instruction via strategy.
+
+        Args:
+            ctx: Activity context
+            payload: Dict with state, turn, task
+
+        Returns:
+            Action dict with agent, instruction, and metadata
+        """
+        if not self._orchestration_strategy:
+            raise AgentError("No orchestration strategy configured")
+
+        return self._orchestration_strategy.select_next_agent(
+            ctx, payload["state"], payload["turn"]
+        )
+
+    def _process_orchestration_response(self, ctx: Any, payload: dict) -> dict:
+        """Process agent response via strategy.
+
+        Args:
+            ctx: Activity context
+            payload: Dict with state, response, action, task
+
+        Returns:
+            Dict with updated_state and verdict
+        """
+        if not self._orchestration_strategy:
+            raise AgentError("No orchestration strategy configured")
+
+        return self._orchestration_strategy.process_response(
+            ctx, payload["state"], payload["response"]
+        )
+
+    def _should_continue_orchestration(self, ctx: Any, payload: dict) -> bool:
+        """Check if orchestration should continue via strategy.
+
+        Args:
+            ctx: Activity context
+            payload: Dict with state, turn
+
+        Returns:
+            True if should continue, False otherwise
+        """
+        if not self._orchestration_strategy:
+            raise AgentError("No orchestration strategy configured")
+
+        return self._orchestration_strategy.should_continue(
+            payload["state"], payload["turn"], self.execution.max_iterations
+        )
+
+    def _finalize_orchestration(self, ctx: Any, payload: dict) -> dict:
+        """Finalize orchestration and generate summary via strategy.
+
+        Args:
+            ctx: Activity context
+            payload: Dict with state, task, instance_id
+
+        Returns:
+            Final message dict for caller
+        """
+        if not self._orchestration_strategy:
+            raise AgentError("No orchestration strategy configured")
+
+        return self._orchestration_strategy.finalize(ctx, payload["state"])
 
     @message_router(message_model=BroadcastMessage, broadcast=True)
     def broadcast_listener(self, ctx: wf.DaprWorkflowContext, message: dict) -> None:
@@ -697,7 +1000,7 @@ class DurableAgent(AgentBase):
             logger.debug("Unable to load persistent memory.", exc_info=True)
 
         return persistent_memory
-    
+
     @staticmethod
     def _convert_plan_objects_to_dicts(plan_objects: List[Any]) -> List[Dict[str, Any]]:
         """
@@ -715,23 +1018,28 @@ class DurableAgent(AgentBase):
             obj.model_dump() if hasattr(obj, "model_dump") else dict(obj)
             for obj in plan_objects
         ]
-    
-    def get_plan_from_messages(self, messages: List[AgentWorkflowMessage]) -> Optional[List[Dict[str, Any]]]:
+
+    def get_plan_from_messages(
+        self, messages: List[AgentWorkflowMessage]
+    ) -> Optional[List[Dict[str, Any]]]:
         # Find all assistant messages with JSON content starting with {
         plan_messages = [
-            m for m in messages 
+            m
+            for m in messages
             if m.role == "assistant" and m.content.strip().startswith("{")
         ]
-        
+
         # Get the LAST (most recent) plan message
         if not plan_messages:
             return None
-        
+
         plan_msg = plan_messages[-1]  # Get the last one
-        
+
         try:
             data = json.loads(plan_msg.content)
-            return self._convert_plan_objects_to_dicts([PlanStep(**obj) for obj in data.get("objects", [])])
+            return self._convert_plan_objects_to_dicts(
+                [PlanStep(**obj) for obj in data.get("objects", [])]
+            )
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             logger.debug("Failed to parse plan from message: %s", e)
             return None
@@ -801,7 +1109,7 @@ class DurableAgent(AgentBase):
         plan = update_step_statuses(plan)
 
         # Persist the updated plan
-        #self.update_workflow_state(instance_id=instance_id, plan=plan)
+        # self.update_workflow_state(instance_id=instance_id, plan=plan)
 
         logger.debug("Plan successfully updated for instance %s", instance_id)
         return plan
@@ -890,11 +1198,11 @@ class DurableAgent(AgentBase):
             )
 
         # Store the final summary and verdict in workflow state
-        #self.update_workflow_state(
+        # self.update_workflow_state(
         #    instance_id=instance_id,
         #    final_output=summary,
         #    wf_time=wf_time,
-        #)
+        # )
 
         logger.info(
             "Workflow %s finalized with verdict '%s'",
@@ -959,7 +1267,10 @@ class DurableAgent(AgentBase):
         self.save_state()
 
     def call_llm(
-        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any], response_format: Optional[str] = None
+        self,
+        ctx: wf.WorkflowActivityContext,
+        payload: Dict[str, Any],
+        response_format: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Ask the LLM to generate the next assistant message.
@@ -1281,7 +1592,7 @@ class DurableAgent(AgentBase):
                 payload.get("instance_id"),
             )
         return ok
-    
+
     def _finalize_workflow_with_summary(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> str:
@@ -1327,7 +1638,9 @@ class DurableAgent(AgentBase):
 
         return self._run_asyncio_task(_finalize())
 
-    def _parse_progress(self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_progress(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
         """
         Parse progress information from assistant content.
 
@@ -1351,7 +1664,9 @@ class DurableAgent(AgentBase):
                 data = json.loads(content) if isinstance(content, str) else content
                 progress = ProgressCheckOutput(**data)
             except (json.JSONDecodeError, TypeError, ValueError) as e:
-                logger.error(f"Failed to parse progress check output: {e}. Content: {content}")
+                logger.error(
+                    f"Failed to parse progress check output: {e}. Content: {content}"
+                )
                 raise AgentError(f"Invalid progress check format: {e}")
 
         status_updates = [
@@ -1362,6 +1677,7 @@ class DurableAgent(AgentBase):
             (u.model_dump() if hasattr(u, "model_dump") else u)
             for u in (progress.plan_restructure or [])
         ]
+
         async def _update_plan() -> List[Dict[str, Any]]:
             if status_updates or plan_updates:
                 updated_plan = await self.update_plan_internal(
@@ -1413,8 +1729,7 @@ class DurableAgent(AgentBase):
         # Also add to memory
         self.memory.add_message(
             AssistantMessage(
-                content=plan_message.get("content", ""),
-                name=plan_message.get("name")
+                content=plan_message.get("content", ""), name=plan_message.get("name")
             )
         )
 
@@ -1512,8 +1827,11 @@ class DurableAgent(AgentBase):
         Args:
             runtime: The Dapr workflow runtime to register with.
         """
+        # Primary entry point - ALWAYS registered (handles both agent and orchestrator modes)
         runtime.register_workflow(self.agent_workflow)
         runtime.register_workflow(self.broadcast_listener)
+
+        # Standard agent activities
         runtime.register_activity(self.record_initial_entry)
         runtime.register_activity(self.call_llm)
         runtime.register_activity(self.run_tool)
@@ -1522,6 +1840,19 @@ class DurableAgent(AgentBase):
         runtime.register_activity(self.send_response_back)
         runtime.register_activity(self.finalize_workflow)
         runtime.register_activity(self._get_available_agents)
+
+        # Internal orchestration workflow and activities - only registered when orchestrator=True
+        # orchestration_workflow is NOT an entry point - it's called internally via call_child_workflow
+        if self._orchestration_strategy:
+            runtime.register_workflow(self.orchestration_workflow)
+            runtime.register_activity(self._initialize_orchestration)
+            runtime.register_activity(self._select_next_action)
+            runtime.register_activity(self._process_orchestration_response)
+            runtime.register_activity(self._should_continue_orchestration)
+            runtime.register_activity(self._finalize_orchestration)
+
+        # Legacy orchestration activities (kept for backward compatibility)
+        # These are used by the old orchestration code path if still enabled
         runtime.register_activity(self._validate_next_step)
         runtime.register_activity(self._finalize_workflow_with_summary)
         runtime.register_activity(self._parse_progress)
