@@ -27,19 +27,19 @@ logger = logging.getLogger("llm.orchestrator.app")
 
 
 def main() -> None:
-    orchestrator_name = os.getenv("ORCHESTRATOR_NAME", "LLMOrchestrator")
+    orchestrator_name = os.getenv("ORCHESTRATOR_NAME", "AgentOrchestrator")
     team_name = os.getenv("TEAM_NAME", "fellowship")
 
     pubsub = AgentPubSubConfig(
         pubsub_name=os.getenv("PUBSUB_NAME", "messagepubsub"),
-        agent_topic=os.getenv("ORCHESTRATOR_TOPIC", "llm.orchestrator.requests"),
+        agent_topic=os.getenv("ORCHESTRATOR_TOPIC", "agent.orchestrator.requests"),
         broadcast_topic=os.getenv("BROADCAST_TOPIC", "fellowship.broadcast"),
     )
 
     state = AgentStateConfig(
         store=StateStoreService(
             store_name=os.getenv("WORKFLOW_STATE_STORE", "workflowstatestore"),
-            key_prefix="llm.orchestrator:",
+            key_prefix="agent.orchestrator:",
         ),
     )
     registry = AgentRegistryConfig(

@@ -60,13 +60,13 @@ class TestMultiAgentWorkflowsQuickstart:
         # expect some output
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 
-    def test_llm_orchestrator(self, dapr_runtime):  # noqa: ARG002
+    def test_agent_orchestrator(self, dapr_runtime):  # noqa: ARG002
         # Use a different registry store to isolate from other orchestrators (e.g., random)
         # This prevents the round-robin orchestrator from selecting other orchestrators
         # as agents when they're registered in the same team registry.
         # Note: Agents still use team "fellowship" but with isolated registry store.
-        test_env = {**self.env, "REGISTRY_STATE_STORE": "agentregistrystore_llm"}
-        dapr_yaml = self.quickstart_dir / "dapr-llm.yaml"
+        test_env = {**self.env, "REGISTRY_STATE_STORE": "agentregistrystore_agent"}
+        dapr_yaml = self.quickstart_dir / "dapr-agent.yaml"
         result = run_quickstart_multi_app(
             dapr_yaml,
             cwd=self.quickstart_dir,

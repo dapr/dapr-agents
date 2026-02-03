@@ -220,6 +220,7 @@ class DurableAgent(AgentBase):
 
             # Store orchestrator name for strategy finalization
             self._orchestration_strategy.orchestrator_name = self.name
+            self.effective_team = registry.team_name if registry else "default"
 
             logger.info(f"Initialized orchestrator '{self.name}' with mode '{mode}'")
 
@@ -461,13 +462,10 @@ class DurableAgent(AgentBase):
 
         return final_message
 
-    @workflow_entry
     def orchestration_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
         """Dedicated orchestration workflow using strategy pattern.
 
         This is an internal workflow called via call_child_workflow from agent_workflow.
-        It is NOT triggered directly by pub/sub messages - agent_workflow is the sole
-        external entry point.
 
         Args:
             ctx: Dapr workflow context
@@ -484,18 +482,15 @@ class DurableAgent(AgentBase):
                 f"Orchestration workflow started for instance {instance_id} with task: {task}"
             )
 
-        # Get available agents
-        agents = yield ctx.call_activity(
+        agents_result = yield ctx.call_activity(
             self._get_available_agents,
             retry_policy=self._retry_policy,
         )
 
-        # Initialize orchestration state via strategy
-        # For AgentOrchestrationStrategy, this requires an LLM call to generate the plan
         if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
-            # Generate plan using LLM
+            agents_formatted = agents_result["formatted"]
             plan_prompt = TASK_PLANNING_PROMPT.format(
-                task=task, agents=agents, plan_schema=schemas.plan
+                task=task, agents=agents_formatted, plan_schema=schemas.plan
             )
             init_response = yield ctx.call_activity(
                 self.call_llm,
@@ -503,12 +498,11 @@ class DurableAgent(AgentBase):
                     "instance_id": instance_id,
                     "task": plan_prompt,
                     "time": ctx.current_utc_datetime.isoformat(),
-                    "response_format": IterablePlanStep.model_construct().model_dump_json(),
+                    "response_format": "IterablePlanStep",
                 },
                 retry_policy=self._retry_policy,
             )
 
-            # Parse the plan from LLM response
             content = init_response.get("content", "{}")
             try:
                 parsed_content = json.loads(content)
@@ -520,14 +514,12 @@ class DurableAgent(AgentBase):
             if not ctx.is_replaying:
                 logger.info(f"Received plan from initialization with {len(plan)} steps")
 
-            # Broadcast initial plan to team
             yield ctx.call_activity(
                 self.broadcast_message_to_agents,
                 input={"message": plan},
                 retry_policy=self._retry_policy,
             )
 
-            # Save plan message to state
             plan_content = json.dumps({"objects": plan}, indent=2)
             plan_message = {
                 "role": "assistant",
@@ -546,32 +538,33 @@ class DurableAgent(AgentBase):
 
             orch_state = {
                 "task": task,
-                "agents": agents,
+                "agents": agents_formatted,
                 "plan": plan,
                 "task_history": [],
                 "verdict": None,
             }
         else:
-            # For simpler strategies, just call the initialize method
+            agents_metadata = agents_result["metadata"]
             orch_state = yield ctx.call_activity(
                 self._initialize_orchestration,
-                input={"task": task, "agents": agents, "instance_id": instance_id},
+                input={
+                    "task": task,
+                    "agents": agents_metadata,
+                    "instance_id": instance_id,
+                },
                 retry_policy=self._retry_policy,
             )
 
-        # Main orchestration loop
         for turn in range(1, self.execution.max_iterations + 1):
             if not ctx.is_replaying:
                 logger.debug(
                     f"Orchestration turn {turn}/{self.execution.max_iterations} (instance={instance_id})"
                 )
 
-            # Strategy selects next agent and instruction
             if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
-                # For agent strategy, use LLM to select next step
                 plan = orch_state.get("plan", [])
+                agents_formatted = orch_state.get("agents", "")
 
-                # Load plan from state if not in first turn
                 if turn > 1:
                     container = self._get_entry_container()
                     entry = container.get(instance_id) if container else None
@@ -592,24 +585,23 @@ class DurableAgent(AgentBase):
                             "No plan available; cannot continue orchestration."
                         )
 
-                # Use LLM to select next step
                 next_step_prompt = NEXT_STEP_PROMPT.format(
                     task=task,
-                    agents=agents,
+                    agents=agents_formatted,
                     plan=plan,
                     next_step_schema=schemas.next_step,
                 )
                 next_step_response = yield ctx.call_activity(
                     self.call_llm,
                     input={
+                        "instance_id": instance_id,
                         "task": next_step_prompt,
                         "time": ctx.current_utc_datetime.isoformat(),
-                        "response_format": NextStep.model_construct().model_dump_json(),
+                        "response_format": "NextStep",
                     },
                     retry_policy=self._retry_policy,
                 )
 
-                # Parse next step from LLM response
                 try:
                     parsed_content = json.loads(next_step_response.get("content", "{}"))
                     next_agent = parsed_content.get("next_agent")
@@ -626,7 +618,6 @@ class DurableAgent(AgentBase):
                         f"substep={substep_id}, instruction={instruction}"
                     )
 
-                # Validate step exists in plan
                 is_valid = yield ctx.call_activity(
                     self._validate_next_step,
                     input={
@@ -652,13 +643,11 @@ class DurableAgent(AgentBase):
                     "metadata": {"step_id": step_id, "substep_id": substep_id},
                 }
 
-                # Update state with current step info for later processing
                 orch_state["current_step_id"] = step_id
                 orch_state["current_substep_id"] = substep_id
                 orch_state["plan"] = plan
 
             else:
-                # For simpler strategies, delegate to activity
                 action = yield ctx.call_activity(
                     self._select_next_action,
                     input={"state": orch_state, "turn": turn, "task": task},
@@ -673,9 +662,8 @@ class DurableAgent(AgentBase):
                     f"Turn {turn}: Selected agent '{next_agent}' with instruction: {instruction[:100]}..."
                 )
 
-            # Trigger agent via child workflow
             agents_metadata = self.list_team_agents(
-                include_self=False, team=self.effective_team()
+                include_self=False, team=self.effective_team
             )
             agent_appid = agents_metadata[next_agent]["agent"]["appid"]
 
@@ -691,20 +679,16 @@ class DurableAgent(AgentBase):
                     f"Turn {turn}: Agent '{next_agent}' responded: {result.get('content', '')[:100]}..."
                 )
 
-            # Process response via strategy
             if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
-                # For agent strategy, use LLM to check progress and update plan
                 plan = orch_state.get("plan", [])
                 step_id = orch_state.get("current_step_id")
                 substep_id = orch_state.get("current_substep_id")
 
-                # Mark step as completed
                 target = find_step_in_plan(plan, step_id, substep_id)
                 if target:
                     target["status"] = "completed"
                 plan = update_step_statuses(plan)
 
-                # Use LLM to validate progress
                 progress_prompt = PROGRESS_CHECK_PROMPT.format(
                     task=task,
                     plan=plan,
@@ -716,14 +700,14 @@ class DurableAgent(AgentBase):
                 progress_response = yield ctx.call_activity(
                     self.call_llm,
                     input={
+                        "instance_id": instance_id,
                         "task": progress_prompt,
                         "time": ctx.current_utc_datetime.isoformat(),
-                        "response_format": ProgressCheckOutput.model_construct().model_dump_json(),
+                        "response_format": "ProgressCheckOutput",
                     },
                     retry_policy=self._retry_policy,
                 )
 
-                # Parse progress check results
                 progress = yield ctx.call_activity(
                     self._parse_progress,
                     input={
@@ -737,7 +721,6 @@ class DurableAgent(AgentBase):
                 plan = progress["plan"]
                 verdict = progress["verdict"]
 
-                # Save updated plan to state
                 plan_content = json.dumps({"objects": plan}, indent=2)
                 plan_message = {
                     "role": "assistant",
@@ -754,14 +737,12 @@ class DurableAgent(AgentBase):
                     retry_policy=self._retry_policy,
                 )
 
-                # Update orchestration state
                 orch_state["plan"] = plan
                 orch_state["verdict"] = verdict
                 orch_state["last_agent"] = next_agent
                 orch_state["last_result"] = result.get("content", "")
 
             else:
-                # For simpler strategies, delegate to activity
                 process_result = yield ctx.call_activity(
                     self._process_orchestration_response,
                     input={
@@ -776,15 +757,12 @@ class DurableAgent(AgentBase):
                 orch_state = process_result["updated_state"]
                 verdict = process_result.get("verdict", "continue")
 
-            # Check if should continue
             if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
-                # For agent strategy, check verdict and turn count
                 verdict = orch_state.get("verdict", "continue")
                 should_continue = (verdict == "continue") and (
                     turn < self.execution.max_iterations
                 )
             else:
-                # For simpler strategies, delegate to activity
                 should_continue = yield ctx.call_activity(
                     self._should_continue_orchestration,
                     input={"state": orch_state, "turn": turn},
@@ -796,9 +774,7 @@ class DurableAgent(AgentBase):
                     logger.info(f"Orchestration stopping after turn {turn}")
                 break
 
-        # Finalize orchestration
         if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
-            # For agent strategy, generate summary using LLM
             plan = orch_state.get("plan", [])
             verdict = orch_state.get("verdict", "continue")
             step_id = orch_state.get("current_step_id")
@@ -806,11 +782,9 @@ class DurableAgent(AgentBase):
             last_agent = orch_state.get("last_agent", "")
             last_result = orch_state.get("last_result", "")
 
-            # If verdict is still "continue", we hit max iterations
             if verdict == "continue":
                 verdict = "max_iterations_reached"
 
-            # Use LLM to generate final summary
             summary_prompt = SUMMARY_GENERATION_PROMPT.format(
                 task=task,
                 verdict=verdict,
@@ -836,7 +810,6 @@ class DurableAgent(AgentBase):
             }
 
         else:
-            # For simpler strategies, delegate to activity
             final_message = yield ctx.call_activity(
                 self._finalize_orchestration,
                 input={"state": orch_state, "task": task, "instance_id": instance_id},
@@ -1270,13 +1243,12 @@ class DurableAgent(AgentBase):
         self,
         ctx: wf.WorkflowActivityContext,
         payload: Dict[str, Any],
-        response_format: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Ask the LLM to generate the next assistant message.
 
         Args:
-            payload: Must contain 'instance_id'; may include 'task' and 'time'.
+            payload: Must contain 'instance_id'; may include 'task', 'time', and 'response_format'.
 
         Returns:
             Assistant message as a dict.
@@ -1286,6 +1258,20 @@ class DurableAgent(AgentBase):
         """
         instance_id = payload.get("instance_id")
         task = payload.get("task")
+        response_format_name = payload.get("response_format")
+
+        response_model = None
+        if response_format_name:
+            model_map = {
+                "IterablePlanStep": IterablePlanStep,
+                "NextStep": NextStep,
+                "ProgressCheckOutput": ProgressCheckOutput,
+            }
+            response_model = model_map.get(response_format_name)
+            if response_model is None:
+                logger.warning(
+                    "Unknown response_format '%s', ignoring", response_format_name
+                )
 
         # Load latest state to ensure we have current data
         if self.state_store:
@@ -1307,7 +1293,8 @@ class DurableAgent(AgentBase):
             user_copy = dict(user_message) if user_message else None
             self._process_user_message(instance_id, task, user_copy)
 
-            if user_copy is not None:
+            # Skip printing for orchestrators' internal LLM calls
+            if user_copy is not None and not self.orchestrator:
                 self.text_formatter.print_message(
                     {str(k): v for k, v in user_copy.items()}
                 )
@@ -1317,25 +1304,43 @@ class DurableAgent(AgentBase):
             "messages": messages,
             "tools": tools,
         }
-        if response_format is not None:
-            generate_kwargs["response_model"] = response_format
+        if response_model is not None:
+            generate_kwargs["response_format"] = response_model
         if tools and self.execution.tool_choice is not None:
             generate_kwargs["tool_choice"] = self.execution.tool_choice
 
         try:
-            response: LLMChatResponse = self.llm.generate(**generate_kwargs)
+            response = self.llm.generate(**generate_kwargs)
         except Exception as exc:  # noqa: BLE001
             raise AgentError(str(exc)) from exc
 
-        assistant_message = response.get_message()
-        if assistant_message is None:
-            raise AgentError("LLM returned no assistant message.")
+        # Handle structured output response (Pydantic model) vs regular chat response
+        if response_model is not None:
+            # Structured output: response is the Pydantic model itself
+            if hasattr(response, "model_dump"):
+                # Response is the structured Pydantic object
+                content = json.dumps(response.model_dump())
+            else:
+                # Fallback: try to serialize as-is
+                content = json.dumps(response)
 
-        as_dict = assistant_message.model_dump()
-        self._save_assistant_message(instance_id, as_dict)
-        self.text_formatter.print_message(as_dict)
+            assistant_message = {
+                "role": "assistant",
+                "content": content,
+            }
+        else:
+            # Regular chat response
+            assistant_message = response.get_message()
+            if assistant_message is None:
+                raise AgentError("LLM returned no assistant message.")
+            assistant_message = assistant_message.model_dump()
+
+        self._save_assistant_message(instance_id, assistant_message)
+        # Skip printing for orchestrators' internal LLM calls
+        if not self.orchestrator:
+            self.text_formatter.print_message(assistant_message)
         self.save_state()
-        return as_dict
+        return assistant_message
 
     def run_tool(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -1554,27 +1559,33 @@ class DurableAgent(AgentBase):
     # Orchestrator Activities
     # ------------------------------------------------------------------
 
-    def _get_available_agents(self, ctx: wf.WorkflowActivityContext) -> str:
+    def _get_available_agents(self, ctx: wf.WorkflowActivityContext) -> Dict[str, Any]:
         """
-        Return a human-formatted list of available agents (excluding orchestrators).
+        Return available agents metadata and formatted string.
 
         Args:
             ctx: The Dapr Workflow context.
 
         Returns:
-            A formatted string listing available agents.
+            Dict with 'metadata' (dict) and 'formatted' (str) keys.
         """
         agents_metadata = self.list_team_agents(
-            include_self=False, team=self.effective_team()
+            include_self=False, team=self.effective_team
         )
         if not agents_metadata:
-            return "No available agents to assign tasks."
+            return {
+                "metadata": {},
+                "formatted": "No available agents to assign tasks.",
+            }
         lines = []
         for name, meta in agents_metadata.items():
             role = meta["agent"].get("role", "Unknown role")
             goal = meta["agent"].get("goal", "Unknown")
             lines.append(f"- {name}: {role} (Goal: {goal})")
-        return "\n".join(lines)
+        return {
+            "metadata": agents_metadata,
+            "formatted": "\n".join(lines),
+        }
 
     def _validate_next_step(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]

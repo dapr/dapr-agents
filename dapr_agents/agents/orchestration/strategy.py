@@ -13,7 +13,7 @@ Key Design Principles:
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,8 @@ class OrchestrationStrategy(ABC):
     All methods receive state as a parameter and return updated state,
     making strategies stateless and replay-safe for Dapr Workflows.
     """
+
+    orchestrator_name: Optional[str] = None
 
     @abstractmethod
     def initialize(self, ctx: Any, task: str, agents: Dict[str, Any]) -> Dict[str, Any]:

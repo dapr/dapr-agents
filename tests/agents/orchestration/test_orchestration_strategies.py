@@ -95,9 +95,7 @@ class TestRoundRobinOrchestrationStrategy:
         strategy.orchestrator_name = "TestOrch"
         ctx = Mock(is_replaying=False)
 
-        state = {
-            "last_response": {"name": "agent1", "content": "final response"}
-        }
+        state = {"last_response": {"name": "agent1", "content": "final response"}}
 
         final_message = strategy.finalize(ctx, state)
 
@@ -190,9 +188,7 @@ class TestRandomOrchestrationStrategy:
         strategy.orchestrator_name = "RandomOrch"
         ctx = Mock(is_replaying=False)
 
-        state = {
-            "last_response": {"name": "agent3", "content": "final response"}
-        }
+        state = {"last_response": {"name": "agent3", "content": "final response"}}
 
         final_message = strategy.finalize(ctx, state)
 
