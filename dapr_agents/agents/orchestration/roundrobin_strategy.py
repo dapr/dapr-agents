@@ -13,7 +13,7 @@ import logging
 from typing import Any, Dict
 
 from dapr_agents.agents.orchestration.strategy import OrchestrationStrategy
-from dapr_agents.common.exceptions import AgentError
+from dapr_agents.types import AgentError
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +192,9 @@ class RoundRobinOrchestrationStrategy(OrchestrationStrategy):
             )
         else:
             # No responses collected (shouldn't happen in normal operation)
-            final_content = "Round-robin orchestration completed with no agent responses."
+            final_content = (
+                "Round-robin orchestration completed with no agent responses."
+            )
 
         if not ctx.is_replaying:
             logger.info("Round-robin orchestration finalized")

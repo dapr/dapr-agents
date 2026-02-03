@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -42,6 +43,41 @@ class LLMOrchestrator(LLMOrchestratorBase):
     Interacts with agents in a multi-step workflow, using an LLM to decide the next step,
     validates and triggers agents, and handles responses. Ensures steps are executed in order,
     checks for progress, and finalizes the workflow with a summary.
+
+    .. deprecated:: 0.2.0
+        LLMOrchestrator is deprecated and will be removed in a future version.
+        Use :class:`~dapr_agents.agents.DurableAgent` with ``orchestrator=True``
+        and ``orchestration_mode="agent"`` instead.
+
+    Migration Example:
+
+        Old approach::
+
+            from dapr_agents.agents.orchestrators.llm import LLMOrchestrator
+
+            orchestrator = LLMOrchestrator(
+                name="LLMOrch",
+                llm=llm,
+                pubsub=pubsub,
+                state=state,
+                registry=registry,
+                execution=execution,
+            )
+
+        New approach (recommended)::
+
+            from dapr_agents.agents import DurableAgent
+
+            orchestrator = DurableAgent(
+                name="LLMOrch",
+                orchestrator=True,
+                orchestration_mode="agent",  # Plan-based LLM orchestration
+                llm=llm,
+                pubsub=pubsub,
+                state=state,
+                registry=registry,
+                execution=execution,
+            )
     """
 
     def __init__(
@@ -55,10 +91,21 @@ class LLMOrchestrator(LLMOrchestratorBase):
         """
         Initializes the orchestrator with the provided configuration parameters.
 
+        .. deprecated:: 0.2.0
+            LLMOrchestrator is deprecated. Use DurableAgent with
+            orchestrator=True and orchestration_mode="agent" instead.
+
         Args:
             name (str): Logical name of the orchestrator.
             timeout_seconds (int): Timeout duration for awaiting agent responses (in seconds).
         """
+        warnings.warn(
+            "LLMOrchestrator is deprecated and will be removed in a future version. "
+            "Use DurableAgent with orchestrator=True and orchestration_mode='agent' instead. "
+            "See https://docs.dapr.io/developing-applications/sdks/python/python-agents/ for migration guide.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(name=name, execution=execution, **kwargs)
         self.timeout = max(1, int(timeout_seconds))
 

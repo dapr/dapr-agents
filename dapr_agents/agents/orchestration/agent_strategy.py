@@ -8,30 +8,16 @@ This strategy implements plan-based multi-agent orchestration where an LLM:
 
 This is the most sophisticated orchestration mode, suitable for complex
 tasks requiring adaptive planning and progress tracking.
+
+Note: For AgentOrchestrationStrategy, most logic is handled directly in the
+orchestration_workflow due to the need for async LLM activity calls. The
+strategy class serves primarily as a marker and configuration holder.
 """
 
-import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from dapr_agents.agents.orchestration.strategy import OrchestrationStrategy
-from dapr_agents.agents.orchestrators.llm.prompts import (
-    NEXT_STEP_PROMPT,
-    PROGRESS_CHECK_PROMPT,
-    SUMMARY_GENERATION_PROMPT,
-    TASK_PLANNING_PROMPT,
-)
-from dapr_agents.agents.orchestrators.llm.schemas import (
-    IterablePlanStep,
-    NextStep,
-    ProgressCheckOutput,
-    schemas,
-)
-from dapr_agents.agents.orchestrators.llm.utils import (
-    find_step_in_plan,
-    update_step_statuses,
-)
-from dapr_agents.common.exceptions import AgentError
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +34,21 @@ class AgentOrchestrationStrategy(OrchestrationStrategy):
 
     State Schema:
         {
+            "task": str,                     # Original task
+            "agents": Dict,                  # Available agents
             "plan": List[Dict],              # List of PlanStep objects
             "task_history": List[Dict],      # Agent execution results
-            "verdict": Optional[str]         # continue/completed/failed
+            "verdict": Optional[str],        # continue/completed/failed
+            "current_step_id": int,          # Current step being executed
+            "current_substep_id": float,     # Current substep being executed
+            "last_agent": str,               # Last agent that executed
+            "last_result": str               # Last execution result
         }
+
+    Note: The actual orchestration logic is implemented directly in the
+    orchestration_workflow method of DurableAgent due to the need for
+    async activity calls. This class serves as a marker to identify
+    agent-based orchestration mode.
     """
 
     def __init__(self, llm: Any, activities: Any):
@@ -59,121 +56,74 @@ class AgentOrchestrationStrategy(OrchestrationStrategy):
 
         Args:
             llm: LLM client for generating plans and decisions
-            activities: Reference to DurableAgent activities (for call_llm, etc.)
+            activities: Reference to DurableAgent activities (for potential future use)
         """
         self.llm = llm
         self.activities = activities
 
     def initialize(self, ctx: Any, task: str, agents: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate initial execution plan using LLM.
+        """Initialize orchestration state.
+
+        For AgentOrchestrationStrategy, initialization is handled in orchestration_workflow.
+        This method is kept for interface compatibility.
 
         Args:
-            ctx: Workflow context (for activities)
-            task: Task description to plan for
-            agents: Available agents dict
+            ctx: Activity context
+            task: Task description
+            agents: Available agents
 
         Returns:
-            Initial state with plan, empty task_history, and no verdict
+            Initial state structure
         """
-        # Call LLM to generate plan (using TASK_PLANNING_PROMPT)
-        # This replicates lines 285-336 from durable.py
-        plan_prompt = TASK_PLANNING_PROMPT.format(
-            task=task, agents=agents, plan_schema=schemas.plan
-        )
-
-        # Note: In actual implementation, this will be called via ctx.call_activity
-        # For now, we return the structure that the activity will populate
         return {
             "task": task,
             "agents": agents,
-            "plan_prompt": plan_prompt,
-            "response_format": IterablePlanStep.model_construct().model_dump_json(),
+            "plan": [],
+            "task_history": [],
+            "verdict": None,
         }
 
     def select_next_agent(
         self, ctx: Any, state: Dict[str, Any], turn: int
     ) -> Dict[str, Any]:
-        """Select next agent and step using LLM decision-making.
+        """Select next agent and instruction.
+
+        For AgentOrchestrationStrategy, selection is handled in orchestration_workflow.
+        This method is kept for interface compatibility.
 
         Args:
-            ctx: Workflow context
-            state: Current state with plan and task_history
+            ctx: Activity context
+            state: Current state
             turn: Current turn number
 
         Returns:
-            Action dict with agent, instruction, step, and substep
-
-        Raises:
-            AgentError: If agent selection fails or plan is invalid
+            Action dict placeholder
         """
-        plan = state.get("plan", [])
-        task = state.get("task", "")
-        agents = state.get("agents", {})
-
-        if not plan:
-            raise AgentError("No plan available; cannot select next agent.")
-
-        # Use NEXT_STEP_PROMPT to select next agent/step
-        # This replicates lines 358-396 from durable.py
-        next_step_prompt = NEXT_STEP_PROMPT.format(
-            task=task,
-            agents=agents,
-            plan=plan,
-            next_step_schema=schemas.next_step,
-        )
-
         return {
-            "task": task,
-            "agents": agents,
-            "plan": plan,
-            "next_step_prompt": next_step_prompt,
-            "response_format": NextStep.model_construct().model_dump_json(),
+            "agent": "",
+            "instruction": "",
+            "metadata": {},
         }
 
     def process_response(
         self, ctx: Any, state: Dict[str, Any], response: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Process agent response and update plan status.
+        """Process agent response.
+
+        For AgentOrchestrationStrategy, processing is handled in orchestration_workflow.
+        This method is kept for interface compatibility.
 
         Args:
-            ctx: Workflow context
-            state: Current state with plan
-            response: Agent's response message
+            ctx: Activity context
+            state: Current state
+            response: Agent response
 
         Returns:
-            Updated state with new plan status and verdict
-
-        This replicates lines 431-487 from durable.py
+            Updated state placeholder
         """
-        plan = state.get("plan", [])
-        task = state.get("task", "")
-        step_id = state.get("current_step_id")
-        substep_id = state.get("current_substep_id")
-
-        # Mark step as completed
-        target = find_step_in_plan(plan, step_id, substep_id)
-        if target:
-            target["status"] = "completed"
-        plan = update_step_statuses(plan)
-
-        # Use PROGRESS_CHECK_PROMPT to validate progress
-        progress_prompt = PROGRESS_CHECK_PROMPT.format(
-            task=task,
-            plan=plan,
-            step=step_id,
-            substep=substep_id,
-            results=response.get("content", ""),
-            progress_check_schema=schemas.progress_check,
-        )
-
         return {
-            "task": task,
-            "plan": plan,
-            "step": step_id,
-            "substep": substep_id,
-            "result_content": response.get("content", ""),
-            "progress_prompt": progress_prompt,
-            "response_format": ProgressCheckOutput.model_construct().model_dump_json(),
+            "updated_state": state,
+            "verdict": "continue",
         }
 
     def should_continue(
@@ -181,70 +131,34 @@ class AgentOrchestrationStrategy(OrchestrationStrategy):
     ) -> bool:
         """Check if orchestration should continue.
 
+        For AgentOrchestrationStrategy, continuation is handled in orchestration_workflow.
+        This method is kept for interface compatibility.
+
         Args:
-            state: Current state with verdict
-            turn: Current turn number
-            max_iterations: Maximum allowed turns
+            state: Current state
+            turn: Current turn
+            max_iterations: Max iterations
 
         Returns:
-            True if should continue, False to stop
-
-        This replicates the logic from lines 488-511 in durable.py
+            True (actual logic in workflow)
         """
-        verdict = state.get("verdict", "continue")
-
-        # Stop if task completed or failed
-        if verdict != "continue":
-            return False
-
-        # Stop if max iterations reached
-        if turn >= max_iterations:
-            return False
-
         return True
 
     def finalize(self, ctx: Any, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate final summary using LLM.
+        """Generate final summary.
+
+        For AgentOrchestrationStrategy, finalization is handled in orchestration_workflow.
+        This method is kept for interface compatibility.
 
         Args:
-            ctx: Workflow context
-            state: Final state with plan and verdict
+            ctx: Activity context
+            state: Final state
 
         Returns:
-            Final message dict for caller
-
-        This replicates lines 489-508 from durable.py
+            Final message placeholder
         """
-        plan = state.get("plan", [])
-        task = state.get("task", "")
-        verdict = state.get("verdict", "continue")
-        step_id = state.get("current_step_id")
-        substep_id = state.get("current_substep_id")
-        last_agent = state.get("last_agent", "")
-        last_result = state.get("last_result", "")
-
-        # If verdict is still "continue", we hit max iterations
-        if verdict == "continue":
-            verdict = "max_iterations_reached"
-
-        # Use SUMMARY_GENERATION_PROMPT to create final summary
-        summary_prompt = SUMMARY_GENERATION_PROMPT.format(
-            task=task,
-            verdict=verdict,
-            plan=plan,
-            step=step_id,
-            substep=substep_id,
-            agent=last_agent,
-            result=last_result,
-        )
-
         return {
-            "task": task,
-            "verdict": verdict,
-            "plan": plan,
-            "step": step_id,
-            "substep": substep_id,
-            "agent": last_agent,
-            "result": last_result,
-            "summary_prompt": summary_prompt,
+            "role": "assistant",
+            "content": "Orchestration completed.",
+            "name": getattr(self, "orchestrator_name", "AgentOrchestrator"),
         }

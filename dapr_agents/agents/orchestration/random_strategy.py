@@ -15,7 +15,7 @@ import random
 from typing import Any, Dict, Optional
 
 from dapr_agents.agents.orchestration.strategy import OrchestrationStrategy
-from dapr_agents.common.exceptions import AgentError
+from dapr_agents.types import AgentError
 
 logger = logging.getLogger(__name__)
 

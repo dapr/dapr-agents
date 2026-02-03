@@ -132,9 +132,7 @@ class OrchestrationStrategy(ABC):
         pass
 
     @abstractmethod
-    def finalize(
-        self, ctx: Any, state: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def finalize(self, ctx: Any, state: Dict[str, Any]) -> Dict[str, Any]:
         """Generate final summary/output message for the caller.
 
         This method is called when orchestration completes (either successfully,

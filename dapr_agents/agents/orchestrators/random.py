@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import random
+import warnings
 from datetime import timedelta
 from typing import Any, Dict, Optional, Callable
 
@@ -39,6 +40,40 @@ class RandomOrchestrator(OrchestratorBase):
          - Wait for a response event or a timeout,
          - Use the response content as the next turn's task.
       3) Return the final content.
+
+    .. deprecated:: 0.2.0
+        RandomOrchestrator is deprecated and will be removed in a future version.
+        Use :class:`~dapr_agents.agents.DurableAgent` with ``orchestrator=True``
+        and ``orchestration_mode="random"`` instead.
+
+    Migration Example:
+
+        Old approach::
+
+            from dapr_agents.agents.orchestrators import RandomOrchestrator
+
+            orchestrator = RandomOrchestrator(
+                name="RandomOrch",
+                pubsub=pubsub,
+                state=state,
+                registry=registry,
+                execution=execution,
+                timeout_seconds=60,
+            )
+
+        New approach (recommended)::
+
+            from dapr_agents.agents import DurableAgent
+
+            orchestrator = DurableAgent(
+                name="RandomOrch",
+                orchestrator=True,
+                orchestration_mode="random",  # Random with avoidance
+                pubsub=pubsub,
+                state=state,
+                registry=registry,
+                execution=execution,
+            )
     """
 
     def __init__(
@@ -55,6 +90,18 @@ class RandomOrchestrator(OrchestratorBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
+        """
+        .. deprecated:: 0.2.0
+            RandomOrchestrator is deprecated. Use DurableAgent with
+            orchestrator=True and orchestration_mode="random" instead.
+        """
+        warnings.warn(
+            "RandomOrchestrator is deprecated and will be removed in a future version. "
+            "Use DurableAgent with orchestrator=True and orchestration_mode='random' instead. "
+            "See https://docs.dapr.io/developing-applications/sdks/python/python-agents/ for migration guide.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(
             name=name,
             pubsub=pubsub,
