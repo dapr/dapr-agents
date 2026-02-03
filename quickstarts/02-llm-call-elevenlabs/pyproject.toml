@@ -1,0 +1,12 @@
+[project]
+name = "02-llm-call-elevenlabs"
+version = "0.1.0"
+requires-python = ">=3.11, <3.14"
+dependencies = [
+    "dapr-agents",
+    "elevenlabs>=2.29.0",
+    "python-dotenv>=1.2.1",
+]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }

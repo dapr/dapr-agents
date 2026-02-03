@@ -216,9 +216,9 @@ class TestFromToolbox:
                 params=[],
             )
             agent_tool = AgentTool.from_toolbox(mock_tool)
-            assert (
-                agent_tool.name == expected
-            ), f"Expected {expected}, got {agent_tool.name}"
+            assert agent_tool.name == expected, (
+                f"Expected {expected}, got {agent_tool.name}"
+            )
 
 
 class TestFromToolboxMany:

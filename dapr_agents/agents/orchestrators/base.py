@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Callable
 
 import dapr.ext.workflow as wf
 
-from dapr_agents.agents.components import AgentComponents
+from dapr_agents.agents.components import DaprInfra
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
     AgentPubSubConfig,
@@ -22,9 +22,9 @@ from dapr_agents.workflow.utils.grpc import apply_grpc_options
 logger = logging.getLogger(__name__)
 
 
-class OrchestratorBase(AgentComponents):
+class OrchestratorBase:
     """
-    Workflow-native orchestrator base built on AgentComponents.
+    Workflow-native orchestrator base built on DaprInfra.
 
     Overview:
         Manages workflow runtime lifecycle (register/start/stop), optional
@@ -48,7 +48,8 @@ class OrchestratorBase(AgentComponents):
         default_bundle: Optional[StateModelBundle] = None,
         final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
-        super().__init__(
+        # Wire infrastructure via DaprInfra (composition).
+        self._infra = DaprInfra(
             name=name,
             pubsub=pubsub,
             state=state,
@@ -56,6 +57,7 @@ class OrchestratorBase(AgentComponents):
             workflow_grpc_options=workflow_grpc,
             default_bundle=default_bundle,
         )
+        self.name = name
 
         self._final_summary_callback = final_summary_callback
 
@@ -87,6 +89,37 @@ class OrchestratorBase(AgentComponents):
 
         # Presentation helper (console)
         self._text_formatter = ColorTextFormatter()
+
+    # ------------------------------------------------------------------
+    # DaprInfra delegation properties and methods
+    # ------------------------------------------------------------------
+    @property
+    def registry_state(self):
+        """Delegate to DaprInfra."""
+        return self._infra.registry_state
+
+    @property
+    def workflow_grpc_options(self):
+        """Delegate to DaprInfra."""
+        return self._infra.workflow_grpc_options
+
+    def register_agentic_system(self, *, metadata=None, team=None):
+        """Delegate to DaprInfra."""
+        return self._infra.register_agentic_system(metadata=metadata, team=team)
+
+    def get_agents_metadata(
+        self, *, exclude_self=True, exclude_orchestrator=False, team=None
+    ):
+        """Delegate to DaprInfra."""
+        return self._infra.get_agents_metadata(
+            exclude_self=exclude_self,
+            exclude_orchestrator=exclude_orchestrator,
+            team=team,
+        )
+
+    def effective_team(self, team=None):
+        """Delegate to DaprInfra."""
+        return self._infra.effective_team(team=team)
 
     # ------------------------------------------------------------------
     # Callback-safe helper method

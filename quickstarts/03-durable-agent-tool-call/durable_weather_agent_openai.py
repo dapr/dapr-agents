@@ -49,8 +49,6 @@ async def main():
         # Then shut down runner (unwire/close clients)
         runner.shutdown(weather_agent)
 
-        exit(0)
-
 
 if __name__ == "__main__":
     try:

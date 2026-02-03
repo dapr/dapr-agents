@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 from dapr_agents.llm import DaprChatClient
 
@@ -16,7 +17,7 @@ from dapr_agents.workflow.utils.core import wait_for_shutdown
 from function_tools import slow_weather_func
 
 
-def main() -> None:
+async def main() -> None:
     weather_agent = DurableAgent(
         name="WeatherAgent",
         role="Weather Assistant",
@@ -27,35 +28,33 @@ def main() -> None:
         # Configure the agent to use Dapr State Store for conversation history.
         memory=AgentMemoryConfig(
             store=ConversationDaprStateMemory(
-                store_name="conversation-statestore",
-                session_id="05-durable-agent-sub",
+                store_name="agent-memory",
+                session_id=Path(__file__).stem,
             )
         ),
         # This is where the execution state is stored
         state=AgentStateConfig(
-            store=StateStoreService(store_name="workflow-statestore"),
+            store=StateStoreService(store_name="agent-workflow"),
         ),
         # This is where the agent listens for incoming tasks.
         pubsub=AgentPubSubConfig(
-            pubsub_name="message-pubsub",
+            pubsub_name="agent-pubsub",
             agent_topic="weather.requests",
             broadcast_topic="agents.broadcast",
         ),
         # This is where the agent registry is found
         registry=AgentRegistryConfig(
-            store=StateStoreService(store_name="agents-registry"),
+            store=StateStoreService(store_name="agent-registry"),
         ),
     )
 
     runner = AgentRunner()
     try:
         runner.subscribe(weather_agent)
+        await wait_for_shutdown()
     finally:
         runner.shutdown()
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nInterrupted by user. Exiting gracefully...")
+    asyncio.run(main())

@@ -5,7 +5,6 @@ from dapr.ext.workflow import DaprWorkflowContext
 from dotenv import load_dotenv
 
 from dapr_agents.llm.dapr import DaprChatClient
-from dapr_agents.workflow.decorators import llm_activity
 
 # Load environment variables (e.g., API keys, secrets)
 load_dotenv()
@@ -28,27 +27,20 @@ def task_chain_workflow(ctx: DaprWorkflowContext):
 
 
 @runtime.activity(name="get_character")
-@llm_activity(
-    prompt="""
+def get_character(ctx) -> str:
+    return str(
+        llm.generate(
+            prompt="""
 Pick a random character from The Lord of the Rings.
 Respond with the character's name only.
-""",
-    llm=llm,
-)
-def get_character(ctx) -> str:
-    # The llm_activity decorator handles the LLM call using the prompt above.
-    # Just declare the signature; the body can be empty or 'pass'.
-    pass
+"""
+        )
+    )
 
 
 @runtime.activity(name="get_line")
-@llm_activity(
-    prompt="What is a famous line by {character}?",
-    llm=llm,
-)
 def get_line(ctx, character: str) -> str:
-    # The llm_activity decorator will format the prompt with 'character'.
-    pass
+    return str(llm.generate(prompt=f"What is a famous line by {character}?"))
 
 
 if __name__ == "__main__":
@@ -65,7 +57,7 @@ if __name__ == "__main__":
     print(f"Workflow started: {instance_id}")
 
     # Wait for completion and print results
-    state = client.wait_for_workflow_completion(instance_id)
+    state = client.wait_for_workflow_completion(instance_id, timeout_in_seconds=60)
     if not state:
         print("No state returned (instance may not exist).")
     elif state.runtime_status.name == "COMPLETED":

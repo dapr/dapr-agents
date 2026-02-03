@@ -13,7 +13,7 @@ if [ "$(docker inspect -f '{{.State.Running}}' "${REG_NAME}" 2>/dev/null || true
     -d --restart=always -p "127.0.0.1:${REG_PORT}:5000" --network bridge --name "${REG_NAME}" \
     registry:2
 fi
-echo "### Local registry created! ###s"
+echo "### Local registry created! ###"
 
 # Create kind cluster with registry config
 echo "### Creating kind cluster... ###"
@@ -81,10 +81,10 @@ build_images () {
   echo "#### Images pushed! ####"
 }
 
-echo "### Installing Bitnami Redis... ###"
-helm install dapr-redis oci://registry-1.docker.io/bitnamicharts/redis \
+echo "### Installing Redis... ###"
+helm install dapr-redis oci://registry-1.docker.io/cloudpirates/redis \
   --wait &>/dev/null
-echo "### Bitnami Redis installed! ###"
+echo "### Redis installed! ###"
 
 echo "### Installing Dapr... ####"
 helm repo add dapr https://dapr.github.io/helm-charts/ &>/dev/null && \
@@ -122,5 +122,7 @@ kubectl port-forward -n default svc/workflow-llm 8004:80 &>/dev/null &
 echo "### Port forwarded the workflow-llm pod... ###"
 
 echo "### Trigger workflow... ###"
-python3 -m pip install -r "${BASE_DIR}/services/client/requirements.txt" &>/dev/null
+uv venv --clear
+source .venv/bin/activate
+cd  ../../ && uv sync --active --frozen --no-dev --package 05-multi-agent-workflow-k8s && cd - # &>/dev/null
 python3 "${BASE_DIR}/services/client/k8s_http_client.py"

@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import dapr.ext.workflow as wf
-from durabletask import task as dt_task
 
 from dapr_agents.agents.configs import AgentExecutionConfig
 from dapr_agents.agents.orchestrators.llm.base import LLMOrchestratorBase
@@ -15,7 +14,7 @@ from dapr_agents.agents.schemas import (
     BroadcastMessage,
     TriggerAction,
 )
-from dapr_agents.workflow.decorators.routers import message_router
+from dapr_agents.workflow.decorators.decorators import message_router
 from dapr_agents.workflow.decorators import workflow_entry
 from dapr_agents.agents.orchestrators.llm.prompts import (
     NEXT_STEP_PROMPT,
@@ -216,7 +215,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
                 # Await response or timeout
                 event_task = ctx.wait_for_external_event("AgentTaskResponse")
                 timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
-                winner = yield dt_task.when_any([event_task, timeout_task])
+                winner = yield wf.when_any([event_task, timeout_task])
 
                 if winner == timeout_task:
                     if not ctx.is_replaying:

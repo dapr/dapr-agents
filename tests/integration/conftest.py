@@ -1,4 +1,5 @@
 """Shared fixtures for integration tests."""
+
 import os
 import subprocess
 import pytest
@@ -8,7 +9,6 @@ import time
 import requests
 from pathlib import Path
 from typing import Optional
-from unittest.mock import MagicMock
 
 logger = logging.getLogger(__name__)
 

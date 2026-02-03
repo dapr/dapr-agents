@@ -63,6 +63,7 @@ from .wrappers import (
 )
 
 from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.trace import TracerProvider
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         self._tracer = None
         self._logger = None
         self._grpc_instrumentor: Optional[GrpcInstrumentorClient] = None
+        self._httpx_instrumentor: Optional[HTTPXClientInstrumentor] = None
 
     def instrumentation_dependencies(self) -> Collection[str]:
         """
@@ -162,6 +164,10 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
 
         # LLM provider integrations
         self._apply_llm_wrappers()
+
+        # Instrument HTTPX client for context propagation through MCPClient connection
+        self._httpx_instrumentor = HTTPXClientInstrumentor()
+        self._httpx_instrumentor.instrument()
 
         # Instrument gRPC client for context propagation to Dapr sidecar
         self._grpc_instrumentor = GrpcInstrumentorClient()
@@ -366,8 +372,18 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
             if hasattr(tracer_provider, "force_flush"):
                 tracer_provider.force_flush(timeout_millis=5000)  # type: ignore
                 logger.debug("Flushed tracer provider spans")
+            if hasattr(tracer_provider, "shutdown"):
+                tracer_provider.shutdown()  # type: ignore
+                logger.info("Shut down tracer provider background threads")
         except Exception:  # noqa: BLE001
             logger.exception("Error while shutting down tracer provider", exc_info=True)
+        try:
+            logger_provider = logs_api.get_logger_provider()
+            if hasattr(logger_provider, "shutdown"):
+                logger_provider.shutdown()  # type: ignore
+                logger.info("Shut down logger provider")
+        except Exception as e:  # noqa: BLE001
+            logger.info(f"Error shutting down logger provider: {e}")
 
         self._grpc_instrumentor = None
         self._logger = None

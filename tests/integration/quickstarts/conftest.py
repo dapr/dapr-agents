@@ -2,7 +2,6 @@ import os
 import signal
 import subprocess
 import logging
-import tempfile
 import shutil
 import time
 import socket
@@ -10,6 +9,8 @@ import threading
 import re
 from pathlib import Path
 from typing import Optional, Dict, Any
+import yaml
+import tempfile
 import pytest
 
 logger = logging.getLogger(__name__)
@@ -30,16 +31,14 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
     Returns:
         Path to the venv Python executable
     """
-    # Each quickstart has its own directory, so venv is already unique per quickstart
-    # Since pytest-xdist runs one test file per worker, and each quickstart has
-    # a unique directory, then we know that each venv path is unique and will not conflict.
-    # The venv name is set to ephemeral_test_venv to make it clear these are temporary test venvs.
-    venv_path = quickstart_dir / "ephemeral_test_venv"
+    # Use the workspace root's venv instead of creating per-quickstart venvs
+    # This allows uv workspace dependencies to be properly resolved
+    venv_path = project_root / ".venv"
     if not venv_path.exists():
-        logger.info(f"Creating venv in {quickstart_dir}")
+        logger.info(f"Creating venv in {project_root}")
         result = subprocess.run(
-            ["python3", "-m", "venv", str(venv_path)],
-            cwd=quickstart_dir,
+            ["uv", "venv"],
+            cwd=project_root,
             capture_output=True,
             text=True,
             timeout=30,
@@ -60,17 +59,8 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
     # The venv's Python is typically a symlink, but we want to use it directly, not resolve it
     venv_python = venv_python.absolute()
 
-    # Also find venv_pip for fallback when uv fails
-    venv_pip = venv_path / "bin" / "pip"
-    if not venv_pip.exists():
-        venv_pip = venv_path / "Scripts" / "pip.exe"
-
-    requirements_file = quickstart_dir / "requirements.txt"
-    # Skip installation if already done (for parallel execution)
-    installed_marker = venv_path / ".installed"
-    if installed_marker.exists():
-        logger.info(f"Dependencies already installed for {quickstart_dir}")
-    else:
+    # Always run uv sync (it's fast when dependencies are already installed)
+    if True:
         # Set up environment to ensure uv uses the venv Python
         # Add venv's bin directory to PATH so uv can find the venv Python
         venv_bin = venv_path / "bin"
@@ -89,14 +79,13 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
         # Also set VIRTUAL_ENV to help uv detect the venv
         install_env["VIRTUAL_ENV"] = str(venv_path.resolve())
 
-        # Try using uv pip install, with fallback to venv pip if needed
-        # Fall back to venv pip if all fail
-        def try_uv_install(cmd_args, description):
-            """Try uv pip install with different strategies, fall back to venv pip if needed."""
-            # First, try uv pip install without --python (relies on PATH/VIRTUAL_ENV)
+        # Try using uv sync from workspace root
+        def try_uv_install(description: str):
+            """Try uv sync from workspace root"""
+            # Run uv sync from workspace root to ensure all workspace dependencies are available
             result = subprocess.run(
-                ["uv", "pip", "install"] + cmd_args,
-                cwd=quickstart_dir,
+                ["uv", "sync", "--frozen", "--all-extras"],
+                cwd=project_root,
                 env=install_env,
                 capture_output=True,
                 text=True,
@@ -107,71 +96,32 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
             if result.returncode == 0:
                 return result
 
-            # Next, try uv pip install with --python flag
-            if "externally managed" in result.stderr:
-                logger.debug(
-                    f"uv pip install without --python failed, trying with --python flag for {description}"
-                )
-                result = subprocess.run(
-                    [
-                        "uv",
-                        "pip",
-                        "install",
-                        "--python",
-                        str(venv_python),
-                    ]
-                    + cmd_args,
-                    cwd=quickstart_dir,
-                    env=install_env,
-                    capture_output=True,
-                    text=True,
-                    timeout=180,
-                )
-
-            # If uv still fails with externally managed error, fall back to venv pip
-            if result.returncode != 0 and "externally managed" in result.stderr:
-                logger.warning(
-                    f"uv pip install failed with externally managed error, falling back to venv pip for {description}"
-                )
-                venv_pip = venv_bin / "pip"
-                if not venv_pip.exists():
-                    venv_pip = venv_bin / "pip.exe"
-
-                result = subprocess.run(
-                    [str(venv_pip)] + ["install"] + cmd_args,
-                    cwd=quickstart_dir,
-                    env=install_env,
-                    capture_output=True,
-                    text=True,
-                    timeout=180,
-                )
-
             if result.returncode != 0:
                 raise RuntimeError(
                     f"Failed to install {description}: {result.stderr}\n{result.stdout}"
                 )
             return result
 
-        if requirements_file.exists():
-            # Install dependencies from requirements.txt first using uv
-            logger.info(f"Installing dependencies from {requirements_file} using uv")
-            try_uv_install(["-r", str(requirements_file)], "requirements")
+        try_uv_install("requirements")
 
-            # Override with editable dapr-agents from current repo changes (for PR testing)
-            # This ensures we test against the current repo changes, so we test local changes before release
+        # Also sync quickstart-specific dependencies if it has its own pyproject.toml
+        quickstart_pyproject = quickstart_dir / "pyproject.toml"
+        if quickstart_pyproject.exists():
             logger.info(
-                f"Installing editable dapr-agents from {project_root} to override requirements.txt"
+                f"Syncing quickstart-specific dependencies from {quickstart_pyproject}"
             )
-            try_uv_install(["-e", str(project_root)], "editable dapr-agents")
-        else:
-            # No requirements.txt - install editable dapr-agents for testing using uv
-            logger.info(
-                "No requirements.txt found, installing editable dapr-agents using uv"
+            result = subprocess.run(
+                ["uv", "sync", "--frozen"],
+                cwd=quickstart_dir,
+                env=install_env,
+                capture_output=True,
+                text=True,
+                timeout=180,
             )
-            try_uv_install(["-e", str(project_root)], "dapr-agents")
-
-        # Mark as installed so if we're running in parallel, we don't reinstall the dependencies.
-        installed_marker.touch()
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to install quickstart dependencies: {result.stderr}\n{result.stdout}"
+                )
 
     return venv_python
 
@@ -418,7 +368,7 @@ def run_quickstart_script(
 
 def _cleanup_quickstart_venv(quickstart_dir: Path):
     """Helper function to cleanup a single quickstart venv."""
-    venv_path = quickstart_dir / "ephemeral_test_venv"
+    venv_path = quickstart_dir / ".venv"
     if venv_path.exists():
         logger.info(f"Removing ephemeral test venv: {venv_path}")
         try:
@@ -525,15 +475,38 @@ def run_quickstart_multi_app(
 
     venv_python, _ = _setup_venv_and_python(quickstart_dir, project_root, create_venv)
 
-    # Resolve environment variables in components if needed
+    # Resolve environment variables in components or resources
+    tmp_path = None
     resources_path = quickstart_dir / "components"
     if resources_path.exists():
-        resources_path = _resolve_component_env_vars(
+        tmp_path = _resolve_component_env_vars(
             resources_path, cwd_path, venv_python, full_env
         )
 
+    # Build modified YAML with tmp_path if needed
+    yaml_to_use = dapr_yaml_path
+    if tmp_path and tmp_path != resources_path:
+        with open(dapr_yaml_path, "r") as f:
+            yaml_data = yaml.safe_load(f)
+        if yaml_data and "common" in yaml_data:
+            yaml_data["common"]["resourcesPath"] = str(tmp_path)
+        # Update appDirPath for each app to use absolute path to quickstart_dir
+        # This ensures scripts are found even when YAML is in a temp directory
+        if yaml_data and "apps" in yaml_data:
+            for app in yaml_data["apps"]:
+                if "appDirPath" in app:
+                    app_dir = app["appDirPath"]
+                    # If relative path, resolve it relative to quickstart_dir
+                    if not Path(app_dir).is_absolute():
+                        app["appDirPath"] = str((quickstart_dir / app_dir).resolve())
+        temp_dir = tempfile.mkdtemp(prefix="rendered_yaml_")
+        temp_yaml_path = Path(temp_dir) / dapr_yaml_path.name
+        with open(temp_yaml_path, "w") as f:
+            yaml.dump(yaml_data, f)
+        yaml_to_use = temp_yaml_path
+
     # Build dapr run -f command
-    cmd = ["dapr", "run", "-f", str(dapr_yaml_path)]
+    cmd = ["dapr", "run", "-f", str(yaml_to_use)]
 
     # If trigger_curl is provided, we need to run the process in the background,
     # wait for the server to be ready, send the curl request, then terminate
@@ -906,25 +879,27 @@ def _run_multi_app_with_completion_detection(
                             )
 
                             # Check if this is the orchestrator's main workflow
-                            if (
-                                orchestrator_workflow_name
-                                and workflow_name == orchestrator_workflow_name
-                            ):
-                                if not orchestrator_completion_detected:
-                                    orchestrator_completion_detected = True
-                                    orchestrator_failed = is_failed
-                                    completion_time = time.time()
-                                    if is_failed:
-                                        logger.error(
-                                            f"Orchestrator workflow '{orchestrator_workflow_name}' FAILED! "
-                                            f"This indicates a quickstart bug, not a test issue."
-                                        )
-                                    else:
-                                        logger.info(
-                                            f"Orchestrator workflow '{orchestrator_workflow_name}' completed! "
-                                            f"Unique workflow types: {len(completed_workflows)}, "
-                                            f"Total completion instances: {total_completions}"
-                                        )
+                            # If orchestrator_workflow_name is None, treat the first completed workflow as the orchestrator
+                            is_orchestrator = (
+                                orchestrator_workflow_name is None
+                                or workflow_name == orchestrator_workflow_name
+                            )
+
+                            if is_orchestrator and not orchestrator_completion_detected:
+                                orchestrator_completion_detected = True
+                                orchestrator_failed = is_failed
+                                completion_time = time.time()
+                                if is_failed:
+                                    logger.error(
+                                        f"Orchestrator workflow '{workflow_name}' FAILED! "
+                                        f"This indicates a quickstart bug, not a test issue."
+                                    )
+                                else:
+                                    logger.info(
+                                        f"Orchestrator workflow '{workflow_name}' completed! "
+                                        f"Unique workflow types: {len(completed_workflows)}, "
+                                        f"Total completion instances: {total_completions}"
+                                    )
 
                     # Also check for [agent-runner] completion message as a fallback
                     if (
@@ -1325,8 +1300,8 @@ def _run_with_pubsub_trigger(
         publish_cmd = [
             "dapr",
             "publish",
-            "--dapr-http-port",
-            str(dapr_http_port),
+            "--publish-app-id",
+            "e2e-test-publisher",
             "--pubsub",
             pubsub_name,
             "--topic",

@@ -11,32 +11,19 @@ This project uses modern Python packaging with `pyproject.toml`. Dependencies ar
 ### Working within a virtual environment
 Create your python virtual environment:
 ```bash
-python -m venv venv
-source venv/bin/activate
+uv venv
+source .venv/bin/activate
+uv sync --active
 ```
 
 ### Generating Requirements Files
 
 If you need to generate requirements files (e.g., for deployment or specific environments):
 
-#### Option 1 - Using pip-tools:
-```bash
-# Install dev tools
-pip install -e ".[dev]"
-
-# Generate requirements.txt
-pip-compile pyproject.toml
-
-# Generate dev-requirements.txt
-pip-compile pyproject.toml # --extra dev
-
-pip install -r requirements.txt
-```
-
 #### Option 2 - Using uv:
 ```bash
 # Install everything from lock file
-uv sync --all-extras
+uv sync --no-dev # Since dev are added by default
 
 # Generate lock file with all dependencies
 uv lock
@@ -44,31 +31,16 @@ uv lock
 
 ### Installing Dependencies
 
-#### Option 1 - Using pip:
-```bash
-# Install main package with test dependencies
-pip install -e ".[test]"
-
-# Install main package with development dependencies
-pip install -e ".[dev]"
-
-# Install main package with all optional dependencies
-pip install -e ".[test,dev]"
-```
-
 #### Option 2 - Using uv:
 ```bash
 # Install main package with test dependencies
-uv sync --extra=test
-
-# Install main package with development dependencies
-uv sync --extra=dev
+uv sync --group test
 
 # Install main package with all optional dependencies
-uv sync --all-extras
+uv sync --group vectorstore
 
-# Install in editable mode with all extras
-uv sync --all-extras --editable
+# Install in editable mode
+uv sync --editable
 ```
 
 ## Local Development
@@ -81,21 +53,20 @@ for example, those from [python-sdk](https://github.com/dapr/python-sdk) or [dur
 then you can follow the same steps above and then install your local versions.
 Adjust the paths as needed for your setup.
 
-Example with pip:
-```bash
-pip install -e ../durabletask-python \
-   -e ../python-sdk \
-   -e ../python-sdk/ext/dapr-ext-fastapi \
-   -e ../python-sdk/ext/dapr-ext-workflow \ 
-```
-
-Or using uv:
-
 ```bash
 uv pip install -e ../durabletask-python \
    -e ../python-sdk \
    -e ../python-sdk/ext/dapr-ext-fastapi \
    -e ../python-sdk/ext/dapr-ext-workflow
+```
+
+You can also update `pyproject.toml` file to point to your local repo instead. For example, instead of:
+```
+"durabletask-dapr=>0.2.0a15",
+```
+You can use:
+```
+"durabletask-dapr @ file:///Users/samcoyle/go/src/github.com/durabletask-python",
 ```
 
 ### Using Local Dapr Runtime Changes
@@ -136,13 +107,13 @@ The project uses pytest for testing. To run tests:
 
 ```bash
 # Run all tests
-tox -e pytest
+uv run pytest
 
 # Run specific test file
-tox -e pytest tests/test_random_orchestrator.py
+uv run pytest tests/test_random_orchestrator.py
 
 # Run tests with coverage
-tox -e pytest --cov=dapr_agents
+uv run pytest --cov=dapr_agents
 ```
 
 ### Integration Tests
@@ -182,13 +153,16 @@ The project uses several tools to maintain code quality:
 
 ```bash
 # Run linting
-tox -e flake8
+uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
 
 # Run code formatting
-tox -e ruff
+uv run ruff format
 
 # Run type checking
-tox -e type
+uv run mypy --config-file mypy.ini
+
+## Run all combined
+uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"
 ```
 
 ## Development Workflow
@@ -196,28 +170,26 @@ tox -e type
 ### Option 1 - Using pip:
 1. Install development dependencies:
    ```bash
-   pip install -e ".[dev]"
-   # Alternatively, you can use uv with:
-   # uv sync --extra=dev
+   uv sync --group test
    ```
 
 2. Run tests before making changes:
    ```bash
-   tox -e pytest
+   uv run pytest tests -m "not integration"
    ```
 
 3. Make your changes
 
 4. Run code quality checks:
    ```bash
-   tox -e flake8
-   tox -e ruff
-   tox -e type
+   uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+   uv run ruff format
+   uv run mypy --config-file mypy.ini
    ```
 
 5. Run tests again:
    ```bash
-   tox -e pytest
+   uv run pytest tests -m "not integration"
    ```
 
 6. Submit your changes

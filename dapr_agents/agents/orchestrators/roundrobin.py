@@ -5,7 +5,6 @@ from datetime import timedelta
 from typing import Any, Dict, Optional, Callable
 
 import dapr.ext.workflow as wf
-from durabletask import task as dt_task
 
 from dapr_agents.agents.configs import (
     AgentPubSubConfig,
@@ -20,7 +19,7 @@ from dapr_agents.agents.schemas import (
     BroadcastMessage,
     TriggerAction,
 )
-from dapr_agents.workflow.decorators.routers import message_router
+from dapr_agents.workflow.decorators.decorators import message_router
 from dapr_agents.workflow.decorators import workflow_entry
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
 
@@ -137,7 +136,7 @@ class RoundRobinOrchestrator(OrchestratorBase):
             # Await response or timeout
             event_task = ctx.wait_for_external_event("AgentTaskResponse")
             timeout_task = ctx.create_timer(timedelta(seconds=self.timeout))
-            winner = yield dt_task.when_any([event_task, timeout_task])
+            winner = yield wf.when_any([event_task, timeout_task])
 
             if winner == timeout_task:
                 if not ctx.is_replaying:

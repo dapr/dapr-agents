@@ -6,11 +6,11 @@ from io import BytesIO, BufferedReader
 
 
 class ElevenLabsClientConfig(BaseModel):
-    base_url: Literal[
-        "https://api.elevenlabs.io", "https://api.us.elevenlabs.io"
-    ] = Field(
-        default="https://api.elevenlabs.io",
-        description="Base URL for the ElevenLabs API. Defaults to the production environment.",
+    base_url: Literal["https://api.elevenlabs.io", "https://api.us.elevenlabs.io"] = (
+        Field(
+            default="https://api.elevenlabs.io",
+            description="Base URL for the ElevenLabs API. Defaults to the production environment.",
+        )
     )
     api_key: Optional[str] = Field(
         None, description="API key to authenticate with the ElevenLabs API."
@@ -198,9 +198,9 @@ class OpenAIChatCompletionParams(OpenAIParamsBase):
     n: Optional[int] = Field(
         1, ge=1, le=128, description="Number of chat completion choices to generate"
     )
-    response_format: Optional[
-        Dict[Literal["type"], Literal["text", "json_object"]]
-    ] = Field(None, description="Format of the response")
+    response_format: Optional[Dict[Literal["type"], Literal["text", "json_object"]]] = (
+        Field(None, description="Format of the response")
+    )
     tools: Optional[List[Dict[str, Any]]] = Field(
         None, max_length=64, description="List of tools the model may call"
     )
@@ -426,12 +426,12 @@ class AudioSpeechRequest(BaseModel):
         ...,
         description="Text to generate audio for. If the input exceeds 4096 characters, it will be split into chunks.",
     )
-    voice: Optional[
-        Literal["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
-    ] = Field("alloy", description="Voice to use.")
-    response_format: Optional[
-        Literal["mp3", "opus", "aac", "flac", "wav", "pcm"]
-    ] = Field("mp3", description="Audio format.")
+    voice: Optional[Literal["alloy", "echo", "fable", "onyx", "nova", "shimmer"]] = (
+        Field("alloy", description="Voice to use.")
+    )
+    response_format: Optional[Literal["mp3", "opus", "aac", "flac", "wav", "pcm"]] = (
+        Field("mp3", description="Audio format.")
+    )
     speed: Optional[float] = Field(
         1.0, ge=0.25, le=4.0, description="Speed of the audio."
     )
@@ -457,9 +457,9 @@ class AudioTranscriptionRequest(BaseModel):
     prompt: Optional[str] = Field(
         None, description="Optional prompt for the transcription."
     )
-    response_format: Optional[
-        Literal["json", "text", "srt", "verbose_json", "vtt"]
-    ] = Field("json", description="Response format.")
+    response_format: Optional[Literal["json", "text", "srt", "verbose_json", "vtt"]] = (
+        Field("json", description="Response format.")
+    )
     temperature: Optional[float] = Field(
         0.0, ge=0.0, le=1.0, description="Sampling temperature."
     )
@@ -529,9 +529,9 @@ class AudioTranslationRequest(BaseModel):
     prompt: Optional[str] = Field(
         None, description="Optional prompt for the translation."
     )
-    response_format: Optional[
-        Literal["json", "text", "srt", "verbose_json", "vtt"]
-    ] = Field("json", description="Response format.")
+    response_format: Optional[Literal["json", "text", "srt", "verbose_json", "vtt"]] = (
+        Field("json", description="Response format.")
+    )
     temperature: Optional[float] = Field(
         0.0, ge=0.0, le=1.0, description="Sampling temperature."
     )

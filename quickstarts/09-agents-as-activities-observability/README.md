@@ -4,25 +4,20 @@ This quickstart demonstrates how to use AI agents as activities within Dapr work
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- uv package manager
 - OpenAI API key (or NVIDIA API key and Hugging Face API key for multi-model examples)
 - Dapr CLI and Docker installed
 
 ## Environment Setup
 
 ```bash
-# Create a virtual environment
-python3.10 -m venv .venv
-
-# Activate the virtual environment
+uv venv
+# Activate the virtual environment 
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
 source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+uv sync --active
 ```
 
 ## Configuration
@@ -135,7 +130,7 @@ spec:
 
 ## Sequential Agent Workflow
 
-This example shows how to chain multiple agents inside a Dapr workflow using the `@agent_activity` decorator. Each activity runs an agent with its own instructions, while the workflow orchestrates the overall plan.
+This example shows how to chain multiple agents inside a Dapr workflow by orchestrating agent-backed activities as child workflows. Each activity calls an agent with its own instructions using `ctx.call_child_workflow`, while the workflow orchestrates the overall plan.
 
 Run the workflow (render components first if you’re using `.env` placeholders):
 

@@ -1,0 +1,10 @@
+[project]
+name = "05-multi-agent-workflow-k8s"
+version = "0.1.0"
+requires-python = ">=3.11, <3.14"
+dependencies = [
+    "requests>=2.32.5",
+]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }

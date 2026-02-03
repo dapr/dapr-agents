@@ -46,12 +46,12 @@ class SignalMixin:
         self._shutdown_event: Optional[asyncio.Event] = None
         self._cleanup_handlers: Optional[Callable[[], None]] = None
         self._shutdown_task_scheduled: bool = False
-        self._signal_loop: Optional[
-            asyncio.AbstractEventLoop
-        ] = None  # loop used for handler install
-        self._last_signal: Optional[
-            int
-        ] = None  # last observed signal number (-1 if programmatic)
+        self._signal_loop: Optional[asyncio.AbstractEventLoop] = (
+            None  # loop used for handler install
+        )
+        self._last_signal: Optional[int] = (
+            None  # last observed signal number (-1 if programmatic)
+        )
 
     # ------------------- Public API -------------------
 

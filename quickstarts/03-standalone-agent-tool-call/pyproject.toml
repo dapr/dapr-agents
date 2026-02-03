@@ -1,0 +1,14 @@
+[project]
+name = "03-standalone-agent-tool-call"
+version = "0.1.0"
+requires-python = ">=3.11, <3.14"
+dependencies = [
+    "arize-phoenix>=12.16.0",
+    "arize-phoenix-otel>=0.12.1",
+    "dapr-agents[vectorstore]",
+    "python-dotenv>=1.2.1",
+    "sentence-transformers>=4.1.0",
+]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }

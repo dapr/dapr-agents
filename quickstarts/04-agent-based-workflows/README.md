@@ -1,28 +1,24 @@
 # Agent-based Workflow Patterns
 
-This quickstart demonstrates how to orchestrate agentic tasks using Dapr Workflows and the `@agent_activity` decorator from Dapr Agents. You’ll learn how to compose multi-step workflows that call autonomous agents—each powered by LLMs—for reasoning, decision-making, and task execution.
+This quickstart demonstrates how to orchestrate agentic tasks using Dapr Workflows and agent-backed activities. You’ll learn how to compose multi-step workflows that call autonomous agents—each powered by LLMs—for reasoning, decision-making, and task execution.
 
 ## Prerequisites
 
-- Python 3.10 (recommended)
-- pip package manager
+- Python >= 3.11
+- uv package manager
 - OpenAI API key
 - Dapr CLI and Docker installed
 
 ## Environment Setup
 
 ```bash
-# Create a virtual environment
-python3.10 -m venv .venv
-
-# Activate the virtual environment
+uv venv
+# Activate the virtual environment 
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
 source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+uv sync --active
 ```
 
 ## Configuration
@@ -134,8 +130,7 @@ How It Works
 
 #### Code Highlights
 
-* `@agent_activity` decorator: Wraps an activity function so that Dapr automatically delegates its implementation to an Agent.
-The function body can remain empty (pass); execution is routed through the agent’s reasoning loop.
+* Agent-backed activities: Use `ctx.call_child_workflow` to delegate execution to an Agent. The workflow coordinates agent tasks by calling each agent as a child workflow.
 * Agents: Each agent defines:
     * name, role, and instructions
     * a shared llm client (DaprChatClient)

@@ -36,11 +36,9 @@ logger = logging.getLogger(__name__)
 class DedupeBackend(Protocol):
     """Idempotency backend contract (best-effort duplicate detection)."""
 
-    def seen(self, key: str) -> bool:
-        ...
+    def seen(self, key: str) -> bool: ...
 
-    def mark(self, key: str) -> None:
-        ...
+    def mark(self, key: str) -> None: ...
 
 
 SubscribeFn = Callable[..., Callable[[], None]]
