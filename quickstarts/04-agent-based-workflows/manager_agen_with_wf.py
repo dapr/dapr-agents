@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
+import uuid
+from typing import Any, Dict, Optional
 
 import dapr.ext.workflow as wf
 from dotenv import load_dotenv
@@ -17,42 +20,81 @@ logger = logging.getLogger(__name__)
 llm = DaprChatClient(component_name="openai")
 runtime = wf.WorkflowRuntime()
 
+_DEFAULT_TIMEOUT_SECONDS = 300
+
+
+@runtime.workflow(name="manager_call_agent")
+def manager_call_agent(ctx: wf.DaprWorkflowContext, payload: Dict[str, Any]) -> str:
+    """Call a target agent workflow as a child workflow."""
+    message = payload.get("message", "")
+    app_id = payload.get("app_id", "")
+    if not app_id:
+        raise ValueError("Missing app_id for manager_call_agent.")
+    result = yield ctx.call_child_workflow(
+        workflow="agent_workflow",
+        input={"task": message},
+        app_id=app_id,
+    )
+    return result.get("content", "") if result else ""
+
 
 class CallAgentArgs(BaseModel):
     message: str = Field(description="Message to send to the target agent.")
 
 
+def _extract_content(payload: Optional[str]) -> str:
+    if not payload:
+        return ""
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return str(payload)
+    if isinstance(data, dict):
+        return str(data.get("content", data))
+    return str(data)
+
+
+def _run_agent_call(app_id: str, message: str) -> str:
+    client = wf.DaprWorkflowClient()
+    try:
+        instance_id = f"manager-{app_id}-{uuid.uuid4().hex}"
+        client.schedule_new_workflow(
+            workflow=manager_call_agent,
+            input={"message": message, "app_id": app_id},
+            instance_id=instance_id,
+        )
+        state = client.wait_for_workflow_completion(
+            instance_id,
+            timeout_in_seconds=_DEFAULT_TIMEOUT_SECONDS,
+            fetch_payloads=True,
+        )
+    finally:
+        client.close()
+
+    if not state:
+        raise RuntimeError(f"No workflow state returned for {instance_id}.")
+    status = getattr(state.runtime_status, "name", str(state.runtime_status))
+    if status != "COMPLETED":
+        raise RuntimeError(f"Manager workflow failed with status {status}.")
+    return _extract_content(getattr(state, "serialized_output", None))
+
+
 @tool(args_model=CallAgentArgs)
-def call_extractor(message: str, _workflow_ctx: wf.DaprWorkflowContext) -> str:
+def call_extractor(message: str) -> str:
     """Extract the destination city from a user request."""
-    result = yield _workflow_ctx.call_child_workflow(
-        workflow="agent_workflow",
-        input={"task": message},
-        app_id="extractor",
-    )
-    return result.get("content", "") if result else ""
+    return _run_agent_call("extractor", message)
 
 
 @tool(args_model=CallAgentArgs)
-def call_planner(message: str, _workflow_ctx: wf.DaprWorkflowContext) -> str:
+def call_planner(message: str) -> str:
     """Create a short trip outline based on a destination."""
-    result = yield _workflow_ctx.call_child_workflow(
-        workflow="agent_workflow",
-        input={"task": message},
-        app_id="planner",
-    )
-    return result.get("content", "") if result else ""
+    return _run_agent_call("planner", message)
 
 
 @tool(args_model=CallAgentArgs)
-def call_expander(message: str, _workflow_ctx: wf.DaprWorkflowContext) -> str:
+def call_expander(message: str) -> str:
     """Expand a trip outline into a detailed itinerary."""
-    result = yield _workflow_ctx.call_child_workflow(
-        workflow="agent_workflow",
-        input={"task": message},
-        app_id="expander",
-    )
-    return result.get("content", "") if result else ""
+    return _run_agent_call("expander", message)
 
 
 def main() -> None:
