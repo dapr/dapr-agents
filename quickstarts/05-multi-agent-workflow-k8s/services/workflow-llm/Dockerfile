@@ -17,7 +17,7 @@ COPY quickstarts/05-multi-agent-workflows/services/workflow-llm/app.py /app/app.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-editable --package 05-multi-agent-workflows
 
-FROM python:3.13-slim-bookworm@sha256:97e9392d12279f8c180eb80f0c7c0f3dfe5650f0f2573f7ad770aea58f75ed12
+FROM python:3.13-slim-bookworm@sha256:056d371a01e8c93510974ee2e418e2bfdd33f570570d40235a4d26554e13690a
 
 COPY --from=build /app /app
 ENV PATH="/app/.venv/bin:$PATH"
