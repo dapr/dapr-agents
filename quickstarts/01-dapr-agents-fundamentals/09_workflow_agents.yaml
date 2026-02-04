@@ -1,0 +1,21 @@
+version: 1
+common:
+  resourcesPath: ./components
+  logLevel: info
+  appLogDestination: console
+  daprdLogDestination: console
+
+apps:
+  - appID: triage-agent
+    appDirPath: ./
+    command: ["python3", "09_triage_agent.py"]
+    appPort: 8001
+
+  - appID: expert-agent
+    appDirPath: ./
+    command: ["python3", "09_expert_agent.py"]
+    appPort: 8002
+
+  - appID: workflow
+    appDirPath: ./
+    command: ["python3", "09_workflow_agents.py"]

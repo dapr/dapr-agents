@@ -1,6 +1,6 @@
 # Message Router Workflow (Pub/Sub → Workflow)
 
-This quickstart shows how to trigger a Dapr Workflow directly from a Pub/Sub message using the `@message_router` decorator. The decorator is applied to the workflow itself, enabling automatic message validation and workflow scheduling. Activities use the `@llm_activity` decorator to offload work to an LLM.
+This quickstart shows how to trigger a Dapr Workflow directly from a Pub/Sub message using the `@message_router` decorator. The decorator is applied to the workflow itself, enabling automatic message validation and workflow scheduling. Activities use direct LLM calls (with optional schema validation) to offload work to an LLM.
 
 You'll run two processes:
 
@@ -117,7 +117,7 @@ spec:
 04-message-router-workflow/
 ├─ components/                 # Dapr components (pubsub, conversation, workflow state)
 ├─ app.py                      # Starts WorkflowRuntime + registers message router
-├─ workflow.py                 # @message_router decorated workflow & @llm_activity activities
+├─ workflow.py                 # @message_router decorated workflow & direct LLM activities
 └─ message_client.py           # publishes a test message to the topic
 ```
 
@@ -126,7 +126,7 @@ spec:
 * `message_client.py` publishes a CloudEvent-style JSON payload to `topic=blog.requests` on `pubsub=messagepubsub`.
 * `app.py` starts the Dapr Workflow runtime, registers `blog_workflow` + activities, and calls `register_message_routes(targets=[blog_workflow])`.
 * `register_message_routes` discovers the `@message_router` decorator on `blog_workflow`, validates incoming messages using the Pydantic model (`StartBlogMessage`), and automatically schedules the workflow when valid messages arrive.
-* `workflow.py` runs `blog_workflow`, calling two LLM-backed activities (`create_outline`, `write_post`) decorated with `@llm_activity`.
+* `workflow.py` runs `blog_workflow`, calling two LLM-backed activities (`create_outline`, `write_post`) that use direct LLM calls (with optional schema validation).
 
 ## Code Structure
 

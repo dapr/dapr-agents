@@ -1,4 +1,4 @@
-FROM astral/uv:python3.13-bookworm-slim@sha256:8068e4cdafbe0f4beab1d323b6809727e925f85ec209637027d045fc7dbf5b46 AS build
+FROM astral/uv:python3.13-bookworm-slim@sha256:fb12b20e86027dac1b4c78a359ba091b639df39b85d9e9f5d93a91bd08e01666 AS build
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 

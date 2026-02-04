@@ -21,7 +21,7 @@ async def main() -> None:
         # Configure the agent to use Dapr State Store for conversation history.
         memory=AgentMemoryConfig(
             store=ConversationDaprStateMemory(
-                store_name="conversation-statestore",
+                store_name="agent-memory",
                 session_id=Path(__file__).stem,
             )
         ),

@@ -94,7 +94,7 @@ This quickstart demonstrates how to build a weather assistant with durable, work
 
 ### LLM-based Workflow Patterns
 
-Learn to orchestrate stateful, resilient workflows powered by Language Models (LLMs) using `@llm_activity` decorator.
+Learn to orchestrate stateful, resilient workflows powered by Language Models (LLMs).
 
 - **LLM-powered Tasks**: Automate reasoning and decision-making in workflows
 - **Task Chaining**: Build multi-step processes with reliable state management
@@ -106,7 +106,7 @@ This quickstart demonstrates how to design and run sequential and parallel workf
 
 ### Agent-based Workflow Patterns
 
-Learn to orchestrate **autonomous, role-driven agents** inside Dapr Workflows using the `@agent_activity` decorator.  
+Learn to orchestrate **autonomous, role-driven agents** inside Dapr Workflows by calling agent-backed activities as child workflows.  
 These patterns focus on chaining and coordinating specialized agents that reason, plan, and act within durable, stateful workflows.
 
 > Currently, this does not work with `DurableAgents`.

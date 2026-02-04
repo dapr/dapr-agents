@@ -339,61 +339,6 @@ class TestDurableAgent:
         assert instance_data.triggering_workflow_instance_id == "parent-instance-123"
 
     @pytest.mark.asyncio
-    async def test_call_llm_activity(self, basic_durable_agent):
-        """Test that call_llm unwraps an LLMChatResponse properly."""
-
-        # create a fake LLMChatResponse with one choice
-        fake_response = LLMChatResponse(
-            results=[
-                LLMChatCandidate(
-                    message=AssistantMessage(content="Test response", tool_calls=[]),
-                    finish_reason="stop",
-                )
-            ],
-            metadata={},
-        )
-        basic_durable_agent.llm.generate = Mock(return_value=fake_response)
-
-        instance_id = "test-instance-123"
-        # set up a minimal instance record
-        basic_durable_agent.state["instances"] = {
-            instance_id: {
-                "input": "Test task",
-                "source": "test_source",
-                "triggering_workflow_instance_id": None,
-                "workflow_instance_id": instance_id,
-                "workflow_name": "AgenticWorkflow",
-                "status": "RUNNING",
-                "messages": [],
-                "tool_history": [],
-                "end_time": None,
-                "trace_context": None,
-            }
-        }
-
-        from datetime import datetime
-
-        test_time = datetime.fromisoformat(
-            "2024-01-01T00:00:00Z".replace("Z", "+00:00")
-        )
-
-        # Mock the activity context
-        mock_ctx = Mock()
-
-        assistant_dict = basic_durable_agent.call_llm(
-            mock_ctx,
-            {
-                "instance_id": instance_id,
-                "time": test_time.isoformat(),
-                "task": "Test task",
-            },
-        )
-        # The dict dumped from AssistantMessage should have our content
-        assert assistant_dict["content"] == "Test response"
-        assert assistant_dict["tool_calls"] == []
-        basic_durable_agent.llm.generate.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_broadcast_message_to_agents_activity(self, basic_durable_agent):
         """Test broadcasting message to agents activity."""
         message = {

@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from dapr_agents.llm.dapr import DaprChatClient
-from dapr_agents.workflow.decorators import llm_activity
 
 # Load environment variables (API keys, etc.)
 load_dotenv()
@@ -67,60 +66,35 @@ def research_workflow(ctx: DaprWorkflowContext, topic: str):
 # ----- Activities -----
 
 
-@runtime.activity(name="generate_questions")
-@llm_activity(
-    prompt="""
-You are a research assistant. Generate exactly 3 focused research questions about the topic: {topic}.
-Return ONLY a JSON object matching this schema (no prose):
-
-{{
-  "questions": [
-    {{ "text": "..." }},
-    {{ "text": "..." }},
-    {{ "text": "..." }}
-  ]
-}}
-""",
-    llm=llm,
-)
 def generate_questions(ctx, topic: str) -> Questions:
-    # Implemented by llm_activity via the prompt above.
-    pass
+    result = llm.generate(
+        prompt=f"You are a research assistant. Generate exactly 3 focused research questions about the topic: {topic}. Return only a JSON object with a 'questions' list, each item having a 'text' field.",
+        response_format=Questions,
+    )
+    try:
+        questions = Questions.model_validate(result)
+    except Exception as e:
+        raise RuntimeError(f"LLM did not return valid Questions: {e}")
+    return questions
 
 
 @runtime.activity(name="gather_information")
-@llm_activity(
-    prompt="""
-Research the following question and provide a detailed, well-cited answer (paragraphs + bullet points where helpful).
-Question: {question}
-""",
-    llm=llm,
-)
 def gather_information(ctx, question: str) -> str:
-    # Implemented by llm_activity via the prompt above.
-    pass
+    return str(
+        llm.generate(
+            prompt=f"Research the following question and provide a detailed, well-cited answer (paragraphs + bullet points where helpful).\nQuestion: {question}\n"
+        )
+    )
 
 
 @runtime.activity(name="synthesize_results")
-@llm_activity(
-    prompt="""
-Create a comprehensive research report on the topic "{topic}" using the following research findings:
-
-{research_results}
-
-Requirements:
-- Clear executive summary (3-5 sentences)
-- Key findings (bulleted)
-- Risks/unknowns
-- Short conclusion
-
-Return plain text (no JSON).
-""",
-    llm=llm,
-)
 def synthesize_results(ctx, topic: str, research_results: List[str]) -> str:
-    # Implemented by llm_activity via the prompt above.
-    pass
+    return str(
+        llm.generate(
+            prompt=f"""
+Create a comprehensive research report on the topic \"{topic}\" using the following research findings:\n\n{research_results}\n\nRequirements:\n- Clear executive summary (3-5 sentences)\n- Key findings (bulleted)\n- Risks/unknowns\n- Short conclusion\n\nReturn plain text (no JSON).\n"""
+        )
+    )
 
 
 # ----- Entrypoint -----

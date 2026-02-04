@@ -1,7 +1,7 @@
 
 # LLM-based Workflow Patterns
 
-This quickstart demonstrates how to orchestrate sequential and parallel tasks using Dapr Agents' workflow capabilities powered by Language Models (LLMs). You'll learn how to build resilient, stateful workflows that leverage LLMs for reasoning, structured output, and automation, all using the new `@llm_activity` decorator and native Dapr workflow runtime.
+This quickstart demonstrates how to orchestrate sequential and parallel tasks using Dapr Agents' workflow capabilities powered by Language Models (LLMs). You'll learn how to build resilient, stateful workflows that leverage LLMs for reasoning, structured output, and automation, using direct LLM calls with schema validation and the native Dapr workflow runtime.
 
 ## Prerequisites
 
@@ -112,7 +112,7 @@ dapr run --app-id dapr-agent-wf-single --resources-path $temp_resources_folder -
 
 **Why start here?**
 - Shows how to define a workflow + activity with `WorkflowRuntime`
-- Demonstrates `@llm_activity` returning plain text
+- Demonstrates direct LLM activity returning plain text
 - Uses `DaprWorkflowClient` to schedule and await a single run
 
 ### 2. Single LLM Activity (Structured Output)
@@ -124,7 +124,7 @@ dapr run --app-id dapr-agent-wf-structured --resources-path $temp_resources_fold
 ```
 
 **Key ideas**
-- `@llm_activity` can deserialize into typed models (e.g., `Dog`)
+- Activities can deserialize LLM output into typed models (e.g., `Dog`) using response_format and schema validation
 - Perfect for downstream steps that expect strongly typed data
 
 ### 3. Sequential Task Execution

@@ -60,6 +60,15 @@ uv pip install -e ../durabletask-python \
    -e ../python-sdk/ext/dapr-ext-workflow
 ```
 
+You can also update `pyproject.toml` file to point to your local repo instead. For example, instead of:
+```
+"durabletask-dapr=>0.2.0a15",
+```
+You can use:
+```
+"durabletask-dapr @ file:///Users/samcoyle/go/src/github.com/durabletask-python",
+```
+
 ### Using Local Dapr Runtime Changes
 If you need to make changes relating to Dapr runtime during local development,
 for example, those from [dapr](https://github.com/dapr/dapr) or [components-contrib](https://github.com/dapr/components-contrib),

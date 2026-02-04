@@ -5,7 +5,6 @@ from dapr.ext.workflow import DaprWorkflowContext
 from dotenv import load_dotenv
 
 from dapr_agents.llm.dapr import DaprChatClient
-from dapr_agents.workflow.decorators import llm_activity
 
 # Load environment variables (e.g., API keys, secrets)
 load_dotenv()
@@ -23,12 +22,8 @@ def single_task_workflow(ctx: DaprWorkflowContext, name: str):
 
 
 @runtime.activity(name="describe_person")
-@llm_activity(
-    prompt="Who was {name}?",
-    llm=llm,
-)
-async def describe_person(ctx, name: str) -> str:
-    pass
+def describe_person(ctx, name: str) -> str:
+    return str(llm.generate(prompt=f"Who was {name}?"))
 
 
 if __name__ == "__main__":
