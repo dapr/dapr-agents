@@ -44,7 +44,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
     validates and triggers agents, and handles responses. Ensures steps are executed in order,
     checks for progress, and finalizes the workflow with a summary.
 
-    .. deprecated:: 0.2.0
+    .. deprecated:: 0.12.0
         LLMOrchestrator is deprecated and will be removed in a future version.
         Use :class:`~dapr_agents.agents.DurableAgent` with ``orchestrator=True``
         and ``orchestration_mode="agent"`` instead.
@@ -91,7 +91,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
         """
         Initializes the orchestrator with the provided configuration parameters.
 
-        .. deprecated:: 0.2.0
+        .. deprecated:: 0.12.0
             LLMOrchestrator is deprecated. Use DurableAgent with
             orchestrator=True and orchestration_mode="agent" instead.
 

@@ -35,7 +35,7 @@ class RoundRobinOrchestrator(OrchestratorBase):
     - Waits for response or times out.
     - Feeds the response content into the next turn; returns last content.
 
-    .. deprecated:: 0.2.0
+    .. deprecated:: 0.12.0
         RoundRobinOrchestrator is deprecated and will be removed in a future version.
         Use :class:`~dapr_agents.agents.DurableAgent` with ``orchestrator=True``
         and ``orchestration_mode="roundrobin"`` instead.
@@ -85,7 +85,7 @@ class RoundRobinOrchestrator(OrchestratorBase):
         final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
         """
-        .. deprecated:: 0.2.0
+        .. deprecated:: 0.12.0
             RoundRobinOrchestrator is deprecated. Use DurableAgent with
             orchestrator=True and orchestration_mode="roundrobin" instead.
         """

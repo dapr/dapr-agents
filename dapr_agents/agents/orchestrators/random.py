@@ -41,7 +41,7 @@ class RandomOrchestrator(OrchestratorBase):
          - Use the response content as the next turn's task.
       3) Return the final content.
 
-    .. deprecated:: 0.2.0
+    .. deprecated:: 0.12.0
         RandomOrchestrator is deprecated and will be removed in a future version.
         Use :class:`~dapr_agents.agents.DurableAgent` with ``orchestrator=True``
         and ``orchestration_mode="random"`` instead.
@@ -91,7 +91,7 @@ class RandomOrchestrator(OrchestratorBase):
         final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
         """
-        .. deprecated:: 0.2.0
+        .. deprecated:: 0.12.0
             RandomOrchestrator is deprecated. Use DurableAgent with
             orchestrator=True and orchestration_mode="random" instead.
         """
