@@ -1593,51 +1593,6 @@ class DurableAgent(AgentBase):
             )
         return ok
 
-    def _finalize_workflow_with_summary(
-        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
-    ) -> str:
-        """
-        Ask the LLM for a final summary and persist the finale (plan status + output + end time).
-        """
-        instance_id = payload["instance_id"]
-
-        async def _finalize() -> str:
-            prompt = SUMMARY_GENERATION_PROMPT.format(
-                task=payload["task"],
-                verdict=payload["verdict"],
-                plan=json.dumps(payload["plan_objects"], indent=2),
-                step=payload["step_id"],
-                substep=payload["substep_id"]
-                if payload["substep_id"] is not None
-                else "N/A",
-                agent=payload["agent"],
-                result=payload["result"],
-            )
-            summary_resp = self.llm.generate(
-                messages=[{"role": "user", "content": prompt}]
-            )
-            if hasattr(summary_resp, "choices") and summary_resp.choices:
-                summary = summary_resp.choices[0].message.content
-            elif hasattr(summary_resp, "results") and summary_resp.results:
-                # Handle LLMChatResponse with results list
-                summary = summary_resp.results[0].message.content
-            else:
-                # Fallback: try to extract content from the response object
-                summary = str(summary_resp)
-
-            await self.finish_workflow_internal(
-                instance_id=instance_id,
-                plan=list(payload["plan_objects"]),
-                step=payload["step_id"],
-                substep=payload["substep_id"],
-                verdict=payload["verdict"],
-                summary=summary,
-                wf_time=payload["wf_time"],
-            )
-            return summary
-
-        return self._run_asyncio_task(_finalize())
-
     def _parse_progress(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
@@ -1827,7 +1782,7 @@ class DurableAgent(AgentBase):
         Args:
             runtime: The Dapr workflow runtime to register with.
         """
-        # Primary entry point - ALWAYS registered (handles both agent and orchestrator modes)
+        # Primary entry point
         runtime.register_workflow(self.agent_workflow)
         runtime.register_workflow(self.broadcast_listener)
 
@@ -1841,19 +1796,19 @@ class DurableAgent(AgentBase):
         runtime.register_activity(self.finalize_workflow)
         runtime.register_activity(self._get_available_agents)
 
-        # Internal orchestration workflow and activities - only registered when orchestrator=True
-        # orchestration_workflow is NOT an entry point - it's called internally via call_child_workflow
+        # Internal orchestration workflow and activities
         if self._orchestration_strategy:
             runtime.register_workflow(self.orchestration_workflow)
-            runtime.register_activity(self._initialize_orchestration)
-            runtime.register_activity(self._select_next_action)
-            runtime.register_activity(self._process_orchestration_response)
-            runtime.register_activity(self._should_continue_orchestration)
-            runtime.register_activity(self._finalize_orchestration)
 
-        # Legacy orchestration activities (kept for backward compatibility)
-        # These are used by the old orchestration code path if still enabled
-        runtime.register_activity(self._validate_next_step)
-        runtime.register_activity(self._finalize_workflow_with_summary)
-        runtime.register_activity(self._parse_progress)
-        runtime.register_activity(self._save_plan_message)
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                # Agent-based orchestration activities (plan-based with LLM)
+                runtime.register_activity(self._validate_next_step)
+                runtime.register_activity(self._parse_progress)
+                runtime.register_activity(self._save_plan_message)
+            else:
+                # RoundRobin and Random orchestration activities
+                runtime.register_activity(self._initialize_orchestration)
+                runtime.register_activity(self._select_next_action)
+                runtime.register_activity(self._process_orchestration_response)
+                runtime.register_activity(self._should_continue_orchestration)
+                runtime.register_activity(self._finalize_orchestration)
