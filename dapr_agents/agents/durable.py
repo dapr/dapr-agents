@@ -69,7 +69,7 @@ class DurableAgent(AgentBase):
         pubsub: Optional[AgentPubSubConfig] = None,
         state: Optional[AgentStateConfig] = None,
         registry: Optional[AgentRegistryConfig] = None,
-        # Memory / runtime
+        # Memory
         memory: Optional[AgentMemoryConfig] = None,
         llm: Optional[ChatClientBase] = None,
         tools: Optional[Iterable[Any]] = None,
@@ -102,7 +102,7 @@ class DurableAgent(AgentBase):
             registry: Team registry configuration.
             execution: Execution dials for the agent run.
 
-            memory: Conversation memory config; defaults to in-memory, or Dapr state-backed if available.
+            memory: Enable long-term conversation memory storage; defaults to false.
             llm: Chat client; defaults to `get_default_llm()`.
             tools: Optional tool callables or `AgentTool` instances.
 
@@ -338,6 +338,13 @@ class DurableAgent(AgentBase):
                 retry_policy=self._retry_policy,
             )
 
+        if self.memory is not None:
+            yield ctx.call_activity(
+                self.summarize,
+                input={},
+                retry_policy=self._retry_policy,
+            )
+
         # Finalize the workflow entry in durable state.
         yield ctx.call_activity(
             self.finalize_workflow,
@@ -350,7 +357,7 @@ class DurableAgent(AgentBase):
             retry_policy=self._retry_policy,
         )
 
-        # TODO(@sicoyle): here i need to add the if for a flag on if enabled long term memory then summarize the workflow history into long term memory.
+        
 
         if not ctx.is_replaying:
             verdict = (
@@ -678,6 +685,86 @@ class DurableAgent(AgentBase):
         except Exception:  # noqa: BLE001
             logger.exception("Failed to publish response to %s", target_agent)
 
+
+    def summarize(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Summarize the conversation history and tool calls, then save the summary
+        to the configured memory store (keyed by workflow instance id).
+
+        Returns:
+            Dict with "content" key holding the summary text, or empty dict if
+            no memory/store or no conversation to summarize.
+        """
+        instance_id = ctx.workflow_id
+        if not self.memory:
+            raise AgentError("Long-term conversation memory is not enabled.")
+
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                "Failed to get workflow state for instance_id: %s", instance_id
+            )
+            raise AgentError(f"Failed to get workflow state for instance_id: {instance_id}")
+
+        messages_list = entry.messages
+        tool_history = entry.tool_history
+
+        if not messages_list:
+            logger.debug("No messages to summarize for instance_id=%s", instance_id)
+            return {}
+
+        lines = []
+        for m in messages_list:
+            try:
+                d = self._serialize_message(m)
+            except TypeError:
+                d = {"role": "unknown", "content": str(m)}
+            lines.append(f"{d.get('role', 'unknown')}: {d.get('content', '')}")
+        conversation_text = "\n".join(lines)
+        task = (
+            "Summarize the following conversation and any tool usage concisely for long-term memory storage."
+            "Focus on key facts, decisions, and outcomes.\n\n"
+            "Conversation:\n"
+            f"{conversation_text}\n\n"
+            "Tool calls/results:\n"
+            f"{json.dumps(tool_history, default=str)}"
+        )
+        llm_messages: List[Dict[str, Any]] = [
+            {"role": "user", "content": task},
+        ]
+
+        try:
+            response: LLMChatResponse = self.llm.generate(messages=llm_messages)
+        except Exception as exc:  # noqa: BLE001
+            raise AgentError(f"LLM summarize failed: {exc}") from exc
+
+        assistant_message = response.get_message()
+        if assistant_message is None:
+            raise AgentError("LLM returned no summary message.")
+
+        summary_content = getattr(assistant_message, "content", "") or ""
+
+        summary_message: Dict[str, Any] = {
+            "role": "assistant",
+            "content": summary_content,
+            "name": self.name,
+        }
+        try:
+            self.memory.add_message(summary_message, workflow_instance_id=instance_id)
+        except Exception:
+            raise AgentError(f"Failed to save summary to memory for instance_id={instance_id}")
+        logger.info(
+            "Saved summary to memory for workflow instance_id=%s", instance_id
+        )
+        if getattr(self, "text_formatter", None):
+            self.text_formatter.print_message(
+                {**summary_message, "name": f"{self.name}"}
+            )
+        return {"content": summary_content}
+
     def finalize_workflow(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
@@ -817,4 +904,5 @@ class DurableAgent(AgentBase):
         runtime.register_activity(self.save_tool_results)
         runtime.register_activity(self.broadcast_message_to_agents)
         runtime.register_activity(self.send_response_back)
+        runtime.register_activity(self.summarize)
         runtime.register_activity(self.finalize_workflow)

@@ -174,6 +174,7 @@ class AgentBase:
                         memory = AgentMemoryConfig(
                             store=ConversationDaprStateMemory(
                                 store_name=component.name,
+                                agent_name=self.name,
                             )
                         )
                     if "conversation" in component.type and llm is None:
@@ -280,8 +281,11 @@ class AgentBase:
             # Auto-provision a Dapr-backed memory if we have a state store.
             self._memory.store = ConversationDaprStateMemory(  # type: ignore[union-attr]
                 store_name=state.store.store_name,
+                agent_name=self.name,
             )
         self.memory = self._memory.store or ConversationListMemory()
+        if hasattr(self.memory, "agent_name"):
+            self.memory.agent_name = self.name
 
         # -----------------------------
         # Prompting helper

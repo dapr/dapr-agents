@@ -90,8 +90,12 @@ class LLMOrchestratorBase(OrchestratorBase):
         if self._memory.store is None and state is not None:
             self._memory.store = ConversationDaprStateMemory(
                 store_name=state.store.store_name,
+                agent_name=self.name,
             )
         self.memory = self._memory.store or ConversationListMemory()
+        #TODO(@sicoyle): if we like this then i need to update this for all other memory stores.
+        if hasattr(self.memory, "agent_name"):
+            self.memory.agent_name = self.name
 
         # Console formatting
         self._text_formatter = ColorTextFormatter()

@@ -175,7 +175,8 @@ class TestDurableAgent:
             ),
             memory=AgentMemoryConfig(
                 store=ConversationDaprStateMemory(
-                    store_name="teststatestore", session_id="test_session"
+                    store_name="teststatestore",
+                    workflow_instance_id="test_session",
                 )
             ),
             execution=AgentExecutionConfig(max_iterations=5),
@@ -202,7 +203,8 @@ class TestDurableAgent:
             ),
             memory=AgentMemoryConfig(
                 store=ConversationDaprStateMemory(
-                    store_name="teststatestore", session_id="test_session"
+                    store_name="teststatestore",
+                    workflow_instance_id="test_session",
                 )
             ),
             tools=[mock_tool],

@@ -20,9 +20,7 @@ async def main() -> None:
         llm=DaprChatClient(component_name="llm-provider"),
         # Configure the agent to use Dapr State Store for conversation history.
         memory=AgentMemoryConfig(
-            store=ConversationDaprStateMemory(
-                store_name="agent-memory",
-            )
+            store=ConversationDaprStateMemory(store_name="agent-memory"),
         ),
     )
     try:

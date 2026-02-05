@@ -15,13 +15,20 @@ class ConversationDaprStateMemory(MemoryBase):
     """
     Manages conversation memory stored in a Dapr state store. Each message in the conversation is saved
     individually with a unique key and includes a workflow instance ID and timestamp for querying and retrieval.
+    Key format: {agent_name}:agent_memory_{workflow_instance_id}
     """
 
     store_name: str = Field(
         default="statestore", description="The name of the Dapr state store."
     )
-    workflow_instance_id: str = Field(
-        default=None, description="Unique identifier for the conversation workflow instance summary."
+    # TODO(@sicoyle): these two need to be required if we like this approach.
+    agent_name: Optional[str] = Field(
+        default=None,
+        description="Agent name for key namespacing.",
+    )
+    workflow_instance_id: Optional[str] = Field(
+        default=None,
+        description="Default state key when add_message is called without workflow_instance_id.",
     )
 
     dapr_store: Optional[DaprStateStore] = Field(
@@ -34,7 +41,9 @@ class ConversationDaprStateMemory(MemoryBase):
         """
         self.dapr_store = DaprStateStore(store_name=self.store_name)
         logger.info(
-            f"ConversationDaprStateMemory initialized with workflow instance ID: {self.workflow_instance_id}"
+            "ConversationDaprStateMemory initialized (store=%s, agent_name=%s)",
+            self.store_name,
+            self.agent_name,
         )
         super().model_post_init(__context)
 
@@ -50,13 +59,30 @@ class ConversationDaprStateMemory(MemoryBase):
         """
         return f"{self.workflow_instance_id}:{message_id}"
 
-    def add_message(self, message: Union[Dict[str, Any], BaseMessage]) -> None:
+    def _memory_key(self, workflow_instance_id: Optional[str]) -> str:
+        """Build state store key: agent_name:agent_memory_{workflow_instance_id} or class default."""
+        if workflow_instance_id is not None:
+            normalized = (self.agent_name or "default").replace(" ", "-").lower()
+            return f"{normalized}:agent_memory_{workflow_instance_id}"
+        return self.workflow_instance_id or ""
+
+    def add_message(
+        self,
+        message: Union[Dict[str, Any], BaseMessage],
+        workflow_instance_id: Optional[str] = None,
+    ) -> None:
         """
         Adds a single message to the memory and saves it to the Dapr state store.
 
         Args:
-            message (Union[Dict[str, Any], BaseMessage]): The message to add to the memory.
+            message: The message to add to the memory.
+            workflow_instance_id: Workflow instance id to add message for.
         """
+        key = self._memory_key(workflow_instance_id)
+        if not key:
+            raise ValueError(
+                "workflow_instance_id must be passed to add_message or set on the memory instance."
+            )
         message = self._convert_to_dict(message)
         message.update(
             {
@@ -70,7 +96,7 @@ class ConversationDaprStateMemory(MemoryBase):
         for attempt in range(1, max_attempts + 1):
             try:
                 response = self.dapr_store.get_state(
-                    self.workflow_instance_id,
+                    key,
                     state_metadata={"contentType": "application/json"},
                 )
 
@@ -84,7 +110,7 @@ class ConversationDaprStateMemory(MemoryBase):
                 existing.append(message)
                 # Save with etag - will fail if someone else modified it
                 self.dapr_store.save_state(
-                    self.workflow_instance_id,
+                    key,
                     json.dumps(existing),
                     state_metadata={"contentType": "application/json"},
                     etag=etag,
@@ -109,6 +135,7 @@ class ConversationDaprStateMemory(MemoryBase):
 
                     time.sleep(min(0.1 * attempt, 0.5) * (1 + random.uniform(0, 0.25)))
 
+    # TODO(@sicoyle): update this as well with instance id!
     def add_messages(self, messages: List[Union[Dict[str, Any], BaseMessage]]) -> None:
         """
         Adds multiple messages to the memory and saves each one individually to the Dapr state store.
