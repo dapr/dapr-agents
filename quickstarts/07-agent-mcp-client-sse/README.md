@@ -39,7 +39,7 @@ export $(grep -v '^#' ../../.env | xargs)
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id weatherappmcp --dapr-http-port 3500 --resources-path $temp_resources_folder -- python app.py
+uv run dapr run --app-id weatherappmcp --dapr-http-port 3500 --resources-path $temp_resources_folder -- python app.py
 
 # Clean up when done
 rm -rf $temp_resources_folder
@@ -119,7 +119,7 @@ runner.serve(agent, port=8001)
 1. Start the MCP server in SSE mode:
 
 ```bash
-python server.py --server_type sse --port 8000
+uv run python server.py --server_type sse --port 8000
 ```
 
 2. In a separate terminal window, start the agent with Dapr (ensure components are rendered first):
