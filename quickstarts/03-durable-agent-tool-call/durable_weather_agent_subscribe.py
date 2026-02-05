@@ -39,7 +39,6 @@ async def main() -> None:
     memory = AgentMemoryConfig(
         store=ConversationDaprStateMemory(
             store_name="conversationstore",
-            session_id="weather-session",
         )
     )
 

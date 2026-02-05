@@ -20,7 +20,7 @@ AIAgent = Agent(
     ],
     memory=AgentMemoryConfig(
         store=ConversationDaprStateMemory(
-            store_name="historystore", session_id="some-id"
+            store_name="historystore"
         ),
     ),
     tools=tools,

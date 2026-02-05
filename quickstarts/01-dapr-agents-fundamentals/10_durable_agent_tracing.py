@@ -29,7 +29,6 @@ async def main() -> None:
         memory=AgentMemoryConfig(
             store=ConversationDaprStateMemory(
                 store_name="agent-memory",
-                session_id=Path(__file__).stem,
             )
         ),
         state=AgentStateConfig(
