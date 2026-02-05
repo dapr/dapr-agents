@@ -710,9 +710,7 @@ class DurableAgent(AgentBase):
             )
 
         tool_history = getattr(entry, "tool_history", None) or []
-        return self._summarize_conversation(
-            instance_id, entry.messages, tool_history
-        )
+        return self._summarize_conversation(instance_id, entry.messages, tool_history)
 
     def finalize_workflow(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]

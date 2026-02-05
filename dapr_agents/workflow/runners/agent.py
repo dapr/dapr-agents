@@ -542,7 +542,9 @@ class AgentRunner(WorkflowRunner):
                 )
                 return {
                     "instance_id": instance_id if instance_id else "",
-                    "status_url": status_path.replace("{instance_id}", instance_id or ""),
+                    "status_url": status_path.replace(
+                        "{instance_id}", instance_id or ""
+                    ),
                 }
 
             async def _terminate_workflow(instance_id: str) -> dict[str, str]:

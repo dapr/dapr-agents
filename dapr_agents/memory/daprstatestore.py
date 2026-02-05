@@ -213,9 +213,7 @@ class ConversationDaprStateMemory(MemoryBase):
         key = self._memory_key(workflow_instance_id)
         logger.debug("Executing query for workflow instance %s", workflow_instance_id)
         states_metadata = {"contentType": "application/json"}
-        response = self.dapr_store.get_state(
-            key, state_metadata=states_metadata
-        )
+        response = self.dapr_store.get_state(key, state_metadata=states_metadata)
         return response
 
     def reset_memory(self, workflow_instance_id: str) -> None:

@@ -226,7 +226,7 @@ class Agent(AgentBase):
             user_input=input_data,
             chat_history=chat_history,
         )
-    
+
     def _summarize(self, instance_id: str) -> Dict[str, Any]:
         """
         Summarize the conversation history and tool calls, then save the summary
@@ -246,9 +246,7 @@ class Agent(AgentBase):
                 f"Failed to get workflow state for summarization, instance_id: {instance_id}"
             )
         tool_history = getattr(entry, "tool_history", None) or []
-        return self._summarize_conversation(
-            instance_id, entry.messages, tool_history
-        )
+        return self._summarize_conversation(instance_id, entry.messages, tool_history)
 
     async def _conversation_loop(
         self,
