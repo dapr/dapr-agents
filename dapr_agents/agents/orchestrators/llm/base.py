@@ -243,13 +243,7 @@ class LLMOrchestratorBase(OrchestratorBase):
                 len(plan),
             )
             if hasattr(entry, "plan"):
-                logger.debug("Entry is a Pydantic model, setting plan attribute")
-                from dapr_agents.agents.orchestrators.llm.state import PlanStep
-
-                entry.plan = [
-                    PlanStep(**step_dict) if isinstance(step_dict, dict) else step_dict
-                    for step_dict in plan
-                ]  # type: ignore[attr-defined]
+                entry.plan = plan  # type: ignore[attr-defined]
             else:
                 # Fallback for dict-based state
                 logger.info("Entry is a dict, setting plan key")
@@ -265,8 +259,9 @@ class LLMOrchestratorBase(OrchestratorBase):
 
             if hasattr(entry, "messages"):
                 # Entry is a Pydantic model - need to convert dict to message model
-                if self._message_coercer:
-                    msg_model = self._message_coercer(msg)
+                coercer = getattr(self, "_message_coercer", None)
+                if coercer is not None:
+                    msg_model = coercer(msg)
                 else:
                     msg_model = self._message_dict_to_message_model(msg)
                 logger.debug("Message model type: %s", type(msg_model).__name__)
