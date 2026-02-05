@@ -40,7 +40,14 @@ from dapr_agents.storage.daprstores.stateservice import (
 )
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.tool.executor import AgentToolExecutor
-from dapr_agents.types import AssistantMessage, ToolExecutionRecord, UserMessage
+from dapr_agents.types import (
+    AgentError,
+    AssistantMessage,
+    LLMChatResponse,
+    ToolExecutionRecord,
+    UserMessage,
+)
+from dapr_agents.types.workflow import DaprWorkflowStatus
 
 from opentelemetry import trace
 from opentelemetry import _logs
@@ -490,6 +497,25 @@ class AgentBase:
         """Delegate to DaprInfra."""
         return self._infra.save_state(workflow_instance_id=workflow_instance_id)
 
+    def mark_workflow_terminated(self, instance_id: str) -> None:
+        """
+        Update workflow state for the given instance to TERMINATED.
+        No-op if no state store is configured.
+        """
+        if not getattr(self, "_infra", None) or not self._infra.state_store:
+            return
+        try:
+            self._infra.load_state(instance_id)
+            entry = self._infra.get_state(instance_id)
+            entry.status = DaprWorkflowStatus.TERMINATED.value
+            self.save_state(instance_id)
+        except Exception:
+            logger.warning(
+                "Failed to mark workflow state as terminated for instance_id=%s",
+                instance_id,
+                exc_info=True,
+            )
+
     def register_agentic_system(self, *, metadata=None, team=None):
         """Delegate to DaprInfra."""
         return self._infra.register_agentic_system(metadata=metadata, team=team)
@@ -556,6 +582,7 @@ class AgentBase:
     def build_initial_messages(
         self,
         user_input: Optional[Union[str, Dict[str, Any]]] = None,
+        workflow_instance_id: str = "default",
         **extra_variables: Any,
     ) -> List[Dict[str, Any]]:
         """
@@ -563,6 +590,7 @@ class AgentBase:
 
         Args:
             user_input: Optional user message or structured payload.
+            workflow_instance_id: Workflow instance id for chat history; use "default" when not in a workflow.
             **extra_variables: Extra template variables for the prompt template.
 
         Returns:
@@ -570,21 +598,26 @@ class AgentBase:
         """
         return self.prompting_helper.build_initial_messages(
             user_input,
-            chat_history=self.get_chat_history()
+            chat_history=self.get_chat_history(workflow_instance_id)
             if self.prompting_helper.include_chat_history
             else None,
             **extra_variables,
         )
 
-    def get_chat_history(self) -> List[Dict[str, Any]]:
+    def get_chat_history(
+        self, workflow_instance_id: str = "default"
+    ) -> List[Dict[str, Any]]:
         """
         Retrieve the conversation history from the configured memory backend.
+
+        Args:
+            workflow_instance_id: Workflow instance id to retrieve history for; use "default" when not in a workflow.
 
         Returns:
             A list of message-like dictionaries in normalized form.
         """
         try:
-            history = self.memory.get_messages()
+            history = self.memory.get_messages(workflow_instance_id)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Memory get_messages failed: %s", exc)
             return []
@@ -597,14 +630,16 @@ class AgentBase:
                 normalized.append(dict(entry))
         return normalized
 
-    def reset_memory(self) -> None:
-        """Clear all stored conversation messages."""
+    def reset_memory(self, workflow_instance_id: str = "default") -> None:
+        """Clear all stored conversation messages for the given workflow instance."""
         if self.memory:
-            self.memory.reset_memory()
+            self.memory.reset_memory(workflow_instance_id)
 
-    def get_last_message(self) -> Optional[Dict[str, Any]]:
+    def get_last_message(
+        self, workflow_instance_id: str = "default"
+    ) -> Optional[Dict[str, Any]]:
         """Return the last message stored in memory, if any."""
-        history = self.get_chat_history()
+        history = self.get_chat_history(workflow_instance_id)
         return dict(history[-1]) if history else None
 
     def get_last_user_message(
@@ -647,6 +682,84 @@ class AgentBase:
                 msg["content"] = content.strip()
             return msg
         return None
+
+    def _summarize_conversation(
+        self,
+        instance_id: str,
+        messages_list: Sequence[Any],
+        tool_history: Any,
+    ) -> Dict[str, Any]:
+        """
+        Shared summarization: build summary from messages + tool_history via LLM,
+        save to memory keyed by instance_id, optionally print. Used by durable and standalone.
+
+        Args:
+            instance_id: Workflow/run instance id for memory keying.
+            messages_list: Sequence of message-like objects (entry.messages).
+            tool_history: Tool call/result history (entry.tool_history or []).
+
+        Returns:
+            Dict with "content" key holding the summary text, or {} if nothing to summarize.
+
+        Raises:
+            AgentError: If memory disabled, LLM fails, or save fails.
+        """
+        if not self.memory:
+            raise AgentError("Long-term conversation memory is not enabled.")
+
+        if not messages_list:
+            logger.debug("No messages to summarize for instance_id=%s", instance_id)
+            return {}
+
+        lines = []
+        for m in messages_list:
+            try:
+                d = self._serialize_message(m)
+            except TypeError:
+                d = {"role": "unknown", "content": str(m)}
+            lines.append(f"{d.get('role', 'unknown')}: {d.get('content', '')}")
+        conversation_text = "\n".join(lines)
+        tool_list = tool_history if tool_history is not None else []
+        task = (
+            "Summarize the following conversation and any tool usage concisely for long-term memory storage. "
+            "Focus on key facts, decisions, and outcomes.\n\n"
+            "Conversation:\n"
+            f"{conversation_text}\n\n"
+            "Tool calls/results:\n"
+            f"{json.dumps(tool_list, default=str)}"
+        )
+        llm_messages: List[Dict[str, Any]] = [
+            {"role": "user", "content": task},
+        ]
+
+        try:
+            response: LLMChatResponse = self.llm.generate(messages=llm_messages)
+        except Exception as exc:  # noqa: BLE001
+            raise AgentError(f"LLM summarize failed: {exc}") from exc
+
+        assistant_message = response.get_message()
+        if assistant_message is None:
+            raise AgentError("LLM returned no summary message.")
+
+        summary_content = getattr(assistant_message, "content", "") or ""
+
+        summary_message: Dict[str, Any] = {
+            "role": "assistant",
+            "content": summary_content,
+            "name": self.name,
+        }
+        try:
+            self.memory.add_message(summary_message, workflow_instance_id=instance_id)
+        except Exception:
+            raise AgentError(
+                f"Failed to save summary to memory for instance_id={instance_id}"
+            )
+        logger.info("Saved summary to memory for instance_id=%s", instance_id)
+        if getattr(self, "text_formatter", None):
+            self.text_formatter.print_message(
+                {**summary_message, "name": f"{self.name}"}
+            )
+        return {"content": summary_content}
 
     def get_llm_tools(self) -> List[Union[AgentTool, Dict[str, Any]]]:
         """

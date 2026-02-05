@@ -258,7 +258,7 @@ def run_quickstart_script(
         app_port: App port for the application (e.g., 8001 for serve mode)
         trigger_curl: Optional dict with curl trigger details. Format:
             {
-                "url": "http://localhost:8001/run",
+                "url": "http://localhost:8001/agent/run",
                 "method": "POST",
                 "data": {"task": "..."},
                 "headers": {"Content-Type": "application/json"},

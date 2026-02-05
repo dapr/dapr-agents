@@ -165,7 +165,7 @@ class Agent(AgentBase):
     ) -> Optional[AssistantMessage]:
         """One-shot conversational run with tool loop and durable timeline."""
         active_instance = instance_id or self._generate_instance_id()
-        self.load_state(active_instance)
+        self._infra.load_state(active_instance)
 
         # Build initial messages with persistent + per-instance history
         chat_history = self._reconstruct_conversation_history(active_instance)
@@ -198,6 +198,9 @@ class Agent(AgentBase):
             messages=messages,
         )
 
+        if self.memory is not None:
+            self._summarize(active_instance)
+
         return final_reply
 
     def construct_messages(
@@ -217,11 +220,34 @@ class Agent(AgentBase):
             List of message dicts suitable for an LLM chat API.
         """
         active_instance = instance_id or self._generate_instance_id()
-        self.load_state(active_instance)
+        self._infra.load_state(active_instance)
         chat_history = self._reconstruct_conversation_history(active_instance)
         return self.prompting_helper.build_initial_messages(
             user_input=input_data,
             chat_history=chat_history,
+        )
+    
+    def _summarize(self, instance_id: str) -> Dict[str, Any]:
+        """
+        Summarize the conversation history and tool calls, then save the summary
+        to the configured memory store (keyed by workflow instance id).
+
+        Args:
+            instance_id: Workflow/run instance id for this conversation.
+
+        Returns:
+            Dict with "content" key holding the summary text, or empty dict if
+            no memory/store or no conversation to summarize.
+        """
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            raise AgentError(
+                f"Failed to get workflow state for summarization, instance_id: {instance_id}"
+            )
+        tool_history = getattr(entry, "tool_history", None) or []
+        return self._summarize_conversation(
+            instance_id, entry.messages, tool_history
         )
 
     async def _conversation_loop(

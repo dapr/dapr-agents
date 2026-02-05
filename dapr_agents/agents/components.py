@@ -321,6 +321,38 @@ class DaprInfra:
                     return
                 time.sleep(min(0.25 * attempt, 1.0) * (1 + random.uniform(0, 0.25)))
 
+    def purge_state(self, workflow_instance_id: str) -> None:
+        """
+        Permanently delete workflow state for the given instance from the state store.
+
+        No-op when no state store is configured.
+
+        Args:
+            workflow_instance_id: Workflow instance id whose state should be removed.
+        """
+        if not self.state_store:
+            logger.debug("No state store configured; skipping purge_state.")
+            return
+
+        if not workflow_instance_id:
+            raise ValueError(
+                "workflow_instance_id must be provided to purge workflow state"
+            )
+
+        key = f"{self.state_key_prefix}_{workflow_instance_id}"
+        meta = self._state_metadata_for_key(key)
+        try:
+            self.state_store.delete(key=key, state_metadata=meta)
+            logger.info(
+                "Purged workflow state for instance_id=%s", workflow_instance_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to purge state for instance_id=%s: %s",
+                workflow_instance_id,
+                exc,
+            )
+
     def _default_entry_model(self) -> BaseModel:
         """Return a default workflow entry model (one-key-per-instance)."""
         if self._entry_factory is not None:

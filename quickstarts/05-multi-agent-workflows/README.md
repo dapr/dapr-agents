@@ -219,11 +219,11 @@ dapr run -f dapr-llm.yaml
 - ✅ Sam agent
 - ✅ Gandalf agent
 - ✅ LLM orchestrator
-- ✅ HTTP client (hits the orchestrator’s `/run` endpoint)
+- ✅ HTTP client (hits the orchestrator’s `/agent/run` endpoint)
 
 ### Triggering Workflows
 
-Each `dapr-*.yaml` spins up an `HttpClientApp` that keeps POSTing to `/run` until the orchestrator responds (max 10 tries with a 5s delay). You’ll see the returned instance ID printed in that client’s console.
+Each `dapr-*.yaml` spins up an `HttpClientApp` that keeps POSTing to `/agent/run` until the orchestrator responds (max 10 tries with a 5s delay). You’ll see the returned instance ID printed in that client’s console.
 
 If you prefer to drive the system via pub/sub (for multiple tasks, or to target a specific orchestrator), run:
 

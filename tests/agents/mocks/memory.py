@@ -14,19 +14,22 @@ class DummyVectorMemory(MemoryBase):
         super().__init__()
         self._vector_store = vector_store
 
-    def get_messages(self, query_embeddings=None):
+    def get_messages(self, workflow_instance_id: str, query_embeddings=None):
         return [Mock(spec=MessageContent)]
 
-    def add_message(self, message: BaseMessage):
+    def add_message(self, message: BaseMessage, workflow_instance_id: str):
         pass
 
-    def add_messages(self, messages: List[BaseMessage]):
+    def add_messages(self, messages: List[BaseMessage], workflow_instance_id: str):
         pass
 
     def add_interaction(
-        self, user_message: BaseMessage, assistant_message: BaseMessage
+        self,
+        user_message: BaseMessage,
+        assistant_message: BaseMessage,
+        workflow_instance_id: str,
     ):
         pass
 
-    def reset_memory(self):
+    def reset_memory(self, workflow_instance_id: str):
         pass

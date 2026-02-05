@@ -156,7 +156,7 @@ class TestHelloWorldQuickstart:
             app_port=8001,
             resources_path=self.quickstart_dir / "components",
             trigger_curl={
-                "url": "http://localhost:8001/run",
+                "url": "http://localhost:8001/agent/run",
                 "method": "POST",
                 "data": {"task": "What is the weather in London?"},
                 "headers": {"Content-Type": "application/json"},

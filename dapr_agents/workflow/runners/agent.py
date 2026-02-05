@@ -418,8 +418,8 @@ class AgentRunner(WorkflowRunner):
         host: str = "0.0.0.0",
         port: int = 8001,
         expose_entry: bool = True,
-        entry_path: str = "/run",
-        status_path: str = "/run/{instance_id}",
+        entry_path: str = "/agent/run",
+        status_path: str = "/agent/instances/{instance_id}",
         workflow_component: str = "dapr",
         fetch_status_payloads: bool = True,
         delivery_mode: Literal["sync", "async"] = "sync",
@@ -542,7 +542,7 @@ class AgentRunner(WorkflowRunner):
                 )
                 return {
                     "instance_id": instance_id if instance_id else "",
-                    "status_url": f"/run/{instance_id if instance_id else ''}",
+                    "status_url": status_path.replace("{instance_id}", instance_id or ""),
                 }
 
             async def _terminate_workflow(instance_id: str) -> dict[str, str]:
@@ -551,12 +551,20 @@ class AgentRunner(WorkflowRunner):
                     instance_id,
                     output="Terminated by user request",
                 )
+                if hasattr(agent, "mark_workflow_terminated"):
+                    await asyncio.to_thread(
+                        agent.mark_workflow_terminated,
+                        instance_id,
+                    )
                 return {"instance_id": instance_id, "status": "terminated"}
 
             async def _purge_workflow(instance_id: str) -> dict[str, str]:
                 self._wf_client.purge_workflow(
                     instance_id=instance_id,
                 )
+                agent._infra.purge_state(instance_id)
+                if getattr(agent, "memory", None) is not None:
+                    agent.memory.purge_memory(instance_id)
                 return {"instance_id": instance_id, "status": "purged"}
 
             fastapi_app.add_api_route(
@@ -567,21 +575,21 @@ class AgentRunner(WorkflowRunner):
                 tags=["workflow"],
             )
             fastapi_app.add_api_route(
-                entry_path + "/{instance_id}/terminate",
+                status_path + "/terminate",
                 _terminate_workflow,
                 methods=["POST"],
                 summary="Terminate workflow instance",
                 tags=["workflow"],
             )
             fastapi_app.add_api_route(
-                entry_path + "/{instance_id}/purge",
+                status_path + "/purge",
                 _purge_workflow,
                 methods=["POST"],
-                summary="Purge workflow instance",
-                tags=["workflow"],
+                summary="Purge agent instance",
+                tags=["agent"],
             )
 
-            logger.info("Mounted default workflow entry endpoint at %s", entry_path)
+            logger.info("Mounted default agent run endpoint at %s", entry_path)
         else:
             logger.debug("Workflow entry endpoint already mounted at %s", entry_path)
 
