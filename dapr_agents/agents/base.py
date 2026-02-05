@@ -198,7 +198,7 @@ class AgentBase:
                     ):
                         state = AgentStateConfig(
                             store=StateStoreService(store_name=component.name),
-                            state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:agent_workflow",
+                            state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
                         )
                     if (
                         "state" in component.type

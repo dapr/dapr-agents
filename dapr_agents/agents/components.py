@@ -85,7 +85,8 @@ class DaprInfra:
         self._state = state
         self.state_store = state.store if state and state.store else None
         override_state_key = state.state_key_prefix if state else None
-        self.state_key_prefix = override_state_key or f"{self.name}:agent_workflow"
+        _normalized_name = self.name.replace(" ", "-").lower()
+        self.state_key_prefix = override_state_key or f"{_normalized_name}:_workflow"
 
         bundle = None
         if state is not None:
@@ -199,7 +200,7 @@ class DaprInfra:
                 "workflow_instance_id must be provided to load workflow state"
             )
 
-        key = f"{self.state_key_prefix}_{workflow_instance_id}"
+        key = f"{self.state_key_prefix}_{workflow_instance_id}".lower()
         snapshot = self.state_store.load(
             key=key,
             default=self._initial_state(),
@@ -232,7 +233,7 @@ class DaprInfra:
         if not self.state_store:
             raise ValueError("No state store configured")
 
-        key = f"{self.state_key_prefix}_{workflow_instance_id}"
+        key = f"{self.state_key_prefix}_{workflow_instance_id}".lower()
         snapshot = self.state_store.load(
             key=key,
             default=self._initial_state(),
@@ -267,7 +268,7 @@ class DaprInfra:
                 "workflow_instance_id must be provided to save workflow state"
             )
 
-        key = f"{self.state_key_prefix}_{workflow_instance_id}"
+        key = f"{self.state_key_prefix}_{workflow_instance_id}".lower()
         meta = self._state_metadata_for_key(key)
         attempts = max(1, min(self._max_etag_attempts, 10))
 
@@ -339,7 +340,7 @@ class DaprInfra:
                 "workflow_instance_id must be provided to purge workflow state"
             )
 
-        key = f"{self.state_key_prefix}_{workflow_instance_id}"
+        key = f"{self.state_key_prefix}_{workflow_instance_id}".lower()
         meta = self._state_metadata_for_key(key)
         try:
             self.state_store.delete(key=key, state_metadata=meta)

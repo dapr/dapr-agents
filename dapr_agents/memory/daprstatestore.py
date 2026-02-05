@@ -16,7 +16,7 @@ class ConversationDaprStateMemory(MemoryBase):
     """
     Manages conversation memory stored in a Dapr state store. Each message in the conversation is saved
     individually with a unique key and includes a workflow instance ID and timestamp for querying and retrieval.
-    Key format: {agent_name}:agent_memory_{workflow_instance_id}
+    Key format: {agent_name}:_memory_{workflow_instance_id}
     """
 
     store_name: str = Field(
@@ -44,13 +44,13 @@ class ConversationDaprStateMemory(MemoryBase):
         super().model_post_init(__context)
 
     def _get_message_key(self, workflow_instance_id: str, message_id: str) -> str:
-        """Composite key for a message: agent_name:agent_memory_{workflow_instance_id}:{message_id}."""
+        """Composite key for a message: agent_name:_memory_{workflow_instance_id}:{message_id}."""
         return f"{self._memory_key(workflow_instance_id)}:{message_id}"
 
     def _memory_key(self, workflow_instance_id: str) -> str:
-        """Build state store key: agent_name:agent_memory_{workflow_instance_id}."""
+        """Build state store key: agent_name:_memory_{workflow_instance_id}, normalized (spaces->dashes, lower)."""
         normalized = self.agent_name.replace(" ", "-").lower()
-        return f"{normalized}:_memory_{workflow_instance_id}"
+        return f"{normalized}:_memory_{workflow_instance_id}".lower()
 
     def add_message(
         self,
