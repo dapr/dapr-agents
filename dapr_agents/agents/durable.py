@@ -55,7 +55,6 @@ from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.types import (
     AgentError,
-    LLMChatResponse,
     ToolMessage,
     UserMessage,
     AssistantMessage,
@@ -1081,9 +1080,6 @@ class DurableAgent(AgentBase):
         # Apply global consistency checks for statuses
         plan = update_step_statuses(plan)
 
-        # Persist the updated plan
-        # self.update_workflow_state(instance_id=instance_id, plan=plan)
-
         logger.debug("Plan successfully updated for instance %s", instance_id)
         return plan
 
@@ -1169,13 +1165,6 @@ class DurableAgent(AgentBase):
                 plan=plan,
                 status_updates=status_updates,
             )
-
-        # Store the final summary and verdict in workflow state
-        # self.update_workflow_state(
-        #    instance_id=instance_id,
-        #    final_output=summary,
-        #    wf_time=wf_time,
-        # )
 
         logger.info(
             "Workflow %s finalized with verdict '%s'",
