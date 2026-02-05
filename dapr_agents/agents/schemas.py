@@ -99,10 +99,6 @@ class AgentWorkflowEntry(BaseModel):
         default=None,
         description="The name of the workflow.",
     )
-    session_id: Optional[str] = Field(
-        default=None,
-        description="Conversation memory session identifier, when available.",
-    )
     trace_context: Optional[Dict[str, Any]] = Field(
         default=None,
         description="OpenTelemetry trace context for workflow resumption.",
@@ -110,13 +106,4 @@ class AgentWorkflowEntry(BaseModel):
     status: str = Field(
         default=DaprWorkflowStatus.RUNNING.value,
         description="Current status of the workflow.",
-    )
-
-
-class AgentWorkflowState(BaseModel):
-    """Represents the state of multiple Agent workflows."""
-
-    instances: Dict[str, AgentWorkflowEntry] = Field(
-        default_factory=dict,
-        description="Workflow entries indexed by their instance_id.",
     )

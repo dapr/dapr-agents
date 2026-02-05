@@ -5,6 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union, Coroutine
+from dapr_agents.agents.schemas import AgentWorkflowMessage
 
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
@@ -173,7 +174,6 @@ class AgentBase:
                         memory = AgentMemoryConfig(
                             store=ConversationDaprStateMemory(
                                 store_name=component.name,
-                                session_id=f"{name.replace(' ', '-').lower() if name else 'default'}-session",
                             )
                         )
                     if "conversation" in component.type and llm is None:
@@ -190,7 +190,7 @@ class AgentBase:
                     ):
                         state = AgentStateConfig(
                             store=StateStoreService(store_name=component.name),
-                            state_key=f"{name.replace(' ', '-').lower() if name else 'default'}:agent_workflow",
+                            state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:agent_workflow",
                         )
                     if (
                         "state" in component.type
@@ -280,7 +280,6 @@ class AgentBase:
             # Auto-provision a Dapr-backed memory if we have a state store.
             self._memory.store = ConversationDaprStateMemory(  # type: ignore[union-attr]
                 store_name=state.store.store_name,
-                session_id=f"{self.name}-session",
             )
         self.memory = self._memory.store or ConversationListMemory()
 
@@ -344,14 +343,6 @@ class AgentBase:
             self.execution.tool_choice = "auto"
 
         # -----------------------------
-        # Load durable state (from AgentComponents)
-        # -----------------------------
-        try:
-            self.load_state()
-        except Exception:  # noqa: BLE001
-            logger.warning("Agent failed to load persisted state; starting fresh.")
-
-        # -----------------------------
         # Agent metadata & registry registration (from AgentComponents)
         # -----------------------------
         base_meta: Dict[str, Any] = {}
@@ -378,8 +369,6 @@ class AgentBase:
             memory_meta["type"] = type(self.memory).__name__
             if getattr(self.memory, "store_name", None) is not None:
                 memory_meta["statestore"] = self.memory.store_name
-            if getattr(self.memory, "session_id", None) is not None:
-                memory_meta["session_id"] = self.memory.session_id
             base_meta["memory"] = memory_meta
 
         if self.llm:
@@ -493,13 +482,9 @@ class AgentBase:
         """Delegate to DaprInfra."""
         return self._infra.workflow_state
 
-    def load_state(self):
+    def save_state(self, workflow_instance_id: str):
         """Delegate to DaprInfra."""
-        return self._infra.load_state()
-
-    def save_state(self):
-        """Delegate to DaprInfra."""
-        return self._infra.save_state()
+        return self._infra.save_state(workflow_instance_id=workflow_instance_id)
 
     def register_agentic_system(self, *, metadata=None, team=None):
         """Delegate to DaprInfra."""
@@ -521,24 +506,9 @@ class AgentBase:
             instance_id=instance_id, all_messages=all_messages
         )
 
-    def _get_entry_container(self):
-        """Delegate to DaprInfra."""
-        return self._infra._get_entry_container()
-
     def _message_dict_to_message_model(self, message):
         """Delegate to DaprInfra."""
         return self._infra._message_dict_to_message_model(message)
-
-    def ensure_instance_exists(
-        self, *, instance_id, input_value, triggering_workflow_instance_id, time=None
-    ):
-        """Delegate to DaprInfra."""
-        return self._infra.ensure_instance_exists(
-            instance_id=instance_id,
-            input_value=input_value,
-            triggering_workflow_instance_id=triggering_workflow_instance_id,
-            time=time,
-        )
 
     # ------------------------------------------------------------------
     # Presentation helpers
@@ -818,48 +788,25 @@ class AgentBase:
                 return message
         return None
 
-    # ------------------------------------------------------------------
-    # State-aware message helpers (use AgentComponents' state model)
-    # ------------------------------------------------------------------
     def _reconstruct_conversation_history(
         self, instance_id: str
-    ) -> List[Dict[str, Any]]:
+    ) -> List[AgentWorkflowMessage]:
         """
         Build a conversation history combining persistent memory and per-instance messages.
-
+    
         Args:
             instance_id: Workflow instance identifier.
 
         Returns:
             Combined message history excluding system messages from instance timeline.
         """
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
-
-        instance_messages: List[Dict[str, Any]] = []
-        if entry and hasattr(entry, "messages"):
-            for msg in getattr(entry, "messages"):
-                serialized = self._serialize_message(msg)
-                if serialized.get("role") != "system":
-                    instance_messages.append(serialized)
-
-        persistent_memory: List[Dict[str, Any]] = []
         try:
-            for msg in self.memory.get_messages():
-                try:
-                    persistent_memory.append(self._serialize_message(msg))
-                except TypeError:
-                    logger.debug(
-                        "Unsupported memory message type %s; skipping.", type(msg)
-                    )
-        except Exception:  # noqa: BLE001
-            logger.debug("Unable to load persistent memory.", exc_info=True)
+            entry = self._infra.get_state(instance_id)
+        except:
+            logger.exception(f'Failed to reconstruct conversation workflow history for instance_id: {instance_id}')
+            raise
 
-        # Persistent conversation history in the memory config is the single source of truth for conversation history
-        if persistent_memory:
-            return persistent_memory
-        # Note: this is just ot make tests happy for now and in reality for durable agent this is not used for app resumption of state
-        return instance_messages
+        return entry.messages
 
     def _sync_system_messages_with_state(
         self,
@@ -893,8 +840,12 @@ class AgentBase:
         if not task or not user_message_copy:
             return
 
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(f"Failed to get workflow state for instance_id to process user message: {instance_id}")
+            raise
+
         if entry is not None and hasattr(entry, "messages"):
             # Use configured coercer / message model
             message_model = (
@@ -905,16 +856,8 @@ class AgentBase:
             entry.messages.append(message_model)  # type: ignore[attr-defined]
             if hasattr(entry, "last_message"):
                 entry.last_message = message_model  # type: ignore[attr-defined]
-
-            session_id = getattr(getattr(self, "memory", None), "session_id", None)
-            if session_id is not None and hasattr(entry, "session_id"):
-                entry.session_id = str(session_id)  # type: ignore[attr-defined]
-
-        # Always add to memory (required for chat history for agent durability upon restarts)
-        self.memory.add_message(
-            UserMessage(content=user_message_copy.get("content", ""))
-        )
-        self.save_state()
+                
+        self.save_state(workflow_instance_id=instance_id)
 
     def _save_assistant_message(
         self, instance_id: str, assistant_message: Dict[str, Any]
@@ -928,8 +871,12 @@ class AgentBase:
         """
         assistant_message["name"] = self.name
 
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            raise
+
         if entry is not None and hasattr(entry, "messages"):
             message_id = assistant_message.get("id")
             if message_id and any(
@@ -948,9 +895,7 @@ class AgentBase:
                 if hasattr(entry, "last_message"):
                     entry.last_message = message_model  # type: ignore[attr-defined]
 
-        # Always add to memory (required for chat history)
-        self.memory.add_message(AssistantMessage(**assistant_message))
-        self.save_state()
+        self.save_state(instance_id)
 
     # ------------------------------------------------------------------
     # Small convenience wrappers

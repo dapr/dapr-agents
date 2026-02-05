@@ -101,13 +101,6 @@ class Agent(AgentBase):
         self._shutdown_event = asyncio.Event()
         self._setup_signal_handlers()
 
-        try:
-            self.load_state()
-        except Exception:
-            logger.debug(
-                "Standalone agent state load failed; using defaults.", exc_info=True
-            )
-
     # ------------------------------------------------------------------
     # Public entrypoint
     # ------------------------------------------------------------------
@@ -171,8 +164,8 @@ class Agent(AgentBase):
         instance_id: Optional[str],
     ) -> Optional[AssistantMessage]:
         """One-shot conversational run with tool loop and durable timeline."""
-        self.load_state()
         active_instance = instance_id or self._generate_instance_id()
+        self.load_state(active_instance)
 
         # Build initial messages with persistent + per-instance history
         chat_history = self._reconstruct_conversation_history(active_instance)
@@ -194,18 +187,7 @@ class Agent(AgentBase):
                 {str(k): v for k, v in user_message_copy.items()}
             )
 
-        # Ensure instance exists (flexible model via _get_entry_container)
-        created_instance = active_instance not in (
-            getattr(self.workflow_state, "instances", {}) or {}
-        )
-        self.ensure_instance_exists(
-            instance_id=active_instance,
-            input_value=task_text or "Triggered without input.",
-            triggering_workflow_instance_id=None,
-            time=datetime.now(timezone.utc),
-        )
-        if created_instance:
-            self.save_state()
+        self.save_state(active_instance)
 
         # Persist the user message into timeline + memory
         self._process_user_message(active_instance, task_text, user_message_copy)
@@ -234,8 +216,8 @@ class Agent(AgentBase):
         Returns:
             List of message dicts suitable for an LLM chat API.
         """
-        self.load_state()
         active_instance = instance_id or self._generate_instance_id()
+        self.load_state(active_instance)
         chat_history = self._reconstruct_conversation_history(active_instance)
         return self.prompting_helper.build_initial_messages(
             user_input=input_data,
@@ -421,8 +403,11 @@ class Agent(AgentBase):
         )
 
         # Append to durable timeline using the flexible model/coercer path
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            raise
         if entry is not None and hasattr(entry, "messages"):
             # Prefer a custom coercer if configured; otherwise the configured message model, with a safe fallback.
             try:
@@ -442,9 +427,8 @@ class Agent(AgentBase):
 
         # Always persist to memory + in-process history
         self.text_formatter.print_message(message_dict)
-        self.memory.add_message(tool_message)
         self.tool_history.append(history_entry)
-        self.save_state()
+        self.save_state(instance_id)
 
         # Return tool message dict so the next LLM turn can see it
         return message_dict
@@ -464,8 +448,11 @@ class Agent(AgentBase):
             instance_id: Timeline instance id.
             final_reply: AssistantMessage (if any) that ended the loop.
         """
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            raise
         if entry is None:
             return
 
@@ -477,7 +464,7 @@ class Agent(AgentBase):
         if final_reply and hasattr(entry, "output"):
             entry.output = final_reply.content or ""
         entry.end_time = datetime.now(timezone.utc)
-        self.save_state()
+        self.save_state(instance_id)
 
     def _generate_instance_id(self) -> str:
         """Generate a unique instance id for standalone runs."""

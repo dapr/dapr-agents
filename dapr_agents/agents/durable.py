@@ -209,16 +209,9 @@ class DurableAgent(AgentBase):
         source = metadata.get("source") or "direct"
 
         # Ensure we have the latest durable state for this turn.
+        # TODO(@sicoyle): fix this bc do i want state on the obj or just refetch it every time with get instead of load?
         if self.state_store:
-            self.load_state()
-
-        # Bootstrap instance entry (flexible to non-`instances` models).
-        self.ensure_instance_exists(
-            instance_id=ctx.instance_id,
-            input_value=task or "Triggered without input.",
-            triggering_workflow_instance_id=trigger_instance_id,
-            time=ctx.current_utc_datetime,
-        )
+            self._infra.get_state(ctx.instance_id)
 
         if not ctx.is_replaying:
             logger.info("Initial message from %s -> %s", source, self.name)
@@ -357,6 +350,8 @@ class DurableAgent(AgentBase):
             retry_policy=self._retry_policy,
         )
 
+        # TODO(@sicoyle): here i need to add the if for a flag on if enabled long term memory then summarize the workflow history into long term memory.
+
         if not ctx.is_replaying:
             verdict = (
                 "max_iterations_reached"
@@ -372,6 +367,7 @@ class DurableAgent(AgentBase):
 
         return final_message
 
+# TODO(@sicoyle): revisit here after Casper's PR for orchestrators bc we should not be using in memory for "broadcast"...
     @message_router(message_model=BroadcastMessage, broadcast=True)
     def broadcast_listener(self, ctx: wf.DaprWorkflowContext, message: dict) -> None:
         """
@@ -390,53 +386,6 @@ class DurableAgent(AgentBase):
 
         logger.info("Agent %s received broadcast from %s", self.name, source)
         logger.debug("Full broadcast message: %s", message)
-        # Store as a user message from the broadcasting agent (kept in persistent memory).
-        self.memory.add_message(
-            UserMessage(name=source, content=message_content, role="user")
-        )
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _reconstruct_conversation_history(
-        self, instance_id: str
-    ) -> List[Dict[str, Any]]:
-        """
-        Build conversation history from per-instance state.
-
-        Args:
-            instance_id: Workflow instance identifier.
-
-        Returns:
-            Message history for this specific workflow instance.
-        """
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
-
-        instance_messages: List[Dict[str, Any]] = []
-        if entry and hasattr(entry, "messages"):
-            for msg in getattr(entry, "messages"):
-                serialized = self._serialize_message(msg)
-                if serialized.get("role") != "system":
-                    instance_messages.append(serialized)
-
-        if instance_messages:
-            return instance_messages
-
-        persistent_memory: List[Dict[str, Any]] = []
-        try:
-            for msg in self.memory.get_messages():
-                try:
-                    persistent_memory.append(self._serialize_message(msg))
-                except TypeError:
-                    logger.debug(
-                        "Unsupported memory message type %s; skipping.", type(msg)
-                    )
-        except Exception:
-            logger.debug("Unable to load persistent memory.", exc_info=True)
-
-        return persistent_memory
 
     # ------------------------------------------------------------------
     # Activities
@@ -456,28 +405,22 @@ class DurableAgent(AgentBase):
                 - start_time: ISO8601 datetime string.
                 - trace_context: Optional tracing context.
         """
+        instance_id = ctx.workflow_id
         # Load latest state to ensure we have current data before modifying
-        if self.state_store:
-            self.load_state()
-
-        instance_id = payload.get("instance_id")
+        if self.state_store and instance_id:
+            self._infra.load_state(instance_id)
         trace_context = payload.get("trace_context")
         input_value = payload.get("input_value", "Triggered without input.")
         source = payload.get("source", "direct")
         triggering_instance = payload.get("triggering_workflow_instance_id")
         start_time = self._coerce_datetime(payload.get("start_time"))
 
-        # Ensure instance exists in durable state
-        self.ensure_instance_exists(
-            instance_id=instance_id,
-            input_value=input_value,
-            triggering_workflow_instance_id=triggering_instance,
-            time=start_time,
-        )
-
         # Use flexible container accessor (supports custom state layouts)
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            raise
         if entry is None:
             return
 
@@ -487,12 +430,8 @@ class DurableAgent(AgentBase):
         entry.start_time = start_time
         entry.trace_context = trace_context
 
-        session_id = getattr(self.memory, "session_id", None)
-        if session_id is not None and hasattr(entry, "session_id"):
-            entry.session_id = str(session_id)
-
         entry.status = DaprWorkflowStatus.RUNNING.value
-        self.save_state()
+        self.save_state(instance_id)
 
     def call_llm(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -509,12 +448,14 @@ class DurableAgent(AgentBase):
         Raises:
             AgentError: If the LLM call fails or yields no message.
         """
+        # TODO(@sicoyle): i think i can use the instance_id in teh ctx instead here!!
         instance_id = payload.get("instance_id")
         task = payload.get("task")
 
-        # Load latest state to ensure we have current data
+        # Load latest workflow state to ensure we have current data
+        # TODO(@sicoyle): can i remove these calls????
         if self.state_store:
-            self.load_state()
+            self._infra.load_state(instance_id)
 
         chat_history = self._reconstruct_conversation_history(instance_id)
         messages = self.prompting_helper.build_initial_messages(
@@ -557,7 +498,7 @@ class DurableAgent(AgentBase):
         as_dict = assistant_message.model_dump()
         self._save_assistant_message(instance_id, as_dict)
         self.text_formatter.print_message(as_dict)
-        self.save_state()
+        self.save_state(instance_id)
         return as_dict
 
     def run_tool(
@@ -617,15 +558,15 @@ class DurableAgent(AgentBase):
         Args:
             payload: Keys 'tool_results' (list of tool result dicts) and 'instance_id'.
         """
-        if self.state_store:
-            self.load_state()
-
+        instance_id: str = payload.get("instance_id", "")
         tool_results_raw: List[Dict[str, Any]] = payload.get("tool_results", [])
         tool_results: List[ToolMessage] = [ToolMessage(**tr) for tr in tool_results_raw]
-        instance_id: str = payload.get("instance_id", "")
-
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            raise
 
         existing_tool_ids: set[str] = set()
         if entry is not None and hasattr(entry, "messages"):
@@ -654,10 +595,9 @@ class DurableAgent(AgentBase):
                 if hasattr(entry, "last_message"):
                     entry.last_message = tool_message_model
 
-            self.memory.add_message(tool_result)
             logger.debug(f"Added tool result {tool_call_id} to memory")
 
-        self.save_state()
+        self.save_state(instance_id)
 
     def broadcast_message_to_agents(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -749,17 +689,22 @@ class DurableAgent(AgentBase):
                      and optional 'triggering_workflow_instance_id'.
         """
         # Load latest state to ensure we have current data before modifying
-        if self.state_store:
-            self.load_state()
-
         instance_id = payload.get("instance_id")
+        if self.state_store:
+            self._infra.load_state(instance_id)
+
         final_output = payload.get("final_output", "")
         end_time = payload.get("end_time", "")
         triggering_workflow_instance_id = payload.get("triggering_workflow_instance_id")
 
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            raise
+
         if not entry:
+            logger.warning(f"Workflow state not found for instance_id: {instance_id}")
             return
 
         entry.status = (
@@ -771,7 +716,7 @@ class DurableAgent(AgentBase):
         if hasattr(entry, "output"):
             entry.output = final_output or ""
         entry.triggering_workflow_instance_id = triggering_workflow_instance_id
-        self.save_state()
+        self.save_state(instance_id)
 
     # ------------------------------------------------------------------
     # Runtime control

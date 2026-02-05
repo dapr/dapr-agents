@@ -90,14 +90,6 @@ class LLMOrchestrator(LLMOrchestratorBase):
         instance_id = ctx.instance_id
         final_summary: Optional[str] = None
 
-        # Ensure the instance exists in the state model
-        self.ensure_instance_exists(
-            instance_id=instance_id,
-            input_value=task_text or "",
-            triggering_workflow_instance_id=parent_id,
-            time=ctx.current_utc_datetime,
-        )
-
         for turn in range(1, self.execution.max_iterations + 1):
             if not ctx.is_replaying:
                 logger.info(
@@ -142,7 +134,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
                     logger.info("Initial plan broadcast completed")
             else:
                 plan = list(
-                    self.state.get("instances", {}).get(instance_id, {}).get("plan", [])
+                    self.state.get(instance_id, {}).get("plan", [])
                 )
                 if not ctx.is_replaying:
                     logger.info(
@@ -154,7 +146,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
             # Fallback: if plan is empty/None, try reading from state
             if not plan:
                 plan = list(
-                    self.state.get("instances", {}).get(instance_id, {}).get("plan", [])
+                    self.state.get(instance_id, {}).get("plan", [])
                 )
                 if not ctx.is_replaying:
                     logger.warning(
@@ -411,8 +403,11 @@ class LLMOrchestrator(LLMOrchestratorBase):
         wf_time = payload["wf_time"]
 
         # Use flexible container accessor (supports custom state layouts)
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            raise
 
         # Check if THIS instance already has a plan (from a previous turn/replay)
         plan_dicts: List[Dict[str, Any]]
