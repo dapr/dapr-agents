@@ -179,6 +179,7 @@ class AgentStateConfig:
             )
         return self._state_model_bundle
 
+
 @dataclass
 class AgentRegistryConfig:
     """Configuration for agent registry storage."""

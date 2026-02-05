@@ -193,9 +193,11 @@ class DaprInfra:
             logger.debug("No state store configured; using in-memory state only.")
             self._state_model = self._initial_state_model()
             return
-        
+
         if not workflow_instance_id:
-            raise ValueError("workflow_instance_id must be provided to load workflow state")
+            raise ValueError(
+                "workflow_instance_id must be provided to load workflow state"
+            )
 
         key = f"{self.state_key_prefix}_{workflow_instance_id}"
         snapshot = self.state_store.load(
@@ -249,7 +251,6 @@ class DaprInfra:
             self._state_model = default
             return default
 
-
     def save_state(self, workflow_instance_id: str) -> None:
         """
         Persist the current workflow state with optimistic concurrency.
@@ -260,9 +261,11 @@ class DaprInfra:
         if not self.state_store:
             logger.debug("No state store configured; skipping state persistence.")
             return
-        
+
         if not workflow_instance_id:
-            raise ValueError("workflow_instance_id must be provided to save workflow state")
+            raise ValueError(
+                "workflow_instance_id must be provided to save workflow state"
+            )
 
         key = f"{self.state_key_prefix}_{workflow_instance_id}"
         meta = self._state_metadata_for_key(key)
@@ -361,7 +364,9 @@ class DaprInfra:
         try:
             entry = self.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
         if entry is None:
             return

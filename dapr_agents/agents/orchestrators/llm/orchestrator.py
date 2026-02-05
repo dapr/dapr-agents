@@ -133,9 +133,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
                 if not ctx.is_replaying:
                     logger.info("Initial plan broadcast completed")
             else:
-                plan = list(
-                    self.state.get(instance_id, {}).get("plan", [])
-                )
+                plan = list(self.state.get(instance_id, {}).get("plan", []))
                 if not ctx.is_replaying:
                     logger.info(
                         "Loaded plan from state with %d steps (turn %d)",
@@ -145,9 +143,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
 
             # Fallback: if plan is empty/None, try reading from state
             if not plan:
-                plan = list(
-                    self.state.get(instance_id, {}).get("plan", [])
-                )
+                plan = list(self.state.get(instance_id, {}).get("plan", []))
                 if not ctx.is_replaying:
                     logger.warning(
                         "Plan was empty, fallback loaded %d steps from state", len(plan)
@@ -406,7 +402,9 @@ class LLMOrchestrator(LLMOrchestratorBase):
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
 
         # Check if THIS instance already has a plan (from a previous turn/replay)

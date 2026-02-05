@@ -406,7 +406,9 @@ class Agent(AgentBase):
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
         if entry is not None and hasattr(entry, "messages"):
             # Prefer a custom coercer if configured; otherwise the configured message model, with a safe fallback.
@@ -451,7 +453,9 @@ class Agent(AgentBase):
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
         if entry is None:
             return

@@ -357,8 +357,6 @@ class DurableAgent(AgentBase):
             retry_policy=self._retry_policy,
         )
 
-        
-
         if not ctx.is_replaying:
             verdict = (
                 "max_iterations_reached"
@@ -374,7 +372,7 @@ class DurableAgent(AgentBase):
 
         return final_message
 
-# TODO(@sicoyle): revisit here after Casper's PR for orchestrators bc we should not be using in memory for "broadcast"...
+    # TODO(@sicoyle): revisit here after Casper's PR for orchestrators bc we should not be using in memory for "broadcast"...
     @message_router(message_model=BroadcastMessage, broadcast=True)
     def broadcast_listener(self, ctx: wf.DaprWorkflowContext, message: dict) -> None:
         """
@@ -426,7 +424,9 @@ class DurableAgent(AgentBase):
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
         if entry is None:
             return
@@ -568,11 +568,13 @@ class DurableAgent(AgentBase):
         instance_id: str = payload.get("instance_id", "")
         tool_results_raw: List[Dict[str, Any]] = payload.get("tool_results", [])
         tool_results: List[ToolMessage] = [ToolMessage(**tr) for tr in tool_results_raw]
-        
+
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
 
         existing_tool_ids: set[str] = set()
@@ -685,7 +687,6 @@ class DurableAgent(AgentBase):
         except Exception:  # noqa: BLE001
             logger.exception("Failed to publish response to %s", target_agent)
 
-
     def summarize(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -707,7 +708,9 @@ class DurableAgent(AgentBase):
             logger.exception(
                 "Failed to get workflow state for instance_id: %s", instance_id
             )
-            raise AgentError(f"Failed to get workflow state for instance_id: {instance_id}")
+            raise AgentError(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
 
         messages_list = entry.messages
         tool_history = entry.tool_history
@@ -755,10 +758,10 @@ class DurableAgent(AgentBase):
         try:
             self.memory.add_message(summary_message, workflow_instance_id=instance_id)
         except Exception:
-            raise AgentError(f"Failed to save summary to memory for instance_id={instance_id}")
-        logger.info(
-            "Saved summary to memory for workflow instance_id=%s", instance_id
-        )
+            raise AgentError(
+                f"Failed to save summary to memory for instance_id={instance_id}"
+            )
+        logger.info("Saved summary to memory for workflow instance_id=%s", instance_id)
         if getattr(self, "text_formatter", None):
             self.text_formatter.print_message(
                 {**summary_message, "name": f"{self.name}"}
@@ -787,7 +790,9 @@ class DurableAgent(AgentBase):
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
 
         if not entry:

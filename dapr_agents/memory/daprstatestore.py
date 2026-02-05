@@ -11,6 +11,7 @@ from dapr_agents.types import BaseMessage
 
 logger = logging.getLogger(__name__)
 
+
 class ConversationDaprStateMemory(MemoryBase):
     """
     Manages conversation memory stored in a Dapr state store. Each message in the conversation is saved
@@ -143,7 +144,9 @@ class ConversationDaprStateMemory(MemoryBase):
         Args:
             messages (List[Union[Dict[str, Any], BaseMessage]]): A list of messages to add to the memory.
         """
-        logger.info(f"Adding {len(messages)} messages to workflow instance {self.workflow_instance_id}")
+        logger.info(
+            f"Adding {len(messages)} messages to workflow instance {self.workflow_instance_id}"
+        )
         for message in messages:
             self.add_message(message)
 
@@ -202,9 +205,13 @@ class ConversationDaprStateMemory(MemoryBase):
         Returns:
             Any: The response object from the Dapr state store, typically with a 'data' attribute containing the messages as JSON.
         """
-        logger.debug(f"Executing query for workflow instance {self.workflow_instance_id}")
+        logger.debug(
+            f"Executing query for workflow instance {self.workflow_instance_id}"
+        )
         states_metadata = {"contentType": "application/json"}
-        response = self.dapr_store.get_state(self.workflow_instance_id, state_metadata=states_metadata)
+        response = self.dapr_store.get_state(
+            self.workflow_instance_id, state_metadata=states_metadata
+        )
         return response
 
     def reset_memory(self) -> None:
@@ -212,4 +219,6 @@ class ConversationDaprStateMemory(MemoryBase):
         Clears all messages stored in the memory and resets the state store for the current workflow instance.
         """
         self.dapr_store.delete_state(self.workflow_instance_id)
-        logger.info(f"Memory reset for workflow instance {self.workflow_instance_id} completed.")
+        logger.info(
+            f"Memory reset for workflow instance {self.workflow_instance_id} completed."
+        )

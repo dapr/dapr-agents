@@ -93,7 +93,7 @@ class LLMOrchestratorBase(OrchestratorBase):
                 agent_name=self.name,
             )
         self.memory = self._memory.store or ConversationListMemory()
-        #TODO(@sicoyle): if we like this then i need to update this for all other memory stores.
+        # TODO(@sicoyle): if we like this then i need to update this for all other memory stores.
         if hasattr(self.memory, "agent_name"):
             self.memory.agent_name = self.name
 
@@ -182,7 +182,9 @@ class LLMOrchestratorBase(OrchestratorBase):
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
 
         logger.info(
@@ -229,7 +231,7 @@ class LLMOrchestratorBase(OrchestratorBase):
                     entry["messages"] = []
                 entry["messages"].append(msg)
                 entry["last_message"] = msg
-                
+
         if final_output is not None:
             end_time_value = self._coerce_datetime(wf_time)
 
@@ -249,7 +251,9 @@ class LLMOrchestratorBase(OrchestratorBase):
             try:
                 entry = self._infra.get_state(instance_id)
             except Exception:
-                logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+                logger.exception(
+                    f"Failed to get workflow state for instance_id: {instance_id}"
+                )
                 raise
             if entry:
                 if hasattr(entry, "plan"):
@@ -266,10 +270,13 @@ class LLMOrchestratorBase(OrchestratorBase):
     ) -> None:
         """Reverts a step from `in_progress` back to `not_started`."""
         from dapr_agents.agents.orchestrators.llm.utils import find_step_in_plan
+
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
 
         try:
@@ -297,11 +304,13 @@ class LLMOrchestratorBase(OrchestratorBase):
     ) -> None:
         """Undo the last task history entry and revert `completed` -> `in_progress` if needed."""
         from dapr_agents.agents.orchestrators.llm.utils import find_step_in_plan
-        
+
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
 
         try:
@@ -343,9 +352,11 @@ class LLMOrchestratorBase(OrchestratorBase):
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
-        
+
         try:
             if entry:
                 if hasattr(entry, "output"):
@@ -364,7 +375,9 @@ class LLMOrchestratorBase(OrchestratorBase):
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
         try:
             if entry:
@@ -485,7 +498,9 @@ class LLMOrchestratorBase(OrchestratorBase):
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
         if not entry:
             msg = f"No workflow entry for instance {instance_id}"

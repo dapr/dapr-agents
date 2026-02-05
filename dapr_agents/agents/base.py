@@ -797,7 +797,7 @@ class AgentBase:
     ) -> List[AgentWorkflowMessage]:
         """
         Build a conversation history combining persistent memory and per-instance messages.
-    
+
         Args:
             instance_id: Workflow instance identifier.
 
@@ -807,7 +807,9 @@ class AgentBase:
         try:
             entry = self._infra.get_state(instance_id)
         except:
-            logger.exception(f'Failed to reconstruct conversation workflow history for instance_id: {instance_id}')
+            logger.exception(
+                f"Failed to reconstruct conversation workflow history for instance_id: {instance_id}"
+            )
             raise
 
         return entry.messages
@@ -847,7 +849,9 @@ class AgentBase:
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id to process user message: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id to process user message: {instance_id}"
+            )
             raise
 
         if entry is not None and hasattr(entry, "messages"):
@@ -860,7 +864,7 @@ class AgentBase:
             entry.messages.append(message_model)  # type: ignore[attr-defined]
             if hasattr(entry, "last_message"):
                 entry.last_message = message_model  # type: ignore[attr-defined]
-                
+
         self.save_state(workflow_instance_id=instance_id)
 
     def _save_assistant_message(
@@ -878,7 +882,9 @@ class AgentBase:
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
-            logger.exception(f"Failed to get workflow state for instance_id: {instance_id}")
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
             raise
 
         if entry is not None and hasattr(entry, "messages"):
