@@ -43,41 +43,6 @@ class LLMOrchestrator(LLMOrchestratorBase):
     Interacts with agents in a multi-step workflow, using an LLM to decide the next step,
     validates and triggers agents, and handles responses. Ensures steps are executed in order,
     checks for progress, and finalizes the workflow with a summary.
-
-    .. deprecated:: 0.12.0
-        LLMOrchestrator is deprecated and will be removed in a future version.
-        Use :class:`~dapr_agents.agents.DurableAgent` with ``orchestrator=True``
-        and ``orchestration_mode="agent"`` instead.
-
-    Migration Example:
-
-        Old approach::
-
-            from dapr_agents.agents.orchestrators.llm import LLMOrchestrator
-
-            orchestrator = LLMOrchestrator(
-                name="LLMOrch",
-                llm=llm,
-                pubsub=pubsub,
-                state=state,
-                registry=registry,
-                execution=execution,
-            )
-
-        New approach (recommended)::
-
-            from dapr_agents.agents import DurableAgent
-
-            orchestrator = DurableAgent(
-                name="LLMOrch",
-                orchestrator=True,
-                orchestration_mode="agent",  # Plan-based LLM orchestration
-                llm=llm,
-                pubsub=pubsub,
-                state=state,
-                registry=registry,
-                execution=execution,
-            )
     """
 
     def __init__(
@@ -90,10 +55,6 @@ class LLMOrchestrator(LLMOrchestratorBase):
     ) -> None:
         """
         Initializes the orchestrator with the provided configuration parameters.
-
-        .. deprecated:: 0.12.0
-            LLMOrchestrator is deprecated. Use DurableAgent with
-            orchestrator=True and orchestration_mode="agent" instead.
 
         Args:
             name (str): Logical name of the orchestrator.

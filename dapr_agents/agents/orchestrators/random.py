@@ -31,49 +31,6 @@ logger = logging.getLogger(__name__)
 class RandomOrchestrator(OrchestratorBase):
     """
     Workflow-native orchestrator that randomly selects an agent each turn.
-
-    Flow:
-      1) Optionally broadcast the initial task to all agents.
-      2) For up to ``max_iterations``:
-         - Pick a random agent (avoid the most recent speaker when possible),
-         - Trigger it,
-         - Wait for a response event or a timeout,
-         - Use the response content as the next turn's task.
-      3) Return the final content.
-
-    .. deprecated:: 0.12.0
-        RandomOrchestrator is deprecated and will be removed in a future version.
-        Use :class:`~dapr_agents.agents.DurableAgent` with ``orchestrator=True``
-        and ``orchestration_mode="random"`` instead.
-
-    Migration Example:
-
-        Old approach::
-
-            from dapr_agents.agents.orchestrators import RandomOrchestrator
-
-            orchestrator = RandomOrchestrator(
-                name="RandomOrch",
-                pubsub=pubsub,
-                state=state,
-                registry=registry,
-                execution=execution,
-                timeout_seconds=60,
-            )
-
-        New approach (recommended)::
-
-            from dapr_agents.agents import DurableAgent
-
-            orchestrator = DurableAgent(
-                name="RandomOrch",
-                orchestrator=True,
-                orchestration_mode="random",  # Random with avoidance
-                pubsub=pubsub,
-                state=state,
-                registry=registry,
-                execution=execution,
-            )
     """
 
     def __init__(
@@ -90,11 +47,6 @@ class RandomOrchestrator(OrchestratorBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
-        """
-        .. deprecated:: 0.12.0
-            RandomOrchestrator is deprecated. Use DurableAgent with
-            orchestrator=True and orchestration_mode="random" instead.
-        """
         warnings.warn(
             "RandomOrchestrator is deprecated and will be removed in a future version. "
             "Use DurableAgent with orchestrator=True and orchestration_mode='random' instead. "

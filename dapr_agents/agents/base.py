@@ -111,7 +111,6 @@ class AgentBase:
         # Execution
         execution: Optional[AgentExecutionConfig] = None,
         agent_observability: Optional[AgentObservabilityConfig] = None,
-        orchestrator: bool = False,
     ) -> None:
         """
         Initialize an agent with behavior + infrastructure.
@@ -143,7 +142,6 @@ class AgentBase:
             workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
             execution: Execution dials for the agent run.
             agent_observability: Observability configuration for tracing/logging.
-            orchestrator: Whether this agent is an orchestrator (affects registration).
         """
         # Resolve and validate profile (ensures non-empty name).
         resolved_profile = self._build_profile(
@@ -157,7 +155,6 @@ class AgentBase:
         )
         self.profile = resolved_profile
         self.name = resolved_profile.name  # type: ignore[assignment]
-        self.orchestrator = orchestrator
 
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
@@ -495,6 +492,11 @@ class AgentBase:
     def workflow_state(self):
         """Delegate to DaprInfra."""
         return self._infra.workflow_state
+
+    @property
+    def orchestrator(self) -> bool:
+        """Return True if this agent is configured as an orchestrator."""
+        return self.execution.orchestration_mode is not None
 
     def load_state(self):
         """Delegate to DaprInfra."""

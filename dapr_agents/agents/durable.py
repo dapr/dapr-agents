@@ -35,6 +35,7 @@ from dapr_agents.agents.orchestrators.llm.utils import (
 
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
+    OrchestrationMode,
     AgentExecutionConfig,
     AgentMemoryConfig,
     AgentPubSubConfig,
@@ -107,8 +108,6 @@ class DurableAgent(AgentBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
         agent_observability: Optional[AgentObservabilityConfig] = None,
-        orchestrator: bool = False,
-        orchestration_mode: Optional[Literal["agent", "roundrobin", "random"]] = None,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -139,10 +138,6 @@ class DurableAgent(AgentBase):
             runtime: Optional pre-existing workflow runtime to attach to.
             retry_policy: Durable retry policy configuration.
             agent_observability: Observability configuration for tracing/logging.
-            orchestrator: Whether this agent is an orchestrator (affects registration).
-            orchestration_mode: Orchestration strategy to use when orchestrator=True.
-                Options: "agent" (plan-based with LLM), "roundrobin" (sequential),
-                "random" (random with avoidance). Defaults to "agent" if orchestrator=True.
         """
         super().__init__(
             pubsub=pubsub,
@@ -163,7 +158,6 @@ class DurableAgent(AgentBase):
             tools=tools,
             prompt_template=prompt_template,
             agent_observability=agent_observability,
-            orchestrator=orchestrator,
         )
 
         grpc_options = getattr(self, "workflow_grpc_options", None)
@@ -196,32 +190,34 @@ class DurableAgent(AgentBase):
             else None,
         )
 
-        # Initialize orchestration strategy if this agent is an orchestrator
         self._orchestration_strategy: Optional[OrchestrationStrategy] = None
-        if self.orchestrator:
+        # Initialize orchestration strategy if this agent is an orchestrator
+        if self.execution.orchestration_mode:
             # Default to "agent" mode if no mode specified
-            mode = orchestration_mode or "agent"
 
-            if mode == "agent":
-                self._orchestration_strategy = AgentOrchestrationStrategy(
-                    llm=self.llm,
-                    activities=self,
-                )
-            elif mode == "roundrobin":
-                self._orchestration_strategy = RoundRobinOrchestrationStrategy()
-            elif mode == "random":
-                self._orchestration_strategy = RandomOrchestrationStrategy()
-            else:
-                raise ValueError(
-                    f"Invalid orchestration_mode: {mode}. "
-                    f"Must be one of: 'agent', 'roundrobin', 'random'"
-                )
+            match self.execution.orchestration_mode:
+                case OrchestrationMode.AGENT:
+                    self._orchestration_strategy = AgentOrchestrationStrategy(
+                        llm=self.llm,
+                        activities=self,
+                    )
+                case OrchestrationMode.ROUNDROBIN:
+                    self._orchestration_strategy = RoundRobinOrchestrationStrategy()
+                case OrchestrationMode.RANDOM:
+                    self._orchestration_strategy = RandomOrchestrationStrategy()
+                case _:
+                    raise ValueError(
+                        f"Invalid orchestration_mode: {self.execution.orchestration_mode}. "
+                        f"Must be one of: 'agent', 'roundrobin', 'random'"
+                    )
 
             # Store orchestrator name for strategy finalization
             self._orchestration_strategy.orchestrator_name = self.name
             self.effective_team = registry.team_name if registry else "default"
 
-            logger.info(f"Initialized orchestrator '{self.name}' with mode '{mode}'")
+            logger.info(
+                f"Initialized orchestrator '{self.name}' with mode '{self.execution.orchestration_mode}'"
+            )
 
     # ------------------------------------------------------------------
     # Runtime accessors

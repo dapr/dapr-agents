@@ -34,40 +34,6 @@ class RoundRobinOrchestrator(OrchestratorBase):
     - Each turn triggers the next agent in a deterministic order.
     - Waits for response or times out.
     - Feeds the response content into the next turn; returns last content.
-
-    .. deprecated:: 0.12.0
-        RoundRobinOrchestrator is deprecated and will be removed in a future version.
-        Use :class:`~dapr_agents.agents.DurableAgent` with ``orchestrator=True``
-        and ``orchestration_mode="roundrobin"`` instead.
-
-    Migration Example:
-
-        Old approach::
-
-            from dapr_agents.agents.orchestrators import RoundRobinOrchestrator
-
-            orchestrator = RoundRobinOrchestrator(
-                name="RoundRobinOrch",
-                pubsub=pubsub,
-                state=state,
-                registry=registry,
-                execution=execution,
-                timeout_seconds=60,
-            )
-
-        New approach (recommended)::
-
-            from dapr_agents.agents import DurableAgent
-
-            orchestrator = DurableAgent(
-                name="RoundRobinOrch",
-                orchestrator=True,
-                orchestration_mode="roundrobin",  # Deterministic sequential
-                pubsub=pubsub,
-                state=state,
-                registry=registry,
-                execution=execution,
-            )
     """
 
     def __init__(
@@ -84,11 +50,6 @@ class RoundRobinOrchestrator(OrchestratorBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
-        """
-        .. deprecated:: 0.12.0
-            RoundRobinOrchestrator is deprecated. Use DurableAgent with
-            orchestrator=True and orchestration_mode="roundrobin" instead.
-        """
         warnings.warn(
             "RoundRobinOrchestrator is deprecated and will be removed in a future version. "
             "Use DurableAgent with orchestrator=True and orchestration_mode='roundrobin' instead. "

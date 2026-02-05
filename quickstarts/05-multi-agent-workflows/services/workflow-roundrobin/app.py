@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from dapr_agents.agents import DurableAgent
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
+    OrchestrationMode,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
@@ -45,11 +46,10 @@ def main() -> None:
             team_name=os.getenv("TEAM_NAME", "fellowship"),
         ),
         execution=AgentExecutionConfig(
-            max_iterations=int(os.getenv("MAX_ITERATIONS", "4"))
+            max_iterations=int(os.getenv("MAX_ITERATIONS", "4")),
+            orchestration_mode=OrchestrationMode.ROUNDROBIN,
         ),
         agent_metadata={"legend": "Sends tasks in a fair rotation."},
-        orchestrator=True,
-        orchestration_mode="roundrobin",  # Deterministic sequential agent selection
     )
 
     runner = AgentRunner()

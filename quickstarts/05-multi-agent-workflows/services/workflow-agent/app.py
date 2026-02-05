@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
+    OrchestrationMode,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
@@ -49,7 +50,8 @@ def main() -> None:
         team_name=team_name,
     )
     execution = AgentExecutionConfig(
-        max_iterations=int(os.getenv("MAX_ITERATIONS", "2"))
+        max_iterations=int(os.getenv("MAX_ITERATIONS", "2")),
+        orchestration_mode=OrchestrationMode.AGENT,
     )
 
     orchestrator = DurableAgent(
@@ -63,8 +65,6 @@ def main() -> None:
             "type": "AgentOrchestrator",
             "description": "Plan-based LLM-driven Orchestrator",
         },
-        orchestrator=True,
-        orchestration_mode="agent",  # Plan-based orchestration with LLM decisions
     )
 
     runner = AgentRunner()
