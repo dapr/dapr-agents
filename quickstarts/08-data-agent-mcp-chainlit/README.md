@@ -51,7 +51,7 @@ export $(grep -v '^#' ../../.env | xargs)
 temp_resources_folder=$(../resolve_env_templates.py ./components)
 
 # Run your dapr command with the temporary resources
-dapr run --app-id sql --resources-path $temp_resources_folder -- chainlit run app.py -w --port 8001
+uv run dapr run --app-id sql --resources-path $temp_resources_folder -- chainlit run app.py -w --port 8001
 
 # Clean up when done
 rm -rf $temp_resources_folder
@@ -166,7 +166,7 @@ docker run --rm -ti -p 8000:8000 \
 Run the agent (this will launch Chainlit on port 8001):
 
 ```bash
-dapr run --app-id sql --resources-path $temp_resources_folder -- chainlit run app.py -w --port 8001
+uv run dapr run --app-id sql --resources-path $temp_resources_folder -- chainlit run app.py -w --port 8001
 ```
 
 Wait until the browser opens up. Once open, you're ready to talk to your Postgres database!
