@@ -904,7 +904,7 @@ class AgentBase:
         """
         try:
             entry = self._infra.get_state(instance_id)
-        except:
+        except Exception:
             logger.exception(
                 f"Failed to reconstruct conversation workflow history for instance_id: {instance_id}"
             )

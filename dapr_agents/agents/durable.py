@@ -382,7 +382,6 @@ class DurableAgent(AgentBase):
         """
         metadata = message.get("_message_metadata", {}) or {}
         source = metadata.get("source") or "unknown"
-        message_content = message.get("content", "")
         if source == self.name:
             logger.debug("Agent %s ignoring self-originated broadcast.", self.name)
             return

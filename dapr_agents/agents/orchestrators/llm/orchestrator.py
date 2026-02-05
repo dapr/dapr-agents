@@ -86,7 +86,6 @@ class LLMOrchestrator(LLMOrchestratorBase):
         Orchestrates the workflow, handling up to `self.execution.max_iterations` turns using an LLM to choose the next step/agent.
         """
         task_text: Optional[str] = message.get("task")
-        parent_id: Optional[str] = message.get("workflow_instance_id")
         instance_id = ctx.instance_id
         final_summary: Optional[str] = None
 
