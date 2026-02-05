@@ -221,10 +221,8 @@ class DurableAgent(AgentBase):
             self.record_initial_entry,
             input={
                 "instance_id": ctx.instance_id,
-                "input_value": task or "Triggered without input.",
                 "source": source,
                 "triggering_workflow_instance_id": trigger_instance_id,
-                "start_time": ctx.current_utc_datetime.isoformat(),
                 "trace_context": otel_span_context,
             },
             retry_policy=self._retry_policy,
@@ -400,44 +398,29 @@ class DurableAgent(AgentBase):
     ) -> None:
         """
         Record the initial entry for a workflow instance.
-
-        Args:
-            payload: Keys:
-                - instance_id: Workflow instance id.
-                - input_value: Initial input value.
-                - source: Trigger source string.
-                - triggering_workflow_instance_id: Optional parent workflow id.
-                - start_time: ISO8601 datetime string.
-                - trace_context: Optional tracing context.
+        Input/output/status/timestamps come from Dapr get_workflow.
+        We only source, triggering_workflow_instance_id, trace_context.
         """
         instance_id = ctx.workflow_id
-        # Load latest state to ensure we have current data before modifying
         if self.state_store and instance_id:
             self._infra.load_state(instance_id)
         trace_context = payload.get("trace_context")
-        input_value = payload.get("input_value", "Triggered without input.")
         source = payload.get("source", "direct")
         triggering_instance = payload.get("triggering_workflow_instance_id")
-        start_time = self._coerce_datetime(payload.get("start_time"))
 
-        # Use flexible container accessor (supports custom state layouts)
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
             logger.exception(
-                f"Failed to get workflow state for instance_id: {instance_id}"
+                "Failed to get workflow state for instance_id: %s", instance_id
             )
             raise
         if entry is None:
             return
 
-        entry.input_value = input_value
         entry.source = source
         entry.triggering_workflow_instance_id = triggering_instance
-        entry.start_time = start_time
         entry.trace_context = trace_context
-
-        entry.status = DaprWorkflowStatus.RUNNING.value
         self.save_state(instance_id)
 
     def call_llm(
@@ -712,45 +695,32 @@ class DurableAgent(AgentBase):
         tool_history = getattr(entry, "tool_history", None) or []
         return self._summarize_conversation(instance_id, entry.messages, tool_history)
 
+    # TODO(@sicoyle): I think we can rm this, but need to double check in follow up PR if dapr captures under the hood triggering workflow instance id.
     def finalize_workflow(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
         """
-        Finalize a workflow instance by setting status, output, and end time.
-
-        Args:
-            payload: Dict with 'instance_id', 'final_output', 'end_time',
-                     and optional 'triggering_workflow_instance_id'.
+        Finalize workflow state: persist triggering_workflow_instance_id if provided.
+        Status/output/end_time come from Dapr get_workflow; we do not store them here.
         """
-        # Load latest state to ensure we have current data before modifying
         instance_id = payload.get("instance_id")
         if self.state_store:
             self._infra.load_state(instance_id)
 
-        final_output = payload.get("final_output", "")
-        end_time = payload.get("end_time", "")
         triggering_workflow_instance_id = payload.get("triggering_workflow_instance_id")
 
         try:
             entry = self._infra.get_state(instance_id)
         except Exception:
             logger.exception(
-                f"Failed to get workflow state for instance_id: {instance_id}"
+                "Failed to get workflow state for instance_id: %s", instance_id
             )
             raise
 
         if not entry:
-            logger.warning(f"Workflow state not found for instance_id: {instance_id}")
+            logger.warning("Workflow state not found for instance_id: %s", instance_id)
             return
 
-        entry.status = (
-            DaprWorkflowStatus.COMPLETED.value
-            if final_output
-            else DaprWorkflowStatus.FAILED.value
-        )
-        entry.end_time = self._coerce_datetime(end_time)
-        if hasattr(entry, "output"):
-            entry.output = final_output or ""
         entry.triggering_workflow_instance_id = triggering_workflow_instance_id
         self.save_state(instance_id)
 

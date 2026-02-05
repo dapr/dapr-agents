@@ -47,7 +47,6 @@ from dapr_agents.types import (
     ToolExecutionRecord,
     UserMessage,
 )
-from dapr_agents.types.workflow import DaprWorkflowStatus
 
 from opentelemetry import trace
 from opentelemetry import _logs
@@ -499,22 +498,8 @@ class AgentBase:
 
     def mark_workflow_terminated(self, instance_id: str) -> None:
         """
-        Update workflow state for the given instance to TERMINATED.
-        No-op if no state store is configured.
+        No-op for state store; terminated status comes from Dapr get_workflow runtime_status.
         """
-        if not getattr(self, "_infra", None) or not self._infra.state_store:
-            return
-        try:
-            self._infra.load_state(instance_id)
-            entry = self._infra.get_state(instance_id)
-            entry.status = DaprWorkflowStatus.TERMINATED.value
-            self.save_state(instance_id)
-        except Exception:
-            logger.warning(
-                "Failed to mark workflow state as terminated for instance_id=%s",
-                instance_id,
-                exc_info=True,
-            )
 
     def register_agentic_system(self, *, metadata=None, team=None):
         """Delegate to DaprInfra."""

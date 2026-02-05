@@ -26,7 +26,6 @@ from dapr_agents.types import (
     ToolExecutionRecord,
     ToolMessage,
 )
-from dapr_agents.types.workflow import DaprWorkflowStatus
 
 logger = logging.getLogger(__name__)
 
@@ -484,14 +483,7 @@ class Agent(AgentBase):
         if entry is None:
             return
 
-        entry.status = (
-            DaprWorkflowStatus.COMPLETED.value
-            if final_reply
-            else DaprWorkflowStatus.FAILED.value
-        )
-        if final_reply and hasattr(entry, "output"):
-            entry.output = final_reply.content or ""
-        entry.end_time = datetime.now(timezone.utc)
+        # Status/output/end_time come from workflow API when durable; for standalone we only persist messages/tool_history
         self.save_state(instance_id)
 
     def _generate_instance_id(self) -> str:

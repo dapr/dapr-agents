@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 from dapr_agents.types import MessageContent, ToolExecutionRecord
 from dapr_agents.types.message import BaseMessage
-from dapr_agents.types.workflow import DaprWorkflowStatus
 
 
 def utcnow() -> datetime:
@@ -56,22 +55,11 @@ class AgentWorkflowMessage(MessageContent):
 
 
 class AgentWorkflowEntry(BaseModel):
-    """Represents a workflow and its associated data, including metadata on the source of the task request."""
+    """
+    Workflow entry data stored in the agent state store.
+    Excludes fields provided by Dapr get_workflow.
+    """
 
-    input_value: str = Field(
-        ..., description="The input or description of the Workflow to be performed"
-    )
-    output: Optional[str] = Field(
-        default=None, description="The output or result of the Workflow, if completed"
-    )
-    start_time: datetime = Field(
-        default_factory=utcnow,
-        description="Timestamp when the workflow was started",
-    )
-    end_time: Optional[datetime] = Field(
-        default=None,
-        description="Timestamp when the workflow was completed or failed",
-    )
     messages: List[AgentWorkflowMessage] = Field(
         default_factory=list,
         description="Messages exchanged during the workflow (user, assistant, or tool messages).",
@@ -87,23 +75,11 @@ class AgentWorkflowEntry(BaseModel):
         default_factory=list, description="Tool message exchanged during the workflow"
     )
     source: Optional[str] = Field(None, description="Entity that initiated the task.")
-    workflow_instance_id: Optional[str] = Field(
-        default=None,
-        description="The agent's own workflow instance ID.",
-    )
     triggering_workflow_instance_id: Optional[str] = Field(
         default=None,
         description="The workflow instance ID of the entity that triggered this agent (for multi-agent communication).",
     )
-    workflow_name: Optional[str] = Field(
-        default=None,
-        description="The name of the workflow.",
-    )
     trace_context: Optional[Dict[str, Any]] = Field(
         default=None,
         description="OpenTelemetry trace context for workflow resumption.",
-    )
-    status: str = Field(
-        default=DaprWorkflowStatus.RUNNING.value,
-        description="Current status of the workflow.",
     )

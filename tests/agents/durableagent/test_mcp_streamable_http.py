@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from mcp.types import CallToolResult
 from dapr_agents.tool.mcp.schema import create_pydantic_model_from_schema
 from dapr_agents.agents.durable import DurableAgent
-from dapr_agents.agents.schemas import AgentWorkflowEntry, AgentWorkflowState
+from dapr_agents.agents.schemas import AgentWorkflowEntry
 from dapr_agents.tool.base import AgentTool
 
 
@@ -11,19 +11,6 @@ from dapr_agents.tool.base import AgentTool
 def patch_dapr_check(monkeypatch):
     monkeypatch.setattr(DurableAgent, "save_state", lambda self: None)
 
-    # The following monkeypatches are for legacy compatibility with dict-like access in tests.
-    # If AgentWorkflowState supports dict-like access natively, these can be removed.
-    def _getitem(self, key):
-        return getattr(self, key)
-
-    def _setdefault(self, key, default):
-        if hasattr(self, key):
-            return getattr(self, key)
-        setattr(self, key, default)
-        return default
-
-    AgentWorkflowState.__getitem__ = _getitem
-    AgentWorkflowState.setdefault = _setdefault
     # Patch DaprStateStore to use a mock DaprClient that supports context manager
     import dapr_agents.storage.daprstores.statestore as statestore
 

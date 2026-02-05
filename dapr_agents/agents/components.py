@@ -363,11 +363,9 @@ class DaprInfra:
                 triggering_workflow_instance_id=None,
                 start_time=datetime.now(timezone.utc),
             )
-        # Fallback: minimal entry from schema (required fields only).
+        # Fallback: minimal entry from schema (agent entry has no required fields).
         fields = self._entry_model_cls.model_fields
         kwargs: Dict[str, Any] = {}
-        if "input_value" in fields:
-            kwargs["input_value"] = ""
         if "input" in fields:
             kwargs["input"] = ""
         return self._entry_model_cls(**kwargs)
