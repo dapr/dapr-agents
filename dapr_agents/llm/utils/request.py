@@ -13,6 +13,19 @@ from dapr_agents.types.message import BaseMessage
 logger = logging.getLogger(__name__)
 
 
+def _make_json_serializable(obj: Any) -> Any:
+    """Recursively convert datetime/date to ISO strings for JSON serialization."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, date):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _make_json_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_make_json_serializable(v) for v in obj]
+    return obj
+
+
 class RequestHandler:
     """
     Handles the preparation of requests for language models.
@@ -143,24 +156,12 @@ class RequestHandler:
 
         return params
 
-    def _make_json_serializable(obj: Any) -> Any:
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        if isinstance(obj, date):
-            return obj.isoformat()
-        if isinstance(obj, dict):
-            return {k: _make_json_serializable(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [_make_json_serializable(v) for v in obj]
-        return obj
-
     @staticmethod
     def make_params_json_serializable(params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Return a copy of params with datetime/date values converted to ISO strings
         so the dict is safe for JSON serialization (e.g. OpenAI API request body).
         """
-
         return _make_json_serializable(params)
 
     @staticmethod
