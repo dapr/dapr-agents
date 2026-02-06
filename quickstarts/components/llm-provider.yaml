@@ -1,0 +1,13 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: llm-provider
+spec:
+  type: conversation.openai
+  version: v1
+  metadata:
+  - name: key
+    value: "{{OPENAI_API_KEY}}"
+  - name: model
+    value: gpt-4.1-2025-04-14
+

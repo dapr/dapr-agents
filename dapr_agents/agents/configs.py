@@ -249,16 +249,31 @@ class AgentProfileConfig:
     module_overrides: Dict[str, PromptSection] = field(default_factory=dict)
 
 
+class OrchestrationMode(StrEnum):
+    """
+    Enumeration of supported orchestration strategies for durable agents.
+
+    AGENT: Orchestration is driven by an LLM-generated plan that determines the next steps and agent interactions.
+    RANDOM: Orchestration randomly selects agents or actions at each decision point, without a predetermined plan.
+    ROUNDROBIN: Orchestration cycles through available agents or actions in a fixed order, ensuring equal opportunity for each participant.
+    """
+
+    AGENT = "agent"
+    RANDOM = "random"
+    ROUNDROBIN = "roundrobin"
+
+
 @dataclass
 class AgentExecutionConfig:
     """
     Dials to configure the agent execution.
     """
 
-    # TODO: add a forceFinalAnswer field in case maxIterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
+    # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
     # TODO: add stop_at_tokens
     max_iterations: int = 10
     tool_choice: Optional[str] = "auto"
+    orchestration_mode: Optional[OrchestrationMode] = None
 
 
 @dataclass

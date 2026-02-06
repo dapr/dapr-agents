@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -59,6 +60,12 @@ class LLMOrchestrator(LLMOrchestratorBase):
             name (str): Logical name of the orchestrator.
             timeout_seconds (int): Timeout duration for awaiting agent responses (in seconds).
         """
+        warnings.warn(
+            "LLMOrchestrator is deprecated and will be removed in a future version. "
+            "Use DurableAgent with orchestration_mode='agent' in AgentExecutionConfig instead. ",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(name=name, execution=execution, **kwargs)
         self.timeout = max(1, int(timeout_seconds))
 

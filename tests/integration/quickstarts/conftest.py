@@ -16,16 +16,16 @@ import pytest
 logger = logging.getLogger(__name__)
 
 
-def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
+def setup_quickstart_or_examples_venv(directory: Path, project_root: Path) -> Path:
     """
-    Setup a virtual environment for a quickstart so as to better match end user setup.
+    Setup a virtual environment for a quickstart or example/ so as to better match end user setup.
 
     Creates a venv in the quickstart directory and installs from requirements.txt.
     So, if we are testing locally then we can update the requirements.txt to use the editable install from the project root.
     We also use uv instead of just pip, as uv is much faster than vanilla pip.
 
     Args:
-        quickstart_dir: Path to the quickstart directory
+        directory: Path to the quickstart/example directory
         project_root: Path to the project root (for editable install if needed)
 
     Returns:
@@ -79,64 +79,78 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
         # Also set VIRTUAL_ENV to help uv detect the venv
         install_env["VIRTUAL_ENV"] = str(venv_path.resolve())
 
-        # Try using uv sync from workspace root
-        def try_uv_install(description: str):
-            """Try uv sync from workspace root"""
-            # Run uv sync from workspace root to ensure all workspace dependencies are available
-            result = subprocess.run(
-                ["uv", "sync", "--frozen", "--all-extras"],
-                cwd=project_root,
-                env=install_env,
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
+        # Use uv workspaces from the project root and only sync the specific
+        # quickstart/example package. This uses `uv sync --package NAME` so
+        # we don't need to pin/freeze globally here.
+        package_name: str
 
-            # If that works, we're done
-            if result.returncode == 0:
-                return result
-
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"Failed to install {description}: {result.stderr}\n{result.stdout}"
-                )
-            return result
-
-        try_uv_install("requirements")
-
-        # Also sync quickstart-specific dependencies if it has its own pyproject.toml
-        quickstart_pyproject = quickstart_dir / "pyproject.toml"
+        quickstart_pyproject = directory / "pyproject.toml"
         if quickstart_pyproject.exists():
-            logger.info(
-                f"Syncing quickstart-specific dependencies from {quickstart_pyproject}"
+            # Read the project.name from the local pyproject.toml
+            pkg_name: str | None = None
+            try:
+                with quickstart_pyproject.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        stripped = line.strip()
+                        if stripped.startswith("name") and "=" in stripped:
+                            pkg_name = (
+                                stripped.split("=", 1)[1].strip().strip('"').strip("'")
+                            )
+                            break
+            except OSError as e:
+                logger.warning("Failed to read %s: %s", quickstart_pyproject, e)
+                pkg_name = None
+
+            package_name = pkg_name or directory.name
+        else:
+            # Fall back to directory name; in our workspace the example/quickstart
+            # package names are aligned with their directory names.
+            package_name = directory.name
+
+        logger.info(
+            "Running 'uv sync --package %s' from %s", package_name, project_root
+        )
+        result = subprocess.run(
+            ["uv", "sync", "--package", package_name],
+            cwd=project_root,
+            env=install_env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to install requirements for package '{package_name}' with uv: {result.stderr}\n{result.stdout}"
             )
-            result = subprocess.run(
-                ["uv", "sync", "--frozen"],
-                cwd=quickstart_dir,
-                env=install_env,
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"Failed to install quickstart dependencies: {result.stderr}\n{result.stdout}"
-                )
 
     return venv_python
 
 
-def _get_project_root(quickstart_dir: Path) -> Path:
-    """Get the project root directory from a quickstart directory."""
-    return (
-        quickstart_dir.parent.parent
-        if "quickstarts" in str(quickstart_dir)
-        else quickstart_dir.parent
-    )
+def _get_project_root(start_dir: Path) -> Path:
+    """Locate the *top-level* project root by walking up to the highest pyproject.toml.
+
+    Many quickstarts/examples have their own pyproject.toml files, but the
+    workspace configuration (and the main `dapr-agents` package) live in the
+    repository root. For uv workspaces to work correctly we want to run
+    `uv` commands from that top-level root, not from nested members.
+    """
+    current = start_dir.resolve()
+
+    root_with_pyproject: Path | None = None
+    for parent in (current, *current.parents):
+        if (parent / "pyproject.toml").exists():
+            root_with_pyproject = parent
+
+    # If we found at least one pyproject.toml, return the highest one (workspace root).
+    if root_with_pyproject is not None:
+        return root_with_pyproject
+
+    # Fallback to the original directory if no pyproject is found at all.
+    return start_dir
 
 
 def _setup_venv_and_python(
-    quickstart_dir: Path,
+    directory: Path,
     project_root: Path,
     create_venv: bool = True,
 ) -> tuple[Optional[Path], str]:
@@ -153,13 +167,13 @@ def _setup_venv_and_python(
     python_cmd = "python"  # Default fallback
 
     if should_create_venv:
-        venv_python = setup_quickstart_venv(quickstart_dir, project_root)
+        venv_python = setup_quickstart_or_examples_venv(directory, project_root)
         if venv_python.exists():
             python_cmd = str(venv_python)
     else:
         if use_existing_venv:
             logger.info(
-                f"Using existing venv/system Python for {quickstart_dir} (USE_EXISTING_VENV=true)"
+                f"Using existing venv/system Python for {directory} (USE_EXISTING_VENV=true)"
             )
             # When using existing venv, prefer the active venv's Python if available
             # This helps avoid uv warnings about venv mismatches when running with `uv run pytest`
@@ -179,7 +193,7 @@ def _setup_venv_and_python(
                     )
         else:
             logger.info(
-                f"Using existing venv/system Python for {quickstart_dir} (create_venv=False)"
+                f"Using existing venv/system Python for {directory} (create_venv=False)"
             )
         # If python_cmd is still "python", it will use system Python or whatever is in PATH
 
@@ -221,7 +235,7 @@ def _resolve_component_env_vars(
     return resources_path
 
 
-def run_quickstart_script(
+def run_quickstart_or_examples_script(
     script_path: Path,
     cwd: Optional[Path] = None,
     env: Optional[dict] = None,
@@ -281,11 +295,11 @@ def run_quickstart_script(
         full_env.update(env)
 
     cwd_path = cwd or script_path.parent
-    quickstart_dir = cwd_path
-    project_root = _get_project_root(quickstart_dir)
+    directory = cwd_path
+    project_root = _get_project_root(directory)
 
     venv_python, python_cmd = _setup_venv_and_python(
-        quickstart_dir, project_root, create_venv
+        directory, project_root, create_venv
     )
     if use_dapr:
         if not app_id:
@@ -344,7 +358,7 @@ def run_quickstart_script(
             cmd, cwd_path, full_env, timeout, trigger_pubsub, dapr_http_port
         )
 
-    logger.info(f"running quickstart test cmd {cmd}")
+    logger.info(f"running quickstart or examples test cmd {cmd}")
     if stream_logs:
         result = _run_with_streaming(cmd, cwd_path, full_env, timeout)
     else:
@@ -366,9 +380,9 @@ def run_quickstart_script(
     return result
 
 
-def _cleanup_quickstart_venv(quickstart_dir: Path):
-    """Helper function to cleanup a single quickstart venv."""
-    venv_path = quickstart_dir / ".venv"
+def _cleanup_quickstart_or_examples_venv(directory: Path):
+    """Helper function to cleanup a single quickstart/ or examples/ venv."""
+    venv_path = directory / ".venv"
     if venv_path.exists():
         logger.info(f"Removing ephemeral test venv: {venv_path}")
         try:
@@ -378,9 +392,9 @@ def _cleanup_quickstart_venv(quickstart_dir: Path):
 
 
 @pytest.fixture(scope="module", autouse=True)
-def cleanup_quickstart_venv_per_module(request):
+def cleanup_quickstart_or_examples_venv_per_module(request):
     """
-    Cleanup ephemeral test venv after all tests in a test module (per quickstart directory) complete.
+    Cleanup ephemeral test venv after all tests in a test module (per quickstart or examples directory) complete.
 
     This helps free up disk space during test runs, especially for running in CI.
     Each test file typically corresponds to one quickstart or quickstart directory,
@@ -409,6 +423,7 @@ def cleanup_quickstart_venv_per_module(request):
             # Try to match quickstart directory patterns
             project_root = Path(__file__).parent.parent.parent.parent
             quickstarts_dir = project_root / "quickstarts"
+            examples_dir = project_root / "examples"
 
             if quickstarts_dir.exists():
                 # Look for matching quickstart directory
@@ -420,7 +435,7 @@ def cleanup_quickstart_venv_per_module(request):
                 # Try exact match first
                 quickstart_dir = quickstarts_dir / quickstart_pattern
                 if quickstart_dir.exists():
-                    _cleanup_quickstart_venv(quickstart_dir)
+                    _cleanup_quickstart_or_examples_venv(quickstart_dir)
                 else:
                     # Try to find by number prefix (e.g., "01" -> "01-dapr-agents-fundamentals")
                     test_num = (
@@ -431,11 +446,35 @@ def cleanup_quickstart_venv_per_module(request):
                             if qs_dir.is_dir() and qs_dir.name.startswith(
                                 test_num + "-"
                             ):
-                                _cleanup_quickstart_venv(qs_dir)
+                                _cleanup_quickstart_or_examples_venv(qs_dir)
+                                break
+
+            elif examples_dir.exists():
+                # Look for matching quickstart directory
+                # Test files use underscores, quickstart dirs use hyphens
+                quickstart_pattern = test_file_name.replace("test_", "").replace(
+                    "_", "-"
+                )
+
+                # Try exact match first
+                quickstart_dir = examples_dir / quickstart_pattern
+                if quickstart_dir.exists():
+                    _cleanup_quickstart_or_examples_venv(quickstart_dir)
+                else:
+                    # Try to find by number prefix (e.g., "01" -> "01-dapr-agents-fundamentals")
+                    test_num = (
+                        test_file_name.split("_")[1] if "_" in test_file_name else None
+                    )
+                    if test_num:
+                        for qs_dir in examples_dir.iterdir():
+                            if qs_dir.is_dir() and qs_dir.name.startswith(
+                                test_num + "-"
+                            ):
+                                _cleanup_quickstart_or_examples_venv(qs_dir)
                                 break
 
 
-def run_quickstart_multi_app(
+def run_quickstart_or_examples_multi_app(
     dapr_yaml_path: Path,
     cwd: Optional[Path] = None,
     env: Optional[dict] = None,
@@ -470,14 +509,14 @@ def run_quickstart_multi_app(
         full_env.update(env)
 
     cwd_path = cwd or dapr_yaml_path.parent
-    quickstart_dir = cwd_path
-    project_root = _get_project_root(quickstart_dir)
+    directory = cwd_path
+    project_root = _get_project_root(directory)
 
-    venv_python, _ = _setup_venv_and_python(quickstart_dir, project_root, create_venv)
+    venv_python, _ = _setup_venv_and_python(directory, project_root, create_venv)
 
     # Resolve environment variables in components or resources
     tmp_path = None
-    resources_path = quickstart_dir / "components"
+    resources_path = directory / "components"
     if resources_path.exists():
         tmp_path = _resolve_component_env_vars(
             resources_path, cwd_path, venv_python, full_env
@@ -498,7 +537,7 @@ def run_quickstart_multi_app(
                     app_dir = app["appDirPath"]
                     # If relative path, resolve it relative to quickstart_dir
                     if not Path(app_dir).is_absolute():
-                        app["appDirPath"] = str((quickstart_dir / app_dir).resolve())
+                        app["appDirPath"] = str((directory / app_dir).resolve())
         temp_dir = tempfile.mkdtemp(prefix="rendered_yaml_")
         temp_yaml_path = Path(temp_dir) / dapr_yaml_path.name
         with open(temp_yaml_path, "w") as f:
@@ -559,7 +598,7 @@ def run_quickstart_multi_app(
 
 
 @pytest.fixture(scope="session", autouse=True)
-def cleanup_quickstart_venvs(request):
+def cleanup_quickstart_or_examples_venvs(request):
     """
     Cleanup ephemeral test venvs after all tests complete.
 
@@ -580,12 +619,19 @@ def cleanup_quickstart_venvs(request):
     # Get quickstarts directory from project root (parent conftest fixture path)
     project_root = Path(__file__).parent.parent.parent.parent
     quickstarts_dir = project_root / "quickstarts"
+    examples_dir = project_root / "examples"
 
     if quickstarts_dir.exists():
         logger.info("Cleaning up ephemeral test venvs...")
-        for quickstart_dir in quickstarts_dir.iterdir():
-            if quickstart_dir.is_dir():
-                _cleanup_quickstart_venv(quickstart_dir)
+        for directory in quickstarts_dir.iterdir():
+            if directory.is_dir():
+                _cleanup_quickstart_or_examples_venv(directory)
+
+    if examples_dir.exists():
+        logger.info("Cleaning up ephemeral test venvs...")
+        for directory in examples_dir.iterdir():
+            if directory.is_dir():
+                _cleanup_quickstart_or_examples_venv(directory)
 
 
 def _wait_for_port(host: str, port: int, timeout: int = 30) -> bool:
@@ -650,7 +696,9 @@ class MCPServerContext:
         """Start the MCP server and wait for it to be ready."""
         # Setup venv for the quickstart
         project_root = self.quickstart_dir.parent.parent
-        venv_python = setup_quickstart_venv(self.quickstart_dir, project_root)
+        venv_python = setup_quickstart_or_examples_venv(
+            self.quickstart_dir, project_root
+        )
         python_cmd = (
             str(venv_python) if venv_python and venv_python.exists() else "python"
         )

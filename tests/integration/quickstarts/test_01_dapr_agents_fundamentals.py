@@ -2,8 +2,8 @@
 
 import pytest
 from tests.integration.quickstarts.conftest import (
-    run_quickstart_multi_app,
-    run_quickstart_script,
+    run_quickstart_or_examples_multi_app,
+    run_quickstart_or_examples_script,
 )
 
 
@@ -14,7 +14,7 @@ class TestHelloWorldQuickstart:
     @pytest.fixture(autouse=True)
     def setup(self, quickstarts_dir, openai_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "01-dapr-agents-fundamentals"
+        self.quickstart_dir = quickstarts_dir
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_01_llm_client(self, dapr_runtime):  # noqa: ARG002
@@ -24,7 +24,7 @@ class TestHelloWorldQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script_path = self.quickstart_dir / "01_llm_client.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -50,7 +50,7 @@ class TestHelloWorldQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script_path = self.quickstart_dir / "02_agent_llm.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -76,7 +76,7 @@ class TestHelloWorldQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script_path = self.quickstart_dir / "03_agent_llm_tools.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -96,7 +96,7 @@ class TestHelloWorldQuickstart:
     def test_04_agent_mcp_tools(self, dapr_runtime):  # noqa: ARG002
         """Test agent with MCP tools example (04_agent_mcp_tools.py)."""
         script_path = self.quickstart_dir / "04_agent_mcp_tools.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -120,7 +120,7 @@ class TestHelloWorldQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script_path = self.quickstart_dir / "05_agent_memory.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -146,7 +146,7 @@ class TestHelloWorldQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script_path = self.quickstart_dir / "06_durable_agent_http.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -178,7 +178,7 @@ class TestHelloWorldQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script_path = self.quickstart_dir / "07_durable_agent_pubsub.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -209,7 +209,7 @@ class TestHelloWorldQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script_path = self.quickstart_dir / "08_workflow_llm.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -239,7 +239,7 @@ class TestHelloWorldQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         dapr_yaml = self.quickstart_dir / "09_workflow_agents.yaml"
-        result = run_quickstart_multi_app(
+        result = run_quickstart_or_examples_multi_app(
             dapr_yaml,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -263,7 +263,7 @@ class TestHelloWorldQuickstart:
     def test_10_durable_agent_tracing(self, dapr_runtime):  # noqa: ARG002
         """Test durable agent tracing example (10_durable_agent_tracing.py)."""
         script_path = self.quickstart_dir / "10_durable_agent_tracing.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,

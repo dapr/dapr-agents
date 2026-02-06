@@ -197,7 +197,7 @@ class AgentBase:
                     ):
                         state = AgentStateConfig(
                             store=StateStoreService(store_name=component.name),
-                            state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
+                            state_key=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
                         )
                     if (
                         "state" in component.type
@@ -495,6 +495,14 @@ class AgentBase:
     def save_state(self, workflow_instance_id: str):
         """Delegate to DaprInfra."""
         return self._infra.save_state(workflow_instance_id=workflow_instance_id)
+
+    def save_state(self, workflow_instance_id: str) -> None:
+        """Delegate to DaprInfra."""
+        return self._infra.save_state(workflow_instance_id=workflow_instance_id)
+
+    def get_state(self, instance_id: str) -> Optional[Any]:
+        """Delegate to DaprInfra."""
+        return self._infra.get_state(instance_id)
 
     def mark_workflow_terminated(self, instance_id: str) -> None:
         """
