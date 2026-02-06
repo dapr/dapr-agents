@@ -170,99 +170,100 @@ class AgentBase:
             None  # We set the appid to None as standalone agents may not have one
         )
 
-        try:
-            with DaprClient(http_timeout_seconds=10) as _client:
-                resp: GetMetadataResponse = _client.get_metadata()
-                self.appid = resp.application_id
-                components: Sequence[RegisteredComponents] = resp.registered_components
-                for component in components:
-                    if "state" in component.type and component.name == "agent-memory":
-                        memory = AgentMemoryConfig(
-                            store=ConversationDaprStateMemory(
+        if self.state is not None or self.pubsub is not None:
+            try:
+                with DaprClient(http_timeout_seconds=10) as _client:
+                    resp: GetMetadataResponse = _client.get_metadata()
+                    self.appid = resp.application_id
+                    components: Sequence[RegisteredComponents] = resp.registered_components
+                    for component in components:
+                        if "state" in component.type and component.name == "agent-memory":
+                            memory = AgentMemoryConfig(
+                                store=ConversationDaprStateMemory(
+                                    store_name=component.name,
+                                    agent_name=self.name,
+                                )
+                            )
+                        if "conversation" in component.type and llm is None:
+                            # We got a default LLM component registered
+                            logger.debug(f"LLM component found: {component.name}")
+                            llm = get_default_llm()
+                            if hasattr(llm, "component_name"):
+                                llm.component_name = component.name  # type: ignore[attr-defined]
+
+                        if (
+                            "state" in component.type
+                            and component.name == "agent-workflow"
+                            and state is None
+                        ):
+                            state = AgentStateConfig(
+                                store=StateStoreService(store_name=component.name),
+                                state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
+                            )
+                        if (
+                            "state" in component.type
+                            and component.name == "agent-registry"
+                            and registry is None
+                        ):
+                            registry = AgentRegistryConfig(
+                                store=StateStoreService(store_name=component.name),
+                                team_name="default",
+                            )
+                        if (
+                            "state" in component.type
+                            and component.name == "agent-runtimestatestore"
+                        ):
+                            raw_runtime_conf: StateResponse = _client.get_state(
                                 store_name=component.name,
-                                agent_name=self.name,
+                                key="agent_runtime",
                             )
-                        )
-                    if "conversation" in component.type and llm is None:
-                        # We got a default LLM component registered
-                        logger.debug(f"LLM component found: {component.name}")
-                        llm = get_default_llm()
-                        if hasattr(llm, "component_name"):
-                            llm.component_name = component.name  # type: ignore[attr-defined]
+                            try:
+                                self._runtime_conf = (
+                                    json.loads(raw_runtime_conf.data)
+                                    if raw_runtime_conf.data
+                                    else {}
+                                )
+                                for key, value in self._runtime_conf.items():
+                                    logger.debug(f"Runtime configuration: {key}={value}")
+                            except json.JSONDecodeError:
+                                logger.warning(
+                                    "Failed to decode agent runtime configuration JSON. Using empty configuration."
+                                )
+                        if (
+                            "pubsub" in component.type
+                            and component.name == "agent-pubsub"
+                            and pubsub is None
+                        ):
+                            logger.debug(f"topic: {name}.topic")
+                            pubsub = AgentPubSubConfig(
+                                pubsub_name=component.name,
+                                agent_topic=f"{name.replace(' ', '-').lower()}.topic",
+                                broadcast_topic="agents.broadcast",
+                            )
+                        if (
+                            "secretstores" in component.type
+                            and component.name == "agent-secretstore"
+                        ):
+                            try:
+                                agent_secrets: GetBulkSecretResponse = (
+                                    _client.get_bulk_secret(store_name=component.name)
+                                )
+                                logger.debug(
+                                    f"Retrieved {len(agent_secrets.secrets.keys())} secrets from secret store."
+                                )
+                                for key, value in agent_secrets.secrets.items():
+                                    # Since dapr returns a nested dict we flatten it here
+                                    for _, v in value.items():
+                                        self._runtime_secrets[key] = v
+                            except Exception:
+                                logger.warning(
+                                    "Failed to retrieve agent secrets. Skipping..."
+                                )
 
-                    if (
-                        "state" in component.type
-                        and component.name == "agent-workflow"
-                        and state is None
-                    ):
-                        state = AgentStateConfig(
-                            store=StateStoreService(store_name=component.name),
-                            state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
-                        )
-                    if (
-                        "state" in component.type
-                        and component.name == "agent-registry"
-                        and registry is None
-                    ):
-                        registry = AgentRegistryConfig(
-                            store=StateStoreService(store_name=component.name),
-                            team_name="default",
-                        )
-                    if (
-                        "state" in component.type
-                        and component.name == "agent-runtimestatestore"
-                    ):
-                        raw_runtime_conf: StateResponse = _client.get_state(
-                            store_name=component.name,
-                            key="agent_runtime",
-                        )
-                        try:
-                            self._runtime_conf = (
-                                json.loads(raw_runtime_conf.data)
-                                if raw_runtime_conf.data
-                                else {}
-                            )
-                            for key, value in self._runtime_conf.items():
-                                logger.debug(f"Runtime configuration: {key}={value}")
-                        except json.JSONDecodeError:
-                            logger.warning(
-                                "Failed to decode agent runtime configuration JSON. Using empty configuration."
-                            )
-                    if (
-                        "pubsub" in component.type
-                        and component.name == "agent-pubsub"
-                        and pubsub is None
-                    ):
-                        logger.debug(f"topic: {name}.topic")
-                        pubsub = AgentPubSubConfig(
-                            pubsub_name=component.name,
-                            agent_topic=f"{name.replace(' ', '-').lower()}.topic",
-                            broadcast_topic="agents.broadcast",
-                        )
-                    if (
-                        "secretstores" in component.type
-                        and component.name == "agent-secretstore"
-                    ):
-                        try:
-                            agent_secrets: GetBulkSecretResponse = (
-                                _client.get_bulk_secret(store_name=component.name)
-                            )
-                            logger.debug(
-                                f"Retrieved {len(agent_secrets.secrets.keys())} secrets from secret store."
-                            )
-                            for key, value in agent_secrets.secrets.items():
-                                # Since dapr returns a nested dict we flatten it here
-                                for _, v in value.items():
-                                    self._runtime_secrets[key] = v
-                        except Exception:
-                            logger.warning(
-                                "Failed to retrieve agent secrets. Skipping..."
-                            )
-
-        except TimeoutError:
-            logger.warning(
-                "Dapr sidecar not responding; proceeding without auto-configuration."
-            )
+            except TimeoutError:
+                logger.warning(
+                    "Dapr sidecar not responding; proceeding without auto-configuration."
+                )
 
         # Wire infrastructure via DaprInfra (composition).
         self._infra = DaprInfra(
@@ -445,64 +446,77 @@ class AgentBase:
     @property
     def pubsub(self):
         """Delegate to DaprInfra."""
-        return self._infra.pubsub
+        if hasattr(self, "_infra"):
+            return self._infra.pubsub
 
     @property
     def registry_state(self):
         """Delegate to DaprInfra."""
-        return self._infra.registry_state
+        if hasattr(self, "_infra"):
+            return self._infra.registry_state
 
     @property
     def agent_topic_name(self):
         """Delegate to DaprInfra."""
-        return self._infra.agent_topic_name
+        if hasattr(self, "_infra"):
+            return self._infra.agent_topic_name
 
     @property
     def message_bus_name(self):
         """Delegate to DaprInfra."""
-        return self._infra.message_bus_name
+        if hasattr(self, "_infra"):
+            return self._infra.message_bus_name
 
     @property
     def broadcast_topic_name(self):
         """Delegate to DaprInfra."""
-        return self._infra.broadcast_topic_name
+        if hasattr(self, "_infra"):
+            return self._infra.broadcast_topic_name
 
     @property
     def workflow_grpc_options(self):
         """Delegate to DaprInfra."""
-        return self._infra.workflow_grpc_options
+        if hasattr(self, "_infra"):
+            return self._infra.workflow_grpc_options
 
     @property
     def state_store(self):
         """Delegate to DaprInfra."""
-        return self._infra.state_store
+        if hasattr(self, "_infra"):
+            return self._infra.state_store
 
     @property
     def _state_model(self):
         """Delegate to DaprInfra."""
-        return self._infra._state_model
+        if hasattr(self, "_infra"):
+            return self._infra._state_model
 
     @property
     def state(self):
         """Delegate to DaprInfra."""
-        return self._infra.state
+        if hasattr(self, "_infra"):
+            return self._infra.state
 
     @property
     def workflow_state(self):
         """Delegate to DaprInfra."""
-        return self._infra.workflow_state
+        if hasattr(self, "_infra"):
+            return self._infra.workflow_state
 
     def save_state(self, workflow_instance_id: str):
         """Delegate to DaprInfra."""
-        return self._infra.save_state(workflow_instance_id=workflow_instance_id)
+        if hasattr(self, "_infra"):
+            return self._infra.save_state(workflow_instance_id=workflow_instance_id)
 
     def save_state(self, workflow_instance_id: str) -> None:
         """Delegate to DaprInfra."""
-        return self._infra.save_state(workflow_instance_id=workflow_instance_id)
+        if hasattr(self, "_infra"):
+            return self._infra.save_state(workflow_instance_id=workflow_instance_id)
 
     def get_state(self, instance_id: str) -> Optional[Any]:
         """Delegate to DaprInfra."""
-        return self._infra.get_state(instance_id)
+        if hasattr(self, "_infra"):
+            return self._infra.get_state(instance_id)
 
     def mark_workflow_terminated(self, instance_id: str) -> None:
         """
@@ -511,13 +525,15 @@ class AgentBase:
 
     def register_agentic_system(self, *, metadata=None, team=None):
         """Delegate to DaprInfra."""
-        return self._infra.register_agentic_system(metadata=metadata, team=team)
+        if hasattr(self, "_infra"):
+            return self._infra.register_agentic_system(metadata=metadata, team=team)
 
     def get_agents_metadata(
         self, *, exclude_self=True, exclude_orchestrator=False, team=None
     ):
         """Delegate to DaprInfra."""
-        return self._infra.get_agents_metadata(
+        if hasattr(self, "_infra"):
+            return self._infra.get_agents_metadata(
             exclude_self=exclude_self,
             exclude_orchestrator=exclude_orchestrator,
             team=team,
@@ -525,13 +541,15 @@ class AgentBase:
 
     def sync_system_messages(self, instance_id, all_messages):
         """Delegate to DaprInfra."""
-        return self._infra.sync_system_messages(
-            instance_id=instance_id, all_messages=all_messages
-        )
+        if hasattr(self, "_infra"):
+            return self._infra.sync_system_messages(
+                instance_id=instance_id, all_messages=all_messages
+            )
 
     def _message_dict_to_message_model(self, message):
         """Delegate to DaprInfra."""
-        return self._infra._message_dict_to_message_model(message)
+        if hasattr(self, "_infra"):
+            return self._infra._message_dict_to_message_model(message)
 
     # ------------------------------------------------------------------
     # Presentation helpers
