@@ -93,7 +93,9 @@ def setup_quickstart_or_examples_venv(directory: Path, project_root: Path) -> Pa
                     for line in f:
                         stripped = line.strip()
                         if stripped.startswith("name") and "=" in stripped:
-                            pkg_name = stripped.split("=", 1)[1].strip().strip('"').strip("'")
+                            pkg_name = (
+                                stripped.split("=", 1)[1].strip().strip('"').strip("'")
+                            )
                             break
             except OSError as e:
                 logger.warning("Failed to read %s: %s", quickstart_pyproject, e)
@@ -105,7 +107,9 @@ def setup_quickstart_or_examples_venv(directory: Path, project_root: Path) -> Pa
             # package names are aligned with their directory names.
             package_name = directory.name
 
-        logger.info("Running 'uv sync --package %s' from %s", package_name, project_root)
+        logger.info(
+            "Running 'uv sync --package %s' from %s", package_name, project_root
+        )
         result = subprocess.run(
             ["uv", "sync", "--package", package_name],
             cwd=project_root,
@@ -420,7 +424,7 @@ def cleanup_quickstart_or_examples_venv_per_module(request):
             project_root = Path(__file__).parent.parent.parent.parent
             quickstarts_dir = project_root / "quickstarts"
             examples_dir = project_root / "examples"
-            
+
             if quickstarts_dir.exists():
                 # Look for matching quickstart directory
                 # Test files use underscores, quickstart dirs use hyphens
@@ -616,7 +620,7 @@ def cleanup_quickstart_or_examples_venvs(request):
     project_root = Path(__file__).parent.parent.parent.parent
     quickstarts_dir = project_root / "quickstarts"
     examples_dir = project_root / "examples"
-        
+
     if quickstarts_dir.exists():
         logger.info("Cleaning up ephemeral test venvs...")
         for directory in quickstarts_dir.iterdir():
@@ -692,7 +696,9 @@ class MCPServerContext:
         """Start the MCP server and wait for it to be ready."""
         # Setup venv for the quickstart
         project_root = self.quickstart_dir.parent.parent
-        venv_python = setup_quickstart_or_examples_venv(self.quickstart_dir, project_root)
+        venv_python = setup_quickstart_or_examples_venv(
+            self.quickstart_dir, project_root
+        )
         python_cmd = (
             str(venv_python) if venv_python and venv_python.exists() else "python"
         )

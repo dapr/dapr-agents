@@ -31,7 +31,6 @@ def examples_dir(project_root):
     return project_root / "examples"
 
 
-
 @pytest.fixture(scope="session")
 def openai_api_key():
     """Get OpenAI API key from environment."""
