@@ -348,7 +348,13 @@ def run_quickstart_or_examples_script(
     # wait for the server to be ready, send the curl request, then terminate
     if trigger_curl:
         return _run_with_curl_trigger(
-            cmd, cwd_path, full_env, timeout, trigger_curl, app_port
+            cmd,
+            cwd_path,
+            full_env,
+            timeout,
+            trigger_curl,
+            app_port,
+            dapr_http_port=dapr_http_port if use_dapr else None,
         )
 
     # If trigger_pubsub is provided, we need to run the process in the background,
@@ -1235,6 +1241,7 @@ def _run_with_curl_trigger(
     timeout: int,
     trigger_curl: Dict[str, Any],
     app_port: Optional[int],
+    dapr_http_port: Optional[int] = None,
 ) -> subprocess.CompletedProcess:
     """Run a command with a curl trigger for workflows that need to be triggered via curl."""
     import requests
@@ -1275,6 +1282,16 @@ def _run_with_curl_trigger(
         else:
             logger.info(f"Waiting {wait_seconds}s for server to start...")
             time.sleep(wait_seconds)
+
+        # wait for the sidecar before sending request
+        if dapr_http_port is not None:
+            logger.info(f"Waiting for Dapr sidecar on port {dapr_http_port}...")
+            if not _wait_for_port(
+                "localhost", dapr_http_port, timeout=wait_seconds + 10
+            ):
+                logger.warning(
+                    f"Dapr port {dapr_http_port} not ready after {wait_seconds + 10}s, proceeding anyway"
+                )
 
         # Send the curl request
         method = trigger_curl.get("method", "POST")

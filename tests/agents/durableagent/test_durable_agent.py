@@ -335,9 +335,7 @@ class TestDurableAgent:
         # State is the current workflow entry (single entry model)
         instance_data = basic_durable_agent._state_model
         assert instance_data.source is None
-        assert (
-            instance_data.triggering_workflow_instance_id == "parent-instance-123"
-        )
+        assert instance_data.triggering_workflow_instance_id == "parent-instance-123"
 
     @pytest.mark.asyncio
     async def test_broadcast_message_to_agents_activity(self, basic_durable_agent):
@@ -591,9 +589,7 @@ class TestDurableAgent:
                 side_effect=lambda wid: basic_durable_agent._infra._state_model,
             ),
         ):
-            basic_durable_agent._save_assistant_message(
-                instance_id, assistant_message
-            )
+            basic_durable_agent._save_assistant_message(instance_id, assistant_message)
 
         # Verify message was added to instance
         entry = basic_durable_agent._state_model
@@ -607,9 +603,7 @@ class TestDurableAgent:
         from datetime import datetime, timezone
 
         instance_id = "test-instance-123"
-        last_msg = AgentWorkflowMessage(
-            role="assistant", content="Last message"
-        )
+        last_msg = AgentWorkflowMessage(role="assistant", content="Last message")
         entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
@@ -621,13 +615,8 @@ class TestDurableAgent:
 
         # Access last_message directly from the current state entry
         assert basic_durable_agent._state_model.last_message is not None
-        assert (
-            basic_durable_agent._state_model.last_message.role == "assistant"
-        )
-        assert (
-            basic_durable_agent._state_model.last_message.content
-            == "Last message"
-        )
+        assert basic_durable_agent._state_model.last_message.role == "assistant"
+        assert basic_durable_agent._state_model.last_message.content == "Last message"
 
     def test_create_tool_message_objects(self, basic_durable_agent):
         """Test that tool message dicts are created correctly by run_tool and persisted by save_tool_results."""
@@ -876,7 +865,10 @@ class TestDurableAgent:
         assert len(messages) >= 2  # At least the 2 instance messages
         # Messages may be Pydantic models or dicts
         user_messages = [
-            m for m in messages if getattr(m, "role", m.get("role") if isinstance(m, dict) else None) == "user"
+            m
+            for m in messages
+            if getattr(m, "role", m.get("role") if isinstance(m, dict) else None)
+            == "user"
         ]
         assistant_messages = [
             m
