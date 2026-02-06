@@ -1,4 +1,5 @@
 import logging
+from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Literal, Optional, Type, Union
 
 from pydantic import BaseModel, ValidationError
@@ -141,6 +142,26 @@ class RequestHandler:
             )
 
         return params
+
+    def _make_json_serializable(obj: Any) -> Any:
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, date):
+            return obj.isoformat()
+        if isinstance(obj, dict):
+            return {k: _make_json_serializable(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_make_json_serializable(v) for v in obj]
+        return obj
+
+    @staticmethod
+    def make_params_json_serializable(params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Return a copy of params with datetime/date values converted to ISO strings
+        so the dict is safe for JSON serialization (e.g. OpenAI API request body).
+        """
+
+        return _make_json_serializable(params)
 
     @staticmethod
     def validate_request(
