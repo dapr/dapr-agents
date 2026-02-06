@@ -52,8 +52,7 @@ class RoundRobinOrchestrator(OrchestratorBase):
     ) -> None:
         warnings.warn(
             "RoundRobinOrchestrator is deprecated and will be removed in a future version. "
-            "Use DurableAgent with orchestrator=True and orchestration_mode='roundrobin' instead. "
-            "See https://docs.dapr.io/developing-applications/sdks/python/python-agents/ for migration guide.",
+            "Use DurableAgent with orchestration_mode='roundrobin' in AgentExecutionConfig instead. ",
             DeprecationWarning,
             stacklevel=2,
         )

@@ -62,8 +62,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
         """
         warnings.warn(
             "LLMOrchestrator is deprecated and will be removed in a future version. "
-            "Use DurableAgent with orchestrator=True and orchestration_mode='agent' instead. "
-            "See https://docs.dapr.io/developing-applications/sdks/python/python-agents/ for migration guide.",
+            "Use DurableAgent with orchestration_mode='agent' in AgentExecutionConfig instead. ",
             DeprecationWarning,
             stacklevel=2,
         )

@@ -49,8 +49,7 @@ class RandomOrchestrator(OrchestratorBase):
     ) -> None:
         warnings.warn(
             "RandomOrchestrator is deprecated and will be removed in a future version. "
-            "Use DurableAgent with orchestrator=True and orchestration_mode='random' instead. "
-            "See https://docs.dapr.io/developing-applications/sdks/python/python-agents/ for migration guide.",
+            "Use DurableAgent with orchestration_mode='random' in AgentExecutionConfig instead. ",
             DeprecationWarning,
             stacklevel=2,
         )
