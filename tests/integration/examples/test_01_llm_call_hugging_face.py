@@ -1,23 +1,23 @@
-"""Integration tests for 02-llm-call-hugging-face quickstart."""
+"""Integration tests for 01-llm-call-hugging-face example."""
 
 import pytest
-from tests.integration.quickstarts.conftest import run_quickstart_script
+from tests.integration.quickstarts.conftest import run_quickstart_or_examples_script
 
 
 @pytest.mark.integration
 class TestLLMCallHuggingFaceQuickstart:
-    """Integration tests for 02-llm-call-hugging-face quickstart."""
+    """Integration tests for 01-llm-call-hugging-face example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, huggingface_api_key):
+    def setup(self, examples_dir, huggingface_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "02-llm-call-hugging-face"
+        self.quickstart_dir = examples_dir / "01-llm-call-hugging-face"
         self.env = {"HUGGINGFACE_API_KEY": huggingface_api_key}
 
     def test_text_completion(self):
         """Test text completion example (text_completion.py)."""
         script = self.quickstart_dir / "text_completion.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -35,7 +35,7 @@ class TestLLMCallHuggingFaceQuickstart:
     def test_text_completion_stream(self):
         """Test text completion stream example (text_completion_stream.py)."""
         script = self.quickstart_dir / "text_completion_stream.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -53,7 +53,7 @@ class TestLLMCallHuggingFaceQuickstart:
     def test_text_completion_stream_with_tools(self):
         """Test text completion stream with tools example (text_completion_stream_with_tools.py)."""
         script = self.quickstart_dir / "text_completion_stream_with_tools.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -71,7 +71,7 @@ class TestLLMCallHuggingFaceQuickstart:
     def test_text_completion_with_tools(self):
         """Test text completion with tools example (text_completion_with_tools.py)."""
         script = self.quickstart_dir / "text_completion_with_tools.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -89,7 +89,7 @@ class TestLLMCallHuggingFaceQuickstart:
     def test_structured_completion(self):
         """Test structured completion example (structured_completion.py)."""
         script = self.quickstart_dir / "structured_completion.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,

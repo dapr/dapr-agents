@@ -1,17 +1,17 @@
-"""Integration tests for 04-message-router-workflow quickstart."""
+"""Integration tests for 03-message-router-workflow example."""
 
 import pytest
-from tests.integration.quickstarts.conftest import run_quickstart_script
+from tests.integration.quickstarts.conftest import run_quickstart_or_examples_script
 
 
 @pytest.mark.integration
 class TestMessageRouterWorkflowQuickstart:
-    """Integration tests for 04-message-router-workflow quickstart."""
+    """Integration tests for 03-message-router-workflow example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "04-message-router-workflow"
+        self.quickstart_dir = examples_dir / "03-message-router-workflow"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_message_router_workflow(self, dapr_runtime):  # noqa: ARG002
@@ -24,7 +24,7 @@ class TestMessageRouterWorkflowQuickstart:
         to the blog.requests topic, which will start the blog_workflow.
         """
         script = self.quickstart_dir / "app.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,

@@ -1,4 +1,4 @@
-"""Integration tests for 08-data-agent-chainlit quickstart."""
+"""Integration tests for 07-data-agent-mcp-chainlit example."""
 
 import pytest
 
@@ -6,7 +6,7 @@ import pytest
 @pytest.mark.integration
 class TestDataAgentChainlitQuickstart:
     @pytest.fixture(autouse=True)
-    def setup(self):
+    def setup(self, examples_dir):
         """Setup test environment."""
 
     def test_data_agent_chainlit(self, dapr_runtime):  # noqa: ARG002

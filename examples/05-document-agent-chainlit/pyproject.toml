@@ -1,5 +1,5 @@
 [project]
-name = "06-document-agent-chainlit"
+name = "05-document-agent-chainlit"
 version = "0.1.0"
 requires-python = ">=3.11, <3.14"
 dependencies = [

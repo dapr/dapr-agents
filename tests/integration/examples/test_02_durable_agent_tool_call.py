@@ -1,19 +1,19 @@
-"""Integration tests for 03-durable-agent-tool-call quickstart."""
+"""Integration tests for 02-durable-agent-tool-call example."""
 
 import pytest
-from tests.integration.quickstarts.conftest import run_quickstart_script
+from tests.integration.quickstarts.conftest import run_quickstart_or_examples_script
 
 
 @pytest.mark.integration
 class TestDurableAgentToolCallQuickstart:
-    """Integration tests for 03-durable-agent-tool-call quickstart."""
+    """Integration tests for 02-durable-agent-tool-call example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key):
         """Setup test environment."""
         import os
 
-        self.quickstart_dir = quickstarts_dir / "03-durable-agent-tool-call"
+        self.quickstart_dir = examples_dir / "02-durable-agent-tool-call"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
         # Add optional API keys if they're set for local development
@@ -29,7 +29,7 @@ class TestDurableAgentToolCallQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script = self.quickstart_dir / "durable_weather_agent_dapr.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -58,7 +58,7 @@ class TestDurableAgentToolCallQuickstart:
             pytest.skip("HUGGINGFACE_API_KEY not set")
 
         script = self.quickstart_dir / "durable_weather_agent_hf.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -87,7 +87,7 @@ class TestDurableAgentToolCallQuickstart:
             pytest.skip("NVIDIA_API_KEY not set")
 
         script = self.quickstart_dir / "durable_weather_agent_nv.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -111,7 +111,7 @@ class TestDurableAgentToolCallQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script = self.quickstart_dir / "durable_weather_agent_openai.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -135,7 +135,7 @@ class TestDurableAgentToolCallQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script = self.quickstart_dir / "durable_weather_agent_serve.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -167,7 +167,7 @@ class TestDurableAgentToolCallQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script = self.quickstart_dir / "durable_weather_agent_subscribe.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,

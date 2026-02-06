@@ -102,7 +102,7 @@ class Agent(AgentBase):
         self._setup_signal_handlers()
 
         try:
-            self.load_state()
+            self._infra.load_state()
         except Exception:
             logger.debug(
                 "Standalone agent state load failed; using defaults.", exc_info=True
@@ -171,7 +171,7 @@ class Agent(AgentBase):
         instance_id: Optional[str],
     ) -> Optional[AssistantMessage]:
         """One-shot conversational run with tool loop and durable timeline."""
-        self.load_state()
+        self._infra.load_state()
         active_instance = instance_id or self._generate_instance_id()
 
         # Build initial messages with persistent + per-instance history
@@ -234,7 +234,7 @@ class Agent(AgentBase):
         Returns:
             List of message dicts suitable for an LLM chat API.
         """
-        self.load_state()
+        self._infra.load_state()
         active_instance = instance_id or self._generate_instance_id()
         chat_history = self._reconstruct_conversation_history(active_instance)
         return self.prompting_helper.build_initial_messages(

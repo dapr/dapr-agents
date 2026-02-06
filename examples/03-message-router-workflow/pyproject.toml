@@ -1,5 +1,5 @@
 [project]
-name = "04-message-router-workflow"
+name = "03-message-router-workflow"
 version = "0.1.0"
 requires-python = ">=3.11, <3.14"
 dependencies = [

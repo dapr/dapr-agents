@@ -1,5 +1,5 @@
 [project]
-name = "04-agent-based-workflows"
+name = "03-agent-based-workflows"
 version = "0.1.0"
 requires-python = ">=3.11, <3.14"
 dependencies = [

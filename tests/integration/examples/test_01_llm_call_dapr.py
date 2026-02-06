@@ -1,17 +1,17 @@
-"""Integration tests for 02-llm-call-dapr quickstart."""
+"""Integration tests for 01-llm-call-dapr example."""
 
 import pytest
-from tests.integration.quickstarts.conftest import run_quickstart_script
+from tests.integration.quickstarts.conftest import run_quickstart_or_examples_script
 
 
 @pytest.mark.integration
 class TestLLMCallDaprQuickstart:
-    """Integration tests for 02-llm-call-dapr quickstart."""
+    """Integration tests for 01-llm-call-dapr example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "02-llm-call-dapr"
+        self.quickstart_dir = examples_dir / "01-llm-call-dapr"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_text_completion(self, dapr_runtime):  # noqa: ARG002
@@ -21,7 +21,7 @@ class TestLLMCallDaprQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         script = self.quickstart_dir / "text_completion.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,

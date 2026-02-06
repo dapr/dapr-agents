@@ -1,5 +1,5 @@
 [project]
-name = "02-llm-call-hugging-face"
+name = "01-llm-call-hugging-face"
 version = "0.1.0"
 requires-python = ">=3.11, <3.14"
 dependencies = [

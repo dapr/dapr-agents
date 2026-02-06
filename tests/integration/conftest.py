@@ -26,6 +26,13 @@ def quickstarts_dir(project_root):
 
 
 @pytest.fixture(scope="session")
+def examples_dir(project_root):
+    """Get the examples directory."""
+    return project_root / "examples"
+
+
+
+@pytest.fixture(scope="session")
 def openai_api_key():
     """Get OpenAI API key from environment."""
     api_key = os.getenv("OPENAI_API_KEY")

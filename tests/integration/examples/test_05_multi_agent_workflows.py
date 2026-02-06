@@ -1,17 +1,17 @@
-"""Integration tests for 05-multi-agent-workflows quickstart."""
+"""Integration tests for 04-multi-agent-workflows example."""
 
 import pytest
-from tests.integration.quickstarts.conftest import run_quickstart_multi_app
+from tests.integration.quickstarts.conftest import run_quickstart_or_examples_multi_app
 
 
 @pytest.mark.integration
 class TestMultiAgentWorkflowsQuickstart:
-    """Integration tests for 05-multi-agent-workflows quickstart."""
+    """Integration tests for 04-multi-agent-workflows example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "05-multi-agent-workflows"
+        self.quickstart_dir = examples_dir / "04-multi-agent-workflows"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_random_orchestrator(self, dapr_runtime):  # noqa: ARG002
@@ -21,7 +21,7 @@ class TestMultiAgentWorkflowsQuickstart:
         # Note: Agents still use team "fellowship" but with isolated registry store.
         test_env = {**self.env, "REGISTRY_STATE_STORE": "agentregistrystore_random"}
         dapr_yaml = self.quickstart_dir / "dapr-random.yaml"
-        result = run_quickstart_multi_app(
+        result = run_quickstart_or_examples_multi_app(
             dapr_yaml,
             cwd=self.quickstart_dir,
             env=test_env,
@@ -44,7 +44,7 @@ class TestMultiAgentWorkflowsQuickstart:
         # as agents when they're registered in the same team registry.
         # Note: Agents still use team "fellowship" but with isolated registry store.
         test_env = {**self.env, "REGISTRY_STATE_STORE": "agentregistrystore_roundrobin"}
-        result = run_quickstart_multi_app(
+        result = run_quickstart_or_examples_multi_app(
             dapr_yaml,
             cwd=self.quickstart_dir,
             env=test_env,
@@ -67,7 +67,7 @@ class TestMultiAgentWorkflowsQuickstart:
         # Note: Agents still use team "fellowship" but with isolated registry store.
         test_env = {**self.env, "REGISTRY_STATE_STORE": "agentregistrystore_agent"}
         dapr_yaml = self.quickstart_dir / "dapr-agent.yaml"
-        result = run_quickstart_multi_app(
+        result = run_quickstart_or_examples_multi_app(
             dapr_yaml,
             cwd=self.quickstart_dir,
             env=test_env,

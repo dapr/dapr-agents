@@ -1,22 +1,22 @@
-"""Integration tests for 04-llm-based-workflows quickstart."""
+"""Integration tests for 03-llm-based-workflows example."""
 
 import pytest
-from tests.integration.quickstarts.conftest import run_quickstart_script
+from tests.integration.quickstarts.conftest import run_quickstart_or_examples_script
 
 
 @pytest.mark.integration
 class TestLLMBasedWorkflowsQuickstart:
-    """Integration tests for 04-llm-based-workflows quickstart."""
+    """Integration tests for 03-llm-based-workflows example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "04-llm-based-workflows"
+        self.quickstart_dir = examples_dir / "03-llm-based-workflows"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_single_activity_workflow(self, dapr_runtime):  # noqa: ARG002
         script = self.quickstart_dir / "01_single_activity_workflow.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -34,7 +34,7 @@ class TestLLMBasedWorkflowsQuickstart:
 
     def test_single_structured_activity_workflow(self, dapr_runtime):  # noqa: ARG002
         script = self.quickstart_dir / "02_single_structured_activity_workflow.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -52,7 +52,7 @@ class TestLLMBasedWorkflowsQuickstart:
 
     def test_sequential_workflow(self, dapr_runtime):  # noqa: ARG002
         script = self.quickstart_dir / "03_sequential_workflow.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
@@ -71,7 +71,7 @@ class TestLLMBasedWorkflowsQuickstart:
 
     def test_parallel_workflow(self, dapr_runtime):  # noqa: ARG002
         script = self.quickstart_dir / "04_parallel_workflow.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,

@@ -1,17 +1,17 @@
-"""Integration tests for 04-agent-based-workflows quickstart."""
+"""Integration tests for 03-agent-based-workflows example."""
 
 import pytest
-from tests.integration.quickstarts.conftest import run_quickstart_multi_app
+from tests.integration.quickstarts.conftest import run_quickstart_or_examples_multi_app
 
 
 @pytest.mark.integration
 class TestAgentBasedWorkflowsQuickstart:
-    """Integration tests for 04-agent-based-workflows quickstart."""
+    """Integration tests for 03-agent-based-workflows example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "04-agent-based-workflows"
+        self.quickstart_dir = examples_dir / "03-agent-based-workflows"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_sequential_workflow(self, dapr_runtime):  # noqa: ARG002
@@ -21,7 +21,7 @@ class TestAgentBasedWorkflowsQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         dapr_yaml = self.quickstart_dir / "sequential.yaml"
-        result = run_quickstart_multi_app(
+        result = run_quickstart_or_examples_multi_app(
             dapr_yaml,
             cwd=self.quickstart_dir,
             env=self.env,

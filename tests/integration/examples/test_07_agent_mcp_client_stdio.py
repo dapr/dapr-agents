@@ -1,23 +1,23 @@
-"""Integration tests for 07-agent-mcp-client-stdio quickstart."""
+"""Integration tests for 06-agent-mcp-client-stdio example."""
 
 import pytest
-from tests.integration.quickstarts.conftest import run_quickstart_script
+from tests.integration.quickstarts.conftest import run_quickstart_or_examples_script
 
 
 @pytest.mark.integration
 class TestMCPClientStdioQuickstart:
-    """Integration tests for 07-agent-mcp-client-stdio quickstart."""
+    """Integration tests for 06-agent-mcp-client-stdio example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key):
         """Setup test environment."""
-        self.quickstart_dir = quickstarts_dir / "07-agent-mcp-client-stdio"
+        self.quickstart_dir = examples_dir / "06-agent-mcp-client-stdio"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_mcp_agent_stdio(self, dapr_runtime):  # noqa: ARG002
         """Test MCP agent with STDIO transport (agent.py)."""
         script = self.quickstart_dir / "agent.py"
-        result = run_quickstart_script(
+        result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
             env=self.env,
