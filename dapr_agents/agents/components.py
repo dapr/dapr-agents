@@ -231,7 +231,10 @@ class DaprInfra:
             The workflow entry model (e.g. AgentWorkflowEntry, LLMWorkflowEntry) for that instance.
         """
         if not self.state_store:
-            raise ValueError("No state store configured")
+            logger.debug(
+                "No state store configured; returning current in-memory state."
+            )
+            return self._state_model
 
         key = f"{self.state_key_prefix}_{workflow_instance_id}".lower()
         snapshot = self.state_store.load(

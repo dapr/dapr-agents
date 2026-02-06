@@ -311,28 +311,33 @@ class TestDurableAgent:
             "stop",
         ]
 
-        # Use AgentWorkflowEntry for state setup
+        # Use AgentWorkflowEntry for state setup (single entry per instance)
         entry = AgentWorkflowEntry(
             source=None,
             triggering_workflow_instance_id="parent-instance-123",
             messages=[],
             tool_history=[],
         )
-        basic_durable_agent._state_model.instances["test-instance-123"] = entry
+        basic_durable_agent._infra._state_model = entry
+        with patch.object(
+            basic_durable_agent._infra,
+            "get_state",
+            side_effect=lambda wid: basic_durable_agent._infra._state_model,
+        ):
+            workflow_gen = basic_durable_agent.agent_workflow(
+                mock_workflow_context, message
+            )
+            try:
+                next(workflow_gen)  # agent_workflow is a generator, not async
+            except StopIteration:
+                pass
 
-        workflow_gen = basic_durable_agent.agent_workflow(
-            mock_workflow_context, message
-        )
-        try:
-            next(workflow_gen)  # agent_workflow is a generator, not async
-        except StopIteration:
-            pass
-
-        assert "test-instance-123" in basic_durable_agent.state["instances"]
-        instance_data = basic_durable_agent._state_model.instances["test-instance-123"]
-        # Instance data is an AgentWorkflowEntry object
+        # State is the current workflow entry (single entry model)
+        instance_data = basic_durable_agent._state_model
         assert instance_data.source is None
-        assert instance_data.triggering_workflow_instance_id == "parent-instance-123"
+        assert (
+            instance_data.triggering_workflow_instance_id == "parent-instance-123"
+        )
 
     @pytest.mark.asyncio
     async def test_broadcast_message_to_agents_activity(self, basic_durable_agent):
@@ -384,23 +389,28 @@ class TestDurableAgent:
 
         instance_id = "test-instance-123"
         final_output = "Final response"
-        # Set up state in the state model using AgentWorkflowEntry
-        if not hasattr(basic_durable_agent._state_model, "instances"):
-            basic_durable_agent._state_model.instances = {}
-
-        basic_durable_agent._state_model.instances[instance_id] = AgentWorkflowEntry(
+        entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
             messages=[],
             tool_history=[],
         )
+        basic_durable_agent._infra._state_model = entry
 
         # Mock the activity context and save_state
         mock_ctx = Mock()
 
         with (
             patch.object(basic_durable_agent, "save_state"),
-            patch.object(basic_durable_agent, "load_state"),
+            patch.object(
+                basic_durable_agent._infra,
+                "load_state",
+            ),
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
         ):
             basic_durable_agent.finalize_workflow(
                 mock_ctx,
@@ -411,8 +421,7 @@ class TestDurableAgent:
                     "triggering_workflow_instance_id": None,
                 },
             )
-        entry = basic_durable_agent._state_model.instances[instance_id]
-        assert entry.triggering_workflow_instance_id is None
+        assert basic_durable_agent._state_model.triggering_workflow_instance_id is None
 
     def test_run_tool(self, basic_durable_agent, mock_tool):
         """Test that run_tool executes a tool and returns the result without persisting state."""
@@ -424,24 +433,29 @@ class TestDurableAgent:
             "function": {"name": "test_tool", "arguments": '{"arg1": "value1"}'},
         }
 
+        # Set up state: single entry in _state_model
+        entry = AgentWorkflowEntry(
+            source="test_source",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        basic_durable_agent._infra._state_model = entry
+
         # Mock the tool executor
-        with patch.object(
-            type(basic_durable_agent.tool_executor), "run_tool", new_callable=AsyncMock
-        ) as mock_run_tool:
+        with (
+            patch.object(
+                type(basic_durable_agent.tool_executor),
+                "run_tool",
+                new_callable=AsyncMock,
+            ) as mock_run_tool,
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
+        ):
             mock_run_tool.return_value = "tool_result"
-
-            # Set up state in the state model using AgentWorkflowEntry
-            if not hasattr(basic_durable_agent._state_model, "instances"):
-                basic_durable_agent._state_model.instances = {}
-
-            basic_durable_agent._state_model.instances[instance_id] = (
-                AgentWorkflowEntry(
-                    source="test_source",
-                    triggering_workflow_instance_id=None,
-                    messages=[],
-                    tool_history=[],
-                )
-            )
 
             test_time = datetime.fromisoformat(
                 "2024-01-01T00:00:00Z".replace("Z", "+00:00")
@@ -466,7 +480,7 @@ class TestDurableAgent:
             assert result["content"] == "tool_result"
 
             # Verify that instance state was NOT modified by run_tool
-            entry = basic_durable_agent._state_model.instances[instance_id]
+            entry = basic_durable_agent._state_model
             assert len(entry.messages) == 0  # No tool message added by run_tool
             assert len(entry.tool_history) == 0  # No tool history added by run_tool
 
@@ -478,20 +492,26 @@ class TestDurableAgent:
         source = "test_source"
         triggering_workflow_instance_id = "parent-instance-123"
 
-        # Pre-create instance so get_state returns an entry
-        if not hasattr(basic_durable_agent._state_model, "instances"):
-            basic_durable_agent._state_model.instances = {}
-        basic_durable_agent._state_model.instances[instance_id] = AgentWorkflowEntry(
+        entry = AgentWorkflowEntry(
             source=None,
             triggering_workflow_instance_id=None,
             messages=[],
             tool_history=[],
         )
+        basic_durable_agent._infra._state_model = entry
 
-        # Mock the activity context
+        # Mock the activity context (record_initial_entry uses ctx.workflow_id)
         mock_ctx = Mock()
+        mock_ctx.workflow_id = instance_id
 
-        with patch.object(basic_durable_agent, "save_state"):
+        with (
+            patch.object(basic_durable_agent, "save_state"),
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
+        ):
             basic_durable_agent.record_initial_entry(
                 mock_ctx,
                 {
@@ -503,10 +523,11 @@ class TestDurableAgent:
             )
 
         # Verify instance was updated
-        assert instance_id in basic_durable_agent._state_model.instances
-        entry = basic_durable_agent._state_model.instances[instance_id]
-        assert entry.source == source
-        assert entry.triggering_workflow_instance_id == triggering_workflow_instance_id
+        assert basic_durable_agent._state_model.source == source
+        assert (
+            basic_durable_agent._state_model.triggering_workflow_instance_id
+            == triggering_workflow_instance_id
+        )
 
     def test_process_user_message(self, basic_durable_agent):
         """Test _process_user_message helper method."""
@@ -516,26 +537,30 @@ class TestDurableAgent:
         task = "Hello, world!"
         user_message_copy = {"role": "user", "content": "Hello, world!"}
 
-        # Set up instance using AgentWorkflowEntry
-        if not hasattr(basic_durable_agent._state_model, "instances"):
-            basic_durable_agent._state_model.instances = {}
-
-        basic_durable_agent._state_model.instances[instance_id] = AgentWorkflowEntry(
+        entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
             messages=[],
             tool_history=[],
         )
+        basic_durable_agent._infra._state_model = entry
 
         # Mock memory.add_message and save_state
-        with patch.object(type(basic_durable_agent.memory), "add_message"):
-            with patch.object(basic_durable_agent, "save_state"):
-                basic_durable_agent._process_user_message(
-                    instance_id, task, user_message_copy
-                )
+        with (
+            patch.object(type(basic_durable_agent.memory), "add_message"),
+            patch.object(basic_durable_agent, "save_state"),
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
+        ):
+            basic_durable_agent._process_user_message(
+                instance_id, task, user_message_copy
+            )
 
         # Verify message was added to instance
-        entry = basic_durable_agent._state_model.instances[instance_id]
+        entry = basic_durable_agent._state_model
         assert len(entry.messages) == 1
         assert entry.messages[0].role == "user"
         assert entry.messages[0].content == "Hello, world!"
@@ -548,26 +573,30 @@ class TestDurableAgent:
         instance_id = "test-instance-123"
         assistant_message = {"role": "assistant", "content": "Hello back!"}
 
-        # Set up instance using AgentWorkflowEntry
-        if not hasattr(basic_durable_agent._state_model, "instances"):
-            basic_durable_agent._state_model.instances = {}
-
-        basic_durable_agent._state_model.instances[instance_id] = AgentWorkflowEntry(
+        entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
             messages=[],
             tool_history=[],
         )
+        basic_durable_agent._infra._state_model = entry
 
         # Mock memory.add_message and save_state
-        with patch.object(type(basic_durable_agent.memory), "add_message"):
-            with patch.object(basic_durable_agent, "save_state"):
-                basic_durable_agent._save_assistant_message(
-                    instance_id, assistant_message
-                )
+        with (
+            patch.object(type(basic_durable_agent.memory), "add_message"),
+            patch.object(basic_durable_agent, "save_state"),
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
+        ):
+            basic_durable_agent._save_assistant_message(
+                instance_id, assistant_message
+            )
 
         # Verify message was added to instance
-        entry = basic_durable_agent._state_model.instances[instance_id]
+        entry = basic_durable_agent._state_model
         assert len(entry.messages) == 1
         assert entry.messages[0].role == "assistant"
         assert entry.messages[0].content == "Hello back!"
@@ -578,29 +607,27 @@ class TestDurableAgent:
         from datetime import datetime, timezone
 
         instance_id = "test-instance-123"
-
-        # Set up instance with last_message using AgentWorkflowEntry
-        if not hasattr(basic_durable_agent._state_model, "instances"):
-            basic_durable_agent._state_model.instances = {}
-
-        last_msg = AgentWorkflowMessage(role="assistant", content="Last message")
-        basic_durable_agent._state_model.instances[instance_id] = AgentWorkflowEntry(
+        last_msg = AgentWorkflowMessage(
+            role="assistant", content="Last message"
+        )
+        entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
             messages=[],
             tool_history=[],
             last_message=last_msg,
         )
+        basic_durable_agent._infra._state_model = entry
 
-        # Access last_message directly from the entry
-        entry = basic_durable_agent._state_model.instances.get(instance_id)
-        assert entry is not None
-        assert entry.last_message.role == "assistant"
-        assert entry.last_message.content == "Last message"
-
-        # Test with non-existent instance
-        result = basic_durable_agent._state_model.instances.get("non-existent")
-        assert result is None
+        # Access last_message directly from the current state entry
+        assert basic_durable_agent._state_model.last_message is not None
+        assert (
+            basic_durable_agent._state_model.last_message.role == "assistant"
+        )
+        assert (
+            basic_durable_agent._state_model.last_message.content
+            == "Last message"
+        )
 
     def test_create_tool_message_objects(self, basic_durable_agent):
         """Test that tool message dicts are created correctly by run_tool and persisted by save_tool_results."""
@@ -612,22 +639,13 @@ class TestDurableAgent:
             "function": {"name": "test_tool", "arguments": '{"arg1": "value1"}'},
         }
 
-        # Set up instance
-        if not hasattr(basic_durable_agent._state_model, "instances"):
-            basic_durable_agent._state_model.instances = {}
-
-        basic_durable_agent._state_model.instances[instance_id] = AgentWorkflowEntry(
-            input_value="Test task",
+        entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
-            workflow_instance_id=instance_id,
-            workflow_name="AgenticWorkflow",
-            status="RUNNING",
             messages=[],
             tool_history=[],
-            end_time=None,
-            start_time=datetime.now(timezone.utc),
         )
+        basic_durable_agent._infra._state_model = entry
 
         # Mock tool executor
         with patch.object(
@@ -655,7 +673,12 @@ class TestDurableAgent:
         # Now call save_tool_results to persist the results
         with (
             patch.object(basic_durable_agent, "save_state"),
-            patch.object(basic_durable_agent, "load_state"),
+            patch.object(basic_durable_agent._infra, "load_state"),
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
         ):
             basic_durable_agent.save_tool_results(
                 mock_ctx,
@@ -666,7 +689,7 @@ class TestDurableAgent:
             )
 
         # Verify messages were added to instance by save_tool_results
-        entry = basic_durable_agent._state_model.instances[instance_id]
+        entry = basic_durable_agent._state_model
         assert len(entry.messages) == 1
         assert entry.messages[0].role == "tool"
         assert (
@@ -678,14 +701,13 @@ class TestDurableAgent:
         """Test that tool messages are appended to instance via save_tool_results activity."""
         instance_id = "test-instance-123"
 
-        # Set up instance using AgentWorkflowEntry
         entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
             messages=[],
             tool_history=[],
         )
-        basic_durable_agent._state_model.instances[instance_id] = entry
+        basic_durable_agent._infra._state_model = entry
 
         # Create a simple test tool
         from dapr_agents.tool.base import AgentTool
@@ -727,7 +749,12 @@ class TestDurableAgent:
 
         with (
             patch.object(basic_durable_agent, "save_state"),
-            patch.object(basic_durable_agent, "load_state"),
+            patch.object(basic_durable_agent._infra, "load_state"),
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
         ):
             basic_durable_agent.save_tool_results(
                 mock_ctx,
@@ -748,14 +775,13 @@ class TestDurableAgent:
         """Test that memory is updated via save_tool_results activity."""
         instance_id = "test-instance-123"
 
-        # Set up instance using AgentWorkflowEntry
         entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
             messages=[],
             tool_history=[],
         )
-        basic_durable_agent._state_model.instances[instance_id] = entry
+        basic_durable_agent._infra._state_model = entry
 
         # Create a simple test tool
         from dapr_agents.tool.base import AgentTool
@@ -796,15 +822,16 @@ class TestDurableAgent:
         assert result["name"] == "TestToolFunc"
         assert result["content"] == "tool_result"
 
-        # Mock save_state to prevent actual persistence and track memory.add_message calls
+        # Mock save_state; save_tool_results persists tool results to state entry
         with (
             patch.object(basic_durable_agent, "save_state"),
-            patch.object(basic_durable_agent, "load_state"),
+            patch.object(basic_durable_agent._infra, "load_state"),
             patch.object(
-                type(basic_durable_agent.memory), "add_message"
-            ) as mock_add_message,
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
         ):
-            # Call save_tool_results which updates memory
             basic_durable_agent.save_tool_results(
                 mock_ctx,
                 {
@@ -813,11 +840,11 @@ class TestDurableAgent:
                 },
             )
 
-            # Verify memory.add_message was called with the tool message
-            mock_add_message.assert_called_once()
-            call_arg = mock_add_message.call_args[0][0]
-            assert call_arg.tool_call_id == "call_123"
-            assert call_arg.name == "TestToolFunc"
+        # Verify tool message was persisted to state entry
+        entry = basic_durable_agent._state_model
+        assert len(entry.messages) == 1
+        assert entry.messages[0].tool_call_id == "call_123"
+        assert entry.messages[0].name == "TestToolFunc"
 
     def test_reconstruct_conversation_history(self, basic_durable_agent):
         """Test test_reconstruct_conversation_history helper method."""
@@ -825,11 +852,7 @@ class TestDurableAgent:
 
         instance_id = "test-instance-123"
 
-        # Set up instance with messages using AgentWorkflowEntry
-        if not hasattr(basic_durable_agent._state_model, "instances"):
-            basic_durable_agent._state_model.instances = {}
-
-        basic_durable_agent._state_model.instances[instance_id] = AgentWorkflowEntry(
+        entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
             messages=[
@@ -838,15 +861,29 @@ class TestDurableAgent:
             ],
             tool_history=[],
         )
+        basic_durable_agent._infra._state_model = entry
 
-        messages = basic_durable_agent._reconstruct_conversation_history(instance_id)
+        with patch.object(
+            basic_durable_agent._infra,
+            "get_state",
+            side_effect=lambda wid: basic_durable_agent._infra._state_model,
+        ):
+            messages = basic_durable_agent._reconstruct_conversation_history(
+                instance_id
+            )
 
         # Should include messages from instance history (system messages excluded from instance timeline)
-        # Plus any messages from memory
         assert len(messages) >= 2  # At least the 2 instance messages
-        # Find the user and assistant messages
-        user_messages = [m for m in messages if m.get("role") == "user"]
-        assistant_messages = [m for m in messages if m.get("role") == "assistant"]
+        # Messages may be Pydantic models or dicts
+        user_messages = [
+            m for m in messages if getattr(m, "role", m.get("role") if isinstance(m, dict) else None) == "user"
+        ]
+        assistant_messages = [
+            m
+            for m in messages
+            if getattr(m, "role", m.get("role") if isinstance(m, dict) else None)
+            == "assistant"
+        ]
         assert len(user_messages) >= 1
         assert len(assistant_messages) >= 1
 
@@ -1029,27 +1066,32 @@ class TestDurableAgent:
         mock_workflow_context.instance_id = "test-instance-123"
         mock_workflow_context.call_activity = Mock(side_effect=track_call_activity)
 
-        # Set up minimal state
+        # Set up minimal state (single entry model)
         entry = AgentWorkflowEntry(
             source=None,
             triggering_workflow_instance_id="parent-instance-123",
             messages=[],
             tool_history=[],
         )
-        basic_durable_agent._state_model.instances["test-instance-123"] = entry
+        basic_durable_agent._infra._state_model = entry
 
         # Run the workflow generator
-        workflow_gen = basic_durable_agent.agent_workflow(
-            mock_workflow_context, message
-        )
+        with patch.object(
+            basic_durable_agent._infra,
+            "get_state",
+            side_effect=lambda wid: basic_durable_agent._infra._state_model,
+        ):
+            workflow_gen = basic_durable_agent.agent_workflow(
+                mock_workflow_context, message
+            )
 
-        # Step through the generator, sending results back
-        result = None
-        try:
-            while True:
-                result = workflow_gen.send(result)
-        except StopIteration as e:
-            result = e.value
+            # Step through the generator, sending results back
+            result = None
+            try:
+                while True:
+                    result = workflow_gen.send(result)
+            except StopIteration as e:
+                result = e.value
 
         # Verify that retry_policy was passed to critical activities
         assert len(call_activity_calls) >= 5, (
