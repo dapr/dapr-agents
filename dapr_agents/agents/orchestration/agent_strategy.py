@@ -51,16 +51,6 @@ class AgentOrchestrationStrategy(OrchestrationStrategy):
     agent-based orchestration mode.
     """
 
-    def __init__(self, llm: Any, activities: Any):
-        """Initialize the agent orchestration strategy.
-
-        Args:
-            llm: LLM client for generating plans and decisions
-            activities: Reference to DurableAgent activities (for potential future use)
-        """
-        self.llm = llm
-        self.activities = activities
-
     def initialize(self, ctx: Any, task: str, agents: Dict[str, Any]) -> Dict[str, Any]:
         """Initialize orchestration state.
 

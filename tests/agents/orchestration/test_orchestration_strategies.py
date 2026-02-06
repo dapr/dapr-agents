@@ -203,10 +203,8 @@ class TestAgentOrchestrationStrategy:
 
     def test_initialize(self):
         """Test strategy initialization."""
-        mock_llm = Mock()
-        mock_activities = Mock()
 
-        strategy = AgentOrchestrationStrategy(llm=mock_llm, activities=mock_activities)
+        strategy = AgentOrchestrationStrategy()
         ctx = Mock()
 
         state = strategy.initialize(ctx, "test task", {"agent1": {}})
@@ -218,10 +216,8 @@ class TestAgentOrchestrationStrategy:
 
     def test_select_next_agent(self):
         """Test agent selection returns expected structure."""
-        mock_llm = Mock()
-        mock_activities = Mock()
 
-        strategy = AgentOrchestrationStrategy(llm=mock_llm, activities=mock_activities)
+        strategy = AgentOrchestrationStrategy()
         ctx = Mock()
 
         state = {
@@ -239,10 +235,8 @@ class TestAgentOrchestrationStrategy:
 
     def test_should_continue(self):
         """Test continuation logic."""
-        mock_llm = Mock()
-        mock_activities = Mock()
 
-        strategy = AgentOrchestrationStrategy(llm=mock_llm, activities=mock_activities)
+        strategy = AgentOrchestrationStrategy()
 
         # For AgentOrchestrationStrategy, logic is in orchestration_workflow
         # Strategy method returns True (placeholder)
@@ -250,10 +244,8 @@ class TestAgentOrchestrationStrategy:
 
     def test_finalize(self):
         """Test finalization returns message structure."""
-        mock_llm = Mock()
-        mock_activities = Mock()
 
-        strategy = AgentOrchestrationStrategy(llm=mock_llm, activities=mock_activities)
+        strategy = AgentOrchestrationStrategy()
         strategy.orchestrator_name = "AgentOrch"
         ctx = Mock()
 

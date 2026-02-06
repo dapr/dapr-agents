@@ -197,10 +197,7 @@ class DurableAgent(AgentBase):
 
             match self.execution.orchestration_mode:
                 case OrchestrationMode.AGENT:
-                    self._orchestration_strategy = AgentOrchestrationStrategy(
-                        llm=self.llm,
-                        activities=self,
-                    )
+                    self._orchestration_strategy = AgentOrchestrationStrategy()
                 case OrchestrationMode.ROUNDROBIN:
                     self._orchestration_strategy = RoundRobinOrchestrationStrategy()
                 case OrchestrationMode.RANDOM:
