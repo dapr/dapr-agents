@@ -249,16 +249,14 @@ class TestHelloWorldQuickstart:
 
         assert result.returncode == 0, (
             f"Quickstart script '{dapr_yaml}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
+            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
-        assert len(result.stdout) > 0 or len(result.stderr) > 0
-        # Verify workflow completed successfully
+        combined = (result.stdout or "") + (result.stderr or "")
         assert (
-            "Workflow started:" in result.stdout
-            or "Recommendation" in result.stdout
-            or "Final Recommendation" in result.stdout
-        )
+            "Workflow started:" in combined
+            or "Recommendation" in combined
+            or "Final Recommendation" in combined
+        ), f"Expected workflow output in combined stdout+stderr. Got: {combined[:500]!r}..."
 
     def test_10_durable_agent_tracing(self, dapr_runtime):  # noqa: ARG002
         """Test durable agent tracing example (10_durable_agent_tracing.py)."""

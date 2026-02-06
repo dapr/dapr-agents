@@ -220,6 +220,11 @@ class DurableAgent(AgentBase):
     # Runtime accessors
     # ------------------------------------------------------------------
     @property
+    def orchestrator(self) -> bool:
+        """True if this agent is configured as an orchestrator (has orchestration strategy)."""
+        return self._orchestration_strategy is not None
+
+    @property
     def runtime(self) -> wf.WorkflowRuntime:
         """Return the underlying workflow runtime."""
         return self._runtime
@@ -1250,7 +1255,7 @@ class DurableAgent(AgentBase):
         # Skip printing for orchestrators' internal LLM calls
         if not self.orchestrator:
             self.text_formatter.print_message(assistant_message)
-        self.save_state()
+        self.save_state(instance_id)
         return assistant_message
 
     def run_tool(
@@ -1627,10 +1632,11 @@ class DurableAgent(AgentBase):
         self.memory.add_message(
             AssistantMessage(
                 content=plan_message.get("content", ""), name=plan_message.get("name")
-            )
+            ),
+            instance_id,
         )
 
-        self.save_state()
+        self.save_state(instance_id)
         logger.info(f"Saved plan to memory for instance {instance_id}")
 
     # ------------------------------------------------------------------

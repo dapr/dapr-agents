@@ -372,10 +372,27 @@ def run_quickstart_or_examples_script(
         )
 
     if result.returncode != 0:
-        raise RuntimeError(
-            f"Script {script_path} failed with return code {result.returncode}.\n"
-            f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
-        )
+        # Dapr run can exit 1 when the app exits first: it then tries to stop the
+        # app and gets "process already finished". Treat that as success.
+        stderr = result.stderr or ""
+        stdout = result.stdout or ""
+        if (
+            use_dapr
+            and result.returncode == 1
+            and "process already finished" in stderr
+            and "Exited App successfully" in stdout
+        ):
+            logger.info(
+                "Treating dapr run exit 1 as success (app exited before dapr shutdown)."
+            )
+            result = subprocess.CompletedProcess(
+                result.args, 0, result.stdout, result.stderr
+            )
+        else:
+            raise RuntimeError(
+                f"Script {script_path} failed with return code {result.returncode}.\n"
+                f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+            )
 
     return result
 
@@ -824,9 +841,9 @@ def _run_multi_app_with_completion_detection(
     """
     # Infer orchestrator workflow name from dapr YAML filename if not provided
     if orchestrator_workflow_name is None:
-        # Try to infer from command (look for dapr-*.yaml)
+        # Try to infer from command (look for *.yaml path)
         for arg in cmd:
-            if "dapr-" in arg and arg.endswith(".yaml"):
+            if arg.endswith(".yaml"):
                 yaml_name = Path(arg).stem
                 if "random" in yaml_name:
                     orchestrator_workflow_name = "random_workflow"
@@ -834,6 +851,9 @@ def _run_multi_app_with_completion_detection(
                     orchestrator_workflow_name = "round_robin_workflow"
                 elif "llm" in yaml_name:
                     orchestrator_workflow_name = "llm_orchestrator_workflow"
+                elif "workflow_agents" in yaml_name or "09_workflow" in yaml_name:
+                    # 09_workflow_agents: main workflow is support_workflow; ignore broadcast_listener
+                    orchestrator_workflow_name = "support_workflow"
                 break
 
     logger.info(f"Running multi-app command with completion detection: {' '.join(cmd)}")
