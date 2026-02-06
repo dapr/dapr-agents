@@ -1,4 +1,4 @@
-"""Orchestration strategy infrastructure for DurableAgent.
+"""Orchestration strategy for DurableAgent.
 
 This package provides a Strategy Pattern implementation for orchestrating
 multi-agent workflows. It decouples orchestration logic from the core agent
