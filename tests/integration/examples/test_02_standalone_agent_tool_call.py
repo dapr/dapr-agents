@@ -20,7 +20,7 @@ class TestStandaloneAgentToolCallQuickstart:
         if os.getenv("NVIDIA_API_KEY"):
             self.env["NVIDIA_API_KEY"] = os.getenv("NVIDIA_API_KEY")
 
-    def test_standalone_weather_agent_dapr(self, dapr_runtime):  # noqa: ARG002
+    def test_standalone_weather_agent_dapr(self):  # noqa: ARG002
         """Test standalone weather agent Dapr example (standalone_weather_agent_dapr.py)."""
         script = self.quickstart_dir / "standalone_weather_agent_dapr.py"
         result = run_quickstart_or_examples_script(

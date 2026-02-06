@@ -36,7 +36,6 @@ def main():
         memory=AgentMemoryConfig(
             store=ConversationDaprStateMemory(
                 store_name="agent-memory",
-                session_id=f"triage-agent-session",
             )
         ),
     )

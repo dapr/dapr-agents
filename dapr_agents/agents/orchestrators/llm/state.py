@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Literal
+from typing import List, Optional, Literal
 from datetime import datetime
 import uuid
 
@@ -93,13 +93,4 @@ class LLMWorkflowEntry(BaseModel):
     task_history: List[TaskResult] = Field(
         default_factory=list,
         description="A history of task executions and their results.",
-    )
-
-
-class LLMWorkflowState(BaseModel):
-    """Represents the state of multiple LLM workflows."""
-
-    instances: Dict[str, LLMWorkflowEntry] = Field(
-        default_factory=dict,
-        description="Workflow entries indexed by their instance_id.",
     )

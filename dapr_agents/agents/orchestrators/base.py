@@ -143,42 +143,17 @@ class OrchestratorBase:
         """Delegate to DaprInfra for the configured broadcast topic name."""
         return self._infra.broadcast_topic_name
 
-    def load_state(self):
+    def load_state(self, workflow_instance_id: str):
         """Delegate to DaprInfra to load state from the backing store."""
-        return self._infra.load_state()
+        return self._infra.load_state(workflow_instance_id=workflow_instance_id)
 
-    def save_state(self):
+    def save_state(self, workflow_instance_id: str):
         """Delegate to DaprInfra to persist the current workflow state."""
-        return self._infra.save_state()
-
-    def _get_entry_container(self):
-        """Delegate to DaprInfra for accessing the workflow entry container."""
-        return self._infra._get_entry_container()
+        return self._infra.save_state(workflow_instance_id=workflow_instance_id)
 
     def _message_dict_to_message_model(self, message):
         """Delegate to DaprInfra for converting message dicts into models."""
         return self._infra._message_dict_to_message_model(message)
-
-    def ensure_instance_exists(
-        self,
-        *,
-        instance_id,
-        input_value,
-        triggering_workflow_instance_id,
-        time=None,
-    ):
-        """
-        Ensure a workflow instance row exists in the underlying state model.
-
-        This thin wrapper delegates to DaprInfra, mirroring the helper used by
-        durable agents so orchestrators can share the same state semantics.
-        """
-        return self._infra.ensure_instance_exists(
-            instance_id=instance_id,
-            input_value=input_value,
-            triggering_workflow_instance_id=triggering_workflow_instance_id,
-            time=time,
-        )
 
     @staticmethod
     def _coerce_datetime(value: Optional[Any]) -> datetime:

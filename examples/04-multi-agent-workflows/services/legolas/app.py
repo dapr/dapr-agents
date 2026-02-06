@@ -61,7 +61,7 @@ async def main() -> None:
     legolas_memory = AgentMemoryConfig(
         store=ConversationDaprStateMemory(
             store_name="memorystore",
-            session_id=f"{legolas_name}-session",
+            # session_id=f"{legolas_name}-session",
         )
     )
     legolas_profile = AgentProfileConfig(

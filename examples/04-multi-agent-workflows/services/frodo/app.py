@@ -61,7 +61,6 @@ async def main() -> None:
     frodo_memory = AgentMemoryConfig(
         store=ConversationDaprStateMemory(
             store_name="memorystore",
-            session_id=f"{frodo_name}-session",
         )
     )
     frodo_profile = AgentProfileConfig(

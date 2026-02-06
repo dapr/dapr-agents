@@ -66,7 +66,6 @@ async def main() -> None:
     sam_memory = AgentMemoryConfig(
         store=ConversationDaprStateMemory(
             store_name="memorystore",
-            session_id=f"{sam_name}-session",
         )
     )
     sam_profile = AgentProfileConfig(
