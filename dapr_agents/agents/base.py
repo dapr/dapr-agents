@@ -357,7 +357,7 @@ class AgentBase:
         base_meta: Dict[str, Any] = {}
         base_meta["agent"] = {
             "appid": self.appid,
-            "orchestrator": False,
+            "orchestrator": self.orchestrator,
             "role": self.profile.role,
             "goal": self.profile.goal,
             "name": self.profile.name,
@@ -492,6 +492,11 @@ class AgentBase:
     def workflow_state(self):
         """Delegate to DaprInfra."""
         return self._infra.workflow_state
+
+    @property
+    def orchestrator(self) -> bool:
+        """Return True if this agent is configured as an orchestrator."""
+        return self.execution.orchestration_mode is not None
 
     def load_state(self):
         """Delegate to DaprInfra."""

@@ -5,14 +5,14 @@ import os
 
 from dotenv import load_dotenv
 
-import dapr.ext.workflow as wf
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
+    OrchestrationMode,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
 )
-from dapr_agents.agents.orchestrators.llm import LLMOrchestrator
+from dapr_agents.agents import DurableAgent
 from dapr_agents.llm.openai import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.workflow.runners import AgentRunner
@@ -28,19 +28,19 @@ logger = logging.getLogger("llm.orchestrator.app")
 
 
 def main() -> None:
-    orchestrator_name = os.getenv("ORCHESTRATOR_NAME", "LLMOrchestrator")
+    orchestrator_name = os.getenv("ORCHESTRATOR_NAME", "AgentOrchestrator")
     team_name = os.getenv("TEAM_NAME", "fellowship")
 
     pubsub = AgentPubSubConfig(
         pubsub_name=os.getenv("PUBSUB_NAME", "messagepubsub"),
-        agent_topic=os.getenv("ORCHESTRATOR_TOPIC", "llm.orchestrator.requests"),
+        agent_topic=os.getenv("ORCHESTRATOR_TOPIC", "agent.orchestrator.requests"),
         broadcast_topic=os.getenv("BROADCAST_TOPIC", "fellowship.broadcast"),
     )
 
     state = AgentStateConfig(
         store=StateStoreService(
             store_name=os.getenv("WORKFLOW_STATE_STORE", "workflowstatestore"),
-            key_prefix="llm.orchestrator:",
+            key_prefix="agent.orchestrator:",
         ),
     )
     registry = AgentRegistryConfig(
@@ -50,13 +50,11 @@ def main() -> None:
         team_name=team_name,
     )
     execution = AgentExecutionConfig(
-        max_iterations=int(os.getenv("MAX_ITERATIONS", "1"))
+        max_iterations=int(os.getenv("MAX_ITERATIONS", "2")),
+        orchestration_mode=OrchestrationMode.AGENT,
     )
 
-    def on_summary(summary: str):
-        print("Journey complete! Summary:", summary, flush=True)
-
-    orchestrator = LLMOrchestrator(
+    orchestrator = DurableAgent(
         name=orchestrator_name,
         llm=OpenAIChatClient(),
         pubsub=pubsub,
@@ -64,12 +62,9 @@ def main() -> None:
         registry=registry,
         execution=execution,
         agent_metadata={
-            "type": "LLMOrchestrator",
-            "description": "LLM-driven Orchestrator",
+            "type": "AgentOrchestrator",
+            "description": "Plan-based LLM-driven Orchestrator",
         },
-        timeout_seconds=int(os.getenv("TIMEOUT_SECONDS", "45")),
-        runtime=wf.WorkflowRuntime(),
-        final_summary_callback=on_summary,
     )
 
     runner = AgentRunner()

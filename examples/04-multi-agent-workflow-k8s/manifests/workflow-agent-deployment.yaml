@@ -1,25 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: workflow-llm
+  name: workflow-agent
   namespace: default
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: workflow-llm
+      app: workflow-agent
   strategy: {}
   template:
     metadata:
       annotations:
-        dapr.io/app-id: workflow-llm
+        dapr.io/app-id: workflow-agent
         dapr.io/app-port: "8004"
         dapr.io/enabled: "true"
         dapr.io/metrics-port: "59213"
         dapr.io/unix-domain-socket-path: ""
       creationTimestamp: null
       labels:
-        app: workflow-llm
+        app: workflow-agent
     spec:
       containers:
       - env:
@@ -30,14 +30,14 @@ spec:
         - name: DEBUG
           value: "true"
         - name: APP_ID
-          value: workflow-llm
+          value: workflow-agent
         - name: APP_CHANNEL_ADDRESS
         envFrom:
         - secretRef:
             name: openai-secrets
-        image: localhost:5001/workflow-llm:latest
+        image: localhost:5001/workflow-agent:latest
         imagePullPolicy: Always
-        name: workflow-llm
+        name: workflow-agent
         ports:
         - containerPort: 8004
         resources: {}

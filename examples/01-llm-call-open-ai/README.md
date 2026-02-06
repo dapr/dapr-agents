@@ -36,7 +36,7 @@ Replace `your_api_key_here` with your actual OpenAI API key.
 
 **1. Run the basic text completion example:**
 ```bash
-python text_completion.py
+uv run python text_completion.py
 ```
 
 The script demonstrates basic usage of Dapr Agents' OpenAIChatClient for text generation.
@@ -45,7 +45,7 @@ The script demonstrates basic usage of Dapr Agents' OpenAIChatClient for text ge
 
 **Run the structured text completion example:**
 ```bash
-python structured_completion.py
+uv run python structured_completion.py
 ```
 
 This example shows how to use Pydantic models to get structured data from LLMs.
@@ -61,7 +61,7 @@ Our OpenAI chat client also support streaming responses, where you can process p
 Run the `text_completion_stream.py` script to see token‐by‐token output:
 
 ```bash
-python text_completion_stream.py
+uv run python text_completion_stream.py
 ```
 
 This will print each partial chunk as it arrives, so you can build up the full answer in real time.
@@ -71,7 +71,7 @@ This will print each partial chunk as it arrives, so you can build up the full a
 Use `text_completion_stream_with_tools.py` to combine streaming with function‐call “tools”:
 
 ```bash
-python text_completion_stream_with_tools.py
+uv run python text_completion_stream_with_tools.py
 ```
 
 Here, the model can decide to call your `add_numbers` function mid‐stream, and you’ll see those calls (and their results) as they come in.
@@ -85,12 +85,12 @@ You can use the OpenAIAudioClient in `dapr-agents` for basic tasks with the Open
 
 **1. Run the text to speech example:**
 ```bash
-python text_to_speech.py
+uv run python text_to_speech.py
 ```
 
 **2. Run the speech to text transcription example:**
 ```bash
-python audio_transcription.py
+uv run python audio_transcription.py
 ```
 
 
@@ -117,7 +117,7 @@ You can use the `OpenAIEmbedder` in dapr-agents for generating text embeddings.
 
 **1. Embeddings a single text:**
 ```bash
-python embeddings.py
+uv run python embeddings.py
 ```
 
 ## Troubleshooting

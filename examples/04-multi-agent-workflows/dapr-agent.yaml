@@ -23,8 +23,8 @@ apps:
   appDirPath: ./services/legolas/
   command: ["python3", "app.py"]
 
-- appID: LLMOrchestratorApp
-  appDirPath: ./services/workflow-llm/
+- appID: AgentOrchestratorApp
+  appDirPath: ./services/workflow-agent/
   command: ["python3", "app.py"]
   appPort: 8004
 

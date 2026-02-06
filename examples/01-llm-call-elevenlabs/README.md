@@ -37,7 +37,7 @@ You can use the `ElevenLabsSpeechClient` in `dapr-agents` for text to speech cap
 
 **1. Run the text to speech example:**
 ```bash
-python text_to_speech.py
+uv run python text_to_speech.py
 ```
 
 ## Key Concepts
