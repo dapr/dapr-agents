@@ -42,19 +42,22 @@ This quickstart features four agents from the Fellowship of the Ring, each with 
 
 ### Orchestration Patterns
 
-Three orchestrators coordinate the Fellowship:
+Three orchestrators coordinate the Fellowship (all using `DurableAgent` with different `orchestration_mode` values):
 
 1. **Random Orchestrator** (`fellowship.orchestrator.random.requests`)
-   - Randomly selects an agent for each task
+   - Uses `orchestration_mode="random"`
+   - Randomly selects an agent for each task with avoidance logic
    - Good for load distribution and testing
 
 2. **Round-Robin Orchestrator** (`fellowship.orchestrator.roundrobin.requests`)
-   - Cycles through agents sequentially
+   - Uses `orchestration_mode="roundrobin"`
+   - Cycles through agents sequentially in deterministic order
    - Ensures fair task distribution
 
-3. **LLM Orchestrator** (`llm.orchestrator.requests`)
-   - AI-powered agent selection based on task content
-   - Intelligent routing to the most appropriate agent
+3. **Agent Orchestrator** (`llm.orchestrator.requests`)
+   - Uses `orchestration_mode="agent"` (formerly "LLM Orchestrator")
+   - Plan-based orchestration with AI-powered agent selection
+   - Intelligent routing based on execution plan and task content
 
 ## Environment Setup
 
@@ -147,17 +150,17 @@ This quickstart uses these Dapr components (in `components/` directory):
 │   │   └── app.py
 │   ├── legolas/                   # Legolas agent service
 │   │   └── app.py
-│   ├── workflow-random/           # Random orchestrator
+│   ├── workflow-random/           # Random orchestrator (DurableAgent with orchestration_mode="random")
 │   │   └── app.py
-│   ├── workflow-roundrobin/       # Round-robin orchestrator
+│   ├── workflow-roundrobin/       # Round-robin orchestrator (DurableAgent with orchestration_mode="roundrobin")
 │   │   └── app.py
-│   ├── workflow-llm/              # LLM-based orchestrator
+│   ├── workflow-agent/            # Agent orchestrator (DurableAgent with orchestration_mode="agent")
 │   │   └── app.py
 │   └── client/                    # Client for publishing messages
 │       └── pubsub_client.py
 ├── dapr-random.yaml               # Multi-app config: Random orchestrator
 ├── dapr-roundrobin.yaml           # Multi-app config: Round-robin orchestrator
-├── dapr-llm.yaml                  # Multi-app config: LLM orchestrator
+├── dapr-agent.yaml                # Multi-app config: Agent orchestrator
 └── README.md
 ```
 
@@ -206,20 +209,20 @@ dapr run -f dapr-roundrobin.yaml
 - ✅ Round-robin orchestrator
 - ✅ Client (publishes to `fellowship.orchestrator.roundrobin.requests`)
 
-### Option 3: LLM Orchestrator
+### Option 3: Agent Orchestrator
 
-AI-powered agent selection based on task:
+Plan-based AI-powered agent selection:
 
 ```bash
-dapr run -f dapr-llm.yaml
+dapr run -f dapr-agent.yaml
 ```
 
 **What's running:**
 - ✅ Frodo agent
 - ✅ Sam agent
 - ✅ Gandalf agent
-- ✅ LLM orchestrator
-- ✅ HTTP client (hits the orchestrator’s `/run` endpoint)
+- ✅ Agent orchestrator (plan-based with LLM)
+- ✅ HTTP client (hits the orchestrator's `/run` endpoint)
 
 ### Triggering Workflows
 

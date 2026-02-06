@@ -3,13 +3,14 @@ import os
 
 from dotenv import load_dotenv
 
-import dapr.ext.workflow as wf
+from dapr_agents.agents import DurableAgent
 from dapr_agents.agents.configs import (
+    AgentExecutionConfig,
+    OrchestrationMode,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
 )
-from dapr_agents.agents.orchestrators.roundrobin import RoundRobinOrchestrator
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.workflow.runners import AgentRunner
 
@@ -23,7 +24,7 @@ logger = logging.getLogger("fellowship.orchestrator.roundrobin.app")
 
 
 def main() -> None:
-    orchestrator = RoundRobinOrchestrator(
+    orchestrator = DurableAgent(
         name=os.getenv("ORCHESTRATOR_NAME", "FellowshipRoundRobin"),
         pubsub=AgentPubSubConfig(
             pubsub_name=os.getenv("PUBSUB_NAME", "messagepubsub"),
@@ -44,8 +45,11 @@ def main() -> None:
             ),
             team_name=os.getenv("TEAM_NAME", "fellowship"),
         ),
+        execution=AgentExecutionConfig(
+            max_iterations=int(os.getenv("MAX_ITERATIONS", "4")),
+            orchestration_mode=OrchestrationMode.ROUNDROBIN,
+        ),
         agent_metadata={"legend": "Sends tasks in a fair rotation."},
-        runtime=wf.WorkflowRuntime(),
     )
 
     runner = AgentRunner()
