@@ -215,7 +215,7 @@ class DurableAgent(AgentBase):
             self._orchestration_strategy.orchestrator_name = self.name
             self.effective_team = registry.team_name if registry else "default"
 
-            logger.info(
+            logger.debug(
                 f"Initialized orchestrator '{self.name}' with mode '{self.execution.orchestration_mode}'"
             )
 
