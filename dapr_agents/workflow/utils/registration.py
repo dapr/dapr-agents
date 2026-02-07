@@ -12,6 +12,7 @@ from typing import (
     Literal,
     Optional,
     Protocol,
+    Set,
     Type,
 )
 
@@ -23,6 +24,7 @@ from dapr.ext.workflow.workflow_state import WorkflowState
 from fastapi import Body, FastAPI
 from fastapi.responses import JSONResponse, Response
 
+from dapr_agents.types.exceptions import PubSubNotAvailableError
 from dapr_agents.types.workflow import HttpRouteSpec, PubSubRouteSpec
 from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
@@ -88,6 +90,59 @@ def _iter_decorated(target: Any, attr: str):
         meta = getattr(fn, attr, None)
         if callable(fn) and meta:
             yield target, fn, meta
+
+
+def _validate_pubsub_components(
+    dapr_client: DaprClient,
+    pubsub_names: Set[str],
+    topics_by_pubsub: dict[str, Set[str]],
+) -> None:
+    """
+    Validate that the required PubSub components are available in Dapr.
+
+    Args:
+        dapr_client: Active Dapr client to query metadata.
+        pubsub_names: Set of pubsub component names that are required.
+        topics_by_pubsub: Mapping of pubsub name to set of topics being subscribed.
+
+    Raises:
+        PubSubNotAvailableError: If any required PubSub component is not registered.
+    """
+    if not pubsub_names:
+        return
+
+    try:
+        metadata = dapr_client.get_metadata()
+        registered_components = metadata.registered_components or []
+
+        # Find all registered pubsub components
+        available_pubsubs: Set[str] = set()
+        for component in registered_components:
+            if "pubsub" in component.type.lower():
+                available_pubsubs.add(component.name)
+
+        # Check if all required pubsub components are available
+        for pubsub_name in pubsub_names:
+            if pubsub_name not in available_pubsubs:
+                # Get one of the topics for error message
+                topics = topics_by_pubsub.get(pubsub_name, set())
+                topic = next(iter(topics)) if topics else "unknown"
+                raise PubSubNotAvailableError(
+                    pubsub_name=pubsub_name,
+                    topic=topic,
+                )
+
+    except PubSubNotAvailableError:
+        # Re-raise our custom exception
+        raise
+    except Exception as e:
+        # Log but don't fail on metadata retrieval errors
+        # (e.g., Dapr sidecar might not be fully ready)
+        logger.warning(
+            "Could not validate PubSub component availability: %s. "
+            "Proceeding with subscription attempt.",
+            str(e),
+        )
 
 
 def _collect_message_bindings(
@@ -235,6 +290,17 @@ def _subscribe_message_bindings(
 ) -> List[Callable[[], None]]:
     if not bindings:
         return []
+
+    # Validate that required PubSub components are available before subscribing
+    pubsub_names: Set[str] = set()
+    topics_by_pubsub: dict[str, Set[str]] = {}
+    for binding in bindings:
+        pubsub_names.add(binding.pubsub)
+        if binding.pubsub not in topics_by_pubsub:
+            topics_by_pubsub[binding.pubsub] = set()
+        topics_by_pubsub[binding.pubsub].add(binding.topic)
+
+    _validate_pubsub_components(dapr_client, pubsub_names, topics_by_pubsub)
 
     loop = _resolve_loop(loop)
     if subscribe is None:
