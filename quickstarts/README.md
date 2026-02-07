@@ -253,7 +253,7 @@ dapr run --app-id durable-agent-subscriber --resources-path components --dapr-ht
 On a different terminal, publish a message to the subscribed topic:
 
 ```bash
-dapr publish --publish-app-id durable-agent-subscriber --pubsub message-pubsub --topic weather.requests --data '{"task": "What is the weather in London?"}'
+dapr publish --publish-app-id durable-agent-subscriber --pubsub agent-pubsub --topic weather.requests --data '{"task": "What is the weather in London?"}'
 ```
 
 ## Expected Behavior
