@@ -4,6 +4,7 @@ import os
 from unittest.mock import Mock, patch
 from dapr_agents.agents.standalone import Agent
 from dapr_agents.agents.configs import AgentMemoryConfig, AgentExecutionConfig
+from dapr_agents.agents.schemas import ConversationSummary
 from dapr_agents.types import (
     AgentError,
     AssistantMessage,
@@ -140,7 +141,16 @@ class TestAgent:
         mock_response = Mock(spec=LLMChatResponse)
         assistant_msg = AssistantMessage(content="Hello!")
         mock_response.get_message.return_value = assistant_msg
-        basic_agent.llm.generate.return_value = mock_response
+
+        # Mock summary response for ConversationSummary
+        summary_model = ConversationSummary(summary="Test conversation summary")
+
+        def generate_side_effect(*args, **kwargs):
+            if kwargs.get("response_format") == ConversationSummary:
+                return summary_model
+            return mock_response
+
+        basic_agent.llm.generate.side_effect = generate_side_effect
 
         result = await basic_agent._run_agent(
             input_data="Hello", instance_id="test-123"
@@ -170,16 +180,21 @@ class TestAgent:
         second_assistant = AssistantMessage(content="Final answer")
         second_response.get_message.return_value = second_assistant
 
-        summary_response = Mock(spec=LLMChatResponse)
-        summary_response.get_message.return_value = AssistantMessage(
-            content="Summary of conversation."
-        )
+        # Mock summary response for ConversationSummary
+        summary_model = ConversationSummary(summary="Summary of conversation.")
 
-        agent_with_tools.llm.generate.side_effect = [
-            first_response,
-            second_response,
-            summary_response,
-        ]
+        def generate_side_effect(*args, **kwargs):
+            if kwargs.get("response_format") == ConversationSummary:
+                return summary_model
+            # Return responses in order for regular calls
+            if not hasattr(generate_side_effect, "_call_count"):
+                generate_side_effect._call_count = 0
+            generate_side_effect._call_count += 1
+            if generate_side_effect._call_count == 1:
+                return first_response
+            return second_response
+
+        agent_with_tools.llm.generate.side_effect = generate_side_effect
         agent_with_tools.tools = [echo_tool]
         agent_with_tools.tool_executor = agent_with_tools.tool_executor.__class__(
             tools=[echo_tool]
@@ -333,7 +348,16 @@ class TestAgent:
         mock_response = Mock(spec=LLMChatResponse)
         assistant_msg = AssistantMessage(content="Response")
         mock_response.get_message.return_value = assistant_msg
-        basic_agent.llm.generate.return_value = mock_response
+
+        # Mock summary response for ConversationSummary
+        summary_model = ConversationSummary(summary="Test conversation summary")
+
+        def generate_side_effect(*args, **kwargs):
+            if kwargs.get("response_format") == ConversationSummary:
+                return summary_model
+            return mock_response
+
+        basic_agent.llm.generate.side_effect = generate_side_effect
 
         result = await basic_agent._run_agent(input_data=None, instance_id="test-123")
 
