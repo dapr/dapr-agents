@@ -509,11 +509,6 @@ class AgentBase:
         if hasattr(self, "_infra"):
             return self._infra.workflow_state
 
-    def save_state(self, workflow_instance_id: str):
-        """Delegate to DaprInfra."""
-        if hasattr(self, "_infra"):
-            return self._infra.save_state(workflow_instance_id)
-
     def save_state(self, workflow_instance_id: str) -> None:
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
