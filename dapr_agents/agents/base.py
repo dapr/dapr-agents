@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union, Coroutine
-from dapr_agents.agents.schemas import AgentWorkflowMessage
+from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
 
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
@@ -43,7 +43,6 @@ from dapr_agents.tool.executor import AgentToolExecutor
 from dapr_agents.types import (
     AgentError,
     AssistantMessage,
-    LLMChatResponse,
     ToolExecutionRecord,
     UserMessage,
 )
@@ -751,15 +750,16 @@ class AgentBase:
         ]
 
         try:
-            response: LLMChatResponse = self.llm.generate(messages=llm_messages)
+            summary_model: ConversationSummary = self.llm.generate(
+                messages=llm_messages,
+                response_format=ConversationSummary,
+            )
         except Exception as exc:  # noqa: BLE001
             raise AgentError(f"LLM summarize failed: {exc}") from exc
 
-        assistant_message = response.get_message()
-        if assistant_message is None:
-            raise AgentError("LLM returned no summary message.")
-
-        summary_content = getattr(assistant_message, "content", "") or ""
+        summary_content = (summary_model.summary or "").strip()
+        if not summary_content:
+            raise AgentError("LLM returned an empty summary.")
 
         summary_message: Dict[str, Any] = {
             "role": "assistant",

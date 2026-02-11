@@ -327,7 +327,7 @@ class DaprInfra:
 
     def purge_state(self, workflow_instance_id: str) -> None:
         """
-        Permanently delete workflow state for the given instance from the state store.
+        Permanently delete workflow state for the given instance from the state store as well as its long-term conversation memory (summaries).
 
         No-op when no state store is configured.
 

@@ -54,6 +54,19 @@ class AgentWorkflowMessage(MessageContent):
     )
 
 
+class ConversationSummary(BaseModel):
+    """
+    Structured summary of a conversation for long-term memory storage.
+    Used as response_format when generating summaries so the LLM returns
+    parseable, consistent output that is easier to store and reuse.
+    """
+
+    summary: str = Field(
+        ...,
+        description="Concise summary of the conversation and tool usage for long-term memory: key facts, decisions, and outcomes.",
+    )
+
+
 class AgentWorkflowEntry(BaseModel):
     """
     Workflow entry data stored in the agent state store.

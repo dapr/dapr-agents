@@ -37,9 +37,7 @@ class ConversationDaprStateMemory(MemoryBase):
         """
         self.dapr_store = DaprStateStore(store_name=self.store_name)
         logger.info(
-            "ConversationDaprStateMemory initialized (store=%s, agent_name=%s)",
-            self.store_name,
-            self.agent_name,
+            f"ConversationDaprStateMemory initialized (store={self.store_name}, agent_name={self.agent_name})",
         )
         super().model_post_init(__context)
 
@@ -104,19 +102,12 @@ class ConversationDaprStateMemory(MemoryBase):
             except Exception as exc:
                 if attempt == max_attempts:
                     logger.exception(
-                        "Failed to add message to workflow instance %s after %s attempts: %s",
-                        key,
-                        max_attempts,
-                        exc,
+                        f"Failed to add message to workflow instance {key} after {max_attempts} attempts: {exc}",
                     )
                     raise
                 else:
                     logger.warning(
-                        "Conflict adding message to workflow instance %s (attempt %s/%s): %s, retrying...",
-                        key,
-                        attempt,
-                        max_attempts,
-                        exc,
+                        f"Conflict adding message to workflow instance {key} (attempt {attempt}/{max_attempts}): {exc}, retrying...",
                     )
                     # Brief exponential backoff with jitter
                     import time
@@ -137,9 +128,7 @@ class ConversationDaprStateMemory(MemoryBase):
             workflow_instance_id: Workflow instance id for these messages.
         """
         logger.info(
-            "Adding %s messages to workflow instance %s",
-            len(messages),
-            workflow_instance_id,
+            f"Adding {len(messages)} messages to workflow instance {workflow_instance_id}"
         )
         for message in messages:
             self.add_message(message, workflow_instance_id)
@@ -193,9 +182,7 @@ class ConversationDaprStateMemory(MemoryBase):
             if raw_messages:
                 messages = raw_messages[:limit]
                 logger.info(
-                    "Retrieved %s messages for workflow instance %s",
-                    len(messages),
-                    workflow_instance_id,
+                    f"Retrieved {len(messages)} messages for workflow instance {workflow_instance_id}",
                 )
                 return messages
         return []
@@ -211,7 +198,7 @@ class ConversationDaprStateMemory(MemoryBase):
             Response object from the Dapr state store with 'data' containing messages as JSON.
         """
         key = self._memory_key(workflow_instance_id)
-        logger.debug("Executing query for workflow instance %s", workflow_instance_id)
+        logger.debug(f"Executing query for workflow instance {workflow_instance_id}")
         states_metadata = {"contentType": "application/json"}
         response = self.dapr_store.get_state(key, state_metadata=states_metadata)
         return response
@@ -226,5 +213,5 @@ class ConversationDaprStateMemory(MemoryBase):
         key = self._memory_key(workflow_instance_id)
         self.dapr_store.delete_state(key)
         logger.info(
-            "Memory reset for workflow instance %s completed.", workflow_instance_id
+            f"Memory reset for workflow instance {workflow_instance_id} completed."
         )
