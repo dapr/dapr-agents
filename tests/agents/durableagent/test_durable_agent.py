@@ -602,7 +602,6 @@ class TestDurableAgent:
         """Test accessing last_message from instance state."""
         from datetime import datetime, timezone
 
-        instance_id = "test-instance-123"
         last_msg = AgentWorkflowMessage(role="assistant", content="Last message")
         entry = AgentWorkflowEntry(
             source="test_source",

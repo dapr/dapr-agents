@@ -512,12 +512,12 @@ class AgentBase:
     def save_state(self, workflow_instance_id: str):
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
-            return self._infra.save_state(workflow_instance_id=workflow_instance_id)
+            return self._infra.save_state(workflow_instance_id)
 
     def save_state(self, workflow_instance_id: str) -> None:
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
-            return self._infra.save_state(workflow_instance_id=workflow_instance_id)
+            return self._infra.save_state(workflow_instance_id)
 
     def get_state(self, instance_id: str) -> Optional[Any]:
         """Delegate to DaprInfra."""
@@ -996,7 +996,7 @@ class AgentBase:
             if hasattr(entry, "last_message"):
                 entry.last_message = message_model  # type: ignore[attr-defined]
 
-        self.save_state(workflow_instance_id=instance_id)
+        self.save_state(instance_id)
 
     def _save_assistant_message(
         self, instance_id: str, assistant_message: Dict[str, Any]
