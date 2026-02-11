@@ -328,7 +328,7 @@ def run_quickstart_or_examples_script(
             # Use absolute path for Python command
             python_cmd = str(venv_python.absolute())
 
-        # When using trigger_curl with a fixed app_port, 
+        # When using trigger_curl with a fixed app_port,
         # avoid bind conflicts by using a free port if the requested one is in use (e.g. from a previous test).
         if trigger_curl and app_port is not None:
             if _is_port_in_use("127.0.0.1", app_port):
@@ -728,7 +728,14 @@ def _replace_url_port(url: str, port: int) -> str:
     hostname = parsed.hostname or "localhost"
     new_netloc = f"{hostname}:{port}" if port else hostname
     return urlunparse(
-        (parsed.scheme, new_netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+        (
+            parsed.scheme,
+            new_netloc,
+            parsed.path,
+            parsed.params,
+            parsed.query,
+            parsed.fragment,
+        )
     )
 
 
@@ -1410,9 +1417,7 @@ def _run_with_curl_trigger(
                     f"Port {app_port} still in use after 15s (next test may use dynamic port)."
                 )
 
-        return subprocess.CompletedProcess(
-            cmd, returncode, combined_stdout, stderr
-        )
+        return subprocess.CompletedProcess(cmd, returncode, combined_stdout, stderr)
 
     except Exception as e:
         # Make sure to clean up the process
@@ -1523,9 +1528,7 @@ def _run_with_pubsub_trigger(
         if _wait_for_port_free("127.0.0.1", dapr_http_port, timeout=15):
             logger.info(f"Port {dapr_http_port} released.")
         else:
-            logger.warning(
-                f"Port {dapr_http_port} still in use after 15s."
-            )
+            logger.warning(f"Port {dapr_http_port} still in use after 15s.")
 
         # Combine outputs
         combined_stdout = f"{stdout}\n\n--- Pubsub Trigger ---\n{pubsub_output}"

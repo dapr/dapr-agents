@@ -256,7 +256,9 @@ class TestHelloWorldQuickstart:
             "Workflow started:" in combined
             or "Recommendation" in combined
             or "Final Recommendation" in combined
-        ), f"Expected workflow output in combined stdout+stderr. Got: {combined[:500]!r}..."
+        ), (
+            f"Expected workflow output in combined stdout+stderr. Got: {combined[:500]!r}..."
+        )
 
     def test_10_durable_agent_tracing(self, dapr_runtime):  # noqa: ARG002
         """Test durable agent tracing example (10_durable_agent_tracing.py)."""

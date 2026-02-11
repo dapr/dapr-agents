@@ -175,9 +175,14 @@ class AgentBase:
                 with DaprClient(http_timeout_seconds=10) as _client:
                     resp: GetMetadataResponse = _client.get_metadata()
                     self.appid = resp.application_id
-                    components: Sequence[RegisteredComponents] = resp.registered_components
+                    components: Sequence[RegisteredComponents] = (
+                        resp.registered_components
+                    )
                     for component in components:
-                        if "state" in component.type and component.name == "agent-memory":
+                        if (
+                            "state" in component.type
+                            and component.name == "agent-memory"
+                        ):
                             memory = AgentMemoryConfig(
                                 store=ConversationDaprStateMemory(
                                     store_name=component.name,
@@ -224,7 +229,9 @@ class AgentBase:
                                     else {}
                                 )
                                 for key, value in self._runtime_conf.items():
-                                    logger.debug(f"Runtime configuration: {key}={value}")
+                                    logger.debug(
+                                        f"Runtime configuration: {key}={value}"
+                                    )
                             except json.JSONDecodeError:
                                 logger.warning(
                                     "Failed to decode agent runtime configuration JSON. Using empty configuration."
@@ -534,10 +541,10 @@ class AgentBase:
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
             return self._infra.get_agents_metadata(
-            exclude_self=exclude_self,
-            exclude_orchestrator=exclude_orchestrator,
-            team=team,
-        )
+                exclude_self=exclude_self,
+                exclude_orchestrator=exclude_orchestrator,
+                team=team,
+            )
 
     def sync_system_messages(self, instance_id, all_messages):
         """Delegate to DaprInfra."""
