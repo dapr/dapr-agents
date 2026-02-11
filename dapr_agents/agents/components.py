@@ -775,22 +775,6 @@ class DaprInfra:
                 state_options=self._save_options,
             )
 
-    # def _get_entry_container(self) -> Optional[dict]:
-    #     """
-    #     Return the container mapping for workflow entries, if any.
-
-    #     Returns:
-    #         A mutable mapping (e.g., dict) of instance_id -> entry, or None if
-    #         the underlying state model does not expose such a container.
-
-    #     Notes:
-    #         Prefer a caller-provided hook via `AgentStateConfig.entry_container_getter`.
-    #         Falls back to `model.instances` for legacy/default shapes.
-    #     """
-    #     if self._entry_container_getter:
-    #         return self._entry_container_getter(self._state_model)
-    #     return getattr(self._state_model, "instances", None)
-
     @staticmethod
     def _coerce_datetime(value: Optional[Any]) -> datetime:
         """

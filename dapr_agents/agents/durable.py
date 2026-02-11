@@ -561,8 +561,13 @@ class DurableAgent(AgentBase):
                 agents_formatted = orch_state.get("agents", "")
 
                 if turn > 1:
-                    container = self._get_entry_container()
-                    entry = container.get(instance_id) if container else None
+                    try:
+                        entry = self._infra.get_state(instance_id)
+                    except Exception:
+                        logger.exception(
+                            f"Failed to get workflow state for instance_id: {instance_id}"
+                        )
+                        raise
                     messages = (
                         getattr(entry, "messages", [])
                         if entry and hasattr(entry, "messages")
@@ -1609,14 +1614,20 @@ class DurableAgent(AgentBase):
         Args:
             payload: Dict with 'instance_id', 'plan_message', and 'time'.
         """
-        if self.state_store:
-            self.load_state()
 
         instance_id = payload.get("instance_id")
+        if self.state_store:
+            self._infra.load_state(instance_id)
+
         plan_message = payload.get("plan_message")
 
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
 
         if entry is not None and hasattr(entry, "messages"):
             plan_message_model = (
