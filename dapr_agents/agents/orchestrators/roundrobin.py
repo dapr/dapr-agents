@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from datetime import timedelta
 from typing import Any, Dict, Optional, Callable
 
@@ -49,6 +50,12 @@ class RoundRobinOrchestrator(OrchestratorBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
+        warnings.warn(
+            "RoundRobinOrchestrator is deprecated and will be removed in a future version. "
+            "Use DurableAgent with orchestration_mode='roundrobin' in AgentExecutionConfig instead. ",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(
             name=name,
             pubsub=pubsub,
