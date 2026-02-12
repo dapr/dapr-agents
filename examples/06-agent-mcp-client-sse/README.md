@@ -11,7 +11,7 @@ This quickstart demonstrates how to build a simple agent that uses tools exposed
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -130,7 +130,7 @@ dapr run \
   --app-port 8001 \
   --resources-path $temp_resources_folder \
   -- python app.py
-  
+
 rm -rf $temp_resources_folder
 ```
 

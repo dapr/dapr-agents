@@ -12,7 +12,7 @@ This quickstart demonstrates how to use AI agents as activities within Dapr work
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -174,7 +174,7 @@ uv run dapr run --app-id agent-workflow --resources-path $temp_resources_folder 
 
 **How it works:**
 1. The `extract` activity uses an agent to extract the destination from the user query
-2. The `plan` activity uses a different agent to create a 3-day outline for that destination  
+2. The `plan` activity uses a different agent to create a 3-day outline for that destination
 3. The `expand` activity uses a third agent to expand the outline into a detailed itinerary
 4. Each agent has specialized instructions and capabilities for its specific role
 
@@ -254,7 +254,7 @@ View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
 - Each agent operates independently with its own instructions and capabilities
 - Agents receive input from previous workflow steps and pass output to subsequent steps
 
-### Workflow Orchestration  
+### Workflow Orchestration
 - The `@workflow` decorator defines the orchestration logic
 - `yield ctx.call_activity()` executes activities sequentially
 - Agent results are automatically serialized and passed between activities
@@ -280,7 +280,7 @@ Dapr Agent workflows with observability provide:
 Dapr Agent workflows leverage Dapr's core capabilities:
 
 - **Durability**: Workflows survive process restarts or crashes
-- **State Management**: Workflow state is persisted in a distributed state store  
+- **State Management**: Workflow state is persisted in a distributed state store
 - **Actor Model**: Agent activities run as reliable, stateful actors within the workflow
 - **Event Handling**: Workflows can react to external events and agent responses
 
@@ -290,7 +290,7 @@ Dapr Agent workflows leverage Dapr's core capabilities:
 2. **Redis Connection**: Ensure Redis is running (automatically installed by Dapr)
 3. **Dapr Initialization**: If components aren't found, verify Dapr is initialized with `dapr init`
 4. **API Keys**: Check your OpenAI/NVIDIA API keys if authentication fails
-5. **Phoenix Connection Issues**: 
+5. **Phoenix Connection Issues**:
    - Verify Phoenix server is running: `docker compose ps`
    - Check port availability: `netstat -an | grep 6006`
 6. **Missing Traces**:

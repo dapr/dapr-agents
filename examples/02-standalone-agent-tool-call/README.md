@@ -14,7 +14,7 @@ This quickstart demonstrates how to create an AI agent with custom tools using D
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -274,7 +274,7 @@ Dapr Agents observability provides:
 
 ### Troubleshooting Observability
 
-1. **Phoenix Connection Issues**: 
+1. **Phoenix Connection Issues**:
    - Verify Phoenix server is running: `docker compose ps`
    - Check port availability: `netstat -an | grep 6006`
 

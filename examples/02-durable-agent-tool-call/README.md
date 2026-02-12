@@ -12,7 +12,7 @@ This quickstart builds on the standalone version and shows how to run the same w
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -102,7 +102,7 @@ dapr init
 ```
 
 ## Running the Example
- 
+
 Durable agents maintain state across runs, enabling workflows that require persistence, recovery, and coordination. This is useful for long-running tasks, multi-step workflows, and agent collaboration.
 
 Choose one of the following entry points depending on how you want to host the agent:
@@ -276,7 +276,7 @@ Dapr Agents observability provides:
 
 ### Troubleshooting Observability
 
-1. **Phoenix Connection Issues**: 
+1. **Phoenix Connection Issues**:
    - Verify Phoenix server is running: `docker compose ps`
    - Check port availability: `netstat -an | grep 6006`
 
