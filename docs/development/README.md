@@ -49,7 +49,7 @@ Sometimes you need to work with local changes from other Dapr repositories.
 
 ### Using Local Python Dapr Package Changes
 If you need to work with additional Python Dapr packages during local development,
-for example, those from [python-sdk](https://github.com/dapr/python-sdk) or [durabletask-python](https://github.com/dapr/durabletask-python), 
+for example, those from [python-sdk](https://github.com/dapr/python-sdk) or [durabletask-python](https://github.com/dapr/durabletask-python),
 then you can follow the same steps above and then install your local versions.
 Adjust the paths as needed for your setup.
 
@@ -118,7 +118,7 @@ uv run pytest --cov=dapr_agents
 
 ### Integration Tests
 
-> Note: we do not use `pytest-docker-compose` intentionally here because it is not compatible with Python2, 
+> Note: we do not use `pytest-docker-compose` intentionally here because it is not compatible with Python2,
 and requires an old version of pyyaml < version6, but the rest of our project requires >6 for this pkg.
 
 Requires Dapr CLI to be installed.
@@ -164,6 +164,83 @@ uv run mypy --config-file mypy.ini
 ## Run all combined
 uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"
 ```
+
+## Pre-Push Hooks
+
+This project uses pre-commit hooks to automatically run quality checks before pushing code to GitHub. These hooks catch issues in ~10 seconds instead of waiting 5-10 minutes for CI.
+
+### Installation
+
+1. Install pre-commit framework (if not already installed):
+   ```bash
+   uv pip install pre-commit
+   # or
+   pip install pre-commit
+   ```
+
+2. Install the git hooks:
+   ```bash
+   pre-commit install --hook-type pre-push
+   ```
+
+3. (Optional) Run manually on all files to verify setup:
+   ```bash
+   pre-commit run --all-files --hook-stage pre-push
+   ```
+
+### What Gets Checked
+
+When you run `git push`, the following checks run automatically:
+
+1. **File hygiene** - Trailing whitespace, end-of-file fixes
+2. **YAML validation** - Check component config files
+3. **Code formatting** - Ruff auto-formats code
+4. **Linting** - Flake8 checks for code issues
+5. **Type checking** - MyPy validates types
+6. **Unit tests** - Pytest runs ~256 unit tests (excluding integration tests)
+
+These checks mirror the CI/CD pipeline, catching issues before they reach GitHub.
+
+### Running Hooks Manually
+
+```bash
+# Run all pre-push hooks without pushing
+pre-commit run --all-files --hook-stage pre-push
+
+# Run individual checks (same commands as before)
+uv run ruff format dapr_agents tests
+uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+uv run mypy --config-file mypy.ini
+uv run pytest tests -m "not integration"
+```
+
+### Skipping Hooks (Emergency Only)
+
+If you absolutely must push without running hooks:
+
+```bash
+git push --no-verify
+```
+
+**Note:** Use sparingly - CI will still catch issues, but this defeats the purpose of local validation.
+
+### Troubleshooting
+
+**"Hook failed to run"**
+- Ensure dependencies are installed: `uv sync --group dev --group test`
+
+**"Tests are failing"**
+- Run tests locally to see details: `uv run pytest tests -m "not integration" -v`
+- Fix failing tests before pushing
+
+**"First run is slow"**
+- First-time execution downloads pre-commit repositories (~30s)
+- Subsequent runs are cached and fast (~10s)
+
+**Performance**
+- Expected runtime: 8-12 seconds
+- Only checks staged files where possible
+- Integration tests NOT included (too slow - run separately or in CI)
 
 ## Development Workflow
 

@@ -12,7 +12,7 @@ This quickstart demonstrates how to build a simple agent that uses tools exposed
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:

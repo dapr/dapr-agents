@@ -12,7 +12,7 @@ This quickstart demonstrates how to build a simple agent that uses tools exposed
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -130,4 +130,4 @@ To explore SSE transport, check out the related [MCP with SSE Transport quicksta
 
 After completing this quickstart, you might want to explore:
 - Checkout SSE transport example [MCP with SSE Transport quickstart](../07-agent-mcp-client-sse).
-- Exploring the [MCP specification](https://modelcontextprotocol.io/) for advanced usage 
+- Exploring the [MCP specification](https://modelcontextprotocol.io/) for advanced usage
