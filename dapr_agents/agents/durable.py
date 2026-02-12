@@ -797,6 +797,7 @@ class DurableAgent(AgentBase):
             summary_response = yield ctx.call_activity(
                 self.call_llm,
                 input={
+                    "instance_id": instance_id,
                     "task": summary_prompt,
                     "time": ctx.current_utc_datetime.isoformat(),
                 },
