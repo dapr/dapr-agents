@@ -1,0 +1,66 @@
+# See https://pre-commit.com for more information
+default_install_hook_types: [pre-push]
+default_stages: [pre-push]
+
+repos:
+  # Basic file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        stages: [pre-push]
+      - id: end-of-file-fixer
+        name: Fix end of files
+        stages: [pre-push]
+      - id: check-yaml
+        name: Check YAML files
+        stages: [pre-push]
+        exclude: ^(examples|quickstarts)/
+
+  # Code formatting with Ruff
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: Ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+        files: ^(dapr_agents|tests)/
+        stages: [pre-push]
+
+  # Linting with Flake8
+  - repo: local
+    hooks:
+      - id: flake8
+        name: Flake8 linting
+        entry: uv run flake8 dapr_agents tests
+        args: ['--ignore=E501,F401,W503,E203,E704']
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+  # Type checking with MyPy
+  - repo: local
+    hooks:
+      - id: mypy
+        name: MyPy type checking
+        entry: uv run mypy
+        args: [--config-file=mypy.ini]
+        language: system
+        types: [python]
+        files: ^dapr_agents/
+        stages: [pre-push]
+        pass_filenames: false
+
+  # Unit tests
+  - repo: local
+    hooks:
+      - id: pytest
+        name: Run unit tests
+        entry: uv run pytest
+        args: [tests, -m, "not integration", --tb=short, -q]
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
