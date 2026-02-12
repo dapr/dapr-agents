@@ -23,10 +23,9 @@ repos:
     hooks:
       - id: ruff-format
         name: Ruff format
-        entry: uv run ruff format
+        entry: uv run ruff format dapr_agents tests
         language: system
-        types: [python]
-        files: ^(dapr_agents|tests)/
+        pass_filenames: false
         stages: [pre-push]
 
   # Linting with Flake8
@@ -48,10 +47,8 @@ repos:
         entry: uv run mypy
         args: [--config-file=mypy.ini]
         language: system
-        types: [python]
-        files: ^dapr_agents/
-        stages: [pre-push]
         pass_filenames: false
+        stages: [pre-push]
 
   # Unit tests
   - repo: local
@@ -61,6 +58,5 @@ repos:
         entry: uv run pytest
         args: [tests, -m, "not integration", --tb=short, -q]
         language: system
-        types: [python]
         pass_filenames: false
         stages: [pre-push]
