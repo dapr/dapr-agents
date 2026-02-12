@@ -1,0 +1,461 @@
+{
+  "$defs": {
+    "AgentMetadata": {
+      "description": "Metadata about an agent's configuration and capabilities.",
+      "properties": {
+        "appid": {
+          "description": "Dapr application ID of the agent",
+          "title": "Appid",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type of the agent (e.g., standalone, durable)",
+          "title": "Type",
+          "type": "string"
+        },
+        "orchestrator": {
+          "default": false,
+          "description": "Indicates if the agent is an orchestrator",
+          "title": "Orchestrator",
+          "type": "boolean"
+        },
+        "role": {
+          "default": "",
+          "description": "Role of the agent",
+          "title": "Role",
+          "type": "string"
+        },
+        "goal": {
+          "default": "",
+          "description": "High-level objective of the agent",
+          "title": "Goal",
+          "type": "string"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Instructions for the agent",
+          "title": "Instructions"
+        },
+        "statestore": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dapr state store component name used by the agent",
+          "title": "Statestore"
+        },
+        "system_prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "System prompt guiding the agent's behavior",
+          "title": "System Prompt"
+        },
+        "framework": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Framework or library the agent is built with",
+          "title": "Framework"
+        }
+      },
+      "required": [
+        "appid",
+        "type"
+      ],
+      "title": "AgentMetadata",
+      "type": "object"
+    },
+    "LLMMetadata": {
+      "description": "LLM configuration information.",
+      "properties": {
+        "client": {
+          "description": "LLM client used by the agent",
+          "title": "Client",
+          "type": "string"
+        },
+        "provider": {
+          "description": "LLM provider used by the agent",
+          "title": "Provider",
+          "type": "string"
+        },
+        "api": {
+          "default": "unknown",
+          "description": "API type used by the LLM client",
+          "title": "Api",
+          "type": "string"
+        },
+        "model": {
+          "default": "unknown",
+          "description": "Model name or identifier",
+          "title": "Model",
+          "type": "string"
+        },
+        "component_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dapr component name for the LLM client",
+          "title": "Component Name"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Base URL for the LLM API if applicable",
+          "title": "Base Url"
+        },
+        "azure_endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure endpoint if using Azure OpenAI",
+          "title": "Azure Endpoint"
+        },
+        "azure_deployment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure deployment name if using Azure OpenAI",
+          "title": "Azure Deployment"
+        },
+        "prompt_template": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Prompt template used by the agent",
+          "title": "Prompt Template"
+        }
+      },
+      "required": [
+        "client",
+        "provider"
+      ],
+      "title": "LLMMetadata",
+      "type": "object"
+    },
+    "MemoryMetadata": {
+      "description": "Memory configuration information.",
+      "properties": {
+        "type": {
+          "description": "Type of memory used by the agent",
+          "title": "Type",
+          "type": "string"
+        },
+        "statestore": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dapr state store component name for memory",
+          "title": "Statestore"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "MemoryMetadata",
+      "type": "object"
+    },
+    "PubSubMetadata": {
+      "description": "Pub/Sub configuration information.",
+      "properties": {
+        "name": {
+          "description": "Pub/Sub component name",
+          "title": "Name",
+          "type": "string"
+        },
+        "broadcast_topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pub/Sub topic for broadcasting messages",
+          "title": "Broadcast Topic"
+        },
+        "agent_topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pub/Sub topic for direct agent messages",
+          "title": "Agent Topic"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PubSubMetadata",
+      "type": "object"
+    },
+    "RegistryMetadata": {
+      "description": "Registry configuration information.",
+      "properties": {
+        "statestore": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the statestore component for the registry",
+          "title": "Statestore"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the team registry",
+          "title": "Name"
+        }
+      },
+      "title": "RegistryMetadata",
+      "type": "object"
+    },
+    "ToolMetadata": {
+      "description": "Metadata about a tool available to the agent.",
+      "properties": {
+        "tool_name": {
+          "description": "Name of the tool",
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_description": {
+          "description": "Description of the tool's functionality",
+          "title": "Tool Description",
+          "type": "string"
+        },
+        "tool_args": {
+          "description": "Arguments for the tool",
+          "title": "Tool Args",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_name",
+        "tool_description",
+        "tool_args"
+      ],
+      "title": "ToolMetadata",
+      "type": "object"
+    }
+  },
+  "description": "Schema for agent metadata including schema version.",
+  "properties": {
+    "schema_version": {
+      "description": "Version of the schema used for the agent metadata.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "agent": {
+      "$ref": "#/$defs/AgentMetadata",
+      "description": "Agent configuration and capabilities"
+    },
+    "name": {
+      "description": "Name of the agent",
+      "title": "Name",
+      "type": "string"
+    },
+    "registered_at": {
+      "description": "ISO 8601 timestamp of registration",
+      "title": "Registered At",
+      "type": "string"
+    },
+    "pubsub": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PubSubMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Pub/sub configuration if enabled"
+    },
+    "memory": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Memory configuration if enabled"
+    },
+    "llm": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LLMMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "LLM configuration"
+    },
+    "registry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RegistryMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Registry configuration"
+    },
+    "tools": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/ToolMetadata"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Available tools",
+      "title": "Tools"
+    },
+    "max_iterations": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Maximum iterations for agent execution",
+      "title": "Max Iterations"
+    },
+    "tool_choice": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Tool choice strategy",
+      "title": "Tool Choice"
+    },
+    "agent_metadata": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Additional metadata about the agent",
+      "title": "Agent Metadata"
+    }
+  },
+  "required": [
+    "schema_version",
+    "agent",
+    "name",
+    "registered_at"
+  ],
+  "title": "AgentMetadataSchema",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "0.11.1"
+}
