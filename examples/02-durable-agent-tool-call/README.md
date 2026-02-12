@@ -152,7 +152,7 @@ When running `durable_weather_agent_serve.py`, the runner installs default REST 
 **Start a new workflow:**
 
 ```bash
-curl -i -X POST http://localhost:8001/run \
+curl -i -X POST http://localhost:8001/agent/run \
   -H "Content-Type: application/json" \
   -d '{"task": "What'\''s the weather in New York?"}'
 ```
@@ -162,7 +162,7 @@ You'll receive a workflow ID in response, which you can use to track progress.
 **Check workflow status:**
 
 ```bash
-curl -i -X GET http://localhost:8001/run/WORKFLOW_ID
+curl -i -X GET http://localhost:8001/agent/instances/WORKFLOW_ID
 
 # You can also use the Dapr workflow API if you prefer:
 curl -i -X GET http://localhost:3500/v1.0/workflows/dapr/WORKFLOW_ID

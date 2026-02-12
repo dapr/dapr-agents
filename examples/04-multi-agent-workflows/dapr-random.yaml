@@ -5,6 +5,7 @@ common:
   logLevel: info
   appLogDestination: console
   daprdLogDestination: console
+  scheudlerHostAddress: 127.0.0.1:50006
 
 apps:
 - appID: FrodoApp

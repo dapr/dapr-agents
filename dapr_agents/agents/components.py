@@ -84,8 +84,9 @@ class DaprInfra:
         # -----------------------------
         self._state = state
         self.state_store = state.store if state and state.store else None
-        override_state_key = state.state_key if state else None
-        self.state_key = override_state_key or f"{self.name}:workflow_state"
+        override_state_key = state.state_key_prefix if state else None
+        _normalized_name = self.name.replace(" ", "-").lower()
+        self.state_key_prefix = override_state_key or f"{_normalized_name}:_workflow"
 
         bundle = None
         if state is not None:
@@ -103,30 +104,17 @@ class DaprInfra:
 
         if bundle is None:
             logger.debug(
-                "No state bundle for %s; using default AgentWorkflowState schema",
+                "No state bundle for %s; using default agent workflow entry schema",
                 self.name,
             )
             bundle = DEFAULT_AGENT_WORKFLOW_BUNDLE
 
-        # I considered splitting into separate classes, but that would duplicate several lines
-        # of infrastructure code (pub/sub, state operations, registry mutations). The current design
-        # uses the Strategy Pattern to share infrastructure while maintaining type-safe schemas per
-        # agent/orchestrator type. The "complexity" is just 5 lines of bundle extraction vs maintaining
-        # duplicate codebases.
-        self._state_model_cls = bundle.state_model_cls
+        self._entry_model_cls = bundle.entry_model_cls
         self._message_model_cls = bundle.message_model_cls
         self._entry_factory = bundle.entry_factory
         self._message_coercer = bundle.message_coercer
-        self._entry_container_getter = bundle.entry_container_getter
 
-        # Seed the default model from config or empty instance
-        if state and state.default_state is not None:
-            default_state_model = self._state_model_cls.model_validate(
-                state.default_state
-            )
-        else:
-            default_state_model = self._state_model_cls()
-        self._state_default_model: BaseModel = default_state_model
+        self._state_default_model: BaseModel = self._default_entry_model()
         self._state_model: BaseModel = self._state_default_model.model_copy(deep=True)
 
         # -----------------------------
@@ -196,7 +184,7 @@ class DaprInfra:
         """Return the workflow state as a JSON-serializable dict."""
         return self._state_model.model_dump(mode="json")
 
-    def load_state(self) -> None:
+    def load_state(self, workflow_instance_id: str) -> None:
         """
         Load the durable workflow state snapshot into memory.
 
@@ -207,13 +195,19 @@ class DaprInfra:
             self._state_model = self._initial_state_model()
             return
 
+        if not workflow_instance_id:
+            raise ValueError(
+                "workflow_instance_id must be provided to load workflow state"
+            )
+
+        key = f"{self.state_key_prefix}_{workflow_instance_id}".lower()
         snapshot = self.state_store.load(
-            key=self.state_key,
+            key=key,
             default=self._initial_state(),
         )
         try:
             if isinstance(snapshot, dict):
-                self._state_model = self._state_model_cls.model_validate(snapshot)
+                self._state_model = self._entry_model_cls.model_validate(snapshot)
             else:
                 raise TypeError(f"Unexpected state snapshot type {type(snapshot)}")
         except (ValidationError, TypeError) as exc:
@@ -222,7 +216,46 @@ class DaprInfra:
             )
             self._state_model = self._initial_state_model()
 
-    def save_state(self) -> None:
+    def get_state(self, workflow_instance_id: str) -> BaseModel:
+        """
+        Get the workflow state for a given workflow instance ID (read + set in-memory).
+
+        Loads the entry from the store, validates it as the bundle's entry Pydantic model,
+        sets it as the current in-memory state (so a subsequent save_state persists it),
+        and returns it. Callers should mutate the returned model and then call save_state.
+
+        Args:
+            workflow_instance_id: The ID of the workflow instance to get the state for.
+
+        Returns:
+            The workflow entry model (e.g. AgentWorkflowEntry, LLMWorkflowEntry) for that instance.
+        """
+        if not self.state_store:
+            logger.debug(
+                "No state store configured; returning current in-memory state."
+            )
+            return self._state_model
+
+        key = f"{self.state_key_prefix}_{workflow_instance_id}".lower()
+        snapshot = self.state_store.load(
+            key=key,
+            default=self._initial_state(),
+        )
+        try:
+            if isinstance(snapshot, dict):
+                entry = self._entry_model_cls.model_validate(snapshot)
+                self._state_model = entry
+                return entry
+            raise TypeError(f"Unexpected state snapshot type {type(snapshot)}")
+        except (ValidationError, TypeError) as exc:
+            logger.warning(
+                "Invalid workflow state encountered (%s); returning default entry.", exc
+            )
+            default = self._initial_state_model()
+            self._state_model = default
+            return default
+
+    def save_state(self, workflow_instance_id: str) -> None:
         """
         Persist the current workflow state with optimistic concurrency.
 
@@ -233,7 +266,12 @@ class DaprInfra:
             logger.debug("No state store configured; skipping state persistence.")
             return
 
-        key = self.state_key
+        if not workflow_instance_id:
+            raise ValueError(
+                "workflow_instance_id must be provided to save workflow state"
+            )
+
+        key = f"{self.state_key_prefix}_{workflow_instance_id}".lower()
         meta = self._state_metadata_for_key(key)
         attempts = max(1, min(self._max_etag_attempts, 10))
 
@@ -287,65 +325,61 @@ class DaprInfra:
                     return
                 time.sleep(min(0.25 * attempt, 1.0) * (1 + random.uniform(0, 0.25)))
 
+    def purge_state(self, workflow_instance_id: str) -> None:
+        """
+        Permanently delete workflow state for the given instance from the state store as well as its long-term conversation memory (summaries).
+
+        No-op when no state store is configured.
+
+        Args:
+            workflow_instance_id: Workflow instance id whose state should be removed.
+        """
+        if not self.state_store:
+            logger.debug("No state store configured; skipping purge_state.")
+            return
+
+        if not workflow_instance_id:
+            raise ValueError(
+                "workflow_instance_id must be provided to purge workflow state"
+            )
+
+        key = f"{self.state_key_prefix}_{workflow_instance_id}".lower()
+        meta = self._state_metadata_for_key(key)
+        try:
+            self.state_store.delete(key=key, state_metadata=meta)
+            logger.info(
+                "Purged workflow state for instance_id=%s", workflow_instance_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to purge state for instance_id=%s: %s",
+                workflow_instance_id,
+                exc,
+            )
+
+    def _default_entry_model(self) -> BaseModel:
+        """Return a default workflow entry model (one-key-per-instance)."""
+        if self._entry_factory is not None:
+            return self._entry_factory(
+                instance_id="",
+                input_value="",
+                triggering_workflow_instance_id=None,
+                start_time=datetime.now(timezone.utc),
+            )
+        # Fallback: minimal entry from schema (agent entry has no required fields).
+        fields = self._entry_model_cls.model_fields
+        kwargs: Dict[str, Any] = {}
+        if "input" in fields:
+            kwargs["input"] = ""
+        return self._entry_model_cls(**kwargs)
+
     def _initial_state(self) -> Dict[str, Any]:
-        """Return a deep-copied default state as a plain dict."""
+        """Return a deep-copied default state as a plain dict (entry shape)."""
         return self._state_default_model.model_copy(deep=True).model_dump(mode="json")
 
     def _initial_state_model(self) -> BaseModel:
-        """Return a deep-copied default state model."""
+        """Return a deep-copied default state model (entry)."""
         return self._state_default_model.model_copy(deep=True)
-
-    def ensure_instance_exists(
-        self,
-        *,
-        instance_id: str,
-        input_value: Any,
-        triggering_workflow_instance_id: Optional[str],
-        time: Optional[datetime] = None,
-    ) -> None:
-        """
-        Ensure a workflow instance entry exists in the state model.
-
-        Uses a pluggable `entry_factory` when provided. If absent, falls back to a
-        best-effort default that assumes an `instances` dict on the root model.
-
-        Args:
-            instance_id: Unique workflow instance identifier.
-            input_value: Input payload used to start the workflow.
-            triggering_workflow_instance_id: Parent workflow instance id, if any.
-            time: Optional start time (defaults to now, UTC).
-
-        Raises:
-            RuntimeError: If a custom entry factory raises and is not handled.
-        """
-        container = self._get_entry_container()
-        if container is None:
-            # No instances concept; nothing to do.
-            return
-        if instance_id in container:
-            return
-
-        start_time = self._coerce_datetime(time)
-
-        if self._entry_factory is not None:
-            entry = self._entry_factory(
-                instance_id=instance_id,
-                input_value=input_value,
-                triggering_workflow_instance_id=triggering_workflow_instance_id,
-                start_time=start_time,
-            )
-        else:
-            # Default (legacy) AgentWorkflowEntry-compatible record
-            entry = AgentWorkflowEntry(
-                input_value=str(input_value),
-                workflow_instance_id=instance_id,
-                triggering_workflow_instance_id=triggering_workflow_instance_id,
-                workflow_name=None,
-                session_id=None,
-                start_time=start_time,
-                status=DaprWorkflowStatus.RUNNING.value,
-            )
-        container[instance_id] = entry
 
     def sync_system_messages(
         self,
@@ -361,10 +395,13 @@ class DaprInfra:
             instance_id: Workflow instance identifier.
             all_messages: Full (system/user/assistant) list; only 'system' are synced.
         """
-        container = self._get_entry_container()
-        if container is None:
-            return
-        entry = container.get(instance_id)
+        try:
+            entry = self.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
         if entry is None:
             return
 
@@ -737,22 +774,6 @@ class DaprInfra:
                 state_metadata=meta,
                 state_options=self._save_options,
             )
-
-    def _get_entry_container(self) -> Optional[dict]:
-        """
-        Return the container mapping for workflow entries, if any.
-
-        Returns:
-            A mutable mapping (e.g., dict) of instance_id -> entry, or None if
-            the underlying state model does not expose such a container.
-
-        Notes:
-            Prefer a caller-provided hook via `AgentStateConfig.entry_container_getter`.
-            Falls back to `model.instances` for legacy/default shapes.
-        """
-        if self._entry_container_getter:
-            return self._entry_container_getter(self._state_model)
-        return getattr(self._state_model, "instances", None)
 
     @staticmethod
     def _coerce_datetime(value: Optional[Any]) -> datetime:

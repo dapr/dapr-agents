@@ -137,7 +137,7 @@ rm -rf $temp_resources_folder
 3. Send a test request to the agent:
 
 ```bash
-curl -X POST http://localhost:8001/run \
+curl -X POST http://localhost:8001/agent/run \
   -H "Content-Type: application/json" \
   -d '{"task": "What is the weather in New York?"}'
 ```

@@ -1,10 +1,9 @@
 import json
 import logging
-import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import Field, model_validator
+from pydantic import Field
 
 from dapr_agents.memory import MemoryBase
 from dapr_agents.storage.daprstores.statestore import DaprStateStore
@@ -13,47 +12,24 @@ from dapr_agents.types import BaseMessage
 logger = logging.getLogger(__name__)
 
 
-def generate_numeric_session_id() -> int:
-    """
-    Generates a random numeric session ID by extracting digits from a UUID.
-
-    Returns:
-        int: A numeric session ID.
-    """
-    return int("".join(filter(str.isdigit, str(uuid.uuid4()))))
-
-
 class ConversationDaprStateMemory(MemoryBase):
     """
     Manages conversation memory stored in a Dapr state store. Each message in the conversation is saved
-    individually with a unique key and includes a session ID and timestamp for querying and retrieval.
+    individually with a unique key and includes a workflow instance ID and timestamp for querying and retrieval.
+    Key format: {agent_name}:_memory_{workflow_instance_id}
     """
 
     store_name: str = Field(
         default="statestore", description="The name of the Dapr state store."
     )
-    session_id: Optional[Union[str, int]] = Field(
-        default=None, description="Unique identifier for the conversation session."
+    agent_name: str = Field(
+        default="default",
+        description="Agent name for key namespacing; set by the framework in init.",
     )
 
     dapr_store: Optional[DaprStateStore] = Field(
         default=None, init=False, description="Dapr State Store."
     )
-
-    @model_validator(mode="before")
-    def set_session_id(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Sets a numeric session ID if none is provided.
-
-        Args:
-            values (Dict[str, Any]): The dictionary of attribute values before initialization.
-
-        Returns:
-            Dict[str, Any]: Updated values including the generated session ID if not provided.
-        """
-        if not values.get("session_id"):
-            values["session_id"] = generate_numeric_session_id()
-        return values
 
     def model_post_init(self, __context: Any) -> None:
         """
@@ -61,29 +37,32 @@ class ConversationDaprStateMemory(MemoryBase):
         """
         self.dapr_store = DaprStateStore(store_name=self.store_name)
         logger.info(
-            f"ConversationDaprStateMemory initialized with session ID: {self.session_id}"
+            f"ConversationDaprStateMemory initialized (store={self.store_name}, agent_name={self.agent_name})",
         )
         super().model_post_init(__context)
 
-    def _get_message_key(self, message_id: str) -> str:
-        """
-        Generates a unique key for each message using session_id and message_id.
+    def _get_message_key(self, workflow_instance_id: str, message_id: str) -> str:
+        """Composite key for a message: agent_name:_memory_{workflow_instance_id}:{message_id}."""
+        return f"{self._memory_key(workflow_instance_id)}:{message_id}"
 
-        Args:
-            message_id (str): A unique identifier for the message.
+    def _memory_key(self, workflow_instance_id: str) -> str:
+        """Build state store key: agent_name:_memory_{workflow_instance_id}, normalized (spaces->dashes, lower)."""
+        normalized = self.agent_name.replace(" ", "-").lower()
+        return f"{normalized}:_memory_{workflow_instance_id}".lower()
 
-        Returns:
-            str: A composite key for storing individual messages.
-        """
-        return f"{self.session_id}:{message_id}"
-
-    def add_message(self, message: Union[Dict[str, Any], BaseMessage]) -> None:
+    def add_message(
+        self,
+        message: Union[Dict[str, Any], BaseMessage],
+        workflow_instance_id: str,
+    ) -> None:
         """
         Adds a single message to the memory and saves it to the Dapr state store.
 
         Args:
-            message (Union[Dict[str, Any], BaseMessage]): The message to add to the memory.
+            message: The message to add to the memory.
+            workflow_instance_id: Workflow instance id to add message for.
         """
+        key = self._memory_key(workflow_instance_id)
         message = self._convert_to_dict(message)
         message.update(
             {
@@ -97,7 +76,7 @@ class ConversationDaprStateMemory(MemoryBase):
         for attempt in range(1, max_attempts + 1):
             try:
                 response = self.dapr_store.get_state(
-                    self.session_id,
+                    key,
                     state_metadata={"contentType": "application/json"},
                 )
 
@@ -111,7 +90,7 @@ class ConversationDaprStateMemory(MemoryBase):
                 existing.append(message)
                 # Save with etag - will fail if someone else modified it
                 self.dapr_store.save_state(
-                    self.session_id,
+                    key,
                     json.dumps(existing),
                     state_metadata={"contentType": "application/json"},
                     etag=etag,
@@ -123,12 +102,12 @@ class ConversationDaprStateMemory(MemoryBase):
             except Exception as exc:
                 if attempt == max_attempts:
                     logger.exception(
-                        f"Failed to add message to session {self.session_id} after {max_attempts} attempts: {exc}"
+                        f"Failed to add message to workflow instance {key} after {max_attempts} attempts: {exc}",
                     )
                     raise
                 else:
                     logger.warning(
-                        f"Conflict adding message to session {self.session_id} (attempt {attempt}/{max_attempts}): {exc}, retrying..."
+                        f"Conflict adding message to workflow instance {key} (attempt {attempt}/{max_attempts}): {exc}, retrying...",
                     )
                     # Brief exponential backoff with jitter
                     import time
@@ -136,30 +115,39 @@ class ConversationDaprStateMemory(MemoryBase):
 
                     time.sleep(min(0.1 * attempt, 0.5) * (1 + random.uniform(0, 0.25)))
 
-    def add_messages(self, messages: List[Union[Dict[str, Any], BaseMessage]]) -> None:
+    def add_messages(
+        self,
+        messages: List[Union[Dict[str, Any], BaseMessage]],
+        workflow_instance_id: str,
+    ) -> None:
         """
-        Adds multiple messages to the memory and saves each one individually to the Dapr state store.
+        Adds multiple messages to the memory and saves each one to the Dapr state store.
 
         Args:
-            messages (List[Union[Dict[str, Any], BaseMessage]]): A list of messages to add to the memory.
+            messages: A list of messages to add to the memory.
+            workflow_instance_id: Workflow instance id for these messages.
         """
-        logger.info(f"Adding {len(messages)} messages to session {self.session_id}")
+        logger.info(
+            f"Adding {len(messages)} messages to workflow instance {workflow_instance_id}"
+        )
         for message in messages:
-            self.add_message(message)
+            self.add_message(message, workflow_instance_id)
 
     def add_interaction(
         self,
         user_message: Union[Dict[str, Any], BaseMessage],
         assistant_message: Union[Dict[str, Any], BaseMessage],
+        workflow_instance_id: str,
     ) -> None:
         """
         Adds a user-assistant interaction to the memory storage and saves it to the state store.
 
         Args:
-            user_message (Union[Dict[str, Any], BaseMessage]): The user message.
-            assistant_message (Union[Dict[str, Any], BaseMessage]): The assistant message.
+            user_message: The user message.
+            assistant_message: The assistant message.
+            workflow_instance_id: Workflow instance id for this interaction.
         """
-        self.add_messages([user_message, assistant_message])
+        self.add_messages([user_message, assistant_message], workflow_instance_id)
 
     def _decode_message(self, message_data: Union[bytes, str]) -> Dict[str, Any]:
         """
@@ -175,45 +163,55 @@ class ConversationDaprStateMemory(MemoryBase):
             message_data = message_data.decode("utf-8")
         return json.loads(message_data)
 
-    def get_messages(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_messages(
+        self, workflow_instance_id: str, limit: int = 100
+    ) -> List[Dict[str, Any]]:
         """
-        Retrieves messages stored in the state store for the current session_id, with an optional limit.
+        Retrieves messages stored in the state store for the given workflow instance.
 
         Args:
-            limit (int, optional): The maximum number of messages to retrieve. Defaults to 100.
+            workflow_instance_id: Workflow instance id to retrieve messages for.
+            limit: Maximum number of messages to retrieve. Defaults to 100.
 
         Returns:
-            List[Dict[str, Any]]: A list of message dicts with all fields.
+            List of message dicts with all fields.
         """
-        response = self.query_messages(session_id=self.session_id)
+        response = self.query_messages(workflow_instance_id)
         if response and hasattr(response, "data") and response.data:
             raw_messages = json.loads(response.data)
             if raw_messages:
                 messages = raw_messages[:limit]
                 logger.info(
-                    f"Retrieved {len(messages)} messages for session {self.session_id}"
+                    f"Retrieved {len(messages)} messages for workflow instance {workflow_instance_id}",
                 )
                 return messages
         return []
 
-    def query_messages(self, session_id: str) -> Any:
+    def query_messages(self, workflow_instance_id: str) -> Any:
         """
-        Queries messages from the state store for the given session_id.
+        Queries messages from the state store for the given workflow instance.
 
         Args:
-            session_id (str): The session ID to query messages for.
+            workflow_instance_id: Workflow instance id to query.
 
         Returns:
-            Any: The response object from the Dapr state store, typically with a 'data' attribute containing the messages as JSON.
+            Response object from the Dapr state store with 'data' containing messages as JSON.
         """
-        logger.debug(f"Executing query for session {self.session_id}")
+        key = self._memory_key(workflow_instance_id)
+        logger.debug(f"Executing query for workflow instance {workflow_instance_id}")
         states_metadata = {"contentType": "application/json"}
-        response = self.dapr_store.get_state(session_id, state_metadata=states_metadata)
+        response = self.dapr_store.get_state(key, state_metadata=states_metadata)
         return response
 
-    def reset_memory(self) -> None:
+    def reset_memory(self, workflow_instance_id: str) -> None:
         """
-        Clears all messages stored in the memory and resets the state store for the current session.
+        Clears all messages stored in the memory for the given workflow instance.
+
+        Args:
+            workflow_instance_id: Workflow instance id to reset.
         """
-        self.dapr_store.delete_state(self.session_id)
-        logger.info(f"Memory reset for session {self.session_id} completed.")
+        key = self._memory_key(workflow_instance_id)
+        self.dapr_store.delete_state(key)
+        logger.info(
+            f"Memory reset for workflow instance {workflow_instance_id} completed."
+        )

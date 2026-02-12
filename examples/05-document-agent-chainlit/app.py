@@ -25,7 +25,6 @@ agent = Agent(
     memory=AgentMemoryConfig(
         store=ConversationDaprStateMemory(
             store_name="conversationstore",
-            session_id="my-unique-id",
         )
     ),
     llm=OpenAIChatClient(model="gpt-3.5-turbo"),

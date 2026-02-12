@@ -17,45 +17,65 @@ class ConversationListMemory(MemoryBase):
         description="List of messages stored in conversation memory as dictionaries.",
     )
 
-    def add_message(self, message: Union[Dict[str, Any], BaseMessage]):
+    def add_message(
+        self, message: Union[Dict[str, Any], BaseMessage], workflow_instance_id: str
+    ) -> None:
         """
         Adds a single message to the end of the memory list.
 
         Args:
-            message (Union[Dict, BaseMessage]): The message to add to the memory.
+            message: The message to add to the memory.
+            workflow_instance_id: Workflow instance id for this message (ignored for single-list storage).
         """
         self.messages.append(self._convert_to_dict(message))
 
-    def add_messages(self, messages: List[Union[Dict[str, Any], BaseMessage]]):
+    def add_messages(
+        self,
+        messages: List[Union[Dict[str, Any], BaseMessage]],
+        workflow_instance_id: str,
+    ) -> None:
         """
-        Adds multiple messages to the memory by appending each message from the provided list to the end of the memory list.
+        Adds multiple messages to the memory by appending each message to the list.
 
         Args:
-            messages (List[Union[Dict, BaseMessage]]): A list of messages to add to the memory.
+            messages: A list of messages to add to the memory.
+            workflow_instance_id: Workflow instance id for these messages (ignored for single-list storage).
         """
         self.messages.extend(self._convert_to_dict(msg) for msg in messages)
 
     def add_interaction(
-        self, user_message: BaseMessage, assistant_message: BaseMessage
-    ):
+        self,
+        user_message: BaseMessage,
+        assistant_message: BaseMessage,
+        workflow_instance_id: str,
+    ) -> None:
         """
         Adds a user-assistant interaction to the memory storage.
 
         Args:
-            user_message (BaseMessage): The user message.
-            assistant_message (BaseMessage): The assistant message.
+            user_message: The user message.
+            assistant_message: The assistant message.
+            workflow_instance_id: Workflow instance id for this interaction.
         """
-        self.add_messages([user_message, assistant_message])
+        self.add_messages([user_message, assistant_message], workflow_instance_id)
 
-    def get_messages(self) -> List[Dict[str, Any]]:
+    def get_messages(self, workflow_instance_id: str) -> List[Dict[str, Any]]:
         """
         Retrieves a copy of all messages stored in the memory.
 
+        Args:
+            workflow_instance_id: Workflow instance id to retrieve messages for (ignored for single-list storage).
+
         Returns:
-            List[Dict[str, Any]]: A list containing copies of all stored messages as dictionaries.
+            A list containing copies of all stored messages as dictionaries.
         """
         return self.messages.copy()
 
-    def reset_memory(self):
-        """Clears all messages stored in the memory, resetting the memory to an empty state."""
+    def reset_memory(self, workflow_instance_id: str) -> None:
+        """
+        Clears all messages stored in the memory.
+
+        Args:
+            workflow_instance_id: Workflow instance id to reset (ignored for single-list storage).
+        """
         self.messages.clear()

@@ -10,18 +10,26 @@ apps:
 - appID: extractor
   appDirPath: ./
   command: ["python3", "extractor_agent.py"]
-  appPort: 8001
-
+  appPort: 8004
+  env:
+    DAPR_HOST_IP: "127.0.0.1"
+    
 - appID: planner
   appDirPath: ./
   command: ["python3", "planner_agent.py"]
   appPort: 8002
+  env:
+    DAPR_HOST_IP: "127.0.0.1"
 
 - appID: expander
   appDirPath: ./
   command: ["python3", "expander_agent.py"]
   appPort: 8003
+  env:
+    DAPR_HOST_IP: "127.0.0.1"
 
 - appID: workflow
   appDirPath: ./
   command: ["python3", "01_sequential_workflow.py"]
+  env:
+    DAPR_HOST_IP: "127.0.0.1"

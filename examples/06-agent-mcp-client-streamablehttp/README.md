@@ -83,7 +83,7 @@ Set up the server for your MCP tools in `server.py`.
 
 1. Connect to the MCP server via streamable HTTP, fetch tools, and close the client.
 2. Configure a `DurableAgent` with pub/sub, memory, registry, and workflow state stores.
-3. Host the agent with `AgentRunner.serve(agent, port=8001)` so `/run` is exposed automatically.
+3. Host the agent with `AgentRunner.serve(agent, port=8001)` so `/agent/run` is exposed automatically.
 
 ### Running the Example
 
@@ -108,7 +108,7 @@ rm -rf "$temp_resources_folder"
 3. Send a test request to the agent:
 
 ```bash
-curl -X POST http://localhost:8001/run \
+curl -X POST http://localhost:8001/agent/run \
   -H "Content-Type: application/json" \
   -d '{"task": "What is the weather in New York?"}'
 ```

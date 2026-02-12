@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import logging
+import os
 
 from agent_tools import tools
 from dotenv import load_dotenv
@@ -37,7 +38,6 @@ def main() -> None:
     memory = AgentMemoryConfig(
         store=ConversationDaprStateMemory(
             store_name="conversationstore",
-            session_id="weather-session",
         )
     )
 
@@ -57,9 +57,10 @@ def main() -> None:
         state=state,
     )
 
+    port = int(os.environ.get("PORT", "8002"))
     runner = AgentRunner()
     try:
-        runner.serve(weather_agent, port=8001)
+        runner.serve(weather_agent, port=port)
     finally:
         runner.shutdown(weather_agent)
 

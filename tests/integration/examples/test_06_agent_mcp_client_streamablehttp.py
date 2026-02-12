@@ -43,7 +43,7 @@ class TestMCPClientStreamableHTTPQuickstart:
                 app_port=8001,
                 stream_logs=True,
                 trigger_curl={
-                    "url": "http://localhost:8001/run",
+                    "url": "http://localhost:8001/agent/run",
                     "method": "POST",
                     "data": {"task": "What is the weather in New York?"},
                     "headers": {"Content-Type": "application/json"},

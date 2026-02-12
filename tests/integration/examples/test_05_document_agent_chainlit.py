@@ -13,5 +13,5 @@ class TestDocumentAgentChainlitQuickstart:
 
     def test_document_agent_chainlit(self, dapr_runtime):  # noqa: ARG002
         pytest.skip(
-            "Skipping 06_document_agent_chainlit.py test because it requires a browser and chainlit to be installed."
+            "Skipping 05-document-agent-chainlit test because it requires a browser and chainlit to be installed."
         )
