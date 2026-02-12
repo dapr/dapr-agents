@@ -11,6 +11,7 @@ from dapr.clients.grpc._state import Concurrency, Consistency, StateOptions
 from pydantic import BaseModel, ValidationError
 
 from dapr_agents.agents.configs import (
+    AgentMetadataSchema,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
@@ -22,8 +23,6 @@ from dapr_agents.agents.schemas import (
     AgentWorkflowEntry,
 )
 from dapr_agents.types.workflow import DaprWorkflowStatus
-
-from dapr.ext.agent_core import AgentRegistryAdapter
 
 
 logger = logging.getLogger(__name__)
@@ -459,10 +458,57 @@ class DaprInfra:
     # ------------------------------------------------------------------
     def register_agentic_system(
         self,
+        *,
+        metadata: Optional[AgentMetadataSchema] = None,
+        team: Optional[str] = None,
     ) -> None:
+        """
+        Register agent metadata in the team registry.
+
+        Args:
+            metadata: Validated AgentMetadataSchema object
+            team: Team override; falls back to configured default team
+        """
         if self._registry is None or self.registry_state is None:
-            raise RuntimeError("registry_state must be provided to use agent registry")
-        AgentRegistryAdapter.create_from_stack(registry=self._registry)
+            logger.debug(
+                "No registry configured; skipping registration for %s", self.name
+            )
+            return
+
+        if metadata is None:
+            logger.warning(
+                "No metadata provided for registration of agent %s", self.name
+            )
+            return
+
+        # Determine team and registry key
+        registry_key = self._team_registry_key(team)
+
+        # Load current registry
+        current_registry = self.registry_state.load(
+            key=registry_key,
+            default={},
+            state_metadata=self._state_metadata_for_key(registry_key),
+        )
+
+        # Dump schema object to JSON dict for storage
+        metadata_dict = metadata.model_dump(mode="json")
+
+        # Update registry with this agent's metadata
+        current_registry[self.name] = metadata_dict
+
+        # Save back to state store
+        self.registry_state.save(
+            key=registry_key,
+            value=current_registry,
+            state_metadata=self._state_metadata_for_key(registry_key),
+        )
+
+        logger.info(
+            "Registered agent '%s' in team '%s' registry",
+            self.name,
+            self._effective_team(team),
+        )
 
     def deregister_agentic_system(self, *, team: Optional[str] = None) -> None:
         """

@@ -286,10 +286,10 @@ class TestDurableAgent:
         metadata = basic_durable_agent.agent_metadata
 
         assert metadata is not None
-        assert metadata.agent.name == "TestDurableAgent"
+        assert metadata.name == "TestDurableAgent"
         assert metadata.agent.role == "Test Durable Assistant"
         assert metadata.agent.goal == "Help with testing"
-        assert metadata.pubsub.agent_name == "TestDurableAgent"
+        assert metadata.pubsub.agent_topic == "TestDurableAgent"
         assert metadata.pubsub.name == "testpubsub"
         assert metadata.agent.orchestrator is False
 
