@@ -12,7 +12,7 @@ test-cov:
 .PHONY: test-install
 test-install:
 	@echo "Installing test dependencies..."
-	pip install install -e .[test]
+	pip install -e .[test]
 
 .PHONY: test-all
 test-all: test-install test-cov
