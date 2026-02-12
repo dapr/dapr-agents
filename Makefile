@@ -34,6 +34,14 @@ hooks-run:
 	@echo "Running all pre-push hooks..."
 	pre-commit run --all-files --hook-stage pre-push
 
+.PHONY: hooks-run-all
+hooks-run-all:
+	@echo "Running all pre-push hooks plus integration tests..."
+	@echo "Step 1/2: Running pre-push hooks (format, lint, type check, unit tests)..."
+	pre-commit run --all-files --hook-stage pre-push
+	@echo "Step 2/2: Running integration tests..."
+	uv run pytest tests -m integration -v
+
 .PHONY: format
 format:
 	@echo "Formatting code with ruff..."

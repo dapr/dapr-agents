@@ -206,6 +206,11 @@ These checks mirror the CI/CD pipeline, catching issues before they reach GitHub
 ```bash
 # Run all pre-push hooks without pushing
 pre-commit run --all-files --hook-stage pre-push
+# Or use the Makefile shortcut
+make hooks-run
+
+# Run all hooks PLUS integration tests (comprehensive check, slower)
+make hooks-run-all
 
 # Run individual checks (same commands as before)
 uv run ruff format dapr_agents tests
@@ -238,9 +243,10 @@ git push --no-verify
 - Subsequent runs are cached and fast (~10s)
 
 **Performance**
-- Expected runtime: 8-12 seconds
+- Expected runtime: 8-12 seconds (pre-push hooks only)
+- Expected runtime: 2-5 minutes (with `make hooks-run-all` including integration tests)
 - Only checks staged files where possible
-- Integration tests NOT included (too slow - run separately or in CI)
+- Integration tests NOT included in pre-push hooks (too slow - use `make hooks-run-all` for comprehensive local check)
 
 ## Development Workflow
 
