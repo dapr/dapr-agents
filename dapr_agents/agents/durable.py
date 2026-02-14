@@ -66,6 +66,9 @@ from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
 
+from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -351,8 +354,6 @@ class DurableAgent(AgentBase):
                                 len(tool_calls),
                                 turn,
                             )
-                        from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
-
                         workflow_tasks: List[Any] = []
                         workflow_meta: List[Dict[str, Any]] = []
                         activity_tasks: List[Any] = []
