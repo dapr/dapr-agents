@@ -203,6 +203,23 @@ class AgentStateConfig:
 
 
 @dataclass
+class AgentConfigurationConfig:
+    """Configuration for agent dynamic configuration store.
+
+    Attributes:
+        store_name: Name of the Dapr configuration store component.
+        config_name: Optional name of the configuration to subscribe to (defaults to agent name).
+        keys: Optional list of keys to subscribe to.
+        metadata: Optional metadata for the configuration subscription.
+    """
+
+    store_name: str
+    config_name: Optional[str] = None
+    keys: List[str] = field(default_factory=list)
+    metadata: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class AgentRegistryConfig:
     """Configuration for agent registry storage."""
 

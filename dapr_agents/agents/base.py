@@ -13,10 +13,12 @@ from dapr.clients.grpc._response import (
     RegisteredComponents,
     StateResponse,
     GetBulkSecretResponse,
+    ConfigurationResponse,
 )
 
 from dapr_agents.agents.components import DaprInfra
 from dapr_agents.agents.configs import (
+    AgentConfigurationConfig,
     AgentLoggingExporter,
     AgentMemoryConfig,
     AgentPubSubConfig,
@@ -118,6 +120,7 @@ class AgentBase:
         # Execution
         execution: Optional[AgentExecutionConfig] = None,
         agent_observability: Optional[AgentObservabilityConfig] = None,
+        configuration: Optional[AgentConfigurationConfig] = None,
     ) -> None:
         """
         Initialize an agent with behavior + infrastructure.
@@ -149,6 +152,7 @@ class AgentBase:
             workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
             execution: Execution dials for the agent run.
             agent_observability: Observability configuration for tracing/logging.
+            configuration: Optional configuration store settings for hot-reloading.
         """
         # Resolve and validate profile (ensures non-empty name).
         resolved_profile = self._build_profile(
@@ -166,6 +170,8 @@ class AgentBase:
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
         self._agent_observability = agent_observability
+        self.configuration = configuration
+        self._subscription_id: Optional[str] = None
         self.appid = (
             None  # We set the appid to None as standalone agents may not have one
         )
@@ -439,6 +445,171 @@ class AgentBase:
                 "Registry configuration not provided; skipping agent registration."
             )
 
+        if self.configuration:
+            self._setup_configuration_subscription()
+
+    def _setup_configuration_subscription(self) -> None:
+        """Initialize the configuration subscription."""
+        if not self.configuration:
+            return
+
+        try:
+            # Determine the configuration name/keys to subscribe to
+            config_name = self.configuration.config_name or self.name
+            keys = self.configuration.keys or [config_name]
+
+            # We use a dedicated client for the subscription to keep the connection alive.
+            self._config_client = DaprClient()
+            self._subscription_id = self._config_client.subscribe_configuration(
+                store_name=self.configuration.store_name,
+                keys=keys,
+                handler=self._config_handler,
+                config_metadata=self.configuration.metadata,
+            )
+            logger.info(
+                f"Agent {self.name} subscribed to configuration store '{self.configuration.store_name}' for keys {keys} (ID: {self._subscription_id})"
+            )
+        except Exception as e:
+            logger.error(
+                f"Agent {self.name} failed to subscribe to configuration store '{self.configuration.store_name}': {e}"
+            )
+
+    def _config_handler(self, config_id: str, response: ConfigurationResponse) -> None:
+        """Handler for configuration updates."""
+        try:
+            for key, item in response.items.items():
+                # If the value is a JSON blob, try to parse it and apply updates
+                logger.info(f"Received configuration update for key: {key}")
+                try:
+                    data = json.loads(item.value)
+                    if isinstance(data, dict):
+                        for k, v in data.items():
+                            self._apply_config_update(k, v)
+                        continue
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                # Otherwise treat as a single key-value pair
+                self._apply_config_update(key, item.value)
+        except Exception as e:
+            logger.error(f"Error in configuration handler for agent {self.name}: {e}")
+
+    _SENSITIVE_KEYS = frozenset({"llm_api_key", "openai_api_key"})
+
+    def _apply_config_update(self, key: str, value: Any) -> None:
+        """Apply a configuration update to the agent state."""
+        normalized_key = key.lower().replace("-", "_")
+        safe_value = "***" if normalized_key in self._SENSITIVE_KEYS else value
+        logger.info(f"Agent {self.name} applying config update: {key}={safe_value}")
+
+        # Profile updates
+        if normalized_key in ["role", "agent_role"]:
+            self.profile.role = str(value)
+            self.prompting_helper.role = str(value)
+        elif normalized_key in ["goal", "agent_goal"]:
+            self.profile.goal = str(value)
+            self.prompting_helper.goal = str(value)
+        elif normalized_key in ["instructions", "agent_instructions"]:
+            instructions = value if isinstance(value, list) else [str(value)]
+            self.profile.instructions = instructions
+            self.prompting_helper.instructions = instructions
+        elif normalized_key in ["system_prompt", "agent_system_prompt"]:
+            self.profile.system_prompt = str(value)
+            self.prompting_helper.system_prompt = str(value)
+
+        # LLM updates — some LLM clients expose read-only properties,
+        # so we catch AttributeError when the field is not settable.
+        elif normalized_key in ["llm_api_key", "openai_api_key"]:
+            try:
+                self.llm.api_key = str(value)  # type: ignore[union-attr]
+            except (AttributeError, TypeError):
+                logger.debug("LLM client does not support setting api_key")
+        elif normalized_key == "llm_provider":
+            try:
+                self.llm.provider = str(value)  # type: ignore[union-attr]
+            except (AttributeError, TypeError):
+                logger.debug("LLM client does not support setting provider")
+        elif normalized_key == "llm_model":
+            try:
+                self.llm.model = str(value)  # type: ignore[union-attr]
+            except (AttributeError, TypeError):
+                logger.debug("LLM client does not support setting model")
+
+        # Component Reference Hot-Reloads
+        elif normalized_key == "state_store":
+            if self.state_store and hasattr(self.state_store, "store_name"):
+                logger.info(f"Hot-reloading state store to: {value}")
+                self.state_store.store_name = str(value)
+        elif normalized_key == "registry_store":
+            if self.registry_state and hasattr(self.registry_state, "store_name"):
+                logger.info(f"Hot-reloading registry store to: {value}")
+                self.registry_state.store_name = str(value)
+        elif normalized_key == "memory_store":
+            if hasattr(self.memory, "store_name"):
+                logger.info(f"Hot-reloading memory store to: {value}")
+                self.memory.store_name = str(value)  # type: ignore
+        else:
+            logger.debug(f"Agent {self.name} ignoring unrecognized config key: {key}")
+            return
+
+        # Re-register metadata only when profile or component fields changed
+        if self.registry_state is not None:
+            self.agent_metadata["agent"]["role"] = self.profile.role
+            self.agent_metadata["agent"]["goal"] = self.profile.goal
+            self.agent_metadata["agent"]["instructions"] = list(
+                self.profile.instructions
+            )
+            if self.profile.system_prompt:
+                self.agent_metadata["agent"]["system_prompt"] = (
+                    self.profile.system_prompt
+                )
+
+            # Sync LLM metadata
+            if "llm" in self.agent_metadata and self.llm:
+                self.agent_metadata["llm"]["provider"] = getattr(
+                    self.llm, "provider", "unknown"
+                )
+                self.agent_metadata["llm"]["model"] = getattr(
+                    self.llm, "model", "unknown"
+                )
+
+            # Update component names in metadata if they changed
+            if "statestore" in self.agent_metadata.get("agent", {}):
+                self.agent_metadata["agent"]["statestore"] = self.state_store.store_name
+            if "memory" in self.agent_metadata:
+                self.agent_metadata["memory"]["statestore"] = getattr(
+                    self.memory, "store_name", "unknown"
+                )
+
+            try:
+                self.register_agentic_system(metadata=self.agent_metadata)
+            except Exception as e:
+                logger.warning(f"Failed to re-register agent after config update: {e}")
+
+    def stop(self) -> None:
+        """Stop the agent and cleanup resources."""
+        # Deregister from the team registry
+        if self.registry_state is not None:
+            try:
+                self.deregister_agentic_system()
+            except Exception as e:
+                logger.debug(f"Error deregistering agent from registry: {e}")
+
+        if hasattr(self, "_config_client") and getattr(self, "_config_client", None):
+            if self._subscription_id and self.configuration:
+                try:
+                    self._config_client.unsubscribe_configuration(
+                        store_name=self.configuration.store_name,
+                        configuration_id=self._subscription_id,
+                    )
+                except Exception as e:
+                    logger.debug(f"Error unsubscribing from configuration: {e}")
+            try:
+                self._config_client.close()
+            except Exception:
+                pass
+            self._config_client = None
+
     # ------------------------------------------------------------------
     # DaprInfra delegation properties and methods
     # ------------------------------------------------------------------
@@ -532,6 +703,10 @@ class AgentBase:
     def register_agentic_system(self, *, metadata=None, team=None):
         """Delegate to DaprInfra."""
         return self._infra.register_agentic_system(metadata=metadata, team=team)
+
+    def deregister_agentic_system(self, *, team=None):
+        """Delegate to DaprInfra."""
+        return self._infra.deregister_agentic_system(team=team)
 
     def get_agents_metadata(
         self, *, exclude_self=True, exclude_orchestrator=False, team=None

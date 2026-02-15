@@ -36,6 +36,7 @@ from dapr_agents.agents.orchestrators.llm.utils import (
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
     OrchestrationMode,
+    AgentConfigurationConfig,
     AgentExecutionConfig,
     AgentMemoryConfig,
     AgentPubSubConfig,
@@ -108,6 +109,7 @@ class DurableAgent(AgentBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
         agent_observability: Optional[AgentObservabilityConfig] = None,
+        configuration: Optional[AgentConfigurationConfig] = None,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -138,6 +140,7 @@ class DurableAgent(AgentBase):
             runtime: Optional pre-existing workflow runtime to attach to.
             retry_policy: Durable retry policy configuration.
             agent_observability: Observability configuration for tracing/logging.
+            configuration: Optional configuration store settings for hot-reloading.
         """
         super().__init__(
             pubsub=pubsub,
@@ -158,6 +161,7 @@ class DurableAgent(AgentBase):
             tools=tools,
             prompt_template=prompt_template,
             agent_observability=agent_observability,
+            configuration=configuration,
         )
 
         grpc_options = getattr(self, "workflow_grpc_options", None)
@@ -1745,6 +1749,8 @@ class DurableAgent(AgentBase):
         """Stop the workflow runtime if it is owned by this instance."""
         if not self._started:
             return
+
+        super().stop()
 
         if self._runtime_owned:
             try:

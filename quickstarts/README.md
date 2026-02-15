@@ -14,7 +14,8 @@ You will learn how to:
 8. **[Use deterministic workflows that call LLMs](#8-workflow-with-llm-activities)**
 9. **[Orchestrate multiple agents inside a workflow](#9-workflow-with-agent-activities)**
 10. **[Enable distributed tracing for agents with Zipkin](#10-durable-agent-trace-zipkin)**
- 
+11. **[Hot-reload agent configuration at runtime](#11-durable-agent-hot-reload)**
+
 These examples form the foundation of the Dapr Agents programming model and illustrate how LLM reasoning, tool execution, durable workflows, and agent coordination fit together.
 
 ---
@@ -353,6 +354,41 @@ When the script runs, the durable agent executes its workflow in-process and emi
 
 ## How to Extend This Example
 Open the Zipkin UI at the URL above and explore the full trace to see how the workflow spans and agent spans connect end-to-end.
+
+---
+
+# 11. Durable Agent Hot-Reload
+
+This example shows how to subscribe a durable agent to a Dapr Configuration Store so that its persona (role, goal, instructions) and other settings can be updated at runtime without restarting the process. When a value changes in the backing store (e.g. Redis), the agent picks up the update automatically.
+
+First, ensure the `configstore` component is available in your resources path. You can use the one provided in `components/configstore.yaml`.
+
+```bash
+dapr run --app-id hot-reload-agent --resources-path components -- python 11_durable_agent_hot_reload.py
+```
+
+In a separate terminal, update a configuration value directly in Redis:
+
+```bash
+redis-cli SET agent_role "New Hot-Reloaded Role"
+```
+
+## Expected Behavior
+
+The agent starts with its initial role (`Original Role`) and subscribes to the Dapr configuration store for the keys `agent_role`, `agent_goal`, and `agent_instructions`. When you update a value in Redis, the agent's profile updates in-place and the change is visible in the periodic log output—without restarting.
+
+## How This Works
+
+1. The agent is initialized with an `AgentConfigurationConfig` that specifies the configuration store name and the keys to watch.
+2. During `agent.start()`, the agent subscribes to the Dapr Configuration API using `subscribe_configuration`, which streams updates from the backing store.
+3. When a configuration key changes, the `_config_handler` in `AgentBase` receives the update and applies it to the agent's profile, LLM settings, or component references.
+4. If a registry store is configured, the agent re-registers its updated metadata automatically.
+
+## How to Extend This Example
+
+* Update multiple keys at once by setting a JSON object as the configuration value.
+* Add additional keys for LLM settings (`llm_model`, `llm_provider`) to swap models at runtime.
+* For the full list of supported configuration keys, see the [hot-reload example README](../examples/09-durable-agent-hot-reload/README.md).
 
 ---
 
