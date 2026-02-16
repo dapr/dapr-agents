@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union, Coroutine
-from dapr_agents.agents.schemas import AgentWorkflowMessage
+from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
 
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
@@ -43,7 +43,6 @@ from dapr_agents.tool.executor import AgentToolExecutor
 from dapr_agents.types import (
     AgentError,
     AssistantMessage,
-    LLMChatResponse,
     ToolExecutionRecord,
     UserMessage,
 )
@@ -176,7 +175,11 @@ class AgentBase:
                 self.appid = resp.application_id
                 components: Sequence[RegisteredComponents] = resp.registered_components
                 for component in components:
-                    if "state" in component.type and component.name == "agent-memory":
+                    if (
+                        "state" in component.type
+                        and component.name == "agent-memory"
+                        and memory is None
+                    ):
                         memory = AgentMemoryConfig(
                             store=ConversationDaprStateMemory(
                                 store_name=component.name,
@@ -197,7 +200,7 @@ class AgentBase:
                     ):
                         state = AgentStateConfig(
                             store=StateStoreService(store_name=component.name),
-                            state_key=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
+                            state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
                         )
                     if (
                         "state" in component.type
@@ -445,84 +448,72 @@ class AgentBase:
     @property
     def pubsub(self):
         """Delegate to DaprInfra."""
-        return self._infra.pubsub
+        if hasattr(self, "_infra"):
+            return self._infra.pubsub
 
     @property
     def registry_state(self):
         """Delegate to DaprInfra."""
-        return self._infra.registry_state
+        if hasattr(self, "_infra"):
+            return self._infra.registry_state
 
     @property
     def agent_topic_name(self):
         """Delegate to DaprInfra."""
-        return self._infra.agent_topic_name
+        if hasattr(self, "_infra"):
+            return self._infra.agent_topic_name
 
     @property
     def message_bus_name(self):
         """Delegate to DaprInfra."""
-        return self._infra.message_bus_name
+        if hasattr(self, "_infra"):
+            return self._infra.message_bus_name
 
     @property
     def broadcast_topic_name(self):
         """Delegate to DaprInfra."""
-        return self._infra.broadcast_topic_name
+        if hasattr(self, "_infra"):
+            return self._infra.broadcast_topic_name
 
     @property
     def workflow_grpc_options(self):
         """Delegate to DaprInfra."""
-        return self._infra.workflow_grpc_options
+        if hasattr(self, "_infra"):
+            return self._infra.workflow_grpc_options
 
     @property
     def state_store(self):
         """Delegate to DaprInfra."""
-        return self._infra.state_store
+        if hasattr(self, "_infra"):
+            return self._infra.state_store
 
     @property
     def _state_model(self):
         """Delegate to DaprInfra."""
-        return self._infra._state_model
+        if hasattr(self, "_infra"):
+            return self._infra._state_model
 
     @property
     def state(self):
         """Delegate to DaprInfra."""
-        return self._infra.state
+        if hasattr(self, "_infra"):
+            return self._infra.state
 
     @property
     def workflow_state(self):
         """Delegate to DaprInfra."""
-        return self._infra.workflow_state
-
-    def load_state(self) -> None:
-        """Delegate to DaprInfra."""
-        return self._infra.load_state()
+        if hasattr(self, "_infra"):
+            return self._infra.workflow_state
 
     def save_state(self, workflow_instance_id: str) -> None:
         """Delegate to DaprInfra."""
-        return self._infra.save_state(workflow_instance_id=workflow_instance_id)
-
-    def ensure_instance_exists(
-        self,
-        *,
-        instance_id: str,
-        input_value: Any,
-        triggering_workflow_instance_id: Optional[str],
-        time: Optional[datetime] = None,
-    ) -> None:
-        """Delegate to DaprInfra."""
-        return self._infra.ensure_instance_exists(
-            instance_id=instance_id,
-            input_value=input_value,
-            triggering_workflow_instance_id=triggering_workflow_instance_id,
-            time=time,
-        )
-
-    def _get_entry_container(self) -> Optional[dict]:
-        """Delegate to DaprInfra."""
-        return self._infra._get_entry_container()
+        if hasattr(self, "_infra"):
+            return self._infra.save_state(workflow_instance_id)
 
     def get_state(self, instance_id: str) -> Optional[Any]:
         """Delegate to DaprInfra."""
-        return self._infra.get_state(instance_id)
+        if hasattr(self, "_infra"):
+            return self._infra.get_state(instance_id)
 
     def mark_workflow_terminated(self, instance_id: str) -> None:
         """
@@ -531,27 +522,31 @@ class AgentBase:
 
     def register_agentic_system(self, *, metadata=None, team=None):
         """Delegate to DaprInfra."""
-        return self._infra.register_agentic_system(metadata=metadata, team=team)
+        if hasattr(self, "_infra"):
+            return self._infra.register_agentic_system(metadata=metadata, team=team)
 
     def get_agents_metadata(
         self, *, exclude_self=True, exclude_orchestrator=False, team=None
     ):
         """Delegate to DaprInfra."""
-        return self._infra.get_agents_metadata(
-            exclude_self=exclude_self,
-            exclude_orchestrator=exclude_orchestrator,
-            team=team,
-        )
+        if hasattr(self, "_infra"):
+            return self._infra.get_agents_metadata(
+                exclude_self=exclude_self,
+                exclude_orchestrator=exclude_orchestrator,
+                team=team,
+            )
 
     def sync_system_messages(self, instance_id, all_messages):
         """Delegate to DaprInfra."""
-        return self._infra.sync_system_messages(
-            instance_id=instance_id, all_messages=all_messages
-        )
+        if hasattr(self, "_infra"):
+            return self._infra.sync_system_messages(
+                instance_id=instance_id, all_messages=all_messages
+            )
 
     def _message_dict_to_message_model(self, message):
         """Delegate to DaprInfra."""
-        return self._infra._message_dict_to_message_model(message)
+        if hasattr(self, "_infra"):
+            return self._infra._message_dict_to_message_model(message)
 
     # ------------------------------------------------------------------
     # Presentation helpers
@@ -746,15 +741,16 @@ class AgentBase:
         ]
 
         try:
-            response: LLMChatResponse = self.llm.generate(messages=llm_messages)
+            summary_model: ConversationSummary = self.llm.generate(
+                messages=llm_messages,
+                response_format=ConversationSummary,
+            )
         except Exception as exc:  # noqa: BLE001
             raise AgentError(f"LLM summarize failed: {exc}") from exc
 
-        assistant_message = response.get_message()
-        if assistant_message is None:
-            raise AgentError("LLM returned no summary message.")
-
-        summary_content = getattr(assistant_message, "content", "") or ""
+        summary_content = (summary_model.summary or "").strip()
+        if not summary_content:
+            raise AgentError("LLM returned an empty summary.")
 
         summary_message: Dict[str, Any] = {
             "role": "assistant",
@@ -991,7 +987,7 @@ class AgentBase:
             if hasattr(entry, "last_message"):
                 entry.last_message = message_model  # type: ignore[attr-defined]
 
-        self.save_state(workflow_instance_id=instance_id)
+        self.save_state(instance_id)
 
     def _save_assistant_message(
         self, instance_id: str, assistant_message: Dict[str, Any]
