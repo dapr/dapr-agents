@@ -169,14 +169,11 @@ class AgentBase:
             None  # We set the appid to None as standalone agents may not have one
         )
 
-        
         try:
             with DaprClient(http_timeout_seconds=10) as _client:
                 resp: GetMetadataResponse = _client.get_metadata()
                 self.appid = resp.application_id
-                components: Sequence[RegisteredComponents] = (
-                    resp.registered_components
-                )
+                components: Sequence[RegisteredComponents] = resp.registered_components
                 for component in components:
                     if (
                         "state" in component.type
@@ -229,9 +226,7 @@ class AgentBase:
                                 else {}
                             )
                             for key, value in self._runtime_conf.items():
-                                logger.debug(
-                                    f"Runtime configuration: {key}={value}"
-                                )
+                                logger.debug(f"Runtime configuration: {key}={value}")
                         except json.JSONDecodeError:
                             logger.warning(
                                 "Failed to decode agent runtime configuration JSON. Using empty configuration."
