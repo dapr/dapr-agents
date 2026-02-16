@@ -927,6 +927,9 @@ def _run_multi_app_with_completion_detection(
                 elif "workflow_agents" in yaml_name or "09_workflow" in yaml_name:
                     # 09_workflow_agents: main workflow is support_workflow; ignore broadcast_listener
                     orchestrator_workflow_name = "support_workflow"
+                elif "sequential" in yaml_name:
+                    # Sequential workflow quickstart: main workflow is chained_planner_workflow
+                    orchestrator_workflow_name = "chained_planner_workflow"
                 break
 
     logger.info(f"Running multi-app command with completion detection: {' '.join(cmd)}")
