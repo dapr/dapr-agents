@@ -21,7 +21,7 @@ This quickstart demonstrates how to create and orchestrate event-driven workflow
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -190,7 +190,7 @@ dapr run -f dapr-random.yaml
 
 **What's running:**
 - ✅ Frodo agent
-- ✅ Sam agent  
+- ✅ Sam agent
 - ✅ Random orchestrator
 - ✅ Client (publishes to `fellowship.orchestrator.random.requests`)
 

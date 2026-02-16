@@ -19,7 +19,7 @@ This quickstart demonstrates how to build a fully functional, enterprise-ready a
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:

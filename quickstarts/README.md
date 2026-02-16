@@ -3,7 +3,7 @@
 This quickstart introduces the core concepts of Dapr Agents and walks you through progressively more advanced examples. You'll learn how to build agents that use memory and tools, how to run durable agents backed by workflows, and how to orchestrate multiple agents in deterministic workflows.
 
 You will learn how to:
- 
+
 1. **[Use native LLM client](#1-llm-client)**
 2. **[Build a simple agent with LLM](#2-agent-with-llm)**
 3. **[Build a simple agent with LLM + tools](#3-agent-with-llm-and-tools)**
@@ -14,7 +14,7 @@ You will learn how to:
 8. **[Use deterministic workflows that call LLMs](#8-workflow-with-llm-activities)**
 9. **[Orchestrate multiple agents inside a workflow](#9-workflow-with-agent-activities)**
 10. **[Enable distributed tracing for agents with Zipkin](#10-durable-agent-trace-zipkin)**
- 
+
 These examples form the foundation of the Dapr Agents programming model and illustrate how LLM reasoning, tool execution, durable workflows, and agent coordination fit together.
 
 ---
@@ -33,14 +33,14 @@ These examples form the foundation of the Dapr Agents programming model and illu
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
 source .venv/bin/activate
 uv sync --active
 ```
- 
+
 </details>
 
 ## OpenAI Configuration
@@ -118,7 +118,7 @@ uv run dapr run --app-id agent-llm --resources-path components -- python 03_agen
 
 ## Expected Behavior
 When you run the script, the agent receives a weather question, invokes a local tool to retrieve the temperature, and uses the LLM to produce a natural-language answer.
- 
+
 ## How This Works
 
 1. The agent sends prompts to the Dapr Conversation API, which routes them to the configured LLM provider without requiring changes to your application code.
@@ -129,10 +129,10 @@ When you run the script, the agent receives a weather question, invokes a local 
 
 * In addition to using the Conversation API, Dapr Agents also provide **native LLM clients** when you need other modality and adcanced features beyond simple chat. To explore this, see these examples [LLM Call quickstart](../02-llm-call-open-ai/README.md).
 * The functions you expose as tools can call out to **remote services using the Dapr client**, gaining resiliency (retries, timeouts, circuit breakers) and built-in observability through Dapr’s features.
- 
+
 ---
 
-# 4. Agent with MCP Tools  
+# 4. Agent with MCP Tools
 
 This example is very similar to the previous one, except that the agent does not use hard-coded Python functions as tools. Instead, it dynamically discovers its tools from an MCP (Model Context Protocol) server running locally over STDIO, allowing tools to be added or modified without changing the agent code.
 
@@ -142,7 +142,7 @@ uv run dapr run --app-id agent-mcp --resources-path components -- python 04_agen
 
 ## Expected Behavior
 When you run the script, the agent queries the MCP server for available tools, invokes the MCP-provided weather tool to answer the question, and uses the LLM to produce the final response.
- 
+
 ## How This Works
 
 1. The agent connects to an MCP server over STDIO, allowing tools to be negotiated and loaded dynamically at runtime.
@@ -181,7 +181,7 @@ The script runs two prompts in sequence: the agent answers the initial weather q
 
   * **State Management Overview:** [https://docs.dapr.io/developing-applications/building-blocks/state-management/state-management-overview/](https://docs.dapr.io/developing-applications/building-blocks/state-management/state-management-overview/)
   * **Supported State Stores:** [https://docs.dapr.io/reference/components-reference/supported-state-stores/](https://docs.dapr.io/reference/components-reference/supported-state-stores/)
- 
+
 ---
 
 # 6. Durable Agent Serve
@@ -243,7 +243,7 @@ In summary, the workflow engine preserves execution state across restarts, enabl
 
 # 7. Durable Agent Subscribe
 
-This example takes the same durable agent behavior from the previous example, but instead of exposing an HTTP endpoint, it uses pub/sub. With this setup, the durable agent runs in the background as an ambient agent and listens for incoming events on a message topic. When a message arrives, it automatically starts a workflow execution. 
+This example takes the same durable agent behavior from the previous example, but instead of exposing an HTTP endpoint, it uses pub/sub. With this setup, the durable agent runs in the background as an ambient agent and listens for incoming events on a message topic. When a message arrives, it automatically starts a workflow execution.
 
 The agent code remains unchanged; only the AgentRunner configuration switches from REST to pub/sub.
 ```bash
@@ -332,7 +332,7 @@ http://localhost:9411/
 If Zipkin is not running, start it manually:
 
 ```bash
-# Start Zipkin locally  
+# Start Zipkin locally
 docker run -d -p 9411:9411 openzipkin/zipkin
 ```
 
@@ -371,4 +371,3 @@ If you want to coordinate multiple agents that run in separate applications or c
 # Next Steps
 
 Learn how to use structured outputs with LLMs in the [LLM Call quickstart](../02-llm-call-open-ai/README.md).
- 
