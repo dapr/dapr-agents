@@ -139,6 +139,11 @@ class DurableAgent(AgentBase):
             retry_policy: Durable retry policy configuration.
             agent_observability: Observability configuration for tracing/logging.
         """
+        # Mark orchestrators to filtered out when other orchestrators query for available agents
+        if execution and execution.orchestration_mode:
+            agent_metadata = dict(agent_metadata or {})
+            agent_metadata["orchestrator"] = True
+
         super().__init__(
             pubsub=pubsub,
             profile=profile,
@@ -1511,8 +1516,8 @@ class DurableAgent(AgentBase):
         Returns:
             Dict with 'metadata' (dict) and 'formatted' (str) keys.
         """
-        agents_metadata = self.list_team_agents(
-            include_self=False, team=self.effective_team
+        agents_metadata = self.get_agents_metadata(
+            exclude_self=True, exclude_orchestrator=True, team=self.effective_team
         )
         if not agents_metadata:
             return {

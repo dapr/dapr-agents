@@ -917,9 +917,11 @@ def _run_multi_app_with_completion_detection(
             if arg.endswith(".yaml"):
                 yaml_name = Path(arg).stem
                 if "random" in yaml_name:
-                    orchestrator_workflow_name = "random_workflow"
+                    orchestrator_workflow_name = "orchestration_workflow"
                 elif "roundrobin" in yaml_name or "round-robin" in yaml_name:
-                    orchestrator_workflow_name = "round_robin_workflow"
+                    orchestrator_workflow_name = "orchestration_workflow"
+                elif "agent" in yaml_name and "llm" not in yaml_name:
+                    orchestrator_workflow_name = "orchestration_workflow"
                 elif "llm" in yaml_name:
                     orchestrator_workflow_name = "llm_orchestrator_workflow"
                 elif "workflow_agents" in yaml_name or "09_workflow" in yaml_name:
