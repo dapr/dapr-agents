@@ -20,6 +20,7 @@ class TestMultiAgentWorkflowsQuickstart:
         # as agents when they're registered in the same team registry.
         # Note: Agents still use team "fellowship" but with isolated registry store.
         test_env = {**self.env, "REGISTRY_STATE_STORE": "agentregistrystore_random"}
+        test_env["DAPR_HOST_IP"] = "127.0.0.1"
         dapr_yaml = self.quickstart_dir / "dapr-random.yaml"
         result = run_quickstart_or_examples_multi_app(
             dapr_yaml,
@@ -44,6 +45,7 @@ class TestMultiAgentWorkflowsQuickstart:
         # as agents when they're registered in the same team registry.
         # Note: Agents still use team "fellowship" but with isolated registry store.
         test_env = {**self.env, "REGISTRY_STATE_STORE": "agentregistrystore_roundrobin"}
+        test_env["DAPR_HOST_IP"] = "127.0.0.1"
         result = run_quickstart_or_examples_multi_app(
             dapr_yaml,
             cwd=self.quickstart_dir,
@@ -66,6 +68,7 @@ class TestMultiAgentWorkflowsQuickstart:
         # as agents when they're registered in the same team registry.
         # Note: Agents still use team "fellowship" but with isolated registry store.
         test_env = {**self.env, "REGISTRY_STATE_STORE": "agentregistrystore_agent"}
+        test_env["DAPR_HOST_IP"] = "127.0.0.1"
         dapr_yaml = self.quickstart_dir / "dapr-agent.yaml"
         result = run_quickstart_or_examples_multi_app(
             dapr_yaml,

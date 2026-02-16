@@ -90,21 +90,18 @@ class LLMOrchestratorBase(OrchestratorBase):
         if self._memory.store is None and state is not None:
             self._memory.store = ConversationDaprStateMemory(
                 store_name=state.store.store_name,
-                session_id=f"{self.name}-session",
+                agent_name=self.name,
             )
         self.memory = self._memory.store or ConversationListMemory()
+        # TODO(@sicoyle): if we like this then i need to update this for all other memory stores.
+        if hasattr(self.memory, "agent_name"):
+            self.memory.agent_name = self.name
 
         # Console formatting
         self._text_formatter = ColorTextFormatter()
 
         # LLM client initialization
         self.llm = llm or get_default_llm()
-
-        # Initialize state if not present
-        if not getattr(self, "state", None):
-            self.state = {"instances": {}}
-        else:
-            self.state.setdefault("instances", {})
 
     @property
     def text_formatter(self) -> ColorTextFormatter:
@@ -163,44 +160,6 @@ class LLMOrchestratorBase(OrchestratorBase):
             for obj in plan_objects
         ]
 
-    def _ensure_instance_row(
-        self, instance_id: str, *, input_text: Optional[str] = None
-    ) -> None:
-        """
-        Ensures an entry exists for the workflow instance in the state.
-
-        This delegates to ensure_instance_exists() which uses the entry_factory
-        from the state schema bundle to create proper model instances.
-
-        Args:
-            instance_id (str): The workflow instance ID.
-            input_text (Optional[str]): The initial input text (if any) for the workflow.
-        """
-        container = self._get_entry_container()
-        logger.debug(
-            "_ensure_instance_row: container type=%s, instance_id=%s, exists=%s",
-            type(container).__name__ if container else None,
-            instance_id,
-            instance_id in container if container else False,
-        )
-        if container and instance_id not in container:
-            logger.debug(
-                "_ensure_instance_row: Creating new instance via ensure_instance_exists"
-            )
-            # Use the parent class method which properly handles entry_factory
-            self.ensure_instance_exists(
-                instance_id=instance_id,
-                input_value=input_text or "",
-                triggering_workflow_instance_id=None,
-                time=self._utcnow(),
-            )
-            # Check what was created
-            entry = container.get(instance_id)
-            logger.debug(
-                "_ensure_instance_row: Created entry type=%s",
-                type(entry).__name__ if entry else None,
-            )
-
     def update_workflow_state(
         self,
         *,
@@ -220,16 +179,14 @@ class LLMOrchestratorBase(OrchestratorBase):
             plan (Optional[List[Dict[str, Any]]]): The current plan snapshot.
             wf_time (Optional[str]): Workflow time (ISO 8601 string).
         """
-        self._ensure_instance_row(instance_id)
-
-        container = self._get_entry_container()
-        if not container or instance_id not in container:
-            logger.error(
-                "Cannot update state - instance %s not found in container", instance_id
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
             )
-            return
+            raise
 
-        entry = container[instance_id]
         logger.info(
             "update_workflow_state: entry type=%s, hasattr(plan)=%s",
             type(entry).__name__,
@@ -275,20 +232,6 @@ class LLMOrchestratorBase(OrchestratorBase):
                 entry["messages"].append(msg)
                 entry["last_message"] = msg
 
-            try:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                if role == "assistant":
-                    self.memory.add_message(
-                        AssistantMessage(content=content, name=msg.get("name"))
-                    )
-                elif role == "user":
-                    self.memory.add_message(
-                        UserMessage(content=content, name=msg.get("name"))
-                    )
-            except Exception:
-                logger.info("Failed to mirror message into memory.", exc_info=True)
-
         if final_output is not None:
             end_time_value = self._coerce_datetime(wf_time)
 
@@ -300,19 +243,24 @@ class LLMOrchestratorBase(OrchestratorBase):
                 entry["output"] = final_output
                 entry["end_time"] = end_time_value.isoformat()
 
-        self.save_state()
+        self.save_state(instance_id)
 
     async def rollback_workflow_initialization(self, instance_id: str) -> None:
         """Clears a partially-created plan for an instance."""
         try:
-            container = self._get_entry_container()
-            entry = container.get(instance_id) if container else None
+            try:
+                entry = self._infra.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to get workflow state for instance_id: {instance_id}"
+                )
+                raise
             if entry:
                 if hasattr(entry, "plan"):
                     entry.plan = []  # type: ignore[attr-defined]
                 else:
                     entry["plan"] = []
-                self.save_state()
+                self.save_state(instance_id)
                 logger.debug("Rolled back workflow initialization for %s", instance_id)
         except Exception:
             logger.exception("Failed to rollback workflow initialization.")
@@ -324,8 +272,14 @@ class LLMOrchestratorBase(OrchestratorBase):
         from dapr_agents.agents.orchestrators.llm.utils import find_step_in_plan
 
         try:
-            container = self._get_entry_container()
-            entry = container.get(instance_id) if container else None
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
+
+        try:
             if entry:
                 plan = (
                     getattr(entry, "plan", None)
@@ -352,8 +306,14 @@ class LLMOrchestratorBase(OrchestratorBase):
         from dapr_agents.agents.orchestrators.llm.utils import find_step_in_plan
 
         try:
-            container = self._get_entry_container()
-            entry = container.get(instance_id) if container else None
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
+
+        try:
             if entry:
                 hist = (
                     getattr(entry, "task_history", None)
@@ -390,8 +350,14 @@ class LLMOrchestratorBase(OrchestratorBase):
     async def rollback_workflow_finalization(self, instance_id: str) -> None:
         """Clear output and end time if finalization failed."""
         try:
-            container = self._get_entry_container()
-            entry = container.get(instance_id) if container else None
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
+
+        try:
             if entry:
                 if hasattr(entry, "output"):
                     entry.output = None  # type: ignore[attr-defined]
@@ -399,7 +365,7 @@ class LLMOrchestratorBase(OrchestratorBase):
                 else:
                     entry["output"] = None
                     entry["end_time"] = None
-                self.save_state()
+                self.save_state(instance_id)
                 logger.info("Rolled back workflow finalization for %s", instance_id)
         except Exception:
             logger.exception("Failed to rollback workflow finalization.")
@@ -407,9 +373,13 @@ class LLMOrchestratorBase(OrchestratorBase):
     async def ensure_workflow_state_consistency(self, instance_id: str) -> None:
         """Ensure that the instance row exists and contains the required keys."""
         try:
-            self._ensure_instance_row(instance_id)
-            container = self._get_entry_container()
-            entry = container.get(instance_id) if container else None
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
+        try:
             if entry:
                 if hasattr(entry, "plan"):
                     # Pydantic model - fields should already exist
@@ -419,7 +389,7 @@ class LLMOrchestratorBase(OrchestratorBase):
                     entry.setdefault("plan", [])
                     entry.setdefault("messages", [])
                     entry.setdefault("task_history", [])
-            self.save_state()
+            self.save_state(instance_id)
         except Exception:
             logger.exception("Failed to ensure workflow state consistency.")
 
@@ -525,8 +495,13 @@ class LLMOrchestratorBase(OrchestratorBase):
         self.update_workflow_state(instance_id=instance_id, message=results)
 
         # Retrieve workflow entry from container
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
         if not entry:
             msg = f"No workflow entry for instance {instance_id}"
             raise ValueError(msg)

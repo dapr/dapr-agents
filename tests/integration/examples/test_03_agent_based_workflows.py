@@ -21,6 +21,9 @@ class TestAgentBasedWorkflowsQuickstart:
         The fixture is needed for setup, even though we don't use the value directly.
         """
         dapr_yaml = self.quickstart_dir / "sequential.yaml"
+        # TODO: rm this once we get the next Dapr CLI RC with this set by default.
+        env = self.env.copy()
+        env["DAPR_HOST_IP"] = "127.0.0.1"
         result = run_quickstart_or_examples_multi_app(
             dapr_yaml,
             cwd=self.quickstart_dir,

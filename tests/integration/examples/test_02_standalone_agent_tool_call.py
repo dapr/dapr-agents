@@ -14,13 +14,20 @@ class TestStandaloneAgentToolCallQuickstart:
         import os
 
         self.quickstart_dir = examples_dir / "02-standalone-agent-tool-call"
-        self.env = {"OPENAI_API_KEY": openai_api_key}
+        self.env = {
+            "OPENAI_API_KEY": openai_api_key,
+            # Disable OpenTelemetry export so tests don't try localhost:6006 and spam stderr
+            "DAPR_AGENTS_OTEL_ENABLED": "false",
+            "OTEL_ENABLED": "false",
+            "OTEL_TRACING_ENABLED": "false",
+            "OTEL_LOGGING_ENABLED": "false",
+        }
         if os.getenv("HUGGINGFACE_API_KEY"):
             self.env["HUGGINGFACE_API_KEY"] = os.getenv("HUGGINGFACE_API_KEY")
         if os.getenv("NVIDIA_API_KEY"):
             self.env["NVIDIA_API_KEY"] = os.getenv("NVIDIA_API_KEY")
 
-    def test_standalone_weather_agent_dapr(self, dapr_runtime):  # noqa: ARG002
+    def test_standalone_weather_agent_dapr(self):  # noqa: ARG002
         """Test standalone weather agent Dapr example (standalone_weather_agent_dapr.py)."""
         script = self.quickstart_dir / "standalone_weather_agent_dapr.py"
         result = run_quickstart_or_examples_script(
@@ -107,6 +114,8 @@ class TestStandaloneAgentToolCallQuickstart:
     def test_standalone_weather_agent_tracing(self):
         """Test standalone weather agent tracing example (standalone_weather_agent_tracing.py)."""
         script = self.quickstart_dir / "standalone_weather_agent_tracing.py"
+        # TODO: This is required to prevent a ton of noisy logging. We should fix this later.
+        self.env["OTEL_SDK_DISABLED"] = "true"
         result = run_quickstart_or_examples_script(
             script,
             cwd=self.quickstart_dir,
@@ -123,7 +132,10 @@ class TestStandaloneAgentToolCallQuickstart:
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 
     def test_standalone_agent_with_vectorstore(self):
-        """Test standalone agent with vectorstore example (standalone_agent_with_vectorstore.py)."""
+        """Test standalone agent with vectorstore example (standalone_agent_with_vectorstore.py).
+
+        Requires optional vectorstore deps. If skipped, run: uv sync --group vectorstore
+        """
         script = self.quickstart_dir / "standalone_agent_with_vectorstore.py"
         result = run_quickstart_or_examples_script(
             script,

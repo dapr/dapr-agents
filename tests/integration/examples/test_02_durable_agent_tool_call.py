@@ -145,7 +145,7 @@ class TestDurableAgentToolCallQuickstart:
             dapr_http_port=3500,
             app_port=8001,
             trigger_curl={
-                "url": "http://localhost:8001/run",
+                "url": "http://localhost:8001/agent/run",
                 "method": "POST",
                 "data": {"task": "What's the weather in New York?"},
                 "headers": {"Content-Type": "application/json"},
