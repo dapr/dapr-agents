@@ -1315,11 +1315,15 @@ class DurableAgent(AgentBase):
         """
         Execute a single tool call.
 
+        Always returns a ToolMessage, even if tool execution fails.
+        This ensures every tool_call_id has a corresponding tool message,
+        maintaining proper conversation history.
+
         Args:
             payload: Keys 'tool_call', 'instance_id', 'time', 'order'.
 
         Returns:
-            ToolMessage as a dict.
+            ToolMessage as a dict. Contains error message if execution failed.
 
         Raises:
             AgentError: If tool arguments contain invalid JSON.
@@ -1332,12 +1336,28 @@ class DurableAgent(AgentBase):
         except json.JSONDecodeError as exc:
             raise AgentError(f"Invalid JSON in tool args: {exc}") from exc
 
+        # Unwrap MCP-style kwargs wrapper so executor receives flat arguments.
+        # This is necessary bc some tool schemas expose a single "kwargs" object and so the llm may return that shape.
+        if (
+            isinstance(args, dict)
+            and len(args) == 1
+            and "kwargs" in args
+            and isinstance(args.get("kwargs"), dict)
+        ):
+            args = args["kwargs"]
+
         async def _execute_tool() -> Any:
             return await self.tool_executor.run_tool(fn_name, **args)
 
-        result = self._run_asyncio_task(_execute_tool())
-
-        logger.debug(f"Tool {fn_name} returned: {result} (type: {type(result)})")
+        try:
+            result = self._run_asyncio_task(_execute_tool())
+            logger.debug(f"Tool {fn_name} returned: {result} (type: {type(result)})")
+        except Exception as exc:
+            # Ensure we always return a tool result, even on failure
+            # This prevents orphaned tool_call_ids that would break conversation history and tool call validations by the LLM provider.
+            err_type = type(exc).__name__
+            error_msg = f"Error executing tool '{fn_name}': {err_type}: {str(exc)}"
+            result = error_msg
 
         # Serialize the tool result using centralized utility
         serialized_result = serialize_tool_result(result)
