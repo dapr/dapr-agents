@@ -310,3 +310,40 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
     # Verify the tool result structure
     assert result["tool_call_id"] == "call_456"
     assert content.structuredContent["result"] == 4
+
+
+def test_create_pydantic_model_unwraps_kwargs_wrapper():
+    """Test that create_pydantic_model_from_schema unwraps kwargs wrapper schemas."""
+    # Schema with kwargs wrapper (like some MCP tools use)
+    wrapped_schema = {
+        "type": "object",
+        "properties": {
+            "kwargs": {
+                "type": "object",
+                "properties": {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "tag": {"type": "string"},
+                },
+                "required": ["owner", "repo", "tag"],
+            }
+        },
+        "required": ["kwargs"],
+    }
+
+    # Create model from wrapped schema
+    model = create_pydantic_model_from_schema(wrapped_schema, "TestArgs")
+
+    # Verify the model accepts flat arguments (not wrapped in kwargs)
+    instance = model(owner="dapr", repo="dapr-agents", tag="v0.12.0")
+    assert instance.owner == "dapr"
+    assert instance.repo == "dapr-agents"
+    assert instance.tag == "v0.12.0"
+
+    # Verify it rejects missing required fields
+    with pytest.raises(Exception):  # Pydantic ValidationError
+        model(owner="dapr", repo="dapr-agents")  # Missing tag
+
+    # Verify it rejects kwargs wrapper format (should not expect kwargs field)
+    with pytest.raises(Exception):  # Pydantic ValidationError
+        model(kwargs={"owner": "dapr", "repo": "dapr-agents", "tag": "v0.12.0"})
