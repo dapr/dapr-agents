@@ -8,6 +8,7 @@ dependencies = [
     "dapr-agents[vectorstore]",
     "python-dotenv>=1.2.1",
     "sentence-transformers>=4.1.0",
+    "pytz>=2024.1.0",
 ]
 
 [tool.uv.sources]

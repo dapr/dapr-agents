@@ -12,7 +12,7 @@ This quickstart demonstrates how to build a simple agent that uses tools exposed
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -77,7 +77,7 @@ async def get_weather(location: str) -> str:
 1. Render the components and start the agent (as shown above).
 2. In another terminal, send a request to the hosted endpoint:
 ```bash
-curl -X POST http://localhost:8001/run \
+curl -X POST http://localhost:8001/agent/run \
   -H "Content-Type: application/json" \
   -d '{"task": "What is the weather in New York?"}'
 ```
@@ -103,7 +103,7 @@ The agent connects to the MCP tools over STDIO, reasons about the query, invokes
 ### Execution Flow
 1. The agent renders Dapr components and starts the Workflow runtime.
 2. `MCPClient.connect_stdio()` launches `tools.py` as a subprocess and discovers available tools.
-3. An HTTP request to `/run` triggers the durable workflow (via `AgentRunner.serve`).
+3. An HTTP request to `/agent/run` triggers the durable workflow (via `AgentRunner.serve`).
 4. The LLM decides whether to call an MCP tool.
 5. Tool calls are dispatched over STDIO; results flow back into the conversation loop.
 6. Final responses are returned to the HTTP caller and saved in Dapr state.
@@ -130,4 +130,4 @@ To explore SSE transport, check out the related [MCP with SSE Transport quicksta
 
 After completing this quickstart, you might want to explore:
 - Checkout SSE transport example [MCP with SSE Transport quickstart](../07-agent-mcp-client-sse).
-- Exploring the [MCP specification](https://modelcontextprotocol.io/) for advanced usage 
+- Exploring the [MCP specification](https://modelcontextprotocol.io/) for advanced usage

@@ -37,12 +37,12 @@ Related to: #<issue_number>
 
 ## Acceptance Criteria
 <!-- What should be included in the documentation to consider it complete? -->
-- [ ] 
-- [ ] 
-- [ ] 
+- [ ]
+- [ ]
+- [ ]
 
 ## Resources
 <!-- Add any relevant resources, links, or references that might help with creating the content -->
 
 ## Notes
-<!-- Any additional notes or comments --> 
+<!-- Any additional notes or comments -->

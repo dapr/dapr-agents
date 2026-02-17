@@ -21,7 +21,7 @@ This quickstart demonstrates how to create and orchestrate event-driven workflow
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -190,7 +190,7 @@ dapr run -f dapr-random.yaml
 
 **What's running:**
 - ✅ Frodo agent
-- ✅ Sam agent  
+- ✅ Sam agent
 - ✅ Random orchestrator
 - ✅ Client (publishes to `fellowship.orchestrator.random.requests`)
 
@@ -221,12 +221,12 @@ dapr run -f dapr-agent.yaml
 - ✅ Frodo agent
 - ✅ Sam agent
 - ✅ Gandalf agent
-- ✅ Agent orchestrator (plan-based with LLM)
-- ✅ HTTP client (hits the orchestrator's `/run` endpoint)
+- ✅ LLM orchestrator
+- ✅ HTTP client (hits the orchestrator’s `/agent/run` endpoint)
 
 ### Triggering Workflows
 
-Each `dapr-*.yaml` spins up an `HttpClientApp` that keeps POSTing to `/run` until the orchestrator responds (max 10 tries with a 5s delay). You’ll see the returned instance ID printed in that client’s console.
+Each `dapr-*.yaml` spins up an `HttpClientApp` that keeps POSTing to `/agent/run` until the orchestrator responds (max 10 tries with a 5s delay). You’ll see the returned instance ID printed in that client’s console.
 
 If you prefer to drive the system via pub/sub (for multiple tasks, or to target a specific orchestrator), run:
 

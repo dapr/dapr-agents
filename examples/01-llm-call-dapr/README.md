@@ -13,7 +13,7 @@ This quickstart demonstrates how to use Dapr Agents' `DaprChatClient` to call LL
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:

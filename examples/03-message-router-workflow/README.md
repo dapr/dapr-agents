@@ -25,7 +25,7 @@ The `@message_router` decorator is applied **directly to the workflow function**
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:

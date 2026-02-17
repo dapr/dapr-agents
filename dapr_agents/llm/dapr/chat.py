@@ -381,13 +381,32 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             if "structured_mode" in params:
                 api_params["structured_mode"] = str(params["structured_mode"])
 
+            # Convert tool_choice from dict format to string of 'none', 'auto', or 'required'
+            tool_choice_param = params.get("tool_choice")
+            if isinstance(tool_choice_param, dict):
+                # When a specific function is requested (dict format), use 'required'
+                # to force tool calling, since Dapr doesn't support function-specific selection
+                tool_choice_param = "required"
+            elif isinstance(tool_choice_param, str) and tool_choice_param not in (
+                "none",
+                "auto",
+                "required",
+            ):
+                # If it's a string but not a valid Dapr value (e.g., a function name),
+                # default to 'required' to force tool calling
+                logger.warning(
+                    f"tool_choice value '{tool_choice_param}' is not supported by Dapr. "
+                    "Using 'required' instead."
+                )
+                tool_choice_param = "required"
+
             raw = self.client.chat_completion_alpha2(
                 llm=llm_component or self._llm_component,
                 inputs=conv_inputs,
                 scrub_pii=scrubPII,
                 temperature=temperature,
                 tools=params.get("tools"),
-                tool_choice=params.get("tool_choice"),
+                tool_choice=tool_choice_param,
                 parameters=api_params or None,
             )
             normalized = self.translate_response(
