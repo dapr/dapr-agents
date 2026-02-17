@@ -41,6 +41,23 @@ def create_pydantic_model_from_schema(
     try:
         properties = schema.get("properties", {})
         required = set(schema.get("required", []))
+
+        # Handle schemas that wrap arguments in a 'kwargs' field
+        # Some MCP tools use this pattern, but we want to unwrap it to accept flat arguments
+        if (
+            len(properties) == 1
+            and "kwargs" in properties
+            and properties["kwargs"].get("type") == "object"
+            and "properties" in properties["kwargs"]
+        ):
+            logger.debug(
+                f"Detected 'kwargs' wrapper in schema for '{model_name}', unwrapping to inner properties"
+            )
+            # Use the inner schema's properties instead
+            kwargs_schema = properties["kwargs"]
+            properties = kwargs_schema["properties"]
+            required = set(kwargs_schema.get("required", []))
+
         fields = {}
 
         # Process each property in the schema
