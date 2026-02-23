@@ -13,7 +13,7 @@ This quickstart demonstrates how to orchestrate agentic tasks using Dapr Workflo
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:

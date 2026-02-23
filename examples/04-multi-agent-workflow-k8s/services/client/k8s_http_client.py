@@ -9,7 +9,7 @@ from typing import Any, Dict
 import requests
 
 BASE_URL = os.getenv("WORKFLOW_BASE_URL", "http://localhost:8004").rstrip("/")
-ENTRY_PATH = os.getenv("WORKFLOW_ENTRY_PATH", "/run")
+ENTRY_PATH = os.getenv("WORKFLOW_ENTRY_PATH", "/agent/run")
 TASK_PROMPT = os.getenv("WORKFLOW_TASK", "How to get to Mordor? We all need to help!")
 MAX_ATTEMPTS = int(os.getenv("WORKFLOW_MAX_ATTEMPTS", "10"))
 RETRY_DELAY_SECONDS = int(os.getenv("WORKFLOW_RETRY_DELAY_SECONDS", "5"))

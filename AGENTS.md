@@ -40,11 +40,11 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
   - **Logging**: Use module-level logger: `logger = logging.getLogger(__name__)`
   - **ConfigDict**: Add `model_config = ConfigDict(arbitrary_types_allowed=True)` when Pydantic models contain non-serializable types
   - **Custom Exceptions**: Define domain-specific exceptions (inherit from `Exception`); use descriptive names ending in `Error`
-  - **Async Execution**: 
+  - **Async Execution**:
     - Check for running loop with `asyncio.get_running_loop()` before creating new loops
     - Use `asyncio.run_coroutine_threadsafe()` when submitting coroutines to a running loop from another thread
     - Create fresh event loops only when no loop is running
-  - **Error Handling**: 
+  - **Error Handling**:
     - Always catch specific exceptions before general ones
     - Log errors with context before raising: `logger.error("Operation failed: %s", error, exc_info=True)`
     - Use `span.record_exception(e)` for observability when available

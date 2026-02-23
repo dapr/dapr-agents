@@ -45,10 +45,7 @@ async def on_chat_start():
         instructions=instructions,
         tools=tools,
         memory=AgentMemoryConfig(
-            store=ConversationDaprStateMemory(
-                store_name="conversationstore",
-                session_id="sql-agent",
-            )
+            store=ConversationDaprStateMemory(store_name="conversationstore"),
         ),
     )
 

@@ -26,7 +26,7 @@ def main():
 
     runner = AgentRunner()
     try:
-        runner.serve(extractor, port=8001)
+        runner.serve(extractor, port=8004)
     finally:
         runner.shutdown(extractor)
 

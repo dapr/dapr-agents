@@ -209,6 +209,9 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
             structured_mode=structured_mode,
         )
 
+        # ensure params are JSON-serializable (datetime -> ISO string)
+        params = RequestHandler.make_params_json_serializable(params)
+
         # 7) Call API + hand off to ResponseHandler
         try:
             logger.info("Calling OpenAI ChatCompletion...")

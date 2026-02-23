@@ -18,7 +18,10 @@ from typing import (
 
 from pydantic import BaseModel, Field
 
-from dapr_agents.agents.schemas import AgentWorkflowMessage, AgentWorkflowState
+from dapr_agents.agents.schemas import (
+    AgentWorkflowEntry,
+    AgentWorkflowMessage,
+)
 
 from dapr_agents.memory import ConversationListMemory, MemoryBase
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
@@ -45,27 +48,24 @@ class StateModelBundle:
     """
     Bundled state schema configuration for an agent/orchestrator type.
 
-    Encapsulates the state and message model classes along with their
-    associated factory/coercer hooks. This is an internal abstraction
-    used by AgentStateConfig to ensure only vetted schemas are used.
+    With one-key-per-workflow, each state store key holds a single workflow
+    entry (entry_model_cls). This bundle identifies that type and related hooks.
 
     Attributes:
-        state_model_cls: Root Pydantic model class for the state.
+        entry_model_cls: Pydantic model class for one workflow's state (per key).
         message_model_cls: Pydantic model class for workflow/system messages.
         entry_factory: Optional factory to create workflow entry instances.
         message_coercer: Optional function to transform message dicts.
-        entry_container_getter: Optional function to locate the instance container.
     """
 
-    state_model_cls: Type[BaseModel]
+    entry_model_cls: Type[BaseModel]
     message_model_cls: Type[BaseModel]
     entry_factory: Optional[EntryFactory] = None
     message_coercer: Optional[MessageCoercer] = None
-    entry_container_getter: Optional[EntryContainerGetter] = None
 
 
 DEFAULT_AGENT_WORKFLOW_BUNDLE = StateModelBundle(
-    state_model_cls=AgentWorkflowState,
+    entry_model_cls=AgentWorkflowEntry,
     message_model_cls=AgentWorkflowMessage,
 )
 
@@ -119,12 +119,11 @@ class AgentStateConfig:
 
     store: "StateStoreService"
     default_state: Optional[Dict[str, Any] | BaseModel] = None
-    state_key: Optional[str] = None
+    state_key_prefix: Optional[str] = None
 
     # Hook overrides (optional - bundle provides defaults)
     entry_factory: Optional[EntryFactory] = None
     message_coercer: Optional[MessageCoercer] = None
-    entry_container_getter: Optional[EntryContainerGetter] = None
 
     # Internal: schema bundle (injected by agent/orchestrator class)
     _state_model_bundle: Optional[StateModelBundle] = field(
@@ -144,29 +143,24 @@ class AgentStateConfig:
         if self._state_model_bundle is not None:
             # Already set - verify it matches
             if (
-                self._state_model_bundle.state_model_cls != bundle.state_model_cls
+                self._state_model_bundle.entry_model_cls != bundle.entry_model_cls
                 or self._state_model_bundle.message_model_cls
                 != bundle.message_model_cls
             ):
                 raise RuntimeError(
                     f"State config already wired with "
-                    f"{self._state_model_bundle.state_model_cls.__name__} schema. "
-                    f"Cannot inject {bundle.state_model_cls.__name__} schema."
+                    f"{self._state_model_bundle.entry_model_cls.__name__} schema. "
+                    f"Cannot inject {bundle.entry_model_cls.__name__} schema."
                 )
             return  # Same bundle, no-op
 
         # Merge user hooks with bundle defaults
         self._state_model_bundle = StateModelBundle(
-            state_model_cls=bundle.state_model_cls,
+            entry_model_cls=bundle.entry_model_cls,
             message_model_cls=bundle.message_model_cls,
             entry_factory=self.entry_factory or bundle.entry_factory,
             message_coercer=self.message_coercer or bundle.message_coercer,
-            entry_container_getter=self.entry_container_getter
-            or bundle.entry_container_getter,
         )
-
-        # Normalize default_state against the bundle's state model
-        self._normalize_default_state()
 
     def get_state_model_bundle(self) -> StateModelBundle:
         """
@@ -184,22 +178,6 @@ class AgentStateConfig:
                 "This should be injected by the agent/orchestrator class."
             )
         return self._state_model_bundle
-
-    def _normalize_default_state(self) -> None:
-        """Normalize default_state against bundle's schema."""
-        if self._state_model_bundle is None:
-            return  # Can't normalize without bundle
-
-        Model = self._state_model_bundle.state_model_cls
-        if self.default_state is None:
-            self.default_state = Model().model_dump(mode="json")
-        else:
-            if isinstance(self.default_state, BaseModel):
-                self.default_state = self.default_state.model_dump(mode="json")
-            else:
-                self.default_state = Model.model_validate(
-                    self.default_state
-                ).model_dump(mode="json")
 
 
 @dataclass

@@ -12,7 +12,7 @@ This quickstart builds on the standalone version and shows how to run the same w
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -102,7 +102,7 @@ dapr init
 ```
 
 ## Running the Example
- 
+
 Durable agents maintain state across runs, enabling workflows that require persistence, recovery, and coordination. This is useful for long-running tasks, multi-step workflows, and agent collaboration.
 
 Choose one of the following entry points depending on how you want to host the agent:
@@ -152,7 +152,7 @@ When running `durable_weather_agent_serve.py`, the runner installs default REST 
 **Start a new workflow:**
 
 ```bash
-curl -i -X POST http://localhost:8001/run \
+curl -i -X POST http://localhost:8001/agent/run \
   -H "Content-Type: application/json" \
   -d '{"task": "What'\''s the weather in New York?"}'
 ```
@@ -162,7 +162,7 @@ You'll receive a workflow ID in response, which you can use to track progress.
 **Check workflow status:**
 
 ```bash
-curl -i -X GET http://localhost:8001/run/WORKFLOW_ID
+curl -i -X GET http://localhost:8001/agent/instances/WORKFLOW_ID
 
 # You can also use the Dapr workflow API if you prefer:
 curl -i -X GET http://localhost:3500/v1.0/workflows/dapr/WORKFLOW_ID
@@ -276,7 +276,7 @@ Dapr Agents observability provides:
 
 ### Troubleshooting Observability
 
-1. **Phoenix Connection Issues**: 
+1. **Phoenix Connection Issues**:
    - Verify Phoenix server is running: `docker compose ps`
    - Check port availability: `netstat -an | grep 6006`
 

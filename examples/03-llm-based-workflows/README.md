@@ -14,7 +14,7 @@ This quickstart demonstrates how to orchestrate sequential and parallel tasks us
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
