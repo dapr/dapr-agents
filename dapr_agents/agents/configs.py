@@ -392,13 +392,18 @@ class AgentObservabilityConfig:
 class AgentMetadata(BaseModel):
     """Metadata about an agent's configuration and capabilities."""
 
-    appid: str = Field(..., description="Dapr application ID of the agent")
+    appid: str = Field(
+        ...,
+        description="Dapr application ID (APP_ID) of the sidecar; may differ from the agent name",
+    )
     type: str = Field(..., description="Type of the agent (e.g., standalone, durable)")
     orchestrator: bool = Field(
         False, description="Indicates if the agent is an orchestrator"
     )
-    role: str = Field(default="", description="Role of the agent")
-    goal: str = Field(default="", description="High-level objective of the agent")
+    role: Optional[str] = Field(default=None, description="Role of the agent")
+    goal: Optional[str] = Field(
+        default=None, description="High-level objective of the agent"
+    )
     instructions: Optional[List[str]] = Field(
         default=None, description="Instructions for the agent"
     )
@@ -487,7 +492,10 @@ class AgentMetadataSchema(BaseModel):
     agent: AgentMetadata = Field(
         ..., description="Agent configuration and capabilities"
     )
-    name: str = Field(..., description="Name of the agent")
+    name: str = Field(
+        ...,
+        description="Logical agent name used as the registry key; distinct from agent.appid",
+    )
     registered_at: str = Field(..., description="ISO 8601 timestamp of registration")
     pubsub: Optional[PubSubMetadata] = Field(
         None, description="Pub/sub configuration if enabled"
