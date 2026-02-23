@@ -575,6 +575,10 @@ class AgentBase:
         """Delegate to DaprInfra."""
         return self._infra.register_agentic_system(metadata=metadata, team=team)
 
+    def deregister_agentic_system(self, *, team: Optional[str] = None):
+        """Delegate to DaprInfra."""
+        return self._infra.deregister_agentic_system(team=team)
+
     def get_agents_metadata(
         self, *, exclude_self=True, exclude_orchestrator=False, team=None
     ):

@@ -500,4 +500,8 @@ class Agent(AgentBase):
     ) -> None:  # pragma: no cover - signal handler
         """Signal handler that asks the run loop to stop."""
         logger.info("Received signal %s. Shutting down gracefully...", signum)
+        try:
+            self.deregister_agentic_system()
+        except Exception:  # noqa: BLE001
+            logger.debug("Could not deregister agent during shutdown", exc_info=True)
         self._shutdown_event.set()

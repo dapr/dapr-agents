@@ -1746,6 +1746,11 @@ class DurableAgent(AgentBase):
         if not self._started:
             return
 
+        try:
+            self.deregister_agentic_system()
+        except Exception:  # noqa: BLE001
+            logger.debug("Could not deregister agent during shutdown", exc_info=True)
+
         if self._runtime_owned:
             try:
                 self._runtime.shutdown()

@@ -572,7 +572,6 @@ class DaprInfra:
         *,
         team: Optional[str],
         agent_name: str,
-        max_attempts: Optional[int] = None,
     ) -> None:
         """
         Delete a single agent record from the team registry.
@@ -580,19 +579,25 @@ class DaprInfra:
         Args:
             team: Team identifier.
             agent_name: Agent name (key).
-            max_attempts: Override retry attempts.
         """
-
-        def mutator(current: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-            if agent_name not in current:
-                return None
-            del current[agent_name]
-            return current
-
-        self._mutate_registry_entry(
-            team=team,
-            mutator=mutator,
-            max_attempts=max_attempts,
+        registry_key = self._team_registry_key(team)
+        current_registry = self.registry_state.load(
+            key=registry_key,
+            default={},
+            state_metadata=self._state_metadata_for_key(registry_key),
+        )
+        if agent_name not in current_registry:
+            return
+        del current_registry[agent_name]
+        self.registry_state.save(
+            key=registry_key,
+            value=current_registry,
+            state_metadata=self._state_metadata_for_key(registry_key),
+        )
+        logger.info(
+            "Deregistered agent '%s' from team '%s' registry",
+            agent_name,
+            self._effective_team(team),
         )
 
     # ------------------------------------------------------------------
