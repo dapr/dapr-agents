@@ -1,5 +1,6 @@
 """Tests for hot-reload configuration and deregistration on stop."""
 
+import json
 import logging
 import pytest
 from unittest.mock import Mock, MagicMock, patch
@@ -240,7 +241,7 @@ class TestSetupConfigurationSubscription:
             store_name="configstore",
             keys=["agent_role", "agent_goal"],
             handler=agent._config_handler,
-            config_metadata={},
+            config_metadata={"pgNotifyChannel": "config"},
         )
         assert agent._subscription_id == "sub-123"
 
@@ -340,3 +341,301 @@ class TestStop:
         """stop() on an agent with no registry or config should not raise."""
         agent = ConcreteAgentBase(name="MinAgent", llm=mock_llm_client)
         agent.stop()  # Should complete without error
+
+
+class TestCoerceConfigValue:
+    """Tests for _coerce_config_value type coercion."""
+
+    def test_str_passthrough(self):
+        assert AgentBase._coerce_config_value("hello", str) == "hello"
+
+    def test_str_from_int(self):
+        assert AgentBase._coerce_config_value(42, str) == "42"
+
+    def test_int_from_string(self):
+        assert AgentBase._coerce_config_value("42", int) == 42
+
+    def test_int_from_float_string(self):
+        assert AgentBase._coerce_config_value("10.0", int) == 10
+
+    def test_int_already_int(self):
+        assert AgentBase._coerce_config_value(7, int) == 7
+
+    def test_int_invalid_raises(self):
+        with pytest.raises((ValueError, TypeError)):
+            AgentBase._coerce_config_value("not_a_number", int)
+
+    def test_bool_true_variants(self):
+        for v in ("true", "True", "1", "yes"):
+            assert AgentBase._coerce_config_value(v, bool) is True
+
+    def test_bool_false_variants(self):
+        for v in ("false", "False", "0", "no"):
+            assert AgentBase._coerce_config_value(v, bool) is False
+
+    def test_bool_invalid_raises(self):
+        with pytest.raises(ValueError):
+            AgentBase._coerce_config_value("maybe", bool)
+
+    def test_list_from_json(self):
+        result = AgentBase._coerce_config_value('["a", "b"]', list)
+        assert result == ["a", "b"]
+
+    def test_list_wraps_single_string(self):
+        result = AgentBase._coerce_config_value("single", list)
+        assert result == ["single"]
+
+    def test_list_already_list(self):
+        result = AgentBase._coerce_config_value(["already"], list)
+        assert result == ["already"]
+
+    def test_dict_from_json(self):
+        result = AgentBase._coerce_config_value('{"key": "val"}', dict)
+        assert result == {"key": "val"}
+
+    def test_dict_already_dict(self):
+        result = AgentBase._coerce_config_value({"key": "val"}, dict)
+        assert result == {"key": "val"}
+
+    def test_dict_non_dict_json_raises(self):
+        with pytest.raises(ValueError):
+            AgentBase._coerce_config_value("[1, 2]", dict)
+
+
+class TestLoadInitialConfiguration:
+    """Tests for _load_initial_configuration."""
+
+    @pytest.fixture
+    def mock_llm_client(self):
+        return MockLLMClient()
+
+    @staticmethod
+    def _make_config_response(items_dict):
+        """Build a mock ConfigurationResponse with the given key-value pairs."""
+        response = Mock()
+        items = {}
+        for key, value in items_dict.items():
+            item = Mock()
+            item.value = value
+            items[key] = item
+        response.items = items
+        return response
+
+    def test_loads_and_applies_initial_values(self, mock_llm_client):
+        agent = ConcreteAgentBase(
+            name="InitAgent",
+            role="Default",
+            llm=mock_llm_client,
+            configuration=AgentConfigurationConfig(
+                store_name="configstore", keys=["role"]
+            ),
+        )
+        mock_client = MagicMock()
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=False)
+        mock_client.get_configuration.return_value = self._make_config_response(
+            {"role": "Loaded Role"}
+        )
+
+        with patch("dapr_agents.agents.base.DaprClient", return_value=mock_client):
+            agent._load_initial_configuration(["role"])
+
+        assert agent.profile.role == "Loaded Role"
+
+    def test_get_configuration_does_not_pass_metadata(self, mock_llm_client):
+        """Metadata (e.g. pgNotifyChannel) must NOT be passed to get_configuration."""
+        agent = ConcreteAgentBase(
+            name="MetaAgent",
+            role="Default",
+            llm=mock_llm_client,
+            configuration=AgentConfigurationConfig(
+                store_name="configstore",
+                keys=["role"],
+                metadata={"pgNotifyChannel": "config"},
+            ),
+        )
+        mock_client = MagicMock()
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=False)
+        response = Mock()
+        response.items = {}
+        mock_client.get_configuration.return_value = response
+
+        with patch("dapr_agents.agents.base.DaprClient", return_value=mock_client):
+            agent._load_initial_configuration(["role"])
+
+        # Verify get_configuration was called without config_metadata
+        call_kwargs = mock_client.get_configuration.call_args
+        assert (
+            "config_metadata" not in call_kwargs.kwargs
+            or call_kwargs.kwargs.get("config_metadata") is None
+        )
+
+    def test_initial_load_failure_is_warning(self, mock_llm_client, caplog):
+        agent = ConcreteAgentBase(
+            name="FailAgent",
+            llm=mock_llm_client,
+            configuration=AgentConfigurationConfig(
+                store_name="configstore", keys=["role"]
+            ),
+        )
+        mock_client = MagicMock()
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=False)
+        mock_client.get_configuration.side_effect = RuntimeError("connection refused")
+
+        with patch("dapr_agents.agents.base.DaprClient", return_value=mock_client):
+            with caplog.at_level(logging.WARNING):
+                agent._load_initial_configuration(["role"])
+
+        assert "could not load initial configuration" in caplog.text.lower()
+
+    def test_empty_response_no_error(self, mock_llm_client):
+        agent = ConcreteAgentBase(
+            name="EmptyAgent",
+            role="Default",
+            llm=mock_llm_client,
+            configuration=AgentConfigurationConfig(
+                store_name="configstore", keys=["role"]
+            ),
+        )
+        mock_client = MagicMock()
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=False)
+        response = Mock()
+        response.items = {}
+        mock_client.get_configuration.return_value = response
+
+        with patch("dapr_agents.agents.base.DaprClient", return_value=mock_client):
+            agent._load_initial_configuration(["role"])
+
+        # Profile unchanged
+        assert agent.profile.role == "Default"
+
+    def test_get_called_before_subscribe(self, mock_llm_client):
+        """Verify that get_configuration is called before subscribe_configuration."""
+        call_order = []
+        mock_client = MagicMock()
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=False)
+
+        response = Mock()
+        response.items = {}
+        mock_client.get_configuration.side_effect = lambda **kw: (
+            call_order.append("get") or response
+        )
+        mock_client.subscribe_configuration.side_effect = lambda **kw: (
+            call_order.append("subscribe") or "sub-id"
+        )
+
+        agent = ConcreteAgentBase(
+            name="OrderAgent",
+            llm=mock_llm_client,
+            configuration=AgentConfigurationConfig(
+                store_name="configstore", keys=["k"]
+            ),
+        )
+
+        with patch("dapr_agents.agents.base.DaprClient", return_value=mock_client):
+            agent._setup_configuration_subscription()
+
+        assert call_order == ["get", "subscribe"]
+
+
+class TestConfigChangeCallback:
+    """Tests for user-provided on_config_change callback."""
+
+    @pytest.fixture
+    def mock_llm_client(self):
+        return MockLLMClient()
+
+    def test_callback_invoked(self, mock_llm_client):
+        callback = Mock()
+        config = AgentConfigurationConfig(
+            store_name="configstore",
+            keys=["role"],
+            on_config_change=callback,
+        )
+        agent = ConcreteAgentBase(
+            name="CBAgent", llm=mock_llm_client, configuration=config
+        )
+        agent._apply_config_update("role", "New Role")
+        callback.assert_called_once_with("role", "New Role")
+
+    def test_callback_error_swallowed(self, mock_llm_client, caplog):
+        callback = Mock(side_effect=RuntimeError("boom"))
+        config = AgentConfigurationConfig(
+            store_name="configstore",
+            keys=["role"],
+            on_config_change=callback,
+        )
+        agent = ConcreteAgentBase(
+            name="CBAgent", llm=mock_llm_client, configuration=config
+        )
+        with caplog.at_level(logging.WARNING):
+            agent._apply_config_update("role", "New Role")
+        assert "callback failed" in caplog.text.lower()
+        # Value still applied despite callback failure
+        assert agent.profile.role == "New Role"
+
+    def test_no_callback_configured(self, mock_llm_client):
+        """No callback set should not raise."""
+        agent = ConcreteAgentBase(name="NoCB", llm=mock_llm_client)
+        agent._apply_config_update("role", "Updated")
+        assert agent.profile.role == "Updated"
+
+
+class TestNewHotReloadableFields:
+    """Tests for newly supported hot-reloadable fields."""
+
+    @pytest.fixture
+    def mock_llm_client(self):
+        return MockLLMClient()
+
+    @pytest.fixture
+    def basic_agent(self, mock_llm_client):
+        return ConcreteAgentBase(
+            name="TestAgent",
+            role="Role",
+            goal="Goal",
+            instructions=["Instr"],
+            style_guidelines=["Be brief"],
+            llm=mock_llm_client,
+        )
+
+    def test_update_style_guidelines_string(self, basic_agent):
+        basic_agent._apply_config_update("style_guidelines", "Be concise")
+        assert basic_agent.profile.style_guidelines == ["Be concise"]
+
+    def test_update_style_guidelines_json_list(self, basic_agent):
+        basic_agent._apply_config_update(
+            "style_guidelines", '["Be concise", "Use examples"]'
+        )
+        assert basic_agent.profile.style_guidelines == ["Be concise", "Use examples"]
+
+    def test_update_style_guidelines_alias(self, basic_agent):
+        basic_agent._apply_config_update("agent_style_guidelines", "Formal")
+        assert basic_agent.profile.style_guidelines == ["Formal"]
+
+    def test_update_max_iterations(self, basic_agent):
+        basic_agent._apply_config_update("max_iterations", "5")
+        assert basic_agent.execution.max_iterations == 5
+
+    def test_update_max_iterations_invalid_rejected(self, basic_agent, caplog):
+        original = basic_agent.execution.max_iterations
+        with caplog.at_level(logging.WARNING):
+            basic_agent._apply_config_update("max_iterations", "0")
+        assert "validation failed" in caplog.text.lower()
+        # Value should not have been applied
+        assert basic_agent.execution.max_iterations == original
+
+    def test_update_tool_choice(self, basic_agent):
+        basic_agent._apply_config_update("tool_choice", "none")
+        assert basic_agent.execution.tool_choice == "none"
+
+    def test_update_max_iterations_non_numeric_rejected(self, basic_agent, caplog):
+        original = basic_agent.execution.max_iterations
+        with caplog.at_level(logging.WARNING):
+            basic_agent._apply_config_update("max_iterations", "abc")
+        assert "invalid value" in caplog.text.lower()
+        assert basic_agent.execution.max_iterations == original

@@ -16,21 +16,36 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def on_config_change(key: str, value):
+    """Optional callback invoked after each successful config update."""
+    logger.info(f"[callback] Configuration changed: {key} = {value}")
+
+
 async def main():
     """
     This example demonstrates a Durable Agent that hot-reloads its configuration
-    (role, goal, and instructions) from a Dapr Configuration Store.
+    (role, goal, instructions, style_guidelines, max_iterations) from a Dapr
+    Configuration Store.
+
+    On startup the agent loads any pre-existing values from the store before
+    subscribing to live changes. This works with any Dapr configuration backend
+    (Redis, PostgreSQL, etc.).
     """
 
     # 1. Define the configuration subscription
-    # We'll watch for keys related to our agent's persona
     config = AgentConfigurationConfig(
         store_name="configstore",
-        keys=["agent_role", "agent_goal", "agent_instructions"],
+        keys=[
+            "agent_role",
+            "agent_goal",
+            "agent_instructions",
+            "style_guidelines",
+            "max_iterations",
+        ],
+        on_config_change=on_config_change,
     )
 
     # 2. Infrastructure Setup
-    # Note: These component names should match your dapr run environment
     state_config = AgentStateConfig(
         store=StateStoreService(store_name="agent-workflow")
     )
@@ -38,12 +53,12 @@ async def main():
     pubsub_config = AgentPubSubConfig(pubsub_name="agent-pubsub")
 
     # 3. Initialize the Agent
-    # We start with some baseline defaults
     agent = DurableAgent(
         name="config-aware-agent",
         role="Base Assistant",
         goal="Wait for configuration updates",
         instructions=["Initial instruction"],
+        style_guidelines=["Be concise"],
         configuration=config,
         state=state_config,
         pubsub=pubsub_config,
@@ -54,19 +69,23 @@ async def main():
     logger.info(f"Goal: {agent.profile.goal}")
 
     # 4. Start the Agent Runtime
-    # This will trigger the configuration subscription defined in AgentBase
+    # This will first load existing config values, then subscribe to changes.
     agent.start()
 
     logger.info("Agent started and subscribed to 'configstore'.")
-    logger.info("To trigger a hot-reload, update the value in Redis:")
-    logger.info('redis-cli SET agent_role "Expert Researcher"')
+    logger.info("To trigger a hot-reload, update the value in your config store:")
+    logger.info('  Redis:      redis-cli SET agent_role "Expert Researcher"')
+    logger.info(
+        "  PostgreSQL: UPDATE configuration SET value='Expert Researcher', "
+        "version=(version::int+1)::text WHERE key='agent_role';"
+    )
 
     try:
-        # Keep the agent running to observe hot-reloads
         while True:
             await asyncio.sleep(10)
             logger.info(
-                f"Current Persona: [{agent.profile.role}] - {agent.profile.goal}"
+                f"Current Persona: [{agent.profile.role}] - {agent.profile.goal} "
+                f"(max_iterations={agent.execution.max_iterations})"
             )
     except KeyboardInterrupt:
         logger.info("Shutting down...")

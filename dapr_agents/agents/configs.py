@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from os import getenv
 from enum import StrEnum
@@ -12,6 +13,7 @@ from typing import (
     MutableMapping,
     Optional,
     Sequence,
+    Tuple,
     Type,
     Union,
 )
@@ -180,6 +182,54 @@ class AgentStateConfig:
         return self._state_model_bundle
 
 
+@dataclass(frozen=True)
+class ConfigFieldDescriptor:
+    """Describes how a configuration key maps to an agent attribute.
+
+    Attributes:
+        targets: Dot-paths to set on the agent (e.g. ``"profile.role"``).
+        target_type: Expected Python type for the coerced value.
+        sensitive: If ``True``, the value is redacted in log output.
+        validator: Optional callable to validate/transform the coerced value.
+    """
+
+    targets: Tuple[str, ...]
+    target_type: Type
+    sensitive: bool = False
+    validator: Optional[Callable[..., Any]] = None
+
+
+# ---------------------------------------------------------------------------
+# Built-in validators for ConfigFieldDescriptor
+# ---------------------------------------------------------------------------
+
+_config_logger = logging.getLogger(__name__)
+
+
+def validate_non_empty_string(v: str) -> str:
+    """Reject empty or whitespace-only strings."""
+    if not v or not v.strip():
+        raise ValueError("Value must not be empty")
+    return v.strip()
+
+
+def validate_max_iterations(v: int) -> int:
+    """Ensure max_iterations is at least 1."""
+    if v < 1:
+        raise ValueError(f"max_iterations must be >= 1, got {v}")
+    return v
+
+
+def validate_tool_choice(v: str) -> str:
+    """Warn if tool_choice is non-standard, but allow it."""
+    allowed = {"auto", "none", "required"}
+    if v.lower() not in allowed:
+        _config_logger.warning(
+            "tool_choice '%s' not in standard set %s; allowing anyway.", v, allowed
+        )
+    return v
+
+
 @dataclass
 class AgentConfigurationConfig:
     """Configuration for agent dynamic configuration store.
@@ -189,12 +239,15 @@ class AgentConfigurationConfig:
         config_name: Optional name of the configuration to subscribe to (defaults to agent name).
         keys: Optional list of keys to subscribe to.
         metadata: Optional metadata for the configuration subscription.
+        on_config_change: Optional callback invoked after each successful config update.
+            Receives the normalized key and coerced value.
     """
 
     store_name: str
     config_name: Optional[str] = None
     keys: List[str] = field(default_factory=list)
     metadata: Dict[str, str] = field(default_factory=dict)
+    on_config_change: Optional[Callable[[str, Any], None]] = None
 
 
 @dataclass
