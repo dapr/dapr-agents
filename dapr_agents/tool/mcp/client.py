@@ -460,7 +460,7 @@ class MCPClient(BaseModel):
                             "%s running tool: %s", err_type, error_msg, exc_info=True
                         )
                         return CallToolResult(
-                            is_error=True,
+                            isError=True,
                             content=[
                                 TextContent(
                                     type="text",
@@ -514,9 +514,9 @@ class MCPClient(BaseModel):
         """
 
         return CallToolResult(
-            is_error=result.is_error,
+            isError=result.isError,
             content=result.content,
-            structured_content=result.structured_content,
+            structuredContent=result.structuredContent,
         )
 
     def get_all_tools(self) -> List[AgentTool]:
