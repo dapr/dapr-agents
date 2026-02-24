@@ -539,6 +539,7 @@ class DurableAgent(AgentBase):
             orch_state = {
                 "task": task,
                 "agents": agents_formatted,
+                "agents_metadata": agents_result["metadata"],
                 "plan": plan,
                 "task_history": [],
                 "verdict": None,
@@ -555,6 +556,8 @@ class DurableAgent(AgentBase):
                 retry_policy=self._retry_policy,
             )
 
+            orch_state["agents_metadata"] = agents_metadata
+
         for turn in range(1, self.execution.max_iterations + 1):
             if not ctx.is_replaying:
                 logger.debug(
@@ -566,24 +569,8 @@ class DurableAgent(AgentBase):
                 agents_formatted = orch_state.get("agents", "")
 
                 if turn > 1:
-                    try:
-                        entry = self._infra.get_state(instance_id)
-                    except Exception:
-                        logger.exception(
-                            f"Failed to get workflow state for instance_id: {instance_id}"
-                        )
-                        raise
-                    messages = (
-                        getattr(entry, "messages", [])
-                        if entry and hasattr(entry, "messages")
-                        else []
-                    )
-                    plan = self.get_plan_from_messages(messages) or plan
-
                     if not ctx.is_replaying:
-                        logger.info(
-                            f"Loaded plan from state with {len(plan)} steps (turn {turn})"
-                        )
+                        logger.info(f"Plan has {len(plan)} steps (turn {turn})")
 
                     if len(plan) == 0:
                         raise AgentError(
@@ -667,10 +654,26 @@ class DurableAgent(AgentBase):
                     f"Turn {turn}: Selected agent '{next_agent}' with instruction: {instruction[:100]}..."
                 )
 
-            agents_metadata = self.list_team_agents(
-                include_self=False, team=self.effective_team
-            )
-            agent_appid = agents_metadata[next_agent]["agent"]["appid"]
+            agents_metadata = orch_state.get("agents_metadata") or {}
+            agent_entry = agents_metadata.get(next_agent)
+
+            if agent_entry is None:
+                next_lower = next_agent.lower()
+                for key, meta in agents_metadata.items():
+                    if key.lower() == next_lower:
+                        agent_entry = meta
+                        break
+                    if next_lower in key.lower() or key.lower() in next_lower:
+                        agent_entry = meta
+                        break
+
+            if agent_entry is None:
+                raise AgentError(
+                    f"Agent '{next_agent}' not found in registry. "
+                    f"Available agents: {list(agents_metadata.keys())}"
+                )
+
+            agent_appid = agent_entry["agent"]["appid"]
 
             result = yield ctx.call_child_workflow(
                 workflow="agent_workflow",
