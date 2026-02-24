@@ -31,15 +31,15 @@ jobs:
       run: |
         username="${{ github.event.comment.user.login }}"
         allowed_users=("sicoyle" "yaron2" "Cyb3rWard0g")
-        
+
         if [[ ! " ${allowed_users[@]} " =~ " ${username} " ]]; then
           echo "User ${username} is not authorized to run this workflow."
           echo "Must be one of: sicoyle, yaron2, Cyb3rWard0g"
           exit 1
         fi
-        
+
         echo "User ${username} is authorized to run this workflow."
-    
+
     - name: Get PR details
       if: github.event_name == 'issue_comment'
       id: pr
@@ -59,34 +59,34 @@ jobs:
           core.setOutput('head_sha', data.head.sha);
           core.setOutput('head_ref', data.head.ref);
           core.setOutput('head_repo', data.head.repo.full_name);
-    
+
     - name: Checkout PR
       if: github.event_name == 'issue_comment'
       uses: actions/checkout@v6
       with:
         ref: ${{ steps.pr.outputs.head_sha }}
         repository: ${{ steps.pr.outputs.head_repo }}
-    
+
     - name: Checkout
       if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
       uses: actions/checkout@v6
-    
+
     - name: Set up Python ${{ matrix.python_ver }}
       uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python_ver }}
-    
+
     - name: Set up Docker
       uses: docker/setup-docker-action@v4
-    
+
     - name: Install Dapr CLI
       run: |
         wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
-    
+
     - name: Initialize Dapr
       run: |
         dapr init
-    
+
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -140,37 +140,37 @@ jobs:
             repo: context.repo.repo,
             run_id: context.runId,
           });
-          
+
           // Get all integration test jobs (matrix jobs have names like "integration-tests (3.10)")
-          const testJobs = jobs.jobs.filter(job => 
+          const testJobs = jobs.jobs.filter(job =>
             job.name === 'integration-tests' || job.name.startsWith('integration-tests (')
           );
-          
+
           // Build summary table
           let summary = '## Integration Tests Summary\n\n';
           summary += '| Python Version | Status |\n';
           summary += '|----------------|--------|\n';
-          
+
           let allPassed = true;
           const pythonVersions = ['3.10', '3.11', '3.12', '3.13'];
-          
+
           // Find jobs by Python version
           for (const pythonVer of pythonVersions) {
             // Try to find job by name first (matrix jobs: "integration-tests (3.10)")
             let job = testJobs.find(j => j.name === `integration-tests (${pythonVer})`);
-            
+
             // Fallback: find by Python version in steps
             if (!job) {
-              job = testJobs.find(j => 
+              job = testJobs.find(j =>
                 j.steps.some(step => step.name && step.name.includes(pythonVer))
               );
             }
-            
+
             // Last fallback: use index
             if (!job && testJobs.length > pythonVersions.indexOf(pythonVer)) {
               job = testJobs[pythonVersions.indexOf(pythonVer)];
             }
-            
+
             if (job) {
               const isSuccess = job.conclusion === 'success';
               const status = isSuccess ? '✅ PASSED' : '❌ FAILED';
@@ -185,22 +185,22 @@ jobs:
               allPassed = false;
             }
           }
-          
+
           summary += `\n**Overall Status:** ${allPassed ? '✅ All tests passed' : '❌ Some tests failed'}\n`;
           summary += `**Workflow:** [View run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n`;
-          
+
           // Find existing comment or create new one
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: prNumber,
           });
-          
-          const existingComment = comments.find(c => 
-            c.user.type === 'Bot' && 
+
+          const existingComment = comments.find(c =>
+            c.user.type === 'Bot' &&
             c.body.includes('## Integration Tests Summary')
           );
-          
+
           if (existingComment) {
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
@@ -216,9 +216,8 @@ jobs:
               body: summary,
             });
           }
-          
+
           // Fail the job if any tests failed
           if (!allPassed) {
             core.setFailed('Integration tests failed');
           }
-    

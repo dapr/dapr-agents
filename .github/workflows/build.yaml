@@ -28,6 +28,8 @@ jobs:
       uses: astral-sh/setup-uv@v3
       with:
         version: "latest"
+    - name: Install dependencies to match uv lock file to that of CI
+      run: uv sync --group test
     - name: Run Autoformatter
       run: |
         uv run ruff format
