@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import random
+import warnings
 from datetime import timedelta
 from typing import Any, Dict, Optional, Callable
 
@@ -30,15 +31,6 @@ logger = logging.getLogger(__name__)
 class RandomOrchestrator(OrchestratorBase):
     """
     Workflow-native orchestrator that randomly selects an agent each turn.
-
-    Flow:
-      1) Optionally broadcast the initial task to all agents.
-      2) For up to ``max_iterations``:
-         - Pick a random agent (avoid the most recent speaker when possible),
-         - Trigger it,
-         - Wait for a response event or a timeout,
-         - Use the response content as the next turn's task.
-      3) Return the final content.
     """
 
     def __init__(
@@ -55,6 +47,12 @@ class RandomOrchestrator(OrchestratorBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         final_summary_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
+        warnings.warn(
+            "RandomOrchestrator is deprecated and will be removed in a future version. "
+            "Use DurableAgent with orchestration_mode='random' in AgentExecutionConfig instead. ",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(
             name=name,
             pubsub=pubsub,

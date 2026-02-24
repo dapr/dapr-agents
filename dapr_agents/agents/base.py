@@ -5,6 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union, Coroutine
+from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
 
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
@@ -39,7 +40,12 @@ from dapr_agents.storage.daprstores.stateservice import (
 )
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.tool.executor import AgentToolExecutor
-from dapr_agents.types import AssistantMessage, ToolExecutionRecord, UserMessage
+from dapr_agents.types import (
+    AgentError,
+    AssistantMessage,
+    ToolExecutionRecord,
+    UserMessage,
+)
 
 from opentelemetry import trace
 from opentelemetry import _logs
@@ -169,11 +175,15 @@ class AgentBase:
                 self.appid = resp.application_id
                 components: Sequence[RegisteredComponents] = resp.registered_components
                 for component in components:
-                    if "state" in component.type and component.name == "agent-memory":
+                    if (
+                        "state" in component.type
+                        and component.name == "agent-memory"
+                        and memory is None
+                    ):
                         memory = AgentMemoryConfig(
                             store=ConversationDaprStateMemory(
                                 store_name=component.name,
-                                session_id=f"{name.replace(' ', '-').lower() if name else 'default'}-session",
+                                agent_name=self.name,
                             )
                         )
                     if "conversation" in component.type and llm is None:
@@ -190,7 +200,7 @@ class AgentBase:
                     ):
                         state = AgentStateConfig(
                             store=StateStoreService(store_name=component.name),
-                            state_key=f"{name.replace(' ', '-').lower() if name else 'default'}:agent_workflow",
+                            state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
                         )
                     if (
                         "state" in component.type
@@ -280,9 +290,11 @@ class AgentBase:
             # Auto-provision a Dapr-backed memory if we have a state store.
             self._memory.store = ConversationDaprStateMemory(  # type: ignore[union-attr]
                 store_name=state.store.store_name,
-                session_id=f"{self.name}-session",
+                agent_name=self.name,
             )
         self.memory = self._memory.store or ConversationListMemory()
+        if hasattr(self.memory, "agent_name"):
+            self.memory.agent_name = self.name
 
         # -----------------------------
         # Prompting helper
@@ -344,14 +356,6 @@ class AgentBase:
             self.execution.tool_choice = "auto"
 
         # -----------------------------
-        # Load durable state (from AgentComponents)
-        # -----------------------------
-        try:
-            self.load_state()
-        except Exception:  # noqa: BLE001
-            logger.warning("Agent failed to load persisted state; starting fresh.")
-
-        # -----------------------------
         # Agent metadata & registry registration (from AgentComponents)
         # -----------------------------
         base_meta: Dict[str, Any] = {}
@@ -378,8 +382,6 @@ class AgentBase:
             memory_meta["type"] = type(self.memory).__name__
             if getattr(self.memory, "store_name", None) is not None:
                 memory_meta["statestore"] = self.memory.store_name
-            if getattr(self.memory, "session_id", None) is not None:
-                memory_meta["session_id"] = self.memory.session_id
             base_meta["memory"] = memory_meta
 
         if self.llm:
@@ -446,99 +448,105 @@ class AgentBase:
     @property
     def pubsub(self):
         """Delegate to DaprInfra."""
-        return self._infra.pubsub
+        if hasattr(self, "_infra"):
+            return self._infra.pubsub
 
     @property
     def registry_state(self):
         """Delegate to DaprInfra."""
-        return self._infra.registry_state
+        if hasattr(self, "_infra"):
+            return self._infra.registry_state
 
     @property
     def agent_topic_name(self):
         """Delegate to DaprInfra."""
-        return self._infra.agent_topic_name
+        if hasattr(self, "_infra"):
+            return self._infra.agent_topic_name
 
     @property
     def message_bus_name(self):
         """Delegate to DaprInfra."""
-        return self._infra.message_bus_name
+        if hasattr(self, "_infra"):
+            return self._infra.message_bus_name
 
     @property
     def broadcast_topic_name(self):
         """Delegate to DaprInfra."""
-        return self._infra.broadcast_topic_name
+        if hasattr(self, "_infra"):
+            return self._infra.broadcast_topic_name
 
     @property
     def workflow_grpc_options(self):
         """Delegate to DaprInfra."""
-        return self._infra.workflow_grpc_options
+        if hasattr(self, "_infra"):
+            return self._infra.workflow_grpc_options
 
     @property
     def state_store(self):
         """Delegate to DaprInfra."""
-        return self._infra.state_store
+        if hasattr(self, "_infra"):
+            return self._infra.state_store
 
     @property
     def _state_model(self):
         """Delegate to DaprInfra."""
-        return self._infra._state_model
+        if hasattr(self, "_infra"):
+            return self._infra._state_model
 
     @property
     def state(self):
         """Delegate to DaprInfra."""
-        return self._infra.state
+        if hasattr(self, "_infra"):
+            return self._infra.state
 
     @property
     def workflow_state(self):
         """Delegate to DaprInfra."""
-        return self._infra.workflow_state
+        if hasattr(self, "_infra"):
+            return self._infra.workflow_state
 
-    def load_state(self):
+    def save_state(self, workflow_instance_id: str) -> None:
         """Delegate to DaprInfra."""
-        return self._infra.load_state()
+        if hasattr(self, "_infra"):
+            return self._infra.save_state(workflow_instance_id)
 
-    def save_state(self):
+    def get_state(self, instance_id: str) -> Optional[Any]:
         """Delegate to DaprInfra."""
-        return self._infra.save_state()
+        if hasattr(self, "_infra"):
+            return self._infra.get_state(instance_id)
+
+    def mark_workflow_terminated(self, instance_id: str) -> None:
+        """
+        No-op for state store; terminated status comes from Dapr get_workflow runtime_status.
+        """
 
     def register_agentic_system(self, *, metadata=None, team=None):
         """Delegate to DaprInfra."""
-        return self._infra.register_agentic_system(metadata=metadata, team=team)
+        if hasattr(self, "_infra"):
+            return self._infra.register_agentic_system(metadata=metadata, team=team)
 
     def get_agents_metadata(
         self, *, exclude_self=True, exclude_orchestrator=False, team=None
     ):
         """Delegate to DaprInfra."""
-        return self._infra.get_agents_metadata(
-            exclude_self=exclude_self,
-            exclude_orchestrator=exclude_orchestrator,
-            team=team,
-        )
+        if hasattr(self, "_infra"):
+            return self._infra.get_agents_metadata(
+                exclude_self=exclude_self,
+                exclude_orchestrator=exclude_orchestrator,
+                team=team,
+            )
 
     def sync_system_messages(self, instance_id, all_messages):
         """Delegate to DaprInfra."""
-        return self._infra.sync_system_messages(
-            instance_id=instance_id, all_messages=all_messages
-        )
-
-    def _get_entry_container(self):
-        """Delegate to DaprInfra."""
-        return self._infra._get_entry_container()
+        if hasattr(self, "_infra"):
+            return self._infra.sync_system_messages(
+                instance_id=instance_id, all_messages=all_messages
+            )
 
     def _message_dict_to_message_model(self, message):
         """Delegate to DaprInfra."""
-        return self._infra._message_dict_to_message_model(message)
-
-    def ensure_instance_exists(
-        self, *, instance_id, input_value, triggering_workflow_instance_id, time=None
-    ):
-        """Delegate to DaprInfra."""
-        return self._infra.ensure_instance_exists(
-            instance_id=instance_id,
-            input_value=input_value,
-            triggering_workflow_instance_id=triggering_workflow_instance_id,
-            time=time,
-        )
+        if hasattr(self, "_infra"):
+            return self._infra._message_dict_to_message_model(message)
 
     # ------------------------------------------------------------------
     # Presentation helpers
@@ -582,6 +590,7 @@ class AgentBase:
     def build_initial_messages(
         self,
         user_input: Optional[Union[str, Dict[str, Any]]] = None,
+        workflow_instance_id: str = "default",
         **extra_variables: Any,
     ) -> List[Dict[str, Any]]:
         """
@@ -589,6 +598,7 @@ class AgentBase:
 
         Args:
             user_input: Optional user message or structured payload.
+            workflow_instance_id: Workflow instance id for chat history; use "default" when not in a workflow.
             **extra_variables: Extra template variables for the prompt template.
 
         Returns:
@@ -596,21 +606,26 @@ class AgentBase:
         """
         return self.prompting_helper.build_initial_messages(
             user_input,
-            chat_history=self.get_chat_history()
+            chat_history=self.get_chat_history(workflow_instance_id)
             if self.prompting_helper.include_chat_history
             else None,
             **extra_variables,
         )
 
-    def get_chat_history(self) -> List[Dict[str, Any]]:
+    def get_chat_history(
+        self, workflow_instance_id: str = "default"
+    ) -> List[Dict[str, Any]]:
         """
         Retrieve the conversation history from the configured memory backend.
+
+        Args:
+            workflow_instance_id: Workflow instance id to retrieve history for; use "default" when not in a workflow.
 
         Returns:
             A list of message-like dictionaries in normalized form.
         """
         try:
-            history = self.memory.get_messages()
+            history = self.memory.get_messages(workflow_instance_id)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Memory get_messages failed: %s", exc)
             return []
@@ -623,14 +638,16 @@ class AgentBase:
                 normalized.append(dict(entry))
         return normalized
 
-    def reset_memory(self) -> None:
-        """Clear all stored conversation messages."""
+    def reset_memory(self, workflow_instance_id: str = "default") -> None:
+        """Clear all stored conversation messages for the given workflow instance."""
         if self.memory:
-            self.memory.reset_memory()
+            self.memory.reset_memory(workflow_instance_id)
 
-    def get_last_message(self) -> Optional[Dict[str, Any]]:
+    def get_last_message(
+        self, workflow_instance_id: str = "default"
+    ) -> Optional[Dict[str, Any]]:
         """Return the last message stored in memory, if any."""
-        history = self.get_chat_history()
+        history = self.get_chat_history(workflow_instance_id)
         return dict(history[-1]) if history else None
 
     def get_last_user_message(
@@ -673,6 +690,85 @@ class AgentBase:
                 msg["content"] = content.strip()
             return msg
         return None
+
+    def _summarize_conversation(
+        self,
+        instance_id: str,
+        messages_list: Sequence[Any],
+        tool_history: Any,
+    ) -> Dict[str, Any]:
+        """
+        Shared summarization: build summary from messages + tool_history via LLM,
+        save to memory keyed by instance_id, optionally print. Used by durable and standalone.
+
+        Args:
+            instance_id: Workflow/run instance id for memory keying.
+            messages_list: Sequence of message-like objects (entry.messages).
+            tool_history: Tool call/result history (entry.tool_history or []).
+
+        Returns:
+            Dict with "content" key holding the summary text, or {} if nothing to summarize.
+
+        Raises:
+            AgentError: If memory disabled, LLM fails, or save fails.
+        """
+        if not self.memory:
+            raise AgentError("Long-term conversation memory is not enabled.")
+
+        if not messages_list:
+            logger.debug("No messages to summarize for instance_id=%s", instance_id)
+            return {}
+
+        lines = []
+        for m in messages_list:
+            try:
+                d = self._serialize_message(m)
+            except TypeError:
+                d = {"role": "unknown", "content": str(m)}
+            lines.append(f"{d.get('role', 'unknown')}: {d.get('content', '')}")
+        conversation_text = "\n".join(lines)
+        tool_list = tool_history if tool_history is not None else []
+        task = (
+            "Summarize the following conversation and any tool usage concisely for long-term memory storage. "
+            "Focus on key facts, decisions, and outcomes.\n\n"
+            "Conversation:\n"
+            f"{conversation_text}\n\n"
+            "Tool calls/results:\n"
+            f"{json.dumps(tool_list, default=str)}"
+        )
+        llm_messages: List[Dict[str, Any]] = [
+            {"role": "user", "content": task},
+        ]
+
+        try:
+            summary_model: ConversationSummary = self.llm.generate(
+                messages=llm_messages,
+                response_format=ConversationSummary,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise AgentError(f"LLM summarize failed: {exc}") from exc
+
+        summary_content = (summary_model.summary or "").strip()
+        if not summary_content:
+            raise AgentError("LLM returned an empty summary.")
+
+        summary_message: Dict[str, Any] = {
+            "role": "assistant",
+            "content": summary_content,
+            "name": self.name,
+        }
+        try:
+            self.memory.add_message(summary_message, workflow_instance_id=instance_id)
+        except Exception:
+            raise AgentError(
+                f"Failed to save summary to memory for instance_id={instance_id}"
+            )
+        logger.info("Saved summary to memory for instance_id=%s", instance_id)
+        if getattr(self, "text_formatter", None):
+            self.text_formatter.print_message(
+                {**summary_message, "name": f"{self.name}"}
+            )
+        return {"content": summary_content}
 
     def get_llm_tools(self) -> List[Union[AgentTool, Dict[str, Any]]]:
         """
@@ -818,12 +914,9 @@ class AgentBase:
                 return message
         return None
 
-    # ------------------------------------------------------------------
-    # State-aware message helpers (use AgentComponents' state model)
-    # ------------------------------------------------------------------
     def _reconstruct_conversation_history(
         self, instance_id: str
-    ) -> List[Dict[str, Any]]:
+    ) -> List[AgentWorkflowMessage]:
         """
         Build a conversation history combining persistent memory and per-instance messages.
 
@@ -833,33 +926,15 @@ class AgentBase:
         Returns:
             Combined message history excluding system messages from instance timeline.
         """
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
-
-        instance_messages: List[Dict[str, Any]] = []
-        if entry and hasattr(entry, "messages"):
-            for msg in getattr(entry, "messages"):
-                serialized = self._serialize_message(msg)
-                if serialized.get("role") != "system":
-                    instance_messages.append(serialized)
-
-        persistent_memory: List[Dict[str, Any]] = []
         try:
-            for msg in self.memory.get_messages():
-                try:
-                    persistent_memory.append(self._serialize_message(msg))
-                except TypeError:
-                    logger.debug(
-                        "Unsupported memory message type %s; skipping.", type(msg)
-                    )
-        except Exception:  # noqa: BLE001
-            logger.debug("Unable to load persistent memory.", exc_info=True)
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to reconstruct conversation workflow history for instance_id: {instance_id}"
+            )
+            raise
 
-        # Persistent conversation history in the memory config is the single source of truth for conversation history
-        if persistent_memory:
-            return persistent_memory
-        # Note: this is just ot make tests happy for now and in reality for durable agent this is not used for app resumption of state
-        return instance_messages
+        return entry.messages
 
     def _sync_system_messages_with_state(
         self,
@@ -893,8 +968,14 @@ class AgentBase:
         if not task or not user_message_copy:
             return
 
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id to process user message: {instance_id}"
+            )
+            raise
+
         if entry is not None and hasattr(entry, "messages"):
             # Use configured coercer / message model
             message_model = (
@@ -906,15 +987,7 @@ class AgentBase:
             if hasattr(entry, "last_message"):
                 entry.last_message = message_model  # type: ignore[attr-defined]
 
-            session_id = getattr(getattr(self, "memory", None), "session_id", None)
-            if session_id is not None and hasattr(entry, "session_id"):
-                entry.session_id = str(session_id)  # type: ignore[attr-defined]
-
-        # Always add to memory (required for chat history for agent durability upon restarts)
-        self.memory.add_message(
-            UserMessage(content=user_message_copy.get("content", ""))
-        )
-        self.save_state()
+        self.save_state(instance_id)
 
     def _save_assistant_message(
         self, instance_id: str, assistant_message: Dict[str, Any]
@@ -928,8 +1001,14 @@ class AgentBase:
         """
         assistant_message["name"] = self.name
 
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
+
         if entry is not None and hasattr(entry, "messages"):
             message_id = assistant_message.get("id")
             if message_id and any(
@@ -948,9 +1027,7 @@ class AgentBase:
                 if hasattr(entry, "last_message"):
                     entry.last_message = message_model  # type: ignore[attr-defined]
 
-        # Always add to memory (required for chat history)
-        self.memory.add_message(AssistantMessage(**assistant_message))
-        self.save_state()
+        self.save_state(instance_id)
 
     # ------------------------------------------------------------------
     # Small convenience wrappers

@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, MutableMapping, Optional
-
-from pydantic import BaseModel
-
+from typing import Any, Dict, Optional
 from dapr_agents.agents.configs import StateModelBundle
 from dapr_agents.agents.orchestrators.llm.state import (
     LLMWorkflowEntry,
     LLMWorkflowMessage,
-    LLMWorkflowState,
 )
 
 
@@ -94,21 +90,13 @@ def _default_message_coercer(raw: Dict[str, Any]) -> LLMWorkflowMessage:
     return LLMWorkflowMessage(**payload)
 
 
-def _default_entry_container_getter(
-    model: BaseModel,
-) -> Optional[MutableMapping[str, Any]]:
-    """Return the container that maps instance_id -> entry (if present)."""
-    return getattr(model, "instances", None)
-
-
 def build_llm_state_bundle() -> StateModelBundle:
     """Return the default state bundle for LLM orchestrators."""
     return StateModelBundle(
-        state_model_cls=LLMWorkflowState,
+        entry_model_cls=LLMWorkflowEntry,
         message_model_cls=LLMWorkflowMessage,
         entry_factory=_default_entry_factory,
         message_coercer=_default_message_coercer,
-        entry_container_getter=_default_entry_container_getter,
     )
 
 
@@ -116,6 +104,5 @@ def build_llm_state_bundle() -> StateModelBundle:
 __all__ = [
     "_default_entry_factory",
     "_default_message_coercer",
-    "_default_entry_container_getter",
     "build_llm_state_bundle",
 ]

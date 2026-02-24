@@ -349,6 +349,27 @@ class TestObservabilityConfigFromStatestore:
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
 
+    def _patch_dapr_client(self, monkeypatch, mock_client):
+        """Helper to patch DaprClient in both locations."""
+        # Create a mock class that returns the mock_client when instantiated
+        # We need to capture mock_client in a closure
+        captured_client = mock_client
+
+        class MockDaprClientClass:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return captured_client
+
+            def __exit__(self, *args):
+                pass
+
+        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.statestore.DaprClient", MockDaprClientClass
+        )
+
     @pytest.fixture
     def mock_llm(self):
         """Create a mock LLM client."""
@@ -376,12 +397,7 @@ class TestObservabilityConfigFromStatestore:
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = DurableAgent(
             name="TestAgent",
@@ -420,12 +436,7 @@ class TestObservabilityConfigFromStatestore:
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = DurableAgent(
             name="TestAgent",
@@ -457,12 +468,7 @@ class TestObservabilityConfigFromStatestore:
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = DurableAgent(
             name="TestAgent",
@@ -494,12 +500,7 @@ class TestObservabilityConfigFromStatestore:
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = DurableAgent(
             name="TestAgent",
@@ -546,6 +547,27 @@ class TestObservabilityConfigPrecedence:
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
 
+    def _patch_dapr_client(self, monkeypatch, mock_client):
+        """Helper to patch DaprClient in both locations."""
+        # Create a mock class that returns the mock_client when instantiated
+        # We need to capture mock_client in a closure
+        captured_client = mock_client
+
+        class MockDaprClientClass:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return captured_client
+
+            def __exit__(self, *args):
+                pass
+
+        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.statestore.DaprClient", MockDaprClientClass
+        )
+
     @pytest.fixture
     def mock_llm(self):
         """Create a mock LLM client."""
@@ -567,12 +589,7 @@ class TestObservabilityConfigPrecedence:
 
         # Mock DaprClient with no runtime config
         mock_client = MockDaprClient()
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         # Create observability config for instantiation
         obs_config = AgentObservabilityConfig(
@@ -618,12 +635,7 @@ class TestObservabilityConfigPrecedence:
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         # Set environment variables (should override statestore)
         monkeypatch.setenv("OTEL_ENABLED", "false")
@@ -669,12 +681,7 @@ class TestObservabilityConfigPrecedence:
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         # Set environment variables (middle priority)
         monkeypatch.setenv("OTEL_SERVICE_NAME", "env-service")
@@ -722,12 +729,7 @@ class TestObservabilityConfigPrecedence:
         """Test merging configs with headers properly combines them."""
         # Mock DaprClient with no runtime config
         mock_client = MockDaprClient()
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         # Set environment with token (creates Authorization header)
         monkeypatch.setenv("OTEL_TOKEN", "env-token")
@@ -768,12 +770,7 @@ class TestObservabilityConfigPrecedence:
         """Test that when no config is provided, defaults are used."""
         # Mock DaprClient with no runtime config
         mock_client = MockDaprClient()
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = DurableAgent(
             name="TestAgent",
@@ -820,12 +817,7 @@ class TestObservabilityConfigMergeLogic:
 
         # Mock DaprClient
         mock_client = MockDaprClient()
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         # Mock the observability setup to avoid actual OTel initialization
         monkeypatch.setattr(
@@ -835,6 +827,27 @@ class TestObservabilityConfigMergeLogic:
         yield
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
+
+    def _patch_dapr_client(self, monkeypatch, mock_client):
+        """Helper to patch DaprClient in both locations."""
+        # Create a mock class that returns the mock_client when instantiated
+        # We need to capture mock_client in a closure
+        captured_client = mock_client
+
+        class MockDaprClientClass:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return captured_client
+
+            def __exit__(self, *args):
+                pass
+
+        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.statestore.DaprClient", MockDaprClientClass
+        )
 
     @pytest.fixture
     def mock_llm(self):

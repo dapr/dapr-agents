@@ -418,8 +418,8 @@ class AgentRunner(WorkflowRunner):
         host: str = "0.0.0.0",
         port: int = 8001,
         expose_entry: bool = True,
-        entry_path: str = "/run",
-        status_path: str = "/run/{instance_id}",
+        entry_path: str = "/agent/run",
+        status_path: str = "/agent/instances/{instance_id}",
         workflow_component: str = "dapr",
         fetch_status_payloads: bool = True,
         delivery_mode: Literal["sync", "async"] = "sync",
@@ -530,7 +530,9 @@ class AgentRunner(WorkflowRunner):
         if entry_path not in self._default_http_paths:
             self._default_http_paths.add(entry_path)
 
-            async def _start_workflow(body: dict = Body(default_factory=dict)) -> dict:
+            async def _start_workflow(
+                body: dict[str, str] = Body(default_factory=dict),
+            ) -> dict[str, str]:
                 payload = body or None
                 instance_id = await self.run(
                     agent,
@@ -539,9 +541,33 @@ class AgentRunner(WorkflowRunner):
                     log=True,
                 )
                 return {
-                    "instance_id": instance_id,
-                    "status_url": f"/v1.0/workflows/{workflow_component}/{instance_id}",
+                    "instance_id": instance_id if instance_id else "",
+                    "status_url": status_path.replace(
+                        "{instance_id}", instance_id or ""
+                    ),
                 }
+
+            async def _terminate_workflow(instance_id: str) -> dict[str, str]:
+                await asyncio.to_thread(
+                    self._wf_client.terminate_workflow,
+                    instance_id,
+                    output="Terminated by user request",
+                )
+                if hasattr(agent, "mark_workflow_terminated"):
+                    await asyncio.to_thread(
+                        agent.mark_workflow_terminated,
+                        instance_id,
+                    )
+                return {"instance_id": instance_id, "status": "terminated"}
+
+            async def _purge_workflow(instance_id: str) -> dict[str, str]:
+                self._wf_client.purge_workflow(
+                    instance_id=instance_id,
+                )
+                agent._infra.purge_state(instance_id)
+                if getattr(agent, "memory", None) is not None:
+                    agent.memory.purge_memory(instance_id)
+                return {"instance_id": instance_id, "status": "purged"}
 
             fastapi_app.add_api_route(
                 entry_path,
@@ -550,7 +576,22 @@ class AgentRunner(WorkflowRunner):
                 summary="Schedule workflow entry",
                 tags=["workflow"],
             )
-            logger.info("Mounted default workflow entry endpoint at %s", entry_path)
+            fastapi_app.add_api_route(
+                status_path + "/terminate",
+                _terminate_workflow,
+                methods=["POST"],
+                summary="Terminate workflow instance",
+                tags=["workflow"],
+            )
+            fastapi_app.add_api_route(
+                status_path + "/purge",
+                _purge_workflow,
+                methods=["POST"],
+                summary="Purge agent instance",
+                tags=["agent"],
+            )
+
+            logger.info("Mounted default agent run endpoint at %s", entry_path)
         else:
             logger.debug("Workflow entry endpoint already mounted at %s", entry_path)
 
@@ -609,7 +650,8 @@ class AgentRunner(WorkflowRunner):
             with self._lock:
                 if agent in self._managed_agents:
                     try:
-                        agent.instrumentor.uninstrument()
+                        if agent.instrumentor is not None:
+                            agent.instrumentor.uninstrument()
                     except AttributeError:
                         # this happens if the agent has no instrumentor
                         pass
@@ -629,7 +671,8 @@ class AgentRunner(WorkflowRunner):
                 agents = list(self._managed_agents)
             for ag in agents:
                 try:
-                    agent.instrumentor.uninstrument()
+                    if ag.instrumentor is not None:
+                        ag.instrumentor.uninstrument()
                 except AttributeError:
                     # this happens if the agent has no instrumentor
                     pass
