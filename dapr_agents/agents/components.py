@@ -629,9 +629,7 @@ class DaprInfra:
                 return {}
 
             # Build per-agent key list and bulk-fetch
-            agent_keys = [
-                self._agent_registry_key(name, team) for name in agent_names
-            ]
+            agent_keys = [self._agent_registry_key(name, team) for name in agent_names]
             bulk_results = self.registry_state.load_many(
                 keys=agent_keys,
                 state_metadata=partition_meta,
@@ -683,9 +681,7 @@ class DaprInfra:
         try:
             self.registry_state.delete(key=agent_key, state_metadata=partition_meta)
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to delete per-agent key '%s': %s", agent_key, exc
-            )
+            logger.warning("Failed to delete per-agent key '%s': %s", agent_key, exc)
 
         # Step 2: Remove agent name from index (ETag-protected)
         index_key = self._team_registry_index_key(team)

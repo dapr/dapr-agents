@@ -893,9 +893,17 @@ class TestDurableAgent:
             return saved.get(key, default)
 
         with (
-            patch.object(basic_durable_agent.registry_state, "save", side_effect=fake_save),
-            patch.object(basic_durable_agent.registry_state, "load_with_etag", side_effect=fake_load_with_etag),
-            patch.object(basic_durable_agent.registry_state, "load", side_effect=fake_load),
+            patch.object(
+                basic_durable_agent.registry_state, "save", side_effect=fake_save
+            ),
+            patch.object(
+                basic_durable_agent.registry_state,
+                "load_with_etag",
+                side_effect=fake_load_with_etag,
+            ),
+            patch.object(
+                basic_durable_agent.registry_state, "load", side_effect=fake_load
+            ),
         ):
             basic_durable_agent.register_agentic_system(metadata=metadata)
 
@@ -924,9 +932,17 @@ class TestDurableAgent:
             return saved.get(key, default)
 
         with (
-            patch.object(basic_durable_agent.registry_state, "save", side_effect=fake_save),
-            patch.object(basic_durable_agent.registry_state, "load_with_etag", side_effect=fake_load_with_etag),
-            patch.object(basic_durable_agent.registry_state, "load", side_effect=fake_load),
+            patch.object(
+                basic_durable_agent.registry_state, "save", side_effect=fake_save
+            ),
+            patch.object(
+                basic_durable_agent.registry_state,
+                "load_with_etag",
+                side_effect=fake_load_with_etag,
+            ),
+            patch.object(
+                basic_durable_agent.registry_state, "load", side_effect=fake_load
+            ),
         ):
             basic_durable_agent.register_agentic_system(metadata=metadata)
             basic_durable_agent.register_agentic_system(metadata=metadata)
@@ -938,8 +954,12 @@ class TestDurableAgent:
     def test_deregister_agentic_system(self, basic_durable_agent):
         """Test deregistering removes per-agent key and updates index."""
         saved = {
-            f"agents:default:{basic_durable_agent.name}": {"name": basic_durable_agent.name},
-            "agents:default:_index": {"agents": [basic_durable_agent.name, "other-agent"]},
+            f"agents:default:{basic_durable_agent.name}": {
+                "name": basic_durable_agent.name
+            },
+            "agents:default:_index": {
+                "agents": [basic_durable_agent.name, "other-agent"]
+            },
         }
         deleted_keys = []
 
@@ -954,9 +974,17 @@ class TestDurableAgent:
             saved.pop(key, None)
 
         with (
-            patch.object(basic_durable_agent.registry_state, "save", side_effect=fake_save),
-            patch.object(basic_durable_agent.registry_state, "load_with_etag", side_effect=fake_load_with_etag),
-            patch.object(basic_durable_agent.registry_state, "delete", side_effect=fake_delete),
+            patch.object(
+                basic_durable_agent.registry_state, "save", side_effect=fake_save
+            ),
+            patch.object(
+                basic_durable_agent.registry_state,
+                "load_with_etag",
+                side_effect=fake_load_with_etag,
+            ),
+            patch.object(
+                basic_durable_agent.registry_state, "delete", side_effect=fake_delete
+            ),
         ):
             basic_durable_agent.deregister_agentic_system()
 
@@ -986,8 +1014,14 @@ class TestDurableAgent:
             }
 
         with (
-            patch.object(basic_durable_agent.registry_state, "load", side_effect=fake_load),
-            patch.object(basic_durable_agent.registry_state, "load_many", side_effect=fake_load_many),
+            patch.object(
+                basic_durable_agent.registry_state, "load", side_effect=fake_load
+            ),
+            patch.object(
+                basic_durable_agent.registry_state,
+                "load_many",
+                side_effect=fake_load_many,
+            ),
         ):
             result = basic_durable_agent.get_agents_metadata(exclude_self=False)
 
@@ -995,10 +1029,14 @@ class TestDurableAgent:
         assert "agent-b" in result
         assert "agent-stale" not in result
 
-    def test_get_agents_metadata_excludes_self_and_orchestrator(self, basic_durable_agent):
+    def test_get_agents_metadata_excludes_self_and_orchestrator(
+        self, basic_durable_agent
+    ):
         """Test that get_agents_metadata applies exclude_self and exclude_orchestrator filters."""
         stored = {
-            "agents:default:_index": {"agents": [basic_durable_agent.name, "agent-b", "orch-agent"]},
+            "agents:default:_index": {
+                "agents": [basic_durable_agent.name, "agent-b", "orch-agent"]
+            },
         }
 
         def fake_load(*, key, default=None, **kwargs):
@@ -1006,14 +1044,26 @@ class TestDurableAgent:
 
         def fake_load_many(*, keys, **kwargs):
             return {
-                f"agents:default:{basic_durable_agent.name}": {"name": basic_durable_agent.name, "orchestrator": False},
+                f"agents:default:{basic_durable_agent.name}": {
+                    "name": basic_durable_agent.name,
+                    "orchestrator": False,
+                },
                 "agents:default:agent-b": {"name": "agent-b", "orchestrator": False},
-                "agents:default:orch-agent": {"name": "orch-agent", "orchestrator": True},
+                "agents:default:orch-agent": {
+                    "name": "orch-agent",
+                    "orchestrator": True,
+                },
             }
 
         with (
-            patch.object(basic_durable_agent.registry_state, "load", side_effect=fake_load),
-            patch.object(basic_durable_agent.registry_state, "load_many", side_effect=fake_load_many),
+            patch.object(
+                basic_durable_agent.registry_state, "load", side_effect=fake_load
+            ),
+            patch.object(
+                basic_durable_agent.registry_state,
+                "load_many",
+                side_effect=fake_load_many,
+            ),
         ):
             result = basic_durable_agent.get_agents_metadata(
                 exclude_self=True, exclude_orchestrator=True
