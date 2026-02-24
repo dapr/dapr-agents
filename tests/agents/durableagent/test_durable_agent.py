@@ -879,12 +879,149 @@ class TestDurableAgent:
         assert len(assistant_messages) >= 1
 
     def test_register_agentic_system(self, basic_durable_agent):
-        """Test registering agentic system."""
-        # Mock registry_state.save to prevent actual state store operations
-        with patch.object(basic_durable_agent.registry_state, "save"):
-            basic_durable_agent.register_agentic_system()
-            # Verify it completes without error
-            assert True  # If we get here, registration succeeded
+        """Test registering agentic system with per-agent key + index."""
+        saved = {}
+        metadata = basic_durable_agent.agent_metadata
+
+        def fake_save(*, key, value, **kwargs):
+            saved[key] = value
+
+        def fake_load_with_etag(*, key, default=None, **kwargs):
+            return (saved.get(key, default), "etag-1")
+
+        def fake_load(*, key, default=None, **kwargs):
+            return saved.get(key, default)
+
+        with (
+            patch.object(basic_durable_agent.registry_state, "save", side_effect=fake_save),
+            patch.object(basic_durable_agent.registry_state, "load_with_etag", side_effect=fake_load_with_etag),
+            patch.object(basic_durable_agent.registry_state, "load", side_effect=fake_load),
+        ):
+            basic_durable_agent.register_agentic_system(metadata=metadata)
+
+        # Verify per-agent key was saved
+        agent_key = f"agents:default:{basic_durable_agent.name}"
+        assert agent_key in saved
+        assert saved[agent_key] is not None
+
+        # Verify index was updated
+        index_key = "agents:default:_index"
+        assert index_key in saved
+        assert basic_durable_agent.name in saved[index_key]["agents"]
+
+    def test_register_agentic_system_idempotent(self, basic_durable_agent):
+        """Test that re-registering the same agent does not duplicate in the index."""
+        saved = {}
+        metadata = basic_durable_agent.agent_metadata
+
+        def fake_save(*, key, value, **kwargs):
+            saved[key] = value
+
+        def fake_load_with_etag(*, key, default=None, **kwargs):
+            return (saved.get(key, default), "etag-1")
+
+        def fake_load(*, key, default=None, **kwargs):
+            return saved.get(key, default)
+
+        with (
+            patch.object(basic_durable_agent.registry_state, "save", side_effect=fake_save),
+            patch.object(basic_durable_agent.registry_state, "load_with_etag", side_effect=fake_load_with_etag),
+            patch.object(basic_durable_agent.registry_state, "load", side_effect=fake_load),
+        ):
+            basic_durable_agent.register_agentic_system(metadata=metadata)
+            basic_durable_agent.register_agentic_system(metadata=metadata)
+
+        index_key = "agents:default:_index"
+        agents_list = saved[index_key]["agents"]
+        assert agents_list.count(basic_durable_agent.name) == 1
+
+    def test_deregister_agentic_system(self, basic_durable_agent):
+        """Test deregistering removes per-agent key and updates index."""
+        saved = {
+            f"agents:default:{basic_durable_agent.name}": {"name": basic_durable_agent.name},
+            "agents:default:_index": {"agents": [basic_durable_agent.name, "other-agent"]},
+        }
+        deleted_keys = []
+
+        def fake_save(*, key, value, **kwargs):
+            saved[key] = value
+
+        def fake_load_with_etag(*, key, default=None, **kwargs):
+            return (saved.get(key, default), "etag-1")
+
+        def fake_delete(*, key, **kwargs):
+            deleted_keys.append(key)
+            saved.pop(key, None)
+
+        with (
+            patch.object(basic_durable_agent.registry_state, "save", side_effect=fake_save),
+            patch.object(basic_durable_agent.registry_state, "load_with_etag", side_effect=fake_load_with_etag),
+            patch.object(basic_durable_agent.registry_state, "delete", side_effect=fake_delete),
+        ):
+            basic_durable_agent.deregister_agentic_system()
+
+        # Per-agent key was deleted
+        agent_key = f"agents:default:{basic_durable_agent.name}"
+        assert agent_key in deleted_keys
+
+        # Index no longer contains this agent but retains the other
+        index_key = "agents:default:_index"
+        assert basic_durable_agent.name not in saved[index_key]["agents"]
+        assert "other-agent" in saved[index_key]["agents"]
+
+    def test_get_agents_metadata_stale_index(self, basic_durable_agent):
+        """Test that get_agents_metadata skips stale index entries (missing per-agent keys)."""
+        stored = {
+            "agents:default:_index": {"agents": ["agent-a", "agent-b", "agent-stale"]},
+        }
+
+        def fake_load(*, key, default=None, **kwargs):
+            return stored.get(key, default)
+
+        def fake_load_many(*, keys, **kwargs):
+            # Only agent-a and agent-b exist; agent-stale is missing
+            return {
+                "agents:default:agent-a": {"name": "agent-a", "orchestrator": False},
+                "agents:default:agent-b": {"name": "agent-b", "orchestrator": False},
+            }
+
+        with (
+            patch.object(basic_durable_agent.registry_state, "load", side_effect=fake_load),
+            patch.object(basic_durable_agent.registry_state, "load_many", side_effect=fake_load_many),
+        ):
+            result = basic_durable_agent.get_agents_metadata(exclude_self=False)
+
+        assert "agent-a" in result
+        assert "agent-b" in result
+        assert "agent-stale" not in result
+
+    def test_get_agents_metadata_excludes_self_and_orchestrator(self, basic_durable_agent):
+        """Test that get_agents_metadata applies exclude_self and exclude_orchestrator filters."""
+        stored = {
+            "agents:default:_index": {"agents": [basic_durable_agent.name, "agent-b", "orch-agent"]},
+        }
+
+        def fake_load(*, key, default=None, **kwargs):
+            return stored.get(key, default)
+
+        def fake_load_many(*, keys, **kwargs):
+            return {
+                f"agents:default:{basic_durable_agent.name}": {"name": basic_durable_agent.name, "orchestrator": False},
+                "agents:default:agent-b": {"name": "agent-b", "orchestrator": False},
+                "agents:default:orch-agent": {"name": "orch-agent", "orchestrator": True},
+            }
+
+        with (
+            patch.object(basic_durable_agent.registry_state, "load", side_effect=fake_load),
+            patch.object(basic_durable_agent.registry_state, "load_many", side_effect=fake_load_many),
+        ):
+            result = basic_durable_agent.get_agents_metadata(
+                exclude_self=True, exclude_orchestrator=True
+            )
+
+        assert basic_durable_agent.name not in result
+        assert "agent-b" in result
+        assert "orch-agent" not in result
 
     def test_durable_agent_properties(self, basic_durable_agent):
         """Test durable agent properties."""
