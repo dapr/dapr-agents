@@ -482,7 +482,9 @@ class TestDurableAgent:
             assert len(entry.messages) == 0  # No tool message added by run_tool
             assert len(entry.tool_history) == 0  # No tool history added by run_tool
 
-    def test_run_tool_unwraps_kwargs_for_mcp_tools(self, basic_durable_agent, mock_tool):
+    def test_run_tool_unwraps_kwargs_for_mcp_tools(
+        self, basic_durable_agent, mock_tool
+    ):
         """When tool_call arguments are wrapped as {'kwargs': {...}}, run_tool unwraps so executor gets flat kwargs."""
         instance_id = "test-instance-123"
         # Simulate LLM returning MCP-style wrapped arguments
