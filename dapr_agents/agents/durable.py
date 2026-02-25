@@ -1682,6 +1682,9 @@ class DurableAgent(AgentBase):
         if self._started:
             raise RuntimeError("Agent has already been started.")
 
+        # Set up lifecycle-managed resources (e.g., configuration subscription)
+        super().start()
+
         if runtime is not None:
             self._runtime = runtime
             self._runtime_owned = False

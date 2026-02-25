@@ -208,7 +208,7 @@ class TestConfigHandler:
 
     def test_handler_error_is_logged(self, basic_agent, caplog):
         response = Mock()
-        response.items = Mock(side_effect=AttributeError("bad response"))
+        response.items.items.side_effect = AttributeError("bad response")
         with caplog.at_level(logging.ERROR):
             basic_agent._config_handler("sub-1", response)
         assert "Error in configuration handler" in caplog.text

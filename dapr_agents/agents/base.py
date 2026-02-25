@@ -547,6 +547,12 @@ class AgentBase:
                 "Registry configuration not provided; skipping agent registration."
             )
 
+    def start(self) -> None:
+        """Start lifecycle-managed resources (e.g., configuration subscription).
+
+        Subclasses that override ``start()`` should call ``super().start()``
+        to ensure configuration subscriptions are established.
+        """
         if self.configuration:
             self._setup_configuration_subscription()
 

@@ -39,6 +39,7 @@ async def main():
             "agent_role",
             "agent_goal",
             "agent_instructions",
+            "agent_config",
             "style_guidelines",
             "max_iterations",
         ],
@@ -68,11 +69,11 @@ async def main():
     logger.info(f"Role: {agent.profile.role}")
     logger.info(f"Goal: {agent.profile.goal}")
 
-    # 4. Start the Agent Runtime (config subscription was set up during initialization)
+    # 4. Start the Agent Runtime (also sets up the configuration subscription)
     agent.start()
 
     logger.info(
-        "Agent runtime started. Configuration subscription was established during initialization."
+        "Agent runtime started and subscribed to configuration store."
     )
     logger.info("To trigger a hot-reload, update the value in your config store:")
     logger.info('  Redis:      redis-cli SET agent_role "Expert Researcher"')
