@@ -383,7 +383,7 @@ class AgentBase:
         agent_meta = AgentMetadata(
             appid=self.appid or "unknown",
             type=type(self).__name__,
-            orchestrator=False,
+            orchestrator=bool(agent_metadata and agent_metadata.get("orchestrator")),
             role=self.profile.role or None,
             goal=self.profile.goal or None,
             instructions=list(self.profile.instructions),
