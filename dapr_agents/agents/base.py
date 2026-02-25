@@ -316,10 +316,7 @@ class AgentBase:
                             store=StateStoreService(store_name=component.name),
                             team_name="default",
                         )
-                    if (
-                        "state" in component.type
-                        and component.name == "agent-runtimestatestore"
-                    ):
+                    if "state" in component.type and component.name == "agent-runtime":
                         raw_runtime_conf: StateResponse = _client.get_state(
                             store_name=component.name,
                             key="agent_runtime",
