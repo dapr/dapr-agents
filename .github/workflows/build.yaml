@@ -44,6 +44,38 @@ jobs:
     - name: Run Linter
       run: |
         uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+  schema-validation:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.11"
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    - name: Install dependencies
+      run: uv sync --group test
+    - name: Validate metadata schema
+      run: uv run pytest tests -m "schema" -v
+    - name: Check for breaking schema changes
+      if: github.event_name == 'pull_request'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        REPORT=$(uv run python scripts/check_schema_compat.py)
+        if echo "$REPORT" | grep -q "Breaking"; then
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "## Metadata Schema Compatibility Report
+
+        $REPORT
+
+        > This is informational — breaking changes may be intentional for a new release."
+        fi
+
   build:
     needs: lint
     runs-on: ubuntu-latest
