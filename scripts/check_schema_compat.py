@@ -63,9 +63,7 @@ def _collect_required(schema: Dict[str, Any]) -> Dict[str, Set[str]]:
     return reqs
 
 
-def check_compat(
-    old: Dict[str, Any], new: Dict[str, Any]
-) -> List[str]:
+def check_compat(old: Dict[str, Any], new: Dict[str, Any]) -> List[str]:
     """Return a list of breaking-change descriptions (empty = compatible)."""
     issues: List[str] = []
 
