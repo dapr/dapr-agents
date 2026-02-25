@@ -647,7 +647,7 @@ class DaprInfra:
                 name: meta
                 for name, meta in agents_metadata.items()
                 if not (exclude_self and name == self.name)
-                and not (exclude_orchestrator and meta.get("orchestrator", False))
+                and not (exclude_orchestrator and meta.get("agent", {}).get("orchestrator", False))
             }
             return filtered
         except Exception as exc:  # noqa: BLE001

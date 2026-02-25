@@ -1046,12 +1046,12 @@ class TestDurableAgent:
             return {
                 f"agents:default:{basic_durable_agent.name}": {
                     "name": basic_durable_agent.name,
-                    "orchestrator": False,
+                    "agent": {"orchestrator": False},
                 },
-                "agents:default:agent-b": {"name": "agent-b", "orchestrator": False},
+                "agents:default:agent-b": {"name": "agent-b", "agent": {"orchestrator": False}},
                 "agents:default:orch-agent": {
                     "name": "orch-agent",
-                    "orchestrator": True,
+                    "agent": {"orchestrator": True},
                 },
             }
 

@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.types import MessageContent, ToolExecutionRecord
 from dapr_agents.types.message import BaseMessage
 
