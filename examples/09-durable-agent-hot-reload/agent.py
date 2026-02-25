@@ -72,9 +72,7 @@ async def main():
     # 4. Start the Agent Runtime (also sets up the configuration subscription)
     agent.start()
 
-    logger.info(
-        "Agent runtime started and subscribed to configuration store."
-    )
+    logger.info("Agent runtime started and subscribed to configuration store.")
     logger.info("To trigger a hot-reload, update the value in your config store:")
     logger.info('  Redis:      redis-cli SET agent_role "Expert Researcher"')
     logger.info(
