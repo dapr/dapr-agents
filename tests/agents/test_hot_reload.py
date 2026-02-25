@@ -1,6 +1,5 @@
 """Tests for hot-reload configuration and deregistration on stop."""
 
-import json
 import logging
 import pytest
 from unittest.mock import Mock, MagicMock, patch
@@ -77,7 +76,7 @@ class TestApplyConfigUpdate:
         basic_agent._apply_config_update("llm_provider", "azure")
         assert basic_agent.llm.provider == original
 
-    def test_unrecognized_key_returns_early(self, basic_agent, caplog):
+    def test_unrecognized_key_returns_early(self, basic_agent):
         with patch.object(basic_agent, "register_agentic_system") as mock_reg:
             # Even if registry_state were set, unrecognized keys should not trigger re-registration
             basic_agent._apply_config_update("unknown_key", "value")

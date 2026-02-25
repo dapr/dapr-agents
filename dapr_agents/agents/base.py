@@ -585,6 +585,12 @@ class AgentBase:
                 self.configuration.store_name,
                 e,
             )
+            if hasattr(self, "_config_client") and self._config_client:
+                try:
+                    self._config_client.close()
+                except Exception:
+                    pass
+                self._config_client = None
 
     def _load_initial_configuration(self, keys: List[str]) -> None:
         """Load current configuration values from the store and apply them."""

@@ -47,7 +47,7 @@ async def main():
 
     # 2. Infrastructure Setup
     state_config = AgentStateConfig(
-        store=StateStoreService(store_name="agent-workflow")
+        store=StateStoreService(store_name="workflowstatestore")
     )
 
     pubsub_config = AgentPubSubConfig(pubsub_name="agent-pubsub")
@@ -68,11 +68,12 @@ async def main():
     logger.info(f"Role: {agent.profile.role}")
     logger.info(f"Goal: {agent.profile.goal}")
 
-    # 4. Start the Agent Runtime
-    # This will first load existing config values, then subscribe to changes.
+    # 4. Start the Agent Runtime (config subscription was set up during initialization)
     agent.start()
 
-    logger.info("Agent started and subscribed to 'configstore'.")
+    logger.info(
+        "Agent runtime started. Configuration subscription was established during initialization."
+    )
     logger.info("To trigger a hot-reload, update the value in your config store:")
     logger.info('  Redis:      redis-cli SET agent_role "Expert Researcher"')
     logger.info(

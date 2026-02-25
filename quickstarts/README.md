@@ -380,7 +380,7 @@ The agent starts with its initial role (`Original Role`) and subscribes to the D
 ## How This Works
 
 1. The agent is initialized with an `AgentConfigurationConfig` that specifies the configuration store name and the keys to watch.
-2. During `agent.start()`, the agent subscribes to the Dapr Configuration API using `subscribe_configuration`, which streams updates from the backing store.
+2. During initialization (`__init__`), the agent loads existing values and subscribes to the Dapr Configuration API using `subscribe_configuration`, which streams updates from the backing store. The `agent.start()` call then starts the workflow runtime.
 3. When a configuration key changes, the `_config_handler` in `AgentBase` receives the update and applies it to the agent's profile, LLM settings, or component references.
 4. If a registry store is configured, the agent re-registers its updated metadata automatically.
 

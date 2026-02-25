@@ -223,6 +223,8 @@ Values can be sent as a JSON object. When the configuration value is a JSON dict
 redis-cli SET agent_config '{"role": "Researcher", "goal": "Find answers", "max_iterations": "15"}'
 ```
 
+> **Note:** The key (`agent_config` above) must be one of the keys the agent subscribes to (defined in `AgentConfigurationConfig.keys`). Unsubscribed keys will be ignored.
+
 ## Callback on Configuration Change
 
 You can provide an `on_config_change` callback to react to configuration updates:

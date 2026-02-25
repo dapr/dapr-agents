@@ -236,7 +236,7 @@ class AgentConfigurationConfig:
 
     Attributes:
         store_name: Name of the Dapr configuration store component.
-        config_name: Optional name of the configuration to subscribe to (defaults to agent name).
+        config_name: Optional fallback configuration key used when `keys` is empty (defaults to agent name).
         keys: Optional list of keys to subscribe to.
         metadata: Optional metadata for the configuration subscription.
         on_config_change: Optional callback invoked after each successful config update.
