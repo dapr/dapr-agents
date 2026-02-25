@@ -471,5 +471,5 @@
   "title": "AgentMetadataSchema",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "version": "0.13.0"
+  "version": "0.12.0"
 }
