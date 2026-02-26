@@ -47,6 +47,8 @@ jobs:
   schema-validation:
     needs: lint
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
     - uses: actions/checkout@v6
     - name: Set up Python 3.11
