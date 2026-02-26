@@ -80,37 +80,37 @@ class OrchestratorBase:
             except Exception:
                 schema_version = "edge"
 
-            agent_meta = AgentMetadata(
-                appid="unknown",
-                type=type(self).__name__,
-                orchestrator=True,
-                framework="Dapr Agents",
-            )
-
-            pubsub_meta = None
-            if pubsub is not None and self.message_bus_name:
-                pubsub_meta = PubSubMetadata(
-                    name=self.message_bus_name,
-                    agent_topic=pubsub.agent_topic,
-                    broadcast_topic=pubsub.broadcast_topic,
-                )
-
             max_iterations = None
             tool_choice = None
             if self.execution:
                 max_iterations = getattr(self.execution, "max_iterations", None)
                 tool_choice = getattr(self.execution, "tool_choice", None)
 
+            agent_meta = AgentMetadata(
+                appid="unknown",
+                type=type(self).__name__,
+                orchestrator=True,
+                framework="Dapr Agents",
+                max_iterations=max_iterations,
+                tool_choice=tool_choice,
+                metadata=agent_metadata,
+            )
+
+            pubsub_meta = None
+            if pubsub is not None and self.message_bus_name:
+                pubsub_meta = PubSubMetadata(
+                    resource_name=self.message_bus_name,
+                    agent_topic=pubsub.agent_topic,
+                    broadcast_topic=pubsub.broadcast_topic,
+                )
+
             try:
                 metadata_schema = AgentMetadataSchema(
-                    schema_version=schema_version,
+                    version=schema_version,
                     name=self.name,
                     registered_at=datetime.now(timezone.utc).isoformat(),
                     agent=agent_meta,
                     pubsub=pubsub_meta,
-                    max_iterations=max_iterations,
-                    tool_choice=tool_choice,
-                    agent_metadata=agent_metadata,
                 )
                 self.register_agentic_system(metadata=metadata_schema)
             except Exception:  # noqa: BLE001

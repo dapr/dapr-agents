@@ -27,11 +27,6 @@ from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.tool.base import AgentTool
-from dapr_agents.types import (
-    AssistantMessage,
-    LLMChatCandidate,
-    LLMChatResponse,
-)
 
 
 # We need this otherwise these tests all fail since they require Dapr to be available.
@@ -291,7 +286,7 @@ class TestDurableAgent:
         assert metadata.agent.role == "Test Durable Assistant"
         assert metadata.agent.goal == "Help with testing"
         assert metadata.pubsub.agent_topic == "TestDurableAgent"
-        assert metadata.pubsub.name == "testpubsub"
+        assert metadata.pubsub.resource_name == "testpubsub"
         assert metadata.agent.orchestrator is False
 
     def test_tool_calling_workflow_initialization(
@@ -383,7 +378,6 @@ class TestDurableAgent:
     @pytest.mark.asyncio
     async def test_finish_workflow_activity(self, basic_durable_agent):
         """Test finishing workflow activity."""
-        from datetime import datetime, timezone
 
         instance_id = "test-instance-123"
         final_output = "Final response"
@@ -423,7 +417,7 @@ class TestDurableAgent:
 
     def test_run_tool(self, basic_durable_agent, mock_tool):
         """Test that run_tool executes a tool and returns the result without persisting state."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         instance_id = "test-instance-123"
         tool_call = {
@@ -484,7 +478,6 @@ class TestDurableAgent:
 
     def test_record_initial_entry(self, basic_durable_agent):
         """Test record_initial_entry helper method."""
-        from datetime import datetime, timezone
 
         instance_id = "test-instance-123"
         source = "test_source"
@@ -529,7 +522,6 @@ class TestDurableAgent:
 
     def test_process_user_message(self, basic_durable_agent):
         """Test _process_user_message helper method."""
-        from datetime import datetime, timezone
 
         instance_id = "test-instance-123"
         task = "Hello, world!"
@@ -566,7 +558,6 @@ class TestDurableAgent:
 
     def test_save_assistant_message(self, basic_durable_agent):
         """Test _save_assistant_message helper method."""
-        from datetime import datetime, timezone
 
         instance_id = "test-instance-123"
         assistant_message = {"role": "assistant", "content": "Hello back!"}
@@ -600,7 +591,6 @@ class TestDurableAgent:
 
     def test_get_last_message_from_state(self, basic_durable_agent):
         """Test accessing last_message from instance state."""
-        from datetime import datetime, timezone
 
         last_msg = AgentWorkflowMessage(role="assistant", content="Last message")
         entry = AgentWorkflowEntry(
@@ -836,7 +826,6 @@ class TestDurableAgent:
 
     def test_reconstruct_conversation_history(self, basic_durable_agent):
         """Test test_reconstruct_conversation_history helper method."""
-        from datetime import datetime, timezone
 
         instance_id = "test-instance-123"
 

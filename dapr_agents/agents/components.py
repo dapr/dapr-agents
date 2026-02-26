@@ -4,7 +4,7 @@ import logging
 import random
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 from dapr.clients.grpc._state import Concurrency, Consistency, StateOptions
 
@@ -19,13 +19,12 @@ from dapr_agents.agents.configs import (
     WorkflowGrpcOptions,
     StateModelBundle,
 )
-from dapr_agents.agents.schemas import (
-    AgentWorkflowEntry,
-)
-from dapr_agents.types.workflow import DaprWorkflowStatus
 
 
 logger = logging.getLogger(__name__)
+
+# Registry index key for the list of registered agent names
+_REGISTRY_AGENTS_KEY = "agents"
 
 
 class DaprInfra:
@@ -542,15 +541,15 @@ class DaprInfra:
             try:
                 current_index, etag = self.registry_state.load_with_etag(
                     key=index_key,
-                    default={"agents": []},
+                    default={_REGISTRY_AGENTS_KEY: []},
                     state_metadata=partition_meta,
                 )
-                agents_list = current_index.get("agents", [])
+                agents_list = current_index.get(_REGISTRY_AGENTS_KEY, [])
                 if self.name not in agents_list:
                     agents_list.append(self.name)
                     self.registry_state.save(
                         key=index_key,
-                        value={"agents": agents_list},
+                        value={_REGISTRY_AGENTS_KEY: agents_list},
                         etag=etag,
                         state_metadata=partition_meta,
                         state_options=self._save_options,
@@ -620,10 +619,10 @@ class DaprInfra:
         try:
             index_data = self.registry_state.load(
                 key=index_key,
-                default={"agents": []},
+                default={_REGISTRY_AGENTS_KEY: []},
                 state_metadata=partition_meta,
             )
-            agent_names = index_data.get("agents", [])
+            agent_names = index_data.get(_REGISTRY_AGENTS_KEY, [])
             if not agent_names:
                 logger.info("No agents found in registry index '%s'.", index_key)
                 return {}
@@ -693,16 +692,16 @@ class DaprInfra:
             try:
                 current_index, etag = self.registry_state.load_with_etag(
                     key=index_key,
-                    default={"agents": []},
+                    default={_REGISTRY_AGENTS_KEY: []},
                     state_metadata=partition_meta,
                 )
-                agents_list = current_index.get("agents", [])
+                agents_list = current_index.get(_REGISTRY_AGENTS_KEY, [])
                 if agent_name not in agents_list:
                     break
                 agents_list.remove(agent_name)
                 self.registry_state.save(
                     key=index_key,
-                    value={"agents": agents_list},
+                    value={_REGISTRY_AGENTS_KEY: agents_list},
                     etag=etag,
                     state_metadata=partition_meta,
                     state_options=self._save_options,

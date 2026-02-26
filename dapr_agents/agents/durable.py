@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 import json
 import logging
-from typing import Any, Dict, Iterable, List, Optional, Literal
+from typing import Any, Dict, Iterable, List, Optional
 from os import getenv
 
 import dapr.ext.workflow as wf
@@ -57,10 +57,8 @@ from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.types import (
     AgentError,
     ToolMessage,
-    UserMessage,
     AssistantMessage,
 )
-from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options

@@ -1,11 +1,9 @@
 """Tests for AgentTool.from_toolbox and from_toolbox_many methods."""
 
-from typing import Any, Optional
-from unittest.mock import MagicMock, patch
+from typing import Any
 import pytest
 
-from pydantic import BaseModel
-from mcp.types import CallToolResult, TextContent
+from mcp.types import CallToolResult
 
 from dapr_agents.tool.base import AgentTool
 

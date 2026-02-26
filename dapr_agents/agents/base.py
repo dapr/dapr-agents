@@ -29,6 +29,7 @@ from dapr_agents.agents.configs import (
     AgentTracingExporter,
     LLMMetadata,
     MemoryMetadata,
+    MemoryStoreMetadata,
     PubSubMetadata,
     ToolMetadata,
     WorkflowGrpcOptions,
@@ -376,6 +377,13 @@ class AgentBase:
         except Exception:
             schema_version = "edge"
 
+        # Extract execution config
+        max_iterations = None
+        tool_choice = None
+        if self.execution:
+            max_iterations = getattr(self.execution, "max_iterations", None)
+            tool_choice = getattr(self.execution, "tool_choice", None)
+
         # Build AgentMetadata
         agent_meta = AgentMetadata(
             appid=self.appid or "unknown",
@@ -386,23 +394,40 @@ class AgentBase:
             instructions=list(self.profile.instructions),
             system_prompt=self.profile.system_prompt,
             framework="Dapr Agents",
+            max_iterations=max_iterations,
+            tool_choice=tool_choice,
+            metadata=agent_metadata,
         )
 
         # Build PubSubMetadata if configured
         pubsub_meta = None
         if self.pubsub is not None and self.message_bus_name:
             pubsub_meta = PubSubMetadata(
-                name=self.message_bus_name,
+                resource_name=self.message_bus_name,
                 agent_topic=self.pubsub.agent_topic,
                 broadcast_topic=self.pubsub.broadcast_topic,
             )
 
         # Build MemoryMetadata if configured
-        memory_meta = None
+        short_term_meta = None
+        if self._infra.state_store is not None:
+            short_term_meta = MemoryStoreMetadata(
+                type=type(self._infra.state_store).__name__,
+                resource_name=getattr(self._infra.state_store, "store_name", None),
+            )
+
+        long_term_meta = None
         if self.memory:
-            memory_meta = MemoryMetadata(
+            long_term_meta = MemoryStoreMetadata(
                 type=type(self.memory).__name__,
-                statestore=getattr(self.memory, "store_name", None),
+                resource_name=getattr(self.memory, "store_name", None),
+            )
+
+        memory_meta = None
+        if short_term_meta or long_term_meta:
+            memory_meta = MemoryMetadata(
+                short_term=short_term_meta,
+                long_term=long_term_meta,
             )
 
         # Build LLMMetadata if configured
@@ -413,7 +438,7 @@ class AgentBase:
                 provider=getattr(self.llm, "provider", "unknown"),
                 api=getattr(self.llm, "api", "unknown"),
                 model=getattr(self.llm, "model", "unknown"),
-                component_name=getattr(self.llm, "component_name", None),
+                resource_name=getattr(self.llm, "component_name", None),
                 base_url=getattr(self.llm, "base_url", None),
                 azure_endpoint=getattr(self.llm, "azure_endpoint", None),
                 azure_deployment=getattr(self.llm, "azure_deployment", None),
@@ -427,26 +452,19 @@ class AgentBase:
         if self.tools and len(self.tools) > 0:
             tools_meta = [
                 ToolMetadata(
-                    tool_name=tool.name,
-                    tool_description=tool.description,
-                    tool_args=json.dumps(tool.args_schema)
+                    name=tool.name,
+                    description=tool.description,
+                    args=json.dumps(tool.args_schema)
                     if isinstance(tool.args_schema, dict)
                     else str(tool.args_schema),
                 )
                 for tool in self.tools
             ]
 
-        # Extract execution config
-        max_iterations = None
-        tool_choice = None
-        if self.execution:
-            max_iterations = getattr(self.execution, "max_iterations", None)
-            tool_choice = getattr(self.execution, "tool_choice", None)
-
         # Create AgentMetadataSchema directly
         try:
             metadata_schema = AgentMetadataSchema(
-                schema_version=schema_version,
+                version=schema_version,
                 name=self.profile.name,
                 registered_at=datetime.now(timezone.utc).isoformat(),
                 agent=agent_meta,
@@ -454,9 +472,6 @@ class AgentBase:
                 memory=memory_meta,
                 llm=llm_meta,
                 tools=tools_meta,
-                max_iterations=max_iterations,
-                tool_choice=tool_choice,
-                agent_metadata=agent_metadata,  # Pass through any custom metadata
             )
             self.agent_metadata = metadata_schema
         except ValidationError as e:

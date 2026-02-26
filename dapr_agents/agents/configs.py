@@ -28,6 +28,11 @@ from dapr_agents.storage.daprstores.stateservice import StateStoreService
 
 _JINJA_PLACEHOLDER_PATTERN = re.compile(r"(?<!\{)\{\s*(\w+)\s*\}(?!\})")
 
+# JSON Schema export constants
+_JSON_SCHEMA_KEY = "$schema"
+_JSON_SCHEMA_DRAFT_URL = "https://json-schema.org/draft/2020-12/schema"
+_JSON_SCHEMA_VERSION_KEY = "version"
+
 
 def _ensure_jinja_placeholders(text: str) -> str:
     return _JINJA_PLACEHOLDER_PATTERN.sub(r"{{\1}}", text)
@@ -407,21 +412,25 @@ class AgentMetadata(BaseModel):
     instructions: Optional[List[str]] = Field(
         default=None, description="Instructions for the agent"
     )
-    statestore: Optional[str] = Field(
-        default=None, description="Dapr state store component name used by the agent"
-    )
     system_prompt: Optional[str] = Field(
         default=None, description="System prompt guiding the agent's behavior"
     )
     framework: Optional[str] = Field(
         default=None, description="Framework or library the agent is built with"
     )
+    max_iterations: Optional[int] = Field(
+        default=None, description="Maximum iterations for agent execution"
+    )
+    tool_choice: Optional[str] = Field(default=None, description="Tool choice strategy")
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None, description="Additional user-supplied metadata about the agent"
+    )
 
 
 class PubSubMetadata(BaseModel):
     """Pub/Sub configuration information."""
 
-    name: str = Field(..., description="Pub/Sub component name")
+    resource_name: str = Field(..., description="Pub/Sub component name")
     broadcast_topic: Optional[str] = Field(
         default=None, description="Pub/Sub topic for broadcasting messages"
     )
@@ -430,12 +439,23 @@ class PubSubMetadata(BaseModel):
     )
 
 
+class MemoryStoreMetadata(BaseModel):
+    """Metadata about a single memory backing store."""
+
+    type: str = Field(..., description="Implementation class name")
+    resource_name: Optional[str] = Field(
+        default=None, description="Dapr resource name for this store"
+    )
+
+
 class MemoryMetadata(BaseModel):
     """Memory configuration information."""
 
-    type: str = Field(..., description="Type of memory used by the agent")
-    statestore: Optional[str] = Field(
-        default=None, description="Dapr state store component name for memory"
+    short_term: Optional[MemoryStoreMetadata] = Field(
+        default=None, description="Short-term workflow state store"
+    )
+    long_term: Optional[MemoryStoreMetadata] = Field(
+        default=None, description="Long-term conversation memory store"
     )
 
 
@@ -446,8 +466,8 @@ class LLMMetadata(BaseModel):
     provider: str = Field(..., description="LLM provider used by the agent")
     api: str = Field(default="unknown", description="API type used by the LLM client")
     model: str = Field(default="unknown", description="Model name or identifier")
-    component_name: Optional[str] = Field(
-        default=None, description="Dapr component name for the LLM client"
+    resource_name: Optional[str] = Field(
+        default=None, description="Dapr resource name for the LLM client"
     )
     base_url: Optional[str] = Field(
         default=None, description="Base URL for the LLM API if applicable"
@@ -466,26 +486,27 @@ class LLMMetadata(BaseModel):
 class ToolMetadata(BaseModel):
     """Metadata about a tool available to the agent."""
 
-    tool_name: str = Field(..., description="Name of the tool")
-    tool_description: str = Field(
-        ..., description="Description of the tool's functionality"
-    )
-    tool_args: str = Field(..., description="Arguments for the tool")
+    name: str = Field(..., description="Name of the tool")
+    description: str = Field(..., description="Description of the tool's functionality")
+    args: str = Field(..., description="Arguments for the tool")
 
 
 class RegistryMetadata(BaseModel):
     """Registry configuration information."""
 
-    statestore: Optional[str] = Field(
-        None, description="Name of the statestore component for the registry"
+    resource_name: Optional[str] = Field(
+        None,
+        description="Dapr resource name backing the registry (e.g. state store component)",
     )
-    name: Optional[str] = Field(default=None, description="Name of the team registry")
+    name: Optional[str] = Field(
+        default=None, description="Logical team name the agent is registered under"
+    )
 
 
 class AgentMetadataSchema(BaseModel):
     """Schema for agent metadata including schema version."""
 
-    schema_version: str = Field(
+    version: str = Field(
         ...,
         description="Version of the schema used for the agent metadata.",
     )
@@ -508,13 +529,6 @@ class AgentMetadataSchema(BaseModel):
         None, description="Registry configuration"
     )
     tools: Optional[List[ToolMetadata]] = Field(None, description="Available tools")
-    max_iterations: Optional[int] = Field(
-        None, description="Maximum iterations for agent execution"
-    )
-    tool_choice: Optional[str] = Field(None, description="Tool choice strategy")
-    agent_metadata: Optional[Dict[str, Any]] = Field(
-        None, description="Additional metadata about the agent"
-    )
 
     @classmethod
     def export_json_schema(cls, version: str) -> Dict[str, Any]:
@@ -528,6 +542,6 @@ class AgentMetadataSchema(BaseModel):
             JSON schema dictionary with metadata
         """
         schema = cls.model_json_schema()
-        schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-        schema["version"] = version
+        schema[_JSON_SCHEMA_KEY] = _JSON_SCHEMA_DRAFT_URL
+        schema[_JSON_SCHEMA_VERSION_KEY] = version
         return schema

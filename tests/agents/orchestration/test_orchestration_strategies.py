@@ -1,10 +1,8 @@
 """Tests for orchestration strategies."""
 
-import pytest
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 from dapr_agents.agents.orchestration import (
-    OrchestrationStrategy,
     AgentOrchestrationStrategy,
     RoundRobinOrchestrationStrategy,
     RandomOrchestrationStrategy,

@@ -5,7 +5,6 @@ import json
 import logging
 import signal
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Awaitable, Dict, Iterable, List, Optional, Sequence, Union
 
 from dapr_agents.agents.base import AgentBase

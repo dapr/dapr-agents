@@ -61,19 +61,6 @@
           "description": "Instructions for the agent",
           "title": "Instructions"
         },
-        "statestore": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Dapr state store component name used by the agent",
-          "title": "Statestore"
-        },
         "system_prompt": {
           "anyOf": [
             {
@@ -99,6 +86,46 @@
           "default": null,
           "description": "Framework or library the agent is built with",
           "title": "Framework"
+        },
+        "max_iterations": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum iterations for agent execution",
+          "title": "Max Iterations"
+        },
+        "tool_choice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool choice strategy",
+          "title": "Tool Choice"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Additional user-supplied metadata about the agent",
+          "title": "Metadata"
         }
       },
       "required": [
@@ -133,7 +160,7 @@
           "title": "Model",
           "type": "string"
         },
-        "component_name": {
+        "resource_name": {
           "anyOf": [
             {
               "type": "string"
@@ -143,8 +170,8 @@
             }
           ],
           "default": null,
-          "description": "Dapr component name for the LLM client",
-          "title": "Component Name"
+          "description": "Dapr resource name for the LLM client",
+          "title": "Resource Name"
         },
         "base_url": {
           "anyOf": [
@@ -209,12 +236,43 @@
     "MemoryMetadata": {
       "description": "Memory configuration information.",
       "properties": {
+        "short_term": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryStoreMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Short-term workflow state store"
+        },
+        "long_term": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryStoreMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Long-term conversation memory store"
+        }
+      },
+      "title": "MemoryMetadata",
+      "type": "object"
+    },
+    "MemoryStoreMetadata": {
+      "description": "Metadata about a single memory backing store.",
+      "properties": {
         "type": {
-          "description": "Type of memory used by the agent",
+          "description": "Implementation class name",
           "title": "Type",
           "type": "string"
         },
-        "statestore": {
+        "resource_name": {
           "anyOf": [
             {
               "type": "string"
@@ -224,22 +282,22 @@
             }
           ],
           "default": null,
-          "description": "Dapr state store component name for memory",
-          "title": "Statestore"
+          "description": "Dapr resource name for this store",
+          "title": "Resource Name"
         }
       },
       "required": [
         "type"
       ],
-      "title": "MemoryMetadata",
+      "title": "MemoryStoreMetadata",
       "type": "object"
     },
     "PubSubMetadata": {
       "description": "Pub/Sub configuration information.",
       "properties": {
-        "name": {
+        "resource_name": {
           "description": "Pub/Sub component name",
-          "title": "Name",
+          "title": "Resource Name",
           "type": "string"
         },
         "broadcast_topic": {
@@ -270,7 +328,7 @@
         }
       },
       "required": [
-        "name"
+        "resource_name"
       ],
       "title": "PubSubMetadata",
       "type": "object"
@@ -278,7 +336,7 @@
     "RegistryMetadata": {
       "description": "Registry configuration information.",
       "properties": {
-        "statestore": {
+        "resource_name": {
           "anyOf": [
             {
               "type": "string"
@@ -288,8 +346,8 @@
             }
           ],
           "default": null,
-          "description": "Name of the statestore component for the registry",
-          "title": "Statestore"
+          "description": "Dapr resource name backing the registry (e.g. state store component)",
+          "title": "Resource Name"
         },
         "name": {
           "anyOf": [
@@ -301,7 +359,7 @@
             }
           ],
           "default": null,
-          "description": "Name of the team registry",
+          "description": "Logical team name the agent is registered under",
           "title": "Name"
         }
       },
@@ -311,26 +369,26 @@
     "ToolMetadata": {
       "description": "Metadata about a tool available to the agent.",
       "properties": {
-        "tool_name": {
+        "name": {
           "description": "Name of the tool",
-          "title": "Tool Name",
+          "title": "Name",
           "type": "string"
         },
-        "tool_description": {
+        "description": {
           "description": "Description of the tool's functionality",
-          "title": "Tool Description",
+          "title": "Description",
           "type": "string"
         },
-        "tool_args": {
+        "args": {
           "description": "Arguments for the tool",
-          "title": "Tool Args",
+          "title": "Args",
           "type": "string"
         }
       },
       "required": [
-        "tool_name",
-        "tool_description",
-        "tool_args"
+        "name",
+        "description",
+        "args"
       ],
       "title": "ToolMetadata",
       "type": "object"
@@ -338,9 +396,9 @@
   },
   "description": "Schema for agent metadata including schema version.",
   "properties": {
-    "schema_version": {
+    "version": {
       "description": "Version of the schema used for the agent metadata.",
-      "title": "Schema Version",
+      "title": "Version",
       "type": "string"
     },
     "agent": {
@@ -420,50 +478,10 @@
       "default": null,
       "description": "Available tools",
       "title": "Tools"
-    },
-    "max_iterations": {
-      "anyOf": [
-        {
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Maximum iterations for agent execution",
-      "title": "Max Iterations"
-    },
-    "tool_choice": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Tool choice strategy",
-      "title": "Tool Choice"
-    },
-    "agent_metadata": {
-      "anyOf": [
-        {
-          "additionalProperties": true,
-          "type": "object"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Additional metadata about the agent",
-      "title": "Agent Metadata"
     }
   },
   "required": [
-    "schema_version",
+    "version",
     "agent",
     "name",
     "registered_at"

@@ -10,7 +10,7 @@ Output is a markdown report written to stdout.
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set
 
 SCHEMAS_DIR = Path(__file__).resolve().parents[1] / "schemas" / "agent-metadata"
 LATEST_FILE = SCHEMAS_DIR / "latest.json"
