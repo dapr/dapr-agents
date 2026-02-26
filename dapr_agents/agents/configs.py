@@ -16,14 +16,22 @@ from typing import (
     Union,
 )
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from dapr_agents.agents.schemas import AgentWorkflowMessage, AgentWorkflowState
+from dapr_agents.agents.schemas import (
+    AgentWorkflowEntry,
+    AgentWorkflowMessage,
+)
 
 from dapr_agents.memory import ConversationListMemory, MemoryBase
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 
 _JINJA_PLACEHOLDER_PATTERN = re.compile(r"(?<!\{)\{\s*(\w+)\s*\}(?!\})")
+
+# JSON Schema export constants
+_JSON_SCHEMA_KEY = "$schema"
+_JSON_SCHEMA_DRAFT_URL = "https://json-schema.org/draft/2020-12/schema"
+_JSON_SCHEMA_VERSION_KEY = "version"
 
 
 def _ensure_jinja_placeholders(text: str) -> str:
@@ -45,27 +53,24 @@ class StateModelBundle:
     """
     Bundled state schema configuration for an agent/orchestrator type.
 
-    Encapsulates the state and message model classes along with their
-    associated factory/coercer hooks. This is an internal abstraction
-    used by AgentStateConfig to ensure only vetted schemas are used.
+    With one-key-per-workflow, each state store key holds a single workflow
+    entry (entry_model_cls). This bundle identifies that type and related hooks.
 
     Attributes:
-        state_model_cls: Root Pydantic model class for the state.
+        entry_model_cls: Pydantic model class for one workflow's state (per key).
         message_model_cls: Pydantic model class for workflow/system messages.
         entry_factory: Optional factory to create workflow entry instances.
         message_coercer: Optional function to transform message dicts.
-        entry_container_getter: Optional function to locate the instance container.
     """
 
-    state_model_cls: Type[BaseModel]
+    entry_model_cls: Type[BaseModel]
     message_model_cls: Type[BaseModel]
     entry_factory: Optional[EntryFactory] = None
     message_coercer: Optional[MessageCoercer] = None
-    entry_container_getter: Optional[EntryContainerGetter] = None
 
 
 DEFAULT_AGENT_WORKFLOW_BUNDLE = StateModelBundle(
-    state_model_cls=AgentWorkflowState,
+    entry_model_cls=AgentWorkflowEntry,
     message_model_cls=AgentWorkflowMessage,
 )
 
@@ -119,12 +124,11 @@ class AgentStateConfig:
 
     store: "StateStoreService"
     default_state: Optional[Dict[str, Any] | BaseModel] = None
-    state_key: Optional[str] = None
+    state_key_prefix: Optional[str] = None
 
     # Hook overrides (optional - bundle provides defaults)
     entry_factory: Optional[EntryFactory] = None
     message_coercer: Optional[MessageCoercer] = None
-    entry_container_getter: Optional[EntryContainerGetter] = None
 
     # Internal: schema bundle (injected by agent/orchestrator class)
     _state_model_bundle: Optional[StateModelBundle] = field(
@@ -144,29 +148,24 @@ class AgentStateConfig:
         if self._state_model_bundle is not None:
             # Already set - verify it matches
             if (
-                self._state_model_bundle.state_model_cls != bundle.state_model_cls
+                self._state_model_bundle.entry_model_cls != bundle.entry_model_cls
                 or self._state_model_bundle.message_model_cls
                 != bundle.message_model_cls
             ):
                 raise RuntimeError(
                     f"State config already wired with "
-                    f"{self._state_model_bundle.state_model_cls.__name__} schema. "
-                    f"Cannot inject {bundle.state_model_cls.__name__} schema."
+                    f"{self._state_model_bundle.entry_model_cls.__name__} schema. "
+                    f"Cannot inject {bundle.entry_model_cls.__name__} schema."
                 )
             return  # Same bundle, no-op
 
         # Merge user hooks with bundle defaults
         self._state_model_bundle = StateModelBundle(
-            state_model_cls=bundle.state_model_cls,
+            entry_model_cls=bundle.entry_model_cls,
             message_model_cls=bundle.message_model_cls,
             entry_factory=self.entry_factory or bundle.entry_factory,
             message_coercer=self.message_coercer or bundle.message_coercer,
-            entry_container_getter=self.entry_container_getter
-            or bundle.entry_container_getter,
         )
-
-        # Normalize default_state against the bundle's state model
-        self._normalize_default_state()
 
     def get_state_model_bundle(self) -> StateModelBundle:
         """
@@ -184,22 +183,6 @@ class AgentStateConfig:
                 "This should be injected by the agent/orchestrator class."
             )
         return self._state_model_bundle
-
-    def _normalize_default_state(self) -> None:
-        """Normalize default_state against bundle's schema."""
-        if self._state_model_bundle is None:
-            return  # Can't normalize without bundle
-
-        Model = self._state_model_bundle.state_model_cls
-        if self.default_state is None:
-            self.default_state = Model().model_dump(mode="json")
-        else:
-            if isinstance(self.default_state, BaseModel):
-                self.default_state = self.default_state.model_dump(mode="json")
-            else:
-                self.default_state = Model.model_validate(
-                    self.default_state
-                ).model_dump(mode="json")
 
 
 @dataclass
@@ -271,16 +254,31 @@ class AgentProfileConfig:
     module_overrides: Dict[str, PromptSection] = field(default_factory=dict)
 
 
+class OrchestrationMode(StrEnum):
+    """
+    Enumeration of supported orchestration strategies for durable agents.
+
+    AGENT: Orchestration is driven by an LLM-generated plan that determines the next steps and agent interactions.
+    RANDOM: Orchestration randomly selects agents or actions at each decision point, without a predetermined plan.
+    ROUNDROBIN: Orchestration cycles through available agents or actions in a fixed order, ensuring equal opportunity for each participant.
+    """
+
+    AGENT = "agent"
+    RANDOM = "random"
+    ROUNDROBIN = "roundrobin"
+
+
 @dataclass
 class AgentExecutionConfig:
     """
     Dials to configure the agent execution.
     """
 
-    # TODO: add a forceFinalAnswer field in case maxIterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
+    # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
     # TODO: add stop_at_tokens
     max_iterations: int = 10
     tool_choice: Optional[str] = "auto"
+    orchestration_mode: Optional[OrchestrationMode] = None
 
 
 @dataclass
@@ -394,3 +392,156 @@ class AgentObservabilityConfig:
             tracing_enabled=tracing_enabled,
             tracing_exporter=tracing_exporter,
         )
+
+
+class AgentMetadata(BaseModel):
+    """Metadata about an agent's configuration and capabilities."""
+
+    appid: str = Field(
+        ...,
+        description="Dapr application ID (APP_ID) of the sidecar; may differ from the agent name",
+    )
+    type: str = Field(..., description="Type of the agent (e.g., standalone, durable)")
+    orchestrator: bool = Field(
+        False, description="Indicates if the agent is an orchestrator"
+    )
+    role: Optional[str] = Field(default=None, description="Role of the agent")
+    goal: Optional[str] = Field(
+        default=None, description="High-level objective of the agent"
+    )
+    instructions: Optional[List[str]] = Field(
+        default=None, description="Instructions for the agent"
+    )
+    system_prompt: Optional[str] = Field(
+        default=None, description="System prompt guiding the agent's behavior"
+    )
+    framework: Optional[str] = Field(
+        default=None, description="Framework or library the agent is built with"
+    )
+    max_iterations: Optional[int] = Field(
+        default=None, description="Maximum iterations for agent execution"
+    )
+    tool_choice: Optional[str] = Field(default=None, description="Tool choice strategy")
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None, description="Additional user-supplied metadata about the agent"
+    )
+
+
+class PubSubMetadata(BaseModel):
+    """Pub/Sub configuration information."""
+
+    resource_name: str = Field(..., description="Pub/Sub component name")
+    broadcast_topic: Optional[str] = Field(
+        default=None, description="Pub/Sub topic for broadcasting messages"
+    )
+    agent_topic: Optional[str] = Field(
+        default=None, description="Pub/Sub topic for direct agent messages"
+    )
+
+
+class MemoryStoreMetadata(BaseModel):
+    """Metadata about a single memory backing store."""
+
+    type: str = Field(..., description="Implementation class name")
+    resource_name: Optional[str] = Field(
+        default=None, description="Dapr resource name for this store"
+    )
+
+
+class MemoryMetadata(BaseModel):
+    """Memory configuration information."""
+
+    short_term: Optional[MemoryStoreMetadata] = Field(
+        default=None, description="Short-term workflow state store"
+    )
+    long_term: Optional[MemoryStoreMetadata] = Field(
+        default=None, description="Long-term conversation memory store"
+    )
+
+
+class LLMMetadata(BaseModel):
+    """LLM configuration information."""
+
+    client: str = Field(..., description="LLM client used by the agent")
+    provider: str = Field(..., description="LLM provider used by the agent")
+    api: str = Field(default="unknown", description="API type used by the LLM client")
+    model: str = Field(default="unknown", description="Model name or identifier")
+    resource_name: Optional[str] = Field(
+        default=None, description="Dapr resource name for the LLM client"
+    )
+    base_url: Optional[str] = Field(
+        default=None, description="Base URL for the LLM API if applicable"
+    )
+    azure_endpoint: Optional[str] = Field(
+        default=None, description="Azure endpoint if using Azure OpenAI"
+    )
+    azure_deployment: Optional[str] = Field(
+        default=None, description="Azure deployment name if using Azure OpenAI"
+    )
+    prompt_template: Optional[str] = Field(
+        default=None, description="Prompt template used by the agent"
+    )
+
+
+class ToolMetadata(BaseModel):
+    """Metadata about a tool available to the agent."""
+
+    name: str = Field(..., description="Name of the tool")
+    description: str = Field(..., description="Description of the tool's functionality")
+    args: str = Field(..., description="Arguments for the tool")
+
+
+class RegistryMetadata(BaseModel):
+    """Registry configuration information."""
+
+    resource_name: Optional[str] = Field(
+        None,
+        description="Dapr resource name backing the registry (e.g. state store component)",
+    )
+    name: Optional[str] = Field(
+        default=None, description="Logical team name the agent is registered under"
+    )
+
+
+class AgentMetadataSchema(BaseModel):
+    """Schema for agent metadata including schema version."""
+
+    version: str = Field(
+        ...,
+        description="Version of the schema used for the agent metadata.",
+    )
+    agent: AgentMetadata = Field(
+        ..., description="Agent configuration and capabilities"
+    )
+    name: str = Field(
+        ...,
+        description="Logical agent name used as the registry key; distinct from agent.appid",
+    )
+    registered_at: str = Field(..., description="ISO 8601 timestamp of registration")
+    pubsub: Optional[PubSubMetadata] = Field(
+        None, description="Pub/sub configuration if enabled"
+    )
+    memory: Optional[MemoryMetadata] = Field(
+        None, description="Memory configuration if enabled"
+    )
+    llm: Optional[LLMMetadata] = Field(None, description="LLM configuration")
+    registry: Optional[RegistryMetadata] = Field(
+        None, description="Registry configuration"
+    )
+    tools: Optional[List[ToolMetadata]] = Field(None, description="Available tools")
+
+    @classmethod
+    def export_json_schema(cls, version: str) -> Dict[str, Any]:
+        """
+        Export the JSON schema with version information.
+
+        Args:
+            version: The dapr-agents version for this schema
+
+        Returns:
+            JSON schema dictionary with metadata
+        """
+        schema = cls.model_json_schema()
+        schema[_JSON_SCHEMA_KEY] = _JSON_SCHEMA_DRAFT_URL
+        schema[_JSON_SCHEMA_VERSION_KEY] = version
+        return schema

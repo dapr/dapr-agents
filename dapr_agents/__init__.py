@@ -1,5 +1,15 @@
+from importlib.metadata import version, PackageNotFoundError
 from dapr_agents.agents.standalone import Agent
 from dapr_agents.agents.durable import DurableAgent
+from dapr_agents.agents.configs import (
+    AgentMetadataSchema,
+    AgentMetadata,
+    PubSubMetadata,
+    MemoryMetadata,
+    ToolMetadata,
+    RegistryMetadata,
+    LLMMetadata,
+)
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
 from dapr_agents.llm.dapr import DaprChatClient
 from dapr_agents.llm.elevenlabs import ElevenLabsSpeechClient
@@ -35,4 +45,17 @@ __all__ = [
     "LLMOrchestrator",
     "RandomOrchestrator",
     "RoundRobinOrchestrator",
+    "AgentMetadataSchema",
+    "AgentMetadata",
+    "PubSubMetadata",
+    "MemoryMetadata",
+    "ToolMetadata",
+    "RegistryMetadata",
+    "LLMMetadata",
 ]
+
+try:
+    __version__ = version("dapr-agents")
+except PackageNotFoundError:
+    # This should only happen during development
+    __version__ = "0.0.0.dev0"

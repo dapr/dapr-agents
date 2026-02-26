@@ -5,7 +5,6 @@ import json
 import logging
 import signal
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Awaitable, Dict, Iterable, List, Optional, Sequence, Union
 
 from dapr_agents.agents.base import AgentBase
@@ -26,7 +25,6 @@ from dapr_agents.types import (
     ToolExecutionRecord,
     ToolMessage,
 )
-from dapr_agents.types.workflow import DaprWorkflowStatus
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +99,6 @@ class Agent(AgentBase):
         self._shutdown_event = asyncio.Event()
         self._setup_signal_handlers()
 
-        try:
-            self.load_state()
-        except Exception:
-            logger.debug(
-                "Standalone agent state load failed; using defaults.", exc_info=True
-            )
-
     # ------------------------------------------------------------------
     # Public entrypoint
     # ------------------------------------------------------------------
@@ -171,8 +162,8 @@ class Agent(AgentBase):
         instance_id: Optional[str],
     ) -> Optional[AssistantMessage]:
         """One-shot conversational run with tool loop and durable timeline."""
-        self.load_state()
         active_instance = instance_id or self._generate_instance_id()
+        self._infra.load_state(active_instance)
 
         # Build initial messages with persistent + per-instance history
         chat_history = self._reconstruct_conversation_history(active_instance)
@@ -194,18 +185,7 @@ class Agent(AgentBase):
                 {str(k): v for k, v in user_message_copy.items()}
             )
 
-        # Ensure instance exists (flexible model via _get_entry_container)
-        created_instance = active_instance not in (
-            getattr(self.workflow_state, "instances", {}) or {}
-        )
-        self.ensure_instance_exists(
-            instance_id=active_instance,
-            input_value=task_text or "Triggered without input.",
-            triggering_workflow_instance_id=None,
-            time=datetime.now(timezone.utc),
-        )
-        if created_instance:
-            self.save_state()
+        self.save_state(active_instance)
 
         # Persist the user message into timeline + memory
         self._process_user_message(active_instance, task_text, user_message_copy)
@@ -215,6 +195,9 @@ class Agent(AgentBase):
             instance_id=active_instance,
             messages=messages,
         )
+
+        if self.memory is not None:
+            self._summarize(active_instance)
 
         return final_reply
 
@@ -234,13 +217,34 @@ class Agent(AgentBase):
         Returns:
             List of message dicts suitable for an LLM chat API.
         """
-        self.load_state()
         active_instance = instance_id or self._generate_instance_id()
+        self._infra.load_state(active_instance)
         chat_history = self._reconstruct_conversation_history(active_instance)
         return self.prompting_helper.build_initial_messages(
             user_input=input_data,
             chat_history=chat_history,
         )
+
+    def _summarize(self, instance_id: str) -> Dict[str, Any]:
+        """
+        Summarize the conversation history and tool calls, then save the summary
+        to the configured memory store (keyed by workflow instance id).
+
+        Args:
+            instance_id: Workflow/run instance id for this conversation.
+
+        Returns:
+            Dict with "content" key holding the summary text, or empty dict if
+            no memory/store or no conversation to summarize.
+        """
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            raise AgentError(
+                f"Failed to get workflow state for summarization, instance_id: {instance_id}"
+            )
+        tool_history = getattr(entry, "tool_history", None) or []
+        return self._summarize_conversation(instance_id, entry.messages, tool_history)
 
     async def _conversation_loop(
         self,
@@ -421,8 +425,13 @@ class Agent(AgentBase):
         )
 
         # Append to durable timeline using the flexible model/coercer path
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
         if entry is not None and hasattr(entry, "messages"):
             # Prefer a custom coercer if configured; otherwise the configured message model, with a safe fallback.
             try:
@@ -442,9 +451,8 @@ class Agent(AgentBase):
 
         # Always persist to memory + in-process history
         self.text_formatter.print_message(message_dict)
-        self.memory.add_message(tool_message)
         self.tool_history.append(history_entry)
-        self.save_state()
+        self.save_state(instance_id)
 
         # Return tool message dict so the next LLM turn can see it
         return message_dict
@@ -464,20 +472,18 @@ class Agent(AgentBase):
             instance_id: Timeline instance id.
             final_reply: AssistantMessage (if any) that ended the loop.
         """
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
         if entry is None:
             return
 
-        entry.status = (
-            DaprWorkflowStatus.COMPLETED.value
-            if final_reply
-            else DaprWorkflowStatus.FAILED.value
-        )
-        if final_reply and hasattr(entry, "output"):
-            entry.output = final_reply.content or ""
-        entry.end_time = datetime.now(timezone.utc)
-        self.save_state()
+        # Status/output/end_time come from workflow API when durable; for standalone we only persist messages/tool_history
+        self.save_state(instance_id)
 
     def _generate_instance_id(self) -> str:
         """Generate a unique instance id for standalone runs."""
@@ -500,4 +506,8 @@ class Agent(AgentBase):
     ) -> None:  # pragma: no cover - signal handler
         """Signal handler that asks the run loop to stop."""
         logger.info("Received signal %s. Shutting down gracefully...", signum)
+        try:
+            self.deregister_agentic_system()
+        except Exception:  # noqa: BLE001
+            logger.debug("Could not deregister agent during shutdown", exc_info=True)
         self._shutdown_event.set()

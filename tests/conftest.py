@@ -109,7 +109,7 @@ class MockDaprClient:
         response = MagicMock()
 
         # Handle runtime config from statestore for observability tests
-        if store_name == "agent-runtimestatestore" and key == "agent_runtime":
+        if store_name == "agent-runtime" and key == "agent_runtime":
             if self.runtime_config:
                 response.data = json.dumps(self.runtime_config).encode("utf-8")
             else:
@@ -138,7 +138,7 @@ class MockDaprClient:
         if self.runtime_config:
             runtime_component = MagicMock()
             runtime_component.type = "state.redis"
-            runtime_component.name = "agent-runtimestatestore"
+            runtime_component.name = "agent-runtime"
             components.append(runtime_component)
 
         response.registered_components = components

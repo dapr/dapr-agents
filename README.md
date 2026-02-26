@@ -2,11 +2,11 @@
 
 ![](./docs/img/dapr-agents-blue.png)
 
-[![PyPI - Version](https://img.shields.io/pypi/v/dapr-agents?style=flat&logo=pypi&logoColor=white&label=Latest%20version)](https://pypi.org/project/dapr-agents/) 
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/dapr-agents?style=flat&logo=pypi&logoColor=white&label=Downloads)](https://pypi.org/project/dapr-agents/) 
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/dapr/dapr-agents/.github%2Fworkflows%2Fbuild.yaml?branch=main&label=Build&logo=github)](https://github.com/dapr/dapr-agents/actions/workflows/build.yaml) 
-[![GitHub License](https://img.shields.io/github/license/dapr/dapr-agents?style=flat&label=License&logo=github)](https://github.com/dapr/dapr-agents/blob/main/LICENSE) 
-[![Discord](https://img.shields.io/discord/778680217417809931?label=Discord&style=flat&logo=discord)](http://bit.ly/dapr-discord) 
+[![PyPI - Version](https://img.shields.io/pypi/v/dapr-agents?style=flat&logo=pypi&logoColor=white&label=Latest%20version)](https://pypi.org/project/dapr-agents/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/dapr-agents?style=flat&logo=pypi&logoColor=white&label=Downloads)](https://pypi.org/project/dapr-agents/)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/dapr/dapr-agents/.github%2Fworkflows%2Fbuild.yaml?branch=main&label=Build&logo=github)](https://github.com/dapr/dapr-agents/actions/workflows/build.yaml)
+[![GitHub License](https://img.shields.io/github/license/dapr/dapr-agents?style=flat&label=License&logo=github)](https://github.com/dapr/dapr-agents/blob/main/LICENSE)
+[![Discord](https://img.shields.io/discord/778680217417809931?label=Discord&style=flat&logo=discord)](http://bit.ly/dapr-discord)
 [![YouTube Channel Views](https://img.shields.io/youtube/channel/views/UCtpSQ9BLB_3EXdWAUQYwnRA?style=flat&label=YouTube%20views&logo=youtube)](https://youtube.com/@daprdev)
 [![X (formerly Twitter) Follow](https://img.shields.io/twitter/follow/daprdev?logo=x&style=flat)](https://twitter.com/daprdev)
 
@@ -53,7 +53,7 @@ Dapr Agents provides a set of AI features that give developers a complete API su
 
 ### Integrated Security and Reliability
 
-By building on top of Dapr, platform and infrastructure teams can apply Dapr's [resiliency policies](https://docs.dapr.io/operations/resiliency/resiliency-overview/) to the database and/or message broker of their choice that are used by Dapr Agents. These policies include timeouts, retry/backoffs and circuit breakers. When it comes to security, Dapr provides the option to scope access to a given database or message broker to one or more agentic app deployments. In addition, Dapr Agents uses mTLS to encrypt the communication layer of its underlying components. 
+By building on top of Dapr, platform and infrastructure teams can apply Dapr's [resiliency policies](https://docs.dapr.io/operations/resiliency/resiliency-overview/) to the database and/or message broker of their choice that are used by Dapr Agents. These policies include timeouts, retry/backoffs and circuit breakers. When it comes to security, Dapr provides the option to scope access to a given database or message broker to one or more agentic app deployments. In addition, Dapr Agents uses mTLS to encrypt the communication layer of its underlying components.
 
 ### Built-in Messaging and State Infrastructure
 
@@ -92,6 +92,12 @@ Please refer to our [Dapr Community Code of Conduct](https://github.com/dapr/com
 
 For development setup and guidelines, see our [Development Guide](docs/development/README.md).
 
+**Quick start for contributors:**
+1. Install dependencies: `uv sync --group dev --group test`
+2. Install pre-push hooks: `pre-commit install --hook-type pre-push`
+3. Make your changes and run tests: `uv run pytest tests -m "not integration"`
+4. Push your changes - hooks will run automatically
+
 ## Getting Started
 
 Prerequisites:
@@ -110,7 +116,11 @@ uv add dapr-agents
 
 ### Run The Quickstarts
 
-To start running Dapr Agents locally, see our [quickstarts](./quickstarts/README.md).
+For a high level introduction to the fundamentals of Dapr Agents, see our [quickstarts](./quickstarts/README.md).
+
+### Run The Examples
+
+Once you've gotten a feel for the fundamentals of the project in the quickstarts, then dive deeper with the [examples](./examples/README.md).
 
 ## Get Involved
 
@@ -118,5 +128,5 @@ Dapr Agents is an open-source project under the CNCF umbrella, and we welcome co
 
 - GitHub Repository: [https://github.com/dapr/dapr-agents](https://github.com/dapr/dapr-agents)
 - Documentation: [https://docs.dapr.io/developing-applications/dapr-agents/](https://docs.dapr.io/developing-applications/dapr-agents/)
-- Community Discord: [Join the discussion](https://bit.ly/dapr-discord). 
+- Community Discord: [Join the discussion](https://bit.ly/dapr-discord).
 - Contribute: Open an issue or submit a PR to help improve Dapr Agents!

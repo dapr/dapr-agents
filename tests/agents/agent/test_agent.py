@@ -4,6 +4,7 @@ import os
 from unittest.mock import Mock, patch
 from dapr_agents.agents.standalone import Agent
 from dapr_agents.agents.configs import AgentMemoryConfig, AgentExecutionConfig
+from dapr_agents.agents.schemas import ConversationSummary
 from dapr_agents.types import (
     AgentError,
     AssistantMessage,
@@ -36,6 +37,10 @@ class TestAgent:
         mock.prompt_template = None
         # Set the class name to avoid OpenAI validation
         mock.__class__.__name__ = "MockLLMClient"
+        # Add string attributes for metadata validation
+        mock.provider = "test_provider"
+        mock.api = "test_api"
+        mock.model = "test_model"
         return mock
 
     @pytest.fixture
@@ -140,7 +145,16 @@ class TestAgent:
         mock_response = Mock(spec=LLMChatResponse)
         assistant_msg = AssistantMessage(content="Hello!")
         mock_response.get_message.return_value = assistant_msg
-        basic_agent.llm.generate.return_value = mock_response
+
+        # Mock summary response for ConversationSummary
+        summary_model = ConversationSummary(summary="Test conversation summary")
+
+        def generate_side_effect(*args, **kwargs):
+            if kwargs.get("response_format") == ConversationSummary:
+                return summary_model
+            return mock_response
+
+        basic_agent.llm.generate.side_effect = generate_side_effect
 
         result = await basic_agent._run_agent(
             input_data="Hello", instance_id="test-123"
@@ -148,7 +162,8 @@ class TestAgent:
 
         assert isinstance(result, AssistantMessage)
         assert result.content == "Hello!"
-        basic_agent.llm.generate.assert_called_once()
+        # generate is called for chat and again for summarization when memory is enabled
+        assert basic_agent.llm.generate.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_run_agent_with_tool_calls(self, agent_with_tools):
@@ -169,7 +184,21 @@ class TestAgent:
         second_assistant = AssistantMessage(content="Final answer")
         second_response.get_message.return_value = second_assistant
 
-        agent_with_tools.llm.generate.side_effect = [first_response, second_response]
+        # Mock summary response for ConversationSummary
+        summary_model = ConversationSummary(summary="Summary of conversation.")
+
+        def generate_side_effect(*args, **kwargs):
+            if kwargs.get("response_format") == ConversationSummary:
+                return summary_model
+            # Return responses in order for regular calls
+            if not hasattr(generate_side_effect, "_call_count"):
+                generate_side_effect._call_count = 0
+            generate_side_effect._call_count += 1
+            if generate_side_effect._call_count == 1:
+                return first_response
+            return second_response
+
+        agent_with_tools.llm.generate.side_effect = generate_side_effect
         agent_with_tools.tools = [echo_tool]
         agent_with_tools.tool_executor = agent_with_tools.tool_executor.__class__(
             tools=[echo_tool]
@@ -316,18 +345,30 @@ class TestAgent:
     @pytest.mark.asyncio
     async def test_agent_with_memory_context(self, basic_agent):
         """Test agent using memory context when no input is provided."""
-        basic_agent.memory.add_message(UserMessage(content="Previous message"))
+        basic_agent.memory.add_message(
+            UserMessage(content="Previous message"), "test-123"
+        )
 
         mock_response = Mock(spec=LLMChatResponse)
         assistant_msg = AssistantMessage(content="Response")
         mock_response.get_message.return_value = assistant_msg
-        basic_agent.llm.generate.return_value = mock_response
+
+        # Mock summary response for ConversationSummary
+        summary_model = ConversationSummary(summary="Test conversation summary")
+
+        def generate_side_effect(*args, **kwargs):
+            if kwargs.get("response_format") == ConversationSummary:
+                return summary_model
+            return mock_response
+
+        basic_agent.llm.generate.side_effect = generate_side_effect
 
         result = await basic_agent._run_agent(input_data=None, instance_id="test-123")
 
         assert isinstance(result, AssistantMessage)
         assert result.content == "Response"
-        basic_agent.llm.generate.assert_called_once()
+        # generate is called for chat and again for summarization when memory is enabled
+        assert basic_agent.llm.generate.call_count >= 1
 
     def test_agent_tool_history_management(self, basic_agent):
         """Test tool history management."""

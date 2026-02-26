@@ -29,5 +29,5 @@ pytest tests/document/embedder/test_sentence.py::TestSentenceTransformerEmbedder
 
 ## Test Organization
 
-Tests are organized by module/class functionality, 
+Tests are organized by module/class functionality,
 and we try to mimic the folder structure of the repo.

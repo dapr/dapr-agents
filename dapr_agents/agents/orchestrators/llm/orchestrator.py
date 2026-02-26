@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -59,6 +60,12 @@ class LLMOrchestrator(LLMOrchestratorBase):
             name (str): Logical name of the orchestrator.
             timeout_seconds (int): Timeout duration for awaiting agent responses (in seconds).
         """
+        warnings.warn(
+            "LLMOrchestrator is deprecated and will be removed in a future version. "
+            "Use DurableAgent with orchestration_mode='agent' in AgentExecutionConfig instead. ",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(name=name, execution=execution, **kwargs)
         self.timeout = max(1, int(timeout_seconds))
 
@@ -86,17 +93,8 @@ class LLMOrchestrator(LLMOrchestratorBase):
         Orchestrates the workflow, handling up to `self.execution.max_iterations` turns using an LLM to choose the next step/agent.
         """
         task_text: Optional[str] = message.get("task")
-        parent_id: Optional[str] = message.get("workflow_instance_id")
         instance_id = ctx.instance_id
         final_summary: Optional[str] = None
-
-        # Ensure the instance exists in the state model
-        self.ensure_instance_exists(
-            instance_id=instance_id,
-            input_value=task_text or "",
-            triggering_workflow_instance_id=parent_id,
-            time=ctx.current_utc_datetime,
-        )
 
         for turn in range(1, self.execution.max_iterations + 1):
             if not ctx.is_replaying:
@@ -141,9 +139,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
                 if not ctx.is_replaying:
                     logger.info("Initial plan broadcast completed")
             else:
-                plan = list(
-                    self.state.get("instances", {}).get(instance_id, {}).get("plan", [])
-                )
+                plan = list(self.state.get(instance_id, {}).get("plan", []))
                 if not ctx.is_replaying:
                     logger.info(
                         "Loaded plan from state with %d steps (turn %d)",
@@ -153,9 +149,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
 
             # Fallback: if plan is empty/None, try reading from state
             if not plan:
-                plan = list(
-                    self.state.get("instances", {}).get(instance_id, {}).get("plan", [])
-                )
+                plan = list(self.state.get(instance_id, {}).get("plan", []))
                 if not ctx.is_replaying:
                     logger.warning(
                         "Plan was empty, fallback loaded %d steps from state", len(plan)
@@ -411,8 +405,13 @@ class LLMOrchestrator(LLMOrchestratorBase):
         wf_time = payload["wf_time"]
 
         # Use flexible container accessor (supports custom state layouts)
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
 
         # Check if THIS instance already has a plan (from a previous turn/replay)
         plan_dicts: List[Dict[str, Any]]

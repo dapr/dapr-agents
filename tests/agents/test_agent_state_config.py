@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from unittest.mock import Mock
 
 from pydantic import BaseModel
@@ -22,24 +22,19 @@ def test_ensure_bundle_merges_user_hooks() -> None:
     def custom_message_coercer(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {**payload, "role": "system"}
 
-    def custom_container(model: BaseModel) -> Optional[Dict[str, Any]]:
-        return getattr(model, "instances", None)
-
     config = AgentStateConfig(
         store=store,
         entry_factory=custom_entry_factory,
         message_coercer=custom_message_coercer,
-        entry_container_getter=custom_container,
     )
 
     config.ensure_bundle(DEFAULT_AGENT_WORKFLOW_BUNDLE)
     bundle = config.get_state_model_bundle()
 
-    assert bundle.state_model_cls is DEFAULT_AGENT_WORKFLOW_BUNDLE.state_model_cls
+    assert bundle.entry_model_cls is DEFAULT_AGENT_WORKFLOW_BUNDLE.entry_model_cls
     assert bundle.message_model_cls is DEFAULT_AGENT_WORKFLOW_BUNDLE.message_model_cls
     assert bundle.entry_factory is custom_entry_factory
     assert bundle.message_coercer is custom_message_coercer
-    assert bundle.entry_container_getter is custom_container
 
 
 def test_ensure_bundle_is_idempotent() -> None:
@@ -58,14 +53,14 @@ def test_ensure_bundle_rejects_mismatched_schema() -> None:
     config = AgentStateConfig(store=store)
     config.ensure_bundle(DEFAULT_AGENT_WORKFLOW_BUNDLE)
 
-    class OtherState(BaseModel):
+    class OtherEntry(BaseModel):
         value: int = 0
 
     class OtherMessage(BaseModel):
         role: str = "assistant"
 
     other_bundle = StateModelBundle(
-        state_model_cls=OtherState,
+        entry_model_cls=OtherEntry,
         message_model_cls=OtherMessage,
     )
 
