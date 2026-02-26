@@ -32,6 +32,11 @@ class AgentToolExecutor(BaseModel):
         logger.info(f"Tool Executor initialized with {len(self._tools_map)} tool(s).")
         super().model_post_init(__context)
 
+    @staticmethod
+    def _normalize(name: str) -> str:
+        """Normalize a tool name: lowercase, strip spaces and underscores."""
+        return name.lower().replace(" ", "").replace("_", "")
+
     def register_tool(self, tool: Union[AgentTool, Callable]) -> None:
         """
         Registers a tool instance, ensuring no duplicate names.
@@ -54,19 +59,20 @@ class AgentToolExecutor(BaseModel):
                 ) from e
 
         if isinstance(tool, AgentTool):
-            if tool.name in self._tools_map:
+            key = self._normalize(tool.name)
+            if key in self._tools_map:
                 logger.error(f"Attempted to register duplicate tool: {tool.name}")
                 raise AgentToolExecutorError(
                     f"Tool '{tool.name}' is already registered."
                 )
-            self._tools_map[tool.name] = tool
+            self._tools_map[key] = tool
             logger.info(f"Tool registered: {tool.name}")
         else:
             raise TypeError(f"Unsupported tool type: {type(tool).__name__}")
 
     def get_tool(self, tool_name: str) -> Optional[AgentTool]:
         """
-        Retrieves a tool by name.
+        Retrieves a tool by name (case-insensitive, spaces/underscores ignored).
 
         Args:
             tool_name (str): Name of the tool to retrieve.
@@ -74,16 +80,16 @@ class AgentToolExecutor(BaseModel):
         Returns:
             AgentTool or None if not found.
         """
-        return self._tools_map.get(tool_name)
+        return self._tools_map.get(self._normalize(tool_name))
 
     def get_tool_names(self) -> List[str]:
         """
-        Lists all registered tool names.
+        Lists all registered tool display names.
 
         Returns:
             List[str]: Names of all registered tools.
         """
-        return list(self._tools_map.keys())
+        return [tool.name for tool in self._tools_map.values()]
 
     def get_tool_signatures(self) -> str:
         """

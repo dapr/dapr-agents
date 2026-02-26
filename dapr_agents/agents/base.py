@@ -125,6 +125,8 @@ class AgentBase:
         # Execution
         execution: Optional[AgentExecutionConfig] = None,
         agent_observability: Optional[AgentObservabilityConfig] = None,
+        # Agent-as-tool
+        is_tool: bool = False,
     ) -> None:
         """
         Initialize an agent with behavior + infrastructure.
@@ -173,6 +175,7 @@ class AgentBase:
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
         self._agent_observability = agent_observability
+        self.is_tool: bool = is_tool
         self.appid = (
             None  # We set the appid to None as standalone agents may not have one
         )
@@ -537,6 +540,13 @@ class AgentBase:
             return self._infra.state_store
 
     @property
+    def registry(self):
+        """Delegate to DaprInfra."""
+        if hasattr(self, "_infra"):
+            return self._infra._registry
+        return None
+
+    @property
     def _state_model(self):
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
@@ -835,16 +845,7 @@ class AgentBase:
         Returns:
             List of `AgentTool` or tool-spec dicts.
         """
-        llm_tools: List[Union[AgentTool, Dict[str, Any]]] = []
-        for tool in self.tools:
-            if isinstance(tool, AgentTool):
-                llm_tools.append(tool)
-            elif callable(tool):
-                try:
-                    llm_tools.append(AgentTool.from_func(tool))
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Failed to convert callable to AgentTool: %s", exc)
-        return llm_tools
+        return list(self.tool_executor._tools_map.values())
 
     def _build_profile(
         self,

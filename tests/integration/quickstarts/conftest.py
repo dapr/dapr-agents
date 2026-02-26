@@ -556,6 +556,11 @@ def run_quickstart_or_examples_multi_app(
         tmp_path = _resolve_component_env_vars(
             resources_path, cwd_path, venv_python, full_env
         )
+    elif (directory / "resources").exists():
+        resources_path = directory / "resources"
+        tmp_path = _resolve_component_env_vars(
+            resources_path, cwd_path, venv_python, full_env
+        )
 
     # Build modified YAML with tmp_path if needed
     yaml_to_use = dapr_yaml_path
@@ -925,7 +930,7 @@ def _run_multi_app_with_completion_detection(
                 elif "llm" in yaml_name:
                     orchestrator_workflow_name = "llm_orchestrator_workflow"
                 elif "workflow_agents" in yaml_name or "09_workflow" in yaml_name:
-                    # 09_workflow_agents: main workflow is support_workflow; ignore broadcast_listener
+                    # 09_workflow_agents: main workflow is support_workflow; ignore broadcast_workflow
                     orchestrator_workflow_name = "support_workflow"
                 elif "sequential" in yaml_name:
                     # Sequential workflow quickstart: main workflow is chained_planner_workflow

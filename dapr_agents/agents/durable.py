@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import functools
 import json
 import logging
 from typing import Any, Dict, Iterable, List, Optional
@@ -63,8 +64,17 @@ from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
+from dapr_agents.tool.workflow.agent_tool import (
+    AGENT_WORKFLOW_SUFFIX,
+    AgentWorkflowTool,
+    agent_to_tool,
+)
+from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 
 logger = logging.getLogger(__name__)
+
+BROADCAST_WORKFLOW_SUFFIX = "_broadcast_workflow"
+ORCHESTRATION_WORKFLOW_SUFFIX = "_orchestration_workflow"
 
 
 class DurableAgent(AgentBase):
@@ -106,6 +116,8 @@ class DurableAgent(AgentBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
         agent_observability: Optional[AgentObservabilityConfig] = None,
+        # Agent-as-tool
+        is_tool: bool = False,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -129,18 +141,38 @@ class DurableAgent(AgentBase):
 
             memory: Enable long-term conversation memory storage; defaults to false.
             llm: Chat client; defaults to `get_default_llm()`.
-            tools: Optional tool callables or `AgentTool` instances.
+            tools: Optional tool callables, ``AgentTool`` instances, ``DurableAgent``
+                instances (auto-converted to ``AgentWorkflowTool``), or agent name
+                strings (resolved from the registry at workflow start).
 
             agent_metadata: Extra metadata to publish to the registry.
             workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
             runtime: Optional pre-existing workflow runtime to attach to.
             retry_policy: Durable retry policy configuration.
             agent_observability: Observability configuration for tracing/logging.
+            is_tool: When ``True``, marks this agent in the registry as callable
+                by other agents as a tool.  Other agents that share the same
+                registry will auto-discover and register it via
+                ``_load_tool_agents``.
         """
         # Mark orchestrators to filtered out when other orchestrators query for available agents
         if execution and execution.orchestration_mode:
             agent_metadata = dict(agent_metadata or {})
             agent_metadata["orchestrator"] = True
+
+        # Separate agent-as-tool entries from regular tools before passing to super class, ie AgentBase.
+        # DurableAgent instances and plain strings are not valid AgentToolExecutor entries.
+        _agents_as_tools: List[DurableAgent] = []
+        _agentname_as_tool: List[str] = []
+        _regular_callable_tools: List[Any] = []
+
+        for t in tools or []:
+            if isinstance(t, DurableAgent):
+                _agents_as_tools.append(t)
+            elif isinstance(t, str):
+                _agentname_as_tool.append(t)
+            else:
+                _regular_callable_tools.append(t)
 
         super().__init__(
             pubsub=pubsub,
@@ -158,10 +190,25 @@ class DurableAgent(AgentBase):
             agent_metadata=agent_metadata,
             workflow_grpc=workflow_grpc,
             llm=llm,
-            tools=tools,
+            tools=_regular_callable_tools or None,
             prompt_template=prompt_template,
             agent_observability=agent_observability,
+            is_tool=is_tool,
         )
+
+        # Convert DurableAgent instances immediately — their appid is already set.
+        for agent_inst in _agents_as_tools:
+            agent_tool = agent_to_tool(
+                agent_inst.name,
+                description=f"{agent_inst.profile.role}. Goal: {agent_inst.profile.goal}",
+                target_app_id=agent_inst.appid
+                if agent_inst.appid != self.appid
+                else None,
+            )
+            self.tool_executor.register_tool(agent_tool)
+
+        # String names are resolved from the registry at workflow start.
+        self._agentname_as_tool: List[str] = _agentname_as_tool
 
         grpc_options = getattr(self, "workflow_grpc_options", None)
         apply_grpc_options(grpc_options)
@@ -237,6 +284,16 @@ class DurableAgent(AgentBase):
         """Return True when the workflow runtime has been started."""
         return self._started
 
+    @property
+    def agent_workflow_name(self) -> str:
+        """Dapr-registered name of this agent's primary workflow."""
+        return f"{self.name}{AGENT_WORKFLOW_SUFFIX}"
+
+    @property
+    def broadcast_workflow_name(self) -> str:
+        """Dapr-registered name of this agent's broadcast workflow."""
+        return f"{self.name}{BROADCAST_WORKFLOW_SUFFIX}"
+
     # ------------------------------------------------------------------
     # Workflows / Activities
     # ------------------------------------------------------------------
@@ -289,6 +346,13 @@ class DurableAgent(AgentBase):
             retry_policy=self._retry_policy,
         )
 
+        # Discover is_tool=True agents from registry and resolve any string-named tools.
+        if self.registry:
+            yield ctx.call_activity(
+                self._load_tools,
+                retry_policy=self._retry_policy,
+            )
+
         final_message: Dict[str, Any] = {}
         turn = 0
 
@@ -303,7 +367,7 @@ class DurableAgent(AgentBase):
                     )
 
                 final_message = yield ctx.call_child_workflow(
-                    workflow=self.orchestration_workflow,
+                    workflow=f"{self.name}{ORCHESTRATION_WORKFLOW_SUFFIX}",
                     input={
                         "task": task,
                         "instance_id": ctx.instance_id,
@@ -340,7 +404,6 @@ class DurableAgent(AgentBase):
                         },
                         retry_policy=self._retry_policy,
                     )
-
                     tool_calls = assistant_response.get("tool_calls") or []
                     if tool_calls:
                         if not ctx.is_replaying:
@@ -350,20 +413,70 @@ class DurableAgent(AgentBase):
                                 len(tool_calls),
                                 turn,
                             )
-                        parallel = [
-                            ctx.call_activity(
-                                self.run_tool,
-                                input={
-                                    "tool_call": tc,
-                                    "instance_id": ctx.instance_id,
-                                    "time": ctx.current_utc_datetime.isoformat(),
-                                    "order": idx,
-                                },
-                                retry_policy=self._retry_policy,
+
+                        workflow_tasks: List[Any] = []
+                        workflow_meta: List[Dict[str, Any]] = []
+                        activity_tasks: List[Any] = []
+                        activity_meta: List[Dict[str, Any]] = []
+
+                        for idx, tc in enumerate(tool_calls):
+                            fn_name = tc["function"]["name"]
+                            tool_obj = self.tool_executor.get_tool(fn_name)
+
+                            # WorkflowContextInjectedTool instances get executed inline as workflow tasks so they can receive the workflow context.
+                            # They must be executed in the workflow to have access to the ctx to call ctx.call_child_workflow,
+                            # and cannot be ran within an activity bc activities do not have the workflow context.
+                            if tool_obj and isinstance(
+                                tool_obj, WorkflowContextInjectedTool
+                            ):
+                                raw_args = tc["function"].get("arguments", "")
+                                args = json.loads(raw_args) if raw_args else {}
+                                workflow_tasks.append(tool_obj(ctx=ctx, **args))
+                                workflow_meta.append({"order": idx, "tool_call": tc})
+                            # Invoke and execute regular tools.
+                            else:
+                                activity_tasks.append(
+                                    ctx.call_activity(
+                                        self.run_tool,
+                                        input={
+                                            "tool_call": tc,
+                                            "instance_id": ctx.instance_id,
+                                            "time": ctx.current_utc_datetime.isoformat(),
+                                            "order": idx,
+                                        },
+                                        retry_policy=self._retry_policy,
+                                    )
+                                )
+                                activity_meta.append({"order": idx, "tool_call": tc})
+
+                        results: List[Any] = yield wf.when_all(
+                            workflow_tasks + activity_tasks
+                        )
+
+                        ordered: List[Optional[Dict[str, Any]]] = [None] * len(
+                            tool_calls
+                        )
+
+                        for meta, res in zip(
+                            workflow_meta, results[: len(workflow_tasks)]
+                        ):
+                            tc = meta["tool_call"]
+                            fn_name = tc["function"]["name"]
+                            serialized = serialize_tool_result(res)
+                            tool_msg = ToolMessage(
+                                content=serialized,
+                                role="tool",
+                                name=fn_name,
+                                tool_call_id=tc["id"],
                             )
-                            for idx, tc in enumerate(tool_calls)
-                        ]
-                        tool_results: List[Dict[str, Any]] = yield wf.when_all(parallel)
+                            ordered[meta["order"]] = tool_msg.model_dump()
+
+                        for meta, res in zip(
+                            activity_meta, results[len(workflow_tasks) :]
+                        ):
+                            ordered[meta["order"]] = res
+
+                        tool_results = [tr for tr in ordered if tr is not None]
                         yield ctx.call_activity(
                             self.save_tool_results,
                             input={
@@ -479,6 +592,12 @@ class DurableAgent(AgentBase):
             logger.info(
                 f"Orchestration workflow started for instance {instance_id} with task: {task}"
             )
+
+        # Ensure all is_tool=True team agents are registered in tool_executor.
+        yield ctx.call_activity(
+            self._load_tools,
+            retry_policy=self._retry_policy,
+        )
 
         agents_result = yield ctx.call_activity(
             self._get_available_agents,
@@ -673,12 +792,12 @@ class DurableAgent(AgentBase):
 
             agent_appid = agent_entry["agent"]["appid"]
 
-            result = yield ctx.call_child_workflow(
-                workflow="agent_workflow",
-                input={"task": instruction},
-                app_id=agent_appid,
-                retry_policy=self._retry_policy,
+            _agent_tool = agent_to_tool(
+                next_agent,
+                description="",
+                target_app_id=agent_appid,
             )
+            result = yield _agent_tool(ctx=ctx, task=instruction)
 
             if not ctx.is_replaying:
                 logger.info(
@@ -916,7 +1035,7 @@ class DurableAgent(AgentBase):
         return self._orchestration_strategy.finalize(ctx, payload["state"])
 
     @message_router(message_model=BroadcastMessage, broadcast=True)
-    def broadcast_listener(self, ctx: wf.DaprWorkflowContext, message: dict) -> None:
+    def broadcast_workflow(self, ctx: wf.DaprWorkflowContext, message: dict) -> None:
         """
         Handle broadcast messages sent by other agents and store them in memory.
 
@@ -1504,6 +1623,71 @@ class DurableAgent(AgentBase):
         self.save_state(instance_id)
 
     # ------------------------------------------------------------------
+    # Agent-as-tool: registry discovery activity
+    # ------------------------------------------------------------------
+
+    def _load_tools(self, ctx: wf.WorkflowActivityContext) -> List[str]:
+        """
+        Discover ``is_tool=True`` agents from the registry and resolve any string-named agents,
+        registering each as an ``AgentWorkflowTool`` in this agent's tool executor.
+
+        The activity is idempotent: agents already present in the tool executor
+        are skipped.  It is called at the start of every ``agent_workflow`` and
+        ``orchestration_workflow`` invocation so that newly-registered agents
+        are visible without restarting the parent.
+
+        Returns:
+            List of agent names that were newly registered during this call.
+        """
+        if not self.registry:
+            return []
+
+        agents_metadata = self._infra.get_agents_metadata(exclude_self=True)
+        registered: List[str] = []
+
+        # Resolve string-named agents declared at init time
+        for name in self._agentname_as_tool:
+            if not self.tool_executor.get_tool(name) and name in agents_metadata:
+                meta = agents_metadata[name]
+                tool = agent_to_tool(
+                    name,
+                    description=(
+                        f"{meta['agent'].get('role', '')}. "
+                        f"Goal: {meta['agent'].get('goal', '')}"
+                    ),
+                    target_app_id=meta["agent"].get("appid"),
+                )
+                self.tool_executor.register_tool(tool)
+                registered.append(name)
+                logger.debug("Registered agent name tool: %s", name)
+
+        # Auto-discover all is_tool=True agents in the registry
+        for name, meta in agents_metadata.items():
+            if meta.get("agent", {}).get("is_tool", False):
+                if not self.tool_executor.get_tool(name):
+                    tool = agent_to_tool(
+                        name,
+                        description=(
+                            f"{meta['agent'].get('role', '')}. "
+                            f"Goal: {meta['agent'].get('goal', '')}"
+                        ),
+                        target_app_id=meta["agent"].get("appid"),
+                    )
+                    self.tool_executor.register_tool(tool)
+                    registered.append(name)
+                    logger.debug("Auto-registered is_tool agent: %s", name)
+
+        if registered:
+            logger.info(
+                "Agent %s: loaded %d agent tool(s): %s",
+                self.name,
+                len(registered),
+                registered,
+            )
+
+        return registered
+
+    # ------------------------------------------------------------------
     # Orchestrator Activities
     # ------------------------------------------------------------------
 
@@ -1746,16 +1930,45 @@ class DurableAgent(AgentBase):
         self.register_workflows(runtime)
         self._registered = True
 
+    @staticmethod
+    def _named(func: Any, name: str) -> Any:
+        """
+        Wrap a callable so the Dapr runtime registers it under ``name``
+        instead of the method's ``__name__``.  Used for workflows to give
+        each agent a unique registration name (EX: ``frodo_agent_workflow``).
+        """
+
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            return func(*args, **kwargs)
+
+        wrapper.__name__ = name
+        return wrapper
+
     def register_workflows(self, runtime: wf.WorkflowRuntime) -> None:
         """
         Register workflows/activities for this agent.
 
+        Each workflow is registered under a unique, agent-scoped name derived
+        from the constants ``AGENT_WORKFLOW_SUFFIX``, ``BROADCAST_WORKFLOW_SUFFIX``,
+        and (for orchestrators) ``ORCHESTRATION_WORKFLOW_SUFFIX``.  This prevents
+        name collisions when multiple agents share the same Dapr app.
+
+        ``AgentRunner`` discovers the registered names via the
+        ``agent_workflow_name`` / ``broadcast_workflow_name`` properties and
+        passes them as strings to ``schedule_new_workflow`` — no wrapper
+        bookkeeping is needed here.
+
         Args:
             runtime: The Dapr workflow runtime to register with.
         """
-        # Primary entry point
-        runtime.register_workflow(self.agent_workflow)
-        runtime.register_workflow(self.broadcast_listener)
+        # Primary entry point — unique per agent
+        runtime.register_workflow(
+            self._named(self.agent_workflow, self.agent_workflow_name)
+        )
+        runtime.register_workflow(
+            self._named(self.broadcast_workflow, self.broadcast_workflow_name)
+        )
 
         # Standard agent activities
         runtime.register_activity(self.record_initial_entry)
@@ -1767,10 +1980,16 @@ class DurableAgent(AgentBase):
         runtime.register_activity(self.summarize)
         runtime.register_activity(self.finalize_workflow)
         runtime.register_activity(self._get_available_agents)
+        runtime.register_activity(self._load_tools)
 
         # Internal orchestration workflow and activities
         if self._orchestration_strategy:
-            runtime.register_workflow(self.orchestration_workflow)
+            runtime.register_workflow(
+                self._named(
+                    self.orchestration_workflow,
+                    f"{self.name}{ORCHESTRATION_WORKFLOW_SUFFIX}",
+                )
+            )
 
             if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
                 # Agent-based orchestration activities (plan-based with LLM)
