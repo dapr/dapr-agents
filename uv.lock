@@ -30,6 +30,7 @@ members = [
     "06-agent-mcp-client-streamablehttp",
     "07-data-agent-mcp-chainlit",
     "09-agents-as-activities-observability",
+    "09-agents-as-tools",
     "dapr-agents",
     "quickstarts",
 ]
@@ -327,6 +328,21 @@ requires-dist = [
 name = "09-agents-as-activities-observability"
 version = "0.1.0"
 source = { virtual = "examples/08-agents-as-activities-observability" }
+dependencies = [
+    { name = "dapr-agents" },
+    { name = "python-dotenv" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dapr-agents", editable = "." },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
+]
+
+[[package]]
+name = "09-agents-as-tools"
+version = "0.1.0"
+source = { virtual = "examples/09-agents-as-tools" }
 dependencies = [
     { name = "dapr-agents" },
     { name = "python-dotenv" },

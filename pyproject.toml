@@ -151,4 +151,5 @@ members = [
     "examples/06-agent-mcp-client-streamablehttp",
     "examples/07-data-agent-mcp-chainlit",
     "examples/08-agents-as-activities-observability",
+    "examples/09-agents-as-tools",
 ]

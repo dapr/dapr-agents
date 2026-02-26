@@ -556,6 +556,11 @@ def run_quickstart_or_examples_multi_app(
         tmp_path = _resolve_component_env_vars(
             resources_path, cwd_path, venv_python, full_env
         )
+    elif (directory / "resources").exists():
+        resources_path = directory / "resources"
+        tmp_path = _resolve_component_env_vars(
+            resources_path, cwd_path, venv_python, full_env
+        )
 
     # Build modified YAML with tmp_path if needed
     yaml_to_use = dapr_yaml_path

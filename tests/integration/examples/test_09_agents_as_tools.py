@@ -21,7 +21,14 @@ class TestAgentsAsToolsExample:
             cwd=self.example_dir,
             env={**self.env, "DAPR_HOST_IP": "127.0.0.1"},
             timeout=300,
-            stream_logs=True,
+            trigger_curl={
+                "url": "http://localhost:8001/agent/run",
+                "method": "POST",
+                "data": {"task": "What supplies do we have for the next leg of the journey? Ask Sam."},
+                "headers": {"Content-Type": "application/json"},
+                "app_port": 8001,
+                "wait_seconds": 30,
+            },
         )
 
         assert result.returncode == 0, (

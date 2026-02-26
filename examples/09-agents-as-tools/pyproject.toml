@@ -1,5 +1,5 @@
 [project]
-name = "00-agents-as-tools"
+name = "09-agents-as-tools"
 version = "0.1.0"
 requires-python = ">=3.11, <3.14"
 dependencies = [

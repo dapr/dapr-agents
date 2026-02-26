@@ -2,11 +2,11 @@
 Cross-app agents-as-tools: Frodo service.
 
 Frodo runs as a standalone Dapr app (app-id: FrodoApp).
-Sam lives in a separate Dapr app (SamApp). 
+Sam lives in a separate Dapr app (SamApp).
 Two equivalent ways to wire Sam as a tool are:
 
   Option A — Registry-based auto-discovery (recommended):
-      Pass ``tools=["sam"]`` and share a registry.  
+      Pass ``tools=["sam"]`` and share a registry.
       Frodo resolves Sam's ``app_id`` at workflow start.
 
   Option B — Explicit factory (no registry needed):
@@ -48,16 +48,15 @@ logging.getLogger("WorkflowRuntime").propagate = False
 # Dapr app-id of the Sam service
 SAM_APP_ID = os.getenv("SAM_APP_ID", "SamApp")
 
+
 def main() -> None:
     llm = DaprChatClient(component_name="llm-provider")
 
-    registry = (
-        AgentRegistryConfig(
-            store=StateStoreService(
-                store_name=os.getenv("REGISTRY_STATE_STORE", "agent-registry")
-            ),
-            team_name="fellowship",
-        )
+    registry = AgentRegistryConfig(
+        store=StateStoreService(
+            store_name=os.getenv("REGISTRY_STATE_STORE", "agent-registry")
+        ),
+        team_name="fellowship",
     )
 
     # Option A: pass the agent name as a string; resolved from registry at runtime.
