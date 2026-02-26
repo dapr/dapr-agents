@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from importlib.metadata import version
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
@@ -20,6 +21,8 @@ from dapr_agents.agents.components import DaprInfra
 from dapr_agents.agents.configs import (
     AgentLoggingExporter,
     AgentMemoryConfig,
+    AgentMetadata,
+    AgentMetadataSchema,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
@@ -27,7 +30,12 @@ from dapr_agents.agents.configs import (
     AgentTracingExporter,
     ConfigFieldDescriptor,
     ConfigKey,
+    LLMMetadata,
+    MemoryMetadata,
+    MemoryStoreMetadata,
+    PubSubMetadata,
     RuntimeSubscriptionConfig,
+    ToolMetadata,
     WorkflowGrpcOptions,
     DEFAULT_AGENT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
@@ -51,6 +59,7 @@ from dapr_agents.types import (
     AgentError,
     ToolExecutionRecord,
 )
+from pydantic import ValidationError
 
 from opentelemetry import trace
 from opentelemetry import _logs
@@ -77,6 +86,7 @@ from opentelemetry.sdk._logs.export import (
     ConsoleLogRecordExporter,
 )
 from dapr_agents.observability import DaprAgentsInstrumentor
+
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +289,7 @@ class AgentBase:
         self.appid = (
             None  # We set the appid to None as standalone agents may not have one
         )
+        self.agent_metadata = agent_metadata or {}
 
         try:
             with DaprClient(http_timeout_seconds=10) as _client:
@@ -391,6 +402,12 @@ class AgentBase:
         self._setup_agent_runtime_configuration()
 
         # -----------------------------
+        # Registry wiring
+        # -----------------------------
+
+        self._registry = registry
+
+        # -----------------------------
         # Memory wiring
         # -----------------------------
         self._memory = memory or AgentMemoryConfig()
@@ -464,91 +481,128 @@ class AgentBase:
             self.execution.tool_choice = "auto"
 
         # -----------------------------
-        # Agent metadata & registry registration (from AgentComponents)
+        # Agent metadata & registry registration
         # -----------------------------
-        base_meta: Dict[str, Any] = {}
-        base_meta["agent"] = {
-            "appid": self.appid,
-            "orchestrator": False,
-            "role": self.profile.role,
-            "goal": self.profile.goal,
-            "name": self.profile.name,
-            "instructions": list(self.profile.instructions),
-        }
 
-        if self.profile.system_prompt:
-            base_meta["agent"]["system_prompt"] = self.profile.system_prompt
+        # Determine schema version from package
+        try:
+            schema_version = version("dapr-agents")
+        except Exception:
+            schema_version = "edge"
 
-        if self.pubsub is not None:
-            pubsub_meta: Dict[str, Any] = {}
-            pubsub_meta["agent_name"] = self.agent_topic_name
-            pubsub_meta["name"] = self.message_bus_name
-            base_meta["pubsub"] = pubsub_meta
-
-        if self.memory:
-            memory_meta: Dict[str, Any] = {}
-            memory_meta["type"] = type(self.memory).__name__
-            if getattr(self.memory, "store_name", None) is not None:
-                memory_meta["statestore"] = self.memory.store_name
-            base_meta["memory"] = memory_meta
-
-        if self.llm:
-            llm_meta: Dict[str, Any] = {}
-            llm_meta["client"] = type(self.llm).__name__
-            llm_meta["provider"] = getattr(self.llm, "provider", "unknown")
-            llm_meta["api"] = getattr(self.llm, "api", "unknown")
-            llm_meta["model"] = getattr(self.llm, "model", "unknown")
-            if hasattr(self.llm, "component_name") and self.llm.component_name:
-                llm_meta["component_name"] = self.llm.component_name
-            # Include endpoint info (non-sensitive)
-            if hasattr(self.llm, "base_url") and self.llm.base_url:
-                llm_meta["base_url"] = self.llm.base_url
-            if hasattr(self.llm, "azure_endpoint") and self.llm.azure_endpoint:
-                llm_meta["azure_endpoint"] = self.llm.azure_endpoint
-            if hasattr(self.llm, "azure_deployment") and self.llm.azure_deployment:
-                llm_meta["azure_deployment"] = self.llm.azure_deployment
-            if self.llm.prompt_template is not None:
-                llm_meta["prompt_template"] = type(self.llm.prompt_template).__name__
-            if hasattr(self.llm, "prompty") and self.llm.prompty is not None:
-                llm_meta["prompty"] = self.llm.prompty
-            base_meta["llm"] = llm_meta
-
+        # Extract execution config
+        max_iterations = None
+        tool_choice = None
         if self.execution:
-            if (
-                hasattr(self.execution, "max_iterations")
-                and self.execution.max_iterations is not None
-            ):
-                base_meta["max_iterations"] = self.execution.max_iterations
-            if (
-                hasattr(self.execution, "tool_choice")
-                and self.execution.tool_choice is not None
-            ):
-                base_meta["tool_choice"] = self.execution.tool_choice
+            max_iterations = getattr(self.execution, "max_iterations", None)
+            tool_choice = getattr(self.execution, "tool_choice", None)
 
+        # Build AgentMetadata
+        agent_meta = AgentMetadata(
+            appid=self.appid or "unknown",
+            type=type(self).__name__,
+            orchestrator=bool(agent_metadata and agent_metadata.get("orchestrator")),
+            role=self.profile.role or None,
+            goal=self.profile.goal or None,
+            instructions=list(self.profile.instructions),
+            system_prompt=self.profile.system_prompt,
+            framework="Dapr Agents",
+            max_iterations=max_iterations,
+            tool_choice=tool_choice,
+            metadata=agent_metadata,
+        )
+
+        # Build PubSubMetadata if configured
+        pubsub_meta = None
+        if self.pubsub is not None and self.message_bus_name:
+            pubsub_meta = PubSubMetadata(
+                resource_name=self.message_bus_name,
+                agent_topic=self.pubsub.agent_topic,
+                broadcast_topic=self.pubsub.broadcast_topic,
+            )
+
+        # Build MemoryMetadata if configured
+        short_term_meta = None
+        if self._infra.state_store is not None:
+            short_term_meta = MemoryStoreMetadata(
+                type=type(self._infra.state_store).__name__,
+                resource_name=getattr(self._infra.state_store, "store_name", None),
+            )
+
+        long_term_meta = None
+        if self.memory:
+            long_term_meta = MemoryStoreMetadata(
+                type=type(self.memory).__name__,
+                resource_name=getattr(self.memory, "store_name", None),
+            )
+
+        memory_meta = None
+        if short_term_meta or long_term_meta:
+            memory_meta = MemoryMetadata(
+                short_term=short_term_meta,
+                long_term=long_term_meta,
+            )
+
+        # Build LLMMetadata if configured
+        llm_meta = None
+        if self.llm:
+            llm_meta = LLMMetadata(
+                client=type(self.llm).__name__,
+                provider=getattr(self.llm, "provider", "unknown"),
+                api=getattr(self.llm, "api", "unknown"),
+                model=getattr(self.llm, "model", "unknown"),
+                resource_name=getattr(self.llm, "component_name", None),
+                base_url=getattr(self.llm, "base_url", None),
+                azure_endpoint=getattr(self.llm, "azure_endpoint", None),
+                azure_deployment=getattr(self.llm, "azure_deployment", None),
+                prompt_template=type(self.llm.prompt_template).__name__
+                if self.llm.prompt_template
+                else None,
+            )
+
+        # Build list of ToolMetadata if tools configured
+        tools_meta = None
         if self.tools and len(self.tools) > 0:
-            tools_list = [
-                {
-                    "tool_name": tool.name,
-                    "tool_description": tool.description,
-                    "tool_args": tool.args_schema,
-                }
+            tools_meta = [
+                ToolMetadata(
+                    name=tool.name,
+                    description=tool.description,
+                    args=json.dumps(tool.args_schema)
+                    if isinstance(tool.args_schema, dict)
+                    else str(tool.args_schema),
+                )
                 for tool in self.tools
             ]
-            base_meta["tools"] = tools_list
 
-        merged_meta = {**base_meta, **(agent_metadata or {})}
-        self.agent_metadata = merged_meta
-        if self.registry_state is not None:
-            try:
-                self.register_agentic_system(metadata=merged_meta)
-            except StateStoreError:
-                logger.warning(
-                    "Could not register agent metadata; registry unavailable."
-                )
-        else:
-            logger.debug(
-                "Registry configuration not provided; skipping agent registration."
+        # Create AgentMetadataSchema directly
+        try:
+            metadata_schema = AgentMetadataSchema(
+                version=schema_version,
+                name=self.profile.name,
+                registered_at=datetime.now(timezone.utc).isoformat(),
+                agent=agent_meta,
+                pubsub=pubsub_meta,
+                memory=memory_meta,
+                llm=llm_meta,
+                tools=tools_meta,
             )
+            self.agent_metadata = metadata_schema
+        except ValidationError as e:
+            logger.warning(f"Agent metadata validation failed: {e}")
+            self.agent_metadata = None
+            metadata_schema = None
+
+        # Register if registry configured and schema validation succeeded
+        if self.registry_state is not None and metadata_schema is not None:
+            try:
+                self.register_agentic_system(metadata=metadata_schema)
+            except (StateStoreError, ValidationError) as e:
+                logger.warning(f"Could not register agent metadata: {e}")
+        else:
+            if self.registry_state is None:
+                logger.debug(
+                    "Registry configuration not provided; skipping agent registration."
+                )
 
     def start(self) -> None:
         """Start lifecycle-managed resources (e.g., configuration subscription).
@@ -953,12 +1007,17 @@ class AgentBase:
         No-op for state store; terminated status comes from Dapr get_workflow runtime_status.
         """
 
-    def register_agentic_system(self, *, metadata=None, team=None):
+    def register_agentic_system(
+        self,
+        *,
+        metadata: Optional[AgentMetadataSchema] = None,
+        team: Optional[str] = None,
+    ):
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
             return self._infra.register_agentic_system(metadata=metadata, team=team)
 
-    def deregister_agentic_system(self, *, team=None):
+    def deregister_agentic_system(self, *, team: Optional[str] = None):
         """Delegate to DaprInfra."""
         return self._infra.deregister_agentic_system(team=team)
 

@@ -59,6 +59,7 @@ class TestAgentBaseClass:
         mock_tool = Mock(spec=AgentTool)
         mock_tool.name = "test_tool"
         mock_tool.description = "A tool for testing."
+        mock_tool.args_schema = {"input": {"type": "string"}}
         return ConcreteAgentBase(
             name="ToolAgent", tools=[mock_tool], llm=mock_llm_client
         )

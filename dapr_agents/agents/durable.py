@@ -60,7 +60,6 @@ from dapr_agents.types import (
     ToolMessage,
     AssistantMessage,
 )
-
 from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
