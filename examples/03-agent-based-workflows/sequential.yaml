@@ -13,7 +13,7 @@ apps:
   appPort: 8004
   env:
     DAPR_HOST_IP: "127.0.0.1"
-    
+
 - appID: planner
   appDirPath: ./
   command: ["python3", "planner_agent.py"]

@@ -20,7 +20,6 @@ from dapr_agents.agents.utils.text_printer import ColorTextFormatter
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.utils.defaults import get_default_llm
 from dapr_agents.memory import ConversationDaprStateMemory, ConversationListMemory
-from dapr_agents.types import AssistantMessage, UserMessage
 
 logger = logging.getLogger(__name__)
 
