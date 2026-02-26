@@ -27,7 +27,9 @@ def make_mcp_gateway_via_child_workflow_tool(
     """
 
     class Args(BaseModel):
-        tool: str = Field(..., description="Name of the MCP tool to call on the remote side.")
+        tool: str = Field(
+            ..., description="Name of the MCP tool to call on the remote side."
+        )
         arguments: Dict[str, Any] = Field(
             default_factory=dict,
             description="Arguments to pass to the remote MCP tool.",
@@ -40,7 +42,12 @@ def make_mcp_gateway_via_child_workflow_tool(
             ),
         )
 
-    def _executor(ctx: Any, tool: str, arguments: Dict[str, Any], instance_id: Optional[str] = None) -> Any:
+    def _executor(
+        ctx: Any,
+        tool: str,
+        arguments: Dict[str, Any],
+        instance_id: Optional[str] = None,
+    ) -> Any:
         """
         Schedule a child workflow on the target app id, passing the MCP tool call as input.
 

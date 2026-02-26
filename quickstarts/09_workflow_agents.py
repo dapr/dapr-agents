@@ -8,9 +8,11 @@ wfr = wf.WorkflowRuntime()
 @wfr.workflow(name="support_workflow")
 def support_workflow(ctx: wf.DaprWorkflowContext, request: dict) -> str:
     """Process a support request through triage and expert agents."""
-    # Each step is durable and can be retried
+    # Each step is durable and can be retried.
+    # Workflow names follow the "{agent_name}_agent_workflow" convention
+    # set by DurableAgent.register_workflows().
     triage_result = yield ctx.call_child_workflow(
-        workflow="agent_workflow",
+        workflow="triage_agent_agent_workflow",
         input={"task": f"Assist with the following support request:\n\n{request}"},
         app_id="triage-agent",
     )
@@ -18,7 +20,7 @@ def support_workflow(ctx: wf.DaprWorkflowContext, request: dict) -> str:
         print("Triage result:", triage_result.get("content", ""), flush=True)
 
     recommendation = yield ctx.call_child_workflow(
-        workflow="agent_workflow",
+        workflow="expert_agent_agent_workflow",
         input={"task": triage_result.get("content", "")},
         app_id="expert-agent",
     )

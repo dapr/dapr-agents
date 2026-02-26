@@ -925,7 +925,7 @@ def _run_multi_app_with_completion_detection(
                 elif "llm" in yaml_name:
                     orchestrator_workflow_name = "llm_orchestrator_workflow"
                 elif "workflow_agents" in yaml_name or "09_workflow" in yaml_name:
-                    # 09_workflow_agents: main workflow is support_workflow; ignore broadcast_listener
+                    # 09_workflow_agents: main workflow is support_workflow; ignore broadcast_workflow
                     orchestrator_workflow_name = "support_workflow"
                 elif "sequential" in yaml_name:
                     # Sequential workflow quickstart: main workflow is chained_planner_workflow

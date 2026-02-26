@@ -1,0 +1,21 @@
+version: 1
+common:
+  resourcesPath: ./resources
+  logLevel: info
+  appLogDestination: console
+  daprdLogDestination: console
+  schedulerHostAddress: "localhost:50006"
+
+apps:
+  - appID: SamApp
+    appDirPath: ./cross-app/sam/
+    appPort: 8002
+    command: ["python3", "app.py"]
+
+  - appID: FrodoApp
+    appDirPath: ./cross-app/frodo/
+    appPort: 8001
+    command: ["python3", "app.py"]
+    env:
+      SAM_APP_ID: SamApp
+      USE_REGISTRY: "1"
