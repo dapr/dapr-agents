@@ -271,7 +271,6 @@ class AgentRunWrapper:
             # Store span ID for cross-process parent-child relationship
             try:
                 from ..context_propagation import extract_otel_context
-                from ..context_storage import store_workflow_context
 
                 # Extract current context from the AGENT span
                 current_context = extract_otel_context()

@@ -4,13 +4,14 @@ import logging
 import random
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 from dapr.clients.grpc._state import Concurrency, Consistency, StateOptions
 
 from pydantic import BaseModel, ValidationError
 
 from dapr_agents.agents.configs import (
+    AgentMetadataSchema,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
@@ -18,14 +19,12 @@ from dapr_agents.agents.configs import (
     WorkflowGrpcOptions,
     StateModelBundle,
 )
-from dapr_agents.agents.schemas import AgentWorkflowEntry
-from dapr_agents.storage.daprstores.stateservice import (
-    StateStoreError,
-)
-from dapr_agents.types.workflow import DaprWorkflowStatus
 
 
 logger = logging.getLogger(__name__)
+
+# Registry index key for the list of registered agent names
+_REGISTRY_AGENTS_KEY = "agents"
 
 
 class DaprInfra:
@@ -496,58 +495,85 @@ class DaprInfra:
     def register_agentic_system(
         self,
         *,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[AgentMetadataSchema] = None,
         team: Optional[str] = None,
     ) -> None:
         """
-        Upsert this agent's metadata in the team registry.
+        Register agent metadata in the team registry.
+
+        Two-step operation:
+        1. Save per-agent key (simple overwrite, no read-modify-write).
+        2. Update index with ETag-protected retry loop (add agent name to list).
 
         Args:
-            metadata: Additional metadata to store for this agent.
-            team: Team override; falls back to configured default team.
+            metadata: Validated AgentMetadataSchema object
+            team: Team override; falls back to configured default team
         """
-        if not self.registry_state:
+        if self._registry is None or self.registry_state is None:
             logger.debug(
                 "No registry configured; skipping registration for %s", self.name
             )
             return
 
-        payload = dict(metadata or {})
-        payload.setdefault("name", self.name)
-        if "agent" not in payload:
-            payload["agent"] = {}
+        if metadata is None:
+            logger.warning(
+                "No metadata provided for registration of agent %s", self.name
+            )
+            return
 
-        payload["agent"]["type"] = type(self).__name__
-        payload.setdefault("registered_at", datetime.now(timezone.utc).isoformat())
+        partition_meta = self._registry_partition_key(team)
 
-        if self._pubsub is not None:
-            if "pubsub" not in payload:
-                payload["pubsub"] = {}
+        # Step 1: Save per-agent metadata key (contention-free overwrite)
+        agent_key = self._agent_registry_key(self.name, team)
+        metadata_dict = metadata.model_dump(mode="json")
+        self.registry_state.save(
+            key=agent_key,
+            value=metadata_dict,
+            state_metadata=partition_meta,
+        )
 
-            payload["pubsub"]["agent_name"] = self.agent_topic_name
-            payload["pubsub"]["name"] = self.message_bus_name
+        # Step 2: Add agent name to index (ETag-protected)
+        index_key = self._team_registry_index_key(team)
+        self._ensure_registry_initialized(key=index_key, meta=partition_meta)
 
-            if self.broadcast_topic_name:
-                payload["pubsub"]["broadcast_topic"] = self.broadcast_topic_name
-            if self._pubsub.agent_topic is not None:
-                payload["pubsub"]["agent_topic"] = self._pubsub.agent_topic
+        attempts = max(1, min(self._max_etag_attempts, 10))
+        for attempt in range(1, attempts + 1):
+            try:
+                current_index, etag = self.registry_state.load_with_etag(
+                    key=index_key,
+                    default={_REGISTRY_AGENTS_KEY: []},
+                    state_metadata=partition_meta,
+                )
+                agents_list = current_index.get(_REGISTRY_AGENTS_KEY, [])
+                if self.name not in agents_list:
+                    agents_list.append(self.name)
+                    self.registry_state.save(
+                        key=index_key,
+                        value={_REGISTRY_AGENTS_KEY: agents_list},
+                        etag=etag,
+                        state_metadata=partition_meta,
+                        state_options=self._save_options,
+                    )
+                break
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Conflict updating registry index (attempt %d/%d) for '%s': %s",
+                    attempt,
+                    attempts,
+                    index_key,
+                    exc,
+                )
+                if attempt == attempts:
+                    logger.exception(
+                        "Failed to update registry index after %d attempts.", attempts
+                    )
+                    return
+                time.sleep(min(0.25 * attempt, 1.0) * (1 + random.uniform(0, 0.25)))
 
-        if self._state is not None:
-            payload["agent"]["statestore"] = self._state.store.store_name
-
-        if self._registry is not None:
-            if "registry" not in payload:
-                payload["registry"] = {}
-
-            payload["registry"]["statestore"] = self._registry.store.store_name
-
-            if self._registry.team_name is not None:
-                payload["registry"]["team"] = self._registry.team_name
-
-        self._upsert_agent_entry(
-            team=self._effective_team(team),
-            agent_name=self.name,
-            agent_metadata=payload,
+        logger.info(
+            "Registered agent '%s' in team '%s' registry",
+            self.name,
+            self._effective_team(team),
         )
 
     def deregister_agentic_system(self, *, team: Optional[str] = None) -> None:
@@ -571,6 +597,9 @@ class DaprInfra:
         """
         Load and optionally filter all agents registered for a team.
 
+        Reads the index to discover agent names, then bulk-fetches per-agent
+        metadata keys.  Missing keys (stale index entries) are silently skipped.
+
         Args:
             exclude_self: If True, omit this agent from results.
             exclude_orchestrator: If True, omit agents with orchestrator=True.
@@ -585,151 +614,118 @@ class DaprInfra:
         if not self.registry_state:
             raise RuntimeError("registry_state must be provided to use agent registry")
 
-        key = self._team_registry_key(team)
+        partition_meta = self._registry_partition_key(team)
+        index_key = self._team_registry_index_key(team)
         try:
-            agents_metadata = self.registry_state.load(
-                key=key,
-                default={},
-                state_metadata=self._state_metadata_for_key(key),
+            index_data = self.registry_state.load(
+                key=index_key,
+                default={_REGISTRY_AGENTS_KEY: []},
+                state_metadata=partition_meta,
             )
-            if not agents_metadata:
-                logger.info("No agents found in registry key '%s'.", key)
+            agent_names = index_data.get(_REGISTRY_AGENTS_KEY, [])
+            if not agent_names:
+                logger.info("No agents found in registry index '%s'.", index_key)
                 return {}
+
+            # Build per-agent key list and bulk-fetch
+            agent_keys = [self._agent_registry_key(name, team) for name in agent_names]
+            bulk_results = self.registry_state.load_many(
+                keys=agent_keys,
+                state_metadata=partition_meta,
+            )
+
+            # Map results back to agent names, skipping missing keys
+            agents_metadata: Dict[str, Any] = {}
+            for name, key in zip(agent_names, agent_keys):
+                meta = bulk_results.get(key)
+                if meta is None:
+                    continue
+                agents_metadata[name] = meta
 
             filtered = {
                 name: meta
                 for name, meta in agents_metadata.items()
                 if not (exclude_self and name == self.name)
-                and not (exclude_orchestrator and meta.get("orchestrator", False))
+                and not (
+                    exclude_orchestrator
+                    and meta.get("agent", {}).get("orchestrator", False)
+                )
             }
             return filtered
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to retrieve agents metadata: %s", exc, exc_info=True)
             raise RuntimeError(f"Error retrieving agents metadata: {str(exc)}") from exc
 
-    def _mutate_registry_entry(
-        self,
-        *,
-        team: Optional[str],
-        mutator: Callable[[Dict[str, Any]], Optional[Dict[str, Any]]],
-        max_attempts: Optional[int] = None,
-    ) -> None:
-        """
-        Apply a mutation to the team registry with optimistic concurrency.
-
-        Args:
-            team: Team identifier.
-            mutator: Function that returns the updated registry dict (or None for no-op).
-            max_attempts: Override for concurrency retries; defaults to init value.
-
-        Raises:
-            StateStoreError: If the mutation fails after retries due to contention.
-        """
-        if not self.registry_state:
-            raise RuntimeError(
-                "registry_state must be provided to mutate the agent registry"
-            )
-
-        key = self._team_registry_key(team)
-        meta = self._state_metadata_for_key(key)
-        attempts = max_attempts or self._max_etag_attempts
-
-        self._ensure_registry_initialized(key=key, meta=meta)
-
-        for attempt in range(1, attempts + 1):
-            try:
-                current, etag = self.registry_state.load_with_etag(
-                    key=key,
-                    default={},
-                    state_metadata=meta,
-                )
-                if not isinstance(current, dict):
-                    current = {}
-
-                updated = mutator(dict(current))
-                if updated is None:
-                    return
-
-                self.registry_state.save(
-                    key=key,
-                    value=updated,
-                    etag=etag,
-                    state_metadata=meta,
-                    state_options=self._save_options,
-                )
-                return
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Conflict during registry mutation (attempt %d/%d) for '%s': %s",
-                    attempt,
-                    attempts,
-                    key,
-                    exc,
-                )
-                logger.info(updated)
-                if attempt == attempts:
-                    raise StateStoreError(
-                        f"Failed to mutate agent registry key '{key}' after {attempts} attempts."
-                    ) from exc
-                # Jittered backoff to reduce thundering herd during contention.
-                time.sleep(min(1.0 * attempt, 3.0) * (1 + random.uniform(0, 0.25)))
-
-    def _upsert_agent_entry(
-        self,
-        *,
-        team: Optional[str],
-        agent_name: str,
-        agent_metadata: Dict[str, Any],
-        max_attempts: Optional[int] = None,
-    ) -> None:
-        """
-        Insert/update a single agent record in the team registry.
-
-        Args:
-            team: Team identifier.
-            agent_name: Agent name (key).
-            agent_metadata: Metadata value to write.
-            max_attempts: Override retry attempts.
-        """
-
-        def mutator(current: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-            if current.get(agent_name) == agent_metadata:
-                return None
-            current[agent_name] = agent_metadata
-            return current
-
-        self._mutate_registry_entry(
-            team=team,
-            mutator=mutator,
-            max_attempts=max_attempts,
-        )
-
     def _remove_agent_entry(
         self,
         *,
         team: Optional[str],
         agent_name: str,
-        max_attempts: Optional[int] = None,
     ) -> None:
         """
         Delete a single agent record from the team registry.
 
+        Two-step operation:
+        1. Delete per-agent key (simple delete).
+        2. Update index with ETag-protected retry loop (remove agent name from list).
+
+        The per-agent key is deleted first so that if the index update fails,
+        get_agents_metadata() gracefully skips the stale entry.
+
         Args:
             team: Team identifier.
             agent_name: Agent name (key).
-            max_attempts: Override retry attempts.
         """
+        partition_meta = self._registry_partition_key(team)
 
-        def mutator(current: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-            if agent_name not in current:
-                return None
-            del current[agent_name]
-            return current
+        # Step 1: Delete per-agent metadata key
+        agent_key = self._agent_registry_key(agent_name, team)
+        try:
+            self.registry_state.delete(key=agent_key, state_metadata=partition_meta)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to delete per-agent key '%s': %s", agent_key, exc)
 
-        self._mutate_registry_entry(
-            team=team,
-            mutator=mutator,
-            max_attempts=max_attempts,
+        # Step 2: Remove agent name from index (ETag-protected)
+        index_key = self._team_registry_index_key(team)
+        attempts = max(1, min(self._max_etag_attempts, 10))
+        for attempt in range(1, attempts + 1):
+            try:
+                current_index, etag = self.registry_state.load_with_etag(
+                    key=index_key,
+                    default={_REGISTRY_AGENTS_KEY: []},
+                    state_metadata=partition_meta,
+                )
+                agents_list = current_index.get(_REGISTRY_AGENTS_KEY, [])
+                if agent_name not in agents_list:
+                    break
+                agents_list.remove(agent_name)
+                self.registry_state.save(
+                    key=index_key,
+                    value={_REGISTRY_AGENTS_KEY: agents_list},
+                    etag=etag,
+                    state_metadata=partition_meta,
+                    state_options=self._save_options,
+                )
+                break
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Conflict updating registry index (attempt %d/%d) for '%s': %s",
+                    attempt,
+                    attempts,
+                    index_key,
+                    exc,
+                )
+                if attempt == attempts:
+                    logger.exception(
+                        "Failed to update registry index after %d attempts.", attempts
+                    )
+                    return
+                time.sleep(min(0.25 * attempt, 1.0) * (1 + random.uniform(0, 0.25)))
+
+        logger.info(
+            "Deregistered agent '%s' from team '%s' registry",
+            agent_name,
+            self._effective_team(team),
         )
 
     # ------------------------------------------------------------------
@@ -746,6 +742,20 @@ class DaprInfra:
     def _team_registry_key(self, team: Optional[str] = None) -> str:
         """Return the registry document key for a team."""
         return f"{self._registry_prefix}{self._effective_team(team)}"
+
+    def _team_registry_index_key(self, team: Optional[str] = None) -> str:
+        """Return the index key that lists all registered agent names for a team."""
+        return f"{self._registry_prefix}{self._effective_team(team)}:_index"
+
+    def _agent_registry_key(self, agent_name: str, team: Optional[str] = None) -> str:
+        """Return the per-agent metadata key within a team."""
+        return f"{self._registry_prefix}{self._effective_team(team)}:{agent_name}"
+
+    def _registry_partition_key(self, team: Optional[str] = None) -> Dict[str, str]:
+        """Return state metadata with a common partition key for all registry keys within a team."""
+        meta = dict(self._base_metadata)
+        meta["partitionKey"] = self._team_registry_key(team)
+        return meta
 
     def _state_metadata_for_key(self, key: str) -> Dict[str, str]:
         """Return Dapr state metadata including partition key."""
