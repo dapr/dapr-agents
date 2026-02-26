@@ -425,6 +425,9 @@ class DurableAgent(AgentBase):
                             fn_name = tc["function"]["name"]
                             tool_obj = self.tool_executor.get_tool(fn_name)
 
+                            # WorkflowContextInjectedTool instances get executed inline as workflow tasks so they can receive the workflow context.
+                            # They must be executed in the workflow to have access to the ctx to call ctx.call_child_workflow,
+                            # and cannot be ran within an activity bc activities do not have the workflow context.
                             if tool_obj and isinstance(
                                 tool_obj, WorkflowContextInjectedTool
                             ):
@@ -432,6 +435,7 @@ class DurableAgent(AgentBase):
                                 args = json.loads(raw_args) if raw_args else {}
                                 workflow_tasks.append(tool_obj(ctx=ctx, **args))
                                 workflow_meta.append({"order": idx, "tool_call": tc})
+                            # Invoke and execute regular tools.
                             else:
                                 activity_tasks.append(
                                     ctx.call_activity(
