@@ -18,37 +18,6 @@ from opentelemetry import trace
 logger = logging.getLogger(__name__)
 
 
-def _format_exception_message(exception: BaseException) -> str:
-    """
-    Format an exception message, unwrapping ExceptionGroup if present.
-
-    When using TaskGroup (Python 3.11+), exceptions are wrapped in ExceptionGroup.
-    This function extracts the actual underlying exceptions for better error reporting.
-
-    Args:
-        exception: The exception to format
-
-    Returns:
-        A formatted error message string
-    """
-    # Check if this is an ExceptionGroup (Python 3.11+)
-    if isinstance(exception, ExceptionGroup):
-        # Extract all sub-exceptions
-        sub_exceptions = []
-        for sub_exc in exception.exceptions:
-            sub_exceptions.append(f"{type(sub_exc).__name__}: {str(sub_exc)}")
-
-        # Combine the group message with individual exceptions
-        base_msg = str(exception)
-        if sub_exceptions:
-            return f"{base_msg}\nSub-exceptions:\n" + "\n".join(
-                f"  - {exc}" for exc in sub_exceptions
-            )
-        return base_msg
-
-    return str(exception)
-
-
 class MCPClient(BaseModel):
     """
     Client for connecting to MCP servers and integrating their tools with the Dapr agent framework.
@@ -420,16 +389,6 @@ class MCPClient(BaseModel):
                     span.set_attribute("mcp.tool_name", tool_name)
                     span.set_attribute("mcp.tool_args", str(kwargs))
                     logger.debug(f"Executing tool '{tool_name}' with args: {kwargs}")
-                    # Unwrap MCP kwargs wrapper so server receives flat arguments.
-                    # Server expects top-level params (e.g. owner, repo), not {kwargs: {...}}.
-                    tool_args: dict = kwargs
-                    if (
-                        len(kwargs) == 1
-                        and "kwargs" in kwargs
-                        and isinstance(kwargs.get("kwargs"), dict)
-                    ):
-                        tool_args = kwargs["kwargs"]
-
                     try:
                         if (
                             client.persistent_connections
@@ -437,7 +396,7 @@ class MCPClient(BaseModel):
                         ):
                             session = client._sessions[server_name]
                             result: CallToolResult = await session.call_tool(
-                                tool_name, tool_args
+                                tool_name, kwargs
                             )
                             logger.debug(
                                 f"Used persistent session for tool '{tool_name}'"
@@ -447,7 +406,7 @@ class MCPClient(BaseModel):
                                 server_name
                             ) as session:
                                 result: CallToolResult = await session.call_tool(
-                                    tool_name, tool_args
+                                    tool_name, kwargs
                                 )
                                 logger.debug(
                                     f"Used ephemeral session for tool '{tool_name}'"
@@ -455,16 +414,13 @@ class MCPClient(BaseModel):
                         return client._process_tool_result(result)
                     except (ValidationError, ToolError, Exception) as e:
                         err_type = type(e).__name__
-                        error_msg = _format_exception_message(e)
-                        logger.error(
-                            "%s running tool: %s", err_type, error_msg, exc_info=True
-                        )
+                        logger.error(f"{err_type} running tool: {str(e)}")
                         return CallToolResult(
-                            is_error=True,
+                            isError=True,
                             content=[
                                 TextContent(
                                     type="text",
-                                    text=f"{err_type} during Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {error_msg}",
+                                    text=f"{err_type} during Tool Call. Arguments sent to Tool: {str(kwargs)}.\nError: {str(e)}",
                                 )
                             ],
                         )
@@ -487,13 +443,9 @@ class MCPClient(BaseModel):
                 )
                 logger.debug(f"Generated argument model for tool '{tool_name}'")
             except Exception as e:
-                logger.error(
+                logger.warning(
                     f"Failed to create schema for tool '{tool_name}': {str(e)}"
                 )
-                raise ToolError(
-                    f"Failed to create argument model for MCP tool '{tool_name}': {str(e)}. "
-                    f"Cannot proceed without validation."
-                ) from e
 
         return AgentTool(
             name=tool_name,
@@ -514,9 +466,9 @@ class MCPClient(BaseModel):
         """
 
         return CallToolResult(
-            is_error=result.is_error,
+            isError=result.isError,
             content=result.content,
-            structured_content=result.structured_content,
+            structuredContent=result.structuredContent,
         )
 
     def get_all_tools(self) -> List[AgentTool]:

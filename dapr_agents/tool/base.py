@@ -106,23 +106,15 @@ class AgentTool(BaseModel):
         async def executor(**kwargs: Any) -> Any:
             try:
                 logger.debug(f"Calling MCP tool '{tool_name}' with args: {kwargs}")
-                # Unwrap MCP kwargs wrapper so server receives flat arguments
-                tool_args = kwargs
-                if (
-                    len(kwargs) == 1
-                    and "kwargs" in kwargs
-                    and isinstance(kwargs.get("kwargs"), dict)
-                ):
-                    tool_args = kwargs["kwargs"]
                 if session is not None:
-                    result = await session.call_tool(tool_name, tool_args)
+                    result = await session.call_tool(tool_name, kwargs)
                 else:
                     logger.debug(f"Starting transport session for tool '{tool_name}'")
                     from dapr_agents.tool.mcp.transport import start_transport_session
 
                     async with start_transport_session(connection) as tool_session:
                         await tool_session.initialize()
-                        result = await tool_session.call_tool(tool_name, tool_args)
+                        result = await tool_session.call_tool(tool_name, kwargs)
                 tool_result = CallToolResult(
                     isError=False,
                     content=[TextContent(type="text", text=str(result))],
@@ -345,37 +337,8 @@ class AgentTool(BaseModel):
 
         if self.args_model:
             try:
-                # 1. If LLM returned wrapped args but model expects flat, unwrap
-                # 2. If model expects wrapped but we have flat, wrap
-                # 3. After validation, always return flat args for executors
-                schema_props = (
-                    self.args_model.model_json_schema().get("properties") or {}
-                )
-                model_expects_kwargs = list(schema_props.keys()) == ["kwargs"]
-
-                # Unwrap if LLM returned wrapped args but model expects flat
-                if (
-                    not model_expects_kwargs
-                    and len(kwargs) == 1
-                    and "kwargs" in kwargs
-                    and isinstance(kwargs.get("kwargs"), dict)
-                ):
-                    kwargs = kwargs["kwargs"]
-                # Wrap if model expects kwargs but we have flat args
-                elif model_expects_kwargs and "kwargs" not in kwargs and kwargs:
-                    kwargs = {"kwargs": kwargs}
-
                 validated_args = self.args_model(**kwargs)
-                out = validated_args.model_dump(exclude_none=True)
-
-                # Always return flat args for executors (unwrap if model was kwargs-wrapped)
-                if (
-                    isinstance(out, dict)
-                    and list(out.keys()) == ["kwargs"]
-                    and isinstance(out.get("kwargs"), dict)
-                ):
-                    return out["kwargs"]
-                return out
+                return validated_args.model_dump(exclude_none=True)
             except ValidationError as ve:
                 logger.debug(f"Validation failed for tool '{self.name}': {ve}")
                 raise ToolError(f"Validation error in tool '{self.name}': {ve}") from ve
@@ -450,11 +413,6 @@ class AgentTool(BaseModel):
         Returns:
             Dict: The function call representation.
         """
-        if self.args_model is None:
-            raise ToolError(
-                f"Cannot format tool '{self.name}' for LLM: args_model is None. "
-                f"This indicates a bug in tool creation - validation will be bypassed."
-            )
         return to_function_call_definition(
             self.name, self.description, self.args_model, format_type, use_deprecated
         )
