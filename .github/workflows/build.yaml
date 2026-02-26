@@ -47,8 +47,6 @@ jobs:
   schema-validation:
     needs: lint
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
     steps:
     - uses: actions/checkout@v6
     - name: Set up Python 3.11
@@ -63,20 +61,6 @@ jobs:
       run: uv sync --group test
     - name: Validate metadata schema
       run: uv run pytest tests -m "schema" -v
-    - name: Check for breaking schema changes
-      if: github.event_name == 'pull_request'
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        REPORT=$(uv run python scripts/check_schema_compat.py)
-        if echo "$REPORT" | grep -q "Breaking"; then
-          gh pr comment ${{ github.event.pull_request.number }} \
-            --body "## Metadata Schema Compatibility Report
-
-        $REPORT
-
-        > This is informational — breaking changes may be intentional for a new release."
-        fi
 
   build:
     needs: lint
