@@ -1,8 +1,14 @@
 """Integration tests for 11_durable_agent_hot_reload quickstart."""
 
+import os
+import signal
+import subprocess
+import time
+
 import pytest
 from tests.integration.quickstarts.conftest import (
-    run_quickstart_or_examples_script,
+    _get_project_root,
+    _setup_venv_and_python,
 )
 
 
@@ -16,37 +22,64 @@ class TestHotReloadQuickstart:
         self.quickstart_dir = quickstarts_dir
         self.env = {
             "OPENAI_API_KEY": openai_api_key,
-            "INTEGRATION_TEST": "1",
         }
 
     def test_11_durable_agent_hot_reload(self, dapr_runtime):  # noqa: ARG002
         """Test durable agent hot-reload example (11_durable_agent_hot_reload.py).
 
-        The script is started with INTEGRATION_TEST=1, which causes it to exit
-        after printing the initial agent state. This verifies that the agent
-        initializes, starts, and subscribes to the configuration store without
-        error.
+        The quickstart runs indefinitely. We start it, wait for the startup
+        confirmation messages, then send SIGINT to gracefully shut it down.
+        This verifies the agent initializes, starts, and subscribes to the
+        configuration store without error.
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this
         test runs.
         """
         script_path = self.quickstart_dir / "11_durable_agent_hot_reload.py"
-        result = run_quickstart_or_examples_script(
-            script_path,
-            cwd=self.quickstart_dir,
-            env=self.env,
-            timeout=180,
-            use_dapr=True,
-            app_id="hot-reload-agent",
-            resources_path=self.quickstart_dir / "components",
+        resources_path = self.quickstart_dir / "resources"
+        full_env = os.environ.copy()
+        full_env.update(self.env)
+        project_root = _get_project_root(self.quickstart_dir)
+        _, python_cmd = _setup_venv_and_python(
+            self.quickstart_dir, project_root, create_venv=True
         )
 
-        assert result.returncode == 0, (
-            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
+        cmd = [
+            "dapr",
+            "run",
+            "--app-id",
+            "hot-reload-agent",
+            "--dapr-http-port",
+            "3500",
+            "--resources-path",
+            str(resources_path),
+            "--",
+            python_cmd,
+            str(script_path.resolve()),
+        ]
+
+        proc = subprocess.Popen(
+            cmd,
+            cwd=self.quickstart_dir,
+            env=full_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
-        combined = result.stdout + result.stderr
+
+        try:
+            # Give the agent time to start and log its initial state
+            time.sleep(30)
+        finally:
+            # Gracefully stop
+            proc.send_signal(signal.SIGINT)
+            try:
+                stdout, stderr = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, stderr = proc.communicate()
+
+        combined = (stdout or "") + (stderr or "")
         assert len(combined) > 0
         # Verify the agent started with its initial role
         assert "Original Role" in combined

@@ -231,12 +231,12 @@ def validate_tool_choice(v: str) -> str:
 
 
 @dataclass
-class AgentConfigurationConfig:
-    """Configuration for agent dynamic configuration store.
+class RuntimeSubscriptionConfig:
+    """Configuration for subscribing to a Dapr Configuration Store at runtime.
 
     Attributes:
         store_name: Name of the Dapr configuration store component.
-        config_name: Optional fallback configuration key used when `keys` is empty (defaults to agent name).
+        default_key: Fallback key used when ``keys`` is empty (defaults to agent name).
         keys: Optional list of keys to subscribe to.
         metadata: Optional metadata for the configuration subscription.
         on_config_change: Optional callback invoked after each successful config update.
@@ -244,10 +244,14 @@ class AgentConfigurationConfig:
     """
 
     store_name: str
-    config_name: Optional[str] = None
+    default_key: Optional[str] = None
     keys: List[str] = field(default_factory=list)
     metadata: Dict[str, str] = field(default_factory=dict)
     on_config_change: Optional[Callable[[str, Any], None]] = None
+
+
+# Backward-compatible alias
+AgentConfigurationConfig = RuntimeSubscriptionConfig
 
 
 @dataclass
@@ -364,6 +368,41 @@ class WorkflowRetryPolicy:
     max_backoff_seconds: Optional[int] = 30
     backoff_multiplier: Optional[float] = 1.5
     retry_timeout: Optional[Union[int, None]] = None
+
+
+class ConfigKey(StrEnum):
+    """Supported keys for runtime configuration hot-reload.
+
+    Both short (``role``) and prefixed (``agent_role``) forms are provided
+    for convenience — they resolve to the same agent attribute.
+    """
+
+    # Profile fields
+    ROLE = "role"
+    AGENT_ROLE = "agent_role"
+    GOAL = "goal"
+    AGENT_GOAL = "agent_goal"
+    INSTRUCTIONS = "instructions"
+    AGENT_INSTRUCTIONS = "agent_instructions"
+    SYSTEM_PROMPT = "system_prompt"
+    AGENT_SYSTEM_PROMPT = "agent_system_prompt"
+    STYLE_GUIDELINES = "style_guidelines"
+    AGENT_STYLE_GUIDELINES = "agent_style_guidelines"
+
+    # Execution fields
+    MAX_ITERATIONS = "max_iterations"
+    TOOL_CHOICE = "tool_choice"
+
+    # LLM fields
+    LLM_API_KEY = "llm_api_key"
+    OPENAI_API_KEY = "openai_api_key"
+    LLM_PROVIDER = "llm_provider"
+    LLM_MODEL = "llm_model"
+
+    # Component references
+    STATE_STORE = "state_store"
+    REGISTRY_STORE = "registry_store"
+    MEMORY_STORE = "memory_store"
 
 
 class AgentTracingExporter(StrEnum):

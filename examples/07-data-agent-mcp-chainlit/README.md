@@ -61,7 +61,7 @@ Note: The temporary resources folder will be automatically deleted when the Dapr
 
 ### Option 2: Direct Component Configuration
 
-You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
+You can directly update the `key` in [resources/openai.yaml](resources/openai.yaml):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -178,7 +178,7 @@ Now you can start talking to your data. If using the sample database, ask questi
 
 #### Testing the agent's memory
 
-If you exit the app and restart it, the agent will remember all the previous conversation. When you insall Dapr using `dapr init`, Redis is installed by default and this is where the conversation memory is saved. To change it, edit the `./components/conversationmemory.yaml` file.
+If you exit the app and restart it, the agent will remember all the previous conversation. When you insall Dapr using `dapr init`, Redis is installed by default and this is where the conversation memory is saved. To change it, edit the `./resources/conversationmemory.yaml` file.
 
 ## Summary
 
@@ -187,11 +187,11 @@ If you exit the app and restart it, the agent will remember all the previous con
 2. Dapr starts, loading the conversation history storage configs from the `components` folder. The agent connects to the MCP server.
 3. Chainlit loads and starts the agent UI in your browser.
 4. Users can now talk to their database in natural language and have the agent analyze the data.
-5. The conversation history is automatically managed by Dapr and saved in the state store configured in `./components/conversationmemory.yaml`.
+5. The conversation history is automatically managed by Dapr and saved in the state store configured in `./resources/conversationmemory.yaml`.
 
 ## Troubleshooting
 
-1. **OpenAI API Key**: Ensure your key is set in `.env` or baked into `components/openai.yaml`.
+1. **OpenAI API Key**: Ensure your key is set in `.env` or baked into `resources/openai.yaml`.
 2. **Postgres MCP Server**: The `crystaldba/postgres-mcp` container must be running on port 8000 before launching Chainlit.
 3. **Database Access**: The `.env` values for `DB_HOST`, `DB_USER`, etc., must match a reachable database. Run the provided SQL scripts if you use the sample data.
 4. **Dependencies**: Run `pip install -r requirements.txt` inside your virtual environment.

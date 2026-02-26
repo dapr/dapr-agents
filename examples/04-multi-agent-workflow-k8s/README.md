@@ -27,7 +27,7 @@ The script will:
 1. Install Dapr
 1. Build the images for [05-multi-agent-workflows](../05-multi-agent-workflows/)
 1. Push the images to local in-cluster registry
-1. Install the [components for the agents](./components/)
+1. Install the [components for the agents](./resources/)
 1. Create the kubernetes secret from `.env` file
 1. Deploy the [manifests for the agents](./manifests/)
 1. Port forward the `workflow-llm` pod on port `8004`

@@ -70,7 +70,7 @@ Replace `OPENAI_API_KEY` with your actual OpenAI API key. If you are using a dif
 This example shows the simplest way to call an LLM using the Dapr Chat Client, which sends prompts through the Dapr Conversation API. It’s a minimal starting point before introducing agents in later examples.
 
 ```bash
-uv run dapr run --app-id llm-client --resources-path components -- python 01_llm_client.py
+uv run dapr run --app-id llm-client --resources-path resources -- python 01_llm_client.py
 ```
 
 ## Expected Behavior
@@ -92,7 +92,7 @@ Dapr Agents also include native LLM clients for other modalities (e.g., audio), 
 This example introduces the basic concept of a Dapr Agent. An agent wraps an LLM with a name, role, and instructions that define how it should behave. Unlike the previous example—where you called the LLM directly—an agent provides a reusable interface you can trigger multiple times, and it will consistently act according to its assigned role.
 
 ```bash
-uv run dapr run --app-id agent-llm --resources-path components -- python 02_agent_llm.py
+uv run dapr run --app-id agent-llm --resources-path resources -- python 02_agent_llm.py
 ```
 
 ## Expected Behavior
@@ -114,7 +114,7 @@ Modify the agent’s role or instructions and observe how its behavior changes w
 This example shows how to quickly create an agent with a custom prompt, backed by the Dapr Conversation API, and how to expose a local Python function as a tool the agent can call during reasoning. It demonstrates the simplest way to run an agent locally as a regular Python program while benefiting from Dapr’s LLM abstraction.
 
 ```bash
-uv run dapr run --app-id agent-llm --resources-path components -- python 03_agent_llm_tools.py
+uv run dapr run --app-id agent-llm --resources-path resources -- python 03_agent_llm_tools.py
 ```
 
 ## Expected Behavior
@@ -138,7 +138,7 @@ When you run the script, the agent receives a weather question, invokes a local 
 This example is very similar to the previous one, except that the agent does not use hard-coded Python functions as tools. Instead, it dynamically discovers its tools from an MCP (Model Context Protocol) server running locally over STDIO, allowing tools to be added or modified without changing the agent code.
 
 ```bash
-uv run dapr run --app-id agent-mcp --resources-path components -- python 04_agent_mcp_tools.py
+uv run dapr run --app-id agent-mcp --resources-path resources -- python 04_agent_mcp_tools.py
 ```
 
 ## Expected Behavior
@@ -164,7 +164,7 @@ When you run the script, the agent queries the MCP server for available tools, i
 This example shows how to create an agent that can store and recall its full conversation history across multiple interactions using a Dapr state store. By persisting the session history, the agent can continue a multi-turn dialog and provide answers informed by prior messages.
 
 ```bash
-uv run dapr run --app-id agent-memory --resources-path components -- python 05_agent_memory.py
+uv run dapr run --app-id agent-memory --resources-path resources -- python 05_agent_memory.py
 ```
 
 ## Expected Behavior
@@ -189,7 +189,7 @@ The script runs two prompts in sequence: the agent answers the initial weather q
 
 This example turns the previous agent into a durable agent backed by the Dapr Workflow engine. Instead of running interactions in-process, every step of the agent’s execution is persisted to durable storage, allowing long-running interactions to survive interruptions. The agent exposes an HTTP endpoint to start a new workflow and provides a way to query progress or retrieve the final result at any time.
 ```bash
-uv run dapr run --app-id durable-agent --resources-path components -- python 06_durable_agent_http.py
+uv run dapr run --app-id durable-agent --resources-path resources -- python 06_durable_agent_http.py
 ```
 
 On a different terminal, trigger the agent:
@@ -248,7 +248,7 @@ This example takes the same durable agent behavior from the previous example, bu
 
 The agent code remains unchanged; only the AgentRunner configuration switches from REST to pub/sub.
 ```bash
-uv run dapr run --app-id durable-agent-subscriber --resources-path components --dapr-http-port 3500 -- python 07_durable_agent_pubsub.py
+uv run dapr run --app-id durable-agent-subscriber --resources-path resources --dapr-http-port 3500 -- python 07_durable_agent_pubsub.py
 ```
 
 On a different terminal, publish a message to the subscribed topic:
@@ -278,7 +278,7 @@ Try publishing multiple messages to the topic and observe the agent process each
 This example does not use an agent. Instead, it demonstrates how to create a Dapr workflow that performs LLM calls in a deterministic, durable sequence.
 
 ```bash
-uv run dapr run --app-id workflow-llms --resources-path components -- python 08_workflow_llm.py
+uv run dapr run --app-id workflow-llms --resources-path resources -- python 08_workflow_llm.py
 ```
 
 ## Expected Behavior
@@ -301,7 +301,7 @@ The workflow generates a short outline for the given topic using an LLM, then us
 This example shows how a workflow can invoke entire agents as workflow activities, allowing you to orchestrate multi-step agent reasoning in a durable and deterministic way. Unlike previous examples where activities called LLMs directly, this workflow delegates each step to an agent with tools and memory, while the workflow engine provides durability and reliable progression.
 
 ```bash
-uv run dapr run --app-id workflow-agents --resources-path components -- python 09_workflow_agents.py
+uv run dapr run --app-id workflow-agents --resources-path resources -- python 09_workflow_agents.py
 ```
 
 ## Expected Behavior
@@ -340,7 +340,7 @@ docker run -d -p 9411:9411 openzipkin/zipkin
 Now run the durable agent with tracing enabled and prompting included:
 
 ```
-uv run dapr run --app-id durable-agent-trace --resources-path components-- python 10_durable_agent_tracing.py
+uv run dapr run --app-id durable-agent-trace --resources-path resources-- python 10_durable_agent_tracing.py
 ```
 
 ## Expected Behavior
@@ -361,10 +361,10 @@ Open the Zipkin UI at the URL above and explore the full trace to see how the wo
 
 This example shows how to subscribe a durable agent to a Dapr Configuration Store so that its persona (role, goal, instructions) and other settings can be updated at runtime without restarting the process. When a value changes in the backing store (e.g. Redis), the agent picks up the update automatically.
 
-First, ensure the `configstore` component is available in your resources path. You can use the one provided in `components/configstore.yaml`.
+First, ensure the `runtime-config` component is available in your resources path. You can use the one provided in `resources/configstore.yaml`. For supported configuration store backends, see the [Dapr docs](https://docs.dapr.io/reference/components-reference/supported-configuration-stores/).
 
 ```bash
-dapr run --app-id hot-reload-agent --resources-path components -- python 11_durable_agent_hot_reload.py
+dapr run --app-id hot-reload-agent --resources-path resources -- python 11_durable_agent_hot_reload.py
 ```
 
 In a separate terminal, update a configuration value directly in Redis:
@@ -379,8 +379,8 @@ The agent starts with its initial role (`Original Role`) and subscribes to the D
 
 ## How This Works
 
-1. The agent is initialized with an `AgentConfigurationConfig` that specifies the configuration store name and the keys to watch.
-2. When `agent.start()` is called, the agent loads existing values and subscribes to the Dapr Configuration API using `subscribe_configuration`, which streams updates from the backing store, then starts the workflow runtime.
+1. The agent is initialized with a `RuntimeSubscriptionConfig` that specifies the configuration store name and the keys to watch.
+2. When the runner calls `subscribe()` (or `serve()`), the agent loads existing values and subscribes to the Dapr Configuration API using `subscribe_configuration`, which streams updates from the backing store, then starts the workflow runtime.
 3. When a configuration key changes, the `_config_handler` in `AgentBase` receives the update and applies it to the agent's profile, LLM settings, or component references.
 4. If a registry store is configured, the agent re-registers its updated metadata automatically.
 

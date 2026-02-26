@@ -22,7 +22,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart ships with Dapr component templates under `components/`. You can inject your OpenAI key via environment variables or by editing the component directly.
+The quickstart ships with Dapr component templates under `resources/`. You can inject your OpenAI key via environment variables or by editing the component directly.
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -49,7 +49,7 @@ rm -rf "$temp_resources_folder"
 
 ### Option 2: Direct Component Configuration
 
-Update `components/openai.yaml` by replacing the `value` for `name: key` with your API key. This approach is convenient for demos but avoid committing secrets to source control.
+Update `resources/openai.yaml` by replacing the `value` for `name: key` with your API key. This approach is convenient for demos but avoid committing secrets to source control.
 
 ### Additional Components
 
@@ -57,7 +57,7 @@ Make sure Dapr is initialized:
 ```bash
 dapr init
 ```
-The `components/` folder already includes Redis-backed state stores (`agentstatestore`, `agentregistrystore`, `conversationstore`), pub/sub, and workflow state components required by the durable agent.
+The `resources/` folder already includes Redis-backed state stores (`agentstatestore`, `agentregistrystore`, `conversationstore`), pub/sub, and workflow state components required by the durable agent.
 
 ## MCP Tools
 

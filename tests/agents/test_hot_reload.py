@@ -226,7 +226,7 @@ class TestSetupConfigurationSubscription:
             name="ConfigAgent",
             llm=mock_llm_client,
             configuration=AgentConfigurationConfig(
-                store_name="configstore",
+                store_name="runtime-config",
                 keys=["agent_role", "agent_goal"],
             ),
         )
@@ -237,7 +237,7 @@ class TestSetupConfigurationSubscription:
             agent._setup_configuration_subscription()
 
         mock_client.subscribe_configuration.assert_called_once_with(
-            store_name="configstore",
+            store_name="runtime-config",
             keys=["agent_role", "agent_goal"],
             handler=agent._config_handler,
             config_metadata={"pgNotifyChannel": "config"},
@@ -248,7 +248,7 @@ class TestSetupConfigurationSubscription:
         agent = ConcreteAgentBase(
             name="MyAgent",
             llm=mock_llm_client,
-            configuration=AgentConfigurationConfig(store_name="configstore"),
+            configuration=AgentConfigurationConfig(store_name="runtime-config"),
         )
         mock_client = MagicMock()
         mock_client.subscribe_configuration.return_value = "sub-456"
@@ -264,7 +264,7 @@ class TestSetupConfigurationSubscription:
             name="ErrorAgent",
             llm=mock_llm_client,
             configuration=AgentConfigurationConfig(
-                store_name="configstore", keys=["k"]
+                store_name="runtime-config", keys=["k"]
             ),
         )
         mock_client = MagicMock()
@@ -320,7 +320,7 @@ class TestStop:
             name="StopAgent",
             llm=mock_llm_client,
             configuration=AgentConfigurationConfig(
-                store_name="configstore", keys=["k"]
+                store_name="runtime-config", keys=["k"]
             ),
         )
         mock_client = MagicMock()
@@ -330,7 +330,7 @@ class TestStop:
         agent.stop()
 
         mock_client.unsubscribe_configuration.assert_called_once_with(
-            store_name="configstore",
+            store_name="runtime-config",
             configuration_id="sub-999",
         )
         mock_client.close.assert_called_once()
@@ -426,7 +426,7 @@ class TestLoadInitialConfiguration:
             role="Default",
             llm=mock_llm_client,
             configuration=AgentConfigurationConfig(
-                store_name="configstore", keys=["role"]
+                store_name="runtime-config", keys=["role"]
             ),
         )
         mock_client = MagicMock()
@@ -448,7 +448,7 @@ class TestLoadInitialConfiguration:
             role="Default",
             llm=mock_llm_client,
             configuration=AgentConfigurationConfig(
-                store_name="configstore",
+                store_name="runtime-config",
                 keys=["role"],
                 metadata={"pgNotifyChannel": "config"},
             ),
@@ -475,7 +475,7 @@ class TestLoadInitialConfiguration:
             name="FailAgent",
             llm=mock_llm_client,
             configuration=AgentConfigurationConfig(
-                store_name="configstore", keys=["role"]
+                store_name="runtime-config", keys=["role"]
             ),
         )
         mock_client = MagicMock()
@@ -495,7 +495,7 @@ class TestLoadInitialConfiguration:
             role="Default",
             llm=mock_llm_client,
             configuration=AgentConfigurationConfig(
-                store_name="configstore", keys=["role"]
+                store_name="runtime-config", keys=["role"]
             ),
         )
         mock_client = MagicMock()
@@ -531,7 +531,7 @@ class TestLoadInitialConfiguration:
             name="OrderAgent",
             llm=mock_llm_client,
             configuration=AgentConfigurationConfig(
-                store_name="configstore", keys=["k"]
+                store_name="runtime-config", keys=["k"]
             ),
         )
 
@@ -551,7 +551,7 @@ class TestConfigChangeCallback:
     def test_callback_invoked(self, mock_llm_client):
         callback = Mock()
         config = AgentConfigurationConfig(
-            store_name="configstore",
+            store_name="runtime-config",
             keys=["role"],
             on_config_change=callback,
         )
@@ -564,7 +564,7 @@ class TestConfigChangeCallback:
     def test_callback_error_swallowed(self, mock_llm_client, caplog):
         callback = Mock(side_effect=RuntimeError("boom"))
         config = AgentConfigurationConfig(
-            store_name="configstore",
+            store_name="runtime-config",
             keys=["role"],
             on_config_change=callback,
         )

@@ -1,7 +1,7 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: configstore
+  name: runtime-config
 spec:
   type: configuration.redis
   version: v1

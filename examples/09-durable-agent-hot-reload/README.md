@@ -9,10 +9,10 @@ This example demonstrates how to enable a `DurableAgent` to subscribe to a Dapr 
 
 ## Structure
 
-- `agent.py`: The agent implementation using `AgentConfigurationConfig`.
-- `components/configstore.yaml`: Redis-backed configuration store (default).
-- `components/configstore-postgres.yaml`: PostgreSQL-backed configuration store (alternative).
-- `components/`: Other Dapr component definitions.
+- `agent.py`: The agent implementation using `RuntimeSubscriptionConfig`.
+- `resources/configstore.yaml`: Redis-backed configuration store (default).
+- `resources/configstore-postgres.yaml`: PostgreSQL-backed configuration store (alternative).
+- `resources/`: Other Dapr component definitions.
 
 ## Running the Example
 
@@ -22,11 +22,11 @@ This example demonstrates how to enable a `DurableAgent` to subscribe to a Dapr 
 
    ```bash
    dapr run --app-id hot-reload-demo \
-            --resources-path ./components \
+            --resources-path ./resources \
             -- python agent.py
    ```
 
-   > **Note:** Remove or rename `configstore-postgres.yaml` so only one `configstore` component is loaded.
+   > **Note:** Remove or rename `configstore-postgres.yaml` so only one `runtime-config` component is loaded.
 
 2. **Trigger a Hot-Reload via redis-cli:**
 
@@ -112,11 +112,11 @@ INSERT INTO configuration (key, value, version) VALUES
 
 #### 4. Switch the Dapr component to PostgreSQL
 
-Only one component named `configstore` can be loaded at a time. Swap the Redis component for the PostgreSQL one:
+Only one component named `runtime-config` can be loaded at a time. Swap the Redis component for the PostgreSQL one:
 
 ```bash
-mv components/configstore.yaml components/configstore-redis.yaml
-cp components/configstore-postgres.yaml components/configstore.yaml
+mv resources/configstore.yaml resources/configstore-redis.yaml
+cp resources/configstore-postgres.yaml resources/configstore.yaml
 ```
 
 Update the `connectionString` in `configstore.yaml` to match your environment.
@@ -125,7 +125,7 @@ Update the `connectionString` in `configstore.yaml` to match your environment.
 
 ```bash
 dapr run --app-id hot-reload-demo \
-         --resources-path ./components \
+         --resources-path ./resources \
          -- python agent.py
 ```
 
@@ -156,7 +156,7 @@ WHERE key = 'max_iterations';
 The agent logs its current persona every 10 seconds. After updating a key, you will see:
 
 ```
-Agent config-aware-agent applying config update: agent_role=Expert Data Scientist
+Agent config-aware-agent applying config update: agent_role="Expert Data Scientist"
 Current Persona: [Expert Data Scientist] - ...
 ```
 
@@ -164,78 +164,4 @@ Current Persona: [Expert Data Scientist] - ...
 
 When the agent starts, it calls `get_configuration()` to load any pre-existing values from the store **before** subscribing to changes. This means you can pre-populate the configuration store and the agent will pick up those values on startup.
 
-## pgNotifyChannel (PostgreSQL only)
-
-The Dapr PostgreSQL configuration store requires a `pgNotifyChannel` key in the **subscribe request metadata** — setting it in the component YAML alone is not sufficient ([source](https://github.com/dapr/components-contrib/blob/main/configuration/postgres/postgres.go)). The agent automatically injects `pgNotifyChannel: "config"` into the subscribe metadata so this works out of the box. Redis ignores the key, so the same code works for both backends.
-
-If your PostgreSQL trigger uses a different channel name, override it via `AgentConfigurationConfig.metadata`:
-
-```python
-config = AgentConfigurationConfig(
-    store_name="configstore",
-    keys=["agent_role"],
-    metadata={"pgNotifyChannel": "my_custom_channel"},
-)
-```
-
-## Supported Keys
-
-Keys are normalized (lowercased, hyphens replaced with underscores) before matching. Values from the Dapr Configuration API are always strings; the agent coerces them to the target type automatically.
-
-### Profile
-
-| Key | Aliases | Type | Description |
-|-----|---------|------|-------------|
-| `role` | `agent_role` | `str` | Agent role string |
-| `goal` | `agent_goal` | `str` | Agent goal string |
-| `instructions` | `agent_instructions` | `list` | Single string or JSON list of instructions |
-| `system_prompt` | `agent_system_prompt` | `str` | System prompt override |
-| `style_guidelines` | `agent_style_guidelines` | `list` | Single string or JSON list of style directives |
-
-### Execution
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `max_iterations` | `int` | Maximum reasoning steps (must be >= 1) |
-| `tool_choice` | `str` | LLM tool selection mode (`auto`, `none`, `required`) |
-
-### LLM
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `llm_api_key`, `openai_api_key` | `str` | LLM API key (redacted in logs) |
-| `llm_provider` | `str` | LLM provider name |
-| `llm_model` | `str` | LLM model name |
-
-### Component References
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `state_store` | `str` | State store component name |
-| `registry_store` | `str` | Registry store component name |
-| `memory_store` | `str` | Memory store component name |
-
-### JSON Batch Updates
-
-Values can be sent as a JSON object. When the configuration value is a JSON dictionary, each key-value pair is applied individually:
-
-```bash
-redis-cli SET agent_config '{"role": "Researcher", "goal": "Find answers", "max_iterations": "15"}'
-```
-
-> **Note:** The key (`agent_config` above) must be one of the keys the agent subscribes to (defined in `AgentConfigurationConfig.keys`). Unsubscribed keys will be ignored.
-
-## Callback on Configuration Change
-
-You can provide an `on_config_change` callback to react to configuration updates:
-
-```python
-def on_change(key: str, value):
-    print(f"Config changed: {key} = {value}")
-
-config = AgentConfigurationConfig(
-    store_name="configstore",
-    keys=["agent_role", "agent_goal"],
-    on_config_change=on_change,
-)
-```
+For the full reference on supported configuration keys, callbacks, JSON batch updates, and PostgreSQL setup, see the [Dapr Agents documentation](https://docs.dapr.io/developing-applications/building-blocks/configuration/).

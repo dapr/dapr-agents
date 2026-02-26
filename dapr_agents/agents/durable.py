@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 import json
 import logging
-from typing import Any, Dict, Iterable, List, Optional, Literal
+from typing import Any, Dict, Iterable, List, Optional
 from os import getenv
 
 import dapr.ext.workflow as wf
@@ -36,12 +36,12 @@ from dapr_agents.agents.orchestrators.llm.utils import (
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
     OrchestrationMode,
-    AgentConfigurationConfig,
     AgentExecutionConfig,
     AgentMemoryConfig,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
+    RuntimeSubscriptionConfig,
     WorkflowGrpcOptions,
     WorkflowRetryPolicy,
     AgentObservabilityConfig,
@@ -58,10 +58,9 @@ from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.types import (
     AgentError,
     ToolMessage,
-    UserMessage,
     AssistantMessage,
 )
-from dapr_agents.types.workflow import DaprWorkflowStatus
+
 from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
@@ -109,7 +108,7 @@ class DurableAgent(AgentBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
         agent_observability: Optional[AgentObservabilityConfig] = None,
-        configuration: Optional[AgentConfigurationConfig] = None,
+        configuration: Optional[RuntimeSubscriptionConfig] = None,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.

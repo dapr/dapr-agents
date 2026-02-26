@@ -22,7 +22,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart ships with component templates under `components/`. They include:
+The quickstart ships with component templates under `resources/`. They include:
 
 - `openai.yaml` for LLM access
 - Redis-backed state stores (`agentstatestore`, `agentregistrystore`, `conversationstore`, `workflowstatestore`)
@@ -51,7 +51,7 @@ rm -rf "$temp_resources_folder"
 
 ### Option 2: Direct Component Configuration
 
-Edit `components/openai.yaml` and replace the `value` for `name: key` with your API key. Avoid committing secrets back to source control.
+Edit `resources/openai.yaml` and replace the `value` for `name: key` with your API key. Avoid committing secrets back to source control.
 
 ### Additional Components
 

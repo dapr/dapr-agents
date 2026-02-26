@@ -1,9 +1,13 @@
 import asyncio
 import logging
-import os
 from dapr_agents.agents.durable import DurableAgent
-from dapr_agents.agents.configs import AgentConfigurationConfig, AgentStateConfig
+from dapr_agents.agents.configs import (
+    ConfigKey,
+    RuntimeSubscriptionConfig,
+    AgentStateConfig,
+)
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
+from dapr_agents.workflow.runners import AgentRunner
 
 logging.basicConfig(level=logging.INFO)
 
@@ -11,10 +15,12 @@ logging.basicConfig(level=logging.INFO)
 async def main():
     logger = logging.getLogger(__name__)
     # Configuration for hot-reloading
-    # This assumes a Dapr configuration store named 'configstore' is configured
-    config = AgentConfigurationConfig(
-        store_name="configstore",
-        keys=["agent_role", "agent_goal", "agent_instructions"],
+    # This assumes a Dapr configuration store named 'runtime-config' is configured.
+    # See https://docs.dapr.io/reference/components-reference/supported-configuration-stores/
+    # for supported backends.
+    config = RuntimeSubscriptionConfig(
+        store_name="runtime-config",
+        keys=[ConfigKey.AGENT_ROLE, ConfigKey.AGENT_GOAL, ConfigKey.AGENT_INSTRUCTIONS],
     )
 
     # Durable state configuration
@@ -34,25 +40,20 @@ async def main():
 
     logger.info(f"Agent initialized with role: {agent.profile.role}")
 
-    # Start the agent (this starts the workflow runtime)
-    agent.start()
-
-    logger.info("Agent started. You can now update the configuration in Dapr.")
-    logger.info("To hot-reload a single field:")
-    logger.info('redis-cli SET agent_role "New Hot-Reloaded Role"')
-    logger.info('redis-cli SET agent_goal "New Hot-Reloaded Goal"')
-    logger.info(
-        "redis-cli SET agent_instructions "
-        '"[\\"New Hot-Reloaded Instruction 1\\", \\"New Hot-Reloaded Instruction 2\\"]"'
-    )
-
-    # When running under integration tests, exit early after confirming startup.
-    if os.environ.get("INTEGRATION_TEST"):
-        logger.info("INTEGRATION_TEST mode: exiting after startup confirmation.")
-        agent.stop()
-        return
-
+    # Start the agent via the runner (internally calls agent.start(), which sets
+    # up the configuration subscription and starts the workflow runtime).
+    runner = AgentRunner()
     try:
+        runner.subscribe(agent)
+        logger.info("Agent started. You can now update the configuration in Dapr.")
+        logger.info("To hot-reload a single field:")
+        logger.info('redis-cli SET agent_role "New Hot-Reloaded Role"')
+        logger.info('redis-cli SET agent_goal "New Hot-Reloaded Goal"')
+        logger.info(
+            "redis-cli SET agent_instructions "
+            '"[\\"New Hot-Reloaded Instruction 1\\", \\"New Hot-Reloaded Instruction 2\\"]"'
+        )
+
         # Keep the process alive to receive updates
         while True:
             await asyncio.sleep(5)
@@ -62,7 +63,7 @@ async def main():
     except KeyboardInterrupt:
         pass
     finally:
-        agent.stop()
+        runner.shutdown(agent)
 
 
 if __name__ == "__main__":

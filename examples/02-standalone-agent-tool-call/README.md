@@ -71,7 +71,7 @@ Note: The temporary resources folder will be automatically deleted when the Dapr
 
 ### Option 2: Direct Component Configuration
 
-You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
+You can directly update the `key` in [resources/openai.yaml](resources/openai.yaml):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -252,7 +252,7 @@ uv run python standalone_weather_agent_tracing.py
 
 Alternatively, you can run the DurableAgent using:
 ```bash
-uv run dapr run --app-id weatheragent --resources-path ./components -- python standalone_durable_agent_tracing.py
+uv run dapr run --app-id weatheragent --resources-path ./resources -- python standalone_durable_agent_tracing.py
 ```
 
 3. View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
@@ -299,7 +299,7 @@ The DurableAgent class is a workflow-based agent that extends the standard Agent
 ## Troubleshooting
 
 1. **OpenAI API Key**: Ensure your key is correctly set in the `.env` file
-2. **YAML Syntax Error**: If you see `did not find expected key`, check the indentation in your `./components/*.yaml` files. The list items under `metadata:` must be indented with at least 4 spaces.
+2. **YAML Syntax Error**: If you see `did not find expected key`, check the indentation in your `./resources/*.yaml` files. The list items under `metadata:` must be indented with at least 4 spaces.
 3. **daprd missing**: If you see `cannot find the path specified` for `daprd.exe`, run `dapr init`.
 4. **Tool Execution Errors**: Check tool function implementations for exceptions
 5. **Module Import Errors**: Verify that requirements are installed correctly

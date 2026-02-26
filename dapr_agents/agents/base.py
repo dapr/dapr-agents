@@ -18,7 +18,6 @@ from dapr.clients.grpc._response import (
 
 from dapr_agents.agents.components import DaprInfra
 from dapr_agents.agents.configs import (
-    AgentConfigurationConfig,
     AgentLoggingExporter,
     AgentMemoryConfig,
     AgentPubSubConfig,
@@ -27,6 +26,8 @@ from dapr_agents.agents.configs import (
     AgentExecutionConfig,
     AgentTracingExporter,
     ConfigFieldDescriptor,
+    ConfigKey,
+    RuntimeSubscriptionConfig,
     WorkflowGrpcOptions,
     DEFAULT_AGENT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
@@ -93,82 +94,87 @@ class AgentBase:
     Infrastructure (pub/sub, durable state, registry) is provided by `DaprInfra`.
     """
 
+    # Dual aliases (e.g. "role" and "agent_role") exist intentionally:
+    # a user setting keys in Redis might use "agent_role" for clarity,
+    # while "role" is the short form. Both resolve to the same target.
     _CONFIG_FIELD_MAP: Dict[str, ConfigFieldDescriptor] = {
         # Profile fields
-        "role": ConfigFieldDescriptor(
+        ConfigKey.ROLE: ConfigFieldDescriptor(
             targets=("profile.role", "prompting_helper.role"),
             target_type=str,
             validator=validate_non_empty_string,
         ),
-        "agent_role": ConfigFieldDescriptor(
+        ConfigKey.AGENT_ROLE: ConfigFieldDescriptor(
             targets=("profile.role", "prompting_helper.role"),
             target_type=str,
             validator=validate_non_empty_string,
         ),
-        "goal": ConfigFieldDescriptor(
+        ConfigKey.GOAL: ConfigFieldDescriptor(
             targets=("profile.goal", "prompting_helper.goal"),
             target_type=str,
             validator=validate_non_empty_string,
         ),
-        "agent_goal": ConfigFieldDescriptor(
+        ConfigKey.AGENT_GOAL: ConfigFieldDescriptor(
             targets=("profile.goal", "prompting_helper.goal"),
             target_type=str,
             validator=validate_non_empty_string,
         ),
-        "instructions": ConfigFieldDescriptor(
+        ConfigKey.INSTRUCTIONS: ConfigFieldDescriptor(
             targets=("profile.instructions", "prompting_helper.instructions"),
             target_type=list,
         ),
-        "agent_instructions": ConfigFieldDescriptor(
+        ConfigKey.AGENT_INSTRUCTIONS: ConfigFieldDescriptor(
             targets=("profile.instructions", "prompting_helper.instructions"),
             target_type=list,
         ),
-        "system_prompt": ConfigFieldDescriptor(
+        ConfigKey.SYSTEM_PROMPT: ConfigFieldDescriptor(
             targets=("profile.system_prompt", "prompting_helper.system_prompt"),
             target_type=str,
         ),
-        "agent_system_prompt": ConfigFieldDescriptor(
+        ConfigKey.AGENT_SYSTEM_PROMPT: ConfigFieldDescriptor(
             targets=("profile.system_prompt", "prompting_helper.system_prompt"),
             target_type=str,
         ),
-        "style_guidelines": ConfigFieldDescriptor(
+        ConfigKey.STYLE_GUIDELINES: ConfigFieldDescriptor(
             targets=("profile.style_guidelines", "prompting_helper.style_guidelines"),
             target_type=list,
         ),
-        "agent_style_guidelines": ConfigFieldDescriptor(
+        ConfigKey.AGENT_STYLE_GUIDELINES: ConfigFieldDescriptor(
             targets=("profile.style_guidelines", "prompting_helper.style_guidelines"),
             target_type=list,
         ),
         # Execution fields
-        "max_iterations": ConfigFieldDescriptor(
+        ConfigKey.MAX_ITERATIONS: ConfigFieldDescriptor(
             targets=("execution.max_iterations",),
             target_type=int,
             validator=validate_max_iterations,
         ),
-        "tool_choice": ConfigFieldDescriptor(
+        ConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
             targets=("execution.tool_choice",),
             target_type=str,
             validator=validate_tool_choice,
         ),
         # LLM fields
-        "llm_api_key": ConfigFieldDescriptor(
+        ConfigKey.LLM_API_KEY: ConfigFieldDescriptor(
             targets=("llm.api_key",), target_type=str, sensitive=True
         ),
-        "openai_api_key": ConfigFieldDescriptor(
+        ConfigKey.OPENAI_API_KEY: ConfigFieldDescriptor(
             targets=("llm.api_key",), target_type=str, sensitive=True
         ),
-        "llm_provider": ConfigFieldDescriptor(
+        ConfigKey.LLM_PROVIDER: ConfigFieldDescriptor(
             targets=("llm.provider",), target_type=str
         ),
-        "llm_model": ConfigFieldDescriptor(targets=("llm.model",), target_type=str),
+        ConfigKey.LLM_MODEL: ConfigFieldDescriptor(
+            targets=("llm.model",), target_type=str
+        ),
         # Component references
-        "state_store": ConfigFieldDescriptor(
+        ConfigKey.STATE_STORE: ConfigFieldDescriptor(
             targets=("_component_state_store",), target_type=str
         ),
-        "registry_store": ConfigFieldDescriptor(
+        ConfigKey.REGISTRY_STORE: ConfigFieldDescriptor(
             targets=("_component_registry_store",), target_type=str
         ),
-        "memory_store": ConfigFieldDescriptor(
+        ConfigKey.MEMORY_STORE: ConfigFieldDescriptor(
             targets=("_component_memory_store",), target_type=str
         ),
     }
@@ -218,7 +224,7 @@ class AgentBase:
         # Execution
         execution: Optional[AgentExecutionConfig] = None,
         agent_observability: Optional[AgentObservabilityConfig] = None,
-        configuration: Optional[AgentConfigurationConfig] = None,
+        configuration: Optional[RuntimeSubscriptionConfig] = None,
     ) -> None:
         """
         Initialize an agent with behavior + infrastructure.
@@ -558,8 +564,8 @@ class AgentBase:
         if not self.configuration:
             return
 
-        config_name = self.configuration.config_name or self.name
-        keys = self.configuration.keys or [config_name]
+        default_key = self.configuration.default_key or self.name
+        keys = self.configuration.keys or [default_key]
 
         self._load_initial_configuration(keys)
 
@@ -666,7 +672,7 @@ class AgentBase:
 
         safe_value = "***" if descriptor.sensitive else value
         logger.info(
-            "Agent %s applying config update: %s=%s", self.name, key, safe_value
+            'Agent %s applying config update: %s="%s"', self.name, key, safe_value
         )
 
         # Type coercion

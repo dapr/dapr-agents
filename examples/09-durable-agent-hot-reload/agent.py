@@ -1,13 +1,14 @@
 import asyncio
 import logging
-import os
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.configs import (
-    AgentConfigurationConfig,
+    ConfigKey,
+    RuntimeSubscriptionConfig,
     AgentStateConfig,
     AgentPubSubConfig,
 )
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
+from dapr_agents.workflow.runners import AgentRunner
 
 # Configure logging
 logging.basicConfig(
@@ -33,15 +34,14 @@ async def main():
     """
 
     # 1. Define the configuration subscription
-    config = AgentConfigurationConfig(
-        store_name="configstore",
+    config = RuntimeSubscriptionConfig(
+        store_name="runtime-config",
         keys=[
-            "agent_role",
-            "agent_goal",
-            "agent_instructions",
-            "agent_config",
-            "style_guidelines",
-            "max_iterations",
+            ConfigKey.AGENT_ROLE,
+            ConfigKey.AGENT_GOAL,
+            ConfigKey.AGENT_INSTRUCTIONS,
+            ConfigKey.STYLE_GUIDELINES,
+            ConfigKey.MAX_ITERATIONS,
         ],
         on_config_change=on_config_change,
     )
@@ -69,18 +69,21 @@ async def main():
     logger.info(f"Role: {agent.profile.role}")
     logger.info(f"Goal: {agent.profile.goal}")
 
-    # 4. Start the Agent Runtime (also sets up the configuration subscription)
-    agent.start()
-
-    logger.info("Agent runtime started and subscribed to configuration store.")
-    logger.info("To trigger a hot-reload, update the value in your config store:")
-    logger.info('  Redis:      redis-cli SET agent_role "Expert Researcher"')
-    logger.info(
-        "  PostgreSQL: UPDATE configuration SET value='Expert Researcher', "
-        "version=(version::int+1)::text WHERE key='agent_role';"
-    )
-
+    # 4. Start the agent via the runner. subscribe() calls agent.start()
+    #    internally, which sets up the configuration subscription and starts
+    #    the workflow runtime.
+    runner = AgentRunner()
     try:
+        runner.subscribe(agent)
+
+        logger.info("Agent runtime started and subscribed to configuration store.")
+        logger.info("To trigger a hot-reload, update the value in your config store:")
+        logger.info('  Redis:      redis-cli SET agent_role "Expert Researcher"')
+        logger.info(
+            "  PostgreSQL: UPDATE configuration SET value='Expert Researcher', "
+            "version=(version::int+1)::text WHERE key='agent_role';"
+        )
+
         while True:
             await asyncio.sleep(10)
             logger.info(
@@ -90,7 +93,7 @@ async def main():
     except KeyboardInterrupt:
         logger.info("Shutting down...")
     finally:
-        agent.stop()
+        runner.shutdown(agent)
 
 
 if __name__ == "__main__":
