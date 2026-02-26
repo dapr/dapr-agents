@@ -51,7 +51,7 @@ Replace `your_api_key_here` with your actual OpenAI API key.
 
 ## File Upload Configuration (Optional)
 
-Dapr will upload your files to a backend of your choice. The default YAML file in `./components/filestorage.yaml` targets an S3 bucket, but can be configured to be any of the available Dapr output binding components [here](https://docs.dapr.io/reference/components-reference/supported-bindings/).
+Dapr will upload your files to a backend of your choice. The default YAML file in `./resources/filestorage.yaml` targets an S3 bucket, but can be configured to be any of the available Dapr output binding components [here](https://docs.dapr.io/reference/components-reference/supported-bindings/).
 
 If you leave the YAML file as-is, the example will run without uploading the file. An error might appear in the console when you upload the file - that's fine and you can ignore it if the storage provider is not configured.
 
@@ -62,7 +62,7 @@ If you leave the YAML file as-is, the example will run without uploading the fil
 Run the agent:
 
 ```bash
-uv run dapr run --app-id doc-agent --resources-path ./components -- chainlit run app.py -w
+uv run dapr run --app-id doc-agent --resources-path ./resources -- chainlit run app.py -w
 ```
 
 Wait until the browser opens up. Once open, you're ready to upload any document and start asking questions about it!
@@ -72,9 +72,9 @@ Upload a PDF of your choice, or use the example `red_foxes.pdf` file in this exa
 
 #### Testing the agent's memory
 
-If you exit the app and restart it, the agent will remember all the previously uploaded documents. The documents are stored in the binding component configured in `./components/filestorage.yaml`.
+If you exit the app and restart it, the agent will remember all the previously uploaded documents. The documents are stored in the binding component configured in `./resources/filestorage.yaml`.
 
-When you install Dapr using `dapr init`, Redis is installed by default and this is where the conversation memory is saved. To change it, edit the `./components/conversationmemory.yaml` file.
+When you install Dapr using `dapr init`, Redis is installed by default and this is where the conversation memory is saved. To change it, edit the `./resources/conversationmemory.yaml` file.
 
 ## Summary
 
@@ -83,4 +83,4 @@ When you install Dapr using `dapr init`, Redis is installed by default and this 
 2. Chainlit loads and starts the agent UI in your browser.
 3. When a file is uploaded, the contents are parsed and fed to the agent to be able to answer questions.
 4. If the file storage component YAML is correctly configured, Dapr will upload the file to the storage provider.
-5. The conversation history is automatically managed by Dapr and saved in the state store configured in `./components/conversationmemory.yaml`.
+5. The conversation history is automatically managed by Dapr and saved in the state store configured in `./resources/conversationmemory.yaml`.

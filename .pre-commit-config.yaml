@@ -55,7 +55,7 @@ repos:
     hooks:
       - id: pytest
         name: Run unit tests
-        entry: uv run pytest
+        entry: uv run --group test pytest
         args: [tests, -m, "not integration", --tb=short, -q]
         language: system
         pass_filenames: false

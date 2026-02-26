@@ -74,7 +74,7 @@ Note: The temporary resources folder will be automatically deleted when the Dapr
 
 You can directly update the API keys in the respective component files:
 
-1. For OpenAI ([components/openai.yaml](components/openai.yaml)):
+1. For OpenAI ([resources/openai.yaml](resources/openai.yaml)):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -87,7 +87,7 @@ spec:
       value: "YOUR_OPENAI_API_KEY"
 ```
 
-2. For NVIDIA ([components/nvidia.yaml](components/nvidia.yaml)):
+2. For NVIDIA ([resources/nvidia.yaml](resources/nvidia.yaml)):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -100,7 +100,7 @@ spec:
       value: "YOUR_NVIDIA_API_KEY"
 ```
 
-3. For Hugging Face ([components/huggingface.yaml](components/huggingface.yaml)):
+3. For Hugging Face ([resources/huggingface.yaml](resources/huggingface.yaml)):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -220,7 +220,7 @@ This example adds observability to the sequential workflow using Phoenix Arize f
 Run with tracing:
 
 ```bash
-uv run dapr run --app-id agent-workflow-tracing --resources-path components/ -- python sequential_workflow_tracing.py
+uv run dapr run --app-id agent-workflow-tracing --resources-path resources/ -- python sequential_workflow_tracing.py
 ```
 
 View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
@@ -236,7 +236,7 @@ This example demonstrates using multiple LLM providers within a single workflow,
 Run with tracing:
 
 ```bash
-uv run dapr run --app-id multi-model-workflow --resources-path components/ -- python sequential_workflow_multi_model_tracing.py
+uv run dapr run --app-id multi-model-workflow --resources-path resources/ -- python sequential_workflow_multi_model_tracing.py
 ```
 
 View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)

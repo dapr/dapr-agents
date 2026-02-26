@@ -5,7 +5,7 @@ import json
 import logging
 from importlib.metadata import version
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Union, Coroutine
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
 
 from dapr.clients import DaprClient
@@ -14,6 +14,7 @@ from dapr.clients.grpc._response import (
     RegisteredComponents,
     StateResponse,
     GetBulkSecretResponse,
+    ConfigurationResponse,
 )
 
 from dapr_agents.agents.components import DaprInfra
@@ -27,14 +28,20 @@ from dapr_agents.agents.configs import (
     AgentStateConfig,
     AgentExecutionConfig,
     AgentTracingExporter,
+    ConfigFieldDescriptor,
+    ConfigKey,
     LLMMetadata,
     MemoryMetadata,
     MemoryStoreMetadata,
     PubSubMetadata,
+    RuntimeSubscriptionConfig,
     ToolMetadata,
     WorkflowGrpcOptions,
     DEFAULT_AGENT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
+    validate_max_iterations,
+    validate_non_empty_string,
+    validate_tool_choice,
 )
 from dapr_agents.agents.prompting import AgentProfileConfig, PromptingAgentBase
 from dapr_agents.agents.utils.text_printer import ColorTextFormatter
@@ -97,6 +104,108 @@ class AgentBase:
     Infrastructure (pub/sub, durable state, registry) is provided by `DaprInfra`.
     """
 
+    # Dual aliases (e.g. "role" and "agent_role") exist intentionally:
+    # a user setting keys in Redis might use "agent_role" for clarity,
+    # while "role" is the short form. Both resolve to the same target.
+    _CONFIG_FIELD_MAP: Dict[str, ConfigFieldDescriptor] = {
+        # Profile fields
+        ConfigKey.ROLE: ConfigFieldDescriptor(
+            targets=("profile.role", "prompting_helper.role"),
+            target_type=str,
+            validator=validate_non_empty_string,
+        ),
+        ConfigKey.AGENT_ROLE: ConfigFieldDescriptor(
+            targets=("profile.role", "prompting_helper.role"),
+            target_type=str,
+            validator=validate_non_empty_string,
+        ),
+        ConfigKey.GOAL: ConfigFieldDescriptor(
+            targets=("profile.goal", "prompting_helper.goal"),
+            target_type=str,
+            validator=validate_non_empty_string,
+        ),
+        ConfigKey.AGENT_GOAL: ConfigFieldDescriptor(
+            targets=("profile.goal", "prompting_helper.goal"),
+            target_type=str,
+            validator=validate_non_empty_string,
+        ),
+        ConfigKey.INSTRUCTIONS: ConfigFieldDescriptor(
+            targets=("profile.instructions", "prompting_helper.instructions"),
+            target_type=list,
+        ),
+        ConfigKey.AGENT_INSTRUCTIONS: ConfigFieldDescriptor(
+            targets=("profile.instructions", "prompting_helper.instructions"),
+            target_type=list,
+        ),
+        ConfigKey.SYSTEM_PROMPT: ConfigFieldDescriptor(
+            targets=("profile.system_prompt", "prompting_helper.system_prompt"),
+            target_type=str,
+        ),
+        ConfigKey.AGENT_SYSTEM_PROMPT: ConfigFieldDescriptor(
+            targets=("profile.system_prompt", "prompting_helper.system_prompt"),
+            target_type=str,
+        ),
+        ConfigKey.STYLE_GUIDELINES: ConfigFieldDescriptor(
+            targets=("profile.style_guidelines", "prompting_helper.style_guidelines"),
+            target_type=list,
+        ),
+        ConfigKey.AGENT_STYLE_GUIDELINES: ConfigFieldDescriptor(
+            targets=("profile.style_guidelines", "prompting_helper.style_guidelines"),
+            target_type=list,
+        ),
+        # Execution fields
+        ConfigKey.MAX_ITERATIONS: ConfigFieldDescriptor(
+            targets=("execution.max_iterations",),
+            target_type=int,
+            validator=validate_max_iterations,
+        ),
+        ConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
+            targets=("execution.tool_choice",),
+            target_type=str,
+            validator=validate_tool_choice,
+        ),
+        # LLM fields
+        ConfigKey.LLM_API_KEY: ConfigFieldDescriptor(
+            targets=("llm.api_key",), target_type=str, sensitive=True
+        ),
+        ConfigKey.OPENAI_API_KEY: ConfigFieldDescriptor(
+            targets=("llm.api_key",), target_type=str, sensitive=True
+        ),
+        ConfigKey.LLM_PROVIDER: ConfigFieldDescriptor(
+            targets=("llm.provider",), target_type=str
+        ),
+        ConfigKey.LLM_MODEL: ConfigFieldDescriptor(
+            targets=("llm.model",), target_type=str
+        ),
+        # Component references
+        ConfigKey.STATE_STORE: ConfigFieldDescriptor(
+            targets=("_component_state_store",), target_type=str
+        ),
+        ConfigKey.REGISTRY_STORE: ConfigFieldDescriptor(
+            targets=("_component_registry_store",), target_type=str
+        ),
+        ConfigKey.MEMORY_STORE: ConfigFieldDescriptor(
+            targets=("_component_memory_store",), target_type=str
+        ),
+    }
+
+    _SENSITIVE_KEYS = frozenset({"llm_api_key", "openai_api_key"})
+
+    _PROMPT_REBUILD_KEYS = frozenset(
+        {
+            "role",
+            "agent_role",
+            "goal",
+            "agent_goal",
+            "instructions",
+            "agent_instructions",
+            "system_prompt",
+            "agent_system_prompt",
+            "style_guidelines",
+            "agent_style_guidelines",
+        }
+    )
+
     def __init__(
         self,
         *,
@@ -125,6 +234,7 @@ class AgentBase:
         # Execution
         execution: Optional[AgentExecutionConfig] = None,
         agent_observability: Optional[AgentObservabilityConfig] = None,
+        configuration: Optional[RuntimeSubscriptionConfig] = None,
     ) -> None:
         """
         Initialize an agent with behavior + infrastructure.
@@ -156,6 +266,7 @@ class AgentBase:
             workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
             execution: Execution dials for the agent run.
             agent_observability: Observability configuration for tracing/logging.
+            configuration: Optional configuration store settings for hot-reloading.
         """
         # Resolve and validate profile (ensures non-empty name).
         resolved_profile = self._build_profile(
@@ -173,6 +284,8 @@ class AgentBase:
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
         self._agent_observability = agent_observability
+        self.configuration = configuration
+        self._subscription_id: Optional[str] = None
         self.appid = (
             None  # We set the appid to None as standalone agents may not have one
         )
@@ -490,6 +603,331 @@ class AgentBase:
                 logger.debug(
                     "Registry configuration not provided; skipping agent registration."
                 )
+
+    def start(self) -> None:
+        """Start lifecycle-managed resources (e.g., configuration subscription).
+
+        Subclasses that override ``start()`` should call ``super().start()``
+        to ensure configuration subscriptions are established.
+        """
+        if self.configuration:
+            self._setup_configuration_subscription()
+
+    def _setup_configuration_subscription(self) -> None:
+        """Initialize the configuration: load current values, then subscribe to changes."""
+        if not self.configuration:
+            return
+
+        default_key = self.configuration.default_key or self.name
+        keys = self.configuration.keys or [default_key]
+
+        self._load_initial_configuration(keys)
+
+        subscribe_metadata = dict(self.configuration.metadata)
+        subscribe_metadata.setdefault("pgNotifyChannel", "config")
+
+        try:
+            self._config_client = DaprClient()
+            self._subscription_id = self._config_client.subscribe_configuration(
+                store_name=self.configuration.store_name,
+                keys=keys,
+                handler=self._config_handler,
+                config_metadata=subscribe_metadata,
+            )
+            logger.info(
+                "Agent %s subscribed to configuration store '%s' for keys %s (ID: %s)",
+                self.name,
+                self.configuration.store_name,
+                keys,
+                self._subscription_id,
+            )
+        except Exception as e:
+            logger.error(
+                "Agent %s failed to subscribe to configuration store '%s': %s",
+                self.name,
+                self.configuration.store_name,
+                e,
+            )
+            if hasattr(self, "_config_client") and self._config_client:
+                try:
+                    self._config_client.close()
+                except Exception:
+                    pass
+                self._config_client = None
+
+    def _load_initial_configuration(self, keys: List[str]) -> None:
+        """Load current configuration values from the store and apply them."""
+        try:
+            with DaprClient() as client:
+                response: ConfigurationResponse = client.get_configuration(
+                    store_name=self.configuration.store_name,  # type: ignore[union-attr]
+                    keys=keys,
+                )
+            if response.items:
+                self._config_handler("initial-load", response)
+                logger.info(
+                    "Agent %s loaded initial configuration for keys: %s",
+                    self.name,
+                    list(response.items.keys()),
+                )
+            else:
+                logger.info(
+                    "Agent %s: no initial configuration values found in store '%s' "
+                    "for keys %s.",
+                    self.name,
+                    getattr(self.configuration, "store_name", "?"),
+                    keys,
+                )
+        except Exception as e:
+            logger.warning(
+                "Agent %s could not load initial configuration from '%s': %s. "
+                "Starting with defaults.",
+                self.name,
+                getattr(self.configuration, "store_name", "?"),
+                e,
+            )
+
+    def _config_handler(self, config_id: str, response: ConfigurationResponse) -> None:
+        """Handler for configuration updates."""
+        try:
+            for key, item in response.items.items():
+                logger.info("Received configuration update for key: %s", key)
+                # If the value is a JSON dict, apply each nested k/v pair.
+                try:
+                    data = json.loads(item.value)
+                    if isinstance(data, dict):
+                        for k, v in data.items():
+                            self._apply_config_update(k, v)
+                        continue
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                # Otherwise treat as a single key-value pair.
+                self._apply_config_update(key, item.value)
+        except Exception as e:
+            logger.error(
+                "Error in configuration handler for agent %s: %s", self.name, e
+            )
+
+    # ------------------------------------------------------------------
+    # Config update application
+    # ------------------------------------------------------------------
+
+    def _apply_config_update(self, key: str, value: Any) -> None:
+        """Apply a configuration update to the agent state."""
+        normalized_key = key.lower().replace("-", "_")
+        descriptor = self._CONFIG_FIELD_MAP.get(normalized_key)
+
+        if descriptor is None:
+            logger.debug(
+                "Agent %s ignoring unrecognized config key: %s", self.name, key
+            )
+            return
+
+        safe_value = "***" if descriptor.sensitive else value
+        logger.info(
+            'Agent %s applying config update: %s="%s"', self.name, key, safe_value
+        )
+
+        # Type coercion
+        try:
+            coerced_value = self._coerce_config_value(value, descriptor.target_type)
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                "Agent %s: invalid value for key '%s': %s. Skipping update.",
+                self.name,
+                key,
+                e,
+            )
+            return
+
+        # Validation
+        if descriptor.validator is not None:
+            try:
+                coerced_value = descriptor.validator(coerced_value)
+            except Exception as e:
+                logger.warning(
+                    "Agent %s: validation failed for key '%s': %s. Skipping update.",
+                    self.name,
+                    key,
+                    e,
+                )
+                return
+
+        # Apply to all targets
+        for target_path in descriptor.targets:
+            self._set_nested_attr(target_path, coerced_value)
+
+        # Rebuild prompt template if a profile key changed
+        if normalized_key in self._PROMPT_REBUILD_KEYS:
+            self._rebuild_prompt_after_config_update()
+
+        # Fire user callbacks
+        self._fire_config_change_callbacks(normalized_key, coerced_value)
+
+        # Re-register metadata
+        self._sync_metadata_after_config_update()
+
+    @staticmethod
+    def _coerce_config_value(value: Any, target_type: Type) -> Any:
+        """Coerce a configuration value (usually a string) to the target Python type."""
+        if isinstance(value, target_type):
+            return value
+
+        if target_type is str:
+            return str(value)
+
+        if target_type is int:
+            return int(float(value))
+
+        if target_type is float:
+            return float(value)
+
+        if target_type is bool:
+            if isinstance(value, str):
+                if value.lower() in ("true", "1", "yes"):
+                    return True
+                if value.lower() in ("false", "0", "no"):
+                    return False
+            raise ValueError(f"Cannot coerce {value!r} to bool")
+
+        if target_type is list:
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, list):
+                        return parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                return [value]
+            if isinstance(value, (list, tuple)):
+                return list(value)
+            return [value]
+
+        if target_type is dict:
+            if isinstance(value, str):
+                parsed = json.loads(value)
+                if isinstance(parsed, dict):
+                    return parsed
+                raise ValueError(
+                    f"JSON parsed to {type(parsed).__name__}, expected dict"
+                )
+            if isinstance(value, dict):
+                return value
+            raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
+
+        raise ValueError(f"Unsupported target type: {target_type}")
+
+    def _set_nested_attr(self, target_path: str, value: Any) -> None:
+        """Set a nested attribute given a dot-path like 'profile.role'."""
+        # Component references require null-checks on the owning object.
+        if target_path == "_component_state_store":
+            if self.state_store and hasattr(self.state_store, "store_name"):
+                logger.info("Hot-reloading state store to: %s", value)
+                self.state_store.store_name = str(value)
+            return
+        if target_path == "_component_registry_store":
+            if self.registry_state and hasattr(self.registry_state, "store_name"):
+                logger.info("Hot-reloading registry store to: %s", value)
+                self.registry_state.store_name = str(value)
+            return
+        if target_path == "_component_memory_store":
+            if hasattr(self.memory, "store_name"):
+                logger.info("Hot-reloading memory store to: %s", value)
+                self.memory.store_name = str(value)  # type: ignore
+            return
+
+        parts = target_path.split(".")
+        obj: Any = self
+        for part in parts[:-1]:
+            obj = getattr(obj, part, None)
+            if obj is None:
+                return
+        try:
+            setattr(obj, parts[-1], value)
+        except (AttributeError, TypeError):
+            logger.debug("Could not set %s (likely read-only)", target_path)
+
+    def _rebuild_prompt_after_config_update(self) -> None:
+        """Rebuild the prompt template after a profile field change."""
+        try:
+            self.prompting_helper.rebuild_prompt_template()
+            self.prompt_template = self.prompting_helper.prompt_template
+            if self.llm:
+                self.llm.prompt_template = self.prompt_template
+        except Exception as e:
+            logger.warning(
+                "Failed to rebuild prompt template after config update: %s", e
+            )
+
+    def _fire_config_change_callbacks(self, key: str, value: Any) -> None:
+        """Invoke user-provided callback after a successful config update."""
+        if self.configuration and self.configuration.on_config_change:
+            try:
+                self.configuration.on_config_change(key, value)
+            except Exception as e:
+                logger.warning("Config change callback failed for key '%s': %s", key, e)
+
+    def _sync_metadata_after_config_update(self) -> None:
+        """Re-register agent metadata in the registry after a config update."""
+        if self.registry_state is None:
+            return
+
+        self.agent_metadata["agent"]["role"] = self.profile.role
+        self.agent_metadata["agent"]["goal"] = self.profile.goal
+        self.agent_metadata["agent"]["instructions"] = list(self.profile.instructions)
+        if self.profile.system_prompt:
+            self.agent_metadata["agent"]["system_prompt"] = self.profile.system_prompt
+
+        # Sync execution metadata
+        if self.execution:
+            self.agent_metadata["max_iterations"] = self.execution.max_iterations
+            if self.execution.tool_choice is not None:
+                self.agent_metadata["tool_choice"] = self.execution.tool_choice
+
+        # Sync LLM metadata
+        if "llm" in self.agent_metadata and self.llm:
+            self.agent_metadata["llm"]["provider"] = getattr(
+                self.llm, "provider", "unknown"
+            )
+            self.agent_metadata["llm"]["model"] = getattr(self.llm, "model", "unknown")
+
+        # Update component names in metadata if they changed
+        if "statestore" in self.agent_metadata.get("agent", {}):
+            self.agent_metadata["agent"]["statestore"] = self.state_store.store_name
+        if "memory" in self.agent_metadata:
+            self.agent_metadata["memory"]["statestore"] = getattr(
+                self.memory, "store_name", "unknown"
+            )
+
+        try:
+            self.register_agentic_system(metadata=self.agent_metadata)
+        except Exception as e:
+            logger.warning("Failed to re-register agent after config update: %s", e)
+
+    def stop(self) -> None:
+        """Stop the agent and cleanup resources."""
+        # Deregister from the team registry
+        if self.registry_state is not None:
+            try:
+                self.deregister_agentic_system()
+            except Exception as e:
+                logger.debug(f"Error deregistering agent from registry: {e}")
+
+        if hasattr(self, "_config_client") and getattr(self, "_config_client", None):
+            if self._subscription_id and self.configuration:
+                try:
+                    self._config_client.unsubscribe_configuration(
+                        store_name=self.configuration.store_name,
+                        configuration_id=self._subscription_id,
+                    )
+                except Exception as e:
+                    logger.debug(f"Error unsubscribing from configuration: {e}")
+            try:
+                self._config_client.close()
+            except Exception:
+                pass
+            self._config_client = None
 
     # ------------------------------------------------------------------
     # DaprInfra delegation properties and methods

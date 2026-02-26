@@ -103,7 +103,7 @@ Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Ob
 
 ### Option 2: Direct Component Configuration
 
-Update the `key` in [components/openai.yaml](components/openai.yaml):
+Update the `key` in [resources/openai.yaml](resources/openai.yaml):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -124,7 +124,7 @@ Make sure Dapr is initialized:
 dapr init
 ```
 
-This quickstart uses these Dapr components (in `components/` directory):
+This quickstart uses these Dapr components (in `resources/` directory):
 - `openai.yaml`: LLM conversation component
 - `workflowstate.yaml`: Workflow state storage
 - `memorystore.yaml`: Conversation memory storage
@@ -135,7 +135,7 @@ This quickstart uses these Dapr components (in `components/` directory):
 
 ```
 05-multi-agent-workflows-new/
-├── components/                    # Dapr configuration files
+├── resources/                    # Dapr configuration files
 │   ├── agentregistrystore.yaml    # Shared agent registry
 │   ├── memorystore.yaml           # Conversation memory
 │   ├── messagepubsub.yaml         # Pub/sub messaging

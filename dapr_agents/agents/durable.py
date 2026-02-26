@@ -41,6 +41,7 @@ from dapr_agents.agents.configs import (
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
+    RuntimeSubscriptionConfig,
     WorkflowGrpcOptions,
     WorkflowRetryPolicy,
     AgentObservabilityConfig,
@@ -106,6 +107,7 @@ class DurableAgent(AgentBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
         agent_observability: Optional[AgentObservabilityConfig] = None,
+        configuration: Optional[RuntimeSubscriptionConfig] = None,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -136,6 +138,7 @@ class DurableAgent(AgentBase):
             runtime: Optional pre-existing workflow runtime to attach to.
             retry_policy: Durable retry policy configuration.
             agent_observability: Observability configuration for tracing/logging.
+            configuration: Optional configuration store settings for hot-reloading.
         """
         # Mark orchestrators to filtered out when other orchestrators query for available agents
         if execution and execution.orchestration_mode:
@@ -161,6 +164,7 @@ class DurableAgent(AgentBase):
             tools=tools,
             prompt_template=prompt_template,
             agent_observability=agent_observability,
+            configuration=configuration,
         )
 
         grpc_options = getattr(self, "workflow_grpc_options", None)
@@ -1679,6 +1683,9 @@ class DurableAgent(AgentBase):
         if self._started:
             raise RuntimeError("Agent has already been started.")
 
+        # Set up lifecycle-managed resources (e.g., configuration subscription)
+        super().start()
+
         if runtime is not None:
             self._runtime = runtime
             self._runtime_owned = False
@@ -1719,10 +1726,7 @@ class DurableAgent(AgentBase):
         if not self._started:
             return
 
-        try:
-            self.deregister_agentic_system()
-        except Exception:  # noqa: BLE001
-            logger.debug("Could not deregister agent during shutdown", exc_info=True)
+        super().stop()
 
         if self._runtime_owned:
             try:

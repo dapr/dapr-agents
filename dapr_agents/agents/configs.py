@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from os import getenv
 from enum import StrEnum
@@ -12,6 +13,7 @@ from typing import (
     MutableMapping,
     Optional,
     Sequence,
+    Tuple,
     Type,
     Union,
 )
@@ -185,6 +187,78 @@ class AgentStateConfig:
         return self._state_model_bundle
 
 
+@dataclass(frozen=True)
+class ConfigFieldDescriptor:
+    """Describes how a configuration key maps to an agent attribute.
+
+    Attributes:
+        targets: Dot-paths to set on the agent (e.g. ``"profile.role"``).
+        target_type: Expected Python type for the coerced value.
+        sensitive: If ``True``, the value is redacted in log output.
+        validator: Optional callable to validate/transform the coerced value.
+    """
+
+    targets: Tuple[str, ...]
+    target_type: Type
+    sensitive: bool = False
+    validator: Optional[Callable[..., Any]] = None
+
+
+# ---------------------------------------------------------------------------
+# Built-in validators for ConfigFieldDescriptor
+# ---------------------------------------------------------------------------
+
+_config_logger = logging.getLogger(__name__)
+
+
+def validate_non_empty_string(v: str) -> str:
+    """Reject empty or whitespace-only strings."""
+    if not v or not v.strip():
+        raise ValueError("Value must not be empty")
+    return v.strip()
+
+
+def validate_max_iterations(v: int) -> int:
+    """Ensure max_iterations is at least 1."""
+    if v < 1:
+        raise ValueError(f"max_iterations must be >= 1, got {v}")
+    return v
+
+
+def validate_tool_choice(v: str) -> str:
+    """Warn if tool_choice is non-standard, but allow it."""
+    allowed = {"auto", "none", "required"}
+    if v.lower() not in allowed:
+        _config_logger.warning(
+            "tool_choice '%s' not in standard set %s; allowing anyway.", v, allowed
+        )
+    return v
+
+
+@dataclass
+class RuntimeSubscriptionConfig:
+    """Configuration for subscribing to a Dapr Configuration Store at runtime.
+
+    Attributes:
+        store_name: Name of the Dapr configuration store component.
+        default_key: Fallback key used when ``keys`` is empty (defaults to agent name).
+        keys: Optional list of keys to subscribe to.
+        metadata: Optional metadata for the configuration subscription.
+        on_config_change: Optional callback invoked after each successful config update.
+            Receives the normalized key and coerced value.
+    """
+
+    store_name: str
+    default_key: Optional[str] = None
+    keys: List[str] = field(default_factory=list)
+    metadata: Dict[str, str] = field(default_factory=dict)
+    on_config_change: Optional[Callable[[str, Any], None]] = None
+
+
+# Backward-compatible alias
+AgentConfigurationConfig = RuntimeSubscriptionConfig
+
+
 @dataclass
 class AgentRegistryConfig:
     """Configuration for agent registry storage."""
@@ -299,6 +373,41 @@ class WorkflowRetryPolicy:
     max_backoff_seconds: Optional[int] = 30
     backoff_multiplier: Optional[float] = 1.5
     retry_timeout: Optional[Union[int, None]] = None
+
+
+class ConfigKey(StrEnum):
+    """Supported keys for runtime configuration hot-reload.
+
+    Both short (``role``) and prefixed (``agent_role``) forms are provided
+    for convenience — they resolve to the same agent attribute.
+    """
+
+    # Profile fields
+    ROLE = "role"
+    AGENT_ROLE = "agent_role"
+    GOAL = "goal"
+    AGENT_GOAL = "agent_goal"
+    INSTRUCTIONS = "instructions"
+    AGENT_INSTRUCTIONS = "agent_instructions"
+    SYSTEM_PROMPT = "system_prompt"
+    AGENT_SYSTEM_PROMPT = "agent_system_prompt"
+    STYLE_GUIDELINES = "style_guidelines"
+    AGENT_STYLE_GUIDELINES = "agent_style_guidelines"
+
+    # Execution fields
+    MAX_ITERATIONS = "max_iterations"
+    TOOL_CHOICE = "tool_choice"
+
+    # LLM fields
+    LLM_API_KEY = "llm_api_key"
+    OPENAI_API_KEY = "openai_api_key"
+    LLM_PROVIDER = "llm_provider"
+    LLM_MODEL = "llm_model"
+
+    # Component references
+    STATE_STORE = "state_store"
+    REGISTRY_STORE = "registry_store"
+    MEMORY_STORE = "memory_store"
 
 
 class AgentTracingExporter(StrEnum):

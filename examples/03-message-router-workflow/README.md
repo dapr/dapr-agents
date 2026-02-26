@@ -84,7 +84,7 @@ Remove-Item -Recurse -Force $temp_resources_folder
 
 ### Option 2: Direct Component Configuration
 
-You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
+You can directly update the `key` in [resources/openai.yaml](resources/openai.yaml):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -134,7 +134,7 @@ spec:
 
 ```text
 04-message-router-workflow/
-├─ components/                 # Dapr components (pubsub, conversation, workflow state)
+├─ resources/                 # Dapr components (pubsub, conversation, workflow state)
 ├─ app.py                      # Starts WorkflowRuntime + registers message router
 ├─ workflow.py                 # @message_router decorated workflow & direct LLM activities
 └─ message_client.py           # publishes a test message to the topic
