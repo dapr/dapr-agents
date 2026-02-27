@@ -370,17 +370,17 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         try:
             tracer_provider: TracerProvider = trace_api.get_tracer_provider()
             if hasattr(tracer_provider, "force_flush"):
-                tracer_provider.force_flush(timeout_millis=5000)  # type: ignore
+                tracer_provider.force_flush(timeout_millis=5000)
                 logger.debug("Flushed tracer provider spans")
             if hasattr(tracer_provider, "shutdown"):
-                tracer_provider.shutdown()  # type: ignore
+                tracer_provider.shutdown()
                 logger.info("Shut down tracer provider background threads")
         except Exception:  # noqa: BLE001
             logger.exception("Error while shutting down tracer provider", exc_info=True)
         try:
             logger_provider = logs_api.get_logger_provider()
             if hasattr(logger_provider, "shutdown"):
-                logger_provider.shutdown()  # type: ignore
+                logger_provider.shutdown()
                 logger.info("Shut down logger provider")
         except Exception as e:  # noqa: BLE001
             logger.info(f"Error shutting down logger provider: {e}")

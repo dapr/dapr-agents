@@ -264,9 +264,11 @@ class LLMOrchestrator(LLMOrchestratorBase):
                     input={
                         "instance_id": instance_id,
                         "task": task_text or "",
-                        "verdict": verdict
-                        if verdict != "continue"
-                        else "max_iterations_reached",
+                        "verdict": (
+                            verdict
+                            if verdict != "continue"
+                            else "max_iterations_reached"
+                        ),
                         "plan_objects": self._convert_plan_objects_to_dicts(plan),
                         "step_id": step_id,
                         "substep_id": substep_id,
@@ -353,8 +355,8 @@ class LLMOrchestrator(LLMOrchestratorBase):
         async def _broadcast() -> None:
             await broadcast_message(
                 message=broadcast_payload,
-                broadcast_topic=self.broadcast_topic_name,  # type: ignore[union-attr]
-                message_bus=self.message_bus_name,  # type: ignore[union-attr]
+                broadcast_topic=self.broadcast_topic_name,
+                message_bus=self.message_bus_name,
                 source=self.name,
                 agents_metadata=agents_metadata,
             )
@@ -647,9 +649,11 @@ class LLMOrchestrator(LLMOrchestratorBase):
                 verdict=payload["verdict"],
                 plan=json.dumps(payload["plan_objects"], indent=2),
                 step=payload["step_id"],
-                substep=payload["substep_id"]
-                if payload["substep_id"] is not None
-                else "N/A",
+                substep=(
+                    payload["substep_id"]
+                    if payload["substep_id"] is not None
+                    else "N/A"
+                ),
                 agent=payload["agent"],
                 result=payload["result"],
             )
