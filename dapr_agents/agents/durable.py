@@ -64,6 +64,9 @@ from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
 
+from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -350,20 +353,55 @@ class DurableAgent(AgentBase):
                                 len(tool_calls),
                                 turn,
                             )
-                        parallel = [
-                            ctx.call_activity(
-                                self.run_tool,
-                                input={
-                                    "tool_call": tc,
-                                    "instance_id": ctx.instance_id,
-                                    "time": ctx.current_utc_datetime.isoformat(),
-                                    "order": idx,
-                                },
-                                retry_policy=self._retry_policy,
+                        workflow_tasks: List[Any] = []
+                        workflow_meta: List[Dict[str, Any]] = []
+                        activity_tasks: List[Any] = []
+                        activity_meta: List[Dict[str, Any]] = []
+
+                        for idx, tc in enumerate(tool_calls):
+                            fn_name = tc["function"]["name"]
+                            tool_obj = self.tool_executor.get_tool(fn_name)
+
+                            if tool_obj and isinstance(tool_obj, WorkflowContextInjectedTool):
+                                raw_args = tc["function"].get("arguments", "")
+                                args = json.loads(raw_args) if raw_args else {}
+                                workflow_tasks.append(tool_obj(ctx=ctx, **args))
+                                workflow_meta.append({"order": idx, "tool_call": tc})
+                            else:
+                                activity_tasks.append(
+                                    ctx.call_activity(
+                                        self.run_tool,
+                                        input={
+                                            "tool_call": tc,
+                                            "instance_id": ctx.instance_id,
+                                            "time": ctx.current_utc_datetime.isoformat(),
+                                            "order": idx,
+                                        },
+                                        retry_policy=self._retry_policy,
+                                    )
+                                )
+                                activity_meta.append({"order": idx, "tool_call": tc})
+
+                        results: List[Any] = yield wf.when_all(workflow_tasks + activity_tasks)
+
+                        ordered: List[Optional[Dict[str, Any]]] = [None] * len(tool_calls)
+
+                        for meta, res in zip(workflow_meta, results[: len(workflow_tasks)]):
+                            tc = meta["tool_call"]
+                            fn_name = tc["function"]["name"]
+                            serialized = serialize_tool_result(res)
+                            tool_msg = ToolMessage(
+                                content=serialized,
+                                role="tool",
+                                name=fn_name,
+                                tool_call_id=tc["id"],
                             )
-                            for idx, tc in enumerate(tool_calls)
-                        ]
-                        tool_results: List[Dict[str, Any]] = yield wf.when_all(parallel)
+                            ordered[meta["order"]] = tool_msg.model_dump()
+
+                        for meta, res in zip(activity_meta, results[len(workflow_tasks) :]):
+                            ordered[meta["order"]] = res
+
+                        tool_results = [tr for tr in ordered if tr is not None]
                         yield ctx.call_activity(
                             self.save_tool_results,
                             input={
