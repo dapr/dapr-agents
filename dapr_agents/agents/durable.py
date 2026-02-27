@@ -62,6 +62,7 @@ from dapr_agents.types import (
 )
 from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
+from dapr_agents.tool.workflow_context import WorkflowContextInjectedTool
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
@@ -351,20 +352,63 @@ class DurableAgent(AgentBase):
                                 len(tool_calls),
                                 turn,
                             )
-                        parallel = [
-                            ctx.call_activity(
-                                self.run_tool,
-                                input={
-                                    "tool_call": tc,
-                                    "instance_id": ctx.instance_id,
-                                    "time": ctx.current_utc_datetime.isoformat(),
-                                    "order": idx,
-                                },
-                                retry_policy=self._retry_policy,
+                        # Tool calls can be executed either:
+                        #   - via activities (default), or
+                        #   - directly in the orchestrator when the tool requires `ctx`
+                        #     (WorkflowContextInjectedTool), e.g. MCP-over-workflow.
+                        parallel: List[Any] = []
+                        meta: List[Dict[str, Any]] = []
+                        for idx, tc in enumerate(tool_calls):
+                            fn_name = tc.get("function", {}).get("name")
+                            tool_obj = self.tool_executor.get_tool(fn_name) if fn_name else None
+
+                            if tool_obj and isinstance(tool_obj, WorkflowContextInjectedTool):
+                                raw_args = tc["function"].get("arguments", "")
+                                try:
+                                    args = json.loads(raw_args) if raw_args else {}
+                                except json.JSONDecodeError as exc:
+                                    raise AgentError(f"Invalid JSON in tool args: {exc}") from exc
+
+                                parallel.append(tool_obj(ctx=ctx, **args))
+                                meta.append({"kind": "workflow", "tool_call": tc, "order": idx})
+                            else:
+                                parallel.append(
+                                    ctx.call_activity(
+                                        self.run_tool,
+                                        input={
+                                            "tool_call": tc,
+                                            "instance_id": ctx.instance_id,
+                                            "time": ctx.current_utc_datetime.isoformat(),
+                                            "order": idx,
+                                        },
+                                        retry_policy=self._retry_policy,
+                                    )
+                                )
+                                meta.append({"kind": "activity", "tool_call": tc, "order": idx})
+
+                        raw_results: List[Any] = yield wf.when_all(parallel)
+
+                        tool_results: List[Dict[str, Any]] = []
+                        for res, m in zip(raw_results, meta):
+                            if m["kind"] == "activity":
+                                # run_tool already returns a ToolMessage dict
+                                tool_results.append(res)
+                                continue
+
+                            # Workflow-injected tool: wrap the raw result into a ToolMessage dict
+                            tc = m["tool_call"]
+                            fn_name = tc["function"]["name"]
+                            serialized_result = serialize_tool_result(res)
+                            tool_msg = ToolMessage(
+                                content=serialized_result,
+                                role="tool",
+                                name=fn_name,
+                                tool_call_id=tc["id"],
                             )
-                            for idx, tc in enumerate(tool_calls)
-                        ]
-                        tool_results: List[Dict[str, Any]] = yield wf.when_all(parallel)
+                            if not ctx.is_replaying and not self.orchestrator:
+                                self.text_formatter.print_message(tool_msg)
+                            tool_results.append(tool_msg.model_dump())
+
                         yield ctx.call_activity(
                             self.save_tool_results,
                             input={

@@ -67,15 +67,18 @@ class _HttpRouteBinding:
     name: str
 
 
-def _resolve_loop(
-    loop: Optional[asyncio.AbstractEventLoop],
-) -> asyncio.AbstractEventLoop:
+def _resolve_loop(loop):
     if loop is not None:
         return loop
     try:
         return asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.get_event_loop()
+        try:
+            return asyncio.get_event_loop()
+        except RuntimeError:
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            return new_loop
 
 
 def _iter_decorated(target: Any, attr: str):

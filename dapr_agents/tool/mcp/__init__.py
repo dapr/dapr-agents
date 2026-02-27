@@ -1,4 +1,5 @@
 from .client import MCPClient
+from .workflow_client import WorkflowMCPClient
 from .prompt import convert_prompt_message
 from .schema import create_pydantic_model_from_schema
 from .transport import (
@@ -11,6 +12,7 @@ from .transport import (
 
 __all__ = [
     "MCPClient",
+    "WorkflowMCPClient",
     "start_stdio_session",
     "start_sse_session",
     "start_streamable_http_session",

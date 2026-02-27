@@ -496,9 +496,9 @@ class AgentBase:
         """Delegate to DaprInfra."""
         return self._infra.load_state()
 
-    def save_state(self, workflow_instance_id: str) -> None:
+    def save_state(self) -> None:
         """Delegate to DaprInfra."""
-        return self._infra.save_state(workflow_instance_id=workflow_instance_id)
+        return self._infra.save_state()
 
     def ensure_instance_exists(
         self,
@@ -991,7 +991,7 @@ class AgentBase:
             if hasattr(entry, "last_message"):
                 entry.last_message = message_model  # type: ignore[attr-defined]
 
-        self.save_state(workflow_instance_id=instance_id)
+        self.save_state()
 
     def _save_assistant_message(
         self, instance_id: str, assistant_message: Dict[str, Any]
@@ -1031,7 +1031,7 @@ class AgentBase:
                 if hasattr(entry, "last_message"):
                     entry.last_message = message_model  # type: ignore[attr-defined]
 
-        self.save_state(instance_id)
+        self.save_state()
 
     # ------------------------------------------------------------------
     # Small convenience wrappers

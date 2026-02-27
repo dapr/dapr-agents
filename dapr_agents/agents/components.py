@@ -412,6 +412,25 @@ class DaprInfra:
                 ]
                 entry.last_message = non_system[-1] if non_system else None  # type: ignore[attr-defined]
 
+    def get_state(self, instance_id: str) -> Optional[Any]:
+        """Return the per-instance entry object from the current in-memory state.
+
+        Agents store per-workflow-instance timelines inside the state model (typically
+        under an `instances` mapping). The concrete shape is configurable via the
+        state bundle's `entry_container_getter`, so we delegate to `_get_entry_container()`.
+
+        Args:
+            instance_id: Workflow instance identifier.
+
+        Returns:
+            The entry object for the given instance_id, or None if the model does not
+            track instances or the instance_id is unknown.
+        """
+        container = self._get_entry_container()
+        if container is None:
+            return None
+        return container.get(instance_id)
+
     def _message_dict_to_message_model(self, message: Dict[str, Any]) -> Any:
         """
         Convert a dict into the configured message model.
