@@ -194,7 +194,6 @@ def _collect_http_bindings(
 
     return bindings
 
-
 def _mount_http_bindings(
     bindings: List[_HttpRouteBinding],
     *,
