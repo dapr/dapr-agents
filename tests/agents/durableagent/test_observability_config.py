@@ -208,14 +208,16 @@ class TestObservabilityConfigFromEnvironment:
 
     def test_observability_config_from_env_all_fields(self, mock_llm, monkeypatch):
         """Test observability config loaded from environment variables."""
-        monkeypatch.setenv("OTEL_ENABLED", "true")
-        monkeypatch.setenv("OTEL_TOKEN", "Bearer env-token")
-        monkeypatch.setenv("OTEL_ENDPOINT", "http://env-collector:4318")
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer env-token"
+        )
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://env-collector:4318")
         monkeypatch.setenv("OTEL_SERVICE_NAME", "env-service")
         monkeypatch.setenv("OTEL_LOGGING_ENABLED", "true")
-        monkeypatch.setenv("OTEL_LOGGING_EXPORTER", "otlp_http")
+        monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp_http")
         monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
-        monkeypatch.setenv("OTEL_TRACING_EXPORTER", "console")
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "console")
 
         agent = DurableAgent(
             name="TestAgent",
@@ -246,7 +248,7 @@ class TestObservabilityConfigFromEnvironment:
 
     def test_observability_config_from_env_partial_fields(self, mock_llm, monkeypatch):
         """Test observability config with only some env variables set."""
-        monkeypatch.setenv("OTEL_ENABLED", "true")
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
         monkeypatch.setenv("OTEL_SERVICE_NAME", "partial-service")
 
         agent = DurableAgent(
@@ -275,7 +277,7 @@ class TestObservabilityConfigFromEnvironment:
 
     def test_observability_config_from_env_disabled(self, mock_llm, monkeypatch):
         """Test observability explicitly disabled via environment."""
-        monkeypatch.setenv("OTEL_ENABLED", "false")
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
         monkeypatch.setenv("OTEL_SERVICE_NAME", "disabled-service")
 
         agent = DurableAgent(
@@ -301,8 +303,8 @@ class TestObservabilityConfigFromEnvironment:
         self, mock_llm, monkeypatch
     ):
         """Test observability config with invalid exporter defaults to console."""
-        monkeypatch.setenv("OTEL_TRACING_EXPORTER", "invalid_exporter")
-        monkeypatch.setenv("OTEL_LOGGING_EXPORTER", "another_invalid")
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "invalid_exporter")
+        monkeypatch.setenv("OTEL_LOGS_EXPORTER", "another_invalid")
 
         agent = DurableAgent(
             name="TestAgent",
@@ -386,14 +388,14 @@ class TestObservabilityConfigFromStatestore:
     ):
         """Test observability config loaded from statestore."""
         runtime_config = {
-            "OTEL_ENABLED": "true",
-            "OTEL_TOKEN": "statestore-token",
-            "OTEL_ENDPOINT": "http://statestore-collector:4317",
+            "OTEL_SDK_DISABLED": "false",
+            "OTEL_EXPORTER_OTLP_HEADERS": "statestore-token",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://statestore-collector:4317",
             "OTEL_SERVICE_NAME": "statestore-service",
             "OTEL_LOGGING_ENABLED": "true",
-            "OTEL_LOGGING_EXPORTER": "otlp_grpc",
+            "OTEL_LOGS_EXPORTER": "otlp_grpc",
             "OTEL_TRACING_ENABLED": "true",
-            "OTEL_TRACING_EXPORTER": "zipkin",
+            "OTEL_TRACES_EXPORTER": "zipkin",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
@@ -419,7 +421,7 @@ class TestObservabilityConfigFromStatestore:
 
         assert resolved_config.enabled is True
         assert resolved_config.auth_token == "statestore-token"
-        assert resolved_config.endpoint == "http://statestore-collector:4317"
+        assert resolved_config.endpoint == "http://statestore-collector:4317"  # noqa: E501
         assert resolved_config.service_name == "statestore-service"
         assert resolved_config.logging_enabled is True
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
@@ -431,7 +433,7 @@ class TestObservabilityConfigFromStatestore:
     ):
         """Test observability config from statestore with partial fields."""
         runtime_config = {
-            "OTEL_ENABLED": "true",
+            "OTEL_SDK_DISABLED": "false",
             "OTEL_SERVICE_NAME": "partial-statestore-service",
         }
 
@@ -463,7 +465,7 @@ class TestObservabilityConfigFromStatestore:
     def test_observability_config_from_statestore_disabled(self, mock_llm, monkeypatch):
         """Test observability disabled from statestore."""
         runtime_config = {
-            "OTEL_ENABLED": "false",
+            "OTEL_SDK_DISABLED": "true",
             "OTEL_SERVICE_NAME": "disabled-statestore-service",
         }
 
@@ -494,9 +496,9 @@ class TestObservabilityConfigFromStatestore:
     ):
         """Test observability config from statestore with invalid exporters."""
         runtime_config = {
-            "OTEL_ENABLED": "true",
-            "OTEL_TRACING_EXPORTER": "invalid_type",
-            "OTEL_LOGGING_EXPORTER": "wrong_value",
+            "OTEL_SDK_DISABLED": "false",
+            "OTEL_TRACES_EXPORTER": "invalid_type",
+            "OTEL_LOGS_EXPORTER": "wrong_value",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
@@ -582,10 +584,10 @@ class TestObservabilityConfigPrecedence:
     def test_precedence_instantiation_over_env(self, mock_llm, monkeypatch):
         """Test instantiation config takes precedence over environment."""
         # Set environment variables
-        monkeypatch.setenv("OTEL_ENABLED", "true")
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
         monkeypatch.setenv("OTEL_SERVICE_NAME", "env-service")
-        monkeypatch.setenv("OTEL_ENDPOINT", "http://env-endpoint:4317")
-        monkeypatch.setenv("OTEL_TRACING_EXPORTER", "console")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://env-endpoint:4317")
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "console")
 
         # Mock DaprClient with no runtime config
         mock_client = MockDaprClient()
@@ -628,19 +630,19 @@ class TestObservabilityConfigPrecedence:
         """Test environment config takes precedence over statestore."""
         # Set statestore config
         runtime_config = {
-            "OTEL_ENABLED": "true",
+            "OTEL_SDK_DISABLED": "false",
             "OTEL_SERVICE_NAME": "statestore-service",
-            "OTEL_ENDPOINT": "http://statestore-endpoint:4317",
-            "OTEL_LOGGING_EXPORTER": "console",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://statestore-endpoint:4317",
+            "OTEL_LOGS_EXPORTER": "console",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
         self._patch_dapr_client(monkeypatch, mock_client)
 
         # Set environment variables (should override statestore)
-        monkeypatch.setenv("OTEL_ENABLED", "false")
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
         monkeypatch.setenv("OTEL_SERVICE_NAME", "env-service")
-        monkeypatch.setenv("OTEL_LOGGING_EXPORTER", "otlp_grpc")
+        monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp_grpc")
 
         agent = DurableAgent(
             name="TestAgent",
@@ -664,20 +666,20 @@ class TestObservabilityConfigPrecedence:
         assert resolved_config.enabled is False
         assert resolved_config.service_name == "env-service"
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
-        # Endpoint should come from statestore since env didn't specify it
+        # Endpoint comes from statestore since env didn't specify it
         assert resolved_config.endpoint == "http://statestore-endpoint:4317"
 
     def test_precedence_full_hierarchy(self, mock_llm, monkeypatch):
         """Test full precedence hierarchy: instantiation > env > statestore."""
         # Set statestore config (lowest priority)
         runtime_config = {
-            "OTEL_ENABLED": "true",
+            "OTEL_SDK_DISABLED": "false",
             "OTEL_SERVICE_NAME": "statestore-service",
-            "OTEL_ENDPOINT": "http://statestore-endpoint:4317",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://statestore-endpoint:4317",
             "OTEL_LOGGING_ENABLED": "true",
-            "OTEL_LOGGING_EXPORTER": "console",
+            "OTEL_LOGS_EXPORTER": "console",
             "OTEL_TRACING_ENABLED": "true",
-            "OTEL_TRACING_EXPORTER": "console",
+            "OTEL_TRACES_EXPORTER": "console",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
@@ -685,7 +687,7 @@ class TestObservabilityConfigPrecedence:
 
         # Set environment variables (middle priority)
         monkeypatch.setenv("OTEL_SERVICE_NAME", "env-service")
-        monkeypatch.setenv("OTEL_LOGGING_EXPORTER", "otlp_grpc")
+        monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp_grpc")
 
         # Create observability config for instantiation (highest priority)
         obs_config = AgentObservabilityConfig(
@@ -731,8 +733,8 @@ class TestObservabilityConfigPrecedence:
         mock_client = MockDaprClient()
         self._patch_dapr_client(monkeypatch, mock_client)
 
-        # Set environment with token (creates Authorization header)
-        monkeypatch.setenv("OTEL_TOKEN", "env-token")
+        # Set environment with headers (creates Authorization header)
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=env-token")
 
         # Create observability config with additional headers
         obs_config = AgentObservabilityConfig(
