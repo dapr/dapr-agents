@@ -1163,18 +1163,14 @@ class AgentBase:
 
         try:
             # Use standard OTEL env var names in statestore config
-            sdk_disabled = self._runtime_conf.get(
-                "OTEL_SDK_DISABLED", "true"
-            ).lower()
+            sdk_disabled = self._runtime_conf.get("OTEL_SDK_DISABLED", "true").lower()
             enabled = sdk_disabled != "true"
             auth_token = (
                 self._runtime_secrets.get("OTEL_EXPORTER_OTLP_HEADERS")
                 or self._runtime_conf.get("OTEL_EXPORTER_OTLP_HEADERS")
                 or None
             )
-            endpoint = (
-                self._runtime_conf.get("OTEL_EXPORTER_OTLP_ENDPOINT") or None
-            )
+            endpoint = self._runtime_conf.get("OTEL_EXPORTER_OTLP_ENDPOINT") or None
             service_name = self._runtime_conf.get("OTEL_SERVICE_NAME") or None
             logging_enabled = (
                 self._runtime_conf.get("OTEL_LOGGING_ENABLED", "false").lower()
