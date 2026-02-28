@@ -1162,13 +1162,19 @@ class AgentBase:
         """
 
         try:
-            enabled = self._runtime_conf.get("OTEL_ENABLED", "false").lower() == "true"
+            # Use standard OTEL env var names in statestore config
+            sdk_disabled = self._runtime_conf.get(
+                "OTEL_SDK_DISABLED", "true"
+            ).lower()
+            enabled = sdk_disabled != "true"
             auth_token = (
-                self._runtime_secrets.get("OTEL_TOKEN")
-                or self._runtime_conf.get("OTEL_TOKEN")
+                self._runtime_secrets.get("OTEL_EXPORTER_OTLP_HEADERS")
+                or self._runtime_conf.get("OTEL_EXPORTER_OTLP_HEADERS")
                 or None
             )
-            endpoint = self._runtime_conf.get("OTEL_ENDPOINT") or None
+            endpoint = (
+                self._runtime_conf.get("OTEL_EXPORTER_OTLP_ENDPOINT") or None
+            )
             service_name = self._runtime_conf.get("OTEL_SERVICE_NAME") or None
             logging_enabled = (
                 self._runtime_conf.get("OTEL_LOGGING_ENABLED", "false").lower()
@@ -1181,7 +1187,7 @@ class AgentBase:
 
             logging_exporter: Optional[AgentLoggingExporter] = None
             logging_exporter_str = self._runtime_conf.get(
-                "OTEL_LOGGING_EXPORTER", "console"
+                "OTEL_LOGS_EXPORTER", "console"
             )
             if logging_exporter_str:
                 try:
@@ -1191,7 +1197,7 @@ class AgentBase:
 
             tracing_exporter: Optional[AgentTracingExporter] = None
             tracing_exporter_str = self._runtime_conf.get(
-                "OTEL_TRACING_EXPORTER", "console"
+                "OTEL_TRACES_EXPORTER", "console"
             )
             if tracing_exporter_str:
                 try:
