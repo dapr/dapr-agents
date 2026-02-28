@@ -426,7 +426,7 @@ class DaprInfra:
 
         # Assign back if the field exists; otherwise, skip
         if hasattr(entry, "system_messages"):
-            entry.system_messages = new_models  # type: ignore[attr-defined]
+            entry.system_messages = new_models
 
         # De-duplicate in entry.messages if that field exists
         if hasattr(entry, "messages"):
@@ -435,7 +435,7 @@ class DaprInfra:
                 for m in getattr(entry, "messages")
                 if getattr(m, "role", None) != "system"
             ]
-            entry.messages = filtered  # type: ignore[attr-defined]
+            entry.messages = filtered
             # Fix last_message if applicable
             if (
                 getattr(entry, "last_message", None) is not None
@@ -446,7 +446,7 @@ class DaprInfra:
                     for m in getattr(entry, "messages")
                     if getattr(m, "role", None) != "system"
                 ]
-                entry.last_message = non_system[-1] if non_system else None  # type: ignore[attr-defined]
+                entry.last_message = non_system[-1] if non_system else None
 
     def _message_dict_to_message_model(self, message: Dict[str, Any]) -> Any:
         """
@@ -771,13 +771,13 @@ class DaprInfra:
             key: Registry document key.
             meta: Dapr state metadata to use for the operation.
         """
-        current, etag = self.registry_state.load_with_etag(  # type: ignore[union-attr]
+        current, etag = self.registry_state.load_with_etag(
             key=key,
             default={},
             state_metadata=meta,
         )
         if etag is None:
-            self.registry_state.save(  # type: ignore[union-attr]
+            self.registry_state.save(
                 key=key,
                 value={},
                 etag=None,

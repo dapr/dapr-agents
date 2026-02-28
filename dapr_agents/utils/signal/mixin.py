@@ -42,7 +42,7 @@ class SignalMixin:
 
         Supports multiple inheritance (delegates to super()).
         """
-        super().__init__(*args, **kwargs)  # type: ignore[misc]
+        super().__init__(*args, **kwargs)
         self._shutdown_event: Optional[asyncio.Event] = None
         self._cleanup_handlers: Optional[Callable[[], None]] = None
         self._shutdown_task_scheduled: bool = False
@@ -180,7 +180,7 @@ class SignalMixin:
         if callable(stop):
             maybe_coro = stop()
             if asyncio.iscoroutine(maybe_coro):
-                await maybe_coro  # type: ignore[func-returns-value]
+                await maybe_coro
 
     # ------------------- Internals -------------------
 

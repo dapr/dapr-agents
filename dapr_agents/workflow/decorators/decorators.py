@@ -31,7 +31,7 @@ def workflow_entry(func: Callable[..., R]) -> Callable[..., R]:
     Returns:
         The same callable (unmodified), with an identifying attribute.
     """
-    setattr(func, "_is_workflow_entry", True)  # type: ignore[attr-defined]
+    setattr(func, "_is_workflow_entry", True)
     return func
 
 

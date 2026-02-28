@@ -5,7 +5,7 @@ from dataclasses import asdict, is_dataclass
 from types import SimpleNamespace
 from typing import Any, Dict, List, Mapping, Tuple
 
-from dapr.ext.workflow import WorkflowActivityContext  # type: ignore
+from dapr.ext.workflow import WorkflowActivityContext
 from pydantic import BaseModel
 
 from dapr_agents.llm.utils import StructureHandler

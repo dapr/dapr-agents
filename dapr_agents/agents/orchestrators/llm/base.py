@@ -132,7 +132,7 @@ class LLMOrchestratorBase(OrchestratorBase):
             TypeError: If the message type cannot be serialized.
         """
         if hasattr(message, "model_dump"):
-            return message.model_dump()  # type: ignore[no-any-return]
+            return message.model_dump()
         if isinstance(message, dict):
             return dict(message)
         if hasattr(message, "__dict__"):
@@ -199,7 +199,7 @@ class LLMOrchestratorBase(OrchestratorBase):
                 len(plan),
             )
             if hasattr(entry, "plan"):
-                entry.plan = plan  # type: ignore[attr-defined]
+                entry.plan = plan
             else:
                 # Fallback for dict-based state
                 logger.info("Entry is a dict, setting plan key")
@@ -221,8 +221,8 @@ class LLMOrchestratorBase(OrchestratorBase):
                 else:
                     msg_model = self._message_dict_to_message_model(msg)
                 logger.debug("Message model type: %s", type(msg_model).__name__)
-                entry.messages.append(msg_model)  # type: ignore[attr-defined]
-                entry.last_message = msg_model  # type: ignore[attr-defined]
+                entry.messages.append(msg_model)
+                entry.last_message = msg_model
             else:
                 # Fallback for dict-based state
                 logger.debug("Entry is dict, appending message dict directly")
@@ -235,8 +235,8 @@ class LLMOrchestratorBase(OrchestratorBase):
             end_time_value = self._coerce_datetime(wf_time)
 
             if hasattr(entry, "output"):
-                entry.output = final_output  # type: ignore[attr-defined]
-                entry.end_time = end_time_value  # type: ignore[attr-defined]
+                entry.output = final_output
+                entry.end_time = end_time_value
             else:
                 # Dict-based state fallback - store as ISO string
                 entry["output"] = final_output
@@ -256,7 +256,7 @@ class LLMOrchestratorBase(OrchestratorBase):
                 raise
             if entry:
                 if hasattr(entry, "plan"):
-                    entry.plan = []  # type: ignore[attr-defined]
+                    entry.plan = []
                 else:
                     entry["plan"] = []
                 self.save_state(instance_id)
@@ -359,8 +359,8 @@ class LLMOrchestratorBase(OrchestratorBase):
         try:
             if entry:
                 if hasattr(entry, "output"):
-                    entry.output = None  # type: ignore[attr-defined]
-                    entry.end_time = None  # type: ignore[attr-defined]
+                    entry.output = None
+                    entry.end_time = None
                 else:
                     entry["output"] = None
                     entry["end_time"] = None
@@ -516,9 +516,9 @@ class LLMOrchestratorBase(OrchestratorBase):
         # Append the result to task history
         if hasattr(entry, "task_history"):
             if not hasattr(entry.task_history, "append"):
-                entry.task_history = []  # type: ignore[attr-defined]
+                entry.task_history = []
             # Store TaskResult model instance directly instead of dict to avoid serialization warnings
-            entry.task_history.append(task_result)  # type: ignore[attr-defined]
+            entry.task_history.append(task_result)
         else:
             entry.setdefault("task_history", []).append(
                 task_result.model_dump(mode="json")
