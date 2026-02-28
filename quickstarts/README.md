@@ -48,11 +48,11 @@ uv sync --active
 > Warning
 > These examples require an OpenAI API key.
 
-The quickstart uses an OpenAI conversation component located in the `resources` directory. You can replace the provider with Anthropic, Ollama, or others. [See here how to configure another component](https://docs.dapr.io/reference/components-reference/supported-conversation/)
+The quickstart uses an OpenAI conversation component located in the `components` directory. You can replace the provider with Anthropic, Ollama, or others. [See here how to configure another component](https://docs.dapr.io/reference/components-reference/supported-conversation/)
 
 ### Component Configuration
 
-Update `resources/llm-provider.yaml`:
+Update `components/llm-provider.yaml`:
 
 ```yaml
 metadata:
