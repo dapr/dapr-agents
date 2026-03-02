@@ -1376,6 +1376,7 @@ vectorstore = [
 [package.dev-dependencies]
 dev = [
     { name = "cachetools" },
+    { name = "dapr-agents" },
     { name = "flake8" },
     { name = "mypy" },
     { name = "pip-tools" },
@@ -1410,7 +1411,7 @@ requires-dist = [
     { name = "dapr-ext-fastapi", specifier = ">=1.17.0" },
     { name = "dapr-ext-workflow", specifier = ">=1.17.0" },
     { name = "docker", specifier = ">=7.1.0" },
-    { name = "durabletask-dapr", specifier = ">=0.2.0a15" },
+    { name = "durabletask-dapr", specifier = ">=0.2.0a19" },
     { name = "fastapi", specifier = ">=0.110.0,<1.0.0" },
     { name = "huggingface-hub", specifier = ">=0.33.4,<1.0.0" },
     { name = "jinja2", specifier = ">=3.1.0,<4.0.0" },
@@ -1447,6 +1448,7 @@ provides-extras = ["vectorstore"]
 [package.metadata.requires-dev]
 dev = [
     { name = "cachetools", specifier = ">=6.1.0,<7.0.0" },
+    { name = "dapr-agents", editable = "." },
     { name = "flake8", specifier = ">=7.3.0" },
     { name = "mypy", specifier = ">=1.15.0,<2.0.0" },
     { name = "pip-tools", specifier = ">=7.4.1,<8.0.0" },
