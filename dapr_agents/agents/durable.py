@@ -269,11 +269,6 @@ class DurableAgent(AgentBase):
         trigger_instance_id = metadata.get("triggering_workflow_instance_id")
         source = metadata.get("source") or "direct"
 
-        # Ensure we have the latest durable state for this turn.
-        # TODO(@sicoyle): fix this bc do i want state on the obj or just refetch it every time with get instead of load?
-        if self.state_store:
-            self._infra.get_state(ctx.instance_id)
-
         if not ctx.is_replaying:
             logger.info("Initial message from %s -> %s", source, self.name)
 
@@ -1144,8 +1139,6 @@ class DurableAgent(AgentBase):
         We only source, triggering_workflow_instance_id, trace_context.
         """
         instance_id = ctx.workflow_id
-        if self.state_store and instance_id:
-            self._infra.load_state(instance_id)
         trace_context = payload.get("trace_context")
         source = payload.get("source", "direct")
         triggering_instance = payload.get("triggering_workflow_instance_id")
@@ -1200,26 +1193,24 @@ class DurableAgent(AgentBase):
                     "Unknown response_format '%s', ignoring", response_format_name
                 )
 
-        # Load latest workflow state to ensure we have current data
-        # TODO(@sicoyle): can i remove these calls????
-        if self.state_store:
-            self._infra.load_state(instance_id)
+        # Single GET — load state once for the entire activity
+        entry = self._infra.get_state(instance_id) if self.state_store else None
 
-        chat_history = self._reconstruct_conversation_history(instance_id)
+        chat_history = self._reconstruct_conversation_history(instance_id, entry=entry)
         messages = self.prompting_helper.build_initial_messages(
             user_input=task,
             chat_history=chat_history,
         )
 
         # Sync current system messages into per-instance state
-        self._sync_system_messages_with_state(instance_id, messages)
+        self._sync_system_messages_with_state(instance_id, messages, entry=entry)
 
         # Persist the user's turn (if any) into the instance timeline + memory
         # Only process and print user message if task is provided (initial turn)
         if task:
             user_message = self._get_last_user_message(messages)
             user_copy = dict(user_message) if user_message else None
-            self._process_user_message(instance_id, task, user_copy)
+            self._process_user_message(instance_id, task, user_copy, entry=entry)
 
             # Skip printing for orchestrators' internal LLM calls
             if user_copy is not None and not self.orchestrator:
@@ -1263,10 +1254,11 @@ class DurableAgent(AgentBase):
                 raise AgentError("LLM returned no assistant message.")
             assistant_message = assistant_message.model_dump()
 
-        self._save_assistant_message(instance_id, assistant_message)
+        self._save_assistant_message(instance_id, assistant_message, entry=entry)
         # Skip printing for orchestrators' internal LLM calls
         if not self.orchestrator:
             self.text_formatter.print_message(assistant_message)
+        # Single SAVE — persist all accumulated state mutations
         self.save_state(instance_id)
         return assistant_message
 
@@ -1483,9 +1475,6 @@ class DurableAgent(AgentBase):
         Status/output/end_time come from Dapr get_workflow; we do not store them here.
         """
         instance_id = payload.get("instance_id")
-        if self.state_store:
-            self._infra.load_state(instance_id)
-
         triggering_workflow_instance_id = payload.get("triggering_workflow_instance_id")
 
         try:

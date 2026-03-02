@@ -594,11 +594,11 @@ class AgentBase:
                 team=team,
             )
 
-    def sync_system_messages(self, instance_id, all_messages):
+    def sync_system_messages(self, instance_id, all_messages, entry=None):
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
             return self._infra.sync_system_messages(
-                instance_id=instance_id, all_messages=all_messages
+                instance_id=instance_id, all_messages=all_messages, entry=entry
             )
 
     def _message_dict_to_message_model(self, message):
@@ -973,24 +973,26 @@ class AgentBase:
         return None
 
     def _reconstruct_conversation_history(
-        self, instance_id: str
+        self, instance_id: str, entry=None
     ) -> List[AgentWorkflowMessage]:
         """
         Build a conversation history combining persistent memory and per-instance messages.
 
         Args:
             instance_id: Workflow instance identifier.
+            entry: Optional pre-loaded workflow entry to avoid redundant state fetch.
 
         Returns:
             Combined message history excluding system messages from instance timeline.
         """
-        try:
-            entry = self._infra.get_state(instance_id)
-        except Exception:
-            logger.exception(
-                f"Failed to reconstruct conversation workflow history for instance_id: {instance_id}"
-            )
-            raise
+        if entry is None:
+            try:
+                entry = self._infra.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to reconstruct conversation workflow history for instance_id: {instance_id}"
+                )
+                raise
 
         return entry.messages
 
@@ -998,6 +1000,7 @@ class AgentBase:
         self,
         instance_id: str,
         all_messages: Sequence[Dict[str, Any]],
+        entry=None,
     ) -> None:
         """
         Persist the latest set of system messages into the instance state.
@@ -1005,34 +1008,44 @@ class AgentBase:
         Args:
             instance_id: Workflow instance id.
             all_messages: Complete message list to scan for system-role messages.
+            entry: Optional pre-loaded workflow entry to avoid redundant state fetch.
         """
         # Delegate to AgentComponents logic.
-        self.sync_system_messages(instance_id=instance_id, all_messages=all_messages)
+        self.sync_system_messages(instance_id=instance_id, all_messages=all_messages, entry=entry)
 
     def _process_user_message(
         self,
         instance_id: str,
         task: Optional[str],
         user_message_copy: Optional[Dict[str, Any]],
+        entry=None,
     ) -> None:
         """
-        Append a user message into the instance timeline and memory, and persist state.
+        Append a user message into the instance timeline and memory.
+
+        When *entry* is provided the caller owns the save; no state is fetched
+        or persisted here.  When *entry* is ``None`` the legacy behaviour
+        (fetch + save) is preserved for backward compatibility.
 
         Args:
             instance_id: Workflow instance id.
             task: Optional task string; if missing, no-op.
             user_message_copy: Message dict to append.
+            entry: Optional pre-loaded workflow entry to avoid redundant state I/O.
         """
         if not task or not user_message_copy:
             return
 
-        try:
-            entry = self._infra.get_state(instance_id)
-        except Exception:
-            logger.exception(
-                f"Failed to get workflow state for instance_id to process user message: {instance_id}"
-            )
-            raise
+        caller_owns_state = entry is not None
+
+        if entry is None:
+            try:
+                entry = self._infra.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to get workflow state for instance_id to process user message: {instance_id}"
+                )
+                raise
 
         if entry is not None and hasattr(entry, "messages"):
             # Use configured coercer / message model
@@ -1045,27 +1058,36 @@ class AgentBase:
             if hasattr(entry, "last_message"):
                 entry.last_message = message_model  # type: ignore[attr-defined]
 
-        self.save_state(instance_id)
+        if not caller_owns_state:
+            self.save_state(instance_id)
 
     def _save_assistant_message(
-        self, instance_id: str, assistant_message: Dict[str, Any]
+        self, instance_id: str, assistant_message: Dict[str, Any], entry=None
     ) -> None:
         """
-        Append an assistant message into the instance timeline and memory, and persist state.
+        Append an assistant message into the instance timeline and memory.
+
+        When *entry* is provided the caller owns the save; no state is fetched
+        or persisted here.  When *entry* is ``None`` the legacy behaviour
+        (fetch + save) is preserved for backward compatibility.
 
         Args:
             instance_id: Workflow instance id.
             assistant_message: Assistant message dict (will be tagged with agent name).
+            entry: Optional pre-loaded workflow entry to avoid redundant state I/O.
         """
         assistant_message["name"] = self.name
 
-        try:
-            entry = self._infra.get_state(instance_id)
-        except Exception:
-            logger.exception(
-                f"Failed to get workflow state for instance_id: {instance_id}"
-            )
-            raise
+        caller_owns_state = entry is not None
+
+        if entry is None:
+            try:
+                entry = self._infra.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to get workflow state for instance_id: {instance_id}"
+                )
+                raise
 
         if entry is not None and hasattr(entry, "messages"):
             message_id = assistant_message.get("id")
@@ -1085,7 +1107,8 @@ class AgentBase:
                 if hasattr(entry, "last_message"):
                     entry.last_message = message_model  # type: ignore[attr-defined]
 
-        self.save_state(instance_id)
+        if not caller_owns_state:
+            self.save_state(instance_id)
 
     # ------------------------------------------------------------------
     # Small convenience wrappers

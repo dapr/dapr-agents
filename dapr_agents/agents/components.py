@@ -384,6 +384,7 @@ class DaprInfra:
         self,
         instance_id: str,
         all_messages: Sequence[Dict[str, Any]],
+        entry=None,
     ) -> None:
         """
         Synchronize system messages into the workflow state for a given instance.
@@ -393,16 +394,16 @@ class DaprInfra:
         Args:
             instance_id: Workflow instance identifier.
             all_messages: Full (system/user/assistant) list; only 'system' are synced.
+            entry: Optional pre-loaded workflow entry to avoid redundant state fetch.
         """
-        try:
-            entry = self.get_state(instance_id)
-        except Exception:
-            logger.exception(
-                f"Failed to get workflow state for instance_id: {instance_id}"
-            )
-            raise
         if entry is None:
-            return
+            try:
+                entry = self.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to get workflow state for instance_id: {instance_id}"
+                )
+                raise
 
         system_messages = [m for m in all_messages if m.get("role") == "system"]
         if not system_messages:
