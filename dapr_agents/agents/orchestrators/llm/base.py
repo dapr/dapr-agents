@@ -107,18 +107,24 @@ class LLMOrchestratorBase(OrchestratorBase):
         Purge all durable state for a workflow instance: workflow state and
         long-term conversation memory.
 
-        Calls purge_state() on the infrastructure layer (deletes workflow state
-        from the Dapr state store) and purge_memory() on the memory store
-        (deletes conversation history/summaries).  Either half may log a warning
-        and continue if the underlying store is unavailable; callers should
-        monitor logs for partial-failure signals.
+        Both halves are best-effort: failures are logged as warnings and do not
+        prevent the other half from running.  Callers should monitor logs for
+        partial-failure signals.
 
         Args:
             workflow_instance_id: Workflow instance whose data should be removed.
         """
         self._infra.purge_state(workflow_instance_id)
         if self.memory is not None:
-            self.memory.purge_memory(workflow_instance_id)
+            try:
+                self.memory.purge_memory(workflow_instance_id)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to purge conversation memory for instance_id=%s; "
+                    "continuing with partial purge.",
+                    workflow_instance_id,
+                    exc_info=True,
+                )
 
     @property
     def text_formatter(self) -> ColorTextFormatter:

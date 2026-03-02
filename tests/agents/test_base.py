@@ -422,14 +422,14 @@ class TestAgentBaseClass:
 
         basic_agent._infra.purge_state.assert_called_once_with("wf-no-mem")
 
-    def test_purge_state_does_not_touch_memory(self, basic_agent):
-        """DaprInfra.purge_state() alone must not invoke any memory operations."""
-        mock_memory = Mock()
-        basic_agent.memory = mock_memory
+    def test_purge_memory_failure_does_not_raise(self, basic_agent):
+        """purge() must continue and not raise when memory.purge_memory() fails."""
         basic_agent._infra = Mock()
+        basic_agent.memory = Mock()
+        basic_agent.memory.purge_memory.side_effect = RuntimeError("store unavailable")
 
-        # Call only the infra method, not agent.purge()
-        basic_agent._infra.purge_state("wf-infra-only")
+        # Should not raise even though memory.purge_memory raises
+        basic_agent.purge("wf-mem-fail")
 
-        mock_memory.purge_memory.assert_not_called()
-        mock_memory.reset_memory.assert_not_called()
+        # Infra purge still ran
+        basic_agent._infra.purge_state.assert_called_once_with("wf-mem-fail")
