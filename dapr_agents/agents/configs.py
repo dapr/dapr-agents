@@ -351,28 +351,44 @@ class AgentObservabilityConfig:
 
     @classmethod
     def from_env(cls) -> "AgentObservabilityConfig":
-        """Create observability config from environment variables."""
+        """Create observability config from standard OTEL environment variables.
+
+        Uses standard OpenTelemetry env var names where available:
+        - OTEL_SDK_DISABLED (inverted: disabled != "true" means enabled)
+        - OTEL_EXPORTER_OTLP_ENDPOINT
+        - OTEL_EXPORTER_OTLP_HEADERS (parses "Authorization=<token>" format)
+        - OTEL_SERVICE_NAME
+        - OTEL_TRACES_EXPORTER
+        - OTEL_LOGS_EXPORTER
+        - OTEL_TRACING_ENABLED (custom, no standard equivalent)
+        - OTEL_LOGGING_ENABLED (custom, no standard equivalent)
+        """
         headers: Dict[str, str] = {}
-        if token := getenv("OTEL_TOKEN"):
-            headers["Authorization"] = token
+        raw_headers = getenv("OTEL_EXPORTER_OTLP_HEADERS")
+        if raw_headers:
+            for pair in raw_headers.split(","):
+                pair = pair.strip()
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    headers[k.strip()] = v.strip()
 
         logging_exporter: Optional[AgentLoggingExporter] = None
-        if logging_exporter_str := getenv("OTEL_LOGGING_EXPORTER"):
+        if logging_exporter_str := getenv("OTEL_LOGS_EXPORTER"):
             try:
                 logging_exporter = AgentLoggingExporter(logging_exporter_str)
             except (ValueError, KeyError):
                 logging_exporter = AgentLoggingExporter.CONSOLE
 
         tracing_exporter: Optional[AgentTracingExporter] = None
-        if tracing_exporter_str := getenv("OTEL_TRACING_EXPORTER"):
+        if tracing_exporter_str := getenv("OTEL_TRACES_EXPORTER"):
             try:
                 tracing_exporter = AgentTracingExporter(tracing_exporter_str)
             except (ValueError, KeyError):
                 tracing_exporter = AgentTracingExporter.CONSOLE
 
         enabled: Optional[bool] = None
-        if getenv("OTEL_ENABLED") is not None:
-            enabled = getenv("OTEL_ENABLED", "false").lower() == "true"
+        if getenv("OTEL_SDK_DISABLED") is not None:
+            enabled = getenv("OTEL_SDK_DISABLED", "false").lower() != "true"
 
         logging_enabled: Optional[bool] = None
         if getenv("OTEL_LOGGING_ENABLED") is not None:
@@ -385,7 +401,7 @@ class AgentObservabilityConfig:
         return cls(
             enabled=enabled,
             headers=headers,
-            endpoint=getenv("OTEL_ENDPOINT"),
+            endpoint=getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
             service_name=getenv("OTEL_SERVICE_NAME"),
             logging_enabled=logging_enabled,
             logging_exporter=logging_exporter,
