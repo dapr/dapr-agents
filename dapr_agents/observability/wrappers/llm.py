@@ -34,7 +34,12 @@ from ..message_processors import (
     get_output_message_attributes,
     process_llm_response,
 )
-from ..utils import bind_arguments, resolve_provider_name, serialize_tools_for_tracing, strip_method_args
+from ..utils import (
+    bind_arguments,
+    resolve_provider_name,
+    serialize_tools_for_tracing,
+    strip_method_args,
+)
 from openinference.instrumentation import get_attributes_from_context
 
 logger = logging.getLogger(__name__)
@@ -107,9 +112,13 @@ class LLMWrapper:
 
         # Handle async vs sync execution
         if asyncio.iscoroutinefunction(wrapped):
-            return self._handle_async_execution(wrapped, args, kwargs, span_name, attributes, instance, messages)
+            return self._handle_async_execution(
+                wrapped, args, kwargs, span_name, attributes, instance, messages
+            )
         else:
-            return self._handle_sync_execution(wrapped, args, kwargs, span_name, attributes, instance, messages)
+            return self._handle_sync_execution(
+                wrapped, args, kwargs, span_name, attributes, instance, messages
+            )
 
     def _build_llm_attributes(
         self, wrapped: Any, instance: Any, args: Any, kwargs: Any
@@ -167,7 +176,9 @@ class LLMWrapper:
             input_message_attrs = self._extract_input_messages(messages)
             attributes.update(input_message_attrs)
             # GenAI semconv: single JSON string for input messages
-            attributes[GEN_AI_INPUT_MESSAGES] = convert_messages_to_genai_format(messages)
+            attributes[GEN_AI_INPUT_MESSAGES] = convert_messages_to_genai_format(
+                messages
+            )
 
         # Add tool schema attributes
         if tools:
@@ -240,8 +251,14 @@ class LLMWrapper:
         return template_info
 
     def _handle_async_execution(
-        self, wrapped: Any, args: Any, kwargs: Any, span_name: str, attributes: Dict[str, Any],
-        instance: Any = None, messages: Any = None,
+        self,
+        wrapped: Any,
+        args: Any,
+        kwargs: Any,
+        span_name: str,
+        attributes: Dict[str, Any],
+        instance: Any = None,
+        messages: Any = None,
     ) -> Any:
         """
         Handle asynchronous LLM execution with comprehensive span tracing.
@@ -278,8 +295,14 @@ class LLMWrapper:
         return async_wrapper()
 
     def _handle_sync_execution(
-        self, wrapped: Any, args: Any, kwargs: Any, span_name: str, attributes: Dict[str, Any],
-        instance: Any = None, messages: Any = None,
+        self,
+        wrapped: Any,
+        args: Any,
+        kwargs: Any,
+        span_name: str,
+        attributes: Dict[str, Any],
+        instance: Any = None,
+        messages: Any = None,
     ) -> Any:
         """
         Handle synchronous LLM execution with comprehensive span tracing.
@@ -341,6 +364,7 @@ class LLMWrapper:
                 }
                 if hasattr(message, "tool_calls") and message.tool_calls:
                     from ..message_processors import _tool_calls_to_plain
+
                     out_msg["tool_calls"] = _tool_calls_to_plain(message.tool_calls)
                 span.set_attribute(GEN_AI_OUTPUT_MESSAGES, safe_json_dumps([out_msg]))
 
@@ -442,11 +466,13 @@ class LLMWrapper:
 
         if usage is not None:
             input_tokens = (
-                usage.get("prompt_tokens") if isinstance(usage, dict)
+                usage.get("prompt_tokens")
+                if isinstance(usage, dict)
                 else getattr(usage, "prompt_tokens", None)
             )
             output_tokens = (
-                usage.get("completion_tokens") if isinstance(usage, dict)
+                usage.get("completion_tokens")
+                if isinstance(usage, dict)
                 else getattr(usage, "completion_tokens", None)
             )
             if input_tokens is not None:

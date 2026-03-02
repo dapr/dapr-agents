@@ -1011,7 +1011,9 @@ class AgentBase:
             entry: Optional pre-loaded workflow entry to avoid redundant state fetch.
         """
         # Delegate to AgentComponents logic.
-        self.sync_system_messages(instance_id=instance_id, all_messages=all_messages, entry=entry)
+        self.sync_system_messages(
+            instance_id=instance_id, all_messages=all_messages, entry=entry
+        )
 
     def _process_user_message(
         self,
