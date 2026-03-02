@@ -146,6 +146,27 @@ class ConversationVectorMemory(MemoryBase):
                 )
         return messages
 
+    def purge_memory(self, workflow_instance_id: str) -> None:
+        """
+        Permanently remove stored messages for the given workflow instance.
+
+        WARNING: The current vector store backend does not support per-instance
+        scoped deletion.  Calling this method will reset the ENTIRE vector store,
+        removing conversation data for ALL workflow instances.  Use with caution.
+        This behaviour is tracked as a known limitation to be addressed in a
+        future release.
+
+        Args:
+            workflow_instance_id: Workflow instance id to purge (currently ignored).
+        """
+        logger.warning(
+            "purge_memory() on ConversationVectorMemory resets the entire vector "
+            "store (all workflow instances), not just instance_id=%s.  "
+            "This is a known limitation.",
+            workflow_instance_id,
+        )
+        self.reset_memory(workflow_instance_id)
+
     def reset_memory(self, workflow_instance_id: str) -> None:
         """
         Clears all messages from the vector store for the given workflow instance.

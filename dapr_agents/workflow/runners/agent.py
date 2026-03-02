@@ -564,9 +564,7 @@ class AgentRunner(WorkflowRunner):
                 self._wf_client.purge_workflow(
                     instance_id=instance_id,
                 )
-                agent._infra.purge_state(instance_id)
-                if getattr(agent, "memory", None) is not None:
-                    agent.memory.purge_memory(instance_id)
+                agent.purge(instance_id)
                 return {"instance_id": instance_id, "status": "purged"}
 
             fastapi_app.add_api_route(

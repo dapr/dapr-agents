@@ -102,6 +102,24 @@ class LLMOrchestratorBase(OrchestratorBase):
         # LLM client initialization
         self.llm = llm or get_default_llm()
 
+    def purge(self, workflow_instance_id: str) -> None:
+        """
+        Purge all durable state for a workflow instance: workflow state and
+        long-term conversation memory.
+
+        Calls purge_state() on the infrastructure layer (deletes workflow state
+        from the Dapr state store) and purge_memory() on the memory store
+        (deletes conversation history/summaries).  Either half may log a warning
+        and continue if the underlying store is unavailable; callers should
+        monitor logs for partial-failure signals.
+
+        Args:
+            workflow_instance_id: Workflow instance whose data should be removed.
+        """
+        self._infra.purge_state(workflow_instance_id)
+        if self.memory is not None:
+            self.memory.purge_memory(workflow_instance_id)
+
     @property
     def text_formatter(self) -> ColorTextFormatter:
         """Returns the text formatter used for console output."""
