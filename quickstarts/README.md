@@ -297,10 +297,10 @@ The workflow generates a short outline for the given topic using an LLM, then us
 
 # 9. Workflow with Agent Activities
 
-This example shows how a workflow can invoke entire agents as workflow activities, allowing you to orchestrate multi-step agent reasoning in a durable and deterministic way. Unlike previous examples where activities called LLMs directly, this workflow delegates each step to an agent with tools and memory, while the workflow engine provides durability and reliable progression.
+This example shows how a workflow can invoke entire agents as child workflows, allowing you to orchestrate multi-step agent reasoning in a durable and deterministic way. Unlike previous examples where activities called LLMs directly, this workflow delegates each step to an agent with tools and memory, while the workflow engine provides durability and reliable progression.
 
 ```bash
-uv run dapr run --app-id workflow-agents --resources-path components -- python 09_workflow_agents.py
+uv run dapr run -f 09_workflow_agents.yaml
 ```
 
 ## Expected Behavior
@@ -339,7 +339,7 @@ docker run -d -p 9411:9411 openzipkin/zipkin
 Now run the durable agent with tracing enabled and prompting included:
 
 ```
-uv run dapr run --app-id durable-agent-trace --resources-path components-- python 10_durable_agent_tracing.py
+uv run dapr run --app-id durable-agent-trace --resources-path components -- python 10_durable_agent_tracing.py
 ```
 
 ## Expected Behavior
@@ -356,11 +356,6 @@ Open the Zipkin UI at the URL above and explore the full trace to see how the wo
 
 ---
 
-# Other Dapr Agent Examples
-If you want to coordinate multiple agents that run in separate applications or communicate through Pub/Sub, check out the [multi-agent workflows quickstart](../05-multi-agent-workflows/README.md).
-
----
-
 # Troubleshooting
 
 1. **API Key Issues**: If you see an authentication error, verify your LLM provider key is in the `llm-provider.yaml` file
@@ -368,6 +363,5 @@ If you want to coordinate multiple agents that run in separate applications or c
 3. **Environment Activation**: Ensure your virtual environment is activated before running examples
 4. **Import Errors**: If you see module not found errors, verify that `pip install -r requirements.txt` completed successfully
 
-# Next Steps
-
-Learn how to use structured outputs with LLMs in the [LLM Call quickstart](../02-llm-call-open-ai/README.md).
+# Other Dapr Agents Examples
+If you want to see more Dapr Agents examples, check out the [examples](../examples/) folder.
