@@ -188,7 +188,7 @@ class TestHelloWorldQuickstart:
             dapr_http_port=3500,
             resources_path=self.quickstart_dir / "components",
             trigger_pubsub={
-                "pubsub_name": "message-pubsub",
+                "pubsub_name": "agent-pubsub",
                 "topic": "weather.requests",
                 "data": {"task": "What's the weather in Boston?"},
                 "wait_seconds": 5,
