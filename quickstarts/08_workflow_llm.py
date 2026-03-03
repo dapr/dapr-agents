@@ -29,7 +29,7 @@ def analyze_topic(ctx: DaprWorkflowContext, topic: str):
 def create_outline(ctx, topic: str) -> str:
     return str(
         llm.generate(
-            prompt=f"Create a very short outline about the topic '{topic}'. Provide 5 bullet points only."
+            messages=f"Create a very short outline about the topic '{topic}'. Provide 5 bullet points only."
         )
     )
 
@@ -38,7 +38,7 @@ def create_outline(ctx, topic: str) -> str:
 def write_blog(ctx, outline: str) -> str:
     return str(
         llm.generate(
-            prompt=f"Write a short (2 paragraphs) friendly blog post following this outline:\n{outline}"
+            messages=f"Write a short (2 paragraphs) friendly blog post following this outline:\n{outline}"
         )
     )
 
