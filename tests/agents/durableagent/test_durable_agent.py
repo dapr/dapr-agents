@@ -1538,7 +1538,9 @@ class TestDurableAgentResponseFormat:
                 result = e.value
         return result
 
-    def test_workflow_applies_format_on_final_turn(self, mock_llm, mock_workflow_context):
+    def test_workflow_applies_format_on_final_turn(
+        self, mock_llm, mock_workflow_context
+    ):
         """format_final_response is invoked after the loop when response_format is set."""
         from pydantic import BaseModel
 
@@ -1595,7 +1597,9 @@ class TestDurableAgentResponseFormat:
 
         assert "format_final_response" not in activities_called
 
-    def test_workflow_skips_format_on_error_message(self, mock_llm, mock_workflow_context):
+    def test_workflow_skips_format_on_error_message(
+        self, mock_llm, mock_workflow_context
+    ):
         """format_final_response is not called when the workflow produces an error message."""
         from pydantic import BaseModel
 

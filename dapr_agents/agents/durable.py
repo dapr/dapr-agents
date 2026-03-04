@@ -1302,7 +1302,10 @@ class DurableAgent(AgentBase):
             # Structured output: response is the Pydantic model itself (or a list)
             if isinstance(response, list):
                 content = json.dumps(
-                    [r.model_dump() if hasattr(r, "model_dump") else r for r in response]
+                    [
+                        r.model_dump() if hasattr(r, "model_dump") else r
+                        for r in response
+                    ]
                 )
             elif hasattr(response, "model_dump"):
                 content = json.dumps(response.model_dump())
