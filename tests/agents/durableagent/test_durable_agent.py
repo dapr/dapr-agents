@@ -1291,3 +1291,366 @@ class TestDurableAgent:
         assert "finalize_workflow" in activity_names, (
             f"Missing finalize_workflow in {activity_names}"
         )
+
+
+class TestDurableAgentResponseFormat:
+    """Tests for the response_format feature on DurableAgent."""
+
+    @pytest.fixture(autouse=True)
+    def setup_env(self, monkeypatch):
+        """Set up environment variables and mocks for testing."""
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+
+        mock_client = MockDaprClient()
+        mock_client.get_state.return_value = Mock(data=None)
+
+        monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
+        )
+
+        yield
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+
+    @pytest.fixture
+    def mock_llm(self):
+        mock = Mock(spec=OpenAIChatClient)
+        mock.generate = Mock()
+        mock.prompt_template = None
+        mock.__class__.__name__ = "MockLLMClient"
+        mock.provider = "MockOpenAIProvider"
+        mock.api = "MockOpenAIAPI"
+        mock.model = "gpt-4o-mock"
+        return mock
+
+    @pytest.fixture
+    def mock_workflow_context(self):
+        context = DaprWorkflowContext()
+        context.instance_id = "test-instance-123"
+        context.is_replaying = False
+        context.call_activity = Mock()
+        context.current_utc_datetime = Mock()
+        context.current_utc_datetime.isoformat = Mock(
+            return_value="2024-01-01T00:00:00.000000"
+        )
+        return context
+
+    def _make_agent(self, mock_llm, response_format=None):
+        """Helper to create a DurableAgent with minimal required config."""
+        return DurableAgent(
+            name="RFTestAgent",
+            role="Test assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="RFTestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+            response_format=response_format,
+        )
+
+    # -------------------------------------------------------------------------
+    # Constructor validation
+    # -------------------------------------------------------------------------
+
+    def test_response_format_none_by_default(self, mock_llm):
+        """_response_format is None when not supplied."""
+        agent = self._make_agent(mock_llm)
+        assert agent._response_format is None
+
+    def test_response_format_accepts_pydantic_model(self, mock_llm):
+        """DurableAgent stores a valid Pydantic subclass on _response_format."""
+        from pydantic import BaseModel
+
+        class MyOutput(BaseModel):
+            answer: str
+
+        agent = self._make_agent(mock_llm, response_format=MyOutput)
+        assert agent._response_format is MyOutput
+
+    def test_response_format_rejects_plain_class(self, mock_llm):
+        """TypeError raised when a non-BaseModel class is passed."""
+        with pytest.raises(TypeError, match="Pydantic BaseModel subclass"):
+            self._make_agent(mock_llm, response_format=dict)
+
+    def test_response_format_rejects_model_instance(self, mock_llm):
+        """TypeError raised when a model instance is passed instead of a class."""
+        from pydantic import BaseModel
+
+        class MyOutput(BaseModel):
+            answer: Optional[str] = None
+
+        with pytest.raises(TypeError, match="Pydantic BaseModel subclass"):
+            self._make_agent(mock_llm, response_format=MyOutput())
+
+    # -------------------------------------------------------------------------
+    # call_llm — sentinel routing
+    # -------------------------------------------------------------------------
+
+    def test_call_llm_routes_user_sentinel_to_instance_format(self, mock_llm):
+        """'__user_response_format__' sentinel resolves to self._response_format."""
+        import json
+        from pydantic import BaseModel
+
+        class MyOutput(BaseModel):
+            answer: str
+
+        agent = self._make_agent(mock_llm, response_format=MyOutput)
+
+        mock_llm.generate.return_value = MyOutput(answer="structured answer")
+
+        mock_ctx = Mock()
+        entry = AgentWorkflowEntry(
+            source="test_source",
+            triggering_workflow_instance_id=None,
+            messages=[
+                AgentWorkflowMessage(role="user", content="What is 2+2?"),
+                AgentWorkflowMessage(role="assistant", content="It is 4."),
+            ],
+            tool_history=[],
+        )
+        agent._infra._state_model = entry
+
+        with (
+            patch.object(agent._infra, "load_state"),
+            patch.object(agent._infra, "get_state", return_value=entry),
+            patch.object(agent, "save_state"),
+            patch.object(agent, "_save_assistant_message"),
+            patch.object(agent, "_text_formatter"),
+        ):
+            result = agent.call_llm(
+                mock_ctx,
+                {
+                    "instance_id": "test-instance-123",
+                    "task": None,
+                    "response_format": "__user_response_format__",
+                    "no_tools": True,
+                },
+            )
+
+        assert result["role"] == "assistant"
+        parsed = json.loads(result["content"])
+        assert parsed["answer"] == "structured answer"
+
+    def test_call_llm_no_tools_flag_passes_empty_tools(self, mock_llm):
+        """no_tools=True causes call_llm to pass an empty tools list to generate()."""
+        from pydantic import BaseModel
+
+        class MyOutput(BaseModel):
+            answer: str
+
+        agent = self._make_agent(mock_llm, response_format=MyOutput)
+        mock_llm.generate.return_value = MyOutput(answer="ok")
+
+        mock_ctx = Mock()
+        entry = AgentWorkflowEntry(
+            source=None,
+            triggering_workflow_instance_id=None,
+            messages=[AgentWorkflowMessage(role="user", content="hi")],
+            tool_history=[],
+        )
+        agent._infra._state_model = entry
+
+        with (
+            patch.object(agent._infra, "load_state"),
+            patch.object(agent._infra, "get_state", return_value=entry),
+            patch.object(agent, "save_state"),
+            patch.object(agent, "_save_assistant_message"),
+            patch.object(agent, "_text_formatter"),
+        ):
+            agent.call_llm(
+                mock_ctx,
+                {
+                    "instance_id": "test-instance-123",
+                    "task": None,
+                    "response_format": "__user_response_format__",
+                    "no_tools": True,
+                },
+            )
+
+        call_kwargs = mock_llm.generate.call_args
+        tools_passed = call_kwargs.kwargs.get("tools", [])
+        assert not tools_passed
+
+    # -------------------------------------------------------------------------
+    # format_final_response activity
+    # -------------------------------------------------------------------------
+
+    def test_format_final_response_delegates_to_call_llm(self, mock_llm):
+        """format_final_response calls call_llm with task=None and sentinel."""
+        agent = self._make_agent(mock_llm)
+
+        mock_ctx = Mock()
+        expected = {"role": "assistant", "content": '{"answer": "42"}'}
+
+        with patch.object(agent, "call_llm", return_value=expected) as mock_call_llm:
+            result = agent.format_final_response(
+                mock_ctx,
+                {"instance_id": "inst-1", "time": "2024-01-01T00:00:00"},
+            )
+
+        mock_call_llm.assert_called_once_with(
+            mock_ctx,
+            {
+                "instance_id": "inst-1",
+                "task": None,
+                "time": "2024-01-01T00:00:00",
+                "response_format": "__user_response_format__",
+                "no_tools": True,
+            },
+        )
+        assert result == expected
+
+    # -------------------------------------------------------------------------
+    # agent_workflow integration
+    # -------------------------------------------------------------------------
+
+    def _run_workflow(self, agent, mock_workflow_context, message, call_side_effect):
+        """Drive the agent_workflow generator to completion."""
+        mock_workflow_context.call_activity = Mock(side_effect=call_side_effect)
+        mock_workflow_context.instance_id = "test-instance-123"
+
+        entry = AgentWorkflowEntry(
+            source=None,
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        agent._infra._state_model = entry
+
+        with patch.object(
+            agent._infra,
+            "get_state",
+            side_effect=lambda wid: agent._infra._state_model,
+        ):
+            gen = agent.agent_workflow(mock_workflow_context, message)
+            result = None
+            try:
+                while True:
+                    result = gen.send(result)
+            except StopIteration as e:
+                result = e.value
+        return result
+
+    def test_workflow_applies_format_on_final_turn(self, mock_llm, mock_workflow_context):
+        """format_final_response is invoked after the loop when response_format is set."""
+        from pydantic import BaseModel
+
+        class AnswerModel(BaseModel):
+            answer: str
+
+        agent = self._make_agent(mock_llm, response_format=AnswerModel)
+
+        plain = {"role": "assistant", "content": "The answer is 42."}
+        structured = {"role": "assistant", "content": '{"answer": "42"}'}
+
+        activities_called = []
+
+        def side_effect(activity, **kwargs):
+            name = getattr(activity, "__name__", str(activity))
+            activities_called.append(name)
+            if name == "call_llm":
+                return plain
+            if name == "format_final_response":
+                return structured
+            return None
+
+        self._run_workflow(
+            agent,
+            mock_workflow_context,
+            {"task": "What is 6*7?"},
+            side_effect,
+        )
+
+        assert "format_final_response" in activities_called
+
+    def test_workflow_no_response_format_skips_format_activity(
+        self, mock_llm, mock_workflow_context
+    ):
+        """format_final_response is never called when response_format is not set."""
+        agent = self._make_agent(mock_llm)
+
+        plain = {"role": "assistant", "content": "Hello!"}
+        activities_called = []
+
+        def side_effect(activity, **kwargs):
+            name = getattr(activity, "__name__", str(activity))
+            activities_called.append(name)
+            if name == "call_llm":
+                return plain
+            return None
+
+        self._run_workflow(
+            agent,
+            mock_workflow_context,
+            {"task": "Hi"},
+            side_effect,
+        )
+
+        assert "format_final_response" not in activities_called
+
+    def test_workflow_skips_format_on_error_message(self, mock_llm, mock_workflow_context):
+        """format_final_response is not called when the workflow produces an error message."""
+        from pydantic import BaseModel
+
+        class AnswerModel(BaseModel):
+            answer: str
+
+        agent = self._make_agent(mock_llm, response_format=AnswerModel)
+
+        activities_called = []
+
+        def side_effect(activity, **kwargs):
+            name = getattr(activity, "__name__", str(activity))
+            activities_called.append(name)
+            if name == "call_llm":
+                raise RuntimeError("LLM exploded")
+            return None
+
+        self._run_workflow(
+            agent,
+            mock_workflow_context,
+            {"task": "Fail please"},
+            side_effect,
+        )
+
+        assert "format_final_response" not in activities_called
+
+    def test_workflow_main_loop_call_llm_has_no_response_format(
+        self, mock_llm, mock_workflow_context
+    ):
+        """The main loop's call_llm invocations never carry response_format in payload."""
+        from pydantic import BaseModel
+
+        class AnswerModel(BaseModel):
+            answer: str
+
+        agent = self._make_agent(mock_llm, response_format=AnswerModel)
+
+        plain = {"role": "assistant", "content": "Done."}
+        structured = {"role": "assistant", "content": '{"answer": "done"}'}
+
+        def side_effect(activity, **kwargs):
+            name = getattr(activity, "__name__", str(activity))
+            if name == "call_llm":
+                payload = kwargs.get("input", {})
+                assert "response_format" not in payload, (
+                    "The main loop must NOT pass response_format to call_llm"
+                )
+                return plain
+            if name == "format_final_response":
+                return structured
+            return None
+
+        self._run_workflow(
+            agent,
+            mock_workflow_context,
+            {"task": "Do something"},
+            side_effect,
+        )
