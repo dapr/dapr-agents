@@ -1320,6 +1320,9 @@ class DurableAgent(AgentBase):
         except Exception as exc:
             # Ensure we always return a tool result, even on failure
             # This prevents orphaned tool_call_ids that would break conversation history and tool call validations by the LLM provider.
+            logger.exception(
+                f"Error executing tool '{fn_name}' with tool_call_id '{tool_call.get('id') if isinstance(tool_call, dict) else tool_call}': {exc}"
+            )
             err_type = type(exc).__name__
             error_msg = f"Error executing tool '{fn_name}': {err_type}: {str(exc)}"
             result = error_msg

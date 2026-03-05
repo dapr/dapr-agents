@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 from unittest.mock import AsyncMock, Mock, patch
 from mcp.types import CallToolResult
 from dapr_agents.tool.mcp.schema import create_pydantic_model_from_schema
@@ -341,9 +342,9 @@ def test_create_pydantic_model_unwraps_kwargs_wrapper():
     assert instance.tag == "v0.12.0"
 
     # Verify it rejects missing required fields
-    with pytest.raises(Exception):  # Pydantic ValidationError
+    with pytest.raises(ValidationError):
         model(owner="dapr", repo="dapr-agents")  # Missing tag
 
     # Verify it rejects kwargs wrapper format (should not expect kwargs field)
-    with pytest.raises(Exception):  # Pydantic ValidationError
+    with pytest.raises(ValidationError):
         model(kwargs={"owner": "dapr", "repo": "dapr-agents", "tag": "v0.12.0"})

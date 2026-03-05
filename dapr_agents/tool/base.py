@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Callable, Type, Optional, Any, Dict
 from inspect import signature, Parameter
 from pydantic import (
@@ -120,7 +121,10 @@ class AgentTool(BaseModel):
                     logger.debug(f"Starting transport session for tool '{tool_name}'")
                     from dapr_agents.tool.mcp.transport import start_transport_session
 
-                    async with start_transport_session(connection) as tool_session:
+                    async with AsyncExitStack() as stack:
+                        tool_session = await start_transport_session(
+                            connection["transport"], connection["params"], stack
+                        )
                         await tool_session.initialize()
                         result = await tool_session.call_tool(tool_name, tool_args)
                 tool_result = CallToolResult(
