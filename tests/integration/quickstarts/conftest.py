@@ -306,7 +306,7 @@ def run_quickstart_or_examples_script(
         if not app_id:
             raise ValueError("app_id is required when use_dapr=True")
         if not resources_path:
-            resources_path = cwd_path / "components"
+            resources_path = cwd_path / "resources"
 
         resources_path = _resolve_component_env_vars(
             resources_path, cwd_path, venv_python, full_env
@@ -551,7 +551,7 @@ def run_quickstart_or_examples_multi_app(
 
     # Resolve environment variables in components or resources
     tmp_path = None
-    resources_path = directory / "components"
+    resources_path = directory / "resources"
     if resources_path.exists():
         tmp_path = _resolve_component_env_vars(
             resources_path, cwd_path, venv_python, full_env

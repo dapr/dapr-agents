@@ -49,7 +49,7 @@ Note: The temporary resources folder will be automatically deleted when the Dapr
 
 ### Option 2: Direct Component Configuration
 
-You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
+You can directly update the `key` in [resources/openai.yaml](resources/openai.yaml):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component

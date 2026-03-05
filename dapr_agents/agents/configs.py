@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from os import getenv
 from enum import StrEnum
@@ -185,6 +186,76 @@ class AgentStateConfig:
         return self._state_model_bundle
 
 
+@dataclass(frozen=True)
+class ConfigFieldDescriptor:
+    """Describes how a configuration key maps to an agent attribute.
+
+    Attributes:
+        target_type: Expected Python type for the coerced value.
+        setter: Callable ``(agent, value) -> None`` that applies the value.
+        sensitive: If ``True``, the value is redacted in log output.
+        validator: Optional callable to validate/transform the coerced value.
+        rebuilds_prompt: If ``True``, the prompt template is rebuilt after update.
+    """
+
+    target_type: Type
+    setter: Callable[..., None]
+    sensitive: bool = False
+    validator: Optional[Callable[..., Any]] = None
+    rebuilds_prompt: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Built-in validators for ConfigFieldDescriptor
+# ---------------------------------------------------------------------------
+
+_config_logger = logging.getLogger(__name__)
+
+
+def validate_non_empty_string(v: str) -> str:
+    """Reject empty or whitespace-only strings."""
+    if not v or not v.strip():
+        raise ValueError("Value must not be empty")
+    return v.strip()
+
+
+def validate_max_iterations(v: int) -> int:
+    """Ensure max_iterations is at least 1."""
+    if v < 1:
+        raise ValueError(f"max_iterations must be >= 1, got {v}")
+    return v
+
+
+def validate_tool_choice(v: str) -> str:
+    """Warn if tool_choice is non-standard, but allow it."""
+    allowed = {"auto", "none", "required"}
+    if v.lower() not in allowed:
+        _config_logger.warning(
+            "tool_choice '%s' not in standard set %s; allowing anyway.", v, allowed
+        )
+    return v
+
+
+@dataclass
+class RuntimeSubscriptionConfig:
+    """Configuration for subscribing to a Dapr Configuration Store at runtime.
+
+    Attributes:
+        store_name: Name of the Dapr configuration store component.
+        default_key: Fallback key used when ``keys`` is empty (defaults to agent name).
+        keys: Optional list of keys to subscribe to.
+        metadata: Optional metadata for the configuration subscription.
+        on_config_change: Optional callback invoked after each successful config update.
+            Receives the normalized key and coerced value.
+    """
+
+    store_name: str
+    default_key: Optional[str] = None
+    keys: List[str] = field(default_factory=list)
+    metadata: Dict[str, str] = field(default_factory=dict)
+    on_config_change: Optional[Callable[[str, Any], None]] = None
+
+
 @dataclass
 class AgentRegistryConfig:
     """Configuration for agent registry storage."""
@@ -301,6 +372,35 @@ class WorkflowRetryPolicy:
     retry_timeout: Optional[Union[int, None]] = None
 
 
+class RuntimeConfigKey(StrEnum):
+    """Supported keys for runtime configuration hot-reload.
+
+    All profile keys use the ``agent_`` prefix to avoid ambiguity.
+    Execution, LLM, and component keys are unprefixed.
+    """
+
+    # Profile fields
+    AGENT_ROLE = "agent_role"
+    AGENT_GOAL = "agent_goal"
+    AGENT_INSTRUCTIONS = "agent_instructions"
+    AGENT_SYSTEM_PROMPT = "agent_system_prompt"
+    AGENT_STYLE_GUIDELINES = "agent_style_guidelines"
+
+    # Execution fields
+    MAX_ITERATIONS = "max_iterations"
+    TOOL_CHOICE = "tool_choice"
+
+    # LLM fields
+    LLM_API_KEY = "llm_api_key"
+    LLM_PROVIDER = "llm_provider"
+    LLM_MODEL = "llm_model"
+
+    # Component references
+    AGENT_WORKFLOW = "agent_workflow"
+    AGENT_REGISTRY = "agent_registry"
+    AGENT_MEMORY = "agent_memory"
+
+
 class AgentTracingExporter(StrEnum):
     """
     Supported tracing exporters for Dapr Agents observability.
@@ -351,28 +451,44 @@ class AgentObservabilityConfig:
 
     @classmethod
     def from_env(cls) -> "AgentObservabilityConfig":
-        """Create observability config from environment variables."""
+        """Create observability config from standard OTEL environment variables.
+
+        Uses standard OpenTelemetry env var names where available:
+        - OTEL_SDK_DISABLED (inverted: disabled != "true" means enabled)
+        - OTEL_EXPORTER_OTLP_ENDPOINT
+        - OTEL_EXPORTER_OTLP_HEADERS (parses "Authorization=<token>" format)
+        - OTEL_SERVICE_NAME
+        - OTEL_TRACES_EXPORTER
+        - OTEL_LOGS_EXPORTER
+        - OTEL_TRACING_ENABLED (custom, no standard equivalent)
+        - OTEL_LOGGING_ENABLED (custom, no standard equivalent)
+        """
         headers: Dict[str, str] = {}
-        if token := getenv("OTEL_TOKEN"):
-            headers["Authorization"] = token
+        raw_headers = getenv("OTEL_EXPORTER_OTLP_HEADERS")
+        if raw_headers:
+            for pair in raw_headers.split(","):
+                pair = pair.strip()
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    headers[k.strip()] = v.strip()
 
         logging_exporter: Optional[AgentLoggingExporter] = None
-        if logging_exporter_str := getenv("OTEL_LOGGING_EXPORTER"):
+        if logging_exporter_str := getenv("OTEL_LOGS_EXPORTER"):
             try:
                 logging_exporter = AgentLoggingExporter(logging_exporter_str)
             except (ValueError, KeyError):
                 logging_exporter = AgentLoggingExporter.CONSOLE
 
         tracing_exporter: Optional[AgentTracingExporter] = None
-        if tracing_exporter_str := getenv("OTEL_TRACING_EXPORTER"):
+        if tracing_exporter_str := getenv("OTEL_TRACES_EXPORTER"):
             try:
                 tracing_exporter = AgentTracingExporter(tracing_exporter_str)
             except (ValueError, KeyError):
                 tracing_exporter = AgentTracingExporter.CONSOLE
 
         enabled: Optional[bool] = None
-        if getenv("OTEL_ENABLED") is not None:
-            enabled = getenv("OTEL_ENABLED", "false").lower() == "true"
+        if getenv("OTEL_SDK_DISABLED") is not None:
+            enabled = getenv("OTEL_SDK_DISABLED", "false").lower() != "true"
 
         logging_enabled: Optional[bool] = None
         if getenv("OTEL_LOGGING_ENABLED") is not None:
@@ -385,7 +501,7 @@ class AgentObservabilityConfig:
         return cls(
             enabled=enabled,
             headers=headers,
-            endpoint=getenv("OTEL_ENDPOINT"),
+            endpoint=getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
             service_name=getenv("OTEL_SERVICE_NAME"),
             logging_enabled=logging_enabled,
             logging_exporter=logging_exporter,
