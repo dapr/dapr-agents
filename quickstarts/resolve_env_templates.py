@@ -58,7 +58,7 @@ def render_folder_with_env_templates(source_dir: str | Path) -> str:
     if not src_path.exists() or not src_path.is_dir():
         raise ValueError(f"Provided path is not a directory: {src_path}")
 
-    temp_dir = tempfile.mkdtemp(prefix="rendered_components_")
+    temp_dir = tempfile.mkdtemp(prefix="rendered_resources_")
     dst_path = Path(temp_dir)
 
     # iterate non-recursively

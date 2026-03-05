@@ -1,0 +1,14 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: runtime-config
+spec:
+  type: configuration.postgresql
+  version: v1
+  metadata:
+  - name: connectionString
+    value: "host=localhost user=postgres password=postgres port=5432 dbname=dapr_config sslmode=disable"
+  - name: table
+    value: "configuration"
+  - name: connMaxIdleTime
+    value: "15s"
