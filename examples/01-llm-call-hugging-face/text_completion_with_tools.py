@@ -2,7 +2,6 @@ from dotenv import load_dotenv
 
 from dapr_agents import HFHubChatClient
 from dapr_agents.types.message import LLMChatResponse
-from typing import Iterator
 import logging
 
 logging.basicConfig(level=logging.INFO)

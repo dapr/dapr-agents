@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from dapr_agents.llm import DaprChatClient
 
 from dapr_agents import DurableAgent

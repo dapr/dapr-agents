@@ -1,5 +1,4 @@
 import asyncio
-from pathlib import Path
 
 from dapr_agents.llm import DaprChatClient
 

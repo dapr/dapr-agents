@@ -31,7 +31,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="llm-client",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -57,7 +57,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-llm",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -83,7 +83,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-llm",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -103,7 +103,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-mcp",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -127,7 +127,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-memory",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -154,7 +154,7 @@ class TestHelloWorldQuickstart:
             use_dapr=True,
             app_id="durable-agent",
             app_port=8001,
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
             trigger_curl={
                 "url": "http://localhost:8001/agent/run",
                 "method": "POST",
@@ -186,7 +186,7 @@ class TestHelloWorldQuickstart:
             use_dapr=True,
             app_id="durable-agent-sub",
             dapr_http_port=3500,
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
             trigger_pubsub={
                 "pubsub_name": "message-pubsub",
                 "topic": "weather.requests",
@@ -216,7 +216,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="workflow-llms",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -270,7 +270,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="durable-agent-trace",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (

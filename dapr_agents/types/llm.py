@@ -1,6 +1,5 @@
 from typing import List, Union, Optional, Dict, Any, Literal, IO, Tuple, cast
 from pydantic import BaseModel, Field, model_validator, field_validator, ConfigDict
-from pydantic_core import PydanticUseDefault
 from pathlib import Path
 from io import BytesIO, BufferedReader
 

@@ -1,6 +1,5 @@
 import asyncio
 import random
-import re
 
 from dapr_agents import tool
 

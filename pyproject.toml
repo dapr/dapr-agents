@@ -122,6 +122,7 @@ python_files = ["test_*.py"]
 asyncio_mode = "auto"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "schema: marks tests that validate the agent metadata JSON schema golden files",
 ]
 # Show logs during test execution (INFO level and above for now)
 log_cli = true

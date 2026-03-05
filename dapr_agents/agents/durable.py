@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 import json
 import logging
-from typing import Any, Dict, Iterable, List, Optional, Literal
+from typing import Any, Dict, Iterable, List, Optional
 from os import getenv
 
 import dapr.ext.workflow as wf
@@ -41,6 +41,7 @@ from dapr_agents.agents.configs import (
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
+    RuntimeSubscriptionConfig,
     WorkflowGrpcOptions,
     WorkflowRetryPolicy,
     AgentObservabilityConfig,
@@ -57,10 +58,8 @@ from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.types import (
     AgentError,
     ToolMessage,
-    UserMessage,
     AssistantMessage,
 )
-from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
@@ -108,6 +107,7 @@ class DurableAgent(AgentBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
         agent_observability: Optional[AgentObservabilityConfig] = None,
+        configuration: Optional[RuntimeSubscriptionConfig] = None,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -138,6 +138,7 @@ class DurableAgent(AgentBase):
             runtime: Optional pre-existing workflow runtime to attach to.
             retry_policy: Durable retry policy configuration.
             agent_observability: Observability configuration for tracing/logging.
+            configuration: Optional configuration store settings for hot-reloading.
         """
         # Mark orchestrators to filtered out when other orchestrators query for available agents
         if execution and execution.orchestration_mode:
@@ -163,6 +164,7 @@ class DurableAgent(AgentBase):
             tools=tools,
             prompt_template=prompt_template,
             agent_observability=agent_observability,
+            configuration=configuration,
         )
 
         grpc_options = getattr(self, "workflow_grpc_options", None)
@@ -539,6 +541,7 @@ class DurableAgent(AgentBase):
             orch_state = {
                 "task": task,
                 "agents": agents_formatted,
+                "agents_metadata": agents_result["metadata"],
                 "plan": plan,
                 "task_history": [],
                 "verdict": None,
@@ -555,6 +558,8 @@ class DurableAgent(AgentBase):
                 retry_policy=self._retry_policy,
             )
 
+            orch_state["agents_metadata"] = agents_metadata
+
         for turn in range(1, self.execution.max_iterations + 1):
             if not ctx.is_replaying:
                 logger.debug(
@@ -566,24 +571,8 @@ class DurableAgent(AgentBase):
                 agents_formatted = orch_state.get("agents", "")
 
                 if turn > 1:
-                    try:
-                        entry = self._infra.get_state(instance_id)
-                    except Exception:
-                        logger.exception(
-                            f"Failed to get workflow state for instance_id: {instance_id}"
-                        )
-                        raise
-                    messages = (
-                        getattr(entry, "messages", [])
-                        if entry and hasattr(entry, "messages")
-                        else []
-                    )
-                    plan = self.get_plan_from_messages(messages) or plan
-
                     if not ctx.is_replaying:
-                        logger.info(
-                            f"Loaded plan from state with {len(plan)} steps (turn {turn})"
-                        )
+                        logger.info(f"Plan has {len(plan)} steps (turn {turn})")
 
                     if len(plan) == 0:
                         raise AgentError(
@@ -667,10 +656,26 @@ class DurableAgent(AgentBase):
                     f"Turn {turn}: Selected agent '{next_agent}' with instruction: {instruction[:100]}..."
                 )
 
-            agents_metadata = self.list_team_agents(
-                include_self=False, team=self.effective_team
-            )
-            agent_appid = agents_metadata[next_agent]["agent"]["appid"]
+            agents_metadata = orch_state.get("agents_metadata") or {}
+            agent_entry = agents_metadata.get(next_agent)
+
+            if agent_entry is None:
+                next_lower = next_agent.lower()
+                for key, meta in agents_metadata.items():
+                    if key.lower() == next_lower:
+                        agent_entry = meta
+                        break
+                    if next_lower in key.lower() or key.lower() in next_lower:
+                        agent_entry = meta
+                        break
+
+            if agent_entry is None:
+                raise AgentError(
+                    f"Agent '{next_agent}' not found in registry. "
+                    f"Available agents: {list(agents_metadata.keys())}"
+                )
+
+            agent_appid = agent_entry["agent"]["appid"]
 
             result = yield ctx.call_child_workflow(
                 workflow="agent_workflow",
@@ -1698,6 +1703,9 @@ class DurableAgent(AgentBase):
         if self._started:
             raise RuntimeError("Agent has already been started.")
 
+        # Set up lifecycle-managed resources (e.g., configuration subscription)
+        super().start()
+
         if runtime is not None:
             self._runtime = runtime
             self._runtime_owned = False
@@ -1737,6 +1745,8 @@ class DurableAgent(AgentBase):
         """Stop the workflow runtime if it is owned by this instance."""
         if not self._started:
             return
+
+        super().stop()
 
         if self._runtime_owned:
             try:
