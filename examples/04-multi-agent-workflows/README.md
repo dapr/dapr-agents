@@ -21,7 +21,7 @@ This quickstart demonstrates how to create and orchestrate event-driven workflow
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -103,7 +103,7 @@ Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Ob
 
 ### Option 2: Direct Component Configuration
 
-Update the `key` in [components/openai.yaml](components/openai.yaml):
+Update the `key` in [resources/openai.yaml](resources/openai.yaml):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -124,7 +124,7 @@ Make sure Dapr is initialized:
 dapr init
 ```
 
-This quickstart uses these Dapr components (in `components/` directory):
+This quickstart uses these Dapr components (in `resources/` directory):
 - `openai.yaml`: LLM conversation component
 - `workflowstate.yaml`: Workflow state storage
 - `memorystore.yaml`: Conversation memory storage
@@ -135,7 +135,7 @@ This quickstart uses these Dapr components (in `components/` directory):
 
 ```
 05-multi-agent-workflows-new/
-├── components/                    # Dapr configuration files
+├── resources/                    # Dapr configuration files
 │   ├── agentregistrystore.yaml    # Shared agent registry
 │   ├── memorystore.yaml           # Conversation memory
 │   ├── messagepubsub.yaml         # Pub/sub messaging
@@ -190,7 +190,7 @@ dapr run -f dapr-random.yaml
 
 **What's running:**
 - ✅ Frodo agent
-- ✅ Sam agent  
+- ✅ Sam agent
 - ✅ Random orchestrator
 - ✅ Client (publishes to `fellowship.orchestrator.random.requests`)
 
@@ -221,12 +221,12 @@ dapr run -f dapr-agent.yaml
 - ✅ Frodo agent
 - ✅ Sam agent
 - ✅ Gandalf agent
-- ✅ Agent orchestrator (plan-based with LLM)
-- ✅ HTTP client (hits the orchestrator's `/run` endpoint)
+- ✅ LLM orchestrator
+- ✅ HTTP client (hits the orchestrator’s `/agent/run` endpoint)
 
 ### Triggering Workflows
 
-Each `dapr-*.yaml` spins up an `HttpClientApp` that keeps POSTing to `/run` until the orchestrator responds (max 10 tries with a 5s delay). You’ll see the returned instance ID printed in that client’s console.
+Each `dapr-*.yaml` spins up an `HttpClientApp` that keeps POSTing to `/agent/run` until the orchestrator responds (max 10 tries with a 5s delay). You’ll see the returned instance ID printed in that client’s console.
 
 If you prefer to drive the system via pub/sub (for multiple tasks, or to target a specific orchestrator), run:
 

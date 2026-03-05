@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import Coroutine
 from datetime import datetime, timezone
+from importlib.metadata import version as pkg_version
 from typing import Any, Dict, Optional, Callable
 
 import dapr.ext.workflow as wf
@@ -11,9 +12,12 @@ import dapr.ext.workflow as wf
 from dapr_agents.agents.components import DaprInfra
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
+    AgentMetadata,
+    AgentMetadataSchema,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
+    PubSubMetadata,
     WorkflowGrpcOptions,
     StateModelBundle,
 )
@@ -69,11 +73,46 @@ class OrchestratorBase:
             self.execution.max_iterations = 10
 
         # Ensure registry entry marks this as an orchestrator
-        meta = dict(agent_metadata or {})
-        meta.setdefault("orchestrator", True)
+        self.orchestrator = True
         if self.registry_state is not None:
             try:
-                self.register_agentic_system(metadata=meta)
+                schema_version = pkg_version("dapr-agents")
+            except Exception:
+                schema_version = "edge"
+
+            max_iterations = None
+            tool_choice = None
+            if self.execution:
+                max_iterations = getattr(self.execution, "max_iterations", None)
+                tool_choice = getattr(self.execution, "tool_choice", None)
+
+            agent_meta = AgentMetadata(
+                appid="unknown",
+                type=type(self).__name__,
+                orchestrator=True,
+                framework="Dapr Agents",
+                max_iterations=max_iterations,
+                tool_choice=tool_choice,
+                metadata=agent_metadata,
+            )
+
+            pubsub_meta = None
+            if pubsub is not None and self.message_bus_name:
+                pubsub_meta = PubSubMetadata(
+                    resource_name=self.message_bus_name,
+                    agent_topic=pubsub.agent_topic,
+                    broadcast_topic=pubsub.broadcast_topic,
+                )
+
+            try:
+                metadata_schema = AgentMetadataSchema(
+                    version=schema_version,
+                    name=self.name,
+                    registered_at=datetime.now(timezone.utc).isoformat(),
+                    agent=agent_meta,
+                    pubsub=pubsub_meta,
+                )
+                self.register_agentic_system(metadata=metadata_schema)
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "Could not register orchestrator in registry.", exc_info=True
@@ -143,42 +182,17 @@ class OrchestratorBase:
         """Delegate to DaprInfra for the configured broadcast topic name."""
         return self._infra.broadcast_topic_name
 
-    def load_state(self):
+    def load_state(self, workflow_instance_id: str):
         """Delegate to DaprInfra to load state from the backing store."""
-        return self._infra.load_state()
+        return self._infra.load_state(workflow_instance_id=workflow_instance_id)
 
-    def save_state(self):
+    def save_state(self, workflow_instance_id: str):
         """Delegate to DaprInfra to persist the current workflow state."""
-        return self._infra.save_state()
-
-    def _get_entry_container(self):
-        """Delegate to DaprInfra for accessing the workflow entry container."""
-        return self._infra._get_entry_container()
+        return self._infra.save_state(workflow_instance_id=workflow_instance_id)
 
     def _message_dict_to_message_model(self, message):
         """Delegate to DaprInfra for converting message dicts into models."""
         return self._infra._message_dict_to_message_model(message)
-
-    def ensure_instance_exists(
-        self,
-        *,
-        instance_id,
-        input_value,
-        triggering_workflow_instance_id,
-        time=None,
-    ):
-        """
-        Ensure a workflow instance row exists in the underlying state model.
-
-        This thin wrapper delegates to DaprInfra, mirroring the helper used by
-        durable agents so orchestrators can share the same state semantics.
-        """
-        return self._infra.ensure_instance_exists(
-            instance_id=instance_id,
-            input_value=input_value,
-            triggering_workflow_instance_id=triggering_workflow_instance_id,
-            time=time,
-        )
 
     @staticmethod
     def _coerce_datetime(value: Optional[Any]) -> datetime:

@@ -50,7 +50,7 @@ Learn how to interact with Language Models using Dapr Agents and native LLM clie
 - **Text Completion**: Generating responses to prompts
 - **Structured Outputs**: Converting LLM responses to Pydantic objects
 
-This example shows both basic text generation and structured data extraction from LLMs. This example uses the OpenAIChatClient which allows you to use audio and perform embeddings in addition to chat completion. 
+This example shows both basic text generation and structured data extraction from LLMs. This example uses the OpenAIChatClient which allows you to use audio and perform embeddings in addition to chat completion.
 
 *Note: Other examples for specific clients are available for [Elevenlabs](./01-llm-call-elevenlabs), [Hugging Face](./01-llm-call-hugging-face), and [Nvidia](./01-llm-call-nvidia).*
 
@@ -97,14 +97,14 @@ This example demonstrates how to design and run sequential and parallel workflow
 
 ### Agent-based Workflow Patterns
 
-Learn to orchestrate **autonomous, role-driven agents** inside Dapr Workflows by calling agent-backed activities as child workflows.  
+Learn to orchestrate **autonomous, role-driven agents** inside Dapr Workflows by calling agent-backed activities as child workflows.
 These patterns focus on chaining and coordinating specialized agents that reason, plan, and act within durable, stateful workflows.
 
 > Currently, this does not work with `DurableAgents`.
 
-- **Agent-driven Tasks**: Execute workflow activities through autonomous agents with defined roles and instructions  
-- **Sequential & Composed Flows**: Chain multiple agents together, passing context and results between steps  
-- **Resilient Orchestration**: Combine agent reasoning with Dapr’s durable state, recovery, and execution guarantees  
+- **Agent-driven Tasks**: Execute workflow activities through autonomous agents with defined roles and instructions
+- **Sequential & Composed Flows**: Chain multiple agents together, passing context and results between steps
+- **Resilient Orchestration**: Combine agent reasoning with Dapr’s durable state, recovery, and execution guarantees
 
 This example demonstrates how to design and run **agent-based workflows**, starting with a sequential chain of agents collaborating to complete a shared objective.
 
@@ -217,6 +217,19 @@ Learn how to use AI agents as activities within Dapr workflows and add observabi
 This example demonstrates how to build resilient, stateful workflows that leverage agents for intelligent activity execution, decision-making, and multi-step reasoning, with full observability.
 
 [Go to Agents as Activities in Workflows with Observability](./08-agents-as-activities-observability)
+
+### Durable Agent Hot-Reload
+
+Dynamically update a running agent's persona and settings without restarting, using the Dapr Configuration API:
+
+- **Configuration Subscription**: Subscribe to a Dapr configuration store for real-time updates
+- **Profile Hot-Reload**: Update role, goal, instructions, and system prompt at runtime
+- **LLM Hot-Reload**: Swap API keys, providers, or models without downtime
+- **Component Hot-Reload**: Change state store, registry, or memory store references on the fly
+
+This example demonstrates how to build an agent that reacts to configuration changes streamed from a backing store (e.g. Redis), enabling zero-downtime persona and setting updates.
+
+[Go to Durable Agent Hot-Reload](./09-durable-agent-hot-reload)
 
 ### Contributing to Dapr Agents Examples
 

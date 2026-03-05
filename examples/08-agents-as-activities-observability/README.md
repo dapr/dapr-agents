@@ -12,7 +12,7 @@ This quickstart demonstrates how to use AI agents as activities within Dapr work
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -74,7 +74,7 @@ Note: The temporary resources folder will be automatically deleted when the Dapr
 
 You can directly update the API keys in the respective component files:
 
-1. For OpenAI ([components/openai.yaml](components/openai.yaml)):
+1. For OpenAI ([resources/openai.yaml](resources/openai.yaml)):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -87,7 +87,7 @@ spec:
       value: "YOUR_OPENAI_API_KEY"
 ```
 
-2. For NVIDIA ([components/nvidia.yaml](components/nvidia.yaml)):
+2. For NVIDIA ([resources/nvidia.yaml](resources/nvidia.yaml)):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -100,7 +100,7 @@ spec:
       value: "YOUR_NVIDIA_API_KEY"
 ```
 
-3. For Hugging Face ([components/huggingface.yaml](components/huggingface.yaml)):
+3. For Hugging Face ([resources/huggingface.yaml](resources/huggingface.yaml)):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -174,7 +174,7 @@ uv run dapr run --app-id agent-workflow --resources-path $temp_resources_folder 
 
 **How it works:**
 1. The `extract` activity uses an agent to extract the destination from the user query
-2. The `plan` activity uses a different agent to create a 3-day outline for that destination  
+2. The `plan` activity uses a different agent to create a 3-day outline for that destination
 3. The `expand` activity uses a third agent to expand the outline into a detailed itinerary
 4. Each agent has specialized instructions and capabilities for its specific role
 
@@ -220,7 +220,7 @@ This example adds observability to the sequential workflow using Phoenix Arize f
 Run with tracing:
 
 ```bash
-uv run dapr run --app-id agent-workflow-tracing --resources-path components/ -- python sequential_workflow_tracing.py
+uv run dapr run --app-id agent-workflow-tracing --resources-path resources/ -- python sequential_workflow_tracing.py
 ```
 
 View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
@@ -236,7 +236,7 @@ This example demonstrates using multiple LLM providers within a single workflow,
 Run with tracing:
 
 ```bash
-uv run dapr run --app-id multi-model-workflow --resources-path components/ -- python sequential_workflow_multi_model_tracing.py
+uv run dapr run --app-id multi-model-workflow --resources-path resources/ -- python sequential_workflow_multi_model_tracing.py
 ```
 
 View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
@@ -254,7 +254,7 @@ View traces in Phoenix UI at [http://localhost:6006](http://localhost:6006)
 - Each agent operates independently with its own instructions and capabilities
 - Agents receive input from previous workflow steps and pass output to subsequent steps
 
-### Workflow Orchestration  
+### Workflow Orchestration
 - The `@workflow` decorator defines the orchestration logic
 - `yield ctx.call_activity()` executes activities sequentially
 - Agent results are automatically serialized and passed between activities
@@ -280,7 +280,7 @@ Dapr Agent workflows with observability provide:
 Dapr Agent workflows leverage Dapr's core capabilities:
 
 - **Durability**: Workflows survive process restarts or crashes
-- **State Management**: Workflow state is persisted in a distributed state store  
+- **State Management**: Workflow state is persisted in a distributed state store
 - **Actor Model**: Agent activities run as reliable, stateful actors within the workflow
 - **Event Handling**: Workflows can react to external events and agent responses
 
@@ -290,7 +290,7 @@ Dapr Agent workflows leverage Dapr's core capabilities:
 2. **Redis Connection**: Ensure Redis is running (automatically installed by Dapr)
 3. **Dapr Initialization**: If components aren't found, verify Dapr is initialized with `dapr init`
 4. **API Keys**: Check your OpenAI/NVIDIA API keys if authentication fails
-5. **Phoenix Connection Issues**: 
+5. **Phoenix Connection Issues**:
    - Verify Phoenix server is running: `docker compose ps`
    - Check port availability: `netstat -an | grep 6006`
 6. **Missing Traces**:

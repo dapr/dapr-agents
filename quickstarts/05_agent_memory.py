@@ -1,5 +1,4 @@
 import asyncio
-from pathlib import Path
 
 from dapr_agents.llm import DaprChatClient
 
@@ -20,10 +19,7 @@ async def main() -> None:
         llm=DaprChatClient(component_name="llm-provider"),
         # Configure the agent to use Dapr State Store for conversation history.
         memory=AgentMemoryConfig(
-            store=ConversationDaprStateMemory(
-                store_name="agent-memory",
-                session_id=Path(__file__).stem,
-            )
+            store=ConversationDaprStateMemory(store_name="agent-memory"),
         ),
     )
     try:

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from mcp.types import CallToolResult
 from dapr_agents.tool.mcp.schema import create_pydantic_model_from_schema
 from dapr_agents.agents.durable import DurableAgent
-from dapr_agents.agents.schemas import AgentWorkflowEntry, AgentWorkflowState
+from dapr_agents.agents.schemas import AgentWorkflowEntry
 from dapr_agents.tool.base import AgentTool
 
 
@@ -11,19 +11,6 @@ from dapr_agents.tool.base import AgentTool
 def patch_dapr_check(monkeypatch):
     monkeypatch.setattr(DurableAgent, "save_state", lambda self: None)
 
-    # The following monkeypatches are for legacy compatibility with dict-like access in tests.
-    # If AgentWorkflowState supports dict-like access natively, these can be removed.
-    def _getitem(self, key):
-        return getattr(self, key)
-
-    def _setdefault(self, key, default):
-        if hasattr(self, key):
-            return getattr(self, key)
-        setattr(self, key, default)
-        return default
-
-    AgentWorkflowState.__getitem__ = _getitem
-    AgentWorkflowState.setdefault = _setdefault
     # Patch DaprStateStore to use a mock DaprClient that supports context manager
     import dapr_agents.storage.daprstores.statestore as statestore
 
@@ -166,18 +153,13 @@ def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     # Test the mocked MCP tool (add) with DurableAgent
     instance_id = "test-instance-123"
 
-    # Use AgentWorkflowEntry for state setup
     entry = AgentWorkflowEntry(
-        input_value="What is 2 plus 2?",
         source=None,
         triggering_workflow_instance_id=None,
-        workflow_instance_id=instance_id,
-        workflow_name="AgenticWorkflow",
-        status="RUNNING",
         messages=[],
         tool_history=[],
     )
-    durable_agent_with_mcp_tool._state_model.instances[instance_id] = entry
+    durable_agent_with_mcp_tool._infra._state_model = entry
 
     # Print available tool names for debugging
     tool_names = [t.name for t in durable_agent_with_mcp_tool.tool_executor.tools]
@@ -192,7 +174,7 @@ def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
 
     # Call run_tool activity with new signature (ctx, payload)
     with (
-        patch.object(durable_agent_with_mcp_tool, "load_state"),
+        patch.object(durable_agent_with_mcp_tool._infra, "load_state"),
         patch.object(durable_agent_with_mcp_tool, "save_state"),
     ):
         result = durable_agent_with_mcp_tool.run_tool(
@@ -282,18 +264,13 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
     )
 
     instance_id = "test-instance-456"
-    # Use AgentWorkflowEntry for state setup
     entry = AgentWorkflowEntry(
-        input_value="What is 2 plus 2?",
         source=None,
         triggering_workflow_instance_id=None,
-        workflow_instance_id=instance_id,
-        workflow_name="AgenticWorkflow",
-        status="RUNNING",
         messages=[],
         tool_history=[],
     )
-    agent._state_model.instances[instance_id] = entry
+    agent._infra._state_model = entry
 
     # Print available tool names
     tool_names = [t.name for t in agent.tool_executor.tools]
@@ -311,7 +288,10 @@ async def test_durable_agent_with_real_server_http(start_math_server_http):
     # so when called from an async test context, we need to run it in a thread
     import asyncio
 
-    with patch.object(agent, "load_state"), patch.object(agent, "save_state"):
+    with (
+        patch.object(agent._infra, "load_state"),
+        patch.object(agent, "save_state"),
+    ):
         result = await asyncio.to_thread(
             agent.run_tool,
             mock_ctx,

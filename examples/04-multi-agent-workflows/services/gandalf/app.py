@@ -61,7 +61,6 @@ async def main() -> None:
     gandalf_memory = AgentMemoryConfig(
         store=ConversationDaprStateMemory(
             store_name="memorystore",
-            session_id=f"{gandalf_name}-session",
         )
     )
     gandalf_profile = AgentProfileConfig(

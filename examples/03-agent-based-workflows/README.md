@@ -13,7 +13,7 @@ This quickstart demonstrates how to orchestrate agentic tasks using Dapr Workflo
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -72,7 +72,7 @@ Remove-Item -Recurse -Force $temp_resources_folder
 
 ### Option 2: Direct Component Configuration
 
-You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
+You can directly update the `key` in [resources/openai.yaml](resources/openai.yaml):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -136,7 +136,7 @@ Workflow Overview
 Run
 
 ```bash
-uv run dapr run --app-id dapr-agent-planner --resources-path components/ -- python 01_sequential_workflow.py
+uv run dapr run --app-id dapr-agent-planner --resources-path resources/ -- python 01_sequential_workflow.py
 ```
 
 How It Works

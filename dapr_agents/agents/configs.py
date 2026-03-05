@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from os import getenv
 from enum import StrEnum
@@ -16,14 +17,22 @@ from typing import (
     Union,
 )
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from dapr_agents.agents.schemas import AgentWorkflowMessage, AgentWorkflowState
+from dapr_agents.agents.schemas import (
+    AgentWorkflowEntry,
+    AgentWorkflowMessage,
+)
 
 from dapr_agents.memory import ConversationListMemory, MemoryBase
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 
 _JINJA_PLACEHOLDER_PATTERN = re.compile(r"(?<!\{)\{\s*(\w+)\s*\}(?!\})")
+
+# JSON Schema export constants
+_JSON_SCHEMA_KEY = "$schema"
+_JSON_SCHEMA_DRAFT_URL = "https://json-schema.org/draft/2020-12/schema"
+_JSON_SCHEMA_VERSION_KEY = "version"
 
 
 def _ensure_jinja_placeholders(text: str) -> str:
@@ -45,27 +54,24 @@ class StateModelBundle:
     """
     Bundled state schema configuration for an agent/orchestrator type.
 
-    Encapsulates the state and message model classes along with their
-    associated factory/coercer hooks. This is an internal abstraction
-    used by AgentStateConfig to ensure only vetted schemas are used.
+    With one-key-per-workflow, each state store key holds a single workflow
+    entry (entry_model_cls). This bundle identifies that type and related hooks.
 
     Attributes:
-        state_model_cls: Root Pydantic model class for the state.
+        entry_model_cls: Pydantic model class for one workflow's state (per key).
         message_model_cls: Pydantic model class for workflow/system messages.
         entry_factory: Optional factory to create workflow entry instances.
         message_coercer: Optional function to transform message dicts.
-        entry_container_getter: Optional function to locate the instance container.
     """
 
-    state_model_cls: Type[BaseModel]
+    entry_model_cls: Type[BaseModel]
     message_model_cls: Type[BaseModel]
     entry_factory: Optional[EntryFactory] = None
     message_coercer: Optional[MessageCoercer] = None
-    entry_container_getter: Optional[EntryContainerGetter] = None
 
 
 DEFAULT_AGENT_WORKFLOW_BUNDLE = StateModelBundle(
-    state_model_cls=AgentWorkflowState,
+    entry_model_cls=AgentWorkflowEntry,
     message_model_cls=AgentWorkflowMessage,
 )
 
@@ -119,12 +125,11 @@ class AgentStateConfig:
 
     store: "StateStoreService"
     default_state: Optional[Dict[str, Any] | BaseModel] = None
-    state_key: Optional[str] = None
+    state_key_prefix: Optional[str] = None
 
     # Hook overrides (optional - bundle provides defaults)
     entry_factory: Optional[EntryFactory] = None
     message_coercer: Optional[MessageCoercer] = None
-    entry_container_getter: Optional[EntryContainerGetter] = None
 
     # Internal: schema bundle (injected by agent/orchestrator class)
     _state_model_bundle: Optional[StateModelBundle] = field(
@@ -144,29 +149,24 @@ class AgentStateConfig:
         if self._state_model_bundle is not None:
             # Already set - verify it matches
             if (
-                self._state_model_bundle.state_model_cls != bundle.state_model_cls
+                self._state_model_bundle.entry_model_cls != bundle.entry_model_cls
                 or self._state_model_bundle.message_model_cls
                 != bundle.message_model_cls
             ):
                 raise RuntimeError(
                     f"State config already wired with "
-                    f"{self._state_model_bundle.state_model_cls.__name__} schema. "
-                    f"Cannot inject {bundle.state_model_cls.__name__} schema."
+                    f"{self._state_model_bundle.entry_model_cls.__name__} schema. "
+                    f"Cannot inject {bundle.entry_model_cls.__name__} schema."
                 )
             return  # Same bundle, no-op
 
         # Merge user hooks with bundle defaults
         self._state_model_bundle = StateModelBundle(
-            state_model_cls=bundle.state_model_cls,
+            entry_model_cls=bundle.entry_model_cls,
             message_model_cls=bundle.message_model_cls,
             entry_factory=self.entry_factory or bundle.entry_factory,
             message_coercer=self.message_coercer or bundle.message_coercer,
-            entry_container_getter=self.entry_container_getter
-            or bundle.entry_container_getter,
         )
-
-        # Normalize default_state against the bundle's state model
-        self._normalize_default_state()
 
     def get_state_model_bundle(self) -> StateModelBundle:
         """
@@ -185,21 +185,75 @@ class AgentStateConfig:
             )
         return self._state_model_bundle
 
-    def _normalize_default_state(self) -> None:
-        """Normalize default_state against bundle's schema."""
-        if self._state_model_bundle is None:
-            return  # Can't normalize without bundle
 
-        Model = self._state_model_bundle.state_model_cls
-        if self.default_state is None:
-            self.default_state = Model().model_dump(mode="json")
-        else:
-            if isinstance(self.default_state, BaseModel):
-                self.default_state = self.default_state.model_dump(mode="json")
-            else:
-                self.default_state = Model.model_validate(
-                    self.default_state
-                ).model_dump(mode="json")
+@dataclass(frozen=True)
+class ConfigFieldDescriptor:
+    """Describes how a configuration key maps to an agent attribute.
+
+    Attributes:
+        target_type: Expected Python type for the coerced value.
+        setter: Callable ``(agent, value) -> None`` that applies the value.
+        sensitive: If ``True``, the value is redacted in log output.
+        validator: Optional callable to validate/transform the coerced value.
+        rebuilds_prompt: If ``True``, the prompt template is rebuilt after update.
+    """
+
+    target_type: Type
+    setter: Callable[..., None]
+    sensitive: bool = False
+    validator: Optional[Callable[..., Any]] = None
+    rebuilds_prompt: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Built-in validators for ConfigFieldDescriptor
+# ---------------------------------------------------------------------------
+
+_config_logger = logging.getLogger(__name__)
+
+
+def validate_non_empty_string(v: str) -> str:
+    """Reject empty or whitespace-only strings."""
+    if not v or not v.strip():
+        raise ValueError("Value must not be empty")
+    return v.strip()
+
+
+def validate_max_iterations(v: int) -> int:
+    """Ensure max_iterations is at least 1."""
+    if v < 1:
+        raise ValueError(f"max_iterations must be >= 1, got {v}")
+    return v
+
+
+def validate_tool_choice(v: str) -> str:
+    """Warn if tool_choice is non-standard, but allow it."""
+    allowed = {"auto", "none", "required"}
+    if v.lower() not in allowed:
+        _config_logger.warning(
+            "tool_choice '%s' not in standard set %s; allowing anyway.", v, allowed
+        )
+    return v
+
+
+@dataclass
+class RuntimeSubscriptionConfig:
+    """Configuration for subscribing to a Dapr Configuration Store at runtime.
+
+    Attributes:
+        store_name: Name of the Dapr configuration store component.
+        default_key: Fallback key used when ``keys`` is empty (defaults to agent name).
+        keys: Optional list of keys to subscribe to.
+        metadata: Optional metadata for the configuration subscription.
+        on_config_change: Optional callback invoked after each successful config update.
+            Receives the normalized key and coerced value.
+    """
+
+    store_name: str
+    default_key: Optional[str] = None
+    keys: List[str] = field(default_factory=list)
+    metadata: Dict[str, str] = field(default_factory=dict)
+    on_config_change: Optional[Callable[[str, Any], None]] = None
 
 
 @dataclass
@@ -318,6 +372,35 @@ class WorkflowRetryPolicy:
     retry_timeout: Optional[Union[int, None]] = None
 
 
+class RuntimeConfigKey(StrEnum):
+    """Supported keys for runtime configuration hot-reload.
+
+    All profile keys use the ``agent_`` prefix to avoid ambiguity.
+    Execution, LLM, and component keys are unprefixed.
+    """
+
+    # Profile fields
+    AGENT_ROLE = "agent_role"
+    AGENT_GOAL = "agent_goal"
+    AGENT_INSTRUCTIONS = "agent_instructions"
+    AGENT_SYSTEM_PROMPT = "agent_system_prompt"
+    AGENT_STYLE_GUIDELINES = "agent_style_guidelines"
+
+    # Execution fields
+    MAX_ITERATIONS = "max_iterations"
+    TOOL_CHOICE = "tool_choice"
+
+    # LLM fields
+    LLM_API_KEY = "llm_api_key"
+    LLM_PROVIDER = "llm_provider"
+    LLM_MODEL = "llm_model"
+
+    # Component references
+    AGENT_WORKFLOW = "agent_workflow"
+    AGENT_REGISTRY = "agent_registry"
+    AGENT_MEMORY = "agent_memory"
+
+
 class AgentTracingExporter(StrEnum):
     """
     Supported tracing exporters for Dapr Agents observability.
@@ -368,28 +451,44 @@ class AgentObservabilityConfig:
 
     @classmethod
     def from_env(cls) -> "AgentObservabilityConfig":
-        """Create observability config from environment variables."""
+        """Create observability config from standard OTEL environment variables.
+
+        Uses standard OpenTelemetry env var names where available:
+        - OTEL_SDK_DISABLED (inverted: disabled != "true" means enabled)
+        - OTEL_EXPORTER_OTLP_ENDPOINT
+        - OTEL_EXPORTER_OTLP_HEADERS (parses "Authorization=<token>" format)
+        - OTEL_SERVICE_NAME
+        - OTEL_TRACES_EXPORTER
+        - OTEL_LOGS_EXPORTER
+        - OTEL_TRACING_ENABLED (custom, no standard equivalent)
+        - OTEL_LOGGING_ENABLED (custom, no standard equivalent)
+        """
         headers: Dict[str, str] = {}
-        if token := getenv("OTEL_TOKEN"):
-            headers["Authorization"] = token
+        raw_headers = getenv("OTEL_EXPORTER_OTLP_HEADERS")
+        if raw_headers:
+            for pair in raw_headers.split(","):
+                pair = pair.strip()
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    headers[k.strip()] = v.strip()
 
         logging_exporter: Optional[AgentLoggingExporter] = None
-        if logging_exporter_str := getenv("OTEL_LOGGING_EXPORTER"):
+        if logging_exporter_str := getenv("OTEL_LOGS_EXPORTER"):
             try:
                 logging_exporter = AgentLoggingExporter(logging_exporter_str)
             except (ValueError, KeyError):
                 logging_exporter = AgentLoggingExporter.CONSOLE
 
         tracing_exporter: Optional[AgentTracingExporter] = None
-        if tracing_exporter_str := getenv("OTEL_TRACING_EXPORTER"):
+        if tracing_exporter_str := getenv("OTEL_TRACES_EXPORTER"):
             try:
                 tracing_exporter = AgentTracingExporter(tracing_exporter_str)
             except (ValueError, KeyError):
                 tracing_exporter = AgentTracingExporter.CONSOLE
 
         enabled: Optional[bool] = None
-        if getenv("OTEL_ENABLED") is not None:
-            enabled = getenv("OTEL_ENABLED", "false").lower() == "true"
+        if getenv("OTEL_SDK_DISABLED") is not None:
+            enabled = getenv("OTEL_SDK_DISABLED", "false").lower() != "true"
 
         logging_enabled: Optional[bool] = None
         if getenv("OTEL_LOGGING_ENABLED") is not None:
@@ -402,10 +501,163 @@ class AgentObservabilityConfig:
         return cls(
             enabled=enabled,
             headers=headers,
-            endpoint=getenv("OTEL_ENDPOINT"),
+            endpoint=getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
             service_name=getenv("OTEL_SERVICE_NAME"),
             logging_enabled=logging_enabled,
             logging_exporter=logging_exporter,
             tracing_enabled=tracing_enabled,
             tracing_exporter=tracing_exporter,
         )
+
+
+class AgentMetadata(BaseModel):
+    """Metadata about an agent's configuration and capabilities."""
+
+    appid: str = Field(
+        ...,
+        description="Dapr application ID (APP_ID) of the sidecar; may differ from the agent name",
+    )
+    type: str = Field(..., description="Type of the agent (e.g., standalone, durable)")
+    orchestrator: bool = Field(
+        False, description="Indicates if the agent is an orchestrator"
+    )
+    role: Optional[str] = Field(default=None, description="Role of the agent")
+    goal: Optional[str] = Field(
+        default=None, description="High-level objective of the agent"
+    )
+    instructions: Optional[List[str]] = Field(
+        default=None, description="Instructions for the agent"
+    )
+    system_prompt: Optional[str] = Field(
+        default=None, description="System prompt guiding the agent's behavior"
+    )
+    framework: Optional[str] = Field(
+        default=None, description="Framework or library the agent is built with"
+    )
+    max_iterations: Optional[int] = Field(
+        default=None, description="Maximum iterations for agent execution"
+    )
+    tool_choice: Optional[str] = Field(default=None, description="Tool choice strategy")
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None, description="Additional user-supplied metadata about the agent"
+    )
+
+
+class PubSubMetadata(BaseModel):
+    """Pub/Sub configuration information."""
+
+    resource_name: str = Field(..., description="Pub/Sub component name")
+    broadcast_topic: Optional[str] = Field(
+        default=None, description="Pub/Sub topic for broadcasting messages"
+    )
+    agent_topic: Optional[str] = Field(
+        default=None, description="Pub/Sub topic for direct agent messages"
+    )
+
+
+class MemoryStoreMetadata(BaseModel):
+    """Metadata about a single memory backing store."""
+
+    type: str = Field(..., description="Implementation class name")
+    resource_name: Optional[str] = Field(
+        default=None, description="Dapr resource name for this store"
+    )
+
+
+class MemoryMetadata(BaseModel):
+    """Memory configuration information."""
+
+    short_term: Optional[MemoryStoreMetadata] = Field(
+        default=None, description="Short-term workflow state store"
+    )
+    long_term: Optional[MemoryStoreMetadata] = Field(
+        default=None, description="Long-term conversation memory store"
+    )
+
+
+class LLMMetadata(BaseModel):
+    """LLM configuration information."""
+
+    client: str = Field(..., description="LLM client used by the agent")
+    provider: str = Field(..., description="LLM provider used by the agent")
+    api: str = Field(default="unknown", description="API type used by the LLM client")
+    model: str = Field(default="unknown", description="Model name or identifier")
+    resource_name: Optional[str] = Field(
+        default=None, description="Dapr resource name for the LLM client"
+    )
+    base_url: Optional[str] = Field(
+        default=None, description="Base URL for the LLM API if applicable"
+    )
+    azure_endpoint: Optional[str] = Field(
+        default=None, description="Azure endpoint if using Azure OpenAI"
+    )
+    azure_deployment: Optional[str] = Field(
+        default=None, description="Azure deployment name if using Azure OpenAI"
+    )
+    prompt_template: Optional[str] = Field(
+        default=None, description="Prompt template used by the agent"
+    )
+
+
+class ToolMetadata(BaseModel):
+    """Metadata about a tool available to the agent."""
+
+    name: str = Field(..., description="Name of the tool")
+    description: str = Field(..., description="Description of the tool's functionality")
+    args: str = Field(..., description="Arguments for the tool")
+
+
+class RegistryMetadata(BaseModel):
+    """Registry configuration information."""
+
+    resource_name: Optional[str] = Field(
+        None,
+        description="Dapr resource name backing the registry (e.g. state store component)",
+    )
+    name: Optional[str] = Field(
+        default=None, description="Logical team name the agent is registered under"
+    )
+
+
+class AgentMetadataSchema(BaseModel):
+    """Schema for agent metadata including schema version."""
+
+    version: str = Field(
+        ...,
+        description="Version of the schema used for the agent metadata.",
+    )
+    agent: AgentMetadata = Field(
+        ..., description="Agent configuration and capabilities"
+    )
+    name: str = Field(
+        ...,
+        description="Logical agent name used as the registry key; distinct from agent.appid",
+    )
+    registered_at: str = Field(..., description="ISO 8601 timestamp of registration")
+    pubsub: Optional[PubSubMetadata] = Field(
+        None, description="Pub/sub configuration if enabled"
+    )
+    memory: Optional[MemoryMetadata] = Field(
+        None, description="Memory configuration if enabled"
+    )
+    llm: Optional[LLMMetadata] = Field(None, description="LLM configuration")
+    registry: Optional[RegistryMetadata] = Field(
+        None, description="Registry configuration"
+    )
+    tools: Optional[List[ToolMetadata]] = Field(None, description="Available tools")
+
+    @classmethod
+    def export_json_schema(cls, version: str) -> Dict[str, Any]:
+        """
+        Export the JSON schema with version information.
+
+        Args:
+            version: The dapr-agents version for this schema
+
+        Returns:
+            JSON schema dictionary with metadata
+        """
+        schema = cls.model_json_schema()
+        schema[_JSON_SCHEMA_KEY] = _JSON_SCHEMA_DRAFT_URL
+        schema[_JSON_SCHEMA_VERSION_KEY] = version
+        return schema

@@ -8,7 +8,7 @@ from typing import Any, Dict
 import requests
 
 BASE_URL = os.getenv("WORKFLOW_BASE_URL", "http://localhost:8004")
-ENTRY_PATH = os.getenv("WORKFLOW_ENTRY_PATH", "/run")
+ENTRY_PATH = os.getenv("WORKFLOW_ENTRY_PATH", "/agent/run")
 TASK_PROMPT = os.getenv(
     "WORKFLOW_TASK", "How do we get everyone to Mordor? We all need to help!"
 )

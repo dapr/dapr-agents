@@ -12,7 +12,7 @@ This quickstart demonstrates how to build a simple agent that uses tools exposed
 
 ```bash
 uv venv
-# Activate the virtual environment 
+# Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
 # On macOS/Linux:
@@ -22,7 +22,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart ships with component templates under `components/`. They include:
+The quickstart ships with component templates under `resources/`. They include:
 
 - `openai.yaml` for LLM access
 - Redis-backed state stores (`agentstatestore`, `agentregistrystore`, `conversationstore`, `workflowstatestore`)
@@ -51,7 +51,7 @@ rm -rf "$temp_resources_folder"
 
 ### Option 2: Direct Component Configuration
 
-Edit `components/openai.yaml` and replace the `value` for `name: key` with your API key. Avoid committing secrets back to source control.
+Edit `resources/openai.yaml` and replace the `value` for `name: key` with your API key. Avoid committing secrets back to source control.
 
 ### Additional Components
 
@@ -83,7 +83,7 @@ Set up the server for your MCP tools in `server.py`.
 
 1. Connect to the MCP server via streamable HTTP, fetch tools, and close the client.
 2. Configure a `DurableAgent` with pub/sub, memory, registry, and workflow state stores.
-3. Host the agent with `AgentRunner.serve(agent, port=8001)` so `/run` is exposed automatically.
+3. Host the agent with `AgentRunner.serve(agent, port=8001)` so `/agent/run` is exposed automatically.
 
 ### Running the Example
 
@@ -108,7 +108,7 @@ rm -rf "$temp_resources_folder"
 3. Send a test request to the agent:
 
 ```bash
-curl -X POST http://localhost:8001/run \
+curl -X POST http://localhost:8001/agent/run \
   -H "Content-Type: application/json" \
   -d '{"task": "What is the weather in New York?"}'
 ```

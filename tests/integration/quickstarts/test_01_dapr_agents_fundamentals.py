@@ -31,7 +31,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="llm-client",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -57,7 +57,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-llm",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -83,7 +83,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-llm",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -103,7 +103,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-mcp",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -127,7 +127,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-memory",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -154,9 +154,9 @@ class TestHelloWorldQuickstart:
             use_dapr=True,
             app_id="durable-agent",
             app_port=8001,
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
             trigger_curl={
-                "url": "http://localhost:8001/run",
+                "url": "http://localhost:8001/agent/run",
                 "method": "POST",
                 "data": {"task": "What is the weather in London?"},
                 "headers": {"Content-Type": "application/json"},
@@ -186,7 +186,7 @@ class TestHelloWorldQuickstart:
             use_dapr=True,
             app_id="durable-agent-sub",
             dapr_http_port=3500,
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
             trigger_pubsub={
                 "pubsub_name": "message-pubsub",
                 "topic": "weather.requests",
@@ -216,7 +216,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="workflow-llms",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -249,15 +249,15 @@ class TestHelloWorldQuickstart:
 
         assert result.returncode == 0, (
             f"Quickstart script '{dapr_yaml}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
+            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
-        assert len(result.stdout) > 0 or len(result.stderr) > 0
-        # Verify workflow completed successfully
+        combined = (result.stdout or "") + (result.stderr or "")
         assert (
-            "Workflow started:" in result.stdout
-            or "Recommendation" in result.stdout
-            or "Final Recommendation" in result.stdout
+            "Workflow started:" in combined
+            or "Recommendation" in combined
+            or "Final Recommendation" in combined
+        ), (
+            f"Expected workflow output in combined stdout+stderr. Got: {combined[:500]!r}..."
         )
 
     def test_10_durable_agent_tracing(self, dapr_runtime):  # noqa: ARG002
@@ -270,7 +270,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="durable-agent-trace",
-            resources_path=self.quickstart_dir / "components",
+            resources_path=self.quickstart_dir / "resources",
         )
 
         assert result.returncode == 0, (

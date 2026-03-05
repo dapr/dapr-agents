@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import logging
 import signal
-import sys
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
