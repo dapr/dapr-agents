@@ -218,6 +218,19 @@ This example demonstrates how to build resilient, stateful workflows that levera
 
 [Go to Agents as Activities in Workflows with Observability](./08-agents-as-activities-observability)
 
+### Durable Agent Hot-Reload
+
+Dynamically update a running agent's persona and settings without restarting, using the Dapr Configuration API:
+
+- **Configuration Subscription**: Subscribe to a Dapr configuration store for real-time updates
+- **Profile Hot-Reload**: Update role, goal, instructions, and system prompt at runtime
+- **LLM Hot-Reload**: Swap API keys, providers, or models without downtime
+- **Component Hot-Reload**: Change state store, registry, or memory store references on the fly
+
+This example demonstrates how to build an agent that reacts to configuration changes streamed from a backing store (e.g. Redis), enabling zero-downtime persona and setting updates.
+
+[Go to Durable Agent Hot-Reload](./09-durable-agent-hot-reload)
+
 ### Contributing to Dapr Agents Examples
 
 Please refer to our [Dapr Community Code of Conduct](https://github.com/dapr/community/blob/master/CODE-OF-CONDUCT.md)
