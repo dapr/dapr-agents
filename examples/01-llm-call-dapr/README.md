@@ -48,7 +48,7 @@ spec:
 
 Run the basic text completion example:
 ```bash
-uv run dapr run --app-id dapr-llm --resources-path ./components -- python text_completion.py
+uv run dapr run --app-id dapr-llm --resources-path ./resources -- python text_completion.py
 ```
 
 The script uses the `DaprChatClient` which connects to Dapr's `echo` LLM component:
@@ -100,7 +100,7 @@ Now, let's switch to using OpenAI by changing just the environment variable in t
 DAPR_LLM_COMPONENT_DEFAULT=openai
 ```
 
-The OpenAI component configuration is in `components/openai.yaml`. You have two options to configure your API key:
+The OpenAI component configuration is in `resources/openai.yaml`. You have two options to configure your API key:
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -148,7 +148,7 @@ Note: The temporary resources folder will be automatically deleted when the Dapr
 
 ### Option 2: Direct Component Configuration
 
-You can directly update the `key` in [components/openai.yaml](components/openai.yaml):
+You can directly update the `key` in [resources/openai.yaml](resources/openai.yaml):
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -172,7 +172,7 @@ Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, 
 Run the application the same way as before:
 
 ```bash
-uv run dapr run --app-id dapr-llm --resources-path components/ -- python text_completion.py
+uv run dapr run --app-id dapr-llm --resources-path resources/ -- python text_completion.py
 ```
 
 **Expected output:** The OpenAI component will respond with a different reply to each prompt.
@@ -180,7 +180,7 @@ uv run dapr run --app-id dapr-llm --resources-path components/ -- python text_co
 **How It Works:**
 1. Dapr starts, loading all resources from the `components` folder.
 2. The client application retrieves the `DAPR_LLM_COMPONENT_DEFAULT` environment variable and uses it to communicate with Dapr's `openai` component.
-3. The component defined in `components/openai.yaml` talks to OpenAI APIs.
+3. The component defined in `resources/openai.yaml` talks to OpenAI APIs.
 4. The application prints the output returned from OpenAI
 
 ### 3. Simulating Failure with AWS BedRock
@@ -193,7 +193,7 @@ First, set the environment variable to use the AWS Bedrock component:
 DAPR_LLM_COMPONENT_DEFAULT=awsbedrock
 ```
 
-Create an AWS Bedrock component configuration in `components/awsbedrock.yaml`:
+Create an AWS Bedrock component configuration in `resources/awsbedrock.yaml`:
 
 ```yaml
 apiVersion: dapr.io/v1alpha1
@@ -213,7 +213,7 @@ spec:
 
 This component is configured to connect to a local endpoint that simulates AWS services. It will intentionally fail since we don't have a real AWS Bedrock service running locally.
 
-Configure resiliency policies in `components/resiliency.yaml`:
+Configure resiliency policies in `resources/resiliency.yaml`:
 
 ```yaml
 apiVersion: dapr.io/v1alpha1
@@ -242,7 +242,7 @@ This resiliency configuration applies only to the `awsbedrock` component and set
 Run the application the same way as before:
 
 ```bash
-uv run dapr run --app-id dapr-llm --resources-path components/ -- python text_completion.py
+uv run dapr run --app-id dapr-llm --resources-path resources/ -- python text_completion.py
 ```
 
 When you run this, you'll see output showing Dapr's retry mechanism in action:
@@ -276,7 +276,7 @@ By using Dapr components for LLM interactions, you gain flexibility, modularity,
 
 1. **Environment Variable Issues**: Check that `DAPR_LLM_COMPONENT_DEFAULT` is set correctly
 2. **Component Not Found**: Ensure the component yaml files are in the `components` directory
-3. **Authentication Errors**: Verify your OpenAI API key is correctly set in the `components/openai.yaml` file
+3. **Authentication Errors**: Verify your OpenAI API key is correctly set in the `resources/openai.yaml` file
 
 ## Next Steps
 

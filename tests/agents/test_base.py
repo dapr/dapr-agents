@@ -398,3 +398,38 @@ class TestAgentBaseClass:
             llm=mock_llm_client,
         )
         assert agent.execution.max_iterations == 5
+
+    # ------------------------------------------------------------------
+    # purge() tests
+    # ------------------------------------------------------------------
+
+    def test_purge_calls_infra_and_memory(self, basic_agent):
+        """purge() must delegate to both purge_state and purge_memory."""
+        basic_agent._infra = Mock()
+        basic_agent.memory = Mock()
+
+        basic_agent.purge("wf-abc")
+
+        basic_agent._infra.purge_state.assert_called_once_with("wf-abc")
+        basic_agent.memory.purge_memory.assert_called_once_with("wf-abc")
+
+    def test_purge_without_memory_only_calls_purge_state(self, basic_agent):
+        """purge() must not error when memory is None and still purge state."""
+        basic_agent._infra = Mock()
+        basic_agent.memory = None
+
+        basic_agent.purge("wf-no-mem")
+
+        basic_agent._infra.purge_state.assert_called_once_with("wf-no-mem")
+
+    def test_purge_memory_failure_does_not_raise(self, basic_agent):
+        """purge() must continue and not raise when memory.purge_memory() fails."""
+        basic_agent._infra = Mock()
+        basic_agent.memory = Mock()
+        basic_agent.memory.purge_memory.side_effect = RuntimeError("store unavailable")
+
+        # Should not raise even though memory.purge_memory raises
+        basic_agent.purge("wf-mem-fail")
+
+        # Infra purge still ran
+        basic_agent._infra.purge_state.assert_called_once_with("wf-mem-fail")

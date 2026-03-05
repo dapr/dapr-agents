@@ -326,9 +326,14 @@ class DaprInfra:
 
     def purge_state(self, workflow_instance_id: str) -> None:
         """
-        Permanently delete workflow state for the given instance from the state store as well as its long-term conversation memory (summaries).
+        Permanently delete workflow state for the given instance from the state store.
 
-        No-op when no state store is configured.
+        No-op when no state store is configured.  Failures are logged as warnings
+        and not re-raised so that callers can continue with other cleanup steps.
+
+        Note: This method only removes workflow state.  To also purge long-term
+        conversation memory use AgentBase.purge() / LLMOrchestratorBase.purge(),
+        which coordinate both workflow-state and memory cleanup in a single call.
 
         Args:
             workflow_instance_id: Workflow instance id whose state should be removed.
