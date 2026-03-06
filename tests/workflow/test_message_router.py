@@ -1,6 +1,6 @@
 import asyncio
 import pytest
-from typing import Union, Optional
+from typing import Union, Optional, List
 from dataclasses import dataclass
 from unittest.mock import MagicMock
 from pydantic import BaseModel, Field
@@ -13,6 +13,33 @@ from dapr_agents.workflow.utils.routers import (
     parse_cloudevent,
 )
 from dapr_agents.workflow.utils.registration import register_message_routes
+
+
+def create_mock_dapr_client(pubsub_names: List[str]) -> MagicMock:
+    """
+    Create a mock DaprClient with specified pubsub components registered.
+
+    Args:
+        pubsub_names: List of pubsub component names to register in the mock.
+
+    Returns:
+        A MagicMock configured to return the pubsub components in get_metadata.
+    """
+    mock_client = MagicMock()
+    mock_client.subscribe_with_handler.return_value = MagicMock()
+
+    # Set up get_metadata to return the pubsub components
+    mock_metadata = MagicMock()
+    components = []
+    for name in pubsub_names:
+        component = MagicMock()
+        component.type = "pubsub.redis"
+        component.name = name
+        components.append(component)
+    mock_metadata.registered_components = components
+    mock_client.get_metadata.return_value = mock_metadata
+
+    return mock_client
 
 
 # Test Models
@@ -525,8 +552,7 @@ def test_message_router_with_class_method():
 
 def test_register_message_handlers_discovers_standalone_function():
     """Test that standalone decorated functions are discovered."""
-    mock_client = MagicMock()
-    mock_client.subscribe_with_handler.return_value = MagicMock()
+    mock_client = create_mock_dapr_client(["messagepubsub"])
 
     @message_router(pubsub="messagepubsub", topic="orders")
     def handle_order(message: OrderCreated):
@@ -553,8 +579,7 @@ def test_register_message_handlers_discovers_standalone_function():
 
 def test_register_message_handlers_discovers_class_methods():
     """Test that decorated methods in class instances are discovered."""
-    mock_client = MagicMock()
-    mock_client.subscribe_with_handler.return_value = MagicMock()
+    mock_client = create_mock_dapr_client(["messagepubsub"])
 
     class OrderHandler:
         @message_router(pubsub="messagepubsub", topic="orders.created")
@@ -589,8 +614,7 @@ def test_register_message_handlers_discovers_class_methods():
 
 def test_register_message_handlers_ignores_undecorated_methods():
     """Test that methods without @message_router are ignored."""
-    mock_client = MagicMock()
-    mock_client.subscribe_with_handler.return_value = MagicMock()
+    mock_client = create_mock_dapr_client(["messagepubsub"])
 
     class MixedHandler:
         @message_router(pubsub="messagepubsub", topic="orders")
@@ -617,8 +641,7 @@ def test_register_message_handlers_ignores_undecorated_methods():
 
 def test_register_message_handlers_handles_multiple_targets():
     """Test registering multiple targets (functions and instances)."""
-    mock_client = MagicMock()
-    mock_client.subscribe_with_handler.return_value = MagicMock()
+    mock_client = create_mock_dapr_client(["messagepubsub"])
 
     @message_router(pubsub="messagepubsub", topic="orders")
     def standalone_handler(message: OrderCreated):
@@ -647,8 +670,7 @@ def test_register_message_handlers_handles_multiple_targets():
 
 def test_register_message_handlers_returns_closers():
     """Test that closer functions are returned for each subscription."""
-    mock_client = MagicMock()
-    mock_client.subscribe_with_handler.return_value = MagicMock()
+    mock_client = create_mock_dapr_client(["messagepubsub"])
 
     @message_router(pubsub="messagepubsub", topic="orders.created")
     def handle_created(message: OrderCreated):
