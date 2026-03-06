@@ -41,6 +41,11 @@ class TriggerAction(BaseModel):
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
     )
+    # Let incoming triggers carry response_format hints so we can forward them through the workflow.
+    response_format: Optional[Any] = Field(
+        default=None,
+        description="Optional response_format payload forwarded through the agent request (surfaces to the conversation API).",
+    )
 
 
 class AgentWorkflowMessage(MessageContent):

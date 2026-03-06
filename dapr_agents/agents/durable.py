@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import timedelta
 import json
 import logging
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Type
 from os import getenv
+
+from pydantic import BaseModel as _BaseModel
 
 import dapr.ext.workflow as wf
 
@@ -101,6 +103,7 @@ class DurableAgent(AgentBase):
         tools: Optional[Iterable[Any]] = None,
         # Behavior / execution
         execution: Optional[AgentExecutionConfig] = None,
+        response_format: Optional[Type] = None,
         # Misc
         agent_metadata: Optional[Dict[str, Any]] = None,
         workflow_grpc: Optional[WorkflowGrpcOptions] = None,
@@ -139,6 +142,11 @@ class DurableAgent(AgentBase):
             retry_policy: Durable retry policy configuration.
             agent_observability: Observability configuration for tracing/logging.
             configuration: Optional configuration store settings for hot-reloading.
+            response_format: Optional Pydantic BaseModel subclass. When provided,
+                the final LLM call (the turn with no tool_calls) will produce a
+                structured response conforming to this schema. Intermediate
+                tool-calling turns are not affected. Structured output is
+                JSON-serialized into the message's 'content' field.
         """
         # Mark orchestrators to filtered out when other orchestrators query for available agents
         if execution and execution.orchestration_mode:
@@ -174,6 +182,17 @@ class DurableAgent(AgentBase):
         self._runtime_owned = runtime is None
         self._registered = False
         self._started = False
+
+        if response_format is not None:
+            if not (
+                isinstance(response_format, type)
+                and issubclass(response_format, _BaseModel)
+            ):
+                raise TypeError(
+                    f"response_format must be a Pydantic BaseModel subclass, "
+                    f"got {type(response_format)!r}"
+                )
+        self._response_format: Optional[type] = response_format
 
         try:
             retries = int(getenv("DAPR_API_MAX_RETRIES", ""))
@@ -262,6 +281,7 @@ class DurableAgent(AgentBase):
         """
         task = message.get("task")
         metadata = message.get("_message_metadata", {}) or {}
+        user_response_format = message.get("response_format")
 
         # Propagate OTel/parent workflow relations if present.
         otel_span_context = message.get("_otel_span_context")
@@ -409,6 +429,41 @@ class DurableAgent(AgentBase):
         except Exception as exc:  # noqa: BLE001
             logger.exception("Agent %s workflow failed: %s", self.name, exc)
             final_message = {"role": "assistant", "content": f"Error: {str(exc)}"}
+
+        # If a user response_format was configured and the agent produced a genuine
+        # final answer (not an error or max-iteration fallback), re-invoke the LLM
+        # over the completed history to produce a structured response. This is the
+        # only place the user's response_format is applied; intermediate tool-calling
+        # turns are always left unstructured.
+        content_str = final_message.get("content") or ""
+        requested_response_format = user_response_format or self._response_format
+        if (
+            requested_response_format is not None
+            and not self._orchestration_strategy
+            and content_str
+            and not content_str.startswith("Error: ")
+            and not content_str.startswith("I reached the maximum")
+        ):
+            if not ctx.is_replaying:
+                logger.debug(
+                    "Agent %s applying response_format to final answer (instance=%s)",
+                    self.name,
+                    ctx.instance_id,
+                )
+            format_payload = {
+                "instance_id": ctx.instance_id,
+                "time": ctx.current_utc_datetime.isoformat(),
+            }
+            if user_response_format is not None:
+                format_payload["response_format"] = user_response_format
+            elif self._response_format is not None:
+                format_payload["response_format"] = "__user_response_format__"
+
+            final_message = yield ctx.call_activity(
+                self.format_final_response,
+                input=format_payload,
+                retry_policy=self._retry_policy,
+            )
 
         # Optionally broadcast the final message to the team.
         if self.broadcast_topic_name:
@@ -1189,20 +1244,41 @@ class DurableAgent(AgentBase):
         # TODO(@sicoyle): i think i can use the instance_id in teh ctx instead here!!
         instance_id = payload.get("instance_id")
         task = payload.get("task")
-        response_format_name = payload.get("response_format")
+        response_format_payload = payload.get("response_format")
+        no_tools = payload.get("no_tools", False)
+
+        def _describe_response_format(value: Any) -> str:
+            if value == "__user_response_format__":
+                return "agent-configured response_format"
+            if isinstance(value, type):
+                return getattr(value, "__name__", str(value))
+            if isinstance(value, (dict, list)):
+                try:
+                    return json.dumps(value)
+                except Exception:
+                    return str(value)
+            if value is None:
+                return "None"
+            return str(value)
 
         response_model = None
-        if response_format_name:
-            model_map = {
-                "IterablePlanStep": IterablePlanStep,
-                "NextStep": NextStep,
-                "ProgressCheckOutput": ProgressCheckOutput,
-            }
-            response_model = model_map.get(response_format_name)
-            if response_model is None:
-                logger.warning(
-                    "Unknown response_format '%s', ignoring", response_format_name
-                )
+        if response_format_payload is not None:
+            if response_format_payload == "__user_response_format__":
+                response_model = self._response_format
+            elif isinstance(response_format_payload, str):
+                model_map = {
+                    "IterablePlanStep": IterablePlanStep,
+                    "NextStep": NextStep,
+                    "ProgressCheckOutput": ProgressCheckOutput,
+                }
+                response_model = model_map.get(response_format_payload)
+                if response_model is None:
+                    logger.warning(
+                        "Unknown response_format '%s', ignoring",
+                        response_format_payload,
+                    )
+            else:
+                response_model = response_format_payload
 
         # Load latest workflow state to ensure we have current data
         # TODO(@sicoyle): can i remove these calls????
@@ -1231,7 +1307,7 @@ class DurableAgent(AgentBase):
                     {str(k): v for k, v in user_copy.items()}
                 )
 
-        tools = self.get_llm_tools()
+        tools = [] if no_tools else self.get_llm_tools()
         generate_kwargs = {
             "messages": messages,
             "tools": tools,
@@ -1248,12 +1324,23 @@ class DurableAgent(AgentBase):
 
         # Handle structured output response (Pydantic model) vs regular chat response
         if response_model is not None:
-            # Structured output: response is the Pydantic model itself
-            if hasattr(response, "model_dump"):
-                # Response is the structured Pydantic object
+            # Structured output: response is the Pydantic model itself (or a list)
+            if isinstance(response, list):
+                content = json.dumps(
+                    [
+                        r.model_dump() if hasattr(r, "model_dump") else r
+                        for r in response
+                    ]
+                )
+            elif hasattr(response, "model_dump"):
                 content = json.dumps(response.model_dump())
             else:
                 # Fallback: try to serialize as-is
+                logger.warning(
+                    "LLM response ignored response_format (%s) for instance %s; returning raw result.",
+                    _describe_response_format(response_format_payload),
+                    instance_id,
+                )
                 content = json.dumps(response)
 
             assistant_message = {
@@ -1273,6 +1360,47 @@ class DurableAgent(AgentBase):
             self.text_formatter.print_message(assistant_message)
         self.save_state(instance_id)
         return assistant_message
+
+    def format_final_response(
+        self,
+        ctx: wf.WorkflowActivityContext,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Re-invoke the LLM over the completed conversation history to produce
+        a structured final response conforming to the configured response_format.
+
+        Called only when self._response_format is set and the execution loop has
+        already produced a plain final answer. Passes task=None so no new user
+        message is injected — the full conversation history from state is the
+        sole input. Passes no_tools=True to prevent tool-call conflicts with
+        the structured output schema.
+
+        Args:
+            payload: Must contain 'instance_id'; may include 'time' and 'response_format'.
+
+        Returns:
+            Structured assistant message as a dict, with 'content' holding a
+            JSON-serialized representation of the Pydantic model's fields.
+        """
+        response_format = payload.get("response_format")
+
+        call_payload = {
+            "instance_id": payload.get("instance_id"),
+            "task": None,
+            "time": payload.get("time"),
+            "no_tools": True,
+        }
+
+        if response_format is not None:
+            call_payload["response_format"] = response_format
+        else:
+            # This activity is dedicated to final structured formatting.
+            # Use the sentinel by default so call_llm can resolve the
+            # agent-configured schema when present.
+            call_payload["response_format"] = "__user_response_format__"
+
+        return self.call_llm(ctx, call_payload)
 
     def run_tool(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -1764,6 +1892,7 @@ class DurableAgent(AgentBase):
         # Standard agent activities
         runtime.register_activity(self.record_initial_entry)
         runtime.register_activity(self.call_llm)
+        runtime.register_activity(self.format_final_response)
         runtime.register_activity(self.run_tool)
         runtime.register_activity(self.save_tool_results)
         runtime.register_activity(self.broadcast_message_to_agents)
