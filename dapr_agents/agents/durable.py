@@ -1394,7 +1394,10 @@ class DurableAgent(AgentBase):
 
         if response_format is not None:
             call_payload["response_format"] = response_format
-        elif self._response_format is not None:
+        else:
+            # This activity is dedicated to final structured formatting.
+            # Use the sentinel by default so call_llm can resolve the
+            # agent-configured schema when present.
             call_payload["response_format"] = "__user_response_format__"
 
         return self.call_llm(ctx, call_payload)
