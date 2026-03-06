@@ -216,6 +216,7 @@ class ConfigFieldDescriptor:
     sensitive: bool = False
     validator: Optional[Callable[..., Any]] = None
     rebuilds_prompt: bool = False
+    triggers_otel_reload: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +246,30 @@ def validate_tool_choice(v: str) -> str:
     if v.lower() not in allowed:
         _config_logger.warning(
             "tool_choice '%s' not in standard set %s; allowing anyway.", v, allowed
+        )
+    return v
+
+
+def validate_otel_exporter_tracing(v: str) -> str:
+    """Validate that the tracing exporter is a known AgentTracingExporter value."""
+    try:
+        AgentTracingExporter(v)
+    except (ValueError, KeyError):
+        raise ValueError(
+            f"Unknown tracing exporter '{v}'. "
+            f"Valid options: {[e.value for e in AgentTracingExporter]}"
+        )
+    return v
+
+
+def validate_otel_exporter_logging(v: str) -> str:
+    """Validate that the logging exporter is a known AgentLoggingExporter value."""
+    try:
+        AgentLoggingExporter(v)
+    except (ValueError, KeyError):
+        raise ValueError(
+            f"Unknown logging exporter '{v}'. "
+            f"Valid options: {[e.value for e in AgentLoggingExporter]}"
         )
     return v
 
@@ -412,6 +437,16 @@ class RuntimeConfigKey(StrEnum):
     AGENT_WORKFLOW = "agent_workflow"
     AGENT_REGISTRY = "agent_registry"
     AGENT_MEMORY = "agent_memory"
+
+    # OTel fields — match standard env var names used throughout
+    OTEL_SDK_DISABLED = "otel_sdk_disabled"
+    OTEL_EXPORTER_OTLP_ENDPOINT = "otel_exporter_otlp_endpoint"
+    OTEL_EXPORTER_OTLP_HEADERS = "otel_exporter_otlp_headers"
+    OTEL_SERVICE_NAME = "otel_service_name"
+    OTEL_TRACING_ENABLED = "otel_tracing_enabled"
+    OTEL_TRACES_EXPORTER = "otel_traces_exporter"
+    OTEL_LOGGING_ENABLED = "otel_logging_enabled"
+    OTEL_LOGS_EXPORTER = "otel_logs_exporter"
 
 
 class AgentTracingExporter(StrEnum):

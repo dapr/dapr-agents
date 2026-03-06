@@ -21,7 +21,7 @@ dynamic = ["version"]
 description = "Agentic Workflows Made Simple"
 keywords = ["dapr", "agents", "workflows"]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 license = {file = "LICENSE"}
 authors = [
     {name = "Dapr Authors", email = "dapr@dapr.io"}
