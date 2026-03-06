@@ -33,8 +33,8 @@ class TestAgentWorkflowSuffix:
         assert AGENT_WORKFLOW_SUFFIX == "_agent_workflow"  # backward compat
 
     def test_agent_workflow_id(self):
-        assert agent_workflow_id("sam") == "dapr.durableagent.sam.workflow"
-        assert agent_workflow_id("frodo") == "dapr.durableagent.frodo.workflow"
+        assert agent_workflow_id("sam") == "dapr.agents.sam.workflow"
+        assert agent_workflow_id("frodo") == "dapr.agents.frodo.workflow"
 
 
 class TestAgentTaskArgs:

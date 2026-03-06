@@ -26,7 +26,7 @@ AGENT_WORKFLOW_SUFFIX = "_agent_workflow"  # kept for backward compat
 
 def agent_workflow_id(agent_name: str) -> str:
     """Return the Dapr-registered workflow name for an agent."""
-    return f"dapr.durableagent.{agent_name}.workflow"
+    return f"dapr.agents.{agent_name}.workflow"
 
 
 class AgentTaskArgs(BaseModel):

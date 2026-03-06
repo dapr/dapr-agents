@@ -363,6 +363,22 @@ class AgentProfileConfig:
     module_overrides: Dict[str, PromptSection] = field(default_factory=dict)
 
 
+class ToolExecutionMode(StrEnum):
+    """
+    Enumeration of supported tool execution modes for durable agents.
+
+    PARALLEL: All tool calls returned by the LLM in a single turn are executed
+        concurrently via ``wf.when_all``. This is the default behaviour and
+        provides the best latency when tools are independent.
+    SEQUENTIAL: Tool calls are executed one after another in the order they
+        were returned by the LLM. Use this when tools have side-effects that
+        depend on the results of earlier calls in the same turn.
+    """
+
+    PARALLEL = "parallel"
+    SEQUENTIAL = "sequential"
+
+
 class OrchestrationMode(StrEnum):
     """
     Enumeration of supported orchestration strategies for durable agents.
@@ -387,6 +403,7 @@ class AgentExecutionConfig:
     # TODO: add stop_at_tokens
     max_iterations: int = 10
     tool_choice: Optional[str] = "auto"
+    tool_execution_mode: ToolExecutionMode = ToolExecutionMode.PARALLEL
     orchestration_mode: Optional[OrchestrationMode] = None
 
 
