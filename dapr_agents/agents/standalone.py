@@ -436,7 +436,7 @@ class Agent(AgentBase):
             # Prefer a custom coercer if configured; otherwise the configured message model, with a safe fallback.
             try:
                 if getattr(self, "_message_coercer", None):
-                    durable_message = self._message_coercer(message_dict)  # type: ignore[attr-defined]
+                    durable_message = self._message_coercer(message_dict)
                 else:
                     durable_message = self._message_dict_to_message_model(message_dict)
             except Exception:

@@ -11,7 +11,7 @@ _loader = SourceFileLoader("_semver_test_module", str(_SEMVER_PATH))
 _spec = importlib.util.spec_from_loader(_loader.name, _loader)
 semver = importlib.util.module_from_spec(_spec)
 sys.modules[_loader.name] = semver
-_loader.exec_module(semver)  # type: ignore[arg-type]
+_loader.exec_module(semver)
 
 is_version_supported = semver.is_version_supported
 Version = semver.Version

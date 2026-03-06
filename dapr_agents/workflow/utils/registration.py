@@ -238,7 +238,7 @@ def _subscribe_message_bindings(
 
     loop = _resolve_loop(loop)
     if subscribe is None:
-        subscribe = dapr_client.subscribe_with_handler  # type: ignore[assignment]
+        subscribe = dapr_client.subscribe_with_handler
     if delivery_mode not in ("sync", "async"):
         raise ValueError("delivery_mode must be 'sync' or 'async'")
 
@@ -372,7 +372,7 @@ def _subscribe_message_bindings(
                     queue.task_done()
 
         for _ in range(max(1, len(bindings))):
-            worker_tasks.append(loop.create_task(_worker()))  # type: ignore[union-attr]
+            worker_tasks.append(loop.create_task(_worker()))
 
     # ---------------- NEW: group by (pubsub, topic) and build ONE composite handler per topic -------------
     from collections import defaultdict
@@ -451,7 +451,7 @@ def _subscribe_message_bindings(
                             assert queue is not None
                             loop.call_soon_threadsafe(
                                 queue.put_nowait, (binding.handler, parsed)
-                            )  # type: ignore[union-attr]
+                            )
                             return TopicEventResponse("success")
 
                         if loop and loop.is_running():
@@ -485,7 +485,7 @@ def _subscribe_message_bindings(
     # subscribe one composite handler per (pubsub, topic)
     for (pubsub_name, topic_name), group in grouped.items():
         handler_fn = _composite_handler_fn(group)
-        close_fn = subscribe(  # type: ignore[misc]
+        close_fn = subscribe(
             pubsub_name=pubsub_name,
             topic=topic_name,
             handler_fn=handler_fn,

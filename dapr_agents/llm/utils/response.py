@@ -92,7 +92,7 @@ class ResponseHandler:
                 llm_resp = process_dapr_chat_response(response)
             else:
                 # if you add more providers, handle them here
-                llm_resp = response  # type: ignore
+                llm_resp = response
 
             # 2) If no structured format requested, return the full response
             if response_format is None:

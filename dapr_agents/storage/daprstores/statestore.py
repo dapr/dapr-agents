@@ -37,10 +37,10 @@ def _coerce_state_options(
 
     # Fallback: treat any object exposing the expected attributes as StateOptions-like.
     if hasattr(state_options, "consistency") and hasattr(state_options, "concurrency"):
-        return state_options  # type: ignore[return-value]
+        return state_options
 
     # When annotations or typing aliases wrap the class, fall back to constructing one.
-    return StateOptions(**dict(state_options))  # type: ignore[arg-type]
+    return StateOptions(**dict(state_options))
 
 
 class DaprStateStore(DaprStoreBase):

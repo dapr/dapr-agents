@@ -8,8 +8,8 @@ try:
     CHROMA_AVAILABLE = True
 except ImportError:
     CHROMA_AVAILABLE = False
-    SentenceTransformerEmbedder = None  # type: ignore
-    ChromaVectorStore = None  # type: ignore
+    SentenceTransformerEmbedder = None
+    ChromaVectorStore = None
 
 pytestmark = pytest.mark.skipif(
     not CHROMA_AVAILABLE,

@@ -14,10 +14,10 @@ authors = [
     {name = "Dapr Authors", email = "dapr@dapr.io"}
 ]
 dependencies = [
-    "dapr>=1.17.0rc2",
-    "dapr-ext-fastapi>=1.17.0rc2",
-    "dapr-ext-workflow>=1.17.0rc2",
-    "durabletask-dapr>=0.2.0a15",
+    "dapr>=1.17.0",
+    "dapr-ext-fastapi>=1.17.0",
+    "dapr-ext-workflow>=1.17.0",
+    "durabletask-dapr>=0.2.0a19",
     "pydantic>=2.11.3,<3.0.0",
     "jinja2>=3.1.0,<4.0.0",
     "pyyaml>=6.0.1,<7.0.0",
@@ -79,6 +79,7 @@ dev = [
     "flake8>=7.3.0",
     "ruff>=0.14.11",
     "pre-commit>=4.0.0,<5.0.0",
+    "dapr-agents",
 ]
 test = [
     "pytest>=7.0.0,<8.0.0",
@@ -153,3 +154,6 @@ members = [
     "examples/08-agents-as-activities-observability",
     "examples/09-agents-as-tools",
 ]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }

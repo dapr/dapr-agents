@@ -247,8 +247,8 @@ class RoundRobinOrchestrator(OrchestratorBase):
         async def _broadcast() -> None:
             await broadcast_message(
                 message=broadcast_payload,
-                broadcast_topic=self.broadcast_topic_name,  # type: ignore[union-attr]
-                message_bus=self.message_bus_name,  # type: ignore[union-attr]
+                broadcast_topic=self.broadcast_topic_name,
+                message_bus=self.message_bus_name,
                 source=self.name,
                 agents_metadata=agents_metadata,
             )
