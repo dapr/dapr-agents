@@ -292,3 +292,27 @@ class TestHelloWorldQuickstart:
             f"STDERR:\n{result.stderr}"
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_12_durable_agent_retry(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent retry policy example (durable_agent_retry.py).
+
+        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
+        The fixture is needed for setup, even though we don't use the value directly.
+        """
+        script_path = self.quickstart_dir / "durable_agent_retry.py"
+        result = run_quickstart_or_examples_script(
+            script_path,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=180,
+            use_dapr=True,
+            app_id="durable-agent-retry",
+            resources_path=self.quickstart_dir / "resources",
+        )
+
+        assert result.returncode == 0, (
+            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
