@@ -105,6 +105,7 @@ async def start_streamable_http_session(
         (
             read_stream,
             write_stream,
+            _,
         ) = await stack.enter_async_context(
             streamable_http_client(
                 url=server_params.url,
