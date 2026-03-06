@@ -17,16 +17,16 @@ def test_add_signal_handlers_cross_platform():
     with patch("platform.system", return_value="Windows"):
         with patch("signal.signal") as mock_signal:
             add_signal_handlers_cross_platform(mock_loop, test_handler)
-            assert (
-                mock_signal.call_count == 2
-            ), "Should register 2 signal handlers on Windows"
+            assert mock_signal.call_count == 2, (
+                "Should register 2 signal handlers on Windows"
+            )
 
     with patch("platform.system", return_value="Linux"):
         with patch("signal.signal") as mock_signal:
             add_signal_handlers_cross_platform(mock_loop, test_handler)
-            assert (
-                mock_signal.call_count == 2
-            ), "Should register 2 signal handlers on Unix"
+            assert mock_signal.call_count == 2, (
+                "Should register 2 signal handlers on Unix"
+            )
 
 
 # Note: We intentially use asyncio here to test signal handling in a real event loop,
