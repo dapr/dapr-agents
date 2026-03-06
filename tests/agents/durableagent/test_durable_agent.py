@@ -3,9 +3,12 @@
 # In future, we should do dependency injection instead of patching at the class-level to make it easier to test.
 # This applies to all areas in this file where we have with patch.object()...
 from datetime import timedelta
+import logging
 import os
 from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
+
+from pydantic import BaseModel
 
 import pytest
 from dapr.ext.workflow import DaprWorkflowContext
@@ -1264,33 +1267,33 @@ class TestDurableAgent:
                 result = e.value
 
         # Verify that retry_policy was passed to critical activities
-        assert len(call_activity_calls) >= 5, (
-            f"Expected at least 3 activity calls, got {len(call_activity_calls)}"
-        )
+        assert (
+            len(call_activity_calls) >= 5
+        ), f"Expected at least 3 activity calls, got {len(call_activity_calls)}"
 
         # All activities should have retry_policy parameter
         for call in call_activity_calls:
             assert "retry_policy" in call, f"Missing retry_policy in call: {call}"
-            assert call["retry_policy"] == basic_durable_agent._retry_policy, (
-                f"Expected retry_policy {basic_durable_agent._retry_policy}, got {call['retry_policy']}"
-            )
+            assert (
+                call["retry_policy"] == basic_durable_agent._retry_policy
+            ), f"Expected retry_policy {basic_durable_agent._retry_policy}, got {call['retry_policy']}"
 
         # Verify the key activities were called
         activity_names = [
             getattr(call["activity"], "__name__", str(call["activity"]))
             for call in call_activity_calls
         ]
-        assert "record_initial_entry" in activity_names, (
-            f"Missing record_initial_entry in {activity_names}"
-        )
+        assert (
+            "record_initial_entry" in activity_names
+        ), f"Missing record_initial_entry in {activity_names}"
         assert "call_llm" in activity_names, f"Missing call_llm in {activity_names}"
         assert "run_tool" in activity_names, f"Missing run_tool in {activity_names}"
-        assert "save_tool_results" in activity_names, (
-            f"Missing save_tool_results in {activity_names}"
-        )
-        assert "finalize_workflow" in activity_names, (
-            f"Missing finalize_workflow in {activity_names}"
-        )
+        assert (
+            "save_tool_results" in activity_names
+        ), f"Missing save_tool_results in {activity_names}"
+        assert (
+            "finalize_workflow" in activity_names
+        ), f"Missing finalize_workflow in {activity_names}"
 
 
 class TestDurableAgentResponseFormat:
@@ -1366,7 +1369,6 @@ class TestDurableAgentResponseFormat:
 
     def test_response_format_accepts_pydantic_model(self, mock_llm):
         """DurableAgent stores a valid Pydantic subclass on _response_format."""
-        from pydantic import BaseModel
 
         class MyOutput(BaseModel):
             answer: str
@@ -1478,6 +1480,54 @@ class TestDurableAgentResponseFormat:
         tools_passed = call_kwargs.kwargs.get("tools", [])
         assert not tools_passed
 
+    def test_call_llm_warns_when_response_format_ignored(
+        self, mock_llm, mock_workflow_context, caplog
+    ):
+        """Missing structured output should log and fall back instead of failing."""
+        from pydantic import BaseModel
+
+        class MyOutput(BaseModel):
+            answer: str
+
+        agent = self._make_agent(mock_llm, response_format=MyOutput)
+        mock_llm.generate.return_value = {"unexpected": "text"}
+
+        mock_ctx = Mock()
+        entry = AgentWorkflowEntry(
+            source="test_source",
+            triggering_workflow_instance_id=None,
+            messages=[
+                AgentWorkflowMessage(role="user", content="What is 2+2?"),
+                AgentWorkflowMessage(role="assistant", content="Pondering..."),
+            ],
+            tool_history=[],
+        )
+        agent._infra._state_model = entry
+
+        with (
+            patch.object(agent._infra, "load_state"),
+            patch.object(agent._infra, "get_state", return_value=entry),
+            patch.object(agent, "save_state"),
+            patch.object(agent, "_save_assistant_message"),
+            patch.object(agent, "_text_formatter"),
+        ):
+            with caplog.at_level(logging.WARNING):
+                agent.call_llm(
+                    mock_ctx,
+                    {
+                        "instance_id": "test-instance-123",
+                        "task": None,
+                        "response_format": "__user_response_format__",
+                        "no_tools": True,
+                    },
+                )
+
+        assert any(
+            "response_format" in record.message
+            and "returning raw result" in record.message
+            for record in caplog.records
+        )
+
     # -------------------------------------------------------------------------
     # format_final_response activity
     # -------------------------------------------------------------------------
@@ -1572,6 +1622,38 @@ class TestDurableAgentResponseFormat:
 
         assert "format_final_response" in activities_called
 
+    def test_workflow_honors_request_response_format(
+        self, mock_llm, mock_workflow_context
+    ):
+        """An explicit response_format payload triggers the final formatting step."""
+        agent = self._make_agent(mock_llm)
+
+        plain = {"role": "assistant", "content": "raw output"}
+        structured = {"role": "assistant", "content": '{"value": "ok"}'}
+        request_format = {"type": "object", "properties": {"value": {"type": "string"}}}
+
+        activities_called = []
+
+        def side_effect(activity, **kwargs):
+            name = getattr(activity, "__name__", str(activity))
+            activities_called.append(name)
+            if name == "call_llm":
+                return plain
+            if name == "format_final_response":
+                assert kwargs["input"]["response_format"] == request_format
+                return structured
+            return None
+
+        result = self._run_workflow(
+            agent,
+            mock_workflow_context,
+            {"task": "Do something", "response_format": request_format},
+            side_effect,
+        )
+
+        assert "format_final_response" in activities_called
+        assert result == structured
+
     def test_workflow_no_response_format_skips_format_activity(
         self, mock_llm, mock_workflow_context
     ):
@@ -1644,9 +1726,9 @@ class TestDurableAgentResponseFormat:
             name = getattr(activity, "__name__", str(activity))
             if name == "call_llm":
                 payload = kwargs.get("input", {})
-                assert "response_format" not in payload, (
-                    "The main loop must NOT pass response_format to call_llm"
-                )
+                assert (
+                    "response_format" not in payload
+                ), "The main loop must NOT pass response_format to call_llm"
                 return plain
             if name == "format_final_response":
                 return structured
