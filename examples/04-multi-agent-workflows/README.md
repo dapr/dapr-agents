@@ -1,3 +1,16 @@
+<!--
+Copyright 2026 The Dapr Authors
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 # Multi-Agent Workflows with Configuration Classes
 
 This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using **Agent Configuration Classes** from Dapr Agents. You'll learn how to set up agents as separate services, implement three different workflow orchestration patterns, and enable real-time agent collaboration through pub/sub messaging—all using the modern configuration-based approach.
