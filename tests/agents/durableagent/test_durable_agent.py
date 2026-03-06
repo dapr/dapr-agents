@@ -1267,33 +1267,33 @@ class TestDurableAgent:
                 result = e.value
 
         # Verify that retry_policy was passed to critical activities
-        assert (
-            len(call_activity_calls) >= 5
-        ), f"Expected at least 3 activity calls, got {len(call_activity_calls)}"
+        assert len(call_activity_calls) >= 5, (
+            f"Expected at least 3 activity calls, got {len(call_activity_calls)}"
+        )
 
         # All activities should have retry_policy parameter
         for call in call_activity_calls:
             assert "retry_policy" in call, f"Missing retry_policy in call: {call}"
-            assert (
-                call["retry_policy"] == basic_durable_agent._retry_policy
-            ), f"Expected retry_policy {basic_durable_agent._retry_policy}, got {call['retry_policy']}"
+            assert call["retry_policy"] == basic_durable_agent._retry_policy, (
+                f"Expected retry_policy {basic_durable_agent._retry_policy}, got {call['retry_policy']}"
+            )
 
         # Verify the key activities were called
         activity_names = [
             getattr(call["activity"], "__name__", str(call["activity"]))
             for call in call_activity_calls
         ]
-        assert (
-            "record_initial_entry" in activity_names
-        ), f"Missing record_initial_entry in {activity_names}"
+        assert "record_initial_entry" in activity_names, (
+            f"Missing record_initial_entry in {activity_names}"
+        )
         assert "call_llm" in activity_names, f"Missing call_llm in {activity_names}"
         assert "run_tool" in activity_names, f"Missing run_tool in {activity_names}"
-        assert (
-            "save_tool_results" in activity_names
-        ), f"Missing save_tool_results in {activity_names}"
-        assert (
-            "finalize_workflow" in activity_names
-        ), f"Missing finalize_workflow in {activity_names}"
+        assert "save_tool_results" in activity_names, (
+            f"Missing save_tool_results in {activity_names}"
+        )
+        assert "finalize_workflow" in activity_names, (
+            f"Missing finalize_workflow in {activity_names}"
+        )
 
 
 class TestDurableAgentResponseFormat:
@@ -1726,9 +1726,9 @@ class TestDurableAgentResponseFormat:
             name = getattr(activity, "__name__", str(activity))
             if name == "call_llm":
                 payload = kwargs.get("input", {})
-                assert (
-                    "response_format" not in payload
-                ), "The main loop must NOT pass response_format to call_llm"
+                assert "response_format" not in payload, (
+                    "The main loop must NOT pass response_format to call_llm"
+                )
                 return plain
             if name == "format_final_response":
                 return structured
