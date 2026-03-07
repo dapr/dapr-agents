@@ -120,7 +120,7 @@ def agent_to_tool(
     advanced scenarios where you want full control.
 
     For registry-based auto-discovery, simply register both agents in the
-    same registry; the parent agent's ``_load_tools`` activity will pick up
+    same registry; the parent agent's ``load_tools`` activity will pick up
     all registry peers automatically at workflow start.
 
     Args:

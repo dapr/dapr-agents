@@ -346,7 +346,7 @@ class TestDurableAgent:
         assert instance_data.triggering_workflow_instance_id == "parent-instance-123"
 
     @pytest.mark.asyncio
-    async def test_broadcast_message_to_agents_activity(self, basic_durable_agent):
+    async def test_broadcast_to_team_activity(self, basic_durable_agent):
         """Test broadcasting message to agents activity."""
         message = {
             "type": "broadcast",
@@ -359,11 +359,11 @@ class TestDurableAgent:
 
         # The basic_durable_agent fixture doesn't have a broadcast_topic configured,
         # so this should execute without error but skip the actual broadcast
-        basic_durable_agent.broadcast_message_to_agents(mock_ctx, {"message": message})
+        basic_durable_agent.broadcast_to_team(mock_ctx, {"message": message})
         # Test passes if no exception is raised
 
     @pytest.mark.asyncio
-    async def test_send_response_back_activity(self, basic_durable_agent):
+    async def test_return_response_activity(self, basic_durable_agent):
         """Test sending response back to target agent activity."""
         response = {"content": "Test response"}
         target_agent = "TargetAgent"
@@ -377,7 +377,7 @@ class TestDurableAgent:
             "_run_asyncio_task",
             side_effect=lambda coro: coro.close(),
         ) as mock_run_task:
-            basic_durable_agent.send_response_back(
+            basic_durable_agent.return_response(
                 mock_ctx,
                 {
                     "response": response,

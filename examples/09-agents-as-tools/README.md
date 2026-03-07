@@ -74,7 +74,7 @@ curl -X POST http://localhost:8001/agent/run \
 1. **Registry membership** — Sam registers itself in the shared Dapr
    state-store registry by providing a `registry=` config.
 2. **Auto-discovery** — At the start of every `dapr.agents.frodo.workflow` run,
-   `_load_tools` scans the registry and registers all peer agents (excluding
+   `load_tools` scans the registry and registers all peer agents (excluding
    orchestrators and self) in Frodo's `tool_executor`.
 3. **LLM picks the tool** — Frodo's LLM sees `sam` as a function-call tool
    (the Dapr workflow context `ctx` is hidden from the schema).

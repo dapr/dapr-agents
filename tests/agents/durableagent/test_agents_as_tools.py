@@ -18,7 +18,7 @@ Covers:
 - DurableAgent instance in tools list auto-converted to AgentWorkflowTool
 - register_workflows uses per-agent workflow names via _named wrappers
 - agent_workflow_name / broadcast_workflow_name properties
-- _load_tools discovers all registry agents (excluding orchestrators and self)
+- load_tools discovers all registry agents (excluding orchestrators and self)
 """
 
 from datetime import timedelta
@@ -181,7 +181,7 @@ class TestRegisterWorkflowsNaming:
         registered_activities = [
             call.args[0] for call in rt.register_activity.call_args_list
         ]
-        assert frodo._load_tools in registered_activities
+        assert frodo.load_tools in registered_activities
 
     def test_two_agents_have_unique_workflow_names(self, mock_llm):
         """Two agents must register under distinct names even on the same runtime."""
@@ -201,7 +201,7 @@ class TestRegisterWorkflowsNaming:
 
 
 # ---------------------------------------------------------------------------
-# _load_tools activity
+# load_tools activity
 # ---------------------------------------------------------------------------
 
 
@@ -220,7 +220,7 @@ class TestLoadTools:
         }
 
     def _with_registry(self, agent) -> None:
-        """Give the agent a non-None registry so _load_tools doesn't short-circuit."""
+        """Give the agent a non-None registry so load_tools doesn't short-circuit."""
         agent._infra._registry = MagicMock()
 
     def test_discovers_registry_agents(self, mock_llm):
@@ -235,7 +235,7 @@ class TestLoadTools:
         )
 
         with patch.object(frodo._infra, "get_agents_metadata", return_value=metadata):
-            frodo._load_tools(ctx)
+            frodo.load_tools(ctx)
 
         assert frodo.tool_executor.get_tool("sam") is not None
 
@@ -253,7 +253,7 @@ class TestLoadTools:
         )
 
         with patch.object(frodo._infra, "get_agents_metadata", return_value=metadata):
-            result = frodo._load_tools(ctx)
+            result = frodo.load_tools(ctx)
 
         # sam was already registered, nothing new
         assert "sam" not in result
@@ -261,7 +261,7 @@ class TestLoadTools:
     def test_returns_empty_list_when_no_registry(self, mock_llm):
         frodo = _make_agent("frodo", mock_llm)
         ctx = MagicMock()
-        result = frodo._load_tools(ctx)
+        result = frodo.load_tools(ctx)
         assert result == []
 
     def test_does_not_include_self_in_discovered_tools(self, mock_llm):
@@ -274,7 +274,7 @@ class TestLoadTools:
             {}
         )  # empty — exclude_self already handled
         with patch.object(frodo._infra, "get_agents_metadata", return_value=metadata):
-            result = frodo._load_tools(ctx)
+            result = frodo.load_tools(ctx)
 
         assert result == []
         assert frodo.tool_executor.get_tool("frodo") is None
@@ -320,7 +320,7 @@ class TestOrchestratorToolIsolation:
             {"frodo": {"role": "ring-bearer", "goal": "destroy the ring"}}
         )
         with patch.object(gandalf._infra, "get_agents_metadata", return_value=metadata):
-            result = gandalf._load_tools(ctx)
+            result = gandalf.load_tools(ctx)
 
         assert result == []
         assert gandalf.tool_executor.get_tool("frodo") is None
