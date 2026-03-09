@@ -368,7 +368,7 @@ class DaprInfra:
         and not re-raised so that callers can continue with other cleanup steps.
 
         Note: This method only removes workflow state.  To also purge long-term
-        conversation memory use AgentBase.purge() / LLMOrchestratorBase.purge(),
+        conversation memory use AgentBase.purge() / DurableAgent.purge(),
         which coordinate both workflow-state and memory cleanup in a single call.
 
         Args:

@@ -127,7 +127,7 @@ class AgentStateConfig:
         # Schema auto-selected by agent type
         config = AgentStateConfig(store=StateStoreService(...))
         agent = DurableAgent(state=config, ...)  # → AgentWorkflowState
-        orch = LLMOrchestrator(state=config, ...)  # → LLMWorkflowState
+        orch = DurableAgent(state=config, orchestration_mode='agent', ...)  # → LLMWorkflowState
 
         # With custom hooks
         config = AgentStateConfig(

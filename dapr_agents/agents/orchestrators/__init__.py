@@ -1,24 +1,6 @@
+# The orchestrator classes (OrchestratorBase, RandomOrchestrator,
+# RoundRobinOrchestrator, LLMOrchestrator) have been removed.
+# Use DurableAgent with orchestration_mode in AgentExecutionConfig instead.
 #
-# Copyright 2026 The Dapr Authors
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#     http://www.apache.org/licenses/LICENSE-2.0
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-
-from .base import OrchestratorBase
-from .random import RandomOrchestrator
-from .roundrobin import RoundRobinOrchestrator
-from .llm import LLMOrchestrator
-
-__all__ = [
-    "OrchestratorBase",
-    "LLMOrchestrator",
-    "RandomOrchestrator",
-    "RoundRobinOrchestrator",
-]
+# The llm subpackage (configs, schemas, state, utils, prompts) is retained
+# because it is shared by DurableAgent's agent orchestration mode.
