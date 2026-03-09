@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 # TODO(@Sicoyle): this test file is a bit of a mess, and needs to be refactored when we clean the remaining classes up.
 # Right now we have to do a bunch of patching at the class-level instead of patching at the instance-level.
 # In future, we should do dependency injection instead of patching at the class-level to make it easier to test.
@@ -333,7 +346,7 @@ class TestDurableAgent:
         assert instance_data.triggering_workflow_instance_id == "parent-instance-123"
 
     @pytest.mark.asyncio
-    async def test_broadcast_message_to_agents_activity(self, basic_durable_agent):
+    async def test_broadcast_to_team_activity(self, basic_durable_agent):
         """Test broadcasting message to agents activity."""
         message = {
             "type": "broadcast",
@@ -346,11 +359,11 @@ class TestDurableAgent:
 
         # The basic_durable_agent fixture doesn't have a broadcast_topic configured,
         # so this should execute without error but skip the actual broadcast
-        basic_durable_agent.broadcast_message_to_agents(mock_ctx, {"message": message})
+        basic_durable_agent.broadcast_to_team(mock_ctx, {"message": message})
         # Test passes if no exception is raised
 
     @pytest.mark.asyncio
-    async def test_send_response_back_activity(self, basic_durable_agent):
+    async def test_return_response_activity(self, basic_durable_agent):
         """Test sending response back to target agent activity."""
         response = {"content": "Test response"}
         target_agent = "TargetAgent"
@@ -364,7 +377,7 @@ class TestDurableAgent:
             "_run_asyncio_task",
             side_effect=lambda coro: coro.close(),
         ) as mock_run_task:
-            basic_durable_agent.send_response_back(
+            basic_durable_agent.return_response(
                 mock_ctx,
                 {
                     "response": response,

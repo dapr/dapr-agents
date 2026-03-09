@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import annotations
 
 import logging
@@ -101,6 +114,30 @@ class LLMOrchestratorBase(OrchestratorBase):
 
         # LLM client initialization
         self.llm = llm or get_default_llm()
+
+    def purge(self, workflow_instance_id: str) -> None:
+        """
+        Purge all durable state for a workflow instance: workflow state and
+        long-term conversation memory.
+
+        Both halves are best-effort: failures are logged as warnings and do not
+        prevent the other half from running.  Callers should monitor logs for
+        partial-failure signals.
+
+        Args:
+            workflow_instance_id: Workflow instance whose data should be removed.
+        """
+        self._infra.purge_state(workflow_instance_id)
+        if self.memory is not None:
+            try:
+                self.memory.purge_memory(workflow_instance_id)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to purge conversation memory for instance_id=%s; "
+                    "continuing with partial purge.",
+                    workflow_instance_id,
+                    exc_info=True,
+                )
 
     @property
     def text_formatter(self) -> ColorTextFormatter:

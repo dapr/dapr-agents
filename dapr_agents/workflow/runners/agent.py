@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import annotations
 
 import asyncio
@@ -165,8 +178,15 @@ class AgentRunner(WorkflowRunner):
         """
         Locate exactly one bound method on `agent` marked with `@workflow_entry`.
 
+        If the agent exposes an ``agent_workflow_name`` property (as
+        ``DurableAgent`` does), a lightweight stub with that name is returned so
+        that ``schedule_new_workflow`` schedules the correct registered workflow
+        (e.g. ``"frodo_agent_workflow"``) rather than the generic method name.
+        The Dapr SDK accepts either a callable or a plain string; passing a stub
+        with the right ``__name__`` keeps the call-site uniform.
+
         Returns:
-            The bound method to schedule.
+            A callable whose ``__name__`` matches the registered workflow name.
 
         Raises:
             RuntimeError: If zero or multiple @workflow_entry methods are found.
@@ -184,6 +204,18 @@ class AgentRunner(WorkflowRunner):
         if len(candidates) > 1:
             names = ", ".join(getattr(c, "__name__", "<callable>") for c in candidates)
             raise RuntimeError(f"Agent has multiple @workflow_entry methods: {names}")
+
+        # If the agent knows its registered workflow name, use that directly so
+        # schedule_new_workflow resolves to the right Dapr registration.
+        registered_name: Optional[str] = getattr(agent, "agent_workflow_name", None)
+        if registered_name:
+
+            def _stub(*_) -> None:
+                pass
+
+            _stub.__name__ = registered_name
+            return _stub
+
         return candidates[0]
 
     @staticmethod
@@ -293,11 +325,28 @@ class AgentRunner(WorkflowRunner):
             schemas = meta.get("message_schemas") or []
             message_model = schemas[0] if schemas else None
 
+            # Use the agent's registered workflow name so schedule_new_workflow
+            # resolves to the correct Dapr registration (e.g. "frodo_agent_workflow").
+            registered_name: Optional[str] = (
+                getattr(agent, "broadcast_workflow_name", None)
+                if is_broadcast
+                else getattr(agent, "agent_workflow_name", None)
+            )
+            if registered_name is not None:
+
+                def _stub(*_) -> None:
+                    pass
+
+                _stub.__name__ = registered_name
+                named_handler: Any = _stub
+            else:
+                named_handler = handler
+
             specs.append(
                 PubSubRouteSpec(
                     pubsub_name=config.pubsub_name,
                     topic=topic,
-                    handler_fn=handler,
+                    handler_fn=named_handler,
                     message_model=message_model,
                 )
             )
@@ -564,9 +613,13 @@ class AgentRunner(WorkflowRunner):
                 self._wf_client.purge_workflow(
                     instance_id=instance_id,
                 )
-                agent._infra.purge_state(instance_id)
-                if getattr(agent, "memory", None) is not None:
-                    agent.memory.purge_memory(instance_id)
+                purge_fn = getattr(agent, "purge", None)
+                if callable(purge_fn):
+                    purge_fn(instance_id)
+                else:
+                    agent._infra.purge_state(instance_id)
+                    if getattr(agent, "memory", None) is not None:
+                        agent.memory.purge_memory(instance_id)
                 return {"instance_id": instance_id, "status": "purged"}
 
             fastapi_app.add_api_route(

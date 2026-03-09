@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import annotations
 
 import logging
@@ -203,6 +216,7 @@ class ConfigFieldDescriptor:
     sensitive: bool = False
     validator: Optional[Callable[..., Any]] = None
     rebuilds_prompt: bool = False
+    triggers_otel_reload: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +246,30 @@ def validate_tool_choice(v: str) -> str:
     if v.lower() not in allowed:
         _config_logger.warning(
             "tool_choice '%s' not in standard set %s; allowing anyway.", v, allowed
+        )
+    return v
+
+
+def validate_otel_exporter_tracing(v: str) -> str:
+    """Validate that the tracing exporter is a known AgentTracingExporter value."""
+    try:
+        AgentTracingExporter(v)
+    except (ValueError, KeyError):
+        raise ValueError(
+            f"Unknown tracing exporter '{v}'. "
+            f"Valid options: {[e.value for e in AgentTracingExporter]}"
+        )
+    return v
+
+
+def validate_otel_exporter_logging(v: str) -> str:
+    """Validate that the logging exporter is a known AgentLoggingExporter value."""
+    try:
+        AgentLoggingExporter(v)
+    except (ValueError, KeyError):
+        raise ValueError(
+            f"Unknown logging exporter '{v}'. "
+            f"Valid options: {[e.value for e in AgentLoggingExporter]}"
         )
     return v
 
@@ -325,6 +363,22 @@ class AgentProfileConfig:
     module_overrides: Dict[str, PromptSection] = field(default_factory=dict)
 
 
+class ToolExecutionMode(StrEnum):
+    """
+    Enumeration of supported tool execution modes for durable agents.
+
+    PARALLEL: All tool calls returned by the LLM in a single turn are executed
+        concurrently via ``wf.when_all``. This is the default behaviour and
+        provides the best latency when tools are independent.
+    SEQUENTIAL: Tool calls are executed one after another in the order they
+        were returned by the LLM. Use this when tools have side-effects that
+        depend on the results of earlier calls in the same turn.
+    """
+
+    PARALLEL = "parallel"
+    SEQUENTIAL = "sequential"
+
+
 class OrchestrationMode(StrEnum):
     """
     Enumeration of supported orchestration strategies for durable agents.
@@ -349,6 +403,7 @@ class AgentExecutionConfig:
     # TODO: add stop_at_tokens
     max_iterations: int = 10
     tool_choice: Optional[str] = "auto"
+    tool_execution_mode: ToolExecutionMode = ToolExecutionMode.PARALLEL
     orchestration_mode: Optional[OrchestrationMode] = None
 
 
@@ -399,6 +454,16 @@ class RuntimeConfigKey(StrEnum):
     AGENT_WORKFLOW = "agent_workflow"
     AGENT_REGISTRY = "agent_registry"
     AGENT_MEMORY = "agent_memory"
+
+    # OTel fields — match standard env var names used throughout
+    OTEL_SDK_DISABLED = "otel_sdk_disabled"
+    OTEL_EXPORTER_OTLP_ENDPOINT = "otel_exporter_otlp_endpoint"
+    OTEL_EXPORTER_OTLP_HEADERS = "otel_exporter_otlp_headers"
+    OTEL_SERVICE_NAME = "otel_service_name"
+    OTEL_TRACING_ENABLED = "otel_tracing_enabled"
+    OTEL_TRACES_EXPORTER = "otel_traces_exporter"
+    OTEL_LOGGING_ENABLED = "otel_logging_enabled"
+    OTEL_LOGS_EXPORTER = "otel_logs_exporter"
 
 
 class AgentTracingExporter(StrEnum):

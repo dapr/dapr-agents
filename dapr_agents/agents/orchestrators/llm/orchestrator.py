@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import annotations
 
 import json
@@ -76,8 +89,8 @@ class LLMOrchestrator(LLMOrchestratorBase):
         runtime.register_workflow(self.llm_orchestrator_workflow)
         runtime.register_workflow(self.route_agent_response)
         runtime.register_activity(self._broadcast_activity)
-        runtime.register_activity(self._validate_next_step)
-        runtime.register_activity(self._get_available_agents)
+        runtime.register_activity(self.validate_next_step)
+        runtime.register_activity(self.get_available_agents)
         runtime.register_activity(self._initialize_workflow_with_plan)
         runtime.register_activity(self._generate_next_step)
         runtime.register_activity(self._execute_agent_task_with_progress_tracking)
@@ -106,7 +119,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
                 )
 
             # Discover available agents
-            agents = yield ctx.call_activity(self._get_available_agents)
+            agents = yield ctx.call_activity(self.get_available_agents)
 
             # Turn 1: initialize plan & broadcast
             if turn == 1:
@@ -175,7 +188,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
 
             # Validate the next step
             is_valid = yield ctx.call_activity(
-                self._validate_next_step,
+                self.validate_next_step,
                 input={
                     "instance_id": instance_id,
                     "plan": self._convert_plan_objects_to_dicts(plan),
@@ -264,9 +277,11 @@ class LLMOrchestrator(LLMOrchestratorBase):
                     input={
                         "instance_id": instance_id,
                         "task": task_text or "",
-                        "verdict": verdict
-                        if verdict != "continue"
-                        else "max_iterations_reached",
+                        "verdict": (
+                            verdict
+                            if verdict != "continue"
+                            else "max_iterations_reached"
+                        ),
                         "plan_objects": self._convert_plan_objects_to_dicts(plan),
                         "step_id": step_id,
                         "substep_id": substep_id,
@@ -364,7 +379,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
         except Exception:  # noqa: BLE001
             logger.exception("Failed to publish broadcast message.")
 
-    def _get_available_agents(self, ctx: wf.WorkflowActivityContext) -> str:
+    def get_available_agents(self, ctx: wf.WorkflowActivityContext) -> str:
         """
         Return a human-formatted list of available agents (excluding orchestrators).
 
@@ -486,7 +501,7 @@ class LLMOrchestrator(LLMOrchestratorBase):
             return resp.model_dump()
         return dict(resp)
 
-    def _validate_next_step(
+    def validate_next_step(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> bool:
         """Return True if (step, substep) exists in the plan."""
@@ -647,9 +662,11 @@ class LLMOrchestrator(LLMOrchestratorBase):
                 verdict=payload["verdict"],
                 plan=json.dumps(payload["plan_objects"], indent=2),
                 step=payload["step_id"],
-                substep=payload["substep_id"]
-                if payload["substep_id"] is not None
-                else "N/A",
+                substep=(
+                    payload["substep_id"]
+                    if payload["substep_id"] is not None
+                    else "N/A"
+                ),
                 agent=payload["agent"],
                 result=payload["result"],
             )

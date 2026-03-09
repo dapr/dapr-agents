@@ -1,3 +1,16 @@
+<!--
+Copyright 2026 The Dapr Authors
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 # Dapr Agents Fundamentals
 
 This quickstart introduces the core concepts of Dapr Agents and walks you through progressively more advanced examples. You'll learn how to build agents that use memory and tools, how to run durable agents backed by workflows, and how to orchestrate multiple agents in deterministic workflows.
@@ -195,14 +208,14 @@ uv run dapr run --app-id durable-agent --resources-path resources -- python 06_d
 On a different terminal, trigger the agent:
 
 ```bash
-curl -i -X POST http://localhost:8001/run \
+curl -i -X POST http://localhost:8001/agent/run \
   -H "Content-Type: application/json" \
   -d '{"task": "What is the weather in London?"}'
 ```
 You will receive a WORKFLOW_ID in response. Query the result:
 
 ```bash
-curl -i -X GET http://localhost:8001/run/WORKFLOW_ID
+curl -i -X GET http://localhost:8001/agent/instances/WORKFLOW_ID
 ```
 
 Replace `WORKFLOW_ID` with the ID returned from the POST request.
@@ -254,7 +267,7 @@ uv run dapr run --app-id durable-agent-subscriber --resources-path resources --d
 On a different terminal, publish a message to the subscribed topic:
 
 ```bash
-dapr publish --publish-app-id durable-agent-subscriber --pubsub message-pubsub --topic weather.requests --data '{"task": "What is the weather in London?"}'
+dapr publish --publish-app-id durable-agent-subscriber --pubsub agent-pubsub --topic weather.requests --data '{"task": "What is the weather in London?"}'
 ```
 
 ## Expected Behavior

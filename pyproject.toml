@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 [build-system]
 requires = ["setuptools>=61.0", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
@@ -8,7 +21,7 @@ dynamic = ["version"]
 description = "Agentic Workflows Made Simple"
 keywords = ["dapr", "agents", "workflows"]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 license = {file = "LICENSE"}
 authors = [
     {name = "Dapr Authors", email = "dapr@dapr.io"}
@@ -152,4 +165,5 @@ members = [
     "examples/06-agent-mcp-client-streamablehttp",
     "examples/07-data-agent-mcp-chainlit",
     "examples/08-agents-as-activities-observability",
+    "examples/09-agents-as-tools",
 ]

@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 """Tests for hot-reload configuration and deregistration on stop."""
 
 import logging
@@ -8,9 +21,11 @@ from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
     AgentMetadata,
     AgentMetadataSchema,
+    AgentObservabilityConfig,
     LLMMetadata,
     RuntimeSubscriptionConfig,
 )
+from dapr_agents.observability.instrumentor import DaprAgentsInstrumentor
 from .mocks.llm_client import MockLLMClient
 
 
@@ -652,3 +667,242 @@ class TestNewHotReloadableFields:
             basic_agent._apply_config_update("max_iterations", "abc")
         assert "invalid value" in caplog.text.lower()
         assert basic_agent.execution.max_iterations == original
+
+
+class TestOtelHotReload:
+    """Tests for OTel hot-reload support."""
+
+    @pytest.fixture
+    def mock_llm_client(self):
+        return MockLLMClient()
+
+    @pytest.fixture
+    def basic_agent(self, mock_llm_client):
+        return ConcreteAgentBase(
+            name="TestAgent",
+            role="Role",
+            goal="Goal",
+            llm=mock_llm_client,
+        )
+
+    def _make_config_response(self, items_dict):
+        """Build a mock ConfigurationResponse with the given key-value pairs."""
+        response = Mock()
+        items = {}
+        for key, value in items_dict.items():
+            item = Mock()
+            item.value = value
+            items[key] = item
+        response.items = items
+        return response
+
+    def test_apply_config_update_returns_true_for_otel_key(self, basic_agent):
+        """OTel config keys should return True to signal reload needed."""
+        result = basic_agent._apply_config_update(
+            "otel_exporter_otlp_endpoint", "http://localhost:4317"
+        )
+        assert result is True
+
+    def test_apply_config_update_returns_false_for_non_otel_key(self, basic_agent):
+        """Non-OTel config keys should return False."""
+        result = basic_agent._apply_config_update("agent_role", "New Role")
+        assert result is False
+
+    def test_apply_config_update_returns_false_for_unknown_key(self, basic_agent):
+        """Unknown keys should return False."""
+        result = basic_agent._apply_config_update("unknown_key", "value")
+        assert result is False
+
+    def test_otel_sdk_disabled_inverts_enabled(self, basic_agent):
+        """OTEL_SDK_DISABLED=true should set enabled=False."""
+        basic_agent._apply_config_update("otel_sdk_disabled", "true")
+        assert basic_agent._agent_observability.enabled is False
+
+        basic_agent._apply_config_update("otel_sdk_disabled", "false")
+        assert basic_agent._agent_observability.enabled is True
+
+    def test_otel_endpoint_setter(self, basic_agent):
+        basic_agent._apply_config_update(
+            "otel_exporter_otlp_endpoint", "http://collector:4317"
+        )
+        assert basic_agent._agent_observability.endpoint == "http://collector:4317"
+
+    def test_otel_headers_sensitive(self, basic_agent, caplog):
+        """OTEL_EXPORTER_OTLP_HEADERS should be marked sensitive."""
+        with caplog.at_level(logging.INFO):
+            basic_agent._apply_config_update(
+                "otel_exporter_otlp_headers", "Bearer secret-token"
+            )
+        assert "secret-token" not in caplog.text
+        assert "***" in caplog.text
+
+    def test_otel_service_name_setter(self, basic_agent):
+        basic_agent._apply_config_update("otel_service_name", "my-agent-service")
+        assert basic_agent._agent_observability.service_name == "my-agent-service"
+
+    def test_otel_tracing_enabled_setter(self, basic_agent):
+        basic_agent._apply_config_update("otel_tracing_enabled", "true")
+        assert basic_agent._agent_observability.tracing_enabled is True
+
+    def test_otel_logging_enabled_setter(self, basic_agent):
+        basic_agent._apply_config_update("otel_logging_enabled", "true")
+        assert basic_agent._agent_observability.logging_enabled is True
+
+    def test_otel_traces_exporter_valid(self, basic_agent):
+        basic_agent._apply_config_update("otel_traces_exporter", "otlp_grpc")
+        from dapr_agents.agents.configs import AgentTracingExporter
+
+        assert (
+            basic_agent._agent_observability.tracing_exporter
+            == AgentTracingExporter.OTLP_GRPC
+        )
+
+    def test_otel_traces_exporter_invalid_rejected(self, basic_agent, caplog):
+        with caplog.at_level(logging.WARNING):
+            basic_agent._apply_config_update("otel_traces_exporter", "invalid_exporter")
+        assert "validation failed" in caplog.text.lower()
+
+    def test_otel_logs_exporter_valid(self, basic_agent):
+        basic_agent._apply_config_update("otel_logs_exporter", "console")
+        from dapr_agents.agents.configs import AgentLoggingExporter
+
+        assert (
+            basic_agent._agent_observability.logging_exporter
+            == AgentLoggingExporter.CONSOLE
+        )
+
+    def test_otel_logs_exporter_invalid_rejected(self, basic_agent, caplog):
+        with caplog.at_level(logging.WARNING):
+            basic_agent._apply_config_update("otel_logs_exporter", "invalid_exporter")
+        assert "validation failed" in caplog.text.lower()
+
+    def test_batched_reload_called_once_for_multiple_otel_keys(self, basic_agent):
+        """Multiple OTel keys in one config response should trigger reload exactly once."""
+        response = self._make_config_response(
+            {
+                "config": '{"otel_exporter_otlp_endpoint": "http://new:4317", "otel_tracing_enabled": "true"}'
+            }
+        )
+        with patch.object(basic_agent, "_reload_observability") as mock_reload:
+            basic_agent._config_handler("sub-1", response)
+            mock_reload.assert_called_once()
+
+    def test_no_reload_for_non_otel_keys(self, basic_agent):
+        """Non-OTel keys should not trigger OTel reload."""
+        response = self._make_config_response({"agent_role": "New Role"})
+        with patch.object(basic_agent, "_reload_observability") as mock_reload:
+            basic_agent._config_handler("sub-1", response)
+            mock_reload.assert_not_called()
+
+    def test_mixed_keys_triggers_reload(self, basic_agent):
+        """A mix of OTel and non-OTel keys should trigger reload."""
+        response = self._make_config_response(
+            {"config": '{"agent_role": "New Role", "otel_tracing_enabled": "true"}'}
+        )
+        with patch.object(basic_agent, "_reload_observability") as mock_reload:
+            basic_agent._config_handler("sub-1", response)
+            mock_reload.assert_called_once()
+
+    def test_reload_does_not_call_global_setters(self, basic_agent):
+        """Hot-reload should NOT call set_tracer_provider / set_logger_provider."""
+        basic_agent._agent_observability.enabled = True
+        basic_agent._agent_observability.tracing_enabled = True
+        basic_agent._agent_observability.logging_enabled = True
+        basic_agent._agent_observability.endpoint = "http://localhost:4317"
+        basic_agent._agent_observability.tracing_exporter = "console"
+        basic_agent._agent_observability.logging_exporter = "console"
+        basic_agent.instrumentor = Mock()
+
+        with (
+            patch("dapr_agents.agents.base.trace.set_tracer_provider") as mock_set_tp,
+            patch("dapr_agents.agents.base._logs.set_logger_provider") as mock_set_lp,
+            patch("dapr_agents.agents.base.TracerProvider"),
+            patch("dapr_agents.agents.base.LoggerProvider"),
+            patch("dapr_agents.agents.base.BatchSpanProcessor"),
+            patch("dapr_agents.agents.base.BatchLogRecordProcessor"),
+            patch("dapr_agents.agents.base.ConsoleSpanExporter"),
+            patch("dapr_agents.agents.base.ConsoleLogRecordExporter"),
+        ):
+            basic_agent._reload_observability()
+
+        mock_set_tp.assert_not_called()
+        mock_set_lp.assert_not_called()
+        basic_agent.instrumentor.update_providers.assert_called_once()
+
+
+class TestInstrumentorUpdateProviders:
+    """Tests for DaprAgentsInstrumentor.update_providers."""
+
+    def test_update_providers_mutates_wrapper_tracers(self):
+        instrumentor = DaprAgentsInstrumentor()
+        # Create mock wrappers with _tracer attributes
+        w1 = Mock()
+        w1._tracer = "old_tracer"
+        w2 = Mock()
+        w2._tracer = "old_tracer"
+        instrumentor._wrappers = [w1, w2]
+        instrumentor._tracer = "old_tracer"
+
+        mock_provider = Mock()
+        with patch("dapr_agents.observability.instrumentor.trace_api") as mock_trace:
+            mock_trace.get_tracer.return_value = "new_tracer"
+            instrumentor.update_providers(tracer_provider=mock_provider)
+
+        assert w1._tracer == "new_tracer"
+        assert w2._tracer == "new_tracer"
+        assert instrumentor._tracer == "new_tracer"
+        assert DaprAgentsInstrumentor._global_tracer == "new_tracer"
+
+    def test_update_providers_updates_logger(self):
+        instrumentor = DaprAgentsInstrumentor()
+        instrumentor._wrappers = []
+
+        mock_provider = Mock()
+        with patch("dapr_agents.observability.instrumentor.logs_api") as mock_logs:
+            mock_logs.get_logger.return_value = "new_logger"
+            instrumentor.update_providers(logger_provider=mock_provider)
+
+        assert instrumentor._logger == "new_logger"
+        assert DaprAgentsInstrumentor._global_logger == "new_logger"
+
+    def test_track_wrapper_appends_and_returns(self):
+        instrumentor = DaprAgentsInstrumentor()
+        wrapper = Mock()
+        result = instrumentor._track_wrapper(wrapper)
+        assert result is wrapper
+        assert wrapper in instrumentor._wrappers
+
+
+class TestShutdownOtelProviders:
+    """Tests for _shutdown_otel_providers."""
+
+    def test_flush_and_shutdown_tracer(self):
+        mock_tp = Mock()
+        AgentBase._shutdown_otel_providers(mock_tp, None)
+        mock_tp.force_flush.assert_called_once_with(timeout_millis=5000)
+        mock_tp.shutdown.assert_called_once()
+
+    def test_flush_and_shutdown_logger(self):
+        mock_lp = Mock()
+        AgentBase._shutdown_otel_providers(None, mock_lp)
+        mock_lp.force_flush.assert_called_once_with(timeout_millis=5000)
+        mock_lp.shutdown.assert_called_once()
+
+    def test_both_providers_shutdown(self):
+        mock_tp = Mock()
+        mock_lp = Mock()
+        AgentBase._shutdown_otel_providers(mock_tp, mock_lp)
+        mock_tp.force_flush.assert_called_once()
+        mock_tp.shutdown.assert_called_once()
+        mock_lp.force_flush.assert_called_once()
+        mock_lp.shutdown.assert_called_once()
+
+    def test_resilient_to_flush_error(self):
+        mock_tp = Mock()
+        mock_tp.force_flush.side_effect = RuntimeError("flush failed")
+        # Should not raise
+        AgentBase._shutdown_otel_providers(mock_tp, None)
+
+    def test_none_providers_no_error(self):
+        # Should not raise
+        AgentBase._shutdown_otel_providers(None, None)

@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import annotations
 
 import asyncio
@@ -5,6 +18,7 @@ import json
 import logging
 import signal
 import uuid
+import warnings
 from typing import Any, Awaitable, Dict, Iterable, List, Optional, Sequence, Union
 
 from dapr_agents.agents.base import AgentBase
@@ -78,6 +92,13 @@ class Agent(AgentBase):
             execution: Execution dials for the agent run.
             agent_metadata: Extra metadata to store in the registry.
         """
+        warnings.warn(
+            "The Agent class is deprecated and will be removed in a future version. "
+            "Please use the DurableAgent class instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         super().__init__(
             profile=profile,
             name=name,
