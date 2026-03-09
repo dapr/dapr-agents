@@ -1,0 +1,88 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+import time
+
+import dapr.ext.workflow as wf
+from dapr.ext.workflow import DaprWorkflowContext
+from dotenv import load_dotenv
+
+from dapr_agents.llm.dapr import DaprChatClient
+
+# Load environment variables (e.g., API keys, secrets)
+load_dotenv()
+
+# Initialize the Dapr workflow runtime and LLM client
+runtime = wf.WorkflowRuntime()
+llm = DaprChatClient(component_name="openai")
+
+
+@runtime.workflow(name="task_chain_workflow")
+def task_chain_workflow(ctx: DaprWorkflowContext):
+    """
+    Chain two LLM-backed activities:
+      1) Pick a random LOTR character (name only)
+      2) Ask for a famous quote from that character
+    """
+    character = yield ctx.call_activity(get_character)
+    line = yield ctx.call_activity(get_line, input={"character": character})
+    return line
+
+
+@runtime.activity(name="get_character")
+def get_character(ctx) -> str:
+    return str(
+        llm.generate(
+            prompt="""
+Pick a random character from The Lord of the Rings.
+Respond with the character's name only.
+"""
+        )
+    )
+
+
+@runtime.activity(name="get_line")
+def get_line(ctx, character: str) -> str:
+    return str(llm.generate(prompt=f"What is a famous line by {character}?"))
+
+
+if __name__ == "__main__":
+    # Start the workflow runtime sidecar
+    runtime.start()
+    time.sleep(5)  # small grace period for runtime to be ready
+
+    # Kick off the workflow
+    client = wf.DaprWorkflowClient()
+    instance_id = client.schedule_new_workflow(
+        workflow=task_chain_workflow,
+        input=None,  # no input expected for this workflow
+    )
+    print(f"Workflow started: {instance_id}")
+
+    # Wait for completion and print results
+    state = client.wait_for_workflow_completion(instance_id, timeout_in_seconds=60)
+    if not state:
+        print("No state returned (instance may not exist).")
+    elif state.runtime_status.name == "COMPLETED":
+        print(f"Famous Line:\n{state.serialized_output}")
+    else:
+        print(f"Workflow ended with status: {state.runtime_status}")
+        if state.failure_details:
+            fd = state.failure_details
+            print("Failure type:", fd.error_type)
+            print("Failure message:", fd.message)
+            print("Stack trace:\n", fd.stack_trace)
+        else:
+            print("Custom status:", state.serialized_custom_status)
+
+    runtime.shutdown()

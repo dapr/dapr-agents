@@ -1,3 +1,16 @@
+<!--
+Copyright 2026 The Dapr Authors
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 # Development Guide
 
 ## Dependencies
@@ -49,7 +62,7 @@ Sometimes you need to work with local changes from other Dapr repositories.
 
 ### Using Local Python Dapr Package Changes
 If you need to work with additional Python Dapr packages during local development,
-for example, those from [python-sdk](https://github.com/dapr/python-sdk) or [durabletask-python](https://github.com/dapr/durabletask-python), 
+for example, those from [python-sdk](https://github.com/dapr/python-sdk) or [durabletask-python](https://github.com/dapr/durabletask-python),
 then you can follow the same steps above and then install your local versions.
 Adjust the paths as needed for your setup.
 
@@ -58,6 +71,15 @@ uv pip install -e ../durabletask-python \
    -e ../python-sdk \
    -e ../python-sdk/ext/dapr-ext-fastapi \
    -e ../python-sdk/ext/dapr-ext-workflow
+```
+
+You can also update `pyproject.toml` file to point to your local repo instead. For example, instead of:
+```
+"durabletask-dapr=>0.2.0a15",
+```
+You can use:
+```
+"durabletask-dapr @ file:///Users/samcoyle/go/src/github.com/durabletask-python",
 ```
 
 ### Using Local Dapr Runtime Changes
@@ -109,34 +131,117 @@ uv run pytest --cov=dapr_agents
 
 ### Integration Tests
 
-> Note: we do not use `pytest-docker-compose` intentionally here because it is not compatible with Python2, 
+> Note: we do not use `pytest-docker-compose` intentionally here because it is not compatible with Python2,
 and requires an old version of pyyaml < version6, but the rest of our project requires >6 for this pkg.
 
 Requires Dapr CLI to be installed.
 
 ```
 # Install test dependencies
-pip install -e .[test]
+uv sync --group test
 
 # Set API key (required)
 export OPENAI_API_KEY=your_key_here
 
 # Run all integration tests
-pytest tests/integration/quickstarts/ -v -m integration
+uv run pytest tests/integration/quickstarts/ -v -m integration
 
 # Run specific test file
-pytest tests/integration/quickstarts/test_01_dapr_agents_fundamentals.py -v
+uv run pytest tests/integration/quickstarts/test_01_dapr_agents_fundamentals.py -v
 
 # Run specific test func
-pytest -m integration -v integration/quickstarts/test_01_dapr_agents_fundamentals.py::TestHelloWorldQuickstart::test_chain_tasks
+uv run pytest -m integration -v tests/integration/quickstarts/test_01_dapr_agents_fundamentals.py::TestHelloWorldQuickstart::test_01_llm_client
 
 # Run with coverage
-pytest tests/integration/quickstarts/ -v -m integration --cov=dapr_agents
+uv run pytest tests/integration/quickstarts/ -v -m integration --cov=dapr_agents
 ```
 
 > Note: Parallel execution can be enabled with pytest-xdist using -n auto or -n <num>. Example: `pytest -n auto -m integration`.
 
 To use an existing venv to speed up local development time, then you can update the quickstarts to set `create_venv` to `True` as a parameter in `run_quickstart_script`. Alternatively, you can set the env var setting: `USE_EXISTING_VENV=true`.
+
+### Integration Tests with Ollama (No API Key Needed)
+
+You can run integration tests locally using [Ollama](https://ollama.com/) instead of OpenAI. This is free, runs entirely on your machine, and is the same setup used in CI on every pull request.
+
+#### Prerequisites
+
+1. **Install Ollama**:
+   ```bash
+   # macOS
+   brew install ollama
+
+   # Linux
+   curl -fsSL https://ollama.com/install.sh | sh
+   ```
+
+2. **Start Ollama and pull the model**:
+   ```bash
+   ollama serve    # Start the server (skip if already running)
+   ollama pull qwen3:0.6b   # ~523MB download, cached after first pull
+   ```
+
+3. **Ensure Dapr is initialized**:
+   ```bash
+   dapr init
+   ```
+
+#### Running the Tests
+
+```bash
+# Install test dependencies
+uv sync --group test
+
+# Run all Ollama-compatible E2E tests
+OLLAMA_ENDPOINT=http://localhost:11434/v1 \
+OLLAMA_MODEL=qwen3:0.6b \
+OPENAI_API_KEY=ollama \
+uv run pytest -m "integration and ollama" -v --timeout=300 \
+  tests/integration/quickstarts/
+
+# Run a single test (e.g., the simplest LLM client test)
+OLLAMA_ENDPOINT=http://localhost:11434/v1 \
+OLLAMA_MODEL=qwen3:0.6b \
+OPENAI_API_KEY=ollama \
+uv run pytest -m "integration and ollama" -v -k test_01_llm_client --timeout=300 \
+  tests/integration/quickstarts/
+```
+
+#### How It Works
+
+When `OLLAMA_ENDPOINT` is set, the test framework:
+
+1. Returns a dummy `"ollama"` API key instead of requiring `OPENAI_API_KEY`
+2. Swaps the Dapr `llm-provider.yaml` component to use `conversation.openai` pointing at the Ollama endpoint
+3. Resolves `{{OLLAMA_MODEL}}` and `{{OLLAMA_ENDPOINT}}` in the component YAML via the existing env-template resolver
+
+Tests marked with `@pytest.mark.ollama` are the subset validated to work with small local models. These include basic LLM calls, agent tool calling, memory, durable agents, workflows, and hot-reload config change tests.
+
+#### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OLLAMA_ENDPOINT` | Yes | — | Ollama OpenAI-compatible endpoint (e.g., `http://localhost:11434/v1`) |
+| `OLLAMA_MODEL` | No | `qwen3:0.6b` | Ollama model to use |
+| `OPENAI_API_KEY` | Yes | — | Set to `ollama` (dummy value, required by test fixtures) |
+
+#### Using a Different Model
+
+Any Ollama model with tool-calling support works. Larger models give more reliable results:
+
+```bash
+# Use a larger model for more reliable tool calling
+ollama pull qwen2.5:3b
+OLLAMA_ENDPOINT=http://localhost:11434/v1 \
+OLLAMA_MODEL=qwen2.5:3b \
+OPENAI_API_KEY=ollama \
+uv run pytest -m "integration and ollama" -v --timeout=300 \
+  tests/integration/quickstarts/
+```
+
+#### CI Workflow
+
+The `E2E Tests (Ollama)` GitHub Actions workflow (`.github/workflows/ci-e2e-ollama.yaml`) runs these same tests automatically on every pull request using `qwen3:0.6b` with `--reruns 2` for flaky-tolerance.
 
 ## Code Quality
 
@@ -155,6 +260,89 @@ uv run mypy --config-file mypy.ini
 ## Run all combined
 uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"
 ```
+
+## Pre-Push Hooks
+
+This project uses pre-commit hooks to automatically run quality checks before pushing code to GitHub. These hooks catch issues in ~10 seconds instead of waiting 5-10 minutes for CI.
+
+### Installation
+
+1. Install pre-commit framework (if not already installed):
+   ```bash
+   uv pip install pre-commit
+   # or
+   pip install pre-commit
+   ```
+
+2. Install the git hooks:
+   ```bash
+   pre-commit install --hook-type pre-push
+   ```
+
+3. (Optional) Run manually on all files to verify setup:
+   ```bash
+   pre-commit run --all-files --hook-stage pre-push
+   ```
+
+### What Gets Checked
+
+When you run `git push`, the following checks run automatically:
+
+1. **File hygiene** - Trailing whitespace, end-of-file fixes
+2. **YAML validation** - Check component config files
+3. **Code formatting** - Ruff auto-formats code
+4. **Linting** - Flake8 checks for code issues
+5. **Type checking** - MyPy validates types
+6. **Unit tests** - Pytest runs ~256 unit tests (excluding integration tests)
+
+These checks mirror the CI/CD pipeline, catching issues before they reach GitHub.
+
+### Running Hooks Manually
+
+```bash
+# Run all pre-push hooks without pushing
+pre-commit run --all-files --hook-stage pre-push
+# Or use the Makefile shortcut
+make hooks-run
+
+# Run all hooks PLUS integration tests (comprehensive check, slower)
+make hooks-run-all
+
+# Run individual checks (same commands as before)
+uv run ruff format dapr_agents tests
+uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+uv run mypy --config-file mypy.ini
+uv run pytest tests -m "not integration"
+```
+
+### Skipping Hooks (Emergency Only)
+
+If you absolutely must push without running hooks:
+
+```bash
+git push --no-verify
+```
+
+**Note:** Use sparingly - CI will still catch issues, but this defeats the purpose of local validation.
+
+### Troubleshooting
+
+**"Hook failed to run"**
+- Ensure dependencies are installed: `uv sync --group dev --group test`
+
+**"Tests are failing"**
+- Run tests locally to see details: `uv run pytest tests -m "not integration" -v`
+- Fix failing tests before pushing
+
+**"First run is slow"**
+- First-time execution downloads pre-commit repositories (~30s)
+- Subsequent runs are cached and fast (~10s)
+
+**Performance**
+- Expected runtime: 8-12 seconds (pre-push hooks only)
+- Expected runtime: 2-5 minutes (with `make hooks-run-all` including integration tests)
+- Only checks staged files where possible
+- Integration tests NOT included in pre-push hooks (too slow - use `make hooks-run-all` for comprehensive local check)
 
 ## Development Workflow
 
@@ -184,6 +372,17 @@ uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E2
    ```
 
 6. Submit your changes
+
+## To run pre-commit hooks
+```bash
+pre-commit run --all-files
+```
+
+## To run the Metadata Schema Generator
+TODO(@casperGN): to pls add in when we should run this, when it gets ran in CI, how to avoid local versions from getting committed, etc.
+```
+uv run python scripts/generate_metadata_schema.py --version X.X.X
+```
 
 ## Design/Behavioral Decisions
 

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-envvars
+  labels:
+    app: otel-envvars
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-envvars
+  template:
+    metadata:
+      labels:
+        app: otel-envvars
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "otel-envvars"
+        dapr.io/app-port: "8080"
+        dapr.io/enable-api-logging: "true"
+    spec:
+      containers:
+      - name: agent
+        image: localhost:5001/demo-otel-agent:latest
+        command: ["python", "/app/agents/envvars/app.py"]
+        ports:
+        - containerPort: 8080
+        env:
+        - name: OTEL_SDK_DISABLED
+          value: "false"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://dapr-agents-opentelemetry-collector.dapr-agents.svc.cluster.local:4317"
+        - name: OTEL_TRACES_EXPORTER
+          value: "otlp_grpc"
+        - name: OTEL_TRACING_ENABLED
+          value: "true"
+        - name: OTEL_SERVICE_NAME
+          value: "otel-envvars-agent"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi

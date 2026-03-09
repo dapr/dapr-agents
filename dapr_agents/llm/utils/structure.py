@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import json
 import logging
 from collections.abc import Iterable
@@ -244,6 +257,18 @@ class StructureHandler:
                                 f"Extracted function-call response: {extracted_response}"
                             )
                             return extracted_response
+                    # Fallback: LLM ignored tool_choice and returned plain JSON text
+                    content = getattr(message, "content", None)
+                    if content and isinstance(content, str):
+                        try:
+                            json.loads(content)
+                            logger.warning(
+                                "function_call mode: no tool_calls in response; "
+                                "falling back to content as JSON."
+                            )
+                            return content
+                        except json.JSONDecodeError:
+                            pass
                     raise StructureError("No tool_calls found for function_call mode.")
 
                 elif structured_mode == "json":

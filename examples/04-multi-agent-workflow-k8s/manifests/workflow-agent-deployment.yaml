@@ -1,0 +1,56 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow-agent
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workflow-agent
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        dapr.io/app-id: workflow-agent
+        dapr.io/app-port: "8004"
+        dapr.io/enabled: "true"
+        dapr.io/metrics-port: "59213"
+        dapr.io/unix-domain-socket-path: ""
+      creationTimestamp: null
+      labels:
+        app: workflow-agent
+    spec:
+      containers:
+      - env:
+        - name: APP_PORT
+          value: "8004"
+        - name: DAPR_METRICS_PORT
+          value: "59213"
+        - name: DEBUG
+          value: "true"
+        - name: APP_ID
+          value: workflow-agent
+        - name: APP_CHANNEL_ADDRESS
+        envFrom:
+        - secretRef:
+            name: openai-secrets
+        image: localhost:5001/workflow-agent:latest
+        imagePullPolicy: Always
+        name: workflow-agent
+        ports:
+        - containerPort: 8004
+        resources: {}

@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -21,12 +34,17 @@ class ConversationVectorMemory(MemoryBase):
         ..., description="The vector store instance used for message storage."
     )
 
-    def add_message(self, message: Union[Dict[str, Any], MessageContent]) -> None:
+    def add_message(
+        self,
+        message: Union[Dict[str, Any], MessageContent],
+        workflow_instance_id: str,
+    ) -> None:
         """
         Adds a single message to the vector store.
 
         Args:
-            message (Union[Dict[str, Any], MessageContent]): The message to add to the vector store.
+            message: The message to add to the vector store.
+            workflow_instance_id: Workflow instance id for this message.
         """
         message_dict = self._convert_to_dict(message)
         metadata = {
@@ -34,19 +52,23 @@ class ConversationVectorMemory(MemoryBase):
             f"{message_dict.get('role')}_message": message_dict.get("content"),
             "message_id": str(uuid.uuid4()),
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "workflow_instance_id": workflow_instance_id,
         }
         self.vector_store.add(
             documents=[message_dict.get("content")], metadatas=[metadata]
         )
 
     def add_messages(
-        self, messages: List[Union[Dict[str, Any], MessageContent]]
+        self,
+        messages: List[Union[Dict[str, Any], MessageContent]],
+        workflow_instance_id: str,
     ) -> None:
         """
         Adds multiple messages to the vector store.
 
         Args:
-            messages (List[Union[Dict[str, Any], MessageContent]]): A list of messages to add to the vector store.
+            messages: A list of messages to add to the vector store.
+            workflow_instance_id: Workflow instance id for these messages.
         """
         contents: List[str] = []
         metadatas: List[Dict[str, Any]] = []
@@ -59,6 +81,7 @@ class ConversationVectorMemory(MemoryBase):
                     f"{msg_dict.get('role')}_message": msg_dict.get("content"),
                     "message_id": str(uuid.uuid4()),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "workflow_instance_id": workflow_instance_id,
                 }
             )
         self.vector_store.add(contents, metadatas)
@@ -67,13 +90,15 @@ class ConversationVectorMemory(MemoryBase):
         self,
         user_message: Union[Dict[str, Any], UserMessage],
         assistant_message: Union[Dict[str, Any], AssistantMessage],
+        workflow_instance_id: str,
     ) -> None:
         """
         Adds a user-assistant interaction to the vector store as a single document.
 
         Args:
-            user_message (Union[Dict[str, Any], UserMessage]): The user message.
-            assistant_message (Union[Dict[str, Any], AssistantMessage]): The assistant message.
+            user_message: The user message.
+            assistant_message: The assistant message.
+            workflow_instance_id: Workflow instance id for this interaction.
         """
         user_msg_dict = self._convert_to_dict(user_message)
         assistant_msg_dict = self._convert_to_dict(assistant_message)
@@ -84,6 +109,7 @@ class ConversationVectorMemory(MemoryBase):
             "user_message": user_msg_dict.get("content"),
             "assistant_message": assistant_msg_dict.get("content"),
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "workflow_instance_id": workflow_instance_id,
         }
         self.vector_store.add(
             documents=[conversation_text],
@@ -94,6 +120,7 @@ class ConversationVectorMemory(MemoryBase):
 
     def get_messages(
         self,
+        workflow_instance_id: str,
         query_embeddings: Optional[List[List[float]]] = None,
         k: int = 4,
         distance_metric: str = "cosine",
@@ -102,12 +129,13 @@ class ConversationVectorMemory(MemoryBase):
         Retrieves messages from the vector store. If a query is provided, it performs a similarity search.
 
         Args:
-            query_embeddings (Optional[List[List[float]]], optional): The query embeddings for similarity search. Defaults to None.
-            k (int, optional): The number of similar results to retrieve. Defaults to 4.
-            distance_metric (str, optional): The distance metric to use ("l2", "ip", "cosine"). Defaults to "cosine".
+            workflow_instance_id: Workflow instance id to retrieve messages for.
+            query_embeddings: The query embeddings for similarity search. Defaults to None.
+            k: The number of similar results to retrieve. Defaults to 4.
+            distance_metric: The distance metric to use ("l2", "ip", "cosine"). Defaults to "cosine".
 
         Returns:
-            List[Dict[str, Any]]: A list of all stored or similar messages as dictionaries with 'role' and 'content'.
+            A list of all stored or similar messages as dictionaries with 'role' and 'content'.
         """
         if query_embeddings:
             logger.info("Getting conversations related to user's query...")
@@ -131,9 +159,33 @@ class ConversationVectorMemory(MemoryBase):
                 )
         return messages
 
-    def reset_memory(self) -> None:
+    def purge_memory(self, workflow_instance_id: str) -> None:
         """
-        Clears all messages from the vector store.
+        Permanently remove stored messages for the given workflow instance.
+
+        WARNING: The current vector store backend does not support per-instance
+        scoped deletion.  Calling this method will reset the ENTIRE vector store,
+        removing conversation data for ALL workflow instances.  Use with caution.
+        This behaviour is tracked as a known limitation to be addressed in a
+        future release.
+
+        Args:
+            workflow_instance_id: Workflow instance id to purge (currently ignored).
+        """
+        logger.warning(
+            "purge_memory() on ConversationVectorMemory resets the entire vector "
+            "store (all workflow instances), not just instance_id=%s.  "
+            "This is a known limitation.",
+            workflow_instance_id,
+        )
+        self.reset_memory(workflow_instance_id)
+
+    def reset_memory(self, workflow_instance_id: str) -> None:
+        """
+        Clears all messages from the vector store for the given workflow instance.
+
+        Args:
+            workflow_instance_id: Workflow instance id to reset.
         """
         self.vector_store.reset()
 

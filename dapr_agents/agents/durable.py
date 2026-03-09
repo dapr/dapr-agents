@@ -1,6 +1,20 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import annotations
 
 from datetime import timedelta
+import functools
 import json
 import logging
 from typing import Any, Dict, Iterable, List, Optional
@@ -8,13 +22,41 @@ from os import getenv
 
 import dapr.ext.workflow as wf
 
+from dapr_agents.agents.orchestration import (
+    OrchestrationStrategy,
+    AgentOrchestrationStrategy,
+    RoundRobinOrchestrationStrategy,
+    RandomOrchestrationStrategy,
+)
+from dapr_agents.agents.orchestrators.llm.prompts import (
+    NEXT_STEP_PROMPT,
+    PROGRESS_CHECK_PROMPT,
+    SUMMARY_GENERATION_PROMPT,
+    TASK_PLANNING_PROMPT,
+)
+from dapr_agents.agents.orchestrators.llm.schemas import (
+    IterablePlanStep,
+    NextStep,
+    ProgressCheckOutput,
+    schemas,
+)
+from dapr_agents.agents.orchestrators.llm.state import PlanStep
+from dapr_agents.agents.orchestrators.llm.utils import (
+    find_step_in_plan,
+    restructure_plan,
+    update_step_statuses,
+)
+
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
+    OrchestrationMode,
+    ToolExecutionMode,
     AgentExecutionConfig,
     AgentMemoryConfig,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
+    RuntimeSubscriptionConfig,
     WorkflowGrpcOptions,
     WorkflowRetryPolicy,
     AgentObservabilityConfig,
@@ -22,6 +64,7 @@ from dapr_agents.agents.configs import (
 from dapr_agents.agents.prompting import AgentProfileConfig
 from dapr_agents.agents.schemas import (
     AgentTaskResponse,
+    AgentWorkflowMessage,
     BroadcastMessage,
     TriggerAction,
 )
@@ -29,17 +72,31 @@ from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.types import (
     AgentError,
-    LLMChatResponse,
     ToolMessage,
-    UserMessage,
+    AssistantMessage,
 )
-from dapr_agents.types.workflow import DaprWorkflowStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
+from dapr_agents.tool.workflow.agent_tool import (
+    AgentWorkflowTool,
+    agent_to_tool,
+    agent_workflow_id,
+)
+from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 
 logger = logging.getLogger(__name__)
+
+
+def broadcast_workflow_id(agent_name: str) -> str:
+    """Return the Dapr-registered broadcast workflow name for an agent."""
+    return f"dapr.agents.{agent_name}.broadcast"
+
+
+def orchestration_workflow_id(agent_name: str) -> str:
+    """Return the Dapr-registered orchestration workflow name for an agent."""
+    return f"dapr.agents.{agent_name}.orchestration"
 
 
 class DurableAgent(AgentBase):
@@ -69,7 +126,7 @@ class DurableAgent(AgentBase):
         pubsub: Optional[AgentPubSubConfig] = None,
         state: Optional[AgentStateConfig] = None,
         registry: Optional[AgentRegistryConfig] = None,
-        # Memory / runtime
+        # Memory
         memory: Optional[AgentMemoryConfig] = None,
         llm: Optional[ChatClientBase] = None,
         tools: Optional[Iterable[Any]] = None,
@@ -81,6 +138,7 @@ class DurableAgent(AgentBase):
         runtime: Optional[wf.WorkflowRuntime] = None,
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
         agent_observability: Optional[AgentObservabilityConfig] = None,
+        configuration: Optional[RuntimeSubscriptionConfig] = None,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -102,16 +160,33 @@ class DurableAgent(AgentBase):
             registry: Team registry configuration.
             execution: Execution dials for the agent run.
 
-            memory: Conversation memory config; defaults to in-memory, or Dapr state-backed if available.
+            memory: Enable long-term conversation memory storage; defaults to false.
             llm: Chat client; defaults to `get_default_llm()`.
-            tools: Optional tool callables or `AgentTool` instances.
+            tools: Optional tool callables or ``AgentTool`` instances.
+                All agents sharing the same registry are auto-discovered as
+                tools at workflow start via ``load_tools``.
 
             agent_metadata: Extra metadata to publish to the registry.
             workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
             runtime: Optional pre-existing workflow runtime to attach to.
             retry_policy: Durable retry policy configuration.
             agent_observability: Observability configuration for tracing/logging.
+            configuration: Optional configuration store settings for hot-reloading.
         """
+        # Mark orchestrators to filtered out when other orchestrators query for available agents
+        if execution and execution.orchestration_mode:
+            agent_metadata = dict(agent_metadata or {})
+            agent_metadata["orchestrator"] = True
+
+        # DurableAgent instances in the tools list are converted to AgentWorkflowTool
+        # after super().__init__() so they don't reach AgentToolExecutor as raw objects.
+        self._agents_as_tools: List[DurableAgent] = [
+            item for item in list(tools or []) if isinstance(item, DurableAgent)
+        ]
+        tools = [
+            item for item in list(tools or []) if not isinstance(item, DurableAgent)
+        ]
+
         super().__init__(
             pubsub=pubsub,
             profile=profile,
@@ -131,9 +206,24 @@ class DurableAgent(AgentBase):
             tools=tools,
             prompt_template=prompt_template,
             agent_observability=agent_observability,
+            configuration=configuration,
         )
 
-        apply_grpc_options(self.workflow_grpc_options)
+        # Convert any DurableAgent objects to AgentWorkflowTool and register immediately.
+        # Orchestrators dispatch to sub-agents via their orchestration strategy,
+        # not via tool_executor, so agent-as-tool registration is skipped for them.
+        if not self.execution.orchestration_mode:
+            for item in self._agents_as_tools:
+                self.tool_executor.register_tool(
+                    agent_to_tool(item.name, description=item.profile.role or "")
+                )
+            # Re-enable tool_choice if AgentBase cleared it due to an empty tools list
+            # but we've now registered agent-as-tool entries into the executor.
+            if self._agents_as_tools and self.execution.tool_choice is None:
+                self.execution.tool_choice = "auto"
+
+        grpc_options = getattr(self, "workflow_grpc_options", None)
+        apply_grpc_options(grpc_options)
 
         self._runtime: wf.WorkflowRuntime = runtime or wf.WorkflowRuntime()
         self._runtime_owned = runtime is None
@@ -157,14 +247,47 @@ class DurableAgent(AgentBase):
             ),
             max_retry_interval=timedelta(seconds=retry_policy.max_backoff_seconds),
             backoff_coefficient=retry_policy.backoff_multiplier,
-            retry_timeout=timedelta(seconds=retry_policy.retry_timeout)
-            if retry_policy.retry_timeout
-            else None,
+            retry_timeout=(
+                timedelta(seconds=retry_policy.retry_timeout)
+                if retry_policy.retry_timeout
+                else None
+            ),
         )
+
+        self._orchestration_strategy: Optional[OrchestrationStrategy] = None
+        # Initialize orchestration strategy if this agent is an orchestrator
+        if self.execution.orchestration_mode:
+            # Default to "agent" mode if no mode specified
+
+            match self.execution.orchestration_mode:
+                case OrchestrationMode.AGENT:
+                    self._orchestration_strategy = AgentOrchestrationStrategy()
+                case OrchestrationMode.ROUNDROBIN:
+                    self._orchestration_strategy = RoundRobinOrchestrationStrategy()
+                case OrchestrationMode.RANDOM:
+                    self._orchestration_strategy = RandomOrchestrationStrategy()
+                case _:
+                    raise ValueError(
+                        f"Invalid orchestration_mode: {self.execution.orchestration_mode}. "
+                        f"Must be one of: 'agent', 'roundrobin', 'random'"
+                    )
+
+            # Store orchestrator name for strategy finalization
+            self._orchestration_strategy.orchestrator_name = self.name
+            self.effective_team = registry.team_name if registry else "default"
+
+            logger.debug(
+                f"Initialized orchestrator '{self.name}' with mode '{self.execution.orchestration_mode}'"
+            )
 
     # ------------------------------------------------------------------
     # Runtime accessors
     # ------------------------------------------------------------------
+    @property
+    def orchestrator(self) -> bool:
+        """True if this agent is configured as an orchestrator (has orchestration strategy)."""
+        return self._orchestration_strategy is not None
+
     @property
     def runtime(self) -> wf.WorkflowRuntime:
         """Return the underlying workflow runtime."""
@@ -174,6 +297,16 @@ class DurableAgent(AgentBase):
     def is_started(self) -> bool:
         """Return True when the workflow runtime has been started."""
         return self._started
+
+    @property
+    def agent_workflow_name(self) -> str:
+        """Dapr-registered name of this agent's primary workflow."""
+        return agent_workflow_id(self.name)
+
+    @property
+    def broadcast_workflow_name(self) -> str:
+        """Dapr-registered name of this agent's broadcast workflow."""
+        return broadcast_workflow_id(self.name)
 
     # ------------------------------------------------------------------
     # Workflows / Activities
@@ -207,18 +340,6 @@ class DurableAgent(AgentBase):
         trigger_instance_id = metadata.get("triggering_workflow_instance_id")
         source = metadata.get("source") or "direct"
 
-        # Ensure we have the latest durable state for this turn.
-        if self.state_store:
-            self.load_state()
-
-        # Bootstrap instance entry (flexible to non-`instances` models).
-        self.ensure_instance_exists(
-            instance_id=ctx.instance_id,
-            input_value=task or "Triggered without input.",
-            triggering_workflow_instance_id=trigger_instance_id,
-            time=ctx.current_utc_datetime,
-        )
-
         if not ctx.is_replaying:
             logger.info("Initial message from %s -> %s", source, self.name)
 
@@ -227,101 +348,196 @@ class DurableAgent(AgentBase):
             self.record_initial_entry,
             input={
                 "instance_id": ctx.instance_id,
-                "input_value": task or "Triggered without input.",
                 "source": source,
                 "triggering_workflow_instance_id": trigger_instance_id,
-                "start_time": ctx.current_utc_datetime.isoformat(),
                 "trace_context": otel_span_context,
             },
             retry_policy=self._retry_policy,
         )
 
+        # Discover is_tool=True agents from registry and resolve any string-named tools.
+        if self.registry:
+            yield ctx.call_activity(
+                self.load_tools,
+                retry_policy=self._retry_policy,
+            )
+
         final_message: Dict[str, Any] = {}
         turn = 0
 
         try:
-            for turn in range(1, self.execution.max_iterations + 1):
+            # Delegate to orchestration workflow if this agent is an orchestrator
+            if self._orchestration_strategy:
                 if not ctx.is_replaying:
-                    logger.debug(
-                        "Agent %s turn %d/%d (instance=%s)",
+                    logger.info(
+                        "Agent %s delegating to orchestration_workflow (instance=%s)",
                         self.name,
-                        turn,
-                        self.execution.max_iterations,
                         ctx.instance_id,
                     )
 
-                assistant_response: Dict[str, Any] = yield ctx.call_activity(
-                    self.call_llm,
+                final_message = yield ctx.call_child_workflow(
+                    workflow=orchestration_workflow_id(self.name),
                     input={
                         "task": task,
                         "instance_id": ctx.instance_id,
-                        "time": ctx.current_utc_datetime.isoformat(),
+                        "triggering_workflow_instance_id": trigger_instance_id,
+                        "start_time": ctx.current_utc_datetime.isoformat(),
                     },
                     retry_policy=self._retry_policy,
                 )
 
-                tool_calls = assistant_response.get("tool_calls") or []
-                if tool_calls:
+                if not ctx.is_replaying:
+                    logger.info(
+                        "Orchestration workflow completed (instance=%s)",
+                        ctx.instance_id,
+                    )
+
+            # Standard agent execution loop
+            else:
+                for turn in range(1, self.execution.max_iterations + 1):
                     if not ctx.is_replaying:
                         logger.debug(
-                            "Agent %s executing %d tool call(s) on turn %d",
+                            "Agent %s turn %d/%d (instance=%s)",
                             self.name,
-                            len(tool_calls),
                             turn,
+                            self.execution.max_iterations,
+                            ctx.instance_id,
                         )
-                    parallel = [
-                        ctx.call_activity(
-                            self.run_tool,
-                            input={
-                                "tool_call": tc,
-                                "instance_id": ctx.instance_id,
-                                "time": ctx.current_utc_datetime.isoformat(),
-                                "order": idx,
-                            },
-                            retry_policy=self._retry_policy,
-                        )
-                        for idx, tc in enumerate(tool_calls)
-                    ]
-                    tool_results: List[Dict[str, Any]] = yield wf.when_all(parallel)
 
-                    yield ctx.call_activity(
-                        self.save_tool_results,
+                    assistant_response: Dict[str, Any] = yield ctx.call_activity(
+                        self.call_llm,
                         input={
-                            "tool_results": tool_results,
+                            "task": task,
                             "instance_id": ctx.instance_id,
+                            "time": ctx.current_utc_datetime.isoformat(),
+                            "source": source,
                         },
                         retry_policy=self._retry_policy,
                     )
+                    tool_calls = assistant_response.get("tool_calls") or []
+                    if tool_calls:
+                        if not ctx.is_replaying:
+                            logger.debug(
+                                "Agent %s executing %d tool call(s) on turn %d",
+                                self.name,
+                                len(tool_calls),
+                                turn,
+                            )
 
-                    task = None  # prepare for next turn
-                    continue
+                        workflow_tasks: List[Any] = []
+                        workflow_meta: List[Dict[str, Any]] = []
+                        activity_tasks: List[Any] = []
+                        activity_meta: List[Dict[str, Any]] = []
 
-                final_message = assistant_response
-                if not ctx.is_replaying:
-                    logger.debug(
-                        "Agent %s produced final response on turn %d (instance=%s)",
-                        self.name,
-                        turn,
-                        ctx.instance_id,
+                        for idx, tc in enumerate(tool_calls):
+                            fn_name = tc["function"]["name"]
+                            tool_obj = self.tool_executor.get_tool(fn_name)
+
+                            # WorkflowContextInjectedTool instances get executed inline as workflow tasks so they can receive the workflow context.
+                            # They must be executed in the workflow to have access to the ctx to call ctx.call_child_workflow,
+                            # and cannot be ran within an activity bc activities do not have the workflow context.
+                            if tool_obj and isinstance(
+                                tool_obj, WorkflowContextInjectedTool
+                            ):
+                                raw_args = tc["function"].get("arguments", "")
+                                try:
+                                    args = json.loads(raw_args) if raw_args else {}
+                                except json.JSONDecodeError as exc:
+                                    raise AgentError(
+                                        f"Failed to decode tool arguments for '{fn_name}': {exc}"
+                                    ) from exc
+                                workflow_tasks.append(
+                                    tool_obj(ctx=ctx, _source_agent=self.name, **args)
+                                )
+                                workflow_meta.append({"order": idx, "tool_call": tc})
+                            # Invoke and execute regular tools.
+                            else:
+                                activity_tasks.append(
+                                    ctx.call_activity(
+                                        self.run_tool,
+                                        input={
+                                            "tool_call": tc,
+                                            "instance_id": ctx.instance_id,
+                                            "time": ctx.current_utc_datetime.isoformat(),
+                                            "order": idx,
+                                        },
+                                        retry_policy=self._retry_policy,
+                                    )
+                                )
+                                activity_meta.append({"order": idx, "tool_call": tc})
+
+                        all_tasks = workflow_tasks + activity_tasks
+                        if (
+                            self.execution.tool_execution_mode
+                            == ToolExecutionMode.SEQUENTIAL
+                        ):
+                            results: List[Any] = []
+                            for task in all_tasks:
+                                results.append((yield task))
+                        else:
+                            results: List[Any] = yield wf.when_all(all_tasks)
+
+                        ordered: List[Optional[Dict[str, Any]]] = [None] * len(
+                            tool_calls
+                        )
+
+                        for meta, res in zip(
+                            workflow_meta, results[: len(workflow_tasks)]
+                        ):
+                            tc = meta["tool_call"]
+                            fn_name = tc["function"]["name"]
+                            serialized = serialize_tool_result(res)
+                            tool_msg = ToolMessage(
+                                content=serialized,
+                                role="tool",
+                                name=fn_name,
+                                tool_call_id=tc["id"],
+                            )
+                            ordered[meta["order"]] = tool_msg.model_dump()
+
+                        for meta, res in zip(
+                            activity_meta, results[len(workflow_tasks) :]
+                        ):
+                            ordered[meta["order"]] = res
+
+                        tool_results = [tr for tr in ordered if tr is not None]
+                        yield ctx.call_activity(
+                            self.save_tool_results,
+                            input={
+                                "tool_results": tool_results,
+                                "instance_id": ctx.instance_id,
+                            },
+                            retry_policy=self._retry_policy,
+                        )
+                        task = None  # prepare for next turn
+                        continue
+
+                    final_message = assistant_response
+                    if not ctx.is_replaying:
+                        logger.debug(
+                            "Agent %s produced final response on turn %d (instance=%s)",
+                            self.name,
+                            turn,
+                            ctx.instance_id,
+                        )
+                    break
+                else:
+                    # Loop exhausted without a terminating reply → surface a friendly notice.
+                    base = final_message.get("content") or ""
+                    if base:
+                        base = base.rstrip() + "\n\n"
+                    base += (
+                        "I reached the maximum number of reasoning steps before I could finish. "
+                        "Please rephrase or provide more detail so I can try again."
                     )
-                break
-            else:
-                # Loop exhausted without a terminating reply → surface a friendly notice.
-                base = final_message.get("content") or ""
-                if base:
-                    base = base.rstrip() + "\n\n"
-                base += (
-                    "I reached the maximum number of reasoning steps before I could finish. "
-                    "Please rephrase or provide more detail so I can try again."
-                )
-                final_message = {"role": "assistant", "content": base}
-                if not ctx.is_replaying:
-                    logger.warning(
-                        "Agent %s hit max iterations (%d) without a final response (instance=%s)",
-                        self.name,
-                        self.execution.max_iterations,
-                        ctx.instance_id,
-                    )
+                    final_message = {"role": "assistant", "content": base}
+                    if not ctx.is_replaying:
+                        logger.warning(
+                            "Agent %s hit max iterations (%d) without a final response (instance=%s)",
+                            self.name,
+                            self.execution.max_iterations,
+                            ctx.instance_id,
+                        )
 
         except Exception as exc:  # noqa: BLE001
             logger.exception("Agent %s workflow failed: %s", self.name, exc)
@@ -330,7 +546,7 @@ class DurableAgent(AgentBase):
         # Optionally broadcast the final message to the team.
         if self.broadcast_topic_name:
             yield ctx.call_activity(
-                self.broadcast_message_to_agents,
+                self.broadcast_to_team,
                 input={"message": final_message},
                 retry_policy=self._retry_policy,
             )
@@ -338,12 +554,19 @@ class DurableAgent(AgentBase):
         # Optionally send a direct response back to the trigger origin.
         if source and trigger_instance_id:
             yield ctx.call_activity(
-                self.send_response_back,
+                self.return_response,
                 input={
                     "response": final_message,
                     "target_agent": source,
                     "target_instance_id": trigger_instance_id,
                 },
+                retry_policy=self._retry_policy,
+            )
+
+        if self.memory is not None:
+            yield ctx.call_activity(
+                self.summarize,
+                input={},
                 retry_policy=self._retry_policy,
             )
 
@@ -374,8 +597,463 @@ class DurableAgent(AgentBase):
 
         return final_message
 
+    def orchestration_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
+        """Dedicated orchestration workflow using strategy pattern.
+
+        This is an internal workflow called via call_child_workflow from agent_workflow.
+
+        Args:
+            ctx: Dapr workflow context
+            message: Input dict with task, instance_id, triggering_workflow_instance_id, start_time
+
+        Returns:
+            Final message dict to be returned to caller
+        """
+        task = message.get("task")
+        instance_id = message.get("instance_id")
+
+        if not ctx.is_replaying:
+            logger.info(
+                f"Orchestration workflow started for instance {instance_id} with task: {task}"
+            )
+
+        agents_result = yield ctx.call_activity(
+            self.get_team_members,
+            retry_policy=self._retry_policy,
+        )
+
+        if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+            agents_formatted = agents_result["formatted"]
+            plan_prompt = TASK_PLANNING_PROMPT.format(
+                task=task, agents=agents_formatted, plan_schema=schemas.plan
+            )
+            init_response = yield ctx.call_activity(
+                self.call_llm,
+                input={
+                    "instance_id": instance_id,
+                    "task": plan_prompt,
+                    "time": ctx.current_utc_datetime.isoformat(),
+                    "response_format": "IterablePlanStep",
+                },
+                retry_policy=self._retry_policy,
+            )
+
+            content = init_response.get("content", "{}")
+            try:
+                parsed_content = json.loads(content)
+                plan = parsed_content.get("objects", [])
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse LLM response content: {e}")
+                plan = []
+
+            if not ctx.is_replaying:
+                logger.info(f"Received plan from initialization with {len(plan)} steps")
+
+            yield ctx.call_activity(
+                self.broadcast_to_team,
+                input={"message": plan},
+                retry_policy=self._retry_policy,
+            )
+
+            plan_content = json.dumps({"objects": plan}, indent=2)
+            plan_message = {
+                "role": "assistant",
+                "name": self.name,
+                "content": plan_content,
+            }
+            yield ctx.call_activity(
+                self.save_plan,
+                input={
+                    "instance_id": instance_id,
+                    "plan_message": plan_message,
+                    "time": ctx.current_utc_datetime.isoformat(),
+                },
+                retry_policy=self._retry_policy,
+            )
+
+            orch_state = {
+                "task": task,
+                "agents": agents_formatted,
+                "agents_metadata": agents_result["metadata"],
+                "plan": plan,
+                "task_history": [],
+                "verdict": None,
+            }
+        else:
+            agents_metadata = agents_result["metadata"]
+            orch_state = yield ctx.call_activity(
+                self.initialize_orchestration,
+                input={
+                    "task": task,
+                    "agents": agents_metadata,
+                    "instance_id": instance_id,
+                },
+                retry_policy=self._retry_policy,
+            )
+
+            orch_state["agents_metadata"] = agents_metadata
+
+        for turn in range(1, self.execution.max_iterations + 1):
+            if not ctx.is_replaying:
+                logger.debug(
+                    f"Orchestration turn {turn}/{self.execution.max_iterations} (instance={instance_id})"
+                )
+
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                plan = orch_state.get("plan", [])
+                agents_formatted = orch_state.get("agents", "")
+
+                if turn > 1:
+                    if not ctx.is_replaying:
+                        logger.info(f"Plan has {len(plan)} steps (turn {turn})")
+
+                    if len(plan) == 0:
+                        raise AgentError(
+                            "No plan available; cannot continue orchestration."
+                        )
+
+                next_step_prompt = NEXT_STEP_PROMPT.format(
+                    task=task,
+                    agents=agents_formatted,
+                    plan=plan,
+                    next_step_schema=schemas.next_step,
+                )
+                next_step_response = yield ctx.call_activity(
+                    self.call_llm,
+                    input={
+                        "instance_id": instance_id,
+                        "task": next_step_prompt,
+                        "time": ctx.current_utc_datetime.isoformat(),
+                        "response_format": "NextStep",
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                try:
+                    parsed_content = json.loads(next_step_response.get("content", "{}"))
+                    next_agent = parsed_content.get("next_agent")
+                    instruction = parsed_content.get("instruction")
+                    step_id = parsed_content.get("step")
+                    substep_id = parsed_content.get("substep")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse LLM response content: {e}")
+                    raise AgentError(f"Failed to parse next step from LLM: {e}")
+
+                if not ctx.is_replaying:
+                    logger.info(
+                        f"Next step decided: agent={next_agent}, step={step_id}, "
+                        f"substep={substep_id}, instruction={instruction}"
+                    )
+
+                is_valid = yield ctx.call_activity(
+                    self.validate_step,
+                    input={
+                        "instance_id": instance_id,
+                        "plan": self._convert_plan_objects_to_dicts(plan),
+                        "step": step_id,
+                        "substep": substep_id,
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                if not is_valid:
+                    if not ctx.is_replaying:
+                        logger.warning(
+                            f"Step {step_id}, substep {substep_id} not found in plan; skipping turn"
+                        )
+                    orch_state["verdict"] = "continue"
+                    continue
+
+                action = {
+                    "agent": next_agent,
+                    "instruction": instruction,
+                    "metadata": {"step_id": step_id, "substep_id": substep_id},
+                }
+
+                orch_state["current_step_id"] = step_id
+                orch_state["current_substep_id"] = substep_id
+                orch_state["plan"] = plan
+
+            else:
+                action = yield ctx.call_activity(
+                    self.select_next_task,
+                    input={"state": orch_state, "turn": turn, "task": task},
+                    retry_policy=self._retry_policy,
+                )
+
+            next_agent = action["agent"]
+            instruction = action["instruction"]
+
+            if not ctx.is_replaying:
+                logger.info(
+                    f"Turn {turn}: Selected agent '{next_agent}' with instruction: {instruction[:100]}..."
+                )
+
+            agents_metadata = orch_state.get("agents_metadata") or {}
+            agent_entry = agents_metadata.get(next_agent)
+
+            if agent_entry is None:
+                next_lower = next_agent.lower()
+                for key, meta in agents_metadata.items():
+                    if key.lower() == next_lower:
+                        agent_entry = meta
+                        break
+                    if next_lower in key.lower() or key.lower() in next_lower:
+                        agent_entry = meta
+                        break
+
+            if agent_entry is None:
+                raise AgentError(
+                    f"Agent '{next_agent}' not found in registry. "
+                    f"Available agents: {list(agents_metadata.keys())}"
+                )
+
+            agent_appid = agent_entry["agent"]["appid"]
+
+            _agent_tool = agent_to_tool(
+                next_agent,
+                description="",
+                target_app_id=agent_appid,
+            )
+            result = yield _agent_tool(ctx=ctx, task=instruction)
+
+            if not ctx.is_replaying:
+                logger.info(
+                    f"Turn {turn}: Agent '{next_agent}' responded: {result.get('content', '')[:100]}..."
+                )
+
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                plan = orch_state.get("plan", [])
+                step_id = orch_state.get("current_step_id")
+                substep_id = orch_state.get("current_substep_id")
+
+                target = find_step_in_plan(plan, step_id, substep_id)
+                if target:
+                    target["status"] = "completed"
+                plan = update_step_statuses(plan)
+
+                progress_prompt = PROGRESS_CHECK_PROMPT.format(
+                    task=task,
+                    plan=plan,
+                    step=step_id,
+                    substep=substep_id,
+                    results=result.get("content", ""),
+                    progress_check_schema=schemas.progress_check,
+                )
+                progress_response = yield ctx.call_activity(
+                    self.call_llm,
+                    input={
+                        "instance_id": instance_id,
+                        "task": progress_prompt,
+                        "time": ctx.current_utc_datetime.isoformat(),
+                        "response_format": "ProgressCheckOutput",
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                progress = yield ctx.call_activity(
+                    self.evaluate_progress,
+                    input={
+                        "content": progress_response.get("content", ""),
+                        "instance_id": instance_id,
+                        "plan_objects": plan,
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                plan = progress["plan"]
+                verdict = progress["verdict"]
+
+                plan_content = json.dumps({"objects": plan}, indent=2)
+                plan_message = {
+                    "role": "assistant",
+                    "name": self.name,
+                    "content": plan_content,
+                }
+                yield ctx.call_activity(
+                    self.save_plan,
+                    input={
+                        "instance_id": instance_id,
+                        "plan_message": plan_message,
+                        "time": ctx.current_utc_datetime.isoformat(),
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                orch_state["plan"] = plan
+                orch_state["verdict"] = verdict
+                orch_state["last_agent"] = next_agent
+                orch_state["last_result"] = result.get("content", "")
+
+            else:
+                process_result = yield ctx.call_activity(
+                    self.handle_response,
+                    input={
+                        "state": orch_state,
+                        "response": result,
+                        "action": action,
+                        "task": task,
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                orch_state = process_result["updated_state"]
+                verdict = process_result.get("verdict", "continue")
+
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                verdict = orch_state.get("verdict", "continue")
+                should_continue = (verdict == "continue") and (
+                    turn < self.execution.max_iterations
+                )
+            else:
+                should_continue = yield ctx.call_activity(
+                    self.check_completion,
+                    input={"state": orch_state, "turn": turn},
+                    retry_policy=self._retry_policy,
+                )
+
+            if not should_continue:
+                if not ctx.is_replaying:
+                    logger.info(f"Orchestration stopping after turn {turn}")
+                break
+
+        if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+            plan = orch_state.get("plan", [])
+            verdict = orch_state.get("verdict", "continue")
+            step_id = orch_state.get("current_step_id")
+            substep_id = orch_state.get("current_substep_id")
+            last_agent = orch_state.get("last_agent", "")
+            last_result = orch_state.get("last_result", "")
+
+            if verdict == "continue":
+                verdict = "max_iterations_reached"
+
+            summary_prompt = SUMMARY_GENERATION_PROMPT.format(
+                task=task,
+                verdict=verdict,
+                plan=plan,
+                step=step_id,
+                substep=substep_id,
+                agent=last_agent,
+                result=last_result,
+            )
+            summary_response = yield ctx.call_activity(
+                self.call_llm,
+                input={
+                    "instance_id": instance_id,
+                    "task": summary_prompt,
+                    "time": ctx.current_utc_datetime.isoformat(),
+                },
+                retry_policy=self._retry_policy,
+            )
+
+            final_message = {
+                "role": "assistant",
+                "content": summary_response.get("content", "Orchestration completed."),
+                "name": self.name,
+            }
+
+        else:
+            final_message = yield ctx.call_activity(
+                self.finalize_orchestration,
+                input={"state": orch_state, "task": task, "instance_id": instance_id},
+                retry_policy=self._retry_policy,
+            )
+
+        if not ctx.is_replaying:
+            logger.info(f"Orchestration workflow completed for instance {instance_id}")
+
+        return final_message
+
+    # ------------------------------------------------------------------
+    # Strategy Delegation Activities
+    # ------------------------------------------------------------------
+
+    def initialize_orchestration(self, ctx: Any, payload: dict) -> dict:
+        """Initialize orchestration state via strategy.
+
+        Args:
+            ctx: Activity context
+            payload: Dict with task, agents, instance_id
+
+        Returns:
+            Initial orchestration state from strategy
+        """
+        if not self._orchestration_strategy:
+            raise AgentError("No orchestration strategy configured")
+
+        return self._orchestration_strategy.initialize(
+            ctx, payload["task"], payload["agents"]
+        )
+
+    def select_next_task(self, ctx: Any, payload: dict) -> dict:
+        """Select next agent and instruction via strategy.
+
+        Args:
+            ctx: Activity context
+            payload: Dict with state, turn, task
+
+        Returns:
+            Action dict with agent, instruction, and metadata
+        """
+        if not self._orchestration_strategy:
+            raise AgentError("No orchestration strategy configured")
+
+        return self._orchestration_strategy.select_next_agent(
+            ctx, payload["state"], payload["turn"]
+        )
+
+    def handle_response(self, ctx: Any, payload: dict) -> dict:
+        """Process agent response via strategy.
+
+        Args:
+            ctx: Activity context
+            payload: Dict with state, response, action, task
+
+        Returns:
+            Dict with updated_state and verdict
+        """
+        if not self._orchestration_strategy:
+            raise AgentError("No orchestration strategy configured")
+
+        return self._orchestration_strategy.process_response(
+            ctx, payload["state"], payload["response"]
+        )
+
+    def check_completion(self, ctx: Any, payload: dict) -> bool:
+        """Check if orchestration should continue via strategy.
+
+        Args:
+            ctx: Activity context
+            payload: Dict with state, turn
+
+        Returns:
+            True if should continue, False otherwise
+        """
+        if not self._orchestration_strategy:
+            raise AgentError("No orchestration strategy configured")
+
+        return self._orchestration_strategy.should_continue(
+            payload["state"], payload["turn"], self.execution.max_iterations
+        )
+
+    def finalize_orchestration(self, ctx: Any, payload: dict) -> dict:
+        """Finalize orchestration and generate summary via strategy.
+
+        Args:
+            ctx: Activity context
+            payload: Dict with state, task, instance_id
+
+        Returns:
+            Final message dict for caller
+        """
+        if not self._orchestration_strategy:
+            raise AgentError("No orchestration strategy configured")
+
+        return self._orchestration_strategy.finalize(ctx, payload["state"])
+
     @message_router(message_model=BroadcastMessage, broadcast=True)
-    def broadcast_listener(self, ctx: wf.DaprWorkflowContext, message: dict) -> None:
+    def broadcast_workflow(self, ctx: wf.DaprWorkflowContext, message: dict) -> None:
         """
         Handle broadcast messages sent by other agents and store them in memory.
 
@@ -385,60 +1063,211 @@ class DurableAgent(AgentBase):
         """
         metadata = message.get("_message_metadata", {}) or {}
         source = metadata.get("source") or "unknown"
-        message_content = message.get("content", "")
         if source == self.name:
             logger.debug("Agent %s ignoring self-originated broadcast.", self.name)
             return
 
         logger.info("Agent %s received broadcast from %s", self.name, source)
         logger.debug("Full broadcast message: %s", message)
-        # Store as a user message from the broadcasting agent (kept in persistent memory).
-        self.memory.add_message(
-            UserMessage(name=source, content=message_content, role="user")
-        )
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _reconstruct_conversation_history(
-        self, instance_id: str
-    ) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _convert_plan_objects_to_dicts(plan_objects: List[Any]) -> List[Dict[str, Any]]:
         """
-        Build conversation history from per-instance state.
+        Converts plan objects (Pydantic models or dictionaries) into dictionaries.
 
         Args:
-            instance_id: Workflow instance identifier.
+            plan_objects (List[Any]): A list of plan objects to convert.
 
         Returns:
-            Message history for this specific workflow instance.
+            List[Dict[str, Any]]: The converted plan objects as dictionaries.
         """
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        if not plan_objects:
+            return []
+        return [
+            obj.model_dump() if hasattr(obj, "model_dump") else dict(obj)
+            for obj in plan_objects
+        ]
 
-        instance_messages: List[Dict[str, Any]] = []
-        if entry and hasattr(entry, "messages"):
-            for msg in getattr(entry, "messages"):
-                serialized = self._serialize_message(msg)
-                if serialized.get("role") != "system":
-                    instance_messages.append(serialized)
+    def get_plan_from_messages(
+        self, messages: List[AgentWorkflowMessage]
+    ) -> Optional[List[Dict[str, Any]]]:
+        # Find all assistant messages with JSON content starting with {
+        plan_messages = [
+            m
+            for m in messages
+            if m.role == "assistant" and m.content.strip().startswith("{")
+        ]
 
-        if instance_messages:
-            return instance_messages
+        # Get the LAST (most recent) plan message
+        if not plan_messages:
+            return None
 
-        persistent_memory: List[Dict[str, Any]] = []
+        plan_msg = plan_messages[-1]  # Get the last one
+
         try:
-            for msg in self.memory.get_messages():
-                try:
-                    persistent_memory.append(self._serialize_message(msg))
-                except TypeError:
-                    logger.debug(
-                        "Unsupported memory message type %s; skipping.", type(msg)
-                    )
-        except Exception:
-            logger.debug("Unable to load persistent memory.", exc_info=True)
+            data = json.loads(plan_msg.content)
+            return self._convert_plan_objects_to_dicts(
+                [PlanStep(**obj) for obj in data.get("objects", [])]
+            )
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.debug("Failed to parse plan from message: %s", e)
+            return None
 
-        return persistent_memory
+    async def update_plan_internal(
+        self,
+        *,
+        instance_id: str,
+        plan: List[Dict[str, Any]],
+        status_updates: Optional[List[Dict[str, Any]]] = None,
+        plan_updates: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Apply status/structure updates to the plan and persist them.
+
+        Args:
+            instance_id: Workflow instance id.
+            plan: Current plan snapshot.
+            status_updates: Optional status updates, each with `step`, optional `substep`,
+                and `status` fields.
+            plan_updates: Optional structural updates (see `restructure_plan` utility).
+
+        Returns:
+            The updated plan after applying changes.
+
+        Raises:
+            ValueError: If a referenced step/substep is not found in the plan.
+        """
+
+        logger.debug("Updating plan for instance %s", instance_id)
+
+        # Validate and apply status updates.
+        if status_updates:
+            logger.info("Applying %d status update(s) to plan", len(status_updates))
+            for u in status_updates:
+                step_id = u["step"]
+                sub_id = u.get("substep")
+                new_status = u["status"]
+
+                logger.debug(
+                    "Updating step %s/%s to status '%s'",
+                    step_id,
+                    sub_id,
+                    new_status,
+                )
+                target = find_step_in_plan(plan, step_id, sub_id)
+                if not target:
+                    msg = f"Step {step_id}/{sub_id} not present in plan."
+                    logger.error(msg)
+                    raise ValueError(msg)
+
+                # Apply status update
+                target["status"] = new_status
+                logger.debug(
+                    "Successfully updated status of step %s/%s to '%s'",
+                    step_id,
+                    sub_id,
+                    new_status,
+                )
+
+        # Apply structural updates while preserving substeps unless explicitly overridden.
+        if plan_updates:
+            logger.debug("Applying %d plan restructuring update(s)", len(plan_updates))
+            plan = restructure_plan(plan, plan_updates)
+
+        # Apply global consistency checks for statuses
+        plan = update_step_statuses(plan)
+
+        logger.debug("Plan successfully updated for instance %s", instance_id)
+        return plan
+
+    async def finish_workflow_internal(
+        self,
+        *,
+        instance_id: str,
+        plan: List[Dict[str, Any]],
+        step: int,
+        substep: Optional[float],
+        verdict: str,
+        summary: str,
+        wf_time: Optional[str],
+    ) -> None:
+        """
+        Finalize workflow by updating statuses (if completed) and storing the summary.
+
+        Args:
+            instance_id: Workflow instance id.
+            plan: Current plan snapshot.
+            step: Completed step id.
+            substep: Completed substep id (if any).
+            verdict: Outcome category (e.g., "completed", "failed", "max_iterations_reached").
+            summary: Final summary content to persist.
+            wf_time: Workflow timestamp (ISO 8601 string) to set as end time if provided.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If a completed step/substep reference is invalid.
+        """
+
+        logger.debug(
+            "Finalizing workflow for instance %s with verdict '%s'",
+            instance_id,
+            verdict,
+        )
+
+        status_updates: List[Dict[str, Any]] = []
+
+        if verdict == "completed":
+            # Find and validate the step or substep
+            step_entry = find_step_in_plan(plan, step, substep)
+            if not step_entry:
+                msg = f"Step {step}/{substep} not found in plan; cannot mark as completed."
+                logger.error(msg)
+                raise ValueError(msg)
+
+            # Mark the step or substep as completed
+            step_entry["status"] = "completed"
+            status_updates.append(
+                {"step": step, "substep": substep, "status": "completed"}
+            )
+            logger.debug("Marked step %s/%s as completed", step, substep)
+
+            # If it's a substep, check if all sibling substeps are completed
+            if substep is not None:
+                parent_step = find_step_in_plan(
+                    plan, step
+                )  # Get parent without substep
+                if parent_step:
+                    # Ensure "substeps" is a valid list before iteration
+                    substeps = parent_step.get("substeps", [])
+                    if not isinstance(substeps, list):
+                        substeps = []
+
+                    all_substeps_completed = all(
+                        ss.get("status") == "completed" for ss in substeps
+                    )
+                    if all_substeps_completed:
+                        parent_step["status"] = "completed"
+                        status_updates.append({"step": step, "status": "completed"})
+                        logger.debug(
+                            "All substeps of step %s completed; marked parent as completed",
+                            step,
+                        )
+
+        # Apply updates in one call if any status changes were made
+        if status_updates:
+            await self.update_plan_internal(
+                instance_id=instance_id,
+                plan=plan,
+                status_updates=status_updates,
+            )
+
+        logger.info(
+            "Workflow %s finalized with verdict '%s'",
+            instance_id,
+            verdict,
+        )
 
     # ------------------------------------------------------------------
     # Activities
@@ -448,62 +1277,39 @@ class DurableAgent(AgentBase):
     ) -> None:
         """
         Record the initial entry for a workflow instance.
-
-        Args:
-            payload: Keys:
-                - instance_id: Workflow instance id.
-                - input_value: Initial input value.
-                - source: Trigger source string.
-                - triggering_workflow_instance_id: Optional parent workflow id.
-                - start_time: ISO8601 datetime string.
-                - trace_context: Optional tracing context.
+        Input/output/status/timestamps come from Dapr get_workflow.
+        We only source, triggering_workflow_instance_id, trace_context.
         """
-        # Load latest state to ensure we have current data before modifying
-        if self.state_store:
-            self.load_state()
-
-        instance_id = payload.get("instance_id")
+        instance_id = ctx.workflow_id
         trace_context = payload.get("trace_context")
-        input_value = payload.get("input_value", "Triggered without input.")
         source = payload.get("source", "direct")
         triggering_instance = payload.get("triggering_workflow_instance_id")
-        start_time = self._coerce_datetime(payload.get("start_time"))
 
-        # Ensure instance exists in durable state
-        self.ensure_instance_exists(
-            instance_id=instance_id,
-            input_value=input_value,
-            triggering_workflow_instance_id=triggering_instance,
-            time=start_time,
-        )
-
-        # Use flexible container accessor (supports custom state layouts)
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                "Failed to get workflow state for instance_id: %s", instance_id
+            )
+            raise
         if entry is None:
             return
 
-        entry.input_value = input_value
         entry.source = source
         entry.triggering_workflow_instance_id = triggering_instance
-        entry.start_time = start_time
         entry.trace_context = trace_context
-
-        session_id = getattr(self.memory, "session_id", None)
-        if session_id is not None and hasattr(entry, "session_id"):
-            entry.session_id = str(session_id)
-
-        entry.status = DaprWorkflowStatus.RUNNING.value
-        self.save_state()
+        self.save_state(instance_id)
 
     def call_llm(
-        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+        self,
+        ctx: wf.WorkflowActivityContext,
+        payload: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
         Ask the LLM to generate the next assistant message.
 
         Args:
-            payload: Must contain 'instance_id'; may include 'task' and 'time'.
+            payload: Must contain 'instance_id'; may include 'task', 'time', and 'response_format'.
 
         Returns:
             Assistant message as a dict.
@@ -511,57 +1317,98 @@ class DurableAgent(AgentBase):
         Raises:
             AgentError: If the LLM call fails or yields no message.
         """
-        # Load latest state to ensure we have current data
-        if self.state_store:
-            self.load_state()
-
+        # TODO(@sicoyle): i think i can use the instance_id in teh ctx instead here!!
         instance_id = payload.get("instance_id")
         task = payload.get("task")
+        source = payload.get("source")
+        response_format_name = payload.get("response_format")
 
-        chat_history = self._reconstruct_conversation_history(instance_id)
+        response_model = None
+        if response_format_name:
+            model_map = {
+                "IterablePlanStep": IterablePlanStep,
+                "NextStep": NextStep,
+                "ProgressCheckOutput": ProgressCheckOutput,
+            }
+            response_model = model_map.get(response_format_name)
+            if response_model is None:
+                logger.warning(
+                    "Unknown response_format '%s', ignoring", response_format_name
+                )
+
+        # Load state once for all sub-operations in this activity
+        entry = self._infra.get_state(instance_id)
+
+        chat_history = self._reconstruct_conversation_history(instance_id, entry=entry)
         messages = self.prompting_helper.build_initial_messages(
             user_input=task,
             chat_history=chat_history,
         )
 
         # Sync current system messages into per-instance state
-        self._sync_system_messages_with_state(instance_id, messages)
+        self._sync_system_messages_with_state(instance_id, messages, entry=entry)
 
         # Persist the user's turn (if any) into the instance timeline + memory
         # Only process and print user message if task is provided (initial turn)
         if task:
             user_message = self._get_last_user_message(messages)
             user_copy = dict(user_message) if user_message else None
-            self._process_user_message(instance_id, task, user_copy)
+            self._process_user_message(
+                instance_id, task, user_copy, entry=entry, skip_save=True
+            )
 
-            if user_copy is not None:
-                self.text_formatter.print_message(
-                    {str(k): v for k, v in user_copy.items()}
-                )
+            # Skip printing for orchestrators' internal LLM calls
+            if user_copy is not None and not self.orchestrator:
+                print_msg = {str(k): v for k, v in user_copy.items()}
+                if source and source != "direct":
+                    print_msg["name"] = f"on-behalf-of {source}"
+                self.text_formatter.print_message(print_msg)
 
         tools = self.get_llm_tools()
         generate_kwargs = {
             "messages": messages,
             "tools": tools,
         }
+        if response_model is not None:
+            generate_kwargs["response_format"] = response_model
         if tools and self.execution.tool_choice is not None:
             generate_kwargs["tool_choice"] = self.execution.tool_choice
 
         try:
-            response: LLMChatResponse = self.llm.generate(**generate_kwargs)
+            response = self.llm.generate(**generate_kwargs)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("LLM generate failed: %s", exc)
             raise AgentError(str(exc)) from exc
 
-        assistant_message = response.get_message()
-        if assistant_message is None:
-            raise AgentError("LLM returned no assistant message.")
+        # Handle structured output response (Pydantic model) vs regular chat response
+        if response_model is not None:
+            # Structured output: response is the Pydantic model itself
+            if hasattr(response, "model_dump"):
+                # Response is the structured Pydantic object
+                content = json.dumps(response.model_dump())
+            else:
+                # Fallback: try to serialize as-is
+                content = json.dumps(response)
 
-        as_dict = assistant_message.model_dump()
-        self._save_assistant_message(instance_id, as_dict)
-        self.text_formatter.print_message(as_dict)
-        self.save_state()
-        return as_dict
+            assistant_message = {
+                "role": "assistant",
+                "content": content,
+            }
+        else:
+            # Regular chat response
+            assistant_message = response.get_message()
+            if assistant_message is None:
+                raise AgentError("LLM returned no assistant message.")
+            assistant_message = assistant_message.model_dump()
+
+        self._save_assistant_message(
+            instance_id, assistant_message, entry=entry, skip_save=True
+        )
+        # Skip printing for orchestrators' internal LLM calls
+        if not self.orchestrator:
+            self.text_formatter.print_message(assistant_message)
+        # Single save for the entire activity
+        self.save_state(instance_id)
+        return assistant_message
 
     def run_tool(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -581,7 +1428,6 @@ class DurableAgent(AgentBase):
         tool_call = payload.get("tool_call", {})
         fn_name = tool_call["function"]["name"]
         raw_args = tool_call["function"].get("arguments", "")
-
         try:
             args = json.loads(raw_args) if raw_args else {}
         except json.JSONDecodeError as exc:
@@ -592,7 +1438,6 @@ class DurableAgent(AgentBase):
 
         result = self._run_asyncio_task(_execute_tool())
 
-        # Debug: Log the actual result before serialization
         logger.debug(f"Tool {fn_name} returned: {result} (type: {type(result)})")
 
         # Serialize the tool result using centralized utility
@@ -607,7 +1452,6 @@ class DurableAgent(AgentBase):
 
         # Print the tool result for visibility
         self.text_formatter.print_message(tool_result)
-
         return tool_result.model_dump()
 
     def save_tool_results(
@@ -623,15 +1467,17 @@ class DurableAgent(AgentBase):
         Args:
             payload: Keys 'tool_results' (list of tool result dicts) and 'instance_id'.
         """
-        if self.state_store:
-            self.load_state()
-
+        instance_id: str = payload.get("instance_id", "")
         tool_results_raw: List[Dict[str, Any]] = payload.get("tool_results", [])
         tool_results: List[ToolMessage] = [ToolMessage(**tr) for tr in tool_results_raw]
-        instance_id: str = payload.get("instance_id", "")
 
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
 
         existing_tool_ids: set[str] = set()
         if entry is not None and hasattr(entry, "messages"):
@@ -660,12 +1506,11 @@ class DurableAgent(AgentBase):
                 if hasattr(entry, "last_message"):
                     entry.last_message = tool_message_model
 
-            self.memory.add_message(tool_result)
             logger.debug(f"Added tool result {tool_call_id} to memory")
 
-        self.save_state()
+        self.save_state(instance_id)
 
-    def broadcast_message_to_agents(
+    def broadcast_to_team(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
         """
@@ -707,7 +1552,7 @@ class DurableAgent(AgentBase):
         except Exception:  # noqa: BLE001
             logger.exception("Failed to publish broadcast message.")
 
-    def send_response_back(
+    def return_response(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
         """
@@ -744,40 +1589,267 @@ class DurableAgent(AgentBase):
         except Exception:  # noqa: BLE001
             logger.exception("Failed to publish response to %s", target_agent)
 
+    def summarize(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Summarize the conversation history and tool calls, then save the summary
+        to the configured memory store (keyed by workflow instance id).
+
+        Returns:
+            Dict with "content" key holding the summary text, or empty dict if
+            no memory/store or no conversation to summarize.
+        """
+        instance_id = ctx.workflow_id
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                "Failed to get workflow state for instance_id: %s", instance_id
+            )
+            raise AgentError(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+
+        tool_history = getattr(entry, "tool_history", None) or []
+        return self._summarize_conversation(instance_id, entry.messages, tool_history)
+
+    # TODO(@sicoyle): I think we can rm this, but need to double check in follow up PR if dapr captures under the hood triggering workflow instance id.
     def finalize_workflow(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
         """
-        Finalize a workflow instance by setting status, output, and end time.
-
-        Args:
-            payload: Dict with 'instance_id', 'final_output', 'end_time',
-                     and optional 'triggering_workflow_instance_id'.
+        Finalize workflow state: persist triggering_workflow_instance_id if provided.
+        Status/output/end_time come from Dapr get_workflow; we do not store them here.
         """
-        # Load latest state to ensure we have current data before modifying
-        if self.state_store:
-            self.load_state()
-
         instance_id = payload.get("instance_id")
-        final_output = payload.get("final_output", "")
-        end_time = payload.get("end_time", "")
         triggering_workflow_instance_id = payload.get("triggering_workflow_instance_id")
 
-        container = self._get_entry_container()
-        entry = container.get(instance_id) if container else None
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                "Failed to get workflow state for instance_id: %s", instance_id
+            )
+            raise
+
         if not entry:
+            logger.warning("Workflow state not found for instance_id: %s", instance_id)
             return
 
-        entry.status = (
-            DaprWorkflowStatus.COMPLETED.value
-            if final_output
-            else DaprWorkflowStatus.FAILED.value
-        )
-        entry.end_time = self._coerce_datetime(end_time)
-        if hasattr(entry, "output"):
-            entry.output = final_output or ""
         entry.triggering_workflow_instance_id = triggering_workflow_instance_id
-        self.save_state()
+        self.save_state(instance_id)
+
+    # ------------------------------------------------------------------
+    # Agent-as-tool: registry discovery activity
+    # ------------------------------------------------------------------
+
+    def load_tools(self, ctx: wf.WorkflowActivityContext) -> List[str]:
+        """
+        Discover all agents in the shared registry and register each as an
+        ``AgentWorkflowTool`` in this agent's tool executor.
+
+        Any agent registered in the same registry is automatically treated as a
+        callable tool — no opt-in flag required.  Orchestrators are excluded
+        since they coordinate rather than execute tasks.
+
+        The activity is idempotent: agents already present in the tool executor
+        are skipped.  It is called at the start of every ``agent_workflow``
+        invocation so that newly-registered agents are visible without restarting.
+
+        Returns:
+            List of agent names that were newly registered during this call.
+        """
+        # orchestrators dispatch via strategy, not tool_executor
+        if self.orchestrator:
+            return []
+        if not self.registry:
+            return []
+
+        agents_metadata = self._infra.get_agents_metadata(
+            exclude_self=True, exclude_orchestrator=True
+        )
+        registered: List[str] = []
+
+        for name, meta in agents_metadata.items():
+            if not self.tool_executor.get_tool(name):
+                tool = agent_to_tool(
+                    name,
+                    description=(
+                        f"{meta['agent'].get('role', '')}. "
+                        f"Goal: {meta['agent'].get('goal', '')}"
+                    ),
+                    target_app_id=meta["agent"].get("appid"),
+                )
+                self.tool_executor.register_tool(tool)
+                registered.append(name)
+                logger.debug("Auto-registered registry agent as tool: %s", name)
+
+        if registered:
+            logger.info(
+                "Agent %s: loaded %d agent tool(s): %s",
+                self.name,
+                len(registered),
+                registered,
+            )
+            if self.execution.tool_choice is None:
+                self.execution.tool_choice = "auto"
+
+        return registered
+
+    # ------------------------------------------------------------------
+    # Orchestrator Activities
+    # ------------------------------------------------------------------
+
+    def get_team_members(self, ctx: wf.WorkflowActivityContext) -> Dict[str, Any]:
+        """
+        Return available agents metadata and formatted string.
+
+        Args:
+            ctx: The Dapr Workflow context.
+
+        Returns:
+            Dict with 'metadata' (dict) and 'formatted' (str) keys.
+        """
+        agents_metadata = self.get_agents_metadata(
+            exclude_self=True, exclude_orchestrator=True, team=self.effective_team
+        )
+        if not agents_metadata:
+            return {
+                "metadata": {},
+                "formatted": "No available agents to assign tasks.",
+            }
+        lines = []
+        for name, meta in agents_metadata.items():
+            role = meta["agent"].get("role", "Unknown role")
+            goal = meta["agent"].get("goal", "Unknown")
+            lines.append(f"- {name}: {role} (Goal: {goal})")
+        return {
+            "metadata": agents_metadata,
+            "formatted": "\n".join(lines),
+        }
+
+    def validate_step(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> bool:
+        """Return True if (step, substep) exists in the plan."""
+        step = payload["step"]
+        substep = payload.get("substep")
+        plan = payload["plan"]
+        ok = bool(find_step_in_plan(plan, step, substep))
+        if not ok:
+            logger.error(
+                "Step %s/%s not in plan for instance %s",
+                step,
+                substep,
+                payload.get("instance_id"),
+            )
+        return ok
+
+    def evaluate_progress(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Parse progress information from assistant content.
+
+        Args:
+            payload: Dict with 'content', 'instance_id', and 'plan_objects'.
+        Returns:
+            Parsed progress dict or None if not found.
+        """
+
+        content = payload["content"]
+        plan_objects = list(payload["plan_objects"])
+        instance_id = payload["instance_id"]
+
+        if hasattr(content, "choices") and content.choices:
+            data = content.choices[0].message.content
+            progress = ProgressCheckOutput(**json.loads(data))
+        elif isinstance(content, ProgressCheckOutput):
+            progress = content
+        else:
+            try:
+                data = json.loads(content) if isinstance(content, str) else content
+                progress = ProgressCheckOutput(**data)
+            except (json.JSONDecodeError, TypeError, ValueError) as e:
+                logger.error(
+                    f"Failed to parse progress check output: {e}. Content: {content}"
+                )
+                raise AgentError(f"Invalid progress check format: {e}")
+
+        status_updates = [
+            (u.model_dump() if hasattr(u, "model_dump") else u)
+            for u in (progress.plan_status_update or [])
+        ]
+        plan_updates = [
+            (u.model_dump() if hasattr(u, "model_dump") else u)
+            for u in (progress.plan_restructure or [])
+        ]
+
+        async def _update_plan() -> List[Dict[str, Any]]:
+            if status_updates or plan_updates:
+                updated_plan = await self.update_plan_internal(
+                    instance_id=instance_id,
+                    plan=plan_objects,
+                    status_updates=status_updates,
+                    plan_updates=plan_updates,
+                )
+            else:
+                updated_plan = plan_objects
+            return updated_plan
+
+        return {
+            "plan": self._run_asyncio_task(_update_plan()),
+            "verdict": progress.verdict,
+            "status_updates": status_updates,
+            "plan_updates": plan_updates,
+            "status": "success",
+        }
+
+    def save_plan(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> None:
+        """
+        Save the plan as an assistant message to the workflow state.
+
+        Args:
+            payload: Dict with 'instance_id', 'plan_message', and 'time'.
+        """
+
+        instance_id = payload.get("instance_id")
+        if self.state_store:
+            self._infra.load_state(instance_id)
+
+        plan_message = payload.get("plan_message")
+
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:
+            logger.exception(
+                f"Failed to get workflow state for instance_id: {instance_id}"
+            )
+            raise
+
+        if entry is not None and hasattr(entry, "messages"):
+            plan_message_model = (
+                self._message_coercer(plan_message)
+                if getattr(self, "_message_coercer", None)
+                else self._message_dict_to_message_model(plan_message)
+            )
+            entry.messages.append(plan_message_model)
+            if hasattr(entry, "last_message"):
+                entry.last_message = plan_message_model
+
+        # Also add to memory
+        self.memory.add_message(
+            AssistantMessage(
+                content=plan_message.get("content", ""), name=plan_message.get("name")
+            ),
+            instance_id,
+        )
+
+        self.save_state(instance_id)
+        logger.info(f"Saved plan to memory for instance {instance_id}")
 
     # ------------------------------------------------------------------
     # Runtime control
@@ -800,6 +1872,9 @@ class DurableAgent(AgentBase):
         """
         if self._started:
             raise RuntimeError("Agent has already been started.")
+
+        # Set up lifecycle-managed resources (e.g., configuration subscription)
+        super().start()
 
         if runtime is not None:
             self._runtime = runtime
@@ -841,6 +1916,8 @@ class DurableAgent(AgentBase):
         if not self._started:
             return
 
+        super().stop()
+
         if self._runtime_owned:
             try:
                 self._runtime.shutdown()
@@ -863,19 +1940,76 @@ class DurableAgent(AgentBase):
         self.register_workflows(runtime)
         self._registered = True
 
+    @staticmethod
+    def _named(func: Any, name: str) -> Any:
+        """
+        Wrap a callable so the Dapr runtime registers it under ``name``
+        instead of the method's ``__name__``.  Used for workflows to give
+        each agent a unique registration name (EX: ``dapr.agents.frodo.workflow``).
+        """
+
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            return func(*args, **kwargs)
+
+        wrapper.__name__ = name
+        return wrapper
+
     def register_workflows(self, runtime: wf.WorkflowRuntime) -> None:
         """
         Register workflows/activities for this agent.
 
+        Each workflow is registered under a unique, agent-scoped name using
+        the ``dapr.agents.<name>.<type>`` format:
+        ``*.workflow``, ``*.broadcast``, and ``*.orchestration``.  This
+        prevents name collisions when multiple agents share the same Dapr app.
+
+        ``AgentRunner`` discovers the registered names via the
+        ``agent_workflow_name`` / ``broadcast_workflow_name`` properties and
+        passes them as strings to ``schedule_new_workflow`` — no wrapper
+        bookkeeping is needed here.
+
         Args:
             runtime: The Dapr workflow runtime to register with.
         """
-        runtime.register_workflow(self.agent_workflow)
-        runtime.register_workflow(self.broadcast_listener)
+        # Primary entry point — unique per agent
+        runtime.register_workflow(
+            self._named(self.agent_workflow, self.agent_workflow_name)
+        )
+        runtime.register_workflow(
+            self._named(self.broadcast_workflow, self.broadcast_workflow_name)
+        )
+
+        # Standard agent activities
         runtime.register_activity(self.record_initial_entry)
         runtime.register_activity(self.call_llm)
         runtime.register_activity(self.run_tool)
         runtime.register_activity(self.save_tool_results)
-        runtime.register_activity(self.broadcast_message_to_agents)
-        runtime.register_activity(self.send_response_back)
+        runtime.register_activity(self.broadcast_to_team)
+        runtime.register_activity(self.return_response)
+        runtime.register_activity(self.summarize)
         runtime.register_activity(self.finalize_workflow)
+        runtime.register_activity(self.get_team_members)
+        runtime.register_activity(self.load_tools)
+
+        # Internal orchestration workflow and activities
+        if self._orchestration_strategy:
+            runtime.register_workflow(
+                self._named(
+                    self.orchestration_workflow,
+                    orchestration_workflow_id(self.name),
+                )
+            )
+
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                # Agent-based orchestration activities (plan-based with LLM)
+                runtime.register_activity(self.validate_step)
+                runtime.register_activity(self.evaluate_progress)
+                runtime.register_activity(self.save_plan)
+            else:
+                # RoundRobin and Random orchestration activities
+                runtime.register_activity(self.initialize_orchestration)
+                runtime.register_activity(self.select_next_task)
+                runtime.register_activity(self.handle_response)
+                runtime.register_activity(self.check_completion)
+                runtime.register_activity(self.finalize_orchestration)

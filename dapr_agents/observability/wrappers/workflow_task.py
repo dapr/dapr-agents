@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import asyncio
 import functools
 import logging
@@ -14,12 +27,21 @@ from ..constants import (
     TASK,
     TOOL,
     LLM,
+    GEN_AI_OPERATION_NAME,
+    GenAiOperationNameValues,
 )
 from ..context_propagation import create_child_span_with_context
 from ..context_storage import get_workflow_context
 from ..utils import safe_json_dumps
 
 logger = logging.getLogger(__name__)
+
+# Map OpenInference span kinds to GenAI semconv operation names.
+_SPAN_KIND_TO_GENAI_OP = {
+    LLM: GenAiOperationNameValues.CHAT,
+    TOOL: GenAiOperationNameValues.EXECUTE_TOOL,
+    TASK: GenAiOperationNameValues.INVOKE_AGENT,
+}
 
 
 class WorkflowActivityRegistrationWrapper:
@@ -92,6 +114,7 @@ class WorkflowActivityRegistrationWrapper:
                         return result
                     except Exception as exc:  # noqa: BLE001
                         span.set_status(Status(StatusCode.ERROR, str(exc)))
+                        span.set_attribute("error.type", type(exc).__qualname__)
                         span.record_exception(exc)
                         raise
 
@@ -116,6 +139,7 @@ class WorkflowActivityRegistrationWrapper:
                     return result
                 except Exception as exc:  # noqa: BLE001
                     span.set_status(Status(StatusCode.ERROR, str(exc)))
+                    span.set_attribute("error.type", type(exc).__qualname__)
                     span.record_exception(exc)
                     raise
 
@@ -179,6 +203,10 @@ class WorkflowActivityRegistrationWrapper:
             OUTPUT_MIME_TYPE: "application/json",
             "agent.name": agent_name,
             "workflow.activity": activity_name,
+            # GenAI semconv — map OI span kind to operation name
+            GEN_AI_OPERATION_NAME: _SPAN_KIND_TO_GENAI_OP.get(
+                span_kind, GenAiOperationNameValues.INVOKE_AGENT
+            ),
         }
         if instance_id:
             attributes["workflow.instance_id"] = instance_id

@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import logging
 import os
 import time
@@ -263,7 +276,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         llm_component: Optional[str] = None,
         tools: Optional[List[Union[AgentTool, Dict[str, Any]]]] = None,
         response_format: Optional[Type[BaseModel]] = None,
-        structured_mode: Literal["function_call", "json"] = "function_call",
+        structured_mode: Literal["function_call", "json"] = "json",
         scrubPII: bool = False,
         temperature: Optional[float] = None,
         **kwargs: Any,
@@ -285,7 +298,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             llm_component:   Dapr component name (defaults from env).
             tools:           AgentTool or dict specifications.
             response_format: Pydantic model for structured output.
-            structured_mode: Must be "function_call" or "json".
+            structured_mode: "json" (default) or "function_call".
             scrubPII:        Obfuscate sensitive output if True.
             temperature:     Sampling temperature.
             **kwargs:        Other Dapr API parameters.
@@ -381,13 +394,32 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             if "structured_mode" in params:
                 api_params["structured_mode"] = str(params["structured_mode"])
 
+            # Convert tool_choice from dict format to string of 'none', 'auto', or 'required'
+            tool_choice_param = params.get("tool_choice")
+            if isinstance(tool_choice_param, dict):
+                # When a specific function is requested (dict format), use 'required'
+                # to force tool calling, since Dapr doesn't support function-specific selection
+                tool_choice_param = "required"
+            elif isinstance(tool_choice_param, str) and tool_choice_param not in (
+                "none",
+                "auto",
+                "required",
+            ):
+                # If it's a string but not a valid Dapr value (e.g., a function name),
+                # default to 'required' to force tool calling
+                logger.warning(
+                    f"tool_choice value '{tool_choice_param}' is not supported by Dapr. "
+                    "Using 'required' instead."
+                )
+                tool_choice_param = "required"
+
             raw = self.client.chat_completion_alpha2(
                 llm=llm_component or self._llm_component,
                 inputs=conv_inputs,
                 scrub_pii=scrubPII,
                 temperature=temperature,
                 tools=params.get("tools"),
-                tool_choice=params.get("tool_choice"),
+                tool_choice=tool_choice_param,
                 parameters=api_params or None,
             )
             normalized = self.translate_response(

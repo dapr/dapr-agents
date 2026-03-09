@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -59,6 +72,7 @@ class TestAgentBaseClass:
         mock_tool = Mock(spec=AgentTool)
         mock_tool.name = "test_tool"
         mock_tool.description = "A tool for testing."
+        mock_tool.args_schema = {"input": {"type": "string"}}
         return ConcreteAgentBase(
             name="ToolAgent", tools=[mock_tool], llm=mock_llm_client
         )
@@ -397,3 +411,38 @@ class TestAgentBaseClass:
             llm=mock_llm_client,
         )
         assert agent.execution.max_iterations == 5
+
+    # ------------------------------------------------------------------
+    # purge() tests
+    # ------------------------------------------------------------------
+
+    def test_purge_calls_infra_and_memory(self, basic_agent):
+        """purge() must delegate to both purge_state and purge_memory."""
+        basic_agent._infra = Mock()
+        basic_agent.memory = Mock()
+
+        basic_agent.purge("wf-abc")
+
+        basic_agent._infra.purge_state.assert_called_once_with("wf-abc")
+        basic_agent.memory.purge_memory.assert_called_once_with("wf-abc")
+
+    def test_purge_without_memory_only_calls_purge_state(self, basic_agent):
+        """purge() must not error when memory is None and still purge state."""
+        basic_agent._infra = Mock()
+        basic_agent.memory = None
+
+        basic_agent.purge("wf-no-mem")
+
+        basic_agent._infra.purge_state.assert_called_once_with("wf-no-mem")
+
+    def test_purge_memory_failure_does_not_raise(self, basic_agent):
+        """purge() must continue and not raise when memory.purge_memory() fails."""
+        basic_agent._infra = Mock()
+        basic_agent.memory = Mock()
+        basic_agent.memory.purge_memory.side_effect = RuntimeError("store unavailable")
+
+        # Should not raise even though memory.purge_memory raises
+        basic_agent.purge("wf-mem-fail")
+
+        # Infra purge still ran
+        basic_agent._infra.purge_state.assert_called_once_with("wf-mem-fail")

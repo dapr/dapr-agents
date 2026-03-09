@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import os
 import signal
 import subprocess
@@ -9,21 +22,24 @@ import threading
 import re
 from pathlib import Path
 from typing import Optional, Dict, Any
+import yaml
+import tempfile
 import pytest
+from urllib.parse import urlparse, urlunparse
 
 logger = logging.getLogger(__name__)
 
 
-def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
+def setup_quickstart_or_examples_venv(directory: Path, project_root: Path) -> Path:
     """
-    Setup a virtual environment for a quickstart so as to better match end user setup.
+    Setup a virtual environment for a quickstart or example/ so as to better match end user setup.
 
     Creates a venv in the quickstart directory and installs from requirements.txt.
     So, if we are testing locally then we can update the requirements.txt to use the editable install from the project root.
     We also use uv instead of just pip, as uv is much faster than vanilla pip.
 
     Args:
-        quickstart_dir: Path to the quickstart directory
+        directory: Path to the quickstart/example directory
         project_root: Path to the project root (for editable install if needed)
 
     Returns:
@@ -57,11 +73,8 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
     # The venv's Python is typically a symlink, but we want to use it directly, not resolve it
     venv_python = venv_python.absolute()
 
-    # Skip installation if already done (for parallel execution)
-    installed_marker = venv_path / ".installed"
-    if installed_marker.exists():
-        logger.info(f"Dependencies already installed for {quickstart_dir}")
-    else:
+    # Always run uv sync (it's fast when dependencies are already installed)
+    if True:
         # Set up environment to ensure uv uses the venv Python
         # Add venv's bin directory to PATH so uv can find the venv Python
         venv_bin = venv_path / "bin"
@@ -80,48 +93,78 @@ def setup_quickstart_venv(quickstart_dir: Path, project_root: Path) -> Path:
         # Also set VIRTUAL_ENV to help uv detect the venv
         install_env["VIRTUAL_ENV"] = str(venv_path.resolve())
 
-        # Try using uv sync from workspace root
-        def try_uv_install(description: str):
-            """Try uv sync from workspace root"""
-            # Run uv sync from workspace root to ensure all workspace dependencies are available
-            result = subprocess.run(
-                ["uv", "sync", "--frozen"],
-                cwd=project_root,
-                env=install_env,
-                capture_output=True,
-                text=True,
-                timeout=180,
+        # Use uv workspaces from the project root and only sync the specific
+        # quickstart/example package. This uses `uv sync --package NAME` so
+        # we don't need to pin/freeze globally here.
+        package_name: str
+
+        quickstart_pyproject = directory / "pyproject.toml"
+        if quickstart_pyproject.exists():
+            # Read the project.name from the local pyproject.toml
+            pkg_name: str | None = None
+            try:
+                with quickstart_pyproject.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        stripped = line.strip()
+                        if stripped.startswith("name") and "=" in stripped:
+                            pkg_name = (
+                                stripped.split("=", 1)[1].strip().strip('"').strip("'")
+                            )
+                            break
+            except OSError as e:
+                logger.warning("Failed to read %s: %s", quickstart_pyproject, e)
+                pkg_name = None
+
+            package_name = pkg_name or directory.name
+        else:
+            # Fall back to directory name; in our workspace the example/quickstart
+            # package names are aligned with their directory names.
+            package_name = directory.name
+
+        logger.info(
+            "Running 'uv sync --package %s' from %s", package_name, project_root
+        )
+        result = subprocess.run(
+            ["uv", "sync", "--package", package_name],
+            cwd=project_root,
+            env=install_env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to install requirements for package '{package_name}' with uv: {result.stderr}\n{result.stdout}"
             )
-
-            # If that works, we're done
-            if result.returncode == 0:
-                return result
-
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"Failed to install {description}: {result.stderr}\n{result.stdout}"
-                )
-            return result
-
-        try_uv_install("requirements")
-
-        # Mark as installed so if we're running in parallel, we don't reinstall the dependencies.
-        installed_marker.touch()
 
     return venv_python
 
 
-def _get_project_root(quickstart_dir: Path) -> Path:
-    """Get the project root directory from a quickstart directory."""
-    return (
-        quickstart_dir.parent.parent
-        if "quickstarts" in str(quickstart_dir)
-        else quickstart_dir.parent
-    )
+def _get_project_root(start_dir: Path) -> Path:
+    """Locate the *top-level* project root by walking up to the highest pyproject.toml.
+
+    Many quickstarts/examples have their own pyproject.toml files, but the
+    workspace configuration (and the main `dapr-agents` package) live in the
+    repository root. For uv workspaces to work correctly we want to run
+    `uv` commands from that top-level root, not from nested members.
+    """
+    current = start_dir.resolve()
+
+    root_with_pyproject: Path | None = None
+    for parent in (current, *current.parents):
+        if (parent / "pyproject.toml").exists():
+            root_with_pyproject = parent
+
+    # If we found at least one pyproject.toml, return the highest one (workspace root).
+    if root_with_pyproject is not None:
+        return root_with_pyproject
+
+    # Fallback to the original directory if no pyproject is found at all.
+    return start_dir
 
 
 def _setup_venv_and_python(
-    quickstart_dir: Path,
+    directory: Path,
     project_root: Path,
     create_venv: bool = True,
 ) -> tuple[Optional[Path], str]:
@@ -138,13 +181,13 @@ def _setup_venv_and_python(
     python_cmd = "python"  # Default fallback
 
     if should_create_venv:
-        venv_python = setup_quickstart_venv(quickstart_dir, project_root)
+        venv_python = setup_quickstart_or_examples_venv(directory, project_root)
         if venv_python.exists():
             python_cmd = str(venv_python)
     else:
         if use_existing_venv:
             logger.info(
-                f"Using existing venv/system Python for {quickstart_dir} (USE_EXISTING_VENV=true)"
+                f"Using existing venv/system Python for {directory} (USE_EXISTING_VENV=true)"
             )
             # When using existing venv, prefer the active venv's Python if available
             # This helps avoid uv warnings about venv mismatches when running with `uv run pytest`
@@ -164,7 +207,7 @@ def _setup_venv_and_python(
                     )
         else:
             logger.info(
-                f"Using existing venv/system Python for {quickstart_dir} (create_venv=False)"
+                f"Using existing venv/system Python for {directory} (create_venv=False)"
             )
         # If python_cmd is still "python", it will use system Python or whatever is in PATH
 
@@ -206,7 +249,7 @@ def _resolve_component_env_vars(
     return resources_path
 
 
-def run_quickstart_script(
+def run_quickstart_or_examples_script(
     script_path: Path,
     cwd: Optional[Path] = None,
     env: Optional[dict] = None,
@@ -243,7 +286,7 @@ def run_quickstart_script(
         app_port: App port for the application (e.g., 8001 for serve mode)
         trigger_curl: Optional dict with curl trigger details. Format:
             {
-                "url": "http://localhost:8001/run",
+                "url": "http://localhost:8001/agent/run",
                 "method": "POST",
                 "data": {"task": "..."},
                 "headers": {"Content-Type": "application/json"},
@@ -266,17 +309,17 @@ def run_quickstart_script(
         full_env.update(env)
 
     cwd_path = cwd or script_path.parent
-    quickstart_dir = cwd_path
-    project_root = _get_project_root(quickstart_dir)
+    directory = cwd_path
+    project_root = _get_project_root(directory)
 
     venv_python, python_cmd = _setup_venv_and_python(
-        quickstart_dir, project_root, create_venv
+        directory, project_root, create_venv
     )
     if use_dapr:
         if not app_id:
             raise ValueError("app_id is required when use_dapr=True")
         if not resources_path:
-            resources_path = cwd_path / "components"
+            resources_path = cwd_path / "resources"
 
         resources_path = _resolve_component_env_vars(
             resources_path, cwd_path, venv_python, full_env
@@ -297,6 +340,17 @@ def run_quickstart_script(
                 )
             # Use absolute path for Python command
             python_cmd = str(venv_python.absolute())
+
+        # When using trigger_curl with a fixed app_port,
+        # avoid bind conflicts by using a free port if the requested one is in use (e.g. from a previous test).
+        if trigger_curl and app_port is not None:
+            if _is_port_in_use("127.0.0.1", app_port):
+                app_port = _find_free_port("127.0.0.1", app_port)
+                full_env["PORT"] = str(app_port)
+                trigger_curl = {
+                    **trigger_curl,
+                    "url": _replace_url_port(trigger_curl["url"], app_port),
+                }
 
         cmd = [
             "dapr",
@@ -319,7 +373,13 @@ def run_quickstart_script(
     # wait for the server to be ready, send the curl request, then terminate
     if trigger_curl:
         return _run_with_curl_trigger(
-            cmd, cwd_path, full_env, timeout, trigger_curl, app_port
+            cmd,
+            cwd_path,
+            full_env,
+            timeout,
+            trigger_curl,
+            app_port,
+            dapr_http_port=dapr_http_port if use_dapr else None,
         )
 
     # If trigger_pubsub is provided, we need to run the process in the background,
@@ -329,7 +389,7 @@ def run_quickstart_script(
             cmd, cwd_path, full_env, timeout, trigger_pubsub, dapr_http_port
         )
 
-    logger.info(f"running quickstart test cmd {cmd}")
+    logger.info(f"running quickstart or examples test cmd {cmd}")
     if stream_logs:
         result = _run_with_streaming(cmd, cwd_path, full_env, timeout)
     else:
@@ -343,17 +403,34 @@ def run_quickstart_script(
         )
 
     if result.returncode != 0:
-        raise RuntimeError(
-            f"Script {script_path} failed with return code {result.returncode}.\n"
-            f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
-        )
+        # Dapr run can exit 1 when the app exits first: it then tries to stop the
+        # app and gets "process already finished". Treat that as success.
+        stderr = result.stderr or ""
+        stdout = result.stdout or ""
+        if (
+            use_dapr
+            and result.returncode == 1
+            and "process already finished" in stderr
+            and "Exited App successfully" in stdout
+        ):
+            logger.info(
+                "Treating dapr run exit 1 as success (app exited before dapr shutdown)."
+            )
+            result = subprocess.CompletedProcess(
+                result.args, 0, result.stdout, result.stderr
+            )
+        else:
+            raise RuntimeError(
+                f"Script {script_path} failed with return code {result.returncode}.\n"
+                f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+            )
 
     return result
 
 
-def _cleanup_quickstart_venv(quickstart_dir: Path):
-    """Helper function to cleanup a single quickstart venv."""
-    venv_path = quickstart_dir / ".venv"
+def _cleanup_quickstart_or_examples_venv(directory: Path):
+    """Helper function to cleanup a single quickstart/ or examples/ venv."""
+    venv_path = directory / ".venv"
     if venv_path.exists():
         logger.info(f"Removing ephemeral test venv: {venv_path}")
         try:
@@ -363,9 +440,9 @@ def _cleanup_quickstart_venv(quickstart_dir: Path):
 
 
 @pytest.fixture(scope="module", autouse=True)
-def cleanup_quickstart_venv_per_module(request):
+def cleanup_quickstart_or_examples_venv_per_module(request):
     """
-    Cleanup ephemeral test venv after all tests in a test module (per quickstart directory) complete.
+    Cleanup ephemeral test venv after all tests in a test module (per quickstart or examples directory) complete.
 
     This helps free up disk space during test runs, especially for running in CI.
     Each test file typically corresponds to one quickstart or quickstart directory,
@@ -394,6 +471,7 @@ def cleanup_quickstart_venv_per_module(request):
             # Try to match quickstart directory patterns
             project_root = Path(__file__).parent.parent.parent.parent
             quickstarts_dir = project_root / "quickstarts"
+            examples_dir = project_root / "examples"
 
             if quickstarts_dir.exists():
                 # Look for matching quickstart directory
@@ -405,7 +483,7 @@ def cleanup_quickstart_venv_per_module(request):
                 # Try exact match first
                 quickstart_dir = quickstarts_dir / quickstart_pattern
                 if quickstart_dir.exists():
-                    _cleanup_quickstart_venv(quickstart_dir)
+                    _cleanup_quickstart_or_examples_venv(quickstart_dir)
                 else:
                     # Try to find by number prefix (e.g., "01" -> "01-dapr-agents-fundamentals")
                     test_num = (
@@ -416,11 +494,35 @@ def cleanup_quickstart_venv_per_module(request):
                             if qs_dir.is_dir() and qs_dir.name.startswith(
                                 test_num + "-"
                             ):
-                                _cleanup_quickstart_venv(qs_dir)
+                                _cleanup_quickstart_or_examples_venv(qs_dir)
+                                break
+
+            elif examples_dir.exists():
+                # Look for matching quickstart directory
+                # Test files use underscores, quickstart dirs use hyphens
+                quickstart_pattern = test_file_name.replace("test_", "").replace(
+                    "_", "-"
+                )
+
+                # Try exact match first
+                quickstart_dir = examples_dir / quickstart_pattern
+                if quickstart_dir.exists():
+                    _cleanup_quickstart_or_examples_venv(quickstart_dir)
+                else:
+                    # Try to find by number prefix (e.g., "01" -> "01-dapr-agents-fundamentals")
+                    test_num = (
+                        test_file_name.split("_")[1] if "_" in test_file_name else None
+                    )
+                    if test_num:
+                        for qs_dir in examples_dir.iterdir():
+                            if qs_dir.is_dir() and qs_dir.name.startswith(
+                                test_num + "-"
+                            ):
+                                _cleanup_quickstart_or_examples_venv(qs_dir)
                                 break
 
 
-def run_quickstart_multi_app(
+def run_quickstart_or_examples_multi_app(
     dapr_yaml_path: Path,
     cwd: Optional[Path] = None,
     env: Optional[dict] = None,
@@ -455,20 +557,48 @@ def run_quickstart_multi_app(
         full_env.update(env)
 
     cwd_path = cwd or dapr_yaml_path.parent
-    quickstart_dir = cwd_path
-    project_root = _get_project_root(quickstart_dir)
+    directory = cwd_path
+    project_root = _get_project_root(directory)
 
-    venv_python, _ = _setup_venv_and_python(quickstart_dir, project_root, create_venv)
+    venv_python, _ = _setup_venv_and_python(directory, project_root, create_venv)
 
-    # Resolve environment variables in components if needed
-    resources_path = quickstart_dir / "components"
+    # Resolve environment variables in components or resources
+    tmp_path = None
+    resources_path = directory / "resources"
     if resources_path.exists():
-        resources_path = _resolve_component_env_vars(
+        tmp_path = _resolve_component_env_vars(
+            resources_path, cwd_path, venv_python, full_env
+        )
+    elif (directory / "resources").exists():
+        resources_path = directory / "resources"
+        tmp_path = _resolve_component_env_vars(
             resources_path, cwd_path, venv_python, full_env
         )
 
+    # Build modified YAML with tmp_path if needed
+    yaml_to_use = dapr_yaml_path
+    if tmp_path and tmp_path != resources_path:
+        with open(dapr_yaml_path, "r") as f:
+            yaml_data = yaml.safe_load(f)
+        if yaml_data and "common" in yaml_data:
+            yaml_data["common"]["resourcesPath"] = str(tmp_path)
+        # Update appDirPath for each app to use absolute path to quickstart_dir
+        # This ensures scripts are found even when YAML is in a temp directory
+        if yaml_data and "apps" in yaml_data:
+            for app in yaml_data["apps"]:
+                if "appDirPath" in app:
+                    app_dir = app["appDirPath"]
+                    # If relative path, resolve it relative to quickstart_dir
+                    if not Path(app_dir).is_absolute():
+                        app["appDirPath"] = str((directory / app_dir).resolve())
+        temp_dir = tempfile.mkdtemp(prefix="rendered_yaml_")
+        temp_yaml_path = Path(temp_dir) / dapr_yaml_path.name
+        with open(temp_yaml_path, "w") as f:
+            yaml.dump(yaml_data, f)
+        yaml_to_use = temp_yaml_path
+
     # Build dapr run -f command
-    cmd = ["dapr", "run", "-f", str(dapr_yaml_path)]
+    cmd = ["dapr", "run", "-f", str(yaml_to_use)]
 
     # If trigger_curl is provided, we need to run the process in the background,
     # wait for the server to be ready, send the curl request, then terminate
@@ -521,7 +651,7 @@ def run_quickstart_multi_app(
 
 
 @pytest.fixture(scope="session", autouse=True)
-def cleanup_quickstart_venvs(request):
+def cleanup_quickstart_or_examples_venvs(request):
     """
     Cleanup ephemeral test venvs after all tests complete.
 
@@ -542,12 +672,19 @@ def cleanup_quickstart_venvs(request):
     # Get quickstarts directory from project root (parent conftest fixture path)
     project_root = Path(__file__).parent.parent.parent.parent
     quickstarts_dir = project_root / "quickstarts"
+    examples_dir = project_root / "examples"
 
     if quickstarts_dir.exists():
         logger.info("Cleaning up ephemeral test venvs...")
-        for quickstart_dir in quickstarts_dir.iterdir():
-            if quickstart_dir.is_dir():
-                _cleanup_quickstart_venv(quickstart_dir)
+        for directory in quickstarts_dir.iterdir():
+            if directory.is_dir():
+                _cleanup_quickstart_or_examples_venv(directory)
+
+    if examples_dir.exists():
+        logger.info("Cleaning up ephemeral test venvs...")
+        for directory in examples_dir.iterdir():
+            if directory.is_dir():
+                _cleanup_quickstart_or_examples_venv(directory)
 
 
 def _wait_for_port(host: str, port: int, timeout: int = 30) -> bool:
@@ -565,6 +702,59 @@ def _wait_for_port(host: str, port: int, timeout: int = 30) -> bool:
             pass
         time.sleep(0.5)
     return False
+
+
+def _is_port_in_use(host: str, port: int) -> bool:
+    """Return True if the port is currently in use."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.5)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+def _wait_for_port_free(host: str, port: int, timeout: int = 15) -> bool:
+    """Wait for a port to be released (no longer in use). Returns True when free, False on timeout."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if not _is_port_in_use(host, port):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def _find_free_port(host: str = "127.0.0.1", start_port: int = 8001) -> int:
+    """Find a free port starting from start_port. Raises RuntimeError if none found."""
+    for port in range(start_port, start_port + 200):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.5)
+            sock.bind((host, port))
+            sock.close()
+            return port
+        except OSError:
+            continue
+    raise RuntimeError(f"No free port in range {start_port}-{start_port + 200}")
+
+
+def _replace_url_port(url: str, port: int) -> str:
+    """Replace the port in a URL (e.g. http://localhost:8001/path -> http://localhost:PORT/path)."""
+    parsed = urlparse(url)
+    hostname = parsed.hostname or "localhost"
+    new_netloc = f"{hostname}:{port}" if port else hostname
+    return urlunparse(
+        (
+            parsed.scheme,
+            new_netloc,
+            parsed.path,
+            parsed.params,
+            parsed.query,
+            parsed.fragment,
+        )
+    )
 
 
 def wait_for_port(host: str, port: int, timeout: int = 30) -> bool:
@@ -612,7 +802,9 @@ class MCPServerContext:
         """Start the MCP server and wait for it to be ready."""
         # Setup venv for the quickstart
         project_root = self.quickstart_dir.parent.parent
-        venv_python = setup_quickstart_venv(self.quickstart_dir, project_root)
+        venv_python = setup_quickstart_or_examples_venv(
+            self.quickstart_dir, project_root
+        )
         python_cmd = (
             str(venv_python) if venv_python and venv_python.exists() else "python"
         )
@@ -738,16 +930,24 @@ def _run_multi_app_with_completion_detection(
     """
     # Infer orchestrator workflow name from dapr YAML filename if not provided
     if orchestrator_workflow_name is None:
-        # Try to infer from command (look for dapr-*.yaml)
+        # Try to infer from command (look for *.yaml path)
         for arg in cmd:
-            if "dapr-" in arg and arg.endswith(".yaml"):
+            if arg.endswith(".yaml"):
                 yaml_name = Path(arg).stem
                 if "random" in yaml_name:
-                    orchestrator_workflow_name = "random_workflow"
+                    orchestrator_workflow_name = "orchestration_workflow"
                 elif "roundrobin" in yaml_name or "round-robin" in yaml_name:
-                    orchestrator_workflow_name = "round_robin_workflow"
+                    orchestrator_workflow_name = "orchestration_workflow"
+                elif "agent" in yaml_name and "llm" not in yaml_name:
+                    orchestrator_workflow_name = "orchestration_workflow"
                 elif "llm" in yaml_name:
                     orchestrator_workflow_name = "llm_orchestrator_workflow"
+                elif "workflow_agents" in yaml_name or "09_workflow" in yaml_name:
+                    # 09_workflow_agents: main workflow is support_workflow; ignore broadcast_workflow
+                    orchestrator_workflow_name = "support_workflow"
+                elif "sequential" in yaml_name:
+                    # Sequential workflow quickstart: main workflow is chained_planner_workflow
+                    orchestrator_workflow_name = "chained_planner_workflow"
                 break
 
     logger.info(f"Running multi-app command with completion detection: {' '.join(cmd)}")
@@ -841,25 +1041,27 @@ def _run_multi_app_with_completion_detection(
                             )
 
                             # Check if this is the orchestrator's main workflow
-                            if (
-                                orchestrator_workflow_name
-                                and workflow_name == orchestrator_workflow_name
-                            ):
-                                if not orchestrator_completion_detected:
-                                    orchestrator_completion_detected = True
-                                    orchestrator_failed = is_failed
-                                    completion_time = time.time()
-                                    if is_failed:
-                                        logger.error(
-                                            f"Orchestrator workflow '{orchestrator_workflow_name}' FAILED! "
-                                            f"This indicates a quickstart bug, not a test issue."
-                                        )
-                                    else:
-                                        logger.info(
-                                            f"Orchestrator workflow '{orchestrator_workflow_name}' completed! "
-                                            f"Unique workflow types: {len(completed_workflows)}, "
-                                            f"Total completion instances: {total_completions}"
-                                        )
+                            # If orchestrator_workflow_name is None, treat the first completed workflow as the orchestrator
+                            is_orchestrator = (
+                                orchestrator_workflow_name is None
+                                or workflow_name == orchestrator_workflow_name
+                            )
+
+                            if is_orchestrator and not orchestrator_completion_detected:
+                                orchestrator_completion_detected = True
+                                orchestrator_failed = is_failed
+                                completion_time = time.time()
+                                if is_failed:
+                                    logger.error(
+                                        f"Orchestrator workflow '{workflow_name}' FAILED! "
+                                        f"This indicates a quickstart bug, not a test issue."
+                                    )
+                                else:
+                                    logger.info(
+                                        f"Orchestrator workflow '{workflow_name}' completed! "
+                                        f"Unique workflow types: {len(completed_workflows)}, "
+                                        f"Total completion instances: {total_completions}"
+                                    )
 
                     # Also check for [agent-runner] completion message as a fallback
                     if (
@@ -1127,6 +1329,7 @@ def _run_with_curl_trigger(
     timeout: int,
     trigger_curl: Dict[str, Any],
     app_port: Optional[int],
+    dapr_http_port: Optional[int] = None,
 ) -> subprocess.CompletedProcess:
     """Run a command with a curl trigger for workflows that need to be triggered via curl."""
     import requests
@@ -1168,11 +1371,22 @@ def _run_with_curl_trigger(
             logger.info(f"Waiting {wait_seconds}s for server to start...")
             time.sleep(wait_seconds)
 
+        # wait for the sidecar before sending request
+        if dapr_http_port is not None:
+            logger.info(f"Waiting for Dapr sidecar on port {dapr_http_port}...")
+            if not _wait_for_port(
+                "localhost", dapr_http_port, timeout=wait_seconds + 10
+            ):
+                logger.warning(
+                    f"Dapr port {dapr_http_port} not ready after {wait_seconds + 10}s, proceeding anyway"
+                )
+
         # Send the curl request
         method = trigger_curl.get("method", "POST")
         data = trigger_curl.get("data", {})
         headers = trigger_curl.get("headers", {"Content-Type": "application/json"})
 
+        response_status: Optional[int] = None
         logger.info(f"Sending {method} request to {url}")
         try:
             if method.upper() == "POST":
@@ -1184,6 +1398,7 @@ def _run_with_curl_trigger(
                     method, url, json=data, headers=headers, timeout=30
                 )
 
+            response_status = response.status_code
             logger.info(f"Received response: {response.status_code}")
             curl_output = f"HTTP {response.status_code}\n{response.text}"
         except Exception as e:
@@ -1205,9 +1420,27 @@ def _run_with_curl_trigger(
         # Combine outputs
         combined_stdout = f"{stdout}\n\n--- Curl Response ---\n{curl_output}"
 
-        return subprocess.CompletedProcess(
-            cmd, process.returncode, combined_stdout, stderr
-        )
+        # when we intentionally terminate after a successful HTTP response, dapr run
+        # often exits with 1 (app exited before Dapr shutdown). Treat 2xx as success.
+        returncode = process.returncode
+        if (
+            response_status is not None
+            and 200 <= response_status < 300
+            and returncode != 0
+        ):
+            returncode = 0
+
+        # wait for app port to be released so the next test can bind to it.
+        if app_port:
+            logger.info(f"Waiting for port {app_port} to be released...")
+            if _wait_for_port_free("127.0.0.1", app_port, timeout=15):
+                logger.info(f"Port {app_port} released.")
+            else:
+                logger.warning(
+                    f"Port {app_port} still in use after 15s (next test may use dynamic port)."
+                )
+
+        return subprocess.CompletedProcess(cmd, returncode, combined_stdout, stderr)
 
     except Exception as e:
         # Make sure to clean up the process
@@ -1216,6 +1449,9 @@ def _run_with_curl_trigger(
             process.wait(timeout=5)
         except Exception:
             process.kill()
+        # Give the port time to be released for the next test
+        if app_port:
+            _wait_for_port_free("127.0.0.1", app_port, timeout=10)
         raise RuntimeError(f"Error running with curl trigger: {e}")
 
 
@@ -1260,8 +1496,8 @@ def _run_with_pubsub_trigger(
         publish_cmd = [
             "dapr",
             "publish",
-            "--dapr-http-port",
-            str(dapr_http_port),
+            "--publish-app-id",
+            "e2e-test-publisher",
             "--pubsub",
             pubsub_name,
             "--topic",
@@ -1310,6 +1546,13 @@ def _run_with_pubsub_trigger(
             process.kill()
             stdout, stderr = process.communicate()
 
+        # Cleanup: wait for Dapr port to be released so the next test can use it.
+        logger.info(f"Waiting for Dapr port {dapr_http_port} to be released...")
+        if _wait_for_port_free("127.0.0.1", dapr_http_port, timeout=15):
+            logger.info(f"Port {dapr_http_port} released.")
+        else:
+            logger.warning(f"Port {dapr_http_port} still in use after 15s.")
+
         # Combine outputs
         combined_stdout = f"{stdout}\n\n--- Pubsub Trigger ---\n{pubsub_output}"
 
@@ -1324,4 +1567,6 @@ def _run_with_pubsub_trigger(
             process.wait(timeout=5)
         except Exception:
             process.kill()
+        # Give the Dapr port time to be released for the next test
+        _wait_for_port_free("127.0.0.1", dapr_http_port, timeout=10)
         raise RuntimeError(f"Error running with pubsub trigger: {e}")

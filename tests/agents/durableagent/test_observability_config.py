@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 """Test cases for observability configuration in agents."""
 
 import os
@@ -208,14 +221,16 @@ class TestObservabilityConfigFromEnvironment:
 
     def test_observability_config_from_env_all_fields(self, mock_llm, monkeypatch):
         """Test observability config loaded from environment variables."""
-        monkeypatch.setenv("OTEL_ENABLED", "true")
-        monkeypatch.setenv("OTEL_TOKEN", "Bearer env-token")
-        monkeypatch.setenv("OTEL_ENDPOINT", "http://env-collector:4318")
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer env-token"
+        )
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://env-collector:4318")
         monkeypatch.setenv("OTEL_SERVICE_NAME", "env-service")
         monkeypatch.setenv("OTEL_LOGGING_ENABLED", "true")
-        monkeypatch.setenv("OTEL_LOGGING_EXPORTER", "otlp_http")
+        monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp_http")
         monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
-        monkeypatch.setenv("OTEL_TRACING_EXPORTER", "console")
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "console")
 
         agent = DurableAgent(
             name="TestAgent",
@@ -246,7 +261,7 @@ class TestObservabilityConfigFromEnvironment:
 
     def test_observability_config_from_env_partial_fields(self, mock_llm, monkeypatch):
         """Test observability config with only some env variables set."""
-        monkeypatch.setenv("OTEL_ENABLED", "true")
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
         monkeypatch.setenv("OTEL_SERVICE_NAME", "partial-service")
 
         agent = DurableAgent(
@@ -275,7 +290,7 @@ class TestObservabilityConfigFromEnvironment:
 
     def test_observability_config_from_env_disabled(self, mock_llm, monkeypatch):
         """Test observability explicitly disabled via environment."""
-        monkeypatch.setenv("OTEL_ENABLED", "false")
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
         monkeypatch.setenv("OTEL_SERVICE_NAME", "disabled-service")
 
         agent = DurableAgent(
@@ -301,8 +316,8 @@ class TestObservabilityConfigFromEnvironment:
         self, mock_llm, monkeypatch
     ):
         """Test observability config with invalid exporter defaults to console."""
-        monkeypatch.setenv("OTEL_TRACING_EXPORTER", "invalid_exporter")
-        monkeypatch.setenv("OTEL_LOGGING_EXPORTER", "another_invalid")
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "invalid_exporter")
+        monkeypatch.setenv("OTEL_LOGS_EXPORTER", "another_invalid")
 
         agent = DurableAgent(
             name="TestAgent",
@@ -349,6 +364,27 @@ class TestObservabilityConfigFromStatestore:
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
 
+    def _patch_dapr_client(self, monkeypatch, mock_client):
+        """Helper to patch DaprClient in both locations."""
+        # Create a mock class that returns the mock_client when instantiated
+        # We need to capture mock_client in a closure
+        captured_client = mock_client
+
+        class MockDaprClientClass:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return captured_client
+
+            def __exit__(self, *args):
+                pass
+
+        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.statestore.DaprClient", MockDaprClientClass
+        )
+
     @pytest.fixture
     def mock_llm(self):
         """Create a mock LLM client."""
@@ -365,23 +401,18 @@ class TestObservabilityConfigFromStatestore:
     ):
         """Test observability config loaded from statestore."""
         runtime_config = {
-            "OTEL_ENABLED": "true",
-            "OTEL_TOKEN": "statestore-token",
-            "OTEL_ENDPOINT": "http://statestore-collector:4317",
+            "OTEL_SDK_DISABLED": "false",
+            "OTEL_EXPORTER_OTLP_HEADERS": "statestore-token",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://statestore-collector:4317",
             "OTEL_SERVICE_NAME": "statestore-service",
             "OTEL_LOGGING_ENABLED": "true",
-            "OTEL_LOGGING_EXPORTER": "otlp_grpc",
+            "OTEL_LOGS_EXPORTER": "otlp_grpc",
             "OTEL_TRACING_ENABLED": "true",
-            "OTEL_TRACING_EXPORTER": "zipkin",
+            "OTEL_TRACES_EXPORTER": "zipkin",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = DurableAgent(
             name="TestAgent",
@@ -403,7 +434,7 @@ class TestObservabilityConfigFromStatestore:
 
         assert resolved_config.enabled is True
         assert resolved_config.auth_token == "statestore-token"
-        assert resolved_config.endpoint == "http://statestore-collector:4317"
+        assert resolved_config.endpoint == "http://statestore-collector:4317"  # noqa: E501
         assert resolved_config.service_name == "statestore-service"
         assert resolved_config.logging_enabled is True
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
@@ -415,17 +446,12 @@ class TestObservabilityConfigFromStatestore:
     ):
         """Test observability config from statestore with partial fields."""
         runtime_config = {
-            "OTEL_ENABLED": "true",
+            "OTEL_SDK_DISABLED": "false",
             "OTEL_SERVICE_NAME": "partial-statestore-service",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = DurableAgent(
             name="TestAgent",
@@ -452,17 +478,12 @@ class TestObservabilityConfigFromStatestore:
     def test_observability_config_from_statestore_disabled(self, mock_llm, monkeypatch):
         """Test observability disabled from statestore."""
         runtime_config = {
-            "OTEL_ENABLED": "false",
+            "OTEL_SDK_DISABLED": "true",
             "OTEL_SERVICE_NAME": "disabled-statestore-service",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = DurableAgent(
             name="TestAgent",
@@ -488,18 +509,13 @@ class TestObservabilityConfigFromStatestore:
     ):
         """Test observability config from statestore with invalid exporters."""
         runtime_config = {
-            "OTEL_ENABLED": "true",
-            "OTEL_TRACING_EXPORTER": "invalid_type",
-            "OTEL_LOGGING_EXPORTER": "wrong_value",
+            "OTEL_SDK_DISABLED": "false",
+            "OTEL_TRACES_EXPORTER": "invalid_type",
+            "OTEL_LOGS_EXPORTER": "wrong_value",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = DurableAgent(
             name="TestAgent",
@@ -546,6 +562,27 @@ class TestObservabilityConfigPrecedence:
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
 
+    def _patch_dapr_client(self, monkeypatch, mock_client):
+        """Helper to patch DaprClient in both locations."""
+        # Create a mock class that returns the mock_client when instantiated
+        # We need to capture mock_client in a closure
+        captured_client = mock_client
+
+        class MockDaprClientClass:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return captured_client
+
+            def __exit__(self, *args):
+                pass
+
+        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.statestore.DaprClient", MockDaprClientClass
+        )
+
     @pytest.fixture
     def mock_llm(self):
         """Create a mock LLM client."""
@@ -560,19 +597,14 @@ class TestObservabilityConfigPrecedence:
     def test_precedence_instantiation_over_env(self, mock_llm, monkeypatch):
         """Test instantiation config takes precedence over environment."""
         # Set environment variables
-        monkeypatch.setenv("OTEL_ENABLED", "true")
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
         monkeypatch.setenv("OTEL_SERVICE_NAME", "env-service")
-        monkeypatch.setenv("OTEL_ENDPOINT", "http://env-endpoint:4317")
-        monkeypatch.setenv("OTEL_TRACING_EXPORTER", "console")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://env-endpoint:4317")
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "console")
 
         # Mock DaprClient with no runtime config
         mock_client = MockDaprClient()
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         # Create observability config for instantiation
         obs_config = AgentObservabilityConfig(
@@ -611,24 +643,19 @@ class TestObservabilityConfigPrecedence:
         """Test environment config takes precedence over statestore."""
         # Set statestore config
         runtime_config = {
-            "OTEL_ENABLED": "true",
+            "OTEL_SDK_DISABLED": "false",
             "OTEL_SERVICE_NAME": "statestore-service",
-            "OTEL_ENDPOINT": "http://statestore-endpoint:4317",
-            "OTEL_LOGGING_EXPORTER": "console",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://statestore-endpoint:4317",
+            "OTEL_LOGS_EXPORTER": "console",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         # Set environment variables (should override statestore)
-        monkeypatch.setenv("OTEL_ENABLED", "false")
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
         monkeypatch.setenv("OTEL_SERVICE_NAME", "env-service")
-        monkeypatch.setenv("OTEL_LOGGING_EXPORTER", "otlp_grpc")
+        monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp_grpc")
 
         agent = DurableAgent(
             name="TestAgent",
@@ -652,33 +679,28 @@ class TestObservabilityConfigPrecedence:
         assert resolved_config.enabled is False
         assert resolved_config.service_name == "env-service"
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
-        # Endpoint should come from statestore since env didn't specify it
+        # Endpoint comes from statestore since env didn't specify it
         assert resolved_config.endpoint == "http://statestore-endpoint:4317"
 
     def test_precedence_full_hierarchy(self, mock_llm, monkeypatch):
         """Test full precedence hierarchy: instantiation > env > statestore."""
         # Set statestore config (lowest priority)
         runtime_config = {
-            "OTEL_ENABLED": "true",
+            "OTEL_SDK_DISABLED": "false",
             "OTEL_SERVICE_NAME": "statestore-service",
-            "OTEL_ENDPOINT": "http://statestore-endpoint:4317",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://statestore-endpoint:4317",
             "OTEL_LOGGING_ENABLED": "true",
-            "OTEL_LOGGING_EXPORTER": "console",
+            "OTEL_LOGS_EXPORTER": "console",
             "OTEL_TRACING_ENABLED": "true",
-            "OTEL_TRACING_EXPORTER": "console",
+            "OTEL_TRACES_EXPORTER": "console",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         # Set environment variables (middle priority)
         monkeypatch.setenv("OTEL_SERVICE_NAME", "env-service")
-        monkeypatch.setenv("OTEL_LOGGING_EXPORTER", "otlp_grpc")
+        monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp_grpc")
 
         # Create observability config for instantiation (highest priority)
         obs_config = AgentObservabilityConfig(
@@ -722,15 +744,10 @@ class TestObservabilityConfigPrecedence:
         """Test merging configs with headers properly combines them."""
         # Mock DaprClient with no runtime config
         mock_client = MockDaprClient()
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
-        # Set environment with token (creates Authorization header)
-        monkeypatch.setenv("OTEL_TOKEN", "env-token")
+        # Set environment with headers (creates Authorization header)
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=env-token")
 
         # Create observability config with additional headers
         obs_config = AgentObservabilityConfig(
@@ -768,12 +785,7 @@ class TestObservabilityConfigPrecedence:
         """Test that when no config is provided, defaults are used."""
         # Mock DaprClient with no runtime config
         mock_client = MockDaprClient()
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = DurableAgent(
             name="TestAgent",
@@ -820,12 +832,7 @@ class TestObservabilityConfigMergeLogic:
 
         # Mock DaprClient
         mock_client = MockDaprClient()
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
-        )
+        self._patch_dapr_client(monkeypatch, mock_client)
 
         # Mock the observability setup to avoid actual OTel initialization
         monkeypatch.setattr(
@@ -835,6 +842,27 @@ class TestObservabilityConfigMergeLogic:
         yield
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
+
+    def _patch_dapr_client(self, monkeypatch, mock_client):
+        """Helper to patch DaprClient in both locations."""
+        # Create a mock class that returns the mock_client when instantiated
+        # We need to capture mock_client in a closure
+        captured_client = mock_client
+
+        class MockDaprClientClass:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return captured_client
+
+            def __exit__(self, *args):
+                pass
+
+        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.statestore.DaprClient", MockDaprClientClass
+        )
 
     @pytest.fixture
     def mock_llm(self):

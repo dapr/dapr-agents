@@ -1,3 +1,16 @@
+<!--
+Copyright 2026 The Dapr Authors
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 # Dapr Agents - Developer Guide
 
 ## Project Context
@@ -40,11 +53,11 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
   - **Logging**: Use module-level logger: `logger = logging.getLogger(__name__)`
   - **ConfigDict**: Add `model_config = ConfigDict(arbitrary_types_allowed=True)` when Pydantic models contain non-serializable types
   - **Custom Exceptions**: Define domain-specific exceptions (inherit from `Exception`); use descriptive names ending in `Error`
-  - **Async Execution**: 
+  - **Async Execution**:
     - Check for running loop with `asyncio.get_running_loop()` before creating new loops
     - Use `asyncio.run_coroutine_threadsafe()` when submitting coroutines to a running loop from another thread
     - Create fresh event loops only when no loop is running
-  - **Error Handling**: 
+  - **Error Handling**:
     - Always catch specific exceptions before general ones
     - Log errors with context before raising: `logger.error("Operation failed: %s", error, exc_info=True)`
     - Use `span.record_exception(e)` for observability when available

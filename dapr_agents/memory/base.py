@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from abc import ABC, abstractmethod
 from typing import Dict, List, Union, Any
 
@@ -15,12 +28,13 @@ class MemoryBase(BaseModel, ABC):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @abstractmethod
-    def add_message(self, message: BaseMessage):
+    def add_message(self, message: BaseMessage, workflow_instance_id: str):
         """
         Adds a single message to the memory storage.
 
         Args:
             message (BaseMessage): The message object to be added.
+            workflow_instance_id: Workflow instance id for this message.
 
         Note:
             This method must be implemented by subclasses.
@@ -28,12 +42,13 @@ class MemoryBase(BaseModel, ABC):
         pass
 
     @abstractmethod
-    def add_messages(self, messages: List[BaseMessage]):
+    def add_messages(self, messages: List[BaseMessage], workflow_instance_id: str):
         """
         Adds a list of messages to the memory storage.
 
         Args:
             messages (List[BaseMessage]): A list of message objects to be added.
+            workflow_instance_id: Workflow instance id for these messages.
 
         Note:
             This method must be implemented by subclasses.
@@ -42,7 +57,10 @@ class MemoryBase(BaseModel, ABC):
 
     @abstractmethod
     def add_interaction(
-        self, user_message: BaseMessage, assistant_message: BaseMessage
+        self,
+        user_message: BaseMessage,
+        assistant_message: BaseMessage,
+        workflow_instance_id: str,
     ):
         """
         Adds a user-assistant interaction to the memory storage.
@@ -50,13 +68,17 @@ class MemoryBase(BaseModel, ABC):
         Args:
             user_message (BaseMessage): The user message.
             assistant_message (BaseMessage): The assistant message.
+            workflow_instance_id: Workflow instance id for this interaction.
         """
         pass
 
     @abstractmethod
-    def get_messages(self) -> List[Dict[str, Any]]:
+    def get_messages(self, workflow_instance_id: str) -> List[Dict[str, Any]]:
         """
-        Retrieves all messages from the memory storage.
+        Retrieves all messages from the memory storage for the given workflow instance.
+
+        Args:
+            workflow_instance_id: Workflow instance id to retrieve messages for.
 
         Returns:
             List[Dict[str, Any]]: A list of all stored messages as dictionaries.
@@ -67,14 +89,27 @@ class MemoryBase(BaseModel, ABC):
         pass
 
     @abstractmethod
-    def reset_memory(self):
+    def reset_memory(self, workflow_instance_id: str):
         """
-        Clears all messages from the memory storage.
+        Clears all messages from the memory storage for the given workflow instance.
+
+        Args:
+            workflow_instance_id: Workflow instance id to reset.
 
         Note:
             This method must be implemented by subclasses.
         """
         pass
+
+    def purge_memory(self, workflow_instance_id: str) -> None:
+        """
+        Permanently remove all stored messages for the given workflow instance.
+        Default implementation calls reset_memory; stores may override for stronger semantics.
+
+        Args:
+            workflow_instance_id: Workflow instance id to purge.
+        """
+        self.reset_memory(workflow_instance_id)
 
     @staticmethod
     def _convert_to_dict(message: Union[Dict, BaseMessage]) -> Dict:

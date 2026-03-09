@@ -1,0 +1,68 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+import time
+
+import dapr.ext.workflow as wf
+from dapr.ext.workflow import DaprWorkflowContext
+from dotenv import load_dotenv
+
+from dapr_agents.llm.dapr import DaprChatClient
+
+# Load environment variables (e.g., API keys, secrets)
+load_dotenv()
+
+# Initialize the Dapr workflow runtime and LLM client
+runtime = wf.WorkflowRuntime()
+llm = DaprChatClient(component_name="openai")
+
+
+@runtime.workflow(name="single_task_workflow")
+def single_task_workflow(ctx: DaprWorkflowContext, name: str):
+    """Ask the LLM about a single historical figure and return a short bio."""
+    response = yield ctx.call_activity(describe_person, input={"name": name})
+    return response
+
+
+@runtime.activity(name="describe_person")
+def describe_person(ctx, name: str) -> str:
+    return str(llm.generate(prompt=f"Who was {name}?"))
+
+
+if __name__ == "__main__":
+    runtime.start()
+    time.sleep(5)
+
+    client = wf.DaprWorkflowClient()
+    instance_id = client.schedule_new_workflow(
+        workflow=single_task_workflow,
+        input="Grace Hopper",
+    )
+    print(f"Workflow started: {instance_id}")
+
+    state = client.wait_for_workflow_completion(instance_id, timeout_in_seconds=60)
+    if not state:
+        print("No state returned (instance may not exist).")
+    elif state.runtime_status.name == "COMPLETED":
+        print(f"Grace Hopper bio:\n{state.serialized_output}")
+    else:
+        print(f"Workflow ended with status: {state.runtime_status}")
+        if state.failure_details:
+            fd = state.failure_details
+            print("Failure type:", fd.error_type)
+            print("Failure message:", fd.message)
+            print("Stack trace:\n", fd.stack_trace)
+        else:
+            print("Custom status:", state.serialized_custom_status)
+
+    runtime.shutdown()
