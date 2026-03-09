@@ -15,6 +15,7 @@ from dapr_agents.types.llm import DaprInferenceClientConfig
 from dapr_agents.llm.base import LLMClientBase
 from dapr.clients import DaprClient
 from dapr.clients.grpc import conversation as dapr_conversation
+from dapr.clients.grpc._helpers import convert_value_to_struct
 from typing import Dict, Any, List, Optional
 from pydantic import model_validator
 
@@ -66,6 +67,7 @@ class DaprInferenceClient:
         tool_choice: Optional[str] = None,
         context_id: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Invoke Dapr Conversation API Alpha2 with optional tool-calling support and
@@ -77,7 +79,7 @@ class DaprInferenceClient:
         if not temperature:
             temperature = 1
 
-        response_alpha2 = self.dapr_client.converse_alpha2(
+        kwargs: Dict[str, Any] = dict(
             name=llm,
             inputs=inputs,
             context_id=context_id,
@@ -87,6 +89,10 @@ class DaprInferenceClient:
             tools=conv_tools,
             tool_choice=tool_choice,
         )
+        if response_format is not None:
+            kwargs["response_format"] = convert_value_to_struct(response_format)
+
+        response_alpha2 = self.dapr_client.converse_alpha2(**kwargs)
 
         outputs: List[Dict[str, Any]] = []
         for output in getattr(response_alpha2, "outputs", []) or []:
