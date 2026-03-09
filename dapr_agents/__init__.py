@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from importlib.metadata import version, PackageNotFoundError
 from dapr_agents.agents.standalone import Agent
 from dapr_agents.agents.durable import DurableAgent
@@ -21,11 +34,6 @@ from dapr_agents.llm.openai import (
     OpenAIEmbeddingClient,
 )
 from dapr_agents.tool import AgentTool, tool
-from dapr_agents.agents.orchestrators import (
-    LLMOrchestrator,
-    RandomOrchestrator,
-    RoundRobinOrchestrator,
-)
 
 __all__ = [
     "Agent",
@@ -42,9 +50,6 @@ __all__ = [
     "OpenAIEmbeddingClient",
     "AgentTool",
     "tool",
-    "LLMOrchestrator",
-    "RandomOrchestrator",
-    "RoundRobinOrchestrator",
     "AgentMetadataSchema",
     "AgentMetadata",
     "PubSubMetadata",

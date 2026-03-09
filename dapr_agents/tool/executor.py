@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import logging
 from typing import Any, Dict, List, Optional, Union, Callable
 from pydantic import BaseModel, Field, PrivateAttr
@@ -32,6 +45,11 @@ class AgentToolExecutor(BaseModel):
         logger.info(f"Tool Executor initialized with {len(self._tools_map)} tool(s).")
         super().model_post_init(__context)
 
+    @staticmethod
+    def _normalize(name: str) -> str:
+        """Normalize a tool name: lowercase, strip spaces and underscores."""
+        return name.lower().replace(" ", "").replace("_", "")
+
     def register_tool(self, tool: Union[AgentTool, Callable]) -> None:
         """
         Registers a tool instance, ensuring no duplicate names.
@@ -54,19 +72,20 @@ class AgentToolExecutor(BaseModel):
                 ) from e
 
         if isinstance(tool, AgentTool):
-            if tool.name in self._tools_map:
+            key = self._normalize(tool.name)
+            if key in self._tools_map:
                 logger.error(f"Attempted to register duplicate tool: {tool.name}")
                 raise AgentToolExecutorError(
                     f"Tool '{tool.name}' is already registered."
                 )
-            self._tools_map[tool.name] = tool
+            self._tools_map[key] = tool
             logger.info(f"Tool registered: {tool.name}")
         else:
             raise TypeError(f"Unsupported tool type: {type(tool).__name__}")
 
     def get_tool(self, tool_name: str) -> Optional[AgentTool]:
         """
-        Retrieves a tool by name.
+        Retrieves a tool by name (case-insensitive, spaces/underscores ignored).
 
         Args:
             tool_name (str): Name of the tool to retrieve.
@@ -74,16 +93,25 @@ class AgentToolExecutor(BaseModel):
         Returns:
             AgentTool or None if not found.
         """
-        return self._tools_map.get(tool_name)
+        return self._tools_map.get(self._normalize(tool_name))
+
+    def list_tools(self) -> List[AgentTool]:
+        """
+        Returns all registered tools in registration order.
+
+        Returns:
+            List[AgentTool]: All registered tools.
+        """
+        return list(self._tools_map.values())
 
     def get_tool_names(self) -> List[str]:
         """
-        Lists all registered tool names.
+        Lists all registered tool display names.
 
         Returns:
             List[str]: Names of all registered tools.
         """
-        return list(self._tools_map.keys())
+        return [tool.name for tool in self._tools_map.values()]
 
     def get_tool_signatures(self) -> str:
         """

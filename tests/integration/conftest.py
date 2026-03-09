@@ -1,7 +1,22 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 """Shared fixtures for integration tests."""
 
 import os
+import shutil
 import subprocess
+import tempfile
 import pytest
 import docker
 import logging
@@ -32,12 +47,45 @@ def examples_dir(project_root):
 
 
 @pytest.fixture(scope="session")
-def openai_api_key():
-    """Get OpenAI API key from environment."""
+def is_ollama():
+    """Check if running with Ollama backend."""
+    return bool(os.getenv("OLLAMA_ENDPOINT"))
+
+
+@pytest.fixture(scope="session")
+def openai_api_key(is_ollama):
+    """Get OpenAI API key from environment, or dummy key for Ollama."""
+    if is_ollama:
+        return "ollama"
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         pytest.skip("OPENAI_API_KEY not set")
     return api_key
+
+
+@pytest.fixture(scope="session")
+def ollama_resources_dir(project_root, is_ollama):
+    """Return a resources dir with the Ollama component swapped in.
+
+    When running with Ollama (OLLAMA_ENDPOINT set), copies the quickstarts
+    resources directory and replaces llm-provider.yaml with the Ollama
+    variant. Otherwise returns the original resources path unchanged.
+    """
+    base_resources = project_root / "quickstarts" / "resources"
+    if not is_ollama:
+        yield base_resources
+        return
+
+    tmp = Path(tempfile.mkdtemp(prefix="ollama_resources_"))
+    try:
+        shutil.copytree(base_resources, tmp, dirs_exist_ok=True)
+        ollama_yaml = base_resources / "llm-provider.yaml"
+        if not ollama_yaml.exists():
+            pytest.fail(f"Ollama component file not found: {ollama_yaml}")
+        shutil.copy2(ollama_yaml, tmp / "llm-provider.yaml")
+        yield tmp
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")

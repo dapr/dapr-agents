@@ -1,0 +1,14 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: otel-config
+spec:
+  type: configuration.redis
+  version: v1
+  metadata:
+  - name: redisHost
+    value: dapr-redis-master:6379
+  - name: redisPassword
+    secretKeyRef:
+      key: redis-password
+      name: dapr-redis

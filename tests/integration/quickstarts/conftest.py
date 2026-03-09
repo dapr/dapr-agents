@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import os
 import signal
 import subprocess
@@ -556,6 +569,11 @@ def run_quickstart_or_examples_multi_app(
         tmp_path = _resolve_component_env_vars(
             resources_path, cwd_path, venv_python, full_env
         )
+    elif (directory / "resources").exists():
+        resources_path = directory / "resources"
+        tmp_path = _resolve_component_env_vars(
+            resources_path, cwd_path, venv_python, full_env
+        )
 
     # Build modified YAML with tmp_path if needed
     yaml_to_use = dapr_yaml_path
@@ -925,7 +943,7 @@ def _run_multi_app_with_completion_detection(
                 elif "llm" in yaml_name:
                     orchestrator_workflow_name = "llm_orchestrator_workflow"
                 elif "workflow_agents" in yaml_name or "09_workflow" in yaml_name:
-                    # 09_workflow_agents: main workflow is support_workflow; ignore broadcast_listener
+                    # 09_workflow_agents: main workflow is support_workflow; ignore broadcast_workflow
                     orchestrator_workflow_name = "support_workflow"
                 elif "sequential" in yaml_name:
                     # Sequential workflow quickstart: main workflow is chained_planner_workflow

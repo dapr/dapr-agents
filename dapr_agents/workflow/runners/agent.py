@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +22,6 @@ from typing import Any, Callable, Dict, Literal, Optional, TypeVar, Union, List
 from fastapi import Body, FastAPI, HTTPException
 
 from dapr_agents.agents.durable import DurableAgent
-from dapr_agents.agents.orchestrators.base import OrchestratorBase
 from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.runners.base import WorkflowRunner
 from dapr_agents.workflow.utils.core import get_decorated_methods
@@ -55,14 +67,12 @@ class AgentRunner(WorkflowRunner):
         self._default_http_paths: set[str] = set()
 
         # In-memory store of managed agents - used for handling shutdown
-        self._managed_agents: List[
-            Union[DurableAgent, OrchestratorBase]
-        ] = []  # Union type covers both durable agents and orchestrators.
+        self._managed_agents: List[DurableAgent] = []
         self._lock: Lock = Lock()
 
     async def run(
         self,
-        agent: Union[DurableAgent, OrchestratorBase],
+        agent: DurableAgent,
         payload: Optional[Union[str, Dict[str, Any]]] = None,
         *,
         instance_id: Optional[str] = None,
@@ -123,7 +133,7 @@ class AgentRunner(WorkflowRunner):
 
     def run_sync(
         self,
-        agent: Union[DurableAgent, OrchestratorBase],
+        agent: DurableAgent,
         payload: Optional[Union[str, Dict[str, Any]]] = None,
         *,
         instance_id: Optional[str] = None,
@@ -165,8 +175,15 @@ class AgentRunner(WorkflowRunner):
         """
         Locate exactly one bound method on `agent` marked with `@workflow_entry`.
 
+        If the agent exposes an ``agent_workflow_name`` property (as
+        ``DurableAgent`` does), a lightweight stub with that name is returned so
+        that ``schedule_new_workflow`` schedules the correct registered workflow
+        (e.g. ``"frodo_agent_workflow"``) rather than the generic method name.
+        The Dapr SDK accepts either a callable or a plain string; passing a stub
+        with the right ``__name__`` keeps the call-site uniform.
+
         Returns:
-            The bound method to schedule.
+            A callable whose ``__name__`` matches the registered workflow name.
 
         Raises:
             RuntimeError: If zero or multiple @workflow_entry methods are found.
@@ -184,6 +201,18 @@ class AgentRunner(WorkflowRunner):
         if len(candidates) > 1:
             names = ", ".join(getattr(c, "__name__", "<callable>") for c in candidates)
             raise RuntimeError(f"Agent has multiple @workflow_entry methods: {names}")
+
+        # If the agent knows its registered workflow name, use that directly so
+        # schedule_new_workflow resolves to the right Dapr registration.
+        registered_name: Optional[str] = getattr(agent, "agent_workflow_name", None)
+        if registered_name:
+
+            def _stub(*_) -> None:
+                pass
+
+            _stub.__name__ = registered_name
+            return _stub
+
         return candidates[0]
 
     @staticmethod
@@ -224,7 +253,7 @@ class AgentRunner(WorkflowRunner):
 
     def register_routes(
         self,
-        agent: Union[DurableAgent, OrchestratorBase],
+        agent: DurableAgent,
         *,
         fastapi_app: Optional[FastAPI] = None,
         delivery_mode: Literal["sync", "async"] = "sync",
@@ -271,7 +300,7 @@ class AgentRunner(WorkflowRunner):
             self._wire_http_routes(agent=agent, fastapi_app=fastapi_app)
 
     def _build_pubsub_specs(
-        self, agent: Union[DurableAgent, OrchestratorBase], config: Any
+        self, agent: DurableAgent, config: Any
     ) -> list[PubSubRouteSpec]:
         handlers = get_decorated_methods(agent, "_is_message_handler")
         if not handlers:
@@ -293,11 +322,28 @@ class AgentRunner(WorkflowRunner):
             schemas = meta.get("message_schemas") or []
             message_model = schemas[0] if schemas else None
 
+            # Use the agent's registered workflow name so schedule_new_workflow
+            # resolves to the correct Dapr registration (e.g. "frodo_agent_workflow").
+            registered_name: Optional[str] = (
+                getattr(agent, "broadcast_workflow_name", None)
+                if is_broadcast
+                else getattr(agent, "agent_workflow_name", None)
+            )
+            if registered_name is not None:
+
+                def _stub(*_) -> None:
+                    pass
+
+                _stub.__name__ = registered_name
+                named_handler: Any = _stub
+            else:
+                named_handler = handler
+
             specs.append(
                 PubSubRouteSpec(
                     pubsub_name=config.pubsub_name,
                     topic=topic,
-                    handler_fn=handler,
+                    handler_fn=named_handler,
                     message_model=message_model,
                 )
             )
@@ -307,7 +353,7 @@ class AgentRunner(WorkflowRunner):
     def _wire_pubsub_routes(
         self,
         *,
-        agent: Union[DurableAgent, OrchestratorBase],
+        agent: DurableAgent,
         delivery_mode: Literal["sync", "async"],
         queue_maxsize: int,
         await_result: bool,
@@ -349,7 +395,7 @@ class AgentRunner(WorkflowRunner):
     def _wire_http_routes(
         self,
         *,
-        agent: Union[DurableAgent, OrchestratorBase],
+        agent: DurableAgent,
         fastapi_app: Optional[FastAPI],
     ) -> None:
         if fastapi_app is None or self._wired_http:
@@ -364,7 +410,7 @@ class AgentRunner(WorkflowRunner):
 
     def subscribe(
         self,
-        agent: Union[DurableAgent, OrchestratorBase],
+        agent: DurableAgent,
         *,
         delivery_mode: Literal["sync", "async"] = "sync",
         queue_maxsize: int = 1024,
@@ -412,7 +458,7 @@ class AgentRunner(WorkflowRunner):
 
     def serve(
         self,
-        agent: Union[DurableAgent, OrchestratorBase],
+        agent: DurableAgent,
         *,
         app: Optional[FastAPI] = None,
         host: str = "0.0.0.0",
@@ -515,7 +561,7 @@ class AgentRunner(WorkflowRunner):
         self,
         *,
         fastapi_app: FastAPI,
-        agent: Union[DurableAgent, OrchestratorBase],
+        agent: DurableAgent,
         entry_path: str,
         status_path: str,
         workflow_component: str,
@@ -564,9 +610,13 @@ class AgentRunner(WorkflowRunner):
                 self._wf_client.purge_workflow(
                     instance_id=instance_id,
                 )
-                agent._infra.purge_state(instance_id)
-                if getattr(agent, "memory", None) is not None:
-                    agent.memory.purge_memory(instance_id)
+                purge_fn = getattr(agent, "purge", None)
+                if callable(purge_fn):
+                    purge_fn(instance_id)
+                else:
+                    agent._infra.purge_state(instance_id)
+                    if getattr(agent, "memory", None) is not None:
+                        agent.memory.purge_memory(instance_id)
                 return {"instance_id": instance_id, "status": "purged"}
 
             fastapi_app.add_api_route(
@@ -631,9 +681,7 @@ class AgentRunner(WorkflowRunner):
         )
         logger.info("Mounted default workflow status endpoint at %s", status_path)
 
-    def shutdown(
-        self, agent: Optional[Union[DurableAgent, OrchestratorBase]] = None
-    ) -> None:
+    def shutdown(self, agent: Optional[DurableAgent] = None) -> None:
         """
         Unwire subscriptions and close owned clients.
 

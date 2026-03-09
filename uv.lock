@@ -30,6 +30,7 @@ members = [
     "06-agent-mcp-client-streamablehttp",
     "07-data-agent-mcp-chainlit",
     "09-agents-as-activities-observability",
+    "09-agents-as-tools",
     "dapr-agents",
     "quickstarts",
 ]
@@ -327,6 +328,21 @@ requires-dist = [
 name = "09-agents-as-activities-observability"
 version = "0.1.0"
 source = { virtual = "examples/08-agents-as-activities-observability" }
+dependencies = [
+    { name = "dapr-agents" },
+    { name = "python-dotenv" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dapr-agents", editable = "." },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
+]
+
+[[package]]
+name = "09-agents-as-tools"
+version = "0.1.0"
+source = { virtual = "examples/09-agents-as-tools" }
 dependencies = [
     { name = "dapr-agents" },
     { name = "python-dotenv" },
@@ -1308,7 +1324,7 @@ wheels = [
 
 [[package]]
 name = "dapr"
-version = "1.17.0rc2"
+version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1318,9 +1334,9 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/20/33b69435a571344e8b5f73d09e743a257c6a440caed01a5bcbbb787902c6/dapr-1.17.0rc2.tar.gz", hash = "sha256:e7de507d8e8dd94dab6ffb0eceac9080c6f5b8404d957c9a2b9de088c2c5edef", size = 166744, upload-time = "2026-01-16T15:03:41.227Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/62/bb/d9b3235e45d557bc3f79584e0ce7e08858d81959aa8722b95c32bffeacc0/dapr-1.17.0.tar.gz", hash = "sha256:918331f4b8e12cd484b1350ed4a0b379bb79148244e7e4c62d1c8770d1cbc860", size = 170812, upload-time = "2026-02-27T20:56:46.158Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/0e/4fbe12a6d0b8820e13c7a4cafe05cf0150ac9a1edc91dd7a46aeeab45945/dapr-1.17.0rc2-py3-none-any.whl", hash = "sha256:a9ee31e9fd344d397a0a5bb57f553b41aa75eea2028ff2645b4d3254c3d05307", size = 236595, upload-time = "2026-01-16T15:03:39.062Z" },
+    { url = "https://files.pythonhosted.org/packages/44/e9/4a15713fae156a9d25d62057c2a3a2a47efcbaa55816053fdfff5eb3f0cb/dapr-1.17.0-py3-none-any.whl", hash = "sha256:101ad9dde88c4f1a6d469ac3d84b711f6e7095298a2a72e9a239d62693553fc0", size = 241207, upload-time = "2026-02-27T20:56:43.299Z" },
 ]
 
 [[package]]
@@ -1351,6 +1367,7 @@ dependencies = [
     { name = "opentelemetry-instrumentation-grpc" },
     { name = "opentelemetry-instrumentation-httpx" },
     { name = "opentelemetry-proto" },
+    { name = "opentelemetry-semantic-conventions" },
     { name = "posthog" },
     { name = "protobuf" },
     { name = "pydantic" },
@@ -1389,6 +1406,7 @@ test = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
+    { name = "pytest-rerunfailures" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
 ]
@@ -1406,11 +1424,11 @@ requires-dist = [
     { name = "chromadb", marker = "extra == 'vectorstore'", specifier = ">=0.4.22,<2.0.0" },
     { name = "cloudevents", specifier = ">=1.11.0,<2.0.0" },
     { name = "colorama", specifier = ">=0.4.6,<1.0.0" },
-    { name = "dapr", specifier = ">=1.17.0rc2" },
-    { name = "dapr-ext-fastapi", specifier = ">=1.17.0rc2" },
-    { name = "dapr-ext-workflow", specifier = ">=1.17.0rc2" },
+    { name = "dapr", specifier = "==1.17.0" },
+    { name = "dapr-ext-fastapi", specifier = "==1.17" },
+    { name = "dapr-ext-workflow", specifier = "==1.17.0" },
     { name = "docker", specifier = ">=7.1.0" },
-    { name = "durabletask-dapr", specifier = ">=0.2.0a15" },
+    { name = "durabletask-dapr", specifier = "==0.17.1" },
     { name = "fastapi", specifier = ">=0.110.0,<1.0.0" },
     { name = "huggingface-hub", specifier = ">=0.33.4,<1.0.0" },
     { name = "jinja2", specifier = ">=3.1.0,<4.0.0" },
@@ -1427,6 +1445,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-grpc", specifier = ">=0.60b0" },
     { name = "opentelemetry-instrumentation-httpx", specifier = ">=0.60b1" },
     { name = "opentelemetry-proto", specifier = ">=1.35.0,<2.0.0" },
+    { name = "opentelemetry-semantic-conventions", specifier = ">=0.60b1" },
     { name = "posthog", specifier = "<8.0.0" },
     { name = "protobuf", specifier = ">=6.31.0,<7.0.0" },
     { name = "pydantic", specifier = ">=2.11.3,<3.0.0" },
@@ -1460,6 +1479,7 @@ test = [
     { name = "pytest-asyncio", specifier = ">=0.23.0,<1.0.0" },
     { name = "pytest-cov", specifier = ">=4.1.0,<8.0.0" },
     { name = "pytest-mock", specifier = ">=3.12.0,<4.0.0" },
+    { name = "pytest-rerunfailures", specifier = ">=14.0,<16.0" },
     { name = "pytest-timeout", specifier = ">=2.3.0,<3.0.0" },
     { name = "pytest-xdist", specifier = ">=3.0.0,<4.0.0" },
 ]
@@ -1472,29 +1492,29 @@ vectorstore = [
 
 [[package]]
 name = "dapr-ext-fastapi"
-version = "1.17.0rc2"
+version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dapr" },
     { name = "fastapi" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/46/2f/8f60b02ae249b6d44598d46925a7df04fd9cdfd0f0e831be412544a169c4/dapr_ext_fastapi-1.17.0rc2.tar.gz", hash = "sha256:13e7bf68a34293383e4edd3634a11b8e85b45c49a0a8dd4b6dd0fc29c1db8712", size = 10205, upload-time = "2026-01-16T15:03:31.081Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ee/3a/682c12ba154475289e43a293350fe9448d884438476a8c3a6cf9035015da/dapr_ext_fastapi-1.17.0.tar.gz", hash = "sha256:5aaf20bd92e986388c3535ba3e2edb94ca14d25c93a37bf02e6565f044c6fc05", size = 10393, upload-time = "2026-02-27T20:56:45.089Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/75/6f/d8ea49fc3913cc233e83a7d3e29d69986d18deaeb1d281b31bdf7c53b3f9/dapr_ext_fastapi-1.17.0rc2-py3-none-any.whl", hash = "sha256:1310e55e7bd1a480f8c4f8ad28b8a543f9129f70a4d9a0ca83d9b200a8973e9b", size = 10707, upload-time = "2026-01-16T15:03:29.925Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/3c/aefc8c75f7797d0adca4911e4ab342b8e3089c84eb8857cbbff5ded8ffd5/dapr_ext_fastapi-1.17.0-py3-none-any.whl", hash = "sha256:47d344b00562937fb82042deb66679a93b4f775b9b98db7b1faac22f724258e8", size = 10676, upload-time = "2026-02-27T20:56:43.24Z" },
 ]
 
 [[package]]
 name = "dapr-ext-workflow"
-version = "1.17.0rc2"
+version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dapr" },
     { name = "durabletask-dapr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/88/ce/37d0280d4e10ebbd7630169d83bbe615ba42917ac01c1b7cab898af02563/dapr_ext_workflow-1.17.0rc2.tar.gz", hash = "sha256:3752f770dd348d2fd2ff509fa0780e9ceb26de19516b36e748d591e88a6791e5", size = 21065, upload-time = "2026-01-16T15:03:34.494Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/0a/3e3dd75f5fa26e8af525990952f95217de7e8659fe24ce2c3ce2bd112968/dapr_ext_workflow-1.17.0.tar.gz", hash = "sha256:c0703126f4e5ddecfc7b2d4e6e0ecaadfd0fb4c8723a144100c968647837b588", size = 21463, upload-time = "2026-02-27T20:56:42.946Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/37/08bcde72cb471b9dfc0522209318cae21b2f8b5f97f64348335f495f0a7e/dapr_ext_workflow-1.17.0rc2-py3-none-any.whl", hash = "sha256:285e4f35286aba7567dc5c57d48e06266369a291fdf15aa0a3e86ec6b535ef42", size = 28166, upload-time = "2026-01-16T15:03:33.341Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/90/b13fc8cc854aff9dd48fbedd6540ad851a1e4540b79fef8cf25fa5ad178a/dapr_ext_workflow-1.17.0-py3-none-any.whl", hash = "sha256:b754df2b641a5c86af12befad28fc43c0d27a4860ab213ac48a780bb2a10d539", size = 28381, upload-time = "2026-02-27T20:56:42.099Z" },
 ]
 
 [[package]]
@@ -1586,16 +1606,16 @@ wheels = [
 
 [[package]]
 name = "durabletask-dapr"
-version = "0.2.0a15"
+version = "0.17.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asyncio" },
     { name = "grpcio" },
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/98/f6/de792af4cab1ef339c600a6869fc8e4f65500445ebf513d2d0bdd9950ebf/durabletask_dapr-0.2.0a15.tar.gz", hash = "sha256:6a33d4da0eac5867f8e52d8e8e4055152881a96b1e4522fa38aa1387e7e7f375", size = 96819, upload-time = "2026-01-16T09:19:39.422Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7f/33/77e5da38482d65e8b6608e74ce9d29c4179e8cbf0c5817ba16fb617d5349/durabletask_dapr-0.17.1.tar.gz", hash = "sha256:9c0b82ddf0aaa8272b273710baeba253759062f352a76a777178d55ad93a27fc", size = 101464, upload-time = "2026-03-06T14:07:35.337Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2b/f6/3be55535b3b4bc7554ab7bdcb94b92dcf4d475dc974fe99318ea0ecf029a/durabletask_dapr-0.2.0a15-py3-none-any.whl", hash = "sha256:a460b57a317a6a75d6f2f0692b87acef07c64e2261e66249766005686dbc0dbe", size = 64766, upload-time = "2026-01-16T09:19:38.182Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/db/6bbdce535b25a528c708c413c2b3540c696f9e72e031c49e2631604fbc19/durabletask_dapr-0.17.1-py3-none-any.whl", hash = "sha256:9e91c8cb5f846f19b37a15aa6530274c6fa8dff3ab3ac39340b27cfb4e6b4053", size = 68143, upload-time = "2026-03-06T14:07:34.158Z" },
 ]
 
 [[package]]
@@ -5224,6 +5244,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/68/14/eb014d26be205d38ad5ad20d9a80f7d201472e08167f0bb4361e251084a9/pytest_mock-3.15.1.tar.gz", hash = "sha256:1849a238f6f396da19762269de72cb1814ab44416fa73a8686deac10b0d87a0f", size = 34036, upload-time = "2025-09-16T16:37:27.081Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5a/cc/06253936f4a7fa2e0f48dfe6d851d9c56df896a9ab09ac019d70b760619c/pytest_mock-3.15.1-py3-none-any.whl", hash = "sha256:0a25e2eb88fe5168d535041d09a4529a188176ae608a6d249ee65abc0949630d", size = 10095, upload-time = "2025-09-16T16:37:25.734Z" },
+]
+
+[[package]]
+name = "pytest-rerunfailures"
+version = "15.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a0/78/e6e358545537a8e82c4dc91e72ec0d6f80546a3786dd27c76b06ca09db77/pytest_rerunfailures-15.1.tar.gz", hash = "sha256:c6040368abd7b8138c5b67288be17d6e5611b7368755ce0465dda0362c8ece80", size = 26981, upload-time = "2025-05-08T06:36:33.483Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f3/30/11d836ff01c938969efa319b4ebe2374ed79d28043a12bfc908577aab9f3/pytest_rerunfailures-15.1-py3-none-any.whl", hash = "sha256:f674c3594845aba8b23c78e99b1ff8068556cc6a8b277f728071fdc4f4b0b355", size = 13274, upload-time = "2025-05-08T06:36:32.029Z" },
 ]
 
 [[package]]
