@@ -91,7 +91,9 @@ class DaprInferenceClient:
             tool_choice=tool_choice,
         )
         if response_format is not None:
-            kwargs["response_format"] = json_format.ParseDict(response_format, GrpcStruct())
+            kwargs["response_format"] = json_format.ParseDict(
+                response_format, GrpcStruct()
+            )
 
         response_alpha2 = self.dapr_client.converse_alpha2(**kwargs)
 
