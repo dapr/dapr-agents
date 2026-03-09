@@ -102,7 +102,8 @@ test = [
     "pytest-xdist>=3.0.0,<4.0.0",  # For parallel test execution on quickstart tests
     "httpx>=0.27.0,<1.0.0",  # For testing FastAPI endpoints
     "pytest-timeout>=2.3.0,<3.0.0",
-    "docker>=7.0.0,<8.0.0"
+    "docker>=7.0.0,<8.0.0",
+    "pytest-rerunfailures>=14.0,<16.0",
 ]
 vectorstore = [
     "torch>=2.7.0",
@@ -137,6 +138,7 @@ asyncio_mode = "auto"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "schema: marks tests that validate the agent metadata JSON schema golden files",
+    "ollama: marks tests compatible with Ollama (local LLM, no API key needed)",
 ]
 # Show logs during test execution (INFO level and above for now)
 log_cli = true

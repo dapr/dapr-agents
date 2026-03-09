@@ -38,7 +38,7 @@ These examples form the foundation of the Dapr Agents programming model and illu
 - Docker (https://docs.docker.com/get-docker/)
 - Dapr CLI (https://docs.dapr.io/getting-started/install-dapr-cli/)
 - uv package manager (https://docs.astral.sh/uv/getting-started/installation/)
-- An OpenAI API key (https://platform.openai.com/api-keys) or another LLM provider
+- Ollama (https://ollama.com/) **or** an OpenAI API key (https://platform.openai.com/api-keys) or another LLM provider
 
 ## Environment Setup
 
@@ -57,24 +57,68 @@ uv sync --active
 
 </details>
 
-## OpenAI Configuration
+## LLM Configuration
 
-> Warning
-> These examples require an OpenAI API key.
+By default, the quickstart uses [Ollama](https://ollama.com/) so you can run everything locally without an API key.
 
-The quickstart uses an OpenAI conversation component located in the `resources` directory. You can replace the provider with Anthropic, Ollama, or others. [See here how to configure another component](https://docs.dapr.io/reference/components-reference/supported-conversation/)
+### Default: Ollama (Local)
 
-### Component Configuration
+1. **Install and start Ollama:**
 
-Update `resources/llm-provider.yaml`:
+   ```bash
+   # macOS
+   brew install ollama
+
+   # Linux
+   curl -fsSL https://ollama.com/install.sh | sh
+   ```
+
+2. **Pull a model with tool-calling support:**
+
+   ```bash
+   ollama serve    # Start the server (skip if already running)
+   ollama pull qwen3:0.6b
+   ```
+
+3. **Set environment variables before running any quickstart:**
+
+   ```bash
+   export OLLAMA_ENDPOINT=http://localhost:11434/v1
+   export OLLAMA_MODEL=qwen3:0.6b
+   ```
+
+   The `resources/llm-provider.yaml` component resolves `{{OLLAMA_ENDPOINT}}` and `{{OLLAMA_MODEL}}` from your environment automatically.
+
+> **Tip:** For more reliable tool calling, use a larger model such as `qwen2.5:3b` or `llama3.1:8b`.
+
+### Alternative: OpenAI
+
+To use OpenAI instead, replace `resources/llm-provider.yaml` with:
 
 ```yaml
+apiVersion: dapr.io/v1alpha1
+kind: Component
 metadata:
+  name: llm-provider
+spec:
+  type: conversation.openai
+  version: v1
+  metadata:
   - name: key
     value: "{{OPENAI_API_KEY}}"
+  - name: model
+    value: "gpt-4o-mini"
 ```
 
-Replace `OPENAI_API_KEY` with your actual OpenAI API key. If you are using a different provider, make sure that you keep the name of the component as `llm-provider`.
+Then export your key:
+
+```bash
+export OPENAI_API_KEY=your_key_here
+```
+
+### Alternative: Other Providers
+
+Dapr supports Anthropic, Mistral, and other LLM providers through the Conversation API. Replace the component type and metadata while keeping the component name as `llm-provider`. See the [Dapr Conversation component reference](https://docs.dapr.io/reference/components-reference/supported-conversation/) for the full list of supported providers and their configuration.
 
 ---
 
@@ -87,12 +131,12 @@ uv run dapr run --app-id llm-client --resources-path resources -- python 01_llm_
 ```
 
 ## Expected Behavior
-Running the script sends the prompt to the LLM provider and prints the model’s reply. By default, the Conversation API component uses OpenAI, but you can switch providers by updating the component YAML.
+Running the script sends the prompt to the LLM provider and prints the model’s reply. By default, the Conversation API component uses Ollama, but you can switch to OpenAI or other providers by updating the component YAML (see [LLM Configuration](#llm-configuration)).
 
 ## How This Works
 
 1. The DaprChatClient sends the prompt to the Dapr sidecar using the Conversation API under the hood.
-2. The Dapr sidecar uses the configured OpenAI component file to forward the prompt to the LLM provider and returns the generated response to your application.
+2. The Dapr sidecar uses the configured conversation component to forward the prompt to the LLM provider (Ollama by default) and returns the generated response to your application.
 
 ## How to Extend This Example
 
@@ -412,10 +456,12 @@ If you want to coordinate multiple agents that run in separate applications or c
 
 # Troubleshooting
 
-1. **API Key Issues**: If you see an authentication error, verify your LLM provider key is in the `llm-provider.yaml` file
-2. **Python Version**: If you encounter compatibility issues, make sure you're using Python 3.10+
-3. **Environment Activation**: Ensure your virtual environment is activated before running examples
-4. **Import Errors**: If you see module not found errors, verify that `pip install -r requirements.txt` completed successfully
+1. **Ollama not responding**: Ensure `ollama serve` is running and the model is pulled (`ollama pull qwen3:0.6b`)
+2. **Environment variables**: Verify `OLLAMA_ENDPOINT` and `OLLAMA_MODEL` are exported (or `OPENAI_API_KEY` if using OpenAI)
+3. **API Key Issues**: If using OpenAI and you see an authentication error, verify your key is set in the `llm-provider.yaml` component
+4. **Python Version**: If you encounter compatibility issues, make sure you're using Python 3.10+
+5. **Environment Activation**: Ensure your virtual environment is activated before running examples
+6. **Import Errors**: If you see module not found errors, verify that `uv sync --active` completed successfully
 
 # Next Steps
 
