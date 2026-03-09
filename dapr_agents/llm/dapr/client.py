@@ -15,9 +15,10 @@ from dapr_agents.types.llm import DaprInferenceClientConfig
 from dapr_agents.llm.base import LLMClientBase
 from dapr.clients import DaprClient
 from dapr.clients.grpc import conversation as dapr_conversation
-from dapr.clients.grpc._helpers import convert_value_to_struct
 from typing import Dict, Any, List, Optional
 from pydantic import model_validator
+from google.protobuf import json_format
+from google.protobuf.struct_pb2 import Struct as GrpcStruct
 
 import json
 import logging
@@ -90,7 +91,7 @@ class DaprInferenceClient:
             tool_choice=tool_choice,
         )
         if response_format is not None:
-            kwargs["response_format"] = convert_value_to_struct(response_format)
+            kwargs["response_format"] = json_format.ParseDict(response_format, GrpcStruct())
 
         response_alpha2 = self.dapr_client.converse_alpha2(**kwargs)
 
