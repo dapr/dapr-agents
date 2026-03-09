@@ -42,6 +42,11 @@ from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GenAiOperationNameValues as _GenAiOpEnum,
 )
 
+# Not yet in the Python semconv package (0.60b1) but defined in the spec:
+# https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
+GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS = "gen_ai.usage.cache_creation.input_tokens"
+GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS = "gen_ai.usage.cache_read.input_tokens"
+
 # ============================================================================
 # OpenInference Semantic Conventions
 # ============================================================================
@@ -172,6 +177,8 @@ __all__ = [
     "GEN_AI_RESPONSE_MODEL",
     "GEN_AI_USAGE_INPUT_TOKENS",
     "GEN_AI_USAGE_OUTPUT_TOKENS",
+    "GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS",
+    "GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS",
     "GEN_AI_INPUT_MESSAGES",
     "GEN_AI_OUTPUT_MESSAGES",
     "GEN_AI_SYSTEM_INSTRUCTIONS",

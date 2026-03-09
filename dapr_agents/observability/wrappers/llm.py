@@ -15,6 +15,8 @@ from ..constants import (
     GEN_AI_REQUEST_MODEL,
     GEN_AI_USAGE_INPUT_TOKENS,
     GEN_AI_USAGE_OUTPUT_TOKENS,
+    GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+    GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
     GEN_AI_INPUT_MESSAGES,
     GEN_AI_OUTPUT_MESSAGES,
     GEN_AI_RESPONSE_ID,
@@ -479,6 +481,40 @@ class LLMWrapper:
                 span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, input_tokens)
             if output_tokens is not None:
                 span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, output_tokens)
+
+            # Cache token details (spec-defined, not yet in Python semconv pkg)
+            prompt_details = (
+                usage.get("prompt_tokens_details")
+                if isinstance(usage, dict)
+                else getattr(usage, "prompt_tokens_details", None)
+            )
+            if prompt_details is not None:
+                cached = (
+                    prompt_details.get("cached_tokens")
+                    if isinstance(prompt_details, dict)
+                    else getattr(prompt_details, "cached_tokens", None)
+                )
+                if cached is not None:
+                    span.set_attribute(GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS, cached)
+
+            # Top-level cache_creation_input_tokens (e.g. Anthropic prompt caching)
+            cache_creation = (
+                usage.get("cache_creation_input_tokens")
+                if isinstance(usage, dict)
+                else getattr(usage, "cache_creation_input_tokens", None)
+            )
+            if cache_creation is not None:
+                span.set_attribute(
+                    GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS, cache_creation
+                )
+            # Top-level cache_read_input_tokens (e.g. Anthropic prompt caching)
+            cache_read = (
+                usage.get("cache_read_input_tokens")
+                if isinstance(usage, dict)
+                else getattr(usage, "cache_read_input_tokens", None)
+            )
+            if cache_read is not None:
+                span.set_attribute(GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS, cache_read)
 
 
 # ============================================================================
