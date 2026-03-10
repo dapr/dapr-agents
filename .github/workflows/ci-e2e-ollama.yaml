@@ -85,6 +85,7 @@ jobs:
 
     - name: Initialize Dapr
       run: |
+        dapr uninstall --all || true
         dapr init
 
     - name: Free up disk space
