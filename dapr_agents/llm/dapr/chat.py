@@ -380,17 +380,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             if not llm_component:
                 llm_component = _get_llm_component(metadata)
 
-            # Extract and serialize response format parameters
+            # Extract additional API parameters (response_format is sent via the
+            # dedicated response_format field, not duplicated here)
             api_params = {}
-            if "response_format" in params:
-                try:
-                    import json
-
-                    api_params["response_format"] = json.dumps(
-                        params["response_format"]
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to serialize response_format: {e}")
             if "structured_mode" in params:
                 api_params["structured_mode"] = str(params["structured_mode"])
 

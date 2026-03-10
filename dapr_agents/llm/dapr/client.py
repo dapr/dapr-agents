@@ -77,7 +77,7 @@ class DaprInferenceClient:
         conv_tools = self._convert_openai_tools_to_conversation_tools(tools)
 
         # TODO: Remove when langchaningo is updated in contrib to latest version with a fix for openai-like temperature
-        if not temperature:
+        if temperature is None:
             temperature = 1
 
         kwargs: Dict[str, Any] = dict(
