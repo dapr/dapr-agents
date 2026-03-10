@@ -72,6 +72,7 @@ from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.types import (
     AgentError,
+    DaprWorkflowStatus,
     ToolMessage,
     AssistantMessage,
 )
@@ -364,6 +365,7 @@ class DurableAgent(AgentBase):
 
         final_message: Dict[str, Any] = {}
         turn = 0
+        _workflow_exc: Optional[Exception] = None
 
         try:
             # Delegate to orchestration workflow if this agent is an orchestrator
@@ -541,6 +543,7 @@ class DurableAgent(AgentBase):
 
         except Exception as exc:  # noqa: BLE001
             logger.exception("Agent %s workflow failed: %s", self.name, exc)
+            _workflow_exc = exc
             final_message = {"role": "assistant", "content": f"Error: {str(exc)}"}
 
         # Optionally broadcast the final message to the team.
@@ -583,17 +586,28 @@ class DurableAgent(AgentBase):
         )
 
         if not ctx.is_replaying:
-            verdict = (
-                "max_iterations_reached"
-                if turn == self.execution.max_iterations
-                else "completed"
-            )
+            if _workflow_exc is not None:
+                verdict = DaprWorkflowStatus.FAILED
+            elif turn == self.execution.max_iterations:
+                ctx.set_custom_status("max_iterations_reached")
+                logger.info(
+                    "Workflow reached max iterations without final response (instance=%s)",
+                    ctx.instance_id,
+                )
+                verdict = DaprWorkflowStatus.COMPLETED
+            else:
+                verdict = DaprWorkflowStatus.COMPLETED
             logger.info(
                 "Workflow %s finalized for agent %s with verdict=%s",
                 ctx.instance_id,
                 self.name,
                 verdict,
             )
+
+        if _workflow_exc is not None:
+            raise AgentError(
+                f"Agent {self.name} workflow failed: {_workflow_exc}"
+            ) from _workflow_exc
 
         return final_message
 
@@ -817,9 +831,13 @@ class DurableAgent(AgentBase):
             )
             result = yield _agent_tool(ctx=ctx, task=instruction)
 
+            result_content = result.get("content", "")
+            if result_content.startswith("Error:"):
+                raise AgentError(f"Agent '{next_agent}' failed: {result_content}")
+
             if not ctx.is_replaying:
                 logger.info(
-                    f"Turn {turn}: Agent '{next_agent}' responded: {result.get('content', '')[:100]}..."
+                    f"Turn {turn}: Agent '{next_agent}' responded: {result_content[:100]}..."
                 )
 
             if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
@@ -926,7 +944,12 @@ class DurableAgent(AgentBase):
             last_result = orch_state.get("last_result", "")
 
             if verdict == "continue":
+                ctx.set_custom_status("max_iterations_reached")
                 verdict = "max_iterations_reached"
+                logger.info(
+                    "Workflow reached max iterations without final response (instance=%s)",
+                    ctx.instance_id,
+                )
 
             summary_prompt = SUMMARY_GENERATION_PROMPT.format(
                 task=task,
@@ -1187,7 +1210,7 @@ class DurableAgent(AgentBase):
         plan: List[Dict[str, Any]],
         step: int,
         substep: Optional[float],
-        verdict: str,
+        verdict: DaprWorkflowStatus,
         summary: str,
         wf_time: Optional[str],
     ) -> None:
@@ -1199,7 +1222,8 @@ class DurableAgent(AgentBase):
             plan: Current plan snapshot.
             step: Completed step id.
             substep: Completed substep id (if any).
-            verdict: Outcome category (e.g., "completed", "failed", "max_iterations_reached").
+            verdict: Outcome category as DaprWorkflowStatus enum
+                (e.g., DaprWorkflowStatus.COMPLETED, DaprWorkflowStatus.FAILED).
             summary: Final summary content to persist.
             wf_time: Workflow timestamp (ISO 8601 string) to set as end time if provided.
 
@@ -1218,7 +1242,7 @@ class DurableAgent(AgentBase):
 
         status_updates: List[Dict[str, Any]] = []
 
-        if verdict == "completed":
+        if verdict == DaprWorkflowStatus.COMPLETED:
             # Find and validate the step or substep
             step_entry = find_step_in_plan(plan, step, substep)
             if not step_entry:
