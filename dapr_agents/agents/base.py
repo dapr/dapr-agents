@@ -1533,7 +1533,11 @@ class AgentBase:
         skip_save: bool = False,
     ) -> None:
         """
-        Append a user message into the instance timeline and memory, and persist state.
+        Append a user message into the instance timeline and memory.
+
+        When *entry* is provided the caller owns the save; no state is fetched
+        or persisted here.  When *entry* is ``None`` the legacy behaviour
+        (fetch + save) is preserved for backward compatibility.
 
         Args:
             instance_id: Workflow instance id.
@@ -1577,7 +1581,11 @@ class AgentBase:
         skip_save: bool = False,
     ) -> None:
         """
-        Append an assistant message into the instance timeline and memory, and persist state.
+        Append an assistant message into the instance timeline and memory.
+
+        When *entry* is provided the caller owns the save; no state is fetched
+        or persisted here.  When *entry* is ``None`` the legacy behaviour
+        (fetch + save) is preserved for backward compatibility.
 
         Args:
             instance_id: Workflow instance id.

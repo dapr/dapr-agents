@@ -13,6 +13,8 @@
 
 """Integration tests for 01-dapr-agents-fundamentals quickstart."""
 
+import os
+
 import pytest
 from tests.integration.quickstarts.conftest import (
     run_quickstart_or_examples_multi_app,
@@ -25,11 +27,16 @@ class TestHelloWorldQuickstart:
     """Integration tests for 01-dapr-agents-fundamentals quickstart."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
+    def setup(self, quickstarts_dir, openai_api_key, ollama_resources_dir, is_ollama):
         """Setup test environment."""
         self.quickstart_dir = quickstarts_dir
         self.env = {"OPENAI_API_KEY": openai_api_key}
+        self.resources_path = ollama_resources_dir
+        self.is_ollama = is_ollama
+        if is_ollama:
+            self.env["OLLAMA_MODEL"] = os.getenv("OLLAMA_MODEL", "qwen3:0.6b")
 
+    @pytest.mark.ollama
     def test_01_llm_client(self, dapr_runtime):  # noqa: ARG002
         """Test LLM client example (01_llm_client.py).
 
@@ -44,7 +51,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="llm-client",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.resources_path,
         )
 
         assert result.returncode == 0, (
@@ -56,6 +63,7 @@ class TestHelloWorldQuickstart:
         # Verify LLM response was received
         assert "Response:" in result.stdout
 
+    @pytest.mark.ollama
     def test_02_agent_llm(self, dapr_runtime):  # noqa: ARG002
         """Test agent with LLM example (02_agent_llm.py).
 
@@ -70,7 +78,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-llm",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.resources_path,
         )
 
         assert result.returncode == 0, (
@@ -82,6 +90,7 @@ class TestHelloWorldQuickstart:
         # Verify agent responded
         assert "Agent:" in result.stdout or "weather" in result.stdout.lower()
 
+    @pytest.mark.ollama
     def test_03_agent_llm_tools(self, dapr_runtime):  # noqa: ARG002
         """Test agent with LLM and tools example (03_agent_llm_tools.py).
 
@@ -96,7 +105,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-llm",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.resources_path,
         )
 
         assert result.returncode == 0, (
@@ -116,7 +125,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-mcp",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.resources_path,
         )
 
         assert result.returncode == 0, (
@@ -126,6 +135,7 @@ class TestHelloWorldQuickstart:
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 
+    @pytest.mark.ollama
     def test_05_agent_memory(self, dapr_runtime):  # noqa: ARG002
         """Test agent with memory example (05_agent_memory.py).
 
@@ -140,7 +150,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="agent-memory",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.resources_path,
         )
 
         assert result.returncode == 0, (
@@ -149,9 +159,11 @@ class TestHelloWorldQuickstart:
             f"STDERR:\n{result.stderr}"
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
-        # Verify agent responded and remembered the name
-        assert "John" in result.stdout or "weather" in result.stdout.lower()
+        if not self.is_ollama:
+            # OpenAI: verify specific content about remembering the name
+            assert "John" in result.stdout or "weather" in result.stdout.lower()
 
+    @pytest.mark.ollama
     def test_06_durable_agent_http(self, dapr_runtime):  # noqa: ARG002
         """Test durable agent HTTP example (06_durable_agent_http.py).
 
@@ -167,7 +179,7 @@ class TestHelloWorldQuickstart:
             use_dapr=True,
             app_id="durable-agent",
             app_port=8001,
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.resources_path,
             trigger_curl={
                 "url": "http://localhost:8001/agent/run",
                 "method": "POST",
@@ -199,7 +211,7 @@ class TestHelloWorldQuickstart:
             use_dapr=True,
             app_id="durable-agent-sub",
             dapr_http_port=3500,
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.resources_path,
             trigger_pubsub={
                 "pubsub_name": "message-pubsub",
                 "topic": "weather.requests",
@@ -215,6 +227,7 @@ class TestHelloWorldQuickstart:
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 
+    @pytest.mark.ollama
     def test_08_workflow_llm(self, dapr_runtime):  # noqa: ARG002
         """Test workflow with LLM activities example (08_workflow_llm.py).
 
@@ -229,7 +242,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="workflow-llms",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.resources_path,
         )
 
         assert result.returncode == 0, (
@@ -283,7 +296,7 @@ class TestHelloWorldQuickstart:
             timeout=180,
             use_dapr=True,
             app_id="durable-agent-trace",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.resources_path,
         )
 
         assert result.returncode == 0, (
