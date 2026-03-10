@@ -17,6 +17,7 @@ from .exceptions import (
     AgentError,
     AgentToolExecutorError,
     FunCallBuilderError,
+    PubSubNotAvailableError,
     StructureError,
     ToolError,
 )
@@ -55,6 +56,7 @@ __all__ = [
     "AgentError",
     "AgentToolExecutorError",
     "FunCallBuilderError",
+    "PubSubNotAvailableError",
     "StructureError",
     "ToolError",
     "Node",
