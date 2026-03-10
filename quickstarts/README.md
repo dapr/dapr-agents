@@ -144,7 +144,7 @@ Dapr Agents also include native LLM clients for other modalities (e.g., audio), 
 
 This example introduces the `DurableAgent`, a workflow-native agent backed by the Dapr Workflow engine. Every step of the agent’s execution is persisted to durable storage, allowing long-running interactions to survive interruptions. The agent exposes an HTTP endpoint to start a new workflow and provides a way to query progress or retrieve the final result at any time.
 ```bash
-uv run dapr run --app-id durable-agent --resources-path resources -- python 06_durable_agent_http.py
+uv run dapr run --app-id durable-agent --resources-path resources -- python 02_durable_agent_http.py
 ```
 
 On a different terminal, trigger the agent:
@@ -203,7 +203,7 @@ This example takes the same durable agent behavior from the previous example, bu
 
 The agent code remains unchanged; only the AgentRunner configuration switches from REST to pub/sub.
 ```bash
-uv run dapr run --app-id durable-agent-subscriber --resources-path resources --dapr-http-port 3500 -- python 07_durable_agent_pubsub.py
+uv run dapr run --app-id durable-agent-subscriber --resources-path resources --dapr-http-port 3500 -- python 03_durable_agent_pubsub.py
 ```
 
 On a different terminal, publish a message to the subscribed topic:
@@ -233,7 +233,7 @@ Try publishing multiple messages to the topic and observe the agent process each
 This example does not use an agent. Instead, it demonstrates how to create a Dapr workflow that performs LLM calls in a deterministic, durable sequence.
 
 ```bash
-uv run dapr run --app-id workflow-llms --resources-path resources -- python 08_workflow_llm.py
+uv run dapr run --app-id workflow-llms --resources-path resources -- python 04_workflow_llm.py
 ```
 
 ## Expected Behavior
@@ -256,7 +256,7 @@ The workflow generates a short outline for the given topic using an LLM, then us
 This example shows how a workflow can invoke entire agents as child workflows, allowing you to orchestrate multi-step agent reasoning in a durable and deterministic way. Unlike previous examples where activities called LLMs directly, this workflow delegates each step to an agent with tools and memory, while the workflow engine provides durability and reliable progression.
 
 ```bash
-uv run dapr run -f 09_workflow_agents.yaml
+uv run dapr run -f 05_workflow_agents.yaml
 ```
 
 ## Expected Behavior
@@ -295,7 +295,7 @@ docker run -d -p 9411:9411 openzipkin/zipkin
 Now run the durable agent with tracing enabled and prompting included:
 
 ```
-uv run dapr run --app-id durable-agent-trace --resources-path resources -- python 10_durable_agent_tracing.py
+uv run dapr run --app-id durable-agent-trace --resources-path resources -- python 06_durable_agent_tracing.py
 ```
 
 ## Expected Behavior
@@ -319,7 +319,7 @@ This example shows how to subscribe a durable agent to a Dapr Configuration Stor
 First, ensure the `runtime-config` component is available in your resources path. You can use the one provided in `resources/configstore.yaml`. For supported configuration store backends, see the [Dapr docs](https://docs.dapr.io/reference/components-reference/supported-configuration-stores/).
 
 ```bash
-dapr run --app-id hot-reload-agent --resources-path resources -- python 11_durable_agent_hot_reload.py
+dapr run --app-id hot-reload-agent --resources-path resources -- python 07_durable_agent_hot_reload.py
 ```
 
 In a separate terminal, update a configuration value directly in Redis:
