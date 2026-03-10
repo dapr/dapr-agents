@@ -41,9 +41,11 @@ class WorkflowContextInjectedTool(AgentTool):
         the executor receives them without exposing them in the LLM tool schema.
 
         Hidden kwargs stripped here:
-          - ``ctx``          — Dapr workflow context (required)
-          - ``_source_agent`` — name of the calling agent, used for "on-behalf-of"
-                                labelling (optional)
+          - ``ctx``              — Dapr workflow context (required)
+          - ``_source_agent``    — name of the calling agent, used for "on-behalf-of"
+                                    labelling (optional)
+          - ``_child_instance_id`` — explicit instance ID for child workflows
+                                      (optional, used by AgentWorkflowTool)
         """
         ctx = kwargs.pop(self.context_kwarg, None)
         if ctx is None:
@@ -51,9 +53,12 @@ class WorkflowContextInjectedTool(AgentTool):
                 f"Missing workflow context. Pass it as '{self.context_kwarg}=<DaprWorkflowContext>'."
             )
         source_agent = kwargs.pop("_source_agent", None)
+        child_instance_id = kwargs.pop("_child_instance_id", None)
 
         validated = super()._validate_and_prepare_args(func, *args, **kwargs)
         validated[self.context_kwarg] = ctx
         if source_agent is not None:
             validated["_source_agent"] = source_agent
+        if child_instance_id is not None:
+            validated["_child_instance_id"] = child_instance_id
         return validated

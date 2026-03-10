@@ -16,11 +16,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from importlib.metadata import version
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
-
+from dapr_agents.workflow.utils.core import sanitize_agent_name
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
     GetMetadataResponse,
@@ -1593,7 +1594,7 @@ class AgentBase:
             entry: Pre-fetched state entry; when provided, skips the internal get_state call.
             skip_save: When True, skip the save_state call (caller is responsible for saving).
         """
-        assistant_message["name"] = self.name
+        assistant_message["name"] = sanitize_agent_name(self.name)
 
         if entry is None:
             try:
@@ -1652,12 +1653,21 @@ class AgentBase:
     # ------------------------------------------------------------------
     @staticmethod
     def _coerce_datetime(value: Optional[Any]) -> datetime:
-        """Coerce strings/None to a timezone-aware UTC datetime."""
+        """
+        Coerce strings/None to a timezone-aware UTC datetime.
+
+        Args:
+            value: Source value (datetime | str | None).
+
+        Returns:
+            A timezone-aware UTC datetime. If a naive datetime is provided, UTC is assumed.
+        """
         if isinstance(value, datetime):
-            return value
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
         if isinstance(value, str):
             try:
-                return datetime.fromisoformat(value)
+                dt = datetime.fromisoformat(value)
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
             except ValueError:
                 pass
         return datetime.now(timezone.utc)

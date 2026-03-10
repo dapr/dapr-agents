@@ -14,6 +14,7 @@
 import asyncio
 import inspect
 import logging
+import re
 import signal
 from dataclasses import asdict, is_dataclass
 from typing import Any, Callable, Dict, Type
@@ -176,3 +177,23 @@ def coerce_to_model(model_type: Type[Any], value: Any) -> Any:
             return model_type(**value)
 
     return value
+
+
+def sanitize_agent_name(name: str) -> str:
+    """
+    Sanitize an agent name for use in Dapr workflow IDs.
+
+    Keeps only alphanumeric characters, hyphens, and underscores.
+    All other characters are replaced with underscores.
+
+    Args:
+        name: The agent name to sanitize.
+
+    Returns:
+        A sanitized name safe for use in Dapr workflow IDs.
+
+    Example:
+        >>> sanitize_agent_name("my-agent@123")
+        'my-agent_123'
+    """
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
