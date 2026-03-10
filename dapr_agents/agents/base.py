@@ -1595,8 +1595,6 @@ class AgentBase:
         """
         # Sanitize agent name to comply with OpenAI's message name requirements
         # OpenAI requires message names to match pattern: ^[^\\s<|\\\\/>]+$
-        from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
-
         assistant_message["name"] = sanitize_openai_tool_name(self.name)
 
         if entry is None:
