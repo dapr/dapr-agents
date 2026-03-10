@@ -90,7 +90,9 @@ class TestRedisVectorStore:
                 pytest.skip(f"Redis not available: {e}")
             raise
 
-    def test_redis_vectorstore_creation(self, embedder, redis_index_name, redis_available):
+    def test_redis_vectorstore_creation(
+        self, embedder, redis_index_name, redis_available
+    ):
         """Test that RedisVectorStore can be created successfully."""
 
         try:
