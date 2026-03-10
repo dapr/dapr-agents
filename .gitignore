@@ -194,3 +194,4 @@ dev-requirements.txt
 docker-entrypoint-initdb.d/
 
 *requirements.txt
+*.chainlit/
