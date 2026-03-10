@@ -231,7 +231,7 @@ def agent_to_tool(
             "Coordinates catering services.",
             framework="openai",
         )
-        # This will call workflow: dapr.openai.catering-coordinator.workflow
+        # This will call workflow: dapr.openai.CateringCoordinator.workflow
     """
     executor = functools.partial(
         _schedule_agent_workflow,

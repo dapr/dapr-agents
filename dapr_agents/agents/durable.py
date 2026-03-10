@@ -1839,7 +1839,8 @@ class DurableAgent(AgentBase):
             logger.exception("Unable to load agents metadata; broadcast aborted.")
             return
 
-        # Sanitize agent name to comply with OpenAI's message name requirements        message["role"] = "user"
+        # Sanitize agent name to comply with OpenAI's message name requirements
+        message["role"] = "user"
         message["name"] = sanitize_openai_tool_name(self.name)
         response_message = BroadcastMessage(**message)
 
@@ -1978,7 +1979,9 @@ class DurableAgent(AgentBase):
         registered: List[str] = []
 
         for name, meta in agents_metadata.items():
-            if not self.tool_executor.get_tool(name):
+            # Normalize name for lookup since AgentTool sanitizes names to TitleCase
+            sanitized_name = sanitize_openai_tool_name(name)
+            if not self.tool_executor.get_tool(sanitized_name):
                 # Defensive check: ensure meta is a dict
                 # This should not happen if get_agents_metadata validation works correctly,
                 # but we keep this as a safety check.

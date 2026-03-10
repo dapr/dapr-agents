@@ -94,7 +94,7 @@ def sanitize_openai_tool_name(name: str) -> str:
         Examples:
             "get_user" -> "GetUser"
             "Samwise Gamgee" -> "SamwiseGamgee"
-            "agent<name>" -> "AgentName"
+            "agent<name>" -> "Agentname"
     """
     if not name:
         return "unnamed_tool"
