@@ -139,7 +139,7 @@ def broadcast_workflow_id(
     # Determine framework: use provided, fetch from registry, or default to "agents"
     if framework is None:
         framework = _get_framework_from_registry(agent_name, infra)
-    if framework is None:
+    if framework is None or framework == "Dapr Agents":
         framework = "agents"
 
     # Sanitize framework name for use in workflow IDs
@@ -170,7 +170,7 @@ def orchestration_workflow_id(
     # Determine framework: use provided, fetch from registry, or default to "agents"
     if framework is None:
         framework = _get_framework_from_registry(agent_name, infra)
-    if framework is None:
+    if framework is None or framework == "Dapr Agents":
         framework = "agents"
 
     # Sanitize framework name for use in workflow IDs

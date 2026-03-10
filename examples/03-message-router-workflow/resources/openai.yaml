@@ -23,5 +23,3 @@ spec:
     value: "{{OPENAI_API_KEY}}"
   - name: model
     value: gpt-5-mini
-  - name: temperature
-    value: 1

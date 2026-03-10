@@ -347,7 +347,7 @@ class AgentBase:
             system_prompt=system_prompt,
         )
         self.profile = resolved_profile
-        self.name = resolved_profile.name  # type: ignore[assignment]
+        self.name = resolved_profile.name
 
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
@@ -383,7 +383,7 @@ class AgentBase:
                         logger.debug(f"LLM component found: {component.name}")
                         llm = get_default_llm()
                         if hasattr(llm, "component_name"):
-                            llm.component_name = component.name  # type: ignore[attr-defined]
+                            llm.component_name = component.name
 
                     if (
                         "state" in component.type
@@ -483,7 +483,7 @@ class AgentBase:
         self._memory = memory or AgentMemoryConfig()
         if self._memory.store and state is not None:
             # Auto-provision a Dapr-backed memory if we have a state store.
-            self._memory.store = ConversationDaprStateMemory(  # type: ignore[union-attr]
+            self._memory.store = ConversationDaprStateMemory(
                 store_name=state.store.store_name,
                 agent_name=self.name,
             )
@@ -625,9 +625,11 @@ class AgentBase:
                 base_url=getattr(self.llm, "base_url", None),
                 azure_endpoint=getattr(self.llm, "azure_endpoint", None),
                 azure_deployment=getattr(self.llm, "azure_deployment", None),
-                prompt_template=type(self.llm.prompt_template).__name__
-                if self.llm.prompt_template
-                else None,
+                prompt_template=(
+                    type(self.llm.prompt_template).__name__
+                    if self.llm.prompt_template
+                    else None
+                ),
             )
 
         # Build list of ToolMetadata if tools configured
@@ -637,9 +639,11 @@ class AgentBase:
                 ToolMetadata(
                     name=tool.name,
                     description=tool.description,
-                    args=json.dumps(tool.args_schema)
-                    if isinstance(tool.args_schema, dict)
-                    else str(tool.args_schema),
+                    args=(
+                        json.dumps(tool.args_schema)
+                        if isinstance(tool.args_schema, dict)
+                        else str(tool.args_schema)
+                    ),
                 )
                 for tool in self.tools
             ]
@@ -1157,9 +1161,11 @@ class AgentBase:
         """
         return self.prompting_helper.build_initial_messages(
             user_input,
-            chat_history=self.get_chat_history(workflow_instance_id)
-            if self.prompting_helper.include_chat_history
-            else None,
+            chat_history=(
+                self.get_chat_history(workflow_instance_id)
+                if self.prompting_helper.include_chat_history
+                else None
+            ),
             **extra_variables,
         )
 
@@ -1562,13 +1568,13 @@ class AgentBase:
         if entry is not None and hasattr(entry, "messages"):
             # Use configured coercer / message model
             message_model = (
-                self._message_coercer(user_message_copy)  # type: ignore[attr-defined]
+                self._message_coercer(user_message_copy)
                 if getattr(self, "_message_coercer", None)
                 else self._message_dict_to_message_model(user_message_copy)
             )
-            entry.messages.append(message_model)  # type: ignore[attr-defined]
+            entry.messages.append(message_model)
             if hasattr(entry, "last_message"):
-                entry.last_message = message_model  # type: ignore[attr-defined]
+                entry.last_message = message_model
 
         if not skip_save:
             self.save_state(instance_id)
@@ -1617,13 +1623,13 @@ class AgentBase:
                 pass
             else:
                 message_model = (
-                    self._message_coercer(assistant_message)  # type: ignore[attr-defined]
+                    self._message_coercer(assistant_message)
                     if getattr(self, "_message_coercer", None)
                     else self._message_dict_to_message_model(assistant_message)
                 )
-                entry.messages.append(message_model)  # type: ignore[attr-defined]
+                entry.messages.append(message_model)
                 if hasattr(entry, "last_message"):
-                    entry.last_message = message_model  # type: ignore[attr-defined]
+                    entry.last_message = message_model
 
         if not skip_save:
             self.save_state(instance_id)
@@ -1816,9 +1822,9 @@ class AgentBase:
         if config.enabled:
             tracer_provider, logger_provider = self._build_otel_providers(config)
 
-            # Set global providers once (OTel SDK only allows this once per process)
             if logger_provider is not None:
                 _logs.set_logger_provider(logger_provider)
+
             if tracer_provider is not None:
                 trace.set_tracer_provider(tracer_provider)
 

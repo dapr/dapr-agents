@@ -477,7 +477,7 @@ class DaprInfra:
 
         # Assign back if the field exists; otherwise, skip
         if hasattr(entry, "system_messages"):
-            entry.system_messages = new_models  # type: ignore[attr-defined]
+            entry.system_messages = new_models
 
         # De-duplicate in entry.messages if that field exists
         if hasattr(entry, "messages"):
@@ -486,11 +486,11 @@ class DaprInfra:
                 for m in getattr(entry, "messages")
                 if getattr(m, "role", None) != "system"
             ]
-            entry.messages = filtered  # type: ignore[attr-defined]
+            entry.messages = filtered
             # Update last_message to point to the last non-system message
             # This ensures last_message always reflects the actual last message in the filtered list
             if hasattr(entry, "last_message"):
-                entry.last_message = filtered[-1] if filtered else None  # type: ignore[attr-defined]
+                entry.last_message = filtered[-1] if filtered else None
 
     def _message_dict_to_message_model(self, message: Dict[str, Any]) -> Any:
         """
@@ -820,6 +820,28 @@ class DaprInfra:
         meta = dict(self._base_metadata)
         meta["partitionKey"] = key
         return meta
+
+    def _ensure_registry_initialized(self, *, key: str, meta: Dict[str, str]) -> None:
+        """
+        Ensure a registry document exists to create an ETag for concurrency control.
+
+        Args:
+            key: Registry document key.
+            meta: Dapr state metadata to use for the operation.
+        """
+        current, etag = self.registry_state.load_with_etag(
+            key=key,
+            default={},
+            state_metadata=meta,
+        )
+        if etag is None:
+            self.registry_state.save(
+                key=key,
+                value={},
+                etag=None,
+                state_metadata=meta,
+                state_options=self._save_options,
+            )
 
     @staticmethod
     def _coerce_datetime(value: Optional[Any]) -> datetime:

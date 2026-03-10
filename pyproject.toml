@@ -41,7 +41,7 @@ dependencies = [
     "azure-identity>=1.21.0,<2.0.0",
     "huggingface_hub>=0.33.4,<1.0.0",
     "colorama>=0.4.6,<1.0.0",
-    "regex>=2023.0.0,<2026.0.0",
+    "regex>=2024.0.0,<2027.0.0",
     "fastapi>=0.110.0,<1.0.0",
     "uvicorn>=0.27.0,<1.0.0",
     "aiohttp>=3.9.0,<4.0.0",
@@ -50,7 +50,7 @@ dependencies = [
     "mcp>=1.26.0,<2.0.0",
     "websockets>=15.0.0,<17.0.0",
     "posthog<8.0.0",
-    "protobuf>=6.31.0,<7.0.0",
+    "protobuf>=6.33.5,<7.0.0",
     "docker>=7.1.0",
     "toolbox-core>=0.5.3",
     "opentelemetry-api>=1.35.0,<2.0.0",
@@ -82,8 +82,7 @@ vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<6.0.0",
     "chromadb>=0.4.22,<2.0.0",
-    "nltk>=3.8.0,<4.0.0",
-    "redisvl>=0.4.0,<1.0.0",
+    "nltk>=3.9.3,<4.0.0",
 ]
 
 [dependency-groups]
@@ -96,7 +95,7 @@ dev = [
     "pre-commit>=4.0.0,<5.0.0",
 ]
 test = [
-    "pytest>=7.0.0,<8.0.0",
+    "pytest>=8.0.0,<10.0.0",
     "pytest-asyncio>=0.23.0,<1.0.0",
     "pytest-cov>=4.1.0,<8.0.0",
     "pytest-mock>=3.12.0,<4.0.0",
