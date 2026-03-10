@@ -540,7 +540,7 @@ def test_register_message_handlers_discovers_standalone_function():
     """Test that standalone decorated functions are discovered."""
     mock_client = MagicMock()
     mock_sub = MagicMock()
-    mock_sub.__iter__.return_value = []
+    mock_sub.__iter__.return_value = iter([])
     mock_client.subscribe.return_value = mock_sub
 
     @message_router(
@@ -572,7 +572,7 @@ def test_register_message_handlers_discovers_class_methods():
     """Test that decorated methods in class instances are discovered."""
     mock_client = MagicMock()
     mock_sub = MagicMock()
-    mock_sub.__iter__.return_value = []
+    mock_sub.__iter__.return_value = iter([])
     mock_client.subscribe.return_value = mock_sub
 
     class OrderHandler:
@@ -607,7 +607,7 @@ def test_register_message_handlers_ignores_undecorated_methods():
     """Test that methods without @message_router are ignored."""
     mock_client = MagicMock()
     mock_sub = MagicMock()
-    mock_sub.__iter__.return_value = []
+    mock_sub.__iter__.return_value = iter([])
     mock_client.subscribe.return_value = mock_sub
 
     class MixedHandler:
@@ -637,7 +637,7 @@ def test_register_message_handlers_handles_multiple_targets():
     """Test registering multiple targets (functions and instances)."""
     mock_client = MagicMock()
     mock_sub = MagicMock()
-    mock_sub.__iter__.return_value = []
+    mock_sub.__iter__.return_value = iter([])
     mock_client.subscribe.return_value = mock_sub
 
     @message_router(pubsub="messagepubsub", topic="orders")
@@ -669,7 +669,7 @@ def test_register_message_handlers_returns_closers():
     """Test that closer functions are returned for each subscription."""
     mock_client = MagicMock()
     mock_sub = MagicMock()
-    mock_sub.__iter__.return_value = []
+    mock_sub.__iter__.return_value = iter([])
     mock_client.subscribe.return_value = mock_sub
 
     @message_router(pubsub="messagepubsub", topic="orders.created")

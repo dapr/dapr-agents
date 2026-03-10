@@ -388,6 +388,7 @@ def _subscribe_message_bindings(
 
         def _create_message_handler(
             pairs: List[BindingSchemaPair],
+            bound_topic_name: str = topic_name,
         ) -> Callable[[SubscriptionMessage], TopicEventResponse]:
             """Create a composite handler for a topic that routes to the correct binding."""
 
@@ -397,12 +398,12 @@ def _subscribe_message_bindings(
 
                     if deduper is not None:
                         candidate_id = (metadata or {}).get("id") or (
-                            f"{topic_name}:{hash(str(event_data))}"
+                            f"{bound_topic_name}:{hash(str(event_data))}"
                         )
                         try:
                             if deduper.seen(candidate_id):
                                 logger.debug(
-                                    f"Duplicate detected id={candidate_id} topic={topic_name}; dropping."
+                                    f"Duplicate detected id={candidate_id} topic={bound_topic_name}; dropping."
                                 )
                                 return TopicEventResponse(STATUS_SUCCESS)
                             deduper.mark(candidate_id)
@@ -428,13 +429,24 @@ def _subscribe_message_bindings(
 
                             if delivery_mode == DELIVERY_MODE_ASYNC:
                                 assert queue is not None
-                                loop.call_soon_threadsafe(
-                                    queue.put_nowait,
-                                    (binding.handler, parsed),
-                                )
-                                return TopicEventResponse(STATUS_SUCCESS)
+                                if loop.is_running():
+                                    # Backpressure-aware enqueue: block until the item is queued
+                                    fut = asyncio.run_coroutine_threadsafe(
+                                        queue.put((binding.handler, parsed)),
+                                        loop,
+                                    )
+                                    try:
+                                        fut.result()
+                                    except Exception:
+                                        logger.exception(
+                                            f"Failed to enqueue workflow task for handler {binding.name}; "
+                                            "requesting retry."
+                                        )
+                                        return TopicEventResponse(STATUS_RETRY)
+                                    return TopicEventResponse(STATUS_SUCCESS)
+                                # If the loop is not running, fall through to the sync path below.
 
-                            if loop.is_running():
+                            if loop is not None and loop.is_running():
                                 fut = asyncio.run_coroutine_threadsafe(
                                     _schedule_workflow(binding.handler, parsed), loop
                                 )
@@ -448,7 +460,7 @@ def _subscribe_message_bindings(
                             continue
 
                     logger.warning(
-                        f"No matching schema for topic={topic_name!r}; dropping. raw={event_data!r}"
+                        f"No matching schema for topic={bound_topic_name!r}; dropping. raw={event_data!r}"
                     )
                     return TopicEventResponse(STATUS_DROP)
 
@@ -479,11 +491,16 @@ def _subscribe_message_bindings(
                         continue
                     try:
                         response = handler(msg)
-                        if response.status == STATUS_SUCCESS:
+                        # Extract status value: handle both enum and string types
+                        if hasattr(response.status, "value"):
+                            status_str = response.status.value
+                        else:
+                            status_str = str(response.status)
+                        if status_str == STATUS_SUCCESS:
                             sub.respond_success(msg)
-                        elif response.status == STATUS_RETRY:
+                        elif status_str == STATUS_RETRY:
                             sub.respond_retry(msg)
-                        elif response.status == STATUS_DROP:
+                        elif status_str == STATUS_DROP:
                             sub.respond_drop(msg)
                         else:
                             logger.warning(
@@ -501,11 +518,11 @@ def _subscribe_message_bindings(
                                 f"Failed to send retry response for {ps_name}:{t_name}"
                             )
                             raise
-            except Exception as exc:
+            except Exception:
                 logger.exception(
                     f"Stream consumer {ps_name}:{t_name} exited with error"
                 )
-                raise exc
+                raise
             finally:
                 try:
                     sub.close()
@@ -599,7 +616,12 @@ def subscribe_message_bindings(
     _validate_delivery_mode(delivery_mode)
     _validate_dead_letter_topics(bindings)
 
-    resolved_loop = _resolve_event_loop(loop)
+    if delivery_mode == DELIVERY_MODE_ASYNC:
+        resolved_loop = _resolve_event_loop(loop)
+    else:
+        # In sync mode we can rely on asyncio.run(...) and do not require
+        # an existing/running event loop; avoid resolving it unconditionally.
+        resolved_loop = loop
     resolved_wf_client = wf_client or wf.DaprWorkflowClient()
 
     return _subscribe_message_bindings(

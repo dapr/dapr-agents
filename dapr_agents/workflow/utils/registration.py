@@ -38,7 +38,6 @@ from dapr_agents.workflow.utils.subscription import (
     DedupeBackend,
     MessageRouteBinding,
     SchedulerFn,
-    _resolve_event_loop,
     subscribe_message_bindings,
 )
 
@@ -205,9 +204,6 @@ def _mount_http_bindings(
     if not bindings:
         return []
 
-    _ = _resolve_event_loop(
-        loop
-    )  # Parity with message registrar; FastAPI does not require it yet.
     closers: List[Callable[[], None]] = []
 
     async def _invoke(bound_handler: Callable[..., Any], parsed: Any) -> Any:
@@ -338,7 +334,7 @@ def register_message_routes(
         delivery_mode: `"sync"` blocks the Dapr thread; `"async"` enqueues onto a worker queue.
         queue_maxsize: Max in-flight messages when `delivery_mode="async"`.
         deduper: Optional idempotency backend keyed by CloudEvent id/hash.
-        scheduler: Optional `(callable, input_dict) -> instance_id` function.
+        scheduler: Deprecated/ignored scheduler hook; retained for API compatibility.
         wf_client: Reused `DaprWorkflowClient` for scheduling/waiting.
         await_result: If `True` (sync only), wait for workflow completion and request retry on failure.
         await_timeout: Optional wait timeout in seconds.
