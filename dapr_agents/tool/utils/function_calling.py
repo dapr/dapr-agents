@@ -42,6 +42,7 @@ def _normalize_to_title_case(name: str) -> str:
         "get user" -> "GetUser"
         "GetUser" -> "GetUser" (already title case, preserved)
         "GET_USER" -> "GetUser"
+        "UPPERCASE" -> "Uppercase" (all uppercase converted)
         "mixed_Case_name" -> "MixedCaseName"
         "SamwiseGamgee" -> "SamwiseGamgee" (already TitleCase, preserved)
 
@@ -54,9 +55,15 @@ def _normalize_to_title_case(name: str) -> str:
     if not name:
         return ""
 
-    # Check if name is already TitleCase (no separators, starts with uppercase)
+    # Check if name is all uppercase (needs conversion to TitleCase)
+    # This must come before the TitleCase check to handle "UPPERCASE" -> "Uppercase"
+    if name.isupper() and len(name) > 1:
+        return name.capitalize()
+
+    # Check if name is already TitleCase (no separators, starts with uppercase, has lowercase)
     # This handles cases like "SamwiseGamgee" or "GetUser" that are already correct
-    if re.match(r"^[A-Z][a-zA-Z]*$", name):
+    # We check for at least one lowercase letter to distinguish from all-uppercase
+    if re.match(r"^[A-Z][a-z]", name) and not re.search(r"[_\s-]", name):
         return name
 
     # Split on common separators (underscores, hyphens, spaces)
