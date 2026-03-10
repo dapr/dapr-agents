@@ -83,6 +83,7 @@ vectorstore = [
     "sentence-transformers>=4.1.0,<6.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.8.0,<4.0.0",
+    "redisvl>=0.4.0,<1.0.0",
 ]
 
 [dependency-groups]
@@ -110,6 +111,7 @@ vectorstore = [
     "sentence-transformers>=4.1.0,<6.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.8.0,<4.0.0",
+    "redisvl>=0.4.0,<1.0.0",
 ]
 
 [tool.uv.dependency-groups]
