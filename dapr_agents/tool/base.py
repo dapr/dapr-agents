@@ -27,7 +27,10 @@ from pydantic import (
 )
 from mcp.types import CallToolResult, TextContent
 from dapr_agents.tool.utils.tool import ToolHelper
-from dapr_agents.tool.utils.function_calling import to_function_call_definition
+from dapr_agents.tool.utils.function_calling import (
+    sanitize_openai_tool_name,
+    to_function_call_definition,
+)
 from dapr_agents.types import ToolError
 
 if TYPE_CHECKING:
@@ -307,7 +310,10 @@ class AgentTool(BaseModel):
         """
         Handles post-initialization logic for both class-based and function-based tools.
         """
-        self.name = self.name.replace(" ", "_").title().replace("_", "")
+        # Sanitize tool name to comply with OpenAI requirements: ^[^\s<|\\/>]+$
+        # This ensures the name matches what will be sent to OpenAI API
+        # The sanitization is idempotent, so it's safe to call even if already sanitized
+        self.name = sanitize_openai_tool_name(self.name)
 
         if self.func:
             self._is_async = inspect.iscoroutinefunction(self.func)

@@ -25,7 +25,7 @@ from typing import Any, Callable, List, Sequence, Union
 
 from pydantic import Field, PrivateAttr
 
-from dapr_agents.executors import CodeExecutorBase
+from dapr_agents.executors.base import CodeExecutorBase
 from dapr_agents.executors.sandbox import detect_backend, wrap_command, SandboxType
 from dapr_agents.executors.utils.package_manager import (
     get_install_command,

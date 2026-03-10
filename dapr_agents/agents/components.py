@@ -487,17 +487,10 @@ class DaprInfra:
                 if getattr(m, "role", None) != "system"
             ]
             entry.messages = filtered  # type: ignore[attr-defined]
-            # Fix last_message if applicable
-            if (
-                getattr(entry, "last_message", None) is not None
-                and getattr(entry.last_message, "role", None) == "system"
-            ):
-                non_system = [
-                    m
-                    for m in getattr(entry, "messages")
-                    if getattr(m, "role", None) != "system"
-                ]
-                entry.last_message = non_system[-1] if non_system else None  # type: ignore[attr-defined]
+            # Update last_message to point to the last non-system message
+            # This ensures last_message always reflects the actual last message in the filtered list
+            if hasattr(entry, "last_message"):
+                entry.last_message = filtered[-1] if filtered else None  # type: ignore[attr-defined]
 
     def _message_dict_to_message_model(self, message: Dict[str, Any]) -> Any:
         """
@@ -694,15 +687,28 @@ class DaprInfra:
                     continue
                 agents_metadata[name] = meta
 
-            filtered = {
-                name: meta
-                for name, meta in agents_metadata.items()
-                if not (exclude_self and name == self.name)
-                and not (
-                    exclude_orchestrator
-                    and meta.get("agent", {}).get("orchestrator", False)
-                )
-            }
+            filtered = {}
+            for name, meta in agents_metadata.items():
+                # Skip self if requested
+                if exclude_self and name == self.name:
+                    continue
+
+                # Validate metadata structure - agent field must exist and be a dict
+                agent_meta = meta.get("agent") if isinstance(meta, dict) else None
+                if agent_meta is None or not isinstance(agent_meta, dict):
+                    logger.error(
+                        "Agent '%s' has invalid metadata structure: missing or invalid 'agent' field. "
+                        "This indicates corrupted registry data. Metadata: %s",
+                        name,
+                        meta,
+                    )
+                    continue
+
+                # Skip orchestrators if requested
+                if exclude_orchestrator and agent_meta.get("orchestrator", False):
+                    continue
+
+                filtered[name] = meta
             return filtered
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to retrieve agents metadata: %s", exc, exc_info=True)
