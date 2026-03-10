@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-"""Integration tests for 08-agents-as-activities-observability example."""
+"""Integration tests for 07-agents-as-activities-observability example."""
 
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_or_examples_multi_app
@@ -19,12 +19,12 @@ from tests.integration.quickstarts.conftest import run_quickstart_or_examples_mu
 
 @pytest.mark.integration
 class TestAgentsAsTasksInWorkflowsQuickstart:
-    """Integration tests for 08-agents-as-activities-observability example."""
+    """Integration tests for 07-agents-as-activities-observability example."""
 
     @pytest.fixture(autouse=True)
     def setup(self, examples_dir, openai_api_key):
         """Setup test environment."""
-        self.quickstart_dir = examples_dir / "08-agents-as-activities-observability"
+        self.quickstart_dir = examples_dir / "07-agents-as-activities-observability"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_sequential_workflow(self, dapr_runtime):  # noqa: ARG002

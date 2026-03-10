@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-"""Integration tests for 09-agents-as-tools example."""
+"""Integration tests for 08-agents-as-tools example."""
 
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_or_examples_multi_app
@@ -19,11 +19,11 @@ from tests.integration.quickstarts.conftest import run_quickstart_or_examples_mu
 
 @pytest.mark.integration
 class TestAgentsAsToolsExample:
-    """Integration tests for 09-agents-as-tools example."""
+    """Integration tests for 08-agents-as-tools example."""
 
     @pytest.fixture(autouse=True)
     def setup(self, examples_dir, openai_api_key):
-        self.example_dir = examples_dir / "09-agents-as-tools"
+        self.example_dir = examples_dir / "08-agents-as-tools"
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_cross_app(self, dapr_runtime):  # noqa: ARG002
