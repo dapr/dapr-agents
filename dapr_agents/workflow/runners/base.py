@@ -242,7 +242,6 @@ class WorkflowRunner(SignalMixin):
         routes: Optional[Iterable[Union[PubSubRouteSpec, HttpRouteSpec]]] = None,
         delivery_mode: Literal["sync", "async"] = "sync",
         deduper: Optional[Any] = None,
-        subscribe: Optional[Callable[..., Callable[[], None]]] = None,
         await_result: bool = False,
         await_timeout: Optional[int] = None,
         fetch_payloads: bool = True,
@@ -264,7 +263,6 @@ class WorkflowRunner(SignalMixin):
             routes: Explicit route specs to wire. (Explicit mode)
             delivery_mode: "sync" blocks Dapr thread; "async" enqueues to a worker.
             deduper: Optional idempotency backend with `seen(key)` / `mark(key)`.
-            subscribe: Optional custom subscriber (defaults to DaprClient.subscribe_with_handler).
             await_result: If True (sync only), wait for completion and ACK/NACK accordingly.
             await_timeout: Timeout (seconds) for completion wait when `await_result=True`.
             fetch_payloads: Include payloads when waiting for completion.
@@ -301,7 +299,6 @@ class WorkflowRunner(SignalMixin):
                     routes=None,
                     delivery_mode=delivery_mode,
                     deduper=deduper,
-                    subscribe=subscribe,
                     wf_client=self._wf_client,
                     await_result=await_result,
                     await_timeout=await_timeout,
@@ -331,7 +328,6 @@ class WorkflowRunner(SignalMixin):
                 dapr_client=self._dapr_client,
                 delivery_mode=delivery_mode,
                 deduper=deduper,
-                subscribe=subscribe,
                 wf_client=self._wf_client,
                 await_result=await_result,
                 await_timeout=await_timeout,
