@@ -175,6 +175,24 @@ class RedisVectorStore(VectorStoreBase):
             if metadatas is None:
                 metadatas = [{} for _ in documents_list]
 
+            # Validate that all parallel lists have matching lengths
+            num_docs = len(documents_list)
+            if len(embeddings) != num_docs:
+                raise ValueError(
+                    f"Length mismatch between documents and embeddings: "
+                    f"{num_docs} documents but {len(embeddings)} embeddings."
+                )
+            if len(ids) != num_docs:
+                raise ValueError(
+                    f"Length mismatch between documents and ids: "
+                    f"{num_docs} documents but {len(ids)} ids."
+                )
+            if len(metadatas) != num_docs:
+                raise ValueError(
+                    f"Length mismatch between documents and metadatas: "
+                    f"{num_docs} documents but {len(metadatas)} metadatas."
+                )
+
             # Validate embedding dimensions match configured size
             if embeddings:
                 first_embedding_dim = len(embeddings[0])
@@ -213,13 +231,14 @@ class RedisVectorStore(VectorStoreBase):
             ids (List[str]): The IDs of the documents to delete.
 
         Returns:
-            Optional[bool]: True if any documents were deleted, None on failure.
+            Optional[bool]: True if any documents were deleted, False on failure.
         """
         if Redis is None:
             raise ImportError(
                 "The `redis` library is required. Install it using `pip install redis`."
             )
 
+        client = None
         try:
             client = Redis.from_url(self.url)
 
@@ -234,7 +253,10 @@ class RedisVectorStore(VectorStoreBase):
 
         except Exception as e:
             logger.exception(f"Failed to delete documents: {e}")
-            return None
+            return False
+        finally:
+            if client is not None:
+                client.close()
 
     def get(self, ids: Optional[List[str]] = None) -> List[Dict]:
         """
@@ -317,7 +339,7 @@ class RedisVectorStore(VectorStoreBase):
     def search_similar(
         self,
         query_texts: Optional[Union[List[str], str]] = None,
-        query_embeddings: Optional[List[List[float]]] = None,
+        query_embeddings: Optional[Union[List[float], List[List[float]]]] = None,
         k: int = 4,
         **kwargs: Any,
     ) -> List[Dict]:

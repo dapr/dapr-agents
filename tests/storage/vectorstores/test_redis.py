@@ -35,6 +35,21 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture
+def redis_available():
+    """Check if Redis is available before attempting to create store.
+
+    This fixture checks Redis availability and skips tests if Redis is not available.
+    """
+    try:
+        if Redis is not None:
+            client = Redis.from_url("redis://localhost:6379")
+            client.ping()
+            client.close()
+    except (RedisConnectionError, Exception) as e:
+        pytest.skip(f"Redis not available: {e}")
+
+
 class TestRedisVectorStore:
     """Test cases for RedisVectorStore."""
 
@@ -49,20 +64,12 @@ class TestRedisVectorStore:
         return f"test_redis_index_{uuid.uuid4().hex[:8]}"
 
     @pytest.fixture
-    def vector_store(self, embedder, redis_index_name):
+    def vector_store(self, embedder, redis_index_name, redis_available):
         """Create a RedisVectorStore fixture.
 
         Note: This requires a running Redis instance with the RediSearch module.
         Tests will be skipped if Redis is not available.
         """
-        # Check if Redis is available before attempting to create store
-        try:
-            if Redis is not None:
-                client = Redis.from_url("redis://localhost:6379")
-                client.ping()
-                client.close()
-        except (RedisConnectionError, Exception) as e:
-            pytest.skip(f"Redis not available: {e}")
 
         try:
             store = RedisVectorStore(
@@ -83,16 +90,8 @@ class TestRedisVectorStore:
                 pytest.skip(f"Redis not available: {e}")
             raise
 
-    def test_redis_vectorstore_creation(self, embedder, redis_index_name):
+    def test_redis_vectorstore_creation(self, embedder, redis_index_name, redis_available):
         """Test that RedisVectorStore can be created successfully."""
-        # Check if Redis is available before attempting to create store
-        try:
-            if Redis is not None:
-                client = Redis.from_url("redis://localhost:6379")
-                client.ping()
-                client.close()
-        except (RedisConnectionError, Exception) as e:
-            pytest.skip(f"Redis not available: {e}")
 
         try:
             vector_store = RedisVectorStore(
@@ -124,16 +123,8 @@ class TestRedisVectorStore:
         assert hasattr(vector_store, "index_name")
         assert vector_store.index_name == redis_index_name
 
-    def test_vectorstore_different_names(self, embedder):
+    def test_vectorstore_different_names(self, embedder, redis_available):
         """Test creating vector stores with different names."""
-        # Check if Redis is available before attempting to create store
-        try:
-            if Redis is not None:
-                client = Redis.from_url("redis://localhost:6379")
-                client.ping()
-                client.close()
-        except (RedisConnectionError, Exception) as e:
-            pytest.skip(f"Redis not available: {e}")
 
         names = [f"test_index_{uuid.uuid4().hex[:8]}" for _ in range(3)]
         stores = []
@@ -161,16 +152,8 @@ class TestRedisVectorStore:
             except Exception as cleanup_error:
                 pytest.fail(f"Failed to cleanup Redis index: {cleanup_error}")
 
-    def test_vectorstore_distance_metrics(self, embedder):
+    def test_vectorstore_distance_metrics(self, embedder, redis_available):
         """Test creating vector stores with different distance metrics."""
-        # Check if Redis is available before attempting to create store
-        try:
-            if Redis is not None:
-                client = Redis.from_url("redis://localhost:6379")
-                client.ping()
-                client.close()
-        except (RedisConnectionError, Exception) as e:
-            pytest.skip(f"Redis not available: {e}")
 
         metrics = ["cosine", "l2", "ip"]
         stores = []
