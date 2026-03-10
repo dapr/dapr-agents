@@ -487,17 +487,10 @@ class DaprInfra:
                 if getattr(m, "role", None) != "system"
             ]
             entry.messages = filtered  # type: ignore[attr-defined]
-            # Fix last_message if applicable
-            if (
-                getattr(entry, "last_message", None) is not None
-                and getattr(entry.last_message, "role", None) == "system"
-            ):
-                non_system = [
-                    m
-                    for m in getattr(entry, "messages")
-                    if getattr(m, "role", None) != "system"
-                ]
-                entry.last_message = non_system[-1] if non_system else None  # type: ignore[attr-defined]
+            # Update last_message to point to the last non-system message
+            # This ensures last_message always reflects the actual last message in the filtered list
+            if hasattr(entry, "last_message"):
+                entry.last_message = filtered[-1] if filtered else None  # type: ignore[attr-defined]
 
     def _message_dict_to_message_model(self, message: Dict[str, Any]) -> Any:
         """

@@ -1519,8 +1519,11 @@ class DurableAgent(AgentBase):
             raise
 
         existing_tool_ids: set[str] = set()
+        last_message_is_assistant_with_tool_calls = False
+
         if entry is not None and hasattr(entry, "messages"):
-            for msg in getattr(entry, "messages"):
+            messages_list = getattr(entry, "messages")
+            for msg in messages_list:
                 try:
                     tid = getattr(msg, "tool_call_id", None)
                     if tid:
@@ -1528,24 +1531,84 @@ class DurableAgent(AgentBase):
                 except Exception:
                     pass
 
-        for tool_result in tool_results:
-            tool_call_id = tool_result.tool_call_id
+            # Check if we can save tool messages
+            # Tool messages must follow an assistant message with tool_call.
+            # If last_message is a tool message, that's fine - we're continuing the same batch
+            # If last_message is an assistant with tool_calls, we can start a new batch
+            if hasattr(entry, "last_message") and entry.last_message is not None:
+                try:
+                    last_msg = entry.last_message
+                    # Handle both dict and Pydantic model messages
+                    if isinstance(last_msg, dict):
+                        last_role = last_msg.get("role")
+                        last_tool_calls = last_msg.get("tool_calls")
+                    else:
+                        last_role = getattr(last_msg, "role", None)
+                        last_tool_calls = getattr(last_msg, "tool_calls", None)
 
-            if tool_call_id in existing_tool_ids:
-                logger.debug(f"Tool result {tool_call_id} already in entry, skipping")
-                continue
+                    if last_role == "assistant" and last_tool_calls:
+                        # Last message is an assistant with tool_calls - we can save tool messages
+                        last_message_is_assistant_with_tool_calls = True
+                    elif last_role == "tool":
+                        # Last message is already a tool message - we're continuing the same batch
+                        # This is valid as long as there's an assistant with tool_calls before it
+                        # Check the message before the last tool message
+                        if len(messages_list) > 1:
+                            # Look for the assistant message that precedes the tool messages
+                            for i in range(len(messages_list) - 2, -1, -1):
+                                prev_msg = messages_list[i]
+                                if isinstance(prev_msg, dict):
+                                    prev_role = prev_msg.get("role")
+                                    prev_tool_calls = prev_msg.get("tool_calls")
+                                else:
+                                    prev_role = getattr(prev_msg, "role", None)
+                                    prev_tool_calls = getattr(
+                                        prev_msg, "tool_calls", None
+                                    )
 
-            if entry is not None and hasattr(entry, "messages"):
-                tool_message_model = (
-                    self._message_coercer(tool_result.model_dump())
-                    if getattr(self, "_message_coercer", None)
-                    else self._message_dict_to_message_model(tool_result.model_dump())
-                )
-                entry.messages.append(tool_message_model)
-                if hasattr(entry, "last_message"):
-                    entry.last_message = tool_message_model
+                                if prev_role == "assistant" and prev_tool_calls:
+                                    last_message_is_assistant_with_tool_calls = True
+                                    break
+                                elif prev_role != "tool":
+                                    # Hit a non-tool, non-assistant message - stop looking
+                                    break
+                except Exception:
+                    # If we can't determine the last message type, err on the side of caution
+                    logger.warning(
+                        "Could not verify last message type before saving tool results. "
+                        "Skipping tool message save to avoid OpenAI API errors."
+                    )
 
-            logger.debug(f"Added tool result {tool_call_id} to memory")
+        # Only proceed if the last message is an assistant message with tool_calls
+        # All tool messages in this batch are responses to that assistant message
+        if not last_message_is_assistant_with_tool_calls:
+            logger.warning(
+                "Skipping all tool results: tool messages must follow an assistant message "
+                "with tool_calls. Last message is not an assistant with tool_calls."
+            )
+        else:
+            for tool_result in tool_results:
+                tool_call_id = tool_result.tool_call_id
+
+                if tool_call_id in existing_tool_ids:
+                    logger.debug(
+                        f"Tool result {tool_call_id} already in entry, skipping"
+                    )
+                    continue
+
+                if entry is not None and hasattr(entry, "messages"):
+                    tool_message_model = (
+                        self._message_coercer(tool_result.model_dump())
+                        if getattr(self, "_message_coercer", None)
+                        else self._message_dict_to_message_model(
+                            tool_result.model_dump()
+                        )
+                    )
+                    entry.messages.append(tool_message_model)
+                    if hasattr(entry, "last_message"):
+                        entry.last_message = tool_message_model
+
+                logger.debug(f"Added tool result {tool_call_id} to memory")
 
         self.save_state(instance_id)
 
