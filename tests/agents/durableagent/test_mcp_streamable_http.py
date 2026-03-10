@@ -244,10 +244,17 @@ async def get_agent_tools_from_http():
 
 @pytest.mark.asyncio
 async def test_add_tool_with_real_server_http(start_math_server_http):
-    from dapr_agents import Agent
+    from dapr_agents.agents.configs import AgentPubSubConfig, AgentStateConfig
+    from dapr_agents.storage.daprstores.stateservice import StateStoreService
 
     agent_tools = await get_agent_tools_from_http()
-    agent = Agent(name="MathAgent", role="Math Assistant", tools=agent_tools)
+    agent = DurableAgent(
+        name="MathAgent",
+        role="Math Assistant",
+        tools=agent_tools,
+        pubsub=AgentPubSubConfig(pubsub_name="testpubsub"),
+        state=AgentStateConfig(store=StateStoreService(store_name="teststatestore")),
+    )
     # Print available tool names for debugging
     tool_names = [t.name for t in agent_tools]
     print("Available tool names:", tool_names)
