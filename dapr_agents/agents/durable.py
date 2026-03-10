@@ -1210,7 +1210,7 @@ class DurableAgent(AgentBase):
         plan: List[Dict[str, Any]],
         step: int,
         substep: Optional[float],
-        verdict: str,
+        verdict: DaprWorkflowStatus,
         summary: str,
         wf_time: Optional[str],
     ) -> None:
@@ -1222,7 +1222,8 @@ class DurableAgent(AgentBase):
             plan: Current plan snapshot.
             step: Completed step id.
             substep: Completed substep id (if any).
-            verdict: Outcome category (e.g., "completed", "failed", "max_iterations_reached").
+            verdict: Outcome category as DaprWorkflowStatus enum
+                (e.g., DaprWorkflowStatus.COMPLETED, DaprWorkflowStatus.FAILED).
             summary: Final summary content to persist.
             wf_time: Workflow timestamp (ISO 8601 string) to set as end time if provided.
 

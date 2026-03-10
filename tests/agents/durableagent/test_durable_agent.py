@@ -40,6 +40,7 @@ from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.tool.base import AgentTool
+from dapr_agents.types import AgentError, DaprWorkflowStatus
 
 
 # We need this otherwise these tests all fail since they require Dapr to be available.
@@ -155,6 +156,7 @@ class TestDurableAgent:
         context.is_replaying = False
         context.call_activity = Mock()
         context.wait_for_external_event = Mock()
+        context.set_custom_status = Mock()
         context.current_utc_datetime = Mock()
         context.current_utc_datetime.isoformat = Mock(
             return_value="2024-01-01T00:00:00.000000"
@@ -1304,3 +1306,172 @@ class TestDurableAgent:
         assert "finalize_workflow" in activity_names, (
             f"Missing finalize_workflow in {activity_names}"
         )
+
+    def test_agent_workflow_max_iterations_sets_custom_status(
+        self, basic_durable_agent, mock_workflow_context, mock_tool
+    ):
+        """Test that set_custom_status('max_iterations_reached') is called when max iterations is reached."""
+        message = {"task": "Test task"}
+
+        # Set up agent with max_iterations=2 and register a tool
+        basic_durable_agent.execution.max_iterations = 2
+        basic_durable_agent.tool_executor.register_tool(mock_tool)
+
+        # Track call count to ensure we always return tool calls for call_llm
+        call_llm_count = 0
+
+        # Mock call_activity to return responses with tool_calls to force iterations
+        def mock_call_activity(activity, **kwargs):
+            nonlocal call_llm_count
+            # Get activity name - handle both bound methods and functions
+            if hasattr(activity, "__name__"):
+                activity_name = activity.__name__
+            elif hasattr(activity, "__func__"):
+                activity_name = activity.__func__.__name__
+            else:
+                activity_name = str(activity)
+
+            if activity_name == "call_llm":
+                call_llm_count += 1
+                # Always return tool calls to force continuation (never return final response)
+                return {
+                    "content": "I'll use a tool",
+                    "tool_calls": [
+                        {
+                            "id": f"call_{call_llm_count}",
+                            "type": "function",
+                            "function": {
+                                "name": "test_tool",
+                                "arguments": "{}",
+                            },
+                        }
+                    ],
+                    "role": "assistant",
+                }
+            elif activity_name == "run_tool":
+                return {
+                    "tool_call_id": f"call_{call_llm_count}",
+                    "content": "tool result",
+                    "role": "tool",
+                    "name": "test_tool",
+                }
+            elif activity_name == "load_tools":
+                return []  # Empty list of registered tools
+            elif activity_name in [
+                "record_initial_entry",
+                "finalize_workflow",
+                "save_tool_results",
+                "broadcast_to_team",
+                "return_response",
+                "summarize",
+            ]:
+                return None
+            return None
+
+        mock_workflow_context.call_activity = Mock(side_effect=mock_call_activity)
+
+        # Set up state
+        entry = AgentWorkflowEntry(
+            source="test_source",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        basic_durable_agent._infra._state_model = entry
+
+        with (
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
+            patch.object(basic_durable_agent, "save_state"),
+        ):
+            workflow_gen = basic_durable_agent.agent_workflow(
+                mock_workflow_context, message
+            )
+            # Consume the generator until it completes
+            result = None
+            try:
+                while True:
+                    result = workflow_gen.send(result)
+            except StopIteration:
+                pass
+
+        # Verify set_custom_status was called with "max_iterations_reached"
+        mock_workflow_context.set_custom_status.assert_called_once_with(
+            "max_iterations_reached"
+        )
+
+    def test_agent_workflow_exception_raises_agent_error(
+        self, basic_durable_agent, mock_workflow_context
+    ):
+        """Test that an exception in the workflow results in AgentError being raised."""
+        message = {"task": "Test task"}
+
+        # Mock call_activity to raise an exception
+        test_exception = RuntimeError("Test workflow failure")
+
+        def mock_call_activity(activity, **kwargs):
+            # Get activity name - handle both bound methods and functions
+            if hasattr(activity, "__name__"):
+                activity_name = activity.__name__
+            elif hasattr(activity, "__func__"):
+                activity_name = activity.__func__.__name__
+            else:
+                activity_name = str(activity)
+
+            if activity_name == "record_initial_entry":
+                return None
+            elif activity_name == "load_tools":
+                return []  # Empty list of registered tools
+            elif activity_name == "call_llm":
+                # Raise exception on LLM call
+                raise test_exception
+            elif activity_name in [
+                "broadcast_to_team",
+                "return_response",
+                "summarize",
+                "finalize_workflow",
+            ]:
+                return None
+            return None
+
+        mock_workflow_context.call_activity = Mock(side_effect=mock_call_activity)
+
+        # Set up state
+        entry = AgentWorkflowEntry(
+            source="test_source",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        basic_durable_agent._infra._state_model = entry
+
+        with (
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
+            patch.object(basic_durable_agent, "save_state"),
+        ):
+            workflow_gen = basic_durable_agent.agent_workflow(
+                mock_workflow_context, message
+            )
+            # Consume the generator until it raises AgentError
+            # The exception is caught internally, workflow continues to finalize,
+            # then AgentError is raised at the end
+            with pytest.raises(AgentError) as exc_info:
+                try:
+                    while True:
+                        next(workflow_gen)
+                except StopIteration:
+                    # Should not reach here - AgentError should be raised first
+                    pass
+
+            # Verify the exception message contains the original error and agent name
+            assert "workflow failed" in str(exc_info.value).lower()
+            assert "TestDurableAgent" in str(exc_info.value)
+            # Verify it's chained to the original exception
+            assert exc_info.value.__cause__ == test_exception
