@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import Field, ConfigDict
 from typing import List, Optional, Any
-from dapr_agents.service import APIServerBase
+from dapr_agents.service.base import APIServerBase
 from dapr_agents.utils.signal.mixin import SignalMixin
 import uvicorn
 import asyncio
