@@ -36,6 +36,75 @@ class TestAgentWorkflowSuffix:
         assert agent_workflow_id("sam") == "dapr.agents.sam.workflow"
         assert agent_workflow_id("frodo") == "dapr.agents.frodo.workflow"
 
+    def test_agent_workflow_id_with_full_workflow_name(self):
+        """Test that full workflow names are returned as-is."""
+        full_name = "dapr.openai.catering-coordinator.workflow"
+        assert agent_workflow_id(full_name) == full_name
+
+        full_name2 = "dapr.pydantic_ai.decoration-planner.workflow"
+        assert agent_workflow_id(full_name2) == full_name2
+
+        # Legacy format should still work
+        assert (
+            agent_workflow_id("catering-coordinator")
+            == "dapr.agents.catering-coordinator.workflow"
+        )
+
+    def test_agent_workflow_id_with_framework(self):
+        """Test that framework parameter constructs correct workflow names."""
+        # OpenAI framework
+        assert (
+            agent_workflow_id("catering-coordinator", framework="openai")
+            == "dapr.openai.catering-coordinator.workflow"
+        )
+
+        # Pydantic AI framework
+        assert (
+            agent_workflow_id("decoration-planner", framework="pydantic_ai")
+            == "dapr.pydantic-ai.decoration-planner.workflow"
+        )
+
+        # LangGraph framework
+        assert (
+            agent_workflow_id("schedule-planner", framework="langgraph")
+            == "dapr.langgraph.schedule-planner.workflow"
+        )
+
+        # CrewAI framework
+        assert (
+            agent_workflow_id("venue-scout", framework="crewai")
+            == "dapr.crewai.venue-scout.workflow"
+        )
+
+        # Dapr Agents framework (should use standard format)
+        assert (
+            agent_workflow_id("sam", framework="Dapr Agents")
+            == "dapr.agents.sam.workflow"
+        )
+
+        # None framework (should use standard format)
+        assert agent_workflow_id("sam", framework=None) == "dapr.agents.sam.workflow"
+
+    def test_agent_workflow_id_with_explicit_workflow_name(self):
+        """Test that explicit workflow_name takes precedence."""
+        explicit_name = "dapr.custom.framework.agent.workflow"
+        assert (
+            agent_workflow_id(
+                "agent-name", framework="openai", workflow_name=explicit_name
+            )
+            == explicit_name
+        )
+
+        # Even if agent_name is a full workflow name, workflow_name takes precedence
+        assert (
+            agent_workflow_id(
+                "dapr.other.framework.workflow",
+                framework="openai",
+                workflow_name=explicit_name,
+            )
+            == explicit_name
+        )
+
 
 class TestAgentTaskArgs:
     def test_task_field_required(self):
@@ -74,6 +143,32 @@ class TestScheduleAgentWorkflow:
         )
         call_kwargs = ctx.call_child_workflow.call_args.kwargs
         assert "app_id" not in call_kwargs
+
+    def test_schedules_with_framework(self):
+        ctx = MagicMock()
+        _schedule_agent_workflow(
+            ctx,
+            task="coordinate catering",
+            agent_name="catering-coordinator",
+            framework="openai",
+        )
+        ctx.call_child_workflow.assert_called_once_with(
+            workflow="dapr.openai.catering-coordinator.workflow",
+            input={"task": "coordinate catering"},
+        )
+
+    def test_schedules_with_explicit_workflow_name(self):
+        ctx = MagicMock()
+        _schedule_agent_workflow(
+            ctx,
+            task="custom task",
+            agent_name="agent-name",
+            workflow_name="dapr.custom.workflow.name",
+        )
+        ctx.call_child_workflow.assert_called_once_with(
+            workflow="dapr.custom.workflow.name",
+            input={"task": "custom task"},
+        )
 
 
 class TestAgentToTool:
@@ -136,4 +231,46 @@ class TestAgentToTool:
             workflow=agent_workflow_id("sam"),
             input={"task": "Ready the ponies"},
             app_id="sam-app",
+        )
+
+    def test_agent_to_tool_with_full_workflow_name(self):
+        """Test that agent_to_tool works with full workflow names."""
+        full_name = "dapr.openai.catering-coordinator.workflow"
+        tool = agent_to_tool(full_name, "Catering coordinator.")
+        ctx = MagicMock()
+        tool(ctx=ctx, task="Plan the menu")
+        ctx.call_child_workflow.assert_called_once_with(
+            workflow=full_name,
+            input={"task": "Plan the menu"},
+        )
+        assert tool.target_agent_name == full_name
+
+    def test_agent_to_tool_with_framework(self):
+        """Test that agent_to_tool constructs workflow names from framework."""
+        tool = agent_to_tool(
+            "catering-coordinator",
+            "Catering coordinator.",
+            framework="openai",
+        )
+        ctx = MagicMock()
+        tool(ctx=ctx, task="Plan the menu")
+        ctx.call_child_workflow.assert_called_once_with(
+            workflow="dapr.openai.catering-coordinator.workflow",
+            input={"task": "Plan the menu"},
+        )
+        assert tool.target_agent_name == "catering-coordinator"
+
+    def test_agent_to_tool_with_explicit_workflow_name(self):
+        """Test that explicit workflow_name takes precedence over framework."""
+        tool = agent_to_tool(
+            "catering-coordinator",
+            "Catering coordinator.",
+            framework="openai",
+            workflow_name="dapr.custom.framework.workflow",
+        )
+        ctx = MagicMock()
+        tool(ctx=ctx, task="Plan the menu")
+        ctx.call_child_workflow.assert_called_once_with(
+            workflow="dapr.custom.framework.workflow",
+            input={"task": "Plan the menu"},
         )

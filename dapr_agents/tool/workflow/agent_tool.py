@@ -24,8 +24,51 @@ logger = logging.getLogger(__name__)
 AGENT_WORKFLOW_SUFFIX = "_agent_workflow"  # kept for backward compat
 
 
-def agent_workflow_id(agent_name: str) -> str:
-    """Return the Dapr-registered workflow name for an agent."""
+def agent_workflow_id(
+    agent_name: str,
+    framework: Optional[str] = None,
+    workflow_name: Optional[str] = None,
+) -> str:
+    """
+    Return the Dapr-registered workflow name for an agent.
+
+    Priority order:
+    1. If workflow_name is provided, use it directly
+    2. If agent_name is already a full workflow name (starts with 'dapr.' and ends
+       with '.workflow'), return it as-is
+    3. If framework is provided and not "Dapr Agents", use 'dapr.{framework}.{agent_name}.workflow'
+    4. Otherwise, use the standard format: 'dapr.agents.{agent_name}.workflow'
+
+    This supports:
+    - Other agentic frameworks (e.g., "dapr.openai.catering-coordinator.workflow")
+    - Dapr Agents framework (e.g., "dapr.agents.catering-coordinator.workflow")
+    - Explicit workflow names passed directly
+
+    Args:
+        agent_name: The agent name (e.g., "catering-coordinator")
+        framework: Optional framework name (e.g., "openai", "pydantic_ai", "langgraph", "crewai").
+            If None or "Dapr Agents", uses the standard dapr.agents.* format.
+        workflow_name: Optional explicit workflow name. If provided, this takes precedence
+            over all other parameters.
+
+    Returns:
+        The Dapr-registered workflow name.
+    """
+    # Priority 1: Explicit workflow name
+    if workflow_name:
+        return workflow_name
+
+    # Priority 2: Already a full workflow name
+    if agent_name.startswith("dapr.") and agent_name.endswith(".workflow"):
+        return agent_name
+
+    # Priority 3: Use framework if provided and not "Dapr Agents"
+    if framework and framework != "Dapr Agents":
+        # Normalize framework name (replace spaces/underscores with dots if needed)
+        normalized_framework = framework.replace(" ", "-").replace("_", "-").lower()
+        return f"dapr.{normalized_framework}.{agent_name}.workflow"
+
+    # Priority 4: Default to dapr.agents.* format
     return f"dapr.agents.{agent_name}.workflow"
 
 
@@ -67,6 +110,8 @@ def _schedule_agent_workflow(
     agent_name: str,
     target_app_id: Optional[str] = None,
     _source_agent: Optional[str] = None,
+    workflow_name: Optional[str] = None,
+    framework: Optional[str] = None,
 ) -> Any:
     """
     Schedule a child workflow for a named agent.
@@ -83,22 +128,27 @@ def _schedule_agent_workflow(
         target_app_id: Dapr app-id for cross-app routing; ``None`` for in-process.
         _source_agent: Name of the calling agent; forwarded in ``_message_metadata``
             so the child agent labels the user message as "on behalf of".
+        workflow_name: Optional explicit workflow name. Takes precedence over framework.
+        framework: Optional framework name for constructing workflow name.
     """
     input_payload: dict = {"task": task}
     if _source_agent:
         input_payload["_message_metadata"] = {"source": _source_agent}
 
+    workflow_id = agent_workflow_id(
+        agent_name, framework=framework, workflow_name=workflow_name
+    )
+
     call_kwargs: dict = {
-        "workflow": agent_workflow_id(agent_name),
+        "workflow": workflow_id,
         "input": input_payload,
     }
     if target_app_id:
         call_kwargs["app_id"] = target_app_id
 
     logger.debug(
-        "Scheduling child workflow '%s%s' app_id=%r task=%r",
-        agent_name,
-        AGENT_WORKFLOW_SUFFIX,
+        "Scheduling child workflow '%s' app_id=%r task=%r",
+        workflow_id,
         target_app_id,
         task,
     )
@@ -110,6 +160,8 @@ def agent_to_tool(
     description: str,
     *,
     target_app_id: Optional[str] = None,
+    workflow_name: Optional[str] = None,
+    framework: Optional[str] = None,
 ) -> AgentWorkflowTool:
     """
     Create an AgentWorkflowTool for a named agent.
@@ -124,10 +176,10 @@ def agent_to_tool(
     all registry peers automatically at workflow start.
 
     Args:
-        agent_name: The base name of the target agent.  This value is used to
-            derive the tool name exposed to the LLM; the underlying
-            :class:`AgentTool` normalizes it (title-casing, removing spaces
-            and underscores), so e.g. ``"my agent"`` becomes ``"MyAgent"``.
+        agent_name: The name of the target agent (e.g., ``"catering-coordinator"``).
+            This value is used to derive the tool name exposed to the LLM; the
+            underlying :class:`AgentTool` normalizes it (title-casing, removing
+            spaces and underscores), so e.g. ``"my agent"`` becomes ``"MyAgent"``.
             It should correspond to the agent's registered name under this
             normalization, rather than needing to match character-for-character.
         description: Human-readable description shown to the LLM in the tool
@@ -135,6 +187,12 @@ def agent_to_tool(
         target_app_id: Dapr app-id of the app hosting the target agent.
             Pass ``None`` (default) for in-process invocation where both
             agents are registered in the same Dapr application.
+        workflow_name: Optional explicit workflow name (e.g.,
+            ``"dapr.openai.catering-coordinator.workflow"``). If provided, this
+            takes precedence over framework-based construction.
+        framework: Optional framework name (e.g., ``"openai"``, ``"pydantic_ai"``).
+            Used to construct workflow name as ``dapr.{framework}.{agent_name}.workflow``.
+            If None or "Dapr Agents", uses ``dapr.agents.{agent_name}.workflow``.
 
     Returns:
         AgentWorkflowTool ready to be registered in a DurableAgent's toolset.
@@ -149,11 +207,22 @@ def agent_to_tool(
             target_app_id="sam-app",
         )
         frodo = DurableAgent(name="frodo", tools=[sam_tool], ...)
+
+    Example — with framework::
+
+        catering_tool = agent_to_tool(
+            "catering-coordinator",
+            "Coordinates catering services.",
+            framework="openai",
+        )
+        # This will call workflow: dapr.openai.catering-coordinator.workflow
     """
     executor = functools.partial(
         _schedule_agent_workflow,
         agent_name=agent_name,
         target_app_id=target_app_id,
+        workflow_name=workflow_name,
+        framework=framework,
     )
     setattr(
         executor, "__name__", agent_name

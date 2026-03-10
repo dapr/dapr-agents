@@ -1697,17 +1697,34 @@ class DurableAgent(AgentBase):
 
         for name, meta in agents_metadata.items():
             if not self.tool_executor.get_tool(name):
+                agent_meta = meta.get("agent", {})
+                framework = agent_meta.get("framework")
+
+                # For dapr-agents, check if we can get the actual workflow name
+                workflow_name = None
+                if framework == "Dapr Agents":
+                    # Try to get the actual workflow name if available
+                    # (This would require the agent to store it in metadata, which
+                    # isn't currently done, but we leave this hook for future use)
+                    workflow_name = agent_meta.get("metadata", {}).get("workflow_name")
+
                 tool = agent_to_tool(
                     name,
                     description=(
-                        f"{meta['agent'].get('role', '')}. "
-                        f"Goal: {meta['agent'].get('goal', '')}"
+                        f"{agent_meta.get('role', '')}. "
+                        f"Goal: {agent_meta.get('goal', '')}"
                     ),
-                    target_app_id=meta["agent"].get("appid"),
+                    target_app_id=agent_meta.get("appid"),
+                    framework=framework,
+                    workflow_name=workflow_name,
                 )
                 self.tool_executor.register_tool(tool)
                 registered.append(name)
-                logger.debug("Auto-registered registry agent as tool: %s", name)
+                logger.debug(
+                    "Auto-registered registry agent as tool: %s (framework=%s)",
+                    name,
+                    framework,
+                )
 
         if registered:
             logger.info(
