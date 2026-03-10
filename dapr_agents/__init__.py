@@ -12,7 +12,6 @@
 #
 
 from importlib.metadata import version, PackageNotFoundError
-from dapr_agents.agents.standalone import Agent
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.configs import (
     AgentMetadataSchema,
@@ -36,7 +35,6 @@ from dapr_agents.llm.openai import (
 from dapr_agents.tool import AgentTool, tool
 
 __all__ = [
-    "Agent",
     "DurableAgent",
     "DockerCodeExecutor",
     "LocalCodeExecutor",

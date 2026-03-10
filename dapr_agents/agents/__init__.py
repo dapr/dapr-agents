@@ -11,7 +11,6 @@
 # limitations under the License.
 #
 
-from .standalone import Agent
 from .durable import DurableAgent
 from .configs import (
     AgentMetadataSchema,
@@ -24,7 +23,6 @@ from .configs import (
 )
 
 __all__ = [
-    "Agent",
     "DurableAgent",
     "AgentMetadataSchema",
     "AgentMetadata",
