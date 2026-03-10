@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import functools
 import json
 import logging
@@ -1651,9 +1651,9 @@ class DurableAgent(AgentBase):
                 started_at = (
                     datetime.fromisoformat(raw_dispatch)
                     if raw_dispatch
-                    else datetime.now()
+                    else datetime.now(timezone.utc)
                 )
-                completed_at = datetime.now()
+                completed_at = datetime.now(timezone.utc)
                 is_agent_call = tc_info.get("is_agent_call", False)
                 # For regular agent-as-tool calls, child_instance_id is the
                 # UUID we pre-generated and passed to ctx.call_child_workflow.
