@@ -27,12 +27,21 @@ from ..constants import (
     TASK,
     TOOL,
     LLM,
+    GEN_AI_OPERATION_NAME,
+    GenAiOperationNameValues,
 )
 from ..context_propagation import create_child_span_with_context
 from ..context_storage import get_workflow_context
 from ..utils import safe_json_dumps
 
 logger = logging.getLogger(__name__)
+
+# Map OpenInference span kinds to GenAI semconv operation names.
+_SPAN_KIND_TO_GENAI_OP = {
+    LLM: GenAiOperationNameValues.CHAT,
+    TOOL: GenAiOperationNameValues.EXECUTE_TOOL,
+    TASK: GenAiOperationNameValues.INVOKE_AGENT,
+}
 
 
 class WorkflowActivityRegistrationWrapper:
@@ -105,6 +114,7 @@ class WorkflowActivityRegistrationWrapper:
                         return result
                     except Exception as exc:  # noqa: BLE001
                         span.set_status(Status(StatusCode.ERROR, str(exc)))
+                        span.set_attribute("error.type", type(exc).__qualname__)
                         span.record_exception(exc)
                         raise
 
@@ -129,6 +139,7 @@ class WorkflowActivityRegistrationWrapper:
                     return result
                 except Exception as exc:  # noqa: BLE001
                     span.set_status(Status(StatusCode.ERROR, str(exc)))
+                    span.set_attribute("error.type", type(exc).__qualname__)
                     span.record_exception(exc)
                     raise
 
@@ -192,6 +203,10 @@ class WorkflowActivityRegistrationWrapper:
             OUTPUT_MIME_TYPE: "application/json",
             "agent.name": agent_name,
             "workflow.activity": activity_name,
+            # GenAI semconv — map OI span kind to operation name
+            GEN_AI_OPERATION_NAME: _SPAN_KIND_TO_GENAI_OP.get(
+                span_kind, GenAiOperationNameValues.INVOKE_AGENT
+            ),
         }
         if instance_id:
             attributes["workflow.instance_id"] = instance_id

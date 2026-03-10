@@ -23,6 +23,9 @@ from ..constants import (
     OUTPUT_MIME_TYPE,
     OUTPUT_VALUE,
     OPENINFERENCE_SPAN_KIND,
+    GEN_AI_OPERATION_NAME,
+    GEN_AI_AGENT_NAME,
+    GenAiOperationNameValues,
     Status,
     StatusCode,
     context_api,
@@ -52,6 +55,7 @@ class AgentRunWrapper:
     - Supports both async and sync agent execution patterns
     - Proper error handling with span status management and exception recording
     - Phoenix UI compatibility with OpenInference attribute standards
+    - GenAI semconv dual-emit (gen_ai.operation.name, gen_ai.agent.name)
 
     The wrapper creates spans with AGENT span kind and captures the complete
     agent execution flow from input processing to final result generation.
@@ -96,7 +100,7 @@ class AgentRunWrapper:
 
         # Extract agent information for span naming and attributes
         agent_name = getattr(instance, "name", instance.__class__.__name__)
-        span_name = f"{agent_name}.run"
+        span_name = f"invoke_agent {agent_name}"
 
         # Process input arguments to extract user query
         arguments = bind_arguments(wrapped, *args, **kwargs)
@@ -138,6 +142,9 @@ class AgentRunWrapper:
             INPUT_MIME_TYPE: "application/json",
             OUTPUT_MIME_TYPE: "application/json",
             "agent.name": agent_name,
+            # GenAI semconv
+            GEN_AI_OPERATION_NAME: GenAiOperationNameValues.INVOKE_AGENT,
+            GEN_AI_AGENT_NAME: agent_name,
         }
 
         profile = getattr(instance, "profile", None)
@@ -185,15 +192,11 @@ class AgentRunWrapper:
         """
         Handle asynchronous agent execution with comprehensive span tracing.
 
-        Manages async Agent.run execution by creating spans with proper
-        attribute handling, result extraction, and error management within
-        the OpenTelemetry tracing context.
-
         Args:
             wrapped (callable): Original async Agent.run method to execute
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
-            span_name (str): Name for the created span (e.g., "MyAgent.run")
+            span_name (str): Name for the created span (e.g., "invoke_agent MyAgent")
             attributes (dict): Comprehensive span attributes including agent metadata
 
         Returns:
@@ -252,6 +255,7 @@ class AgentRunWrapper:
                     return result
                 except Exception as e:
                     span.set_status(Status(StatusCode.ERROR, str(e)))
+                    span.set_attribute("error.type", type(e).__qualname__)
                     span.record_exception(e)
                     raise
 
@@ -263,15 +267,11 @@ class AgentRunWrapper:
         """
         Handle synchronous agent execution with comprehensive span tracing.
 
-        Manages sync Agent.run execution by creating spans with proper
-        attribute handling, result extraction, and error management within
-        the OpenTelemetry tracing context.
-
         Args:
             wrapped (callable): Original sync Agent.run method to execute
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
-            span_name (str): Name for the created span (e.g., "MyAgent.run")
+            span_name (str): Name for the created span (e.g., "invoke_agent MyAgent")
             attributes (dict): Comprehensive span attributes including agent metadata
 
         Returns:
@@ -313,6 +313,7 @@ class AgentRunWrapper:
                 return result
             except Exception as e:
                 span.set_status(Status(StatusCode.ERROR, str(e)))
+                span.set_attribute("error.type", type(e).__qualname__)
                 span.record_exception(e)
                 raise
 
@@ -401,10 +402,6 @@ class ProcessIterationsWrapper:
         """
         Handle asynchronous process iterations execution with comprehensive span tracing.
 
-        Manages async conversation execution by creating CHAIN spans with
-        proper attribute handling, result extraction, and error management for
-        iterative agent processing workflows.
-
         Args:
             wrapped (callable): `_conversation_loop`
             args (tuple): Positional arguments for the wrapped method
@@ -432,6 +429,7 @@ class ProcessIterationsWrapper:
                     return result
                 except Exception as e:
                     span.set_status(Status(StatusCode.ERROR, str(e)))
+                    span.set_attribute("error.type", type(e).__qualname__)
                     span.record_exception(e)
                     raise
 
@@ -442,10 +440,6 @@ class ProcessIterationsWrapper:
     ) -> Any:
         """
         Handle synchronous conversation execution with comprehensive span tracing.
-
-        Manages sync conversation execution by creating CHAIN spans with
-        proper attribute handling, result extraction, and error management for
-        iterative agent processing workflows.
 
         Args:
             wrapped (callable): `_conversation_loop`
@@ -472,6 +466,7 @@ class ProcessIterationsWrapper:
                 return result
             except Exception as e:
                 span.set_status(Status(StatusCode.ERROR, str(e)))
+                span.set_attribute("error.type", type(e).__qualname__)
                 span.record_exception(e)
                 raise
 
