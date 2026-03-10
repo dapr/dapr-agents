@@ -366,7 +366,8 @@ def _subscribe_message_bindings(
             # Only create a detached task if we're running on an existing loop.
             # If we're in asyncio.run(), tasks will be cancelled when the loop shuts down.
             try:
-                running_loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
+                # We have a running loop, create a detached task
                 asyncio.create_task(_await_and_log(instance_id))
             except RuntimeError:
                 # No running loop - use a background thread for outcome logging
@@ -543,7 +544,7 @@ def _subscribe_message_bindings(
                                 status_str = STATUS_RETRY
                             elif "drop" in status_str:
                                 status_str = STATUS_DROP
-                        
+
                         if status_str == STATUS_SUCCESS:
                             sub.respond_success(msg)
                         elif status_str == STATUS_RETRY:
