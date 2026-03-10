@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from importlib.metadata import version
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine
@@ -1585,7 +1586,7 @@ class AgentBase:
             entry: Pre-fetched state entry; when provided, skips the internal get_state call.
             skip_save: When True, skip the save_state call (caller is responsible for saving).
         """
-        assistant_message["name"] = self.name
+        assistant_message["name"] = re.sub(r"[^a-zA-Z0-9_-]", "_", self.name)
 
         if entry is None:
             try:
