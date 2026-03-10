@@ -1,0 +1,110 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: E2E Tests (Ollama)
+
+on:
+  pull_request:
+    branches:
+      - main
+      - release-*
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-ollama:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+
+    - name: Install dependencies
+      run: uv sync --group test
+
+    - name: Cache Ollama model
+      id: cache-ollama
+      uses: actions/cache@v4
+      with:
+        path: ~/.ollama
+        key: ollama-qwen3-0.6b-${{ runner.os }}
+
+    - name: Install Ollama
+      run: curl -fsSL https://ollama.com/install.sh | sh
+
+    - name: Start Ollama and pull model
+      run: |
+        ollama serve &
+        # Wait for server readiness
+        for i in $(seq 1 30); do
+          if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+            echo "Ollama server is ready"
+            break
+          fi
+          echo "Waiting for Ollama... ($i/30)"
+          sleep 2
+        done
+        # Pull model (fast if cached from actions/cache)
+        ollama pull qwen3:0.6b
+        # Warm up: load model into memory with a simple request
+        echo "Warming up model..."
+        curl -sf http://localhost:11434/v1/chat/completions \
+          -H "Content-Type: application/json" \
+          -d '{"model":"qwen3:0.6b","messages":[{"role":"user","content":"Say hello in one word"}]}' \
+          > /dev/null 2>&1 || true
+        echo "Ollama ready with qwen3:0.6b"
+
+    - name: Set up Docker
+      uses: docker/setup-docker-action@v4
+
+    - name: Install Dapr CLI
+      run: |
+        wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
+
+    - name: Initialize Dapr
+      run: |
+        dapr init
+
+    - name: Free up disk space
+      run: |
+        echo "=== Disk space before cleanup ==="
+        df -h
+        sudo apt-get clean || true
+        echo "=== Disk space after cleanup ==="
+        df -h
+
+    - name: Run E2E Tests with Ollama
+      env:
+        OLLAMA_ENDPOINT: http://localhost:11434/v1
+        OLLAMA_MODEL: qwen3:0.6b
+        OPENAI_API_KEY: ollama
+        OPENAI_BASE_URL: http://localhost:11434/v1
+        OLLAMA_NUM_PARALLEL: "1"
+      run: |
+        uv run pytest -m "integration and ollama" -v \
+          --timeout=300 \
+          --reruns 2 \
+          --reruns-delay 10 \
+          tests/integration/quickstarts/
