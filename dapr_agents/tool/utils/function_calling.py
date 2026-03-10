@@ -34,7 +34,7 @@ _OPENAI_TOOL_NAME_PATTERN = re.compile(r"[^\s<|\\/>]+")
 def _normalize_to_title_case(name: str) -> str:
     """
     Normalize a name to TitleCase format.
-    
+
     Converts snake_case, kebab-case, and space-separated names to TitleCase.
     Examples:
         "get_user" -> "GetUser"
@@ -44,28 +44,28 @@ def _normalize_to_title_case(name: str) -> str:
         "GET_USER" -> "GetUser"
         "mixed_Case_name" -> "MixedCaseName"
         "SamwiseGamgee" -> "SamwiseGamgee" (already TitleCase, preserved)
-    
+
     Args:
         name: The original name
-        
+
     Returns:
         A TitleCase normalized name (no separators)
     """
     if not name:
         return ""
-    
+
     # Check if name is already TitleCase (no separators, starts with uppercase)
     # This handles cases like "SamwiseGamgee" or "GetUser" that are already correct
     if re.match(r"^[A-Z][a-zA-Z]*$", name):
         return name
-    
+
     # Split on common separators (underscores, hyphens, spaces)
     parts = re.split(r"[_\s-]+", name)
-    
+
     # Capitalize each part and join (no separators)
     # Use capitalize() which makes first char uppercase and rest lowercase
     title_parts = [part.capitalize() for part in parts if part]
-    
+
     return "".join(title_parts)
 
 
