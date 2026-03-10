@@ -23,6 +23,9 @@ from ..constants import (
     OPENINFERENCE_SPAN_KIND,
     OUTPUT_MIME_TYPE,
     OUTPUT_VALUE,
+    GEN_AI_OPERATION_NAME,
+    GEN_AI_AGENT_NAME,
+    GenAiOperationNameValues,
     Status,
     StatusCode,
     WORKFLOW_RUN_SUPPRESSION_KEY,
@@ -110,7 +113,7 @@ class WorkflowRunWrapper:
         agent_name = agent_details.get(
             "agent.name", getattr(instance, "name", instance.__class__.__name__)
         )
-        span_name = f"{agent_name}.{workflow_name}"
+        span_name = f"invoke_agent {agent_name}"
         attributes = self._build_attributes(
             instance,
             workflow_name,
@@ -131,6 +134,7 @@ class WorkflowRunWrapper:
                 return instance_id
             except Exception as exc:  # noqa: BLE001
                 span.set_status(Status(StatusCode.ERROR, str(exc)))
+                span.set_attribute("error.type", type(exc).__qualname__)
                 span.record_exception(exc)
                 raise
 
@@ -152,15 +156,19 @@ class WorkflowRunWrapper:
         payload: Optional[Any],
         agent_details: Dict[str, Any],
     ) -> Dict[str, Any]:
+        agent_name = agent_details.get(
+            "agent.name", getattr(runner, "name", runner.__class__.__name__)
+        )
         attributes = {
             OPENINFERENCE_SPAN_KIND: AGENT,
             INPUT_MIME_TYPE: "application/json",
             OUTPUT_MIME_TYPE: "application/json",
             "workflow.name": workflow_name,
             "workflow.operation": "run",
-            "agent.name": agent_details.get(
-                "agent.name", getattr(runner, "name", runner.__class__.__name__)
-            ),
+            "agent.name": agent_name,
+            # GenAI semconv
+            GEN_AI_OPERATION_NAME: GenAiOperationNameValues.INVOKE_AGENT,
+            GEN_AI_AGENT_NAME: agent_name,
         }
         attributes[INPUT_VALUE] = safe_json_dumps(payload or {})
         for key in ("agent.role", "agent.goal", "agent.execution.max_iterations"):
@@ -204,7 +212,7 @@ class WorkflowMonitorWrapper:
         agent_name = agent_details.get(
             "agent.name", getattr(instance, "name", instance.__class__.__name__)
         )
-        span_name = f"{agent_name}.{workflow_name}.monitor"
+        span_name = f"invoke_agent {agent_name}"
         payload = _resolve_payload(arguments, args)
 
         attributes = {
@@ -214,6 +222,9 @@ class WorkflowMonitorWrapper:
             "agent.name": agent_name,
             INPUT_MIME_TYPE: "application/json",
             INPUT_VALUE: safe_json_dumps(payload or {}),
+            # GenAI semconv
+            GEN_AI_OPERATION_NAME: GenAiOperationNameValues.INVOKE_AGENT,
+            GEN_AI_AGENT_NAME: agent_name,
         }
         for key in ("agent.role", "agent.goal", "agent.execution.max_iterations"):
             if key in agent_details and agent_details[key] is not None:
@@ -240,6 +251,7 @@ class WorkflowMonitorWrapper:
                     return result
                 except Exception as exc:  # noqa: BLE001
                     span.set_status(Status(StatusCode.ERROR, str(exc)))
+                    span.set_attribute("error.type", type(exc).__qualname__)
                     span.record_exception(exc)
                     raise
 
@@ -259,6 +271,7 @@ class WorkflowMonitorWrapper:
                     return result
                 except Exception as exc:  # noqa: BLE001
                     span.set_status(Status(StatusCode.ERROR, str(exc)))
+                    span.set_attribute("error.type", type(exc).__qualname__)
                     span.record_exception(exc)
                     raise
         finally:
