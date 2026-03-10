@@ -12,6 +12,7 @@
 #
 
 import logging
+import re
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ValidationError
@@ -24,6 +25,43 @@ from dapr_agents.types import (
 from dapr_agents.types.exceptions import FunCallBuilderError
 
 logger = logging.getLogger(__name__)
+
+# OpenAI tool name pattern: ^[^\s<|\\/>]+$
+# Tool names cannot contain: spaces, <, |, \, /, >
+_OPENAI_TOOL_NAME_PATTERN = re.compile(r"[^\s<|\\/>]+")
+
+
+def sanitize_openai_tool_name(name: str) -> str:
+    """
+    Sanitize a tool name to comply with OpenAI's tool name requirements.
+
+    OpenAI requires tool names to match the pattern: ^[^\\s<|\\\\/>]+$
+    This means tool names cannot contain spaces, <, |, \\, /, or >.
+
+    Args:
+        name: The original tool name (e.g., "Samwise Gamgee", "agent<name>")
+
+    Returns:
+        A sanitized tool name with invalid characters replaced with underscores
+        (e.g., "Samwise_Gamgee", "agent_name")
+    """
+    if not name:
+        return "unnamed_tool"
+
+    # Replace invalid characters with underscores
+    sanitized = re.sub(r"[\s<|\\/>]", "_", name)
+
+    # Remove consecutive underscores
+    sanitized = re.sub(r"_+", "_", sanitized)
+
+    # Remove leading/trailing underscores
+    sanitized = sanitized.strip("_")
+
+    # Ensure it's not empty after sanitization
+    if not sanitized:
+        sanitized = "unnamed_tool"
+
+    return sanitized
 
 
 def custom_function_schema(model: BaseModel) -> Dict:
@@ -59,7 +97,8 @@ def to_openai_function_call_definition(
     which are then structured according to the OpenAI specification requirements.
 
     Args:
-        name (str): The name of the function.
+        name (str): The name of the function. Will be sanitized to comply with OpenAI's requirements
+                   (no spaces, <, |, \\, /, or > characters).
         description (str): A brief description of what the function does.
         args_schema (BaseModel): The Pydantic schema representing the function's parameters.
         use_deprecated (bool, optional): A flag to determine if the deprecated function format should be used.
@@ -70,8 +109,17 @@ def to_openai_function_call_definition(
                         it includes its type as 'function' under a tool specification; otherwise, it returns
                         the function specification alone.
     """
+    # Sanitize tool name to comply with OpenAI's requirements
+    sanitized_name = sanitize_openai_tool_name(name)
+    if sanitized_name != name:
+        logger.debug(
+            "Sanitized tool name '%s' to '%s' to comply with OpenAI requirements",
+            name,
+            sanitized_name,
+        )
+
     base_function = OAIFunctionDefinition(
-        name=name,
+        name=sanitized_name,
         description=description,
         strict=True,
         parameters=custom_function_schema(args_schema),

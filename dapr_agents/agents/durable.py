@@ -822,12 +822,27 @@ class DurableAgent(AgentBase):
                     f"Available agents: {list(agents_metadata.keys())}"
                 )
 
-            agent_appid = agent_entry["agent"]["appid"]
+            agent_meta = agent_entry.get("agent")
+            if agent_meta is None or not isinstance(agent_meta, dict):
+                raise AgentError(
+                    f"Agent '{next_agent}' has invalid agent metadata. "
+                    f"Available agents: {list(agents_metadata.keys())}"
+                )
+
+            agent_appid = agent_meta.get("appid")
+            if not agent_appid:
+                raise AgentError(
+                    f"Agent '{next_agent}' missing appid in metadata. "
+                    f"Available agents: {list(agents_metadata.keys())}"
+                )
+
+            framework = agent_meta.get("framework")
 
             _agent_tool = agent_to_tool(
                 next_agent,
                 description="",
                 target_app_id=agent_appid,
+                framework=framework,
             )
             result = yield _agent_tool(ctx=ctx, task=instruction)
 
@@ -1697,7 +1712,29 @@ class DurableAgent(AgentBase):
 
         for name, meta in agents_metadata.items():
             if not self.tool_executor.get_tool(name):
-                agent_meta = meta.get("agent", {})
+                # Defensive check: ensure meta is a dict
+                # This should not happen if get_agents_metadata validation works correctly,
+                # but we keep this as a safety check.
+                if meta is None or not isinstance(meta, dict):
+                    logger.error(
+                        "Skipping agent %s: metadata is None or not a dict. "
+                        "This indicates a bug in get_agents_metadata or corrupted registry data.",
+                        name,
+                    )
+                    continue
+
+                agent_meta = meta.get("agent")
+                # Defensive check: ensure agent_meta is a dict
+                # This should not happen if get_agents_metadata validation works correctly,
+                # but we keep this as a safety check.
+                if agent_meta is None or not isinstance(agent_meta, dict):
+                    logger.error(
+                        "Skipping agent %s: agent metadata is None or not a dict. "
+                        "This indicates a bug in get_agents_metadata or corrupted registry data.",
+                        name,
+                    )
+                    continue
+
                 framework = agent_meta.get("framework")
 
                 # For dapr-agents, check if we can get the actual workflow name
@@ -1706,7 +1743,9 @@ class DurableAgent(AgentBase):
                     # Try to get the actual workflow name if available
                     # (This would require the agent to store it in metadata, which
                     # isn't currently done, but we leave this hook for future use)
-                    workflow_name = agent_meta.get("metadata", {}).get("workflow_name")
+                    metadata_dict = agent_meta.get("metadata")
+                    if isinstance(metadata_dict, dict):
+                        workflow_name = metadata_dict.get("workflow_name")
 
                 tool = agent_to_tool(
                     name,
@@ -1762,8 +1801,31 @@ class DurableAgent(AgentBase):
             }
         lines = []
         for name, meta in agents_metadata.items():
-            role = meta["agent"].get("role", "Unknown role")
-            goal = meta["agent"].get("goal", "Unknown")
+            # Defensive check: ensure meta is a dict
+            # This should not happen if get_agents_metadata validation works correctly,
+            # but we keep this as a safety check.
+            if meta is None or not isinstance(meta, dict):
+                logger.error(
+                    "Skipping agent %s in team members: metadata is None or not a dict. "
+                    "This indicates a bug in get_agents_metadata or corrupted registry data.",
+                    name,
+                )
+                continue
+
+            agent_meta = meta.get("agent")
+            # Defensive check: ensure agent_meta is a dict
+            # This should not happen if get_agents_metadata validation works correctly,
+            # but we keep this as a safety check.
+            if agent_meta is None or not isinstance(agent_meta, dict):
+                logger.error(
+                    "Skipping agent %s in team members: agent metadata is None or not a dict. "
+                    "This indicates a bug in get_agents_metadata or corrupted registry data.",
+                    name,
+                )
+                continue
+
+            role = agent_meta.get("role", "Unknown role")
+            goal = agent_meta.get("goal", "Unknown")
             lines.append(f"- {name}: {role} (Goal: {goal})")
         return {
             "metadata": agents_metadata,

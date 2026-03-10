@@ -26,6 +26,7 @@ from dapr_agents.tool.workflow.agent_tool import (
     agent_workflow_id,
 )
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
+from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 
 
 class TestAgentWorkflowSuffix:
@@ -274,3 +275,40 @@ class TestAgentToTool:
             workflow="dapr.custom.framework.workflow",
             input={"task": "Plan the menu"},
         )
+
+    def test_agent_to_tool_sanitizes_name_with_spaces(self):
+        """Test that agent names with spaces are sanitized for OpenAI compatibility."""
+        tool = agent_to_tool("Samwise Gamgee", "Helper.")
+        # Tool name should be sanitized (spaces replaced with underscores)
+        assert tool.name == "Samwise_Gamgee"
+
+        # Verify the sanitized name is used in OpenAI function call format
+        function_call = tool.to_function_call()
+        assert function_call["function"]["name"] == "Samwise_Gamgee"
+
+    def test_agent_to_tool_sanitizes_name_with_special_chars(self):
+        """Test that agent names with special characters are sanitized."""
+        tool = agent_to_tool("agent<name>", "Test agent.")
+        # Special characters should be replaced with underscores
+        assert tool.name == "agent_name"
+
+        function_call = tool.to_function_call()
+        assert function_call["function"]["name"] == "agent_name"
+
+    def test_sanitize_openai_tool_name(self):
+        """Test the sanitize_openai_tool_name function directly."""
+        assert sanitize_openai_tool_name("Samwise Gamgee") == "Samwise_Gamgee"
+        assert sanitize_openai_tool_name("agent<name>") == "agent_name"
+        assert sanitize_openai_tool_name("tool|name") == "tool_name"
+        assert sanitize_openai_tool_name("tool\\name") == "tool_name"
+        assert sanitize_openai_tool_name("tool/name") == "tool_name"
+        assert sanitize_openai_tool_name("tool>name") == "tool_name"
+        assert sanitize_openai_tool_name("tool  name") == "tool_name"  # Multiple spaces
+        assert (
+            sanitize_openai_tool_name("tool___name") == "tool_name"
+        )  # Multiple underscores
+        assert (
+            sanitize_openai_tool_name("_tool_name_") == "tool_name"
+        )  # Leading/trailing
+        assert sanitize_openai_tool_name("") == "unnamed_tool"  # Empty string
+        assert sanitize_openai_tool_name("valid_name") == "valid_name"  # Already valid

@@ -694,15 +694,28 @@ class DaprInfra:
                     continue
                 agents_metadata[name] = meta
 
-            filtered = {
-                name: meta
-                for name, meta in agents_metadata.items()
-                if not (exclude_self and name == self.name)
-                and not (
-                    exclude_orchestrator
-                    and meta.get("agent", {}).get("orchestrator", False)
-                )
-            }
+            filtered = {}
+            for name, meta in agents_metadata.items():
+                # Skip self if requested
+                if exclude_self and name == self.name:
+                    continue
+
+                # Validate metadata structure - agent field must exist and be a dict
+                agent_meta = meta.get("agent") if isinstance(meta, dict) else None
+                if agent_meta is None or not isinstance(agent_meta, dict):
+                    logger.error(
+                        "Agent '%s' has invalid metadata structure: missing or invalid 'agent' field. "
+                        "This indicates corrupted registry data. Metadata: %s",
+                        name,
+                        meta,
+                    )
+                    continue
+
+                # Skip orchestrators if requested
+                if exclude_orchestrator and agent_meta.get("orchestrator", False):
+                    continue
+
+                filtered[name] = meta
             return filtered
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to retrieve agents metadata: %s", exc, exc_info=True)
