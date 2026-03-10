@@ -1324,7 +1324,7 @@ wheels = [
 
 [[package]]
 name = "dapr"
-version = "1.17.0"
+version = "1.17.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1334,9 +1334,9 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/62/bb/d9b3235e45d557bc3f79584e0ce7e08858d81959aa8722b95c32bffeacc0/dapr-1.17.0.tar.gz", hash = "sha256:918331f4b8e12cd484b1350ed4a0b379bb79148244e7e4c62d1c8770d1cbc860", size = 170812, upload-time = "2026-02-27T20:56:46.158Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/1b/70f65270a0fd8ad06b1d112a3b4523d38b3f8dd7c37e07c9206b2a2b19c6/dapr-1.17.1.tar.gz", hash = "sha256:3e555a3466dfa3e275bbe1972f4855668ad1b207874ea4c9e3634ea792cca5b1", size = 171618, upload-time = "2026-03-09T22:08:16.788Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/e9/4a15713fae156a9d25d62057c2a3a2a47efcbaa55816053fdfff5eb3f0cb/dapr-1.17.0-py3-none-any.whl", hash = "sha256:101ad9dde88c4f1a6d469ac3d84b711f6e7095298a2a72e9a239d62693553fc0", size = 241207, upload-time = "2026-02-27T20:56:43.299Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/10/89187a6bf5b8c7fd68601a6db77538d2a3f16e0d7eefea1ad49b8caa34b9/dapr-1.17.1-py3-none-any.whl", hash = "sha256:5be72b474bec81c713aaa8dfbe9940d6b80f9270527ee354e0c94f03353399b0", size = 241869, upload-time = "2026-03-09T22:08:15.41Z" },
 ]
 
 [[package]]
@@ -1424,9 +1424,9 @@ requires-dist = [
     { name = "chromadb", marker = "extra == 'vectorstore'", specifier = ">=0.4.22,<2.0.0" },
     { name = "cloudevents", specifier = ">=1.11.0,<2.0.0" },
     { name = "colorama", specifier = ">=0.4.6,<1.0.0" },
-    { name = "dapr", specifier = "==1.17.0" },
-    { name = "dapr-ext-fastapi", specifier = "==1.17" },
-    { name = "dapr-ext-workflow", specifier = "==1.17.0" },
+    { name = "dapr", specifier = "==1.17.1" },
+    { name = "dapr-ext-fastapi", specifier = "==1.17.1" },
+    { name = "dapr-ext-workflow", specifier = "==1.17.1" },
     { name = "docker", specifier = ">=7.1.0" },
     { name = "durabletask-dapr", specifier = "==0.17.1" },
     { name = "fastapi", specifier = ">=0.110.0,<1.0.0" },
@@ -1492,29 +1492,29 @@ vectorstore = [
 
 [[package]]
 name = "dapr-ext-fastapi"
-version = "1.17.0"
+version = "1.17.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dapr" },
     { name = "fastapi" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ee/3a/682c12ba154475289e43a293350fe9448d884438476a8c3a6cf9035015da/dapr_ext_fastapi-1.17.0.tar.gz", hash = "sha256:5aaf20bd92e986388c3535ba3e2edb94ca14d25c93a37bf02e6565f044c6fc05", size = 10393, upload-time = "2026-02-27T20:56:45.089Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ed/c1/515744923119435eec5d74bb90aa75b3808453581c168fbc592004ecf684/dapr_ext_fastapi-1.17.1.tar.gz", hash = "sha256:eab5fa3492c6475bd017f97d99d2927f040997b535f4a1c2ca2245331e366201", size = 10380, upload-time = "2026-03-09T22:09:55.067Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6e/3c/aefc8c75f7797d0adca4911e4ab342b8e3089c84eb8857cbbff5ded8ffd5/dapr_ext_fastapi-1.17.0-py3-none-any.whl", hash = "sha256:47d344b00562937fb82042deb66679a93b4f775b9b98db7b1faac22f724258e8", size = 10676, upload-time = "2026-02-27T20:56:43.24Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/4d/722db2254685e94993fd18b23971c247465179979bca1894238d0afc80b1/dapr_ext_fastapi-1.17.1-py3-none-any.whl", hash = "sha256:dd94620629226304bd5f3cdcfa4e1a3576acecabbea453c999d152767fecc526", size = 10677, upload-time = "2026-03-09T22:09:53.469Z" },
 ]
 
 [[package]]
 name = "dapr-ext-workflow"
-version = "1.17.0"
+version = "1.17.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dapr" },
     { name = "durabletask-dapr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/39/0a/3e3dd75f5fa26e8af525990952f95217de7e8659fe24ce2c3ce2bd112968/dapr_ext_workflow-1.17.0.tar.gz", hash = "sha256:c0703126f4e5ddecfc7b2d4e6e0ecaadfd0fb4c8723a144100c968647837b588", size = 21463, upload-time = "2026-02-27T20:56:42.946Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b5/05/a0270dd2f56cdd7c9cab7a7e625de118cc4af3a836e71a0207ef6e23c2fd/dapr_ext_workflow-1.17.1.tar.gz", hash = "sha256:c0768a6aae080665f208bc4d63977d47ca42ec62b7e210b478983c5999256987", size = 22962, upload-time = "2026-03-09T22:09:43.375Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/90/b13fc8cc854aff9dd48fbedd6540ad851a1e4540b79fef8cf25fa5ad178a/dapr_ext_workflow-1.17.0-py3-none-any.whl", hash = "sha256:b754df2b641a5c86af12befad28fc43c0d27a4860ab213ac48a780bb2a10d539", size = 28381, upload-time = "2026-02-27T20:56:42.099Z" },
+    { url = "https://files.pythonhosted.org/packages/24/81/b3e0e66ac946e4779bdb0752f28fcabed4655439b92e35773361c10a4b9c/dapr_ext_workflow-1.17.1-py3-none-any.whl", hash = "sha256:8c82c0101f6a95879fb1481f8459ae1af91d3aa3a3ad513dbe36ddc40ad6ce3d", size = 29220, upload-time = "2026-03-09T22:09:42.181Z" },
 ]
 
 [[package]]
