@@ -491,6 +491,7 @@ class DaprInfra:
             # This ensures last_message always reflects the actual last message in the filtered list
             if hasattr(entry, "last_message"):
                 entry.last_message = filtered[-1] if filtered else None
+
     def _message_dict_to_message_model(self, message: Dict[str, Any]) -> Any:
         """
         Convert a dict into the configured message model.
