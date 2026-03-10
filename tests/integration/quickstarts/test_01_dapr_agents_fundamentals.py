@@ -64,113 +64,13 @@ class TestHelloWorldQuickstart:
         assert "Response:" in result.stdout
 
     @pytest.mark.ollama
-    def test_02_agent_llm(self, dapr_runtime):  # noqa: ARG002
-        """Test agent with LLM example (02_agent_llm.py).
+    def test_02_durable_agent_http(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent HTTP example (02_durable_agent_http.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        script_path = self.quickstart_dir / "02_agent_llm.py"
-        result = run_quickstart_or_examples_script(
-            script_path,
-            cwd=self.quickstart_dir,
-            env=self.env,
-            timeout=180,
-            use_dapr=True,
-            app_id="agent-llm",
-            resources_path=self.resources_path,
-        )
-
-        assert result.returncode == 0, (
-            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
-        )
-        assert len(result.stdout) > 0 or len(result.stderr) > 0
-        # Verify agent responded
-        assert "Agent:" in result.stdout or "weather" in result.stdout.lower()
-
-    @pytest.mark.ollama
-    def test_03_agent_llm_tools(self, dapr_runtime):  # noqa: ARG002
-        """Test agent with LLM and tools example (03_agent_llm_tools.py).
-
-        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
-        The fixture is needed for setup, even though we don't use the value directly.
-        """
-        script_path = self.quickstart_dir / "03_agent_llm_tools.py"
-        result = run_quickstart_or_examples_script(
-            script_path,
-            cwd=self.quickstart_dir,
-            env=self.env,
-            timeout=180,
-            use_dapr=True,
-            app_id="agent-llm",
-            resources_path=self.resources_path,
-        )
-
-        assert result.returncode == 0, (
-            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
-        )
-        assert len(result.stdout) > 0 or len(result.stderr) > 0
-
-    def test_04_agent_mcp_tools(self, dapr_runtime):  # noqa: ARG002
-        """Test agent with MCP tools example (04_agent_mcp_tools.py)."""
-        script_path = self.quickstart_dir / "04_agent_mcp_tools.py"
-        result = run_quickstart_or_examples_script(
-            script_path,
-            cwd=self.quickstart_dir,
-            env=self.env,
-            timeout=180,
-            use_dapr=True,
-            app_id="agent-mcp",
-            resources_path=self.resources_path,
-        )
-
-        assert result.returncode == 0, (
-            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
-        )
-        assert len(result.stdout) > 0 or len(result.stderr) > 0
-
-    @pytest.mark.ollama
-    def test_05_agent_memory(self, dapr_runtime):  # noqa: ARG002
-        """Test agent with memory example (05_agent_memory.py).
-
-        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
-        The fixture is needed for setup, even though we don't use the value directly.
-        """
-        script_path = self.quickstart_dir / "05_agent_memory.py"
-        result = run_quickstart_or_examples_script(
-            script_path,
-            cwd=self.quickstart_dir,
-            env=self.env,
-            timeout=180,
-            use_dapr=True,
-            app_id="agent-memory",
-            resources_path=self.resources_path,
-        )
-
-        assert result.returncode == 0, (
-            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
-        )
-        assert len(result.stdout) > 0 or len(result.stderr) > 0
-        if not self.is_ollama:
-            # OpenAI: verify specific content about remembering the name
-            assert "John" in result.stdout or "weather" in result.stdout.lower()
-
-    @pytest.mark.ollama
-    def test_06_durable_agent_http(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent HTTP example (06_durable_agent_http.py).
-
-        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
-        The fixture is needed for setup, even though we don't use the value directly.
-        """
-        script_path = self.quickstart_dir / "06_durable_agent_http.py"
+        script_path = self.quickstart_dir / "02_durable_agent_http.py"
         result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
@@ -196,13 +96,13 @@ class TestHelloWorldQuickstart:
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 
-    def test_07_durable_agent_pubsub(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent pub/sub example (07_durable_agent_pubsub.py).
+    def test_03_durable_agent_pubsub(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent pub/sub example (03_durable_agent_pubsub.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        script_path = self.quickstart_dir / "07_durable_agent_pubsub.py"
+        script_path = self.quickstart_dir / "03_durable_agent_pubsub.py"
         result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
@@ -228,13 +128,13 @@ class TestHelloWorldQuickstart:
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 
     @pytest.mark.ollama
-    def test_08_workflow_llm(self, dapr_runtime):  # noqa: ARG002
-        """Test workflow with LLM activities example (08_workflow_llm.py).
+    def test_04_workflow_llm(self, dapr_runtime):  # noqa: ARG002
+        """Test workflow with LLM activities example (04_workflow_llm.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        script_path = self.quickstart_dir / "08_workflow_llm.py"
+        script_path = self.quickstart_dir / "04_workflow_llm.py"
         result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
@@ -258,13 +158,13 @@ class TestHelloWorldQuickstart:
             or "Final Blog Post" in result.stdout
         )
 
-    def test_09_workflow_agents(self, dapr_runtime):  # noqa: ARG002
-        """Test workflow with agent activities example (09_workflow_agents.py).
+    def test_05_workflow_agents(self, dapr_runtime):  # noqa: ARG002
+        """Test workflow with agent activities example (05_workflow_agents.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        dapr_yaml = self.quickstart_dir / "09_workflow_agents.yaml"
+        dapr_yaml = self.quickstart_dir / "05_workflow_agents.yaml"
         result = run_quickstart_or_examples_multi_app(
             dapr_yaml,
             cwd=self.quickstart_dir,
@@ -274,7 +174,7 @@ class TestHelloWorldQuickstart:
         )
 
         assert result.returncode == 0, (
-            f"Quickstart script '{dapr_yaml}' failed with return code {result.returncode}.\n"
+            f"Multi-app quickstart '{dapr_yaml}' failed with return code {result.returncode}.\n"
             f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
         combined = (result.stdout or "") + (result.stderr or "")
@@ -286,9 +186,9 @@ class TestHelloWorldQuickstart:
             f"Expected workflow output in combined stdout+stderr. Got: {combined[:500]!r}..."
         )
 
-    def test_10_durable_agent_tracing(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent tracing example (10_durable_agent_tracing.py)."""
-        script_path = self.quickstart_dir / "10_durable_agent_tracing.py"
+    def test_06_durable_agent_tracing(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent tracing example (06_durable_agent_tracing.py)."""
+        script_path = self.quickstart_dir / "06_durable_agent_tracing.py"
         result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
