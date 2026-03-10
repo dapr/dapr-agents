@@ -94,18 +94,89 @@ from dapr_agents.workflow.utils.core import sanitize_agent_name
 logger = logging.getLogger(__name__)
 
 
-def broadcast_workflow_id(agent_name: str) -> str:
-    """Return the Dapr-registered broadcast workflow name for an agent."""
-    # Sanitize agent name to comply with OpenAI requirements
-    sanitized_agent_name = sanitize_openai_tool_name(agent_name)
-    return f"dapr.agents.{sanitized_agent_name}.broadcast"
+def _get_framework_from_registry(
+    agent_name: str, infra: Optional[Any] = None
+) -> Optional[str]:
+    """Fetch framework from agent metadata in registry if available."""
+    if infra is None:
+        return None
+    try:
+        # Try to get agent metadata from registry
+        agents_metadata = infra.get_agents_metadata(exclude_self=False)
+        agent_meta = agents_metadata.get(agent_name)
+        if agent_meta and isinstance(agent_meta, dict):
+            agent_info = agent_meta.get("agent")
+            if agent_info and isinstance(agent_info, dict):
+                framework = agent_info.get("framework")
+                if framework and isinstance(framework, str):
+                    return framework
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            f"Failed to fetch framework from registry for agent '{agent_name}'",
+        )
+    return None
 
 
-def orchestration_workflow_id(agent_name: str) -> str:
-    """Return the Dapr-registered orchestration workflow name for an agent."""
+def broadcast_workflow_id(
+    agent_name: str,
+    framework: Optional[str] = None,
+    infra: Optional[Any] = None,
+) -> str:
+    """Return the Dapr-registered broadcast workflow name for an agent.
+
+    Args:
+        agent_name: Name of the agent.
+        framework: Optional framework name. If not provided, attempts to fetch from registry.
+        infra: Optional infrastructure instance to fetch framework from registry.
+
+    Returns:
+        Workflow name in format: dapr.{framework}.{agent_name}.broadcast
+        Defaults to "agents" if framework cannot be determined.
+    """
     # Sanitize agent name to comply with OpenAI requirements
     sanitized_agent_name = sanitize_openai_tool_name(agent_name)
-    return f"dapr.agents.{sanitized_agent_name}.orchestration"
+
+    # Determine framework: use provided, fetch from registry, or default to "agents"
+    if framework is None:
+        framework = _get_framework_from_registry(agent_name, infra)
+    if framework is None:
+        framework = "agents"
+
+    # Sanitize framework name for use in workflow IDs
+    sanitized_framework = sanitize_agent_name(framework.lower())
+
+    return f"dapr.{sanitized_framework}.{sanitized_agent_name}.broadcast"
+
+
+def orchestration_workflow_id(
+    agent_name: str,
+    framework: Optional[str] = None,
+    infra: Optional[Any] = None,
+) -> str:
+    """Return the Dapr-registered orchestration workflow name for an agent.
+
+    Args:
+        agent_name: Name of the agent.
+        framework: Optional framework name. If not provided, attempts to fetch from registry.
+        infra: Optional infrastructure instance to fetch framework from registry.
+
+    Returns:
+        Workflow name in format: dapr.{framework}.{agent_name}.orchestration
+        Defaults to "agents" if framework cannot be determined.
+    """
+    # Sanitize agent name to comply with OpenAI requirements
+    sanitized_agent_name = sanitize_openai_tool_name(agent_name)
+
+    # Determine framework: use provided, fetch from registry, or default to "agents"
+    if framework is None:
+        framework = _get_framework_from_registry(agent_name, infra)
+    if framework is None:
+        framework = "agents"
+
+    # Sanitize framework name for use in workflow IDs
+    sanitized_framework = sanitize_agent_name(framework.lower())
+
+    return f"dapr.{sanitized_framework}.{sanitized_agent_name}.orchestration"
 
 
 class DurableAgent(AgentBase):
@@ -315,7 +386,7 @@ class DurableAgent(AgentBase):
     @property
     def broadcast_workflow_name(self) -> str:
         """Dapr-registered name of this agent's broadcast workflow."""
-        return broadcast_workflow_id(self.name)
+        return broadcast_workflow_id(self.name, infra=self._infra)
 
     # ------------------------------------------------------------------
     # Workflows / Activities
@@ -386,7 +457,7 @@ class DurableAgent(AgentBase):
                     )
 
                 final_message = yield ctx.call_child_workflow(
-                    workflow=orchestration_workflow_id(self.name),
+                    workflow=orchestration_workflow_id(self.name, infra=self._infra),
                     input={
                         "task": task,
                         "instance_id": ctx.instance_id,
@@ -2370,7 +2441,7 @@ class DurableAgent(AgentBase):
             runtime.register_workflow(
                 self._named(
                     self.orchestration_workflow,
-                    orchestration_workflow_id(self.name),
+                    orchestration_workflow_id(self.name, infra=self._infra),
                 )
             )
 
