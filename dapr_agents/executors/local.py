@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 """Local executor that runs Python or shell snippets in cached virtual-envs."""
 
 import asyncio
@@ -12,7 +25,7 @@ from typing import Any, Callable, List, Sequence, Union
 
 from pydantic import Field, PrivateAttr
 
-from dapr_agents.executors import CodeExecutorBase
+from dapr_agents.executors.base import CodeExecutorBase
 from dapr_agents.executors.sandbox import detect_backend, wrap_command, SandboxType
 from dapr_agents.executors.utils.package_manager import (
     get_install_command,

@@ -1,13 +1,27 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import re
 from importlib.metadata import version
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
-
+from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
     GetMetadataResponse,
@@ -42,6 +56,8 @@ from dapr_agents.agents.configs import (
     validate_max_iterations,
     validate_non_empty_string,
     validate_tool_choice,
+    validate_otel_exporter_tracing,
+    validate_otel_exporter_logging,
 )
 from dapr_agents.agents.prompting import AgentProfileConfig, PromptingAgentBase
 from dapr_agents.agents.utils.text_printer import ColorTextFormatter
@@ -198,6 +214,64 @@ class AgentBase:
                 else None
             ),
         ),
+        # OTel fields — setters mutate self._agent_observability
+        RuntimeConfigKey.OTEL_SDK_DISABLED: ConfigFieldDescriptor(
+            target_type=bool,
+            setter=lambda agent, v: setattr(
+                agent._agent_observability, "enabled", not v
+            ),
+            triggers_otel_reload=True,
+        ),
+        RuntimeConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
+            target_type=str,
+            setter=lambda agent, v: setattr(agent._agent_observability, "endpoint", v),
+            triggers_otel_reload=True,
+        ),
+        RuntimeConfigKey.OTEL_EXPORTER_OTLP_HEADERS: ConfigFieldDescriptor(
+            target_type=str,
+            setter=lambda agent, v: setattr(
+                agent._agent_observability, "auth_token", v
+            ),
+            sensitive=True,
+            triggers_otel_reload=True,
+        ),
+        RuntimeConfigKey.OTEL_SERVICE_NAME: ConfigFieldDescriptor(
+            target_type=str,
+            setter=lambda agent, v: setattr(
+                agent._agent_observability, "service_name", v
+            ),
+            triggers_otel_reload=True,
+        ),
+        RuntimeConfigKey.OTEL_TRACING_ENABLED: ConfigFieldDescriptor(
+            target_type=bool,
+            setter=lambda agent, v: setattr(
+                agent._agent_observability, "tracing_enabled", v
+            ),
+            triggers_otel_reload=True,
+        ),
+        RuntimeConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
+            target_type=str,
+            setter=lambda agent, v: setattr(
+                agent._agent_observability, "tracing_exporter", AgentTracingExporter(v)
+            ),
+            validator=validate_otel_exporter_tracing,
+            triggers_otel_reload=True,
+        ),
+        RuntimeConfigKey.OTEL_LOGGING_ENABLED: ConfigFieldDescriptor(
+            target_type=bool,
+            setter=lambda agent, v: setattr(
+                agent._agent_observability, "logging_enabled", v
+            ),
+            triggers_otel_reload=True,
+        ),
+        RuntimeConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
+            target_type=str,
+            setter=lambda agent, v: setattr(
+                agent._agent_observability, "logging_exporter", AgentLoggingExporter(v)
+            ),
+            validator=validate_otel_exporter_logging,
+            triggers_otel_reload=True,
+        ),
     }
 
     def __init__(
@@ -277,7 +351,9 @@ class AgentBase:
 
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
-        self._agent_observability = agent_observability
+        self._agent_observability = agent_observability or AgentObservabilityConfig()
+        self._otel_logging_handler = None
+        self.instrumentor = None
         self.configuration = configuration
         self._subscription_id: Optional[str] = None
         self.appid = (
@@ -683,6 +759,7 @@ class AgentBase:
 
     def _config_handler(self, config_id: str, response: ConfigurationResponse) -> None:
         """Handler for configuration updates."""
+        needs_otel_reload = False
         try:
             for key, item in response.items.items():
                 logger.info("Received configuration update for key: %s", key)
@@ -691,24 +768,33 @@ class AgentBase:
                     data = json.loads(item.value)
                     if isinstance(data, dict):
                         for k, v in data.items():
-                            self._apply_config_update(k, v)
+                            if self._apply_config_update(k, v):
+                                needs_otel_reload = True
                         continue
                 except (json.JSONDecodeError, TypeError):
                     pass
 
                 # Otherwise treat as a single key-value pair.
-                self._apply_config_update(key, item.value)
+                if self._apply_config_update(key, item.value):
+                    needs_otel_reload = True
         except Exception as e:
             logger.error(
                 "Error in configuration handler for agent %s: %s", self.name, e
             )
 
+        if needs_otel_reload:
+            self._reload_observability()
+
     # ------------------------------------------------------------------
     # Config update application
     # ------------------------------------------------------------------
 
-    def _apply_config_update(self, key: str, value: Any) -> None:
-        """Apply a configuration update to the agent state."""
+    def _apply_config_update(self, key: str, value: Any) -> bool:
+        """Apply a configuration update to the agent state.
+
+        Returns:
+            True if the update triggers an OTel reload, False otherwise.
+        """
         normalized_key = key.lower().replace("-", "_")
         descriptor = self._CONFIG_FIELD_MAP.get(normalized_key)
 
@@ -716,7 +802,7 @@ class AgentBase:
             logger.debug(
                 "Agent %s ignoring unrecognized config key: %s", self.name, key
             )
-            return
+            return False
 
         safe_value = "***" if descriptor.sensitive else value
         logger.info(
@@ -733,7 +819,7 @@ class AgentBase:
                 key,
                 e,
             )
-            return
+            return False
 
         # Validation
         if descriptor.validator is not None:
@@ -746,7 +832,7 @@ class AgentBase:
                     key,
                     e,
                 )
-                return
+                return False
 
         # Apply via setter callback
         try:
@@ -763,6 +849,8 @@ class AgentBase:
 
         # Re-register metadata
         self._sync_metadata_after_config_update()
+
+        return descriptor.triggers_otel_reload
 
     @staticmethod
     def _coerce_config_value(value: Any, target_type: Type) -> Any:
@@ -935,6 +1023,13 @@ class AgentBase:
             return self._infra.state_store
 
     @property
+    def registry(self):
+        """Delegate to DaprInfra."""
+        if hasattr(self, "_infra"):
+            return self._infra._registry
+        return None
+
+    @property
     def _state_model(self):
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
@@ -992,11 +1087,11 @@ class AgentBase:
                 team=team,
             )
 
-    def sync_system_messages(self, instance_id, all_messages):
+    def sync_system_messages(self, instance_id, all_messages, *, entry=None):
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
             return self._infra.sync_system_messages(
-                instance_id=instance_id, all_messages=all_messages
+                instance_id=instance_id, all_messages=all_messages, entry=entry
             )
 
     def _message_dict_to_message_model(self, message):
@@ -1257,16 +1352,7 @@ class AgentBase:
         Returns:
             List of `AgentTool` or tool-spec dicts.
         """
-        llm_tools: List[Union[AgentTool, Dict[str, Any]]] = []
-        for tool in self.tools:
-            if isinstance(tool, AgentTool):
-                llm_tools.append(tool)
-            elif callable(tool):
-                try:
-                    llm_tools.append(AgentTool.from_func(tool))
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Failed to convert callable to AgentTool: %s", exc)
-        return llm_tools
+        return self.tool_executor.list_tools()
 
     def _build_profile(
         self,
@@ -1395,24 +1481,26 @@ class AgentBase:
         return None
 
     def _reconstruct_conversation_history(
-        self, instance_id: str
+        self, instance_id: str, *, entry=None
     ) -> List[AgentWorkflowMessage]:
         """
         Build a conversation history combining persistent memory and per-instance messages.
 
         Args:
             instance_id: Workflow instance identifier.
+            entry: Pre-fetched state entry; when provided, skips the internal get_state call.
 
         Returns:
             Combined message history excluding system messages from instance timeline.
         """
-        try:
-            entry = self._infra.get_state(instance_id)
-        except Exception:
-            logger.exception(
-                f"Failed to reconstruct conversation workflow history for instance_id: {instance_id}"
-            )
-            raise
+        if entry is None:
+            try:
+                entry = self._infra.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to reconstruct conversation workflow history for instance_id: {instance_id}"
+                )
+                raise
 
         return entry.messages
 
@@ -1420,6 +1508,8 @@ class AgentBase:
         self,
         instance_id: str,
         all_messages: Sequence[Dict[str, Any]],
+        *,
+        entry=None,
     ) -> None:
         """
         Persist the latest set of system messages into the instance state.
@@ -1427,34 +1517,47 @@ class AgentBase:
         Args:
             instance_id: Workflow instance id.
             all_messages: Complete message list to scan for system-role messages.
+            entry: Pre-fetched state entry; when provided, skips the internal get_state call.
         """
         # Delegate to AgentComponents logic.
-        self.sync_system_messages(instance_id=instance_id, all_messages=all_messages)
+        self.sync_system_messages(
+            instance_id=instance_id, all_messages=all_messages, entry=entry
+        )
 
     def _process_user_message(
         self,
         instance_id: str,
         task: Optional[str],
         user_message_copy: Optional[Dict[str, Any]],
+        *,
+        entry=None,
+        skip_save: bool = False,
     ) -> None:
         """
-        Append a user message into the instance timeline and memory, and persist state.
+        Append a user message into the instance timeline and memory.
+
+        When *entry* is provided the caller owns the save; no state is fetched
+        or persisted here.  When *entry* is ``None`` the legacy behaviour
+        (fetch + save) is preserved for backward compatibility.
 
         Args:
             instance_id: Workflow instance id.
             task: Optional task string; if missing, no-op.
             user_message_copy: Message dict to append.
+            entry: Pre-fetched state entry; when provided, skips the internal get_state call.
+            skip_save: When True, skip the save_state call (caller is responsible for saving).
         """
         if not task or not user_message_copy:
             return
 
-        try:
-            entry = self._infra.get_state(instance_id)
-        except Exception:
-            logger.exception(
-                f"Failed to get workflow state for instance_id to process user message: {instance_id}"
-            )
-            raise
+        if entry is None:
+            try:
+                entry = self._infra.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to get workflow state for instance_id to process user message: {instance_id}"
+                )
+                raise
 
         if entry is not None and hasattr(entry, "messages"):
             # Use configured coercer / message model
@@ -1467,27 +1570,42 @@ class AgentBase:
             if hasattr(entry, "last_message"):
                 entry.last_message = message_model  # type: ignore[attr-defined]
 
-        self.save_state(instance_id)
+        if not skip_save:
+            self.save_state(instance_id)
 
     def _save_assistant_message(
-        self, instance_id: str, assistant_message: Dict[str, Any]
+        self,
+        instance_id: str,
+        assistant_message: Dict[str, Any],
+        *,
+        entry=None,
+        skip_save: bool = False,
     ) -> None:
         """
-        Append an assistant message into the instance timeline and memory, and persist state.
+        Append an assistant message into the instance timeline and memory.
+
+        When *entry* is provided the caller owns the save; no state is fetched
+        or persisted here.  When *entry* is ``None`` the legacy behaviour
+        (fetch + save) is preserved for backward compatibility.
 
         Args:
             instance_id: Workflow instance id.
             assistant_message: Assistant message dict (will be tagged with agent name).
+            entry: Pre-fetched state entry; when provided, skips the internal get_state call.
+            skip_save: When True, skip the save_state call (caller is responsible for saving).
         """
-        assistant_message["name"] = self.name
+        # Sanitize agent name to comply with OpenAI's message name requirements
+        # OpenAI requires message names to match pattern: ^[^\\s<|\\\\/>]+$
+        assistant_message["name"] = sanitize_openai_tool_name(self.name)
 
-        try:
-            entry = self._infra.get_state(instance_id)
-        except Exception:
-            logger.exception(
-                f"Failed to get workflow state for instance_id: {instance_id}"
-            )
-            raise
+        if entry is None:
+            try:
+                entry = self._infra.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to get workflow state for instance_id: {instance_id}"
+                )
+                raise
 
         if entry is not None and hasattr(entry, "messages"):
             message_id = assistant_message.get("id")
@@ -1507,7 +1625,8 @@ class AgentBase:
                 if hasattr(entry, "last_message"):
                     entry.last_message = message_model  # type: ignore[attr-defined]
 
-        self.save_state(instance_id)
+        if not skip_save:
+            self.save_state(instance_id)
 
     # ------------------------------------------------------------------
     # Small convenience wrappers
@@ -1536,12 +1655,21 @@ class AgentBase:
     # ------------------------------------------------------------------
     @staticmethod
     def _coerce_datetime(value: Optional[Any]) -> datetime:
-        """Coerce strings/None to a timezone-aware UTC datetime."""
+        """
+        Coerce strings/None to a timezone-aware UTC datetime.
+
+        Args:
+            value: Source value (datetime | str | None).
+
+        Returns:
+            A timezone-aware UTC datetime. If a naive datetime is provided, UTC is assumed.
+        """
         if isinstance(value, datetime):
-            return value
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
         if isinstance(value, str):
             try:
-                return datetime.fromisoformat(value)
+                dt = datetime.fromisoformat(value)
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
             except ValueError:
                 pass
         return datetime.now(timezone.utc)
@@ -1682,99 +1810,16 @@ class AgentBase:
         self._setup_agent_observability(self._agent_observability)
 
     def _setup_agent_observability(self, config: AgentObservabilityConfig) -> None:
-        """
-        Setup agent runtime configuration.
-        """
+        """Setup agent runtime configuration."""
+        self._otel_logging_handler = None
 
-        # OTel setup
         if config.enabled:
-            # Set resource name for tracing and logging
-            resource = Resource(
-                attributes={
-                    "service.name": config.service_name
-                    or self.name.replace(" ", "-").lower()
-                }
-            )
+            tracer_provider, logger_provider = self._build_otel_providers(config)
 
-            otlp_headers: dict[str, str] = config.headers or {}
-
-            otel_token = config.auth_token
-            if otel_token != "":
-                otlp_headers["authorization"] = f"Bearer {otel_token}"
-
-            _endpoint = config.endpoint or ""
-
-            logger_provider = None
-            if config.logging_enabled:
-                logger_provider = LoggerProvider(resource=resource)
-
-                _exporter = config.logging_exporter
-                if _endpoint == "" and _exporter != "console":
-                    raise ValueError(
-                        "OTEL_ENDPOINT must be set when OTEL_LOGGING_EXPORTER is not 'console'"
-                    )
-
-                match _exporter:
-                    case AgentLoggingExporter.OTLP_GRPC:
-                        log_processor = BatchLogRecordProcessor(
-                            OTLPGrpcLogExporter(
-                                endpoint=_endpoint, headers=otlp_headers
-                            )
-                        )
-                    case AgentLoggingExporter.OTLP_HTTP:
-                        log_processor = BatchLogRecordProcessor(
-                            OTLPHTTPLogExporter(
-                                endpoint=f"{_endpoint}/v1/logs"
-                                if "/v1/logs" not in _endpoint
-                                else _endpoint,
-                                headers=otlp_headers,
-                            )
-                        )
-                    case _:
-                        log_processor = BatchLogRecordProcessor(
-                            ConsoleLogRecordExporter()
-                        )
-
-                logger_provider.add_log_record_processor(log_processor)
-                handler = LoggingHandler(
-                    level=logging.NOTSET, logger_provider=logger_provider
-                )
-                logging.getLogger().addHandler(handler)
+            # Set global providers once (OTel SDK only allows this once per process)
+            if logger_provider is not None:
                 _logs.set_logger_provider(logger_provider)
-
-            tracer_provider = None
-            if config.tracing_enabled:
-                tracer_provider = TracerProvider(resource=resource)
-
-                _exporter = config.tracing_exporter
-                if _endpoint == "" and _exporter != "console":
-                    raise ValueError(
-                        "OTEL_ENDPOINT must be set when OTEL_TRACING_EXPORTER is not 'console'"
-                    )
-
-                match _exporter:
-                    case AgentTracingExporter.OTLP_GRPC:
-                        tracing_exporter = OTLPGrpcSpanExporter(
-                            endpoint=_endpoint, headers=otlp_headers
-                        )
-                    case AgentTracingExporter.OTLP_HTTP:
-                        tracing_exporter = OTLPHTTPSpanExporter(
-                            endpoint=f"{_endpoint}/v1/traces"
-                            if "/v1/traces" not in _endpoint
-                            else _endpoint,
-                            headers=otlp_headers,
-                        )
-                    case AgentTracingExporter.ZIPKIN:
-                        tracing_exporter = ZipkinExporter(
-                            endpoint=f"{_endpoint}/api/v2/spans"
-                            if "/api/v2/spans" not in _endpoint
-                            else _endpoint
-                        )
-                    case _:
-                        tracing_exporter = ConsoleSpanExporter()
-
-                span_processor = BatchSpanProcessor(tracing_exporter)
-                tracer_provider.add_span_processor(span_processor)
+            if tracer_provider is not None:
                 trace.set_tracer_provider(tracer_provider)
 
             self.instrumentor = DaprAgentsInstrumentor()
@@ -1782,3 +1827,172 @@ class AgentBase:
                 tracer_provider=tracer_provider,
                 logger_provider=logger_provider,
             )
+
+    def _build_otel_providers(self, config: AgentObservabilityConfig) -> tuple:
+        """Build OTel tracer and logger providers from config.
+
+        Returns:
+            (tracer_provider, logger_provider) — either may be None if
+            the corresponding feature is disabled.
+        """
+        resource = Resource(
+            attributes={
+                "service.name": config.service_name
+                or self.name.replace(" ", "-").lower()
+            }
+        )
+
+        otlp_headers: dict[str, str] = dict(config.headers or {})
+
+        otel_token = config.auth_token
+        if otel_token and otel_token != "":
+            otlp_headers["authorization"] = f"Bearer {otel_token}"
+
+        _endpoint = config.endpoint or ""
+
+        # --- Logger provider ---
+        logger_provider = None
+        if config.logging_enabled:
+            logger_provider = LoggerProvider(resource=resource)
+
+            _exporter = config.logging_exporter
+            if _endpoint == "" and _exporter != "console":
+                raise ValueError(
+                    "OTEL_ENDPOINT must be set when OTEL_LOGGING_EXPORTER is not 'console'"
+                )
+
+            match _exporter:
+                case AgentLoggingExporter.OTLP_GRPC:
+                    log_processor = BatchLogRecordProcessor(
+                        OTLPGrpcLogExporter(endpoint=_endpoint, headers=otlp_headers)
+                    )
+                case AgentLoggingExporter.OTLP_HTTP:
+                    log_processor = BatchLogRecordProcessor(
+                        OTLPHTTPLogExporter(
+                            endpoint=f"{_endpoint}/v1/logs"
+                            if "/v1/logs" not in _endpoint
+                            else _endpoint,
+                            headers=otlp_headers,
+                        )
+                    )
+                case _:
+                    log_processor = BatchLogRecordProcessor(ConsoleLogRecordExporter())
+
+            logger_provider.add_log_record_processor(log_processor)
+
+            # Remove old logging handler before adding new one
+            if self._otel_logging_handler is not None:
+                logging.getLogger().removeHandler(self._otel_logging_handler)
+
+            handler = LoggingHandler(
+                level=logging.NOTSET, logger_provider=logger_provider
+            )
+            logging.getLogger().addHandler(handler)
+            self._otel_logging_handler = handler
+
+        # --- Tracer provider ---
+        tracer_provider = None
+        if config.tracing_enabled:
+            tracer_provider = TracerProvider(resource=resource)
+
+            _exporter = config.tracing_exporter
+            if _endpoint == "" and _exporter != "console":
+                raise ValueError(
+                    "OTEL_ENDPOINT must be set when OTEL_TRACING_EXPORTER is not 'console'"
+                )
+
+            match _exporter:
+                case AgentTracingExporter.OTLP_GRPC:
+                    tracing_exporter = OTLPGrpcSpanExporter(
+                        endpoint=_endpoint, headers=otlp_headers
+                    )
+                case AgentTracingExporter.OTLP_HTTP:
+                    tracing_exporter = OTLPHTTPSpanExporter(
+                        endpoint=f"{_endpoint}/v1/traces"
+                        if "/v1/traces" not in _endpoint
+                        else _endpoint,
+                        headers=otlp_headers,
+                    )
+                case AgentTracingExporter.ZIPKIN:
+                    tracing_exporter = ZipkinExporter(
+                        endpoint=f"{_endpoint}/api/v2/spans"
+                        if "/api/v2/spans" not in _endpoint
+                        else _endpoint
+                    )
+                case _:
+                    tracing_exporter = ConsoleSpanExporter()
+
+            span_processor = BatchSpanProcessor(tracing_exporter)
+            tracer_provider.add_span_processor(span_processor)
+
+        return tracer_provider, logger_provider
+
+    def _reload_observability(self) -> None:
+        """Reload OTel providers after config change, without re-wrapping methods."""
+        config = self._agent_observability
+        if config is None:
+            return
+
+        # Capture old providers for later shutdown
+        old_tracer_provider = trace.get_tracer_provider()
+        old_logger_provider = _logs.get_logger_provider()
+
+        if not config.enabled:
+            # OTel disabled — swap wrappers to NoOp tracer, then shutdown old
+            if hasattr(self, "instrumentor") and self.instrumentor is not None:
+                noop_tracer_provider = trace.get_tracer_provider()
+                noop_logger_provider = _logs.get_logger_provider()
+                self.instrumentor.update_providers(
+                    tracer_provider=noop_tracer_provider,
+                    logger_provider=noop_logger_provider,
+                )
+            self._shutdown_otel_providers(old_tracer_provider, old_logger_provider)
+            logger.info("Agent %s: OTel disabled via hot-reload", self.name)
+            return
+
+        try:
+            tracer_provider, logger_provider = self._build_otel_providers(config)
+        except Exception as e:
+            logger.error(
+                "Agent %s: failed to build new OTel providers: %s", self.name, e
+            )
+            return
+
+        if hasattr(self, "instrumentor") and self.instrumentor is not None:
+            # Update existing wrappers with new providers
+            self.instrumentor.update_providers(
+                tracer_provider=tracer_provider,
+                logger_provider=logger_provider,
+            )
+        else:
+            # OTel was never enabled before — create fresh instrumentor
+            self.instrumentor = DaprAgentsInstrumentor()
+            self.instrumentor.instrument(
+                tracer_provider=tracer_provider,
+                logger_provider=logger_provider,
+            )
+
+        # Shutdown old providers (flushes pending spans/logs)
+        self._shutdown_otel_providers(old_tracer_provider, old_logger_provider)
+        logger.info("Agent %s: OTel providers reloaded via hot-reload", self.name)
+
+    @staticmethod
+    def _shutdown_otel_providers(tracer_provider, logger_provider) -> None:
+        """Flush and shutdown old OTel providers."""
+        if tracer_provider is not None:
+            try:
+                if hasattr(tracer_provider, "force_flush"):
+                    tracer_provider.force_flush(timeout_millis=5000)
+                if hasattr(tracer_provider, "shutdown"):
+                    tracer_provider.shutdown()
+            except Exception:  # noqa: BLE001
+                logger.debug("Error shutting down old tracer provider", exc_info=True)
+
+        if logger_provider is not None:
+            try:
+                if hasattr(logger_provider, "force_flush"):
+                    logger_provider.force_flush(timeout_millis=5000)
+                if hasattr(logger_provider, "shutdown"):
+                    logger_provider.shutdown()
+            except Exception:  # noqa: BLE001
+                logger.debug("Error shutting down old logger provider", exc_info=True)

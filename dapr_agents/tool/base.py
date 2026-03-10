@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import annotations
 
 import inspect
@@ -15,7 +28,10 @@ from pydantic import (
 )
 from mcp.types import CallToolResult, TextContent
 from dapr_agents.tool.utils.tool import ToolHelper
-from dapr_agents.tool.utils.function_calling import to_function_call_definition
+from dapr_agents.tool.utils.function_calling import (
+    sanitize_openai_tool_name,
+    to_function_call_definition,
+)
 from dapr_agents.types import ToolError
 
 if TYPE_CHECKING:
@@ -306,7 +322,10 @@ class AgentTool(BaseModel):
         """
         Handles post-initialization logic for both class-based and function-based tools.
         """
-        self.name = self.name.replace(" ", "_").title().replace("_", "")
+        # Sanitize tool name to comply with OpenAI requirements: ^[^\s<|\\/>]+$
+        # This ensures the name matches what will be sent to OpenAI API
+        # The sanitization is idempotent, so it's safe to call even if already sanitized
+        self.name = sanitize_openai_tool_name(self.name)
 
         if self.func:
             self._is_async = inspect.iscoroutinefunction(self.func)

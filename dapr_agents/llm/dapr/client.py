@@ -1,9 +1,24 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from dapr_agents.types.llm import DaprInferenceClientConfig
 from dapr_agents.llm.base import LLMClientBase
 from dapr.clients import DaprClient
 from dapr.clients.grpc import conversation as dapr_conversation
 from typing import Dict, Any, List, Optional
 from pydantic import model_validator
+from google.protobuf import json_format
+from google.protobuf.struct_pb2 import Struct as GrpcStruct
 
 import json
 import logging
@@ -53,6 +68,7 @@ class DaprInferenceClient:
         tool_choice: Optional[str] = None,
         context_id: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Invoke Dapr Conversation API Alpha2 with optional tool-calling support and
@@ -61,10 +77,10 @@ class DaprInferenceClient:
         conv_tools = self._convert_openai_tools_to_conversation_tools(tools)
 
         # TODO: Remove when langchaningo is updated in contrib to latest version with a fix for openai-like temperature
-        if not temperature:
+        if temperature is None:
             temperature = 1
 
-        response_alpha2 = self.dapr_client.converse_alpha2(
+        kwargs: Dict[str, Any] = dict(
             name=llm,
             inputs=inputs,
             context_id=context_id,
@@ -74,6 +90,12 @@ class DaprInferenceClient:
             tools=conv_tools,
             tool_choice=tool_choice,
         )
+        if response_format is not None:
+            kwargs["response_format"] = json_format.ParseDict(
+                response_format, GrpcStruct()
+            )
+
+        response_alpha2 = self.dapr_client.converse_alpha2(**kwargs)
 
         outputs: List[Dict[str, Any]] = []
         for output in getattr(response_alpha2, "outputs", []) or []:

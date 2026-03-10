@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import annotations
 
 import logging
@@ -115,6 +128,7 @@ class DaprInfra:
 
         self._state_default_model: BaseModel = self._default_entry_model()
         self._state_model: BaseModel = self._state_default_model.model_copy(deep=True)
+        self._last_etag: Optional[str] = None
 
         # -----------------------------
         # Registry configuration
@@ -223,6 +237,8 @@ class DaprInfra:
         sets it as the current in-memory state (so a subsequent save_state persists it),
         and returns it. Callers should mutate the returned model and then call save_state.
 
+        The etag is cached so that a subsequent save_state can skip an extra load.
+
         Args:
             workflow_instance_id: The ID of the workflow instance to get the state for.
 
@@ -236,10 +252,13 @@ class DaprInfra:
             return self._state_model
 
         key = f"{self.state_key_prefix}_{workflow_instance_id}".lower()
-        snapshot = self.state_store.load(
+        meta = self._state_metadata_for_key(key)
+        snapshot, etag = self.state_store.load_with_etag(
             key=key,
             default=self._initial_state(),
+            state_metadata=meta,
         )
+        self._last_etag = etag
         try:
             if isinstance(snapshot, dict):
                 entry = self._entry_model_cls.model_validate(snapshot)
@@ -274,33 +293,48 @@ class DaprInfra:
         meta = self._state_metadata_for_key(key)
         attempts = max(1, min(self._max_etag_attempts, 10))
 
-        # Ensure the state document exists so we can get a concrete ETag.
-        try:
-            current, etag = self.state_store.load_with_etag(
-                key=key,
-                default=self._initial_state(),
-                state_metadata=meta,
-            )
-            if etag is None:
-                # Initialize to get an etag
-                self.state_store.save(
-                    key=key,
-                    value=current if isinstance(current, dict) else self.state,
-                    etag=None,
-                    state_metadata=meta,
-                    state_options=self._save_options,
-                )
-        except Exception:
-            logger.exception("Failed to initialize state document for key '%s'.", key)
-            # Best-effort attempt to proceed; if this fails below, we'll log again.
+        # Use the cached etag from a prior get_state when available to avoid
+        # an extra round-trip.  Falls back to load_with_etag on the first
+        # attempt when no cached etag exists, and always on retries.
+        etag = self._last_etag
+        self._last_etag = None  # consume; stale after save
 
-        for attempt in range(1, attempts + 1):
+        if etag is None:
+            # No cached etag — ensure the document exists so we get one.
             try:
-                _, etag = self.state_store.load_with_etag(
+                current, etag = self.state_store.load_with_etag(
                     key=key,
                     default=self._initial_state(),
                     state_metadata=meta,
                 )
+                if etag is None:
+                    # Initialize to get an etag
+                    self.state_store.save(
+                        key=key,
+                        value=current if isinstance(current, dict) else self.state,
+                        etag=None,
+                        state_metadata=meta,
+                        state_options=self._save_options,
+                    )
+                    _, etag = self.state_store.load_with_etag(
+                        key=key,
+                        default=self._initial_state(),
+                        state_metadata=meta,
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to initialize state document for key '%s'.", key
+                )
+
+        for attempt in range(1, attempts + 1):
+            try:
+                if etag is None:
+                    # Shouldn't happen normally, but recover gracefully.
+                    _, etag = self.state_store.load_with_etag(
+                        key=key,
+                        default=self._initial_state(),
+                        state_metadata=meta,
+                    )
                 self.state_store.save(
                     key=key,
                     value=self.state,
@@ -322,6 +356,8 @@ class DaprInfra:
                         "Failed to persist agent state after %d attempts.", attempts
                     )
                     return
+                # Refresh etag for next retry.
+                etag = None
                 time.sleep(min(0.25 * attempt, 1.0) * (1 + random.uniform(0, 0.25)))
 
     def purge_state(self, workflow_instance_id: str) -> None:
@@ -332,7 +368,7 @@ class DaprInfra:
         and not re-raised so that callers can continue with other cleanup steps.
 
         Note: This method only removes workflow state.  To also purge long-term
-        conversation memory use AgentBase.purge() / LLMOrchestratorBase.purge(),
+        conversation memory use AgentBase.purge() / DurableAgent.purge(),
         which coordinate both workflow-state and memory cleanup in a single call.
 
         Args:
@@ -389,6 +425,8 @@ class DaprInfra:
         self,
         instance_id: str,
         all_messages: Sequence[Dict[str, Any]],
+        *,
+        entry: Optional[BaseModel] = None,
     ) -> None:
         """
         Synchronize system messages into the workflow state for a given instance.
@@ -398,16 +436,24 @@ class DaprInfra:
         Args:
             instance_id: Workflow instance identifier.
             all_messages: Full (system/user/assistant) list; only 'system' are synced.
+            entry: Pre-fetched state entry; when provided, skips the internal get_state call.
         """
-        try:
-            entry = self.get_state(instance_id)
-        except Exception:
-            logger.exception(
-                f"Failed to get workflow state for instance_id: {instance_id}"
-            )
-            raise
         if entry is None:
-            return
+            try:
+                entry = self.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to get workflow state for instance_id: {instance_id}"
+                )
+                raise
+        if entry is None:
+            try:
+                entry = self.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to get workflow state for instance_id: {instance_id}"
+                )
+                raise
 
         system_messages = [m for m in all_messages if m.get("role") == "system"]
         if not system_messages:
@@ -441,17 +487,10 @@ class DaprInfra:
                 if getattr(m, "role", None) != "system"
             ]
             entry.messages = filtered  # type: ignore[attr-defined]
-            # Fix last_message if applicable
-            if (
-                getattr(entry, "last_message", None) is not None
-                and getattr(entry.last_message, "role", None) == "system"
-            ):
-                non_system = [
-                    m
-                    for m in getattr(entry, "messages")
-                    if getattr(m, "role", None) != "system"
-                ]
-                entry.last_message = non_system[-1] if non_system else None  # type: ignore[attr-defined]
+            # Update last_message to point to the last non-system message
+            # This ensures last_message always reflects the actual last message in the filtered list
+            if hasattr(entry, "last_message"):
+                entry.last_message = filtered[-1] if filtered else None  # type: ignore[attr-defined]
 
     def _message_dict_to_message_model(self, message: Dict[str, Any]) -> Any:
         """
@@ -538,8 +577,9 @@ class DaprInfra:
         )
 
         # Step 2: Add agent name to index (ETag-protected)
+        # The retry loop handles both "create" (etag=None, first_write) and "update"
+        # (etag!=None) cases atomically, so no separate initialization step is needed.
         index_key = self._team_registry_index_key(team)
-        self._ensure_registry_initialized(key=index_key, meta=partition_meta)
 
         attempts = max(1, min(self._max_etag_attempts, 10))
         for attempt in range(1, attempts + 1):
@@ -647,15 +687,28 @@ class DaprInfra:
                     continue
                 agents_metadata[name] = meta
 
-            filtered = {
-                name: meta
-                for name, meta in agents_metadata.items()
-                if not (exclude_self and name == self.name)
-                and not (
-                    exclude_orchestrator
-                    and meta.get("agent", {}).get("orchestrator", False)
-                )
-            }
+            filtered = {}
+            for name, meta in agents_metadata.items():
+                # Skip self if requested
+                if exclude_self and name == self.name:
+                    continue
+
+                # Validate metadata structure - agent field must exist and be a dict
+                agent_meta = meta.get("agent") if isinstance(meta, dict) else None
+                if agent_meta is None or not isinstance(agent_meta, dict):
+                    logger.error(
+                        "Agent '%s' has invalid metadata structure: missing or invalid 'agent' field. "
+                        "This indicates corrupted registry data. Metadata: %s",
+                        name,
+                        meta,
+                    )
+                    continue
+
+                # Skip orchestrators if requested
+                if exclude_orchestrator and agent_meta.get("orchestrator", False):
+                    continue
+
+                filtered[name] = meta
             return filtered
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to retrieve agents metadata: %s", exc, exc_info=True)
@@ -767,28 +820,6 @@ class DaprInfra:
         meta = dict(self._base_metadata)
         meta["partitionKey"] = key
         return meta
-
-    def _ensure_registry_initialized(self, *, key: str, meta: Dict[str, str]) -> None:
-        """
-        Ensure a registry document exists to create an ETag for concurrency control.
-
-        Args:
-            key: Registry document key.
-            meta: Dapr state metadata to use for the operation.
-        """
-        current, etag = self.registry_state.load_with_etag(  # type: ignore[union-attr]
-            key=key,
-            default={},
-            state_metadata=meta,
-        )
-        if etag is None:
-            self.registry_state.save(  # type: ignore[union-attr]
-                key=key,
-                value={},
-                etag=None,
-                state_metadata=meta,
-                state_options=self._save_options,
-            )
 
     @staticmethod
     def _coerce_datetime(value: Optional[Any]) -> datetime:

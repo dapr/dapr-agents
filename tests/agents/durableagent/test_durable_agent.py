@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 # TODO(@Sicoyle): this test file is a bit of a mess, and needs to be refactored when we clean the remaining classes up.
 # Right now we have to do a bunch of patching at the class-level instead of patching at the instance-level.
 # In future, we should do dependency injection instead of patching at the class-level to make it easier to test.
@@ -27,6 +40,7 @@ from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.tool.base import AgentTool
+from dapr_agents.types import AgentError, DaprWorkflowStatus
 
 
 # We need this otherwise these tests all fail since they require Dapr to be available.
@@ -142,6 +156,7 @@ class TestDurableAgent:
         context.is_replaying = False
         context.call_activity = Mock()
         context.wait_for_external_event = Mock()
+        context.set_custom_status = Mock()
         context.current_utc_datetime = Mock()
         context.current_utc_datetime.isoformat = Mock(
             return_value="2024-01-01T00:00:00.000000"
@@ -333,7 +348,7 @@ class TestDurableAgent:
         assert instance_data.triggering_workflow_instance_id == "parent-instance-123"
 
     @pytest.mark.asyncio
-    async def test_broadcast_message_to_agents_activity(self, basic_durable_agent):
+    async def test_broadcast_to_team_activity(self, basic_durable_agent):
         """Test broadcasting message to agents activity."""
         message = {
             "type": "broadcast",
@@ -346,11 +361,11 @@ class TestDurableAgent:
 
         # The basic_durable_agent fixture doesn't have a broadcast_topic configured,
         # so this should execute without error but skip the actual broadcast
-        basic_durable_agent.broadcast_message_to_agents(mock_ctx, {"message": message})
+        basic_durable_agent.broadcast_to_team(mock_ctx, {"message": message})
         # Test passes if no exception is raised
 
     @pytest.mark.asyncio
-    async def test_send_response_back_activity(self, basic_durable_agent):
+    async def test_return_response_activity(self, basic_durable_agent):
         """Test sending response back to target agent activity."""
         response = {"content": "Test response"}
         target_agent = "TargetAgent"
@@ -364,7 +379,7 @@ class TestDurableAgent:
             "_run_asyncio_task",
             side_effect=lambda coro: coro.close(),
         ) as mock_run_task:
-            basic_durable_agent.send_response_back(
+            basic_durable_agent.return_response(
                 mock_ctx,
                 {
                     "response": response,
@@ -666,11 +681,25 @@ class TestDurableAgent:
             "function": {"name": "test_tool", "arguments": '{"arg1": "value1"}'},
         }
 
+        # Create entry with an assistant message with tool_calls
+        # Tool messages must follow an assistant message with tool_calls (OpenAI API requirement)
+        assistant_message = AgentWorkflowMessage(
+            role="assistant",
+            content="I'll help you",
+            tool_calls=[
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "test_tool", "arguments": "{}"},
+                }
+            ],
+        )
         entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
-            messages=[],
+            messages=[assistant_message],
             tool_history=[],
+            last_message=assistant_message,  # Set last_message to the assistant message
         )
         basic_durable_agent._infra._state_model = entry
 
@@ -717,22 +746,38 @@ class TestDurableAgent:
 
         # Verify messages were added to instance by save_tool_results
         entry = basic_durable_agent._state_model
-        assert len(entry.messages) == 1
-        assert entry.messages[0].role == "tool"
+        assert len(entry.messages) == 2  # Assistant message + tool message
+        # Find the tool message (last one should be the tool message)
+        tool_messages = [m for m in entry.messages if m.role == "tool"]
+        assert len(tool_messages) == 1
         assert (
-            entry.messages[0].tool_call_id == "call_123"
+            tool_messages[0].tool_call_id == "call_123"
         )  # Check tool_call_id, not the message UUID id
-        assert entry.messages[0].name == "test_tool"
+        assert tool_messages[0].name == "test_tool"
 
     def test_append_tool_message_to_instance(self, basic_durable_agent):
         """Test that tool messages are appended to instance via save_tool_results activity."""
         instance_id = "test-instance-123"
 
+        # Create entry with an assistant message with tool_calls
+        # Tool messages must follow an assistant message with tool_calls (OpenAI API requirement)
+        assistant_message = AgentWorkflowMessage(
+            role="assistant",
+            content="I'll help you",
+            tool_calls=[
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "TestToolFunc", "arguments": "{}"},
+                }
+            ],
+        )
         entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
-            messages=[],
+            messages=[assistant_message],
             tool_history=[],
+            last_message=assistant_message,  # Set last_message to the assistant message
         )
         basic_durable_agent._infra._state_model = entry
 
@@ -770,8 +815,9 @@ class TestDurableAgent:
             },
         )
 
-        # run_tool does NOT persist state, so entry should be unchanged
-        assert len(entry.messages) == 0
+        # run_tool does NOT persist state, so entry should still have only the assistant message
+        assert len(entry.messages) == 1
+        assert entry.messages[0].role == "assistant"
         assert len(entry.tool_history) == 0
 
         with (
@@ -792,21 +838,37 @@ class TestDurableAgent:
             )
 
         # Verify entry was updated with message by save_tool_results
-        assert len(entry.messages) == 1
-        assert entry.messages[0].role == "tool"
+        assert len(entry.messages) == 2  # Assistant message + tool message
+        # Find the tool message (last one should be the tool message)
+        tool_messages = [m for m in entry.messages if m.role == "tool"]
+        assert len(tool_messages) == 1
         assert (
-            entry.messages[0].tool_call_id == "call_123"
+            tool_messages[0].tool_call_id == "call_123"
         )  # Check tool_call_id, not the message UUID id
 
     def test_update_agent_memory_and_history(self, basic_durable_agent):
         """Test that memory is updated via save_tool_results activity."""
         instance_id = "test-instance-123"
 
+        # Create entry with an assistant message with tool_calls
+        # Tool messages must follow an assistant message with tool_calls (OpenAI API requirement)
+        assistant_message = AgentWorkflowMessage(
+            role="assistant",
+            content="I'll help you",
+            tool_calls=[
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "TestToolFunc", "arguments": "{}"},
+                }
+            ],
+        )
         entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
-            messages=[],
+            messages=[assistant_message],
             tool_history=[],
+            last_message=assistant_message,  # Set last_message to the assistant message
         )
         basic_durable_agent._infra._state_model = entry
 
@@ -869,9 +931,12 @@ class TestDurableAgent:
 
         # Verify tool message was persisted to state entry
         entry = basic_durable_agent._state_model
-        assert len(entry.messages) == 1
-        assert entry.messages[0].tool_call_id == "call_123"
-        assert entry.messages[0].name == "TestToolFunc"
+        assert len(entry.messages) == 2  # Assistant message + tool message
+        # Find the tool message (last one should be the tool message)
+        tool_messages = [m for m in entry.messages if m.role == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0].tool_call_id == "call_123"
+        assert tool_messages[0].name == "TestToolFunc"
 
     def test_reconstruct_conversation_history(self, basic_durable_agent):
         """Test test_reconstruct_conversation_history helper method."""
@@ -1046,9 +1111,16 @@ class TestDurableAgent:
 
         def fake_load_many(*, keys, **kwargs):
             # Only agent-a and agent-b exist; agent-stale is missing
+            # Metadata structure must have "agent" key with nested metadata
             return {
-                "agents:default:agent-a": {"name": "agent-a", "orchestrator": False},
-                "agents:default:agent-b": {"name": "agent-b", "orchestrator": False},
+                "agents:default:agent-a": {
+                    "name": "agent-a",
+                    "agent": {"name": "agent-a", "orchestrator": False},
+                },
+                "agents:default:agent-b": {
+                    "name": "agent-b",
+                    "agent": {"name": "agent-b", "orchestrator": False},
+                },
             }
 
         with (
@@ -1340,3 +1412,172 @@ class TestDurableAgent:
         assert "finalize_workflow" in activity_names, (
             f"Missing finalize_workflow in {activity_names}"
         )
+
+    def test_agent_workflow_max_iterations_sets_custom_status(
+        self, basic_durable_agent, mock_workflow_context, mock_tool
+    ):
+        """Test that set_custom_status('max_iterations_reached') is called when max iterations is reached."""
+        message = {"task": "Test task"}
+
+        # Set up agent with max_iterations=2 and register a tool
+        basic_durable_agent.execution.max_iterations = 2
+        basic_durable_agent.tool_executor.register_tool(mock_tool)
+
+        # Track call count to ensure we always return tool calls for call_llm
+        call_llm_count = 0
+
+        # Mock call_activity to return responses with tool_calls to force iterations
+        def mock_call_activity(activity, **kwargs):
+            nonlocal call_llm_count
+            # Get activity name - handle both bound methods and functions
+            if hasattr(activity, "__name__"):
+                activity_name = activity.__name__
+            elif hasattr(activity, "__func__"):
+                activity_name = activity.__func__.__name__
+            else:
+                activity_name = str(activity)
+
+            if activity_name == "call_llm":
+                call_llm_count += 1
+                # Always return tool calls to force continuation (never return final response)
+                return {
+                    "content": "I'll use a tool",
+                    "tool_calls": [
+                        {
+                            "id": f"call_{call_llm_count}",
+                            "type": "function",
+                            "function": {
+                                "name": "test_tool",
+                                "arguments": "{}",
+                            },
+                        }
+                    ],
+                    "role": "assistant",
+                }
+            elif activity_name == "run_tool":
+                return {
+                    "tool_call_id": f"call_{call_llm_count}",
+                    "content": "tool result",
+                    "role": "tool",
+                    "name": "test_tool",
+                }
+            elif activity_name == "load_tools":
+                return []  # Empty list of registered tools
+            elif activity_name in [
+                "record_initial_entry",
+                "finalize_workflow",
+                "save_tool_results",
+                "broadcast_to_team",
+                "return_response",
+                "summarize",
+            ]:
+                return None
+            return None
+
+        mock_workflow_context.call_activity = Mock(side_effect=mock_call_activity)
+
+        # Set up state
+        entry = AgentWorkflowEntry(
+            source="test_source",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        basic_durable_agent._infra._state_model = entry
+
+        with (
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
+            patch.object(basic_durable_agent, "save_state"),
+        ):
+            workflow_gen = basic_durable_agent.agent_workflow(
+                mock_workflow_context, message
+            )
+            # Consume the generator until it completes
+            result = None
+            try:
+                while True:
+                    result = workflow_gen.send(result)
+            except StopIteration:
+                pass
+
+        # Verify set_custom_status was called with "max_iterations_reached"
+        mock_workflow_context.set_custom_status.assert_called_once_with(
+            "max_iterations_reached"
+        )
+
+    def test_agent_workflow_exception_raises_agent_error(
+        self, basic_durable_agent, mock_workflow_context
+    ):
+        """Test that an exception in the workflow results in AgentError being raised."""
+        message = {"task": "Test task"}
+
+        # Mock call_activity to raise an exception
+        test_exception = RuntimeError("Test workflow failure")
+
+        def mock_call_activity(activity, **kwargs):
+            # Get activity name - handle both bound methods and functions
+            if hasattr(activity, "__name__"):
+                activity_name = activity.__name__
+            elif hasattr(activity, "__func__"):
+                activity_name = activity.__func__.__name__
+            else:
+                activity_name = str(activity)
+
+            if activity_name == "record_initial_entry":
+                return None
+            elif activity_name == "load_tools":
+                return []  # Empty list of registered tools
+            elif activity_name == "call_llm":
+                # Raise exception on LLM call
+                raise test_exception
+            elif activity_name in [
+                "broadcast_to_team",
+                "return_response",
+                "summarize",
+                "finalize_workflow",
+            ]:
+                return None
+            return None
+
+        mock_workflow_context.call_activity = Mock(side_effect=mock_call_activity)
+
+        # Set up state
+        entry = AgentWorkflowEntry(
+            source="test_source",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        basic_durable_agent._infra._state_model = entry
+
+        with (
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
+            patch.object(basic_durable_agent, "save_state"),
+        ):
+            workflow_gen = basic_durable_agent.agent_workflow(
+                mock_workflow_context, message
+            )
+            # Consume the generator until it raises AgentError
+            # The exception is caught internally, workflow continues to finalize,
+            # then AgentError is raised at the end
+            with pytest.raises(AgentError) as exc_info:
+                try:
+                    while True:
+                        next(workflow_gen)
+                except StopIteration:
+                    # Should not reach here - AgentError should be raised first
+                    pass
+
+            # Verify the exception message contains the original error and agent name
+            assert "workflow failed" in str(exc_info.value).lower()
+            assert "TestDurableAgent" in str(exc_info.value)
+            # Verify it's chained to the original exception
+            assert exc_info.value.__cause__ == test_exception

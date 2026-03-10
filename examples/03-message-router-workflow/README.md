@@ -1,3 +1,16 @@
+<!--
+Copyright 2026 The Dapr Authors
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 # Message Router Workflow (Pub/Sub → Workflow)
 
 This quickstart shows how to trigger a Dapr Workflow directly from a Pub/Sub message using the `@message_router` decorator. The decorator is applied to the workflow itself, enabling automatic message validation and workflow scheduling. Activities use direct LLM calls (with optional schema validation) to offload work to an LLM.

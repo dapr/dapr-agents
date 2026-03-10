@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import logging
 import os
 import time
@@ -263,7 +276,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         llm_component: Optional[str] = None,
         tools: Optional[List[Union[AgentTool, Dict[str, Any]]]] = None,
         response_format: Optional[Type[BaseModel]] = None,
-        structured_mode: Literal["function_call", "json"] = "function_call",
+        structured_mode: Literal["function_call", "json"] = "json",
         scrubPII: bool = False,
         temperature: Optional[float] = None,
         **kwargs: Any,
@@ -285,7 +298,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             llm_component:   Dapr component name (defaults from env).
             tools:           AgentTool or dict specifications.
             response_format: Pydantic model for structured output.
-            structured_mode: Must be "function_call" or "json".
+            structured_mode: "json" (default) or "function_call".
             scrubPII:        Obfuscate sensitive output if True.
             temperature:     Sampling temperature.
             **kwargs:        Other Dapr API parameters.
@@ -367,17 +380,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             if not llm_component:
                 llm_component = _get_llm_component(metadata)
 
-            # Extract and serialize response format parameters
+            # Extract additional API parameters (response_format is sent via the
+            # dedicated response_format field, not duplicated here)
             api_params = {}
-            if "response_format" in params:
-                try:
-                    import json
-
-                    api_params["response_format"] = json.dumps(
-                        params["response_format"]
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to serialize response_format: {e}")
             if "structured_mode" in params:
                 api_params["structured_mode"] = str(params["structured_mode"])
 
@@ -408,6 +413,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                 tools=params.get("tools"),
                 tool_choice=tool_choice_param,
                 parameters=api_params or None,
+                response_format=_to_dapr_response_format(params.get("response_format")),
             )
             normalized = self.translate_response(
                 raw, llm_component or self._llm_component
@@ -428,6 +434,30 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             structured_mode=structured_mode,
             stream=False,
         )
+
+
+def _to_dapr_response_format(
+    oai_format: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """
+    Convert an OpenAI-style response_format dict to the flat JSON schema format
+    expected by the Dapr runtime's convertToStructuredOutputDefinition.
+
+    OAI format:  {"type": "json_schema", "json_schema": {"name": ..., "description": ..., "strict": ..., "schema": {<json-schema>}}}
+    Dapr format: {<json-schema fields>, "name": ..., "description": ..., "strict": ...}
+    """
+    if oai_format is None:
+        return None
+    if oai_format.get("type") == "json_schema":
+        inner = oai_format.get("json_schema", {})
+        schema = inner.get("schema", {})
+        return {
+            **schema,
+            "name": inner.get("name", "response"),
+            "description": inner.get("description", ""),
+            "strict": inner.get("strict", False),
+        }
+    return oai_format
 
 
 def _check_dapr_runtime_support(metadata: "GetMetadataResponse"):  # noqa: F821
