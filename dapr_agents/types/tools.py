@@ -13,7 +13,7 @@
 
 from typing import Optional, List, Dict, Literal, Any
 from pydantic import BaseModel, field_validator, ValidationInfo, Field, model_validator
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 from datetime import timedelta
 from enum import Enum
@@ -191,7 +191,7 @@ class ToolExecutionRecord(BaseModel):
 
     # Timing
     started_at: datetime = Field(
-        default_factory=datetime.now,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="Timestamp when the tool execution was dispatched",
     )
     completed_at: Optional[datetime] = Field(

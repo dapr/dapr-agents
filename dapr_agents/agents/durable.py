@@ -88,23 +88,19 @@ from dapr_agents.tool.workflow.agent_tool import (
     agent_workflow_id,
 )
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
+from dapr_agents.workflow.utils.core import sanitize_agent_name
 
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_name(name: str) -> str:
-    """Sanitize an agent name for use in Dapr workflow IDs (keeps alphanumeric, hyphens, underscores)."""
-    return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
-
-
 def broadcast_workflow_id(agent_name: str) -> str:
     """Return the Dapr-registered broadcast workflow name for an agent."""
-    return f"dapr.agents.{_sanitize_name(agent_name)}.broadcast"
+    return f"dapr.agents.{sanitize_agent_name(agent_name)}.broadcast"
 
 
 def orchestration_workflow_id(agent_name: str) -> str:
     """Return the Dapr-registered orchestration workflow name for an agent."""
-    return f"dapr.agents.{_sanitize_name(agent_name)}.orchestration"
+    return f"dapr.agents.{sanitize_agent_name(agent_name)}.orchestration"
 
 
 class DurableAgent(AgentBase):
@@ -454,15 +450,35 @@ class DurableAgent(AgentBase):
                                     raise AgentError(
                                         f"Failed to decode tool arguments for '{fn_name}': {exc}"
                                     ) from exc
-                                child_instance_id = str(uuid.uuid4())
-                                workflow_tasks.append(
-                                    tool_obj(
-                                        ctx=ctx,
-                                        _source_agent=self.name,
-                                        _child_instance_id=child_instance_id,
-                                        **args,
+                                # Only pass _child_instance_id for AgentWorkflowTool instances
+                                # (agent-as-tool calls), not for other WorkflowContextInjectedTool types
+                                call_kwargs = {
+                                    "ctx": ctx,
+                                    "_source_agent": self.name,
+                                    **args,
+                                }
+                                if isinstance(tool_obj, AgentWorkflowTool):
+                                    child_instance_id = str(uuid.uuid4())
+                                    call_kwargs["_child_instance_id"] = (
+                                        child_instance_id
                                     )
-                                )
+                                    workflow_meta.append(
+                                        {
+                                            "order": idx,
+                                            "tool_call": tc,
+                                            "child_instance_id": child_instance_id,
+                                            "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                        }
+                                    )
+                                else:
+                                    workflow_meta.append(
+                                        {
+                                            "order": idx,
+                                            "tool_call": tc,
+                                            "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                        }
+                                    )
+                                workflow_tasks.append(tool_obj(**call_kwargs))
                                 workflow_meta.append(
                                     {
                                         "order": idx,
@@ -1605,13 +1621,23 @@ class DurableAgent(AgentBase):
             )
             raise
 
-        # Build the set of tool_call_ids already present in messages so we can
-        # skip duplicates on workflow replay (Dapr may re-deliver results).
+        # Build the set of tool_call_ids already present in messages and tool_history
+        # so we can skip duplicates on workflow replay (Dapr may re-deliver results).
         existing_tool_ids: set[str] = set()
         if not skip_messages and entry is not None and hasattr(entry, "messages"):
             for msg in getattr(entry, "messages"):
                 try:
                     tid = getattr(msg, "tool_call_id", None)
+                    if tid:
+                        existing_tool_ids.add(tid)
+                except Exception:
+                    pass
+        # Also check tool_history for deduplication when skip_messages=True
+        # (orchestration path) or when messages are skipped
+        if entry is not None and hasattr(entry, "tool_history"):
+            for record in getattr(entry, "tool_history", []):
+                try:
+                    tid = getattr(record, "tool_call_id", None)
                     if tid:
                         existing_tool_ids.add(tid)
                 except Exception:
@@ -1648,12 +1674,13 @@ class DurableAgent(AgentBase):
                 except json.JSONDecodeError:
                     args = {}
                 raw_dispatch = tc_info.get("dispatch_time")
-                started_at = (
-                    datetime.fromisoformat(raw_dispatch)
-                    if raw_dispatch
-                    else datetime.now(timezone.utc)
-                )
-                completed_at = datetime.now(timezone.utc)
+                if raw_dispatch:
+                    started_at = self._coerce_datetime(
+                        datetime.fromisoformat(raw_dispatch)
+                    )
+                else:
+                    started_at = self._coerce_datetime(datetime.now(timezone.utc))
+                completed_at = self._coerce_datetime(datetime.now(timezone.utc))
                 is_agent_call = tc_info.get("is_agent_call", False)
                 # For regular agent-as-tool calls, child_instance_id is the
                 # UUID we pre-generated and passed to ctx.call_child_workflow.

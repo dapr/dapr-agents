@@ -13,26 +13,21 @@
 
 import functools
 import logging
-import re
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
+from dapr_agents.workflow.utils.core import sanitize_agent_name
 
 logger = logging.getLogger(__name__)
 
 AGENT_WORKFLOW_SUFFIX = "_agent_workflow"  # kept for backward compat
 
 
-def _sanitize_name(name: str) -> str:
-    """Sanitize an agent name for use in Dapr workflow IDs (keeps alphanumeric, hyphens, underscores)."""
-    return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
-
-
 def agent_workflow_id(agent_name: str) -> str:
     """Return the Dapr-registered workflow name for an agent."""
-    return f"dapr.agents.{_sanitize_name(agent_name)}.workflow"
+    return f"dapr.agents.{sanitize_agent_name(agent_name)}.workflow"
 
 
 class AgentTaskArgs(BaseModel):
