@@ -31,31 +31,77 @@ logger = logging.getLogger(__name__)
 _OPENAI_TOOL_NAME_PATTERN = re.compile(r"[^\s<|\\/>]+")
 
 
+def _normalize_to_title_case(name: str) -> str:
+    """
+    Normalize a name to TitleCase format.
+    
+    Converts snake_case, kebab-case, and space-separated names to TitleCase.
+    Examples:
+        "get_user" -> "GetUser"
+        "get-user" -> "GetUser"
+        "get user" -> "GetUser"
+        "GetUser" -> "GetUser" (already title case, preserved)
+        "GET_USER" -> "GetUser"
+        "mixed_Case_name" -> "MixedCaseName"
+        "SamwiseGamgee" -> "SamwiseGamgee" (already TitleCase, preserved)
+    
+    Args:
+        name: The original name
+        
+    Returns:
+        A TitleCase normalized name (no separators)
+    """
+    if not name:
+        return ""
+    
+    # Check if name is already TitleCase (no separators, starts with uppercase)
+    # This handles cases like "SamwiseGamgee" or "GetUser" that are already correct
+    if re.match(r"^[A-Z][a-zA-Z]*$", name):
+        return name
+    
+    # Split on common separators (underscores, hyphens, spaces)
+    parts = re.split(r"[_\s-]+", name)
+    
+    # Capitalize each part and join (no separators)
+    # Use capitalize() which makes first char uppercase and rest lowercase
+    title_parts = [part.capitalize() for part in parts if part]
+    
+    return "".join(title_parts)
+
+
 def sanitize_openai_tool_name(name: str) -> str:
     """
-    Sanitize a tool name to comply with OpenAI's tool name requirements.
+    Sanitize a name to comply with OpenAI's name requirements.
 
-    OpenAI requires tool names to match the pattern: ^[^\\s<|\\\\/>]+$
-    This means tool names cannot contain spaces, <, |, \\, /, or >.
+    OpenAI requires names to match the pattern: ^[^\\s<|\\\\/>]+$
+    This means names cannot contain spaces, <, |, \\, /, or >.
+
+    All names (tool names, agent names, etc.) are normalized to TitleCase format,
+    removing all separators (spaces, underscores, hyphens) and capitalizing each word.
 
     Args:
-        name: The original tool name (e.g., "Samwise Gamgee", "agent<name>")
+        name: The original name (e.g., "get_user", "Samwise Gamgee", "agent<name>")
 
     Returns:
-        A sanitized tool name with invalid characters replaced with underscores
-        (e.g., "Samwise_Gamgee", "agent_name")
+        A sanitized name in TitleCase format with invalid characters removed.
+        Examples:
+            "get_user" -> "GetUser"
+            "Samwise Gamgee" -> "SamwiseGamgee"
+            "agent<name>" -> "AgentName"
     """
     if not name:
         return "unnamed_tool"
 
-    # Replace invalid characters with underscores
-    sanitized = re.sub(r"[\s<|\\/>]", "_", name)
+    # Normalize to TitleCase (converts snake_case, kebab-case, space-separated to TitleCase)
+    # This removes all separators and capitalizes each word
+    sanitized = _normalize_to_title_case(name)
 
-    # Remove consecutive underscores
-    sanitized = re.sub(r"_+", "_", sanitized)
+    if not sanitized:
+        return "unnamed_tool"
 
-    # Remove leading/trailing underscores
-    sanitized = sanitized.strip("_")
+    # Replace invalid characters (<, |, \, /, >) with empty string (remove them)
+    # Since we're already in TitleCase, we don't want to introduce underscores
+    sanitized = re.sub(r"[<|\\/>]", "", sanitized)
 
     # Ensure it's not empty after sanitization
     if not sanitized:

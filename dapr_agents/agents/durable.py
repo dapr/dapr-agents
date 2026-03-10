@@ -19,7 +19,7 @@ import json
 import logging
 from typing import Any, Dict, Iterable, List, Optional
 from os import getenv
-
+from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
 
 from dapr_agents.agents.orchestration import (
@@ -80,6 +80,7 @@ from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
+from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 from dapr_agents.tool.workflow.agent_tool import (
     AgentWorkflowTool,
     agent_to_tool,
@@ -92,12 +93,16 @@ logger = logging.getLogger(__name__)
 
 def broadcast_workflow_id(agent_name: str) -> str:
     """Return the Dapr-registered broadcast workflow name for an agent."""
-    return f"dapr.agents.{agent_name}.broadcast"
+    # Sanitize agent name to comply with OpenAI requirements
+    sanitized_agent_name = sanitize_openai_tool_name(agent_name)
+    return f"dapr.agents.{sanitized_agent_name}.broadcast"
 
 
 def orchestration_workflow_id(agent_name: str) -> str:
     """Return the Dapr-registered orchestration workflow name for an agent."""
-    return f"dapr.agents.{agent_name}.orchestration"
+    # Sanitize agent name to comply with OpenAI requirements
+    sanitized_agent_name = sanitize_openai_tool_name(agent_name)
+    return f"dapr.agents.{sanitized_agent_name}.orchestration"
 
 
 class DurableAgent(AgentBase):
@@ -1636,8 +1641,8 @@ class DurableAgent(AgentBase):
             logger.exception("Unable to load agents metadata; broadcast aborted.")
             return
 
-        message["role"] = "user"
-        message["name"] = self.name
+        # Sanitize agent name to comply with OpenAI's message name requirements        message["role"] = "user"
+        message["name"] = sanitize_openai_tool_name(self.name)
         response_message = BroadcastMessage(**message)
 
         async def _broadcast() -> None:
@@ -1673,7 +1678,8 @@ class DurableAgent(AgentBase):
             return
 
         response["role"] = "user"
-        response["name"] = self.name
+        # Sanitize agent name to comply with OpenAI's message name requirements
+        response["name"] = sanitize_openai_tool_name(self.name)
         response["workflow_instance_id"] = target_instance_id
         agent_response = AgentTaskResponse(**response)
 

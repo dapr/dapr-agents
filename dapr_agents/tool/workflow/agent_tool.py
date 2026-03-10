@@ -39,21 +39,26 @@ def agent_workflow_id(
     3. If framework is provided and not "Dapr Agents", use 'dapr.{framework}.{agent_name}.workflow'
     4. Otherwise, use the standard format: 'dapr.agents.{agent_name}.workflow'
 
+    Agent names are sanitized to comply with OpenAI's name requirements (no spaces,
+    <, |, \\, /, >) before constructing workflow names.
+
     This supports:
     - Other agentic frameworks (e.g., "dapr.openai.catering-coordinator.workflow")
     - Dapr Agents framework (e.g., "dapr.agents.catering-coordinator.workflow")
     - Explicit workflow names passed directly
 
     Args:
-        agent_name: The agent name (e.g., "catering-coordinator")
+        agent_name: The agent name (e.g., "catering-coordinator", "Samwise Gamgee")
         framework: Optional framework name (e.g., "openai", "pydantic_ai", "langgraph", "crewai").
             If None or "Dapr Agents", uses the standard dapr.agents.* format.
         workflow_name: Optional explicit workflow name. If provided, this takes precedence
             over all other parameters.
 
     Returns:
-        The Dapr-registered workflow name.
+        The Dapr-registered workflow name with sanitized agent name.
     """
+    from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
+
     # Priority 1: Explicit workflow name
     if workflow_name:
         return workflow_name
@@ -62,14 +67,18 @@ def agent_workflow_id(
     if agent_name.startswith("dapr.") and agent_name.endswith(".workflow"):
         return agent_name
 
+    # Sanitize agent name to comply with OpenAI requirements
+    # This ensures workflow names don't contain invalid characters
+    sanitized_agent_name = sanitize_openai_tool_name(agent_name)
+
     # Priority 3: Use framework if provided and not "Dapr Agents"
     if framework and framework != "Dapr Agents":
         # Normalize framework name (replace spaces/underscores with dots if needed)
         normalized_framework = framework.replace(" ", "-").replace("_", "-").lower()
-        return f"dapr.{normalized_framework}.{agent_name}.workflow"
+        return f"dapr.{normalized_framework}.{sanitized_agent_name}.workflow"
 
     # Priority 4: Default to dapr.agents.* format
-    return f"dapr.agents.{agent_name}.workflow"
+    return f"dapr.agents.{sanitized_agent_name}.workflow"
 
 
 class AgentTaskArgs(BaseModel):

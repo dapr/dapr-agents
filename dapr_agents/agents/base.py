@@ -20,7 +20,7 @@ from importlib.metadata import version
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
-
+from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
     GetMetadataResponse,
@@ -1593,7 +1593,11 @@ class AgentBase:
             entry: Pre-fetched state entry; when provided, skips the internal get_state call.
             skip_save: When True, skip the save_state call (caller is responsible for saving).
         """
-        assistant_message["name"] = self.name
+        # Sanitize agent name to comply with OpenAI's message name requirements
+        # OpenAI requires message names to match pattern: ^[^\\s<|\\\\/>]+$
+        from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
+
+        assistant_message["name"] = sanitize_openai_tool_name(self.name)
 
         if entry is None:
             try:

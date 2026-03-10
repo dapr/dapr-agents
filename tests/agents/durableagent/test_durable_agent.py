@@ -632,11 +632,25 @@ class TestDurableAgent:
             "function": {"name": "test_tool", "arguments": '{"arg1": "value1"}'},
         }
 
+        # Create entry with an assistant message with tool_calls
+        # Tool messages must follow an assistant message with tool_calls (OpenAI API requirement)
+        assistant_message = AgentWorkflowMessage(
+            role="assistant",
+            content="I'll help you",
+            tool_calls=[
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "test_tool", "arguments": "{}"},
+                }
+            ],
+        )
         entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
-            messages=[],
+            messages=[assistant_message],
             tool_history=[],
+            last_message=assistant_message,  # Set last_message to the assistant message
         )
         basic_durable_agent._infra._state_model = entry
 
@@ -683,22 +697,38 @@ class TestDurableAgent:
 
         # Verify messages were added to instance by save_tool_results
         entry = basic_durable_agent._state_model
-        assert len(entry.messages) == 1
-        assert entry.messages[0].role == "tool"
+        assert len(entry.messages) == 2  # Assistant message + tool message
+        # Find the tool message (last one should be the tool message)
+        tool_messages = [m for m in entry.messages if m.role == "tool"]
+        assert len(tool_messages) == 1
         assert (
-            entry.messages[0].tool_call_id == "call_123"
+            tool_messages[0].tool_call_id == "call_123"
         )  # Check tool_call_id, not the message UUID id
-        assert entry.messages[0].name == "test_tool"
+        assert tool_messages[0].name == "test_tool"
 
     def test_append_tool_message_to_instance(self, basic_durable_agent):
         """Test that tool messages are appended to instance via save_tool_results activity."""
         instance_id = "test-instance-123"
 
+        # Create entry with an assistant message with tool_calls
+        # Tool messages must follow an assistant message with tool_calls (OpenAI API requirement)
+        assistant_message = AgentWorkflowMessage(
+            role="assistant",
+            content="I'll help you",
+            tool_calls=[
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "TestToolFunc", "arguments": "{}"},
+                }
+            ],
+        )
         entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
-            messages=[],
+            messages=[assistant_message],
             tool_history=[],
+            last_message=assistant_message,  # Set last_message to the assistant message
         )
         basic_durable_agent._infra._state_model = entry
 
@@ -736,8 +766,9 @@ class TestDurableAgent:
             },
         )
 
-        # run_tool does NOT persist state, so entry should be unchanged
-        assert len(entry.messages) == 0
+        # run_tool does NOT persist state, so entry should still have only the assistant message
+        assert len(entry.messages) == 1
+        assert entry.messages[0].role == "assistant"
         assert len(entry.tool_history) == 0
 
         with (
@@ -758,21 +789,37 @@ class TestDurableAgent:
             )
 
         # Verify entry was updated with message by save_tool_results
-        assert len(entry.messages) == 1
-        assert entry.messages[0].role == "tool"
+        assert len(entry.messages) == 2  # Assistant message + tool message
+        # Find the tool message (last one should be the tool message)
+        tool_messages = [m for m in entry.messages if m.role == "tool"]
+        assert len(tool_messages) == 1
         assert (
-            entry.messages[0].tool_call_id == "call_123"
+            tool_messages[0].tool_call_id == "call_123"
         )  # Check tool_call_id, not the message UUID id
 
     def test_update_agent_memory_and_history(self, basic_durable_agent):
         """Test that memory is updated via save_tool_results activity."""
         instance_id = "test-instance-123"
 
+        # Create entry with an assistant message with tool_calls
+        # Tool messages must follow an assistant message with tool_calls (OpenAI API requirement)
+        assistant_message = AgentWorkflowMessage(
+            role="assistant",
+            content="I'll help you",
+            tool_calls=[
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "TestToolFunc", "arguments": "{}"},
+                }
+            ],
+        )
         entry = AgentWorkflowEntry(
             source="test_source",
             triggering_workflow_instance_id=None,
-            messages=[],
+            messages=[assistant_message],
             tool_history=[],
+            last_message=assistant_message,  # Set last_message to the assistant message
         )
         basic_durable_agent._infra._state_model = entry
 
@@ -835,9 +882,12 @@ class TestDurableAgent:
 
         # Verify tool message was persisted to state entry
         entry = basic_durable_agent._state_model
-        assert len(entry.messages) == 1
-        assert entry.messages[0].tool_call_id == "call_123"
-        assert entry.messages[0].name == "TestToolFunc"
+        assert len(entry.messages) == 2  # Assistant message + tool message
+        # Find the tool message (last one should be the tool message)
+        tool_messages = [m for m in entry.messages if m.role == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0].tool_call_id == "call_123"
+        assert tool_messages[0].name == "TestToolFunc"
 
     def test_reconstruct_conversation_history(self, basic_durable_agent):
         """Test test_reconstruct_conversation_history helper method."""
@@ -1012,9 +1062,16 @@ class TestDurableAgent:
 
         def fake_load_many(*, keys, **kwargs):
             # Only agent-a and agent-b exist; agent-stale is missing
+            # Metadata structure must have "agent" key with nested metadata
             return {
-                "agents:default:agent-a": {"name": "agent-a", "orchestrator": False},
-                "agents:default:agent-b": {"name": "agent-b", "orchestrator": False},
+                "agents:default:agent-a": {
+                    "name": "agent-a",
+                    "agent": {"name": "agent-a", "orchestrator": False},
+                },
+                "agents:default:agent-b": {
+                    "name": "agent-b",
+                    "agent": {"name": "agent-b", "orchestrator": False},
+                },
             }
 
         with (
