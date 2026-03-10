@@ -1821,91 +1821,11 @@ class AgentBase:
 
         if config.enabled:
             tracer_provider, logger_provider = self._build_otel_providers(config)
-            otlp_headers: dict[str, str] = config.headers or {}
 
-            otel_token = config.auth_token
-            if otel_token != "":
-                otlp_headers["authorization"] = f"Bearer {otel_token}"
-
-            _endpoint = config.endpoint or ""
-
-            logger_provider = None
-            if config.logging_enabled:
-                logger_provider = LoggerProvider(resource=resource)
-
-                _exporter = config.logging_exporter
-                if _endpoint == "" and _exporter != "console":
-                    raise ValueError(
-                        "OTEL_ENDPOINT must be set when OTEL_LOGGING_EXPORTER is not 'console'"
-                    )
-
-                match _exporter:
-                    case AgentLoggingExporter.OTLP_GRPC:
-                        log_processor = BatchLogRecordProcessor(
-                            OTLPGrpcLogExporter(
-                                endpoint=_endpoint, headers=otlp_headers
-                            )
-                        )
-                    case AgentLoggingExporter.OTLP_HTTP:
-                        log_processor = BatchLogRecordProcessor(
-                            OTLPHTTPLogExporter(
-                                endpoint=(
-                                    f"{_endpoint}/v1/logs"
-                                    if "/v1/logs" not in _endpoint
-                                    else _endpoint
-                                ),
-                                headers=otlp_headers,
-                            )
-                        )
-                    case _:
-                        log_processor = BatchLogRecordProcessor(
-                            ConsoleLogRecordExporter()
-                        )
-
-                logger_provider.add_log_record_processor(log_processor)
-                handler = LoggingHandler(
-                    level=logging.NOTSET, logger_provider=logger_provider
-                )
-                logging.getLogger().addHandler(handler)
+            if logger_provider is not None:
                 _logs.set_logger_provider(logger_provider)
 
-            tracer_provider = None
-            if config.tracing_enabled:
-                tracer_provider = TracerProvider(resource=resource)
-
-                _exporter = config.tracing_exporter
-                if _endpoint == "" and _exporter != "console":
-                    raise ValueError(
-                        "OTEL_ENDPOINT must be set when OTEL_TRACING_EXPORTER is not 'console'"
-                    )
-
-                match _exporter:
-                    case AgentTracingExporter.OTLP_GRPC:
-                        tracing_exporter = OTLPGrpcSpanExporter(
-                            endpoint=_endpoint, headers=otlp_headers
-                        )
-                    case AgentTracingExporter.OTLP_HTTP:
-                        tracing_exporter = OTLPHTTPSpanExporter(
-                            endpoint=(
-                                f"{_endpoint}/v1/traces"
-                                if "/v1/traces" not in _endpoint
-                                else _endpoint
-                            ),
-                            headers=otlp_headers,
-                        )
-                    case AgentTracingExporter.ZIPKIN:
-                        tracing_exporter = ZipkinExporter(
-                            endpoint=(
-                                f"{_endpoint}/api/v2/spans"
-                                if "/api/v2/spans" not in _endpoint
-                                else _endpoint
-                            )
-                        )
-                    case _:
-                        tracing_exporter = ConsoleSpanExporter()
-
-                span_processor = BatchSpanProcessor(tracing_exporter)
-                tracer_provider.add_span_processor(span_processor)
+            if tracer_provider is not None:
                 trace.set_tracer_provider(tracer_provider)
 
             self.instrumentor = DaprAgentsInstrumentor()
