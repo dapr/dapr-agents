@@ -881,7 +881,9 @@ class DurableAgent(AgentBase):
                     "instance_id": instance_id,
                     "tool_results": [
                         {
-                            "content": result.get("content", "") if isinstance(result, dict) else str(result),
+                            "content": result.get("content", "")
+                            if isinstance(result, dict)
+                            else str(result),
                             "role": "tool",
                             "name": next_agent,
                             "tool_call_id": child_instance_id,

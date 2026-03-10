@@ -149,11 +149,11 @@ class ToolExecutionStatus(str, Enum):
     TIMEOUT is a tool-specific addition for calls that exceed a deadline.
     """
 
-    PENDING = "pending"      # Dispatched but not yet started
-    RUNNING = "running"      # Currently executing
+    PENDING = "pending"  # Dispatched but not yet started
+    RUNNING = "running"  # Currently executing
     COMPLETED = "completed"  # Finished successfully
-    FAILED = "failed"        # Finished with an error
-    TIMEOUT = "timeout"      # Exceeded execution deadline
+    FAILED = "failed"  # Finished with an error
+    TIMEOUT = "timeout"  # Exceeded execution deadline
 
 
 class ToolExecutionRecord(BaseModel):
