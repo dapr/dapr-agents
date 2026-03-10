@@ -28,6 +28,7 @@ You will learn how to:
 9. **[Orchestrate multiple agents inside a workflow](#9-workflow-with-agent-activities)**
 10. **[Enable distributed tracing for agents with Zipkin](#10-durable-agent-trace-zipkin)**
 11. **[Hot-reload agent configuration at runtime](#11-durable-agent-hot-reload)**
+12. **[Configure retry policies for durable agents](#12-durable-agent-with-retry-policy)**
 
 These examples form the foundation of the Dapr Agents programming model and illustrate how LLM reasoning, tool execution, durable workflows, and agent coordination fit together.
 
@@ -446,6 +447,42 @@ The agent starts with its initial role (`Original Role`) and subscribes to the D
 * Update multiple keys at once by setting a JSON object as the configuration value.
 * Add additional keys for LLM settings (`llm_model`, `llm_provider`) to swap models at runtime.
 * For the full list of supported configuration keys, see the [hot-reload example README](../examples/09-durable-agent-hot-reload/README.md).
+
+---
+
+# 12. Durable Agent with Retry Policy
+
+This example shows how to configure a `WorkflowRetryPolicy` on a durable agent so that every workflow activity — LLM calls, tool calls, and state writes — is automatically retried with exponential backoff when a transient failure occurs. This is essential for production workloads where network hiccups, rate limits, or temporary provider outages should not crash the workflow.
+
+```bash
+uv run dapr run --app-id durable-agent-retry --resources-path resources -- python durable_agent_retry.py
+```
+
+## Expected Behavior
+
+The agent runs the same weather workflow as earlier examples, but with a custom retry policy attached. If any activity fails transiently, the workflow engine retries it according to the configured backoff schedule. Under normal conditions the output looks identical to Example 6; the difference is visible when a transient failure occurs — the workflow retries automatically instead of failing.
+
+## How This Works
+
+1. A `WorkflowRetryPolicy` is created with explicit values for all five retry knobs:
+
+   | Parameter | Default | Example Value | Description |
+   |---|---|---|---|
+   | `max_attempts` | 1 | 3 | Total attempts per activity (1 = no retries) |
+   | `initial_backoff_seconds` | 5 | 2 | Seconds before the first retry |
+   | `max_backoff_seconds` | 30 | 30 | Upper limit on the backoff interval |
+   | `backoff_multiplier` | 1.5 | 2.0 | Multiplier applied after each retry |
+   | `retry_timeout` | None | 120 | Overall timeout (seconds) for all retries |
+
+2. The policy is passed to `DurableAgent(retry_policy=...)`, which converts it into a Dapr Workflow `RetryPolicy` and attaches it to every `ctx.call_activity()` invocation inside the agent workflow.
+
+3. You can override `max_attempts` at deploy time without changing code by setting the environment variable `DAPR_API_MAX_RETRIES`. If set, its value takes precedence.
+
+## How to Extend This Example
+
+* Combine retry policies with the tracing quickstart (Example 10) to observe retry spans in Zipkin.
+* Set `DAPR_API_MAX_RETRIES=5` before running to verify the environment variable override.
+* Lower `retry_timeout` to a very small value and observe the workflow fail fast after the timeout elapses.
 
 ---
 
