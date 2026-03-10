@@ -264,6 +264,42 @@ class TestLoadTools:
         result = frodo.load_tools(ctx)
         assert result == []
 
+    def test_handles_none_metadata_gracefully(self, mock_llm):
+        """Test that load_tools handles None or invalid metadata gracefully."""
+        frodo = _make_agent("frodo", mock_llm)
+        self._with_registry(frodo)
+        ctx = MagicMock()
+
+        # Test with None metadata
+        metadata = {"sam": None}
+        with patch.object(frodo._infra, "get_agents_metadata", return_value=metadata):
+            result = frodo.load_tools(ctx)
+            # Should skip None metadata and return empty list
+            assert result == []
+            assert frodo.tool_executor.get_tool("sam") is None
+
+    def test_handles_invalid_agent_metadata_gracefully(self, mock_llm):
+        """Test that load_tools handles invalid agent metadata gracefully."""
+        frodo = _make_agent("frodo", mock_llm)
+        self._with_registry(frodo)
+        ctx = MagicMock()
+
+        # Test with missing "agent" key
+        metadata = {"sam": {"some_other_key": "value"}}
+        with patch.object(frodo._infra, "get_agents_metadata", return_value=metadata):
+            result = frodo.load_tools(ctx)
+            # Should skip invalid metadata and return empty list
+            assert result == []
+            assert frodo.tool_executor.get_tool("sam") is None
+
+        # Test with None agent metadata
+        metadata = {"sam": {"agent": None}}
+        with patch.object(frodo._infra, "get_agents_metadata", return_value=metadata):
+            result = frodo.load_tools(ctx)
+            # Should skip None agent metadata and return empty list
+            assert result == []
+            assert frodo.tool_executor.get_tool("sam") is None
+
     def test_does_not_include_self_in_discovered_tools(self, mock_llm):
         frodo = _make_agent("frodo", mock_llm)
         self._with_registry(frodo)

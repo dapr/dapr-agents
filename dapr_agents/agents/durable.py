@@ -21,7 +21,7 @@ import re
 import uuid
 from typing import Any, Dict, Iterable, List, Optional
 from os import getenv
-
+from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
 
 from dapr_agents.agents.orchestration import (
@@ -94,14 +94,89 @@ from dapr_agents.workflow.utils.core import sanitize_agent_name
 logger = logging.getLogger(__name__)
 
 
-def broadcast_workflow_id(agent_name: str) -> str:
-    """Return the Dapr-registered broadcast workflow name for an agent."""
-    return f"dapr.agents.{sanitize_agent_name(agent_name)}.broadcast"
+def _get_framework_from_registry(
+    agent_name: str, infra: Optional[Any] = None
+) -> Optional[str]:
+    """Fetch framework from agent metadata in registry if available."""
+    if infra is None:
+        return None
+    try:
+        # Try to get agent metadata from registry
+        agents_metadata = infra.get_agents_metadata(exclude_self=False)
+        agent_meta = agents_metadata.get(agent_name)
+        if agent_meta and isinstance(agent_meta, dict):
+            agent_info = agent_meta.get("agent")
+            if agent_info and isinstance(agent_info, dict):
+                framework = agent_info.get("framework")
+                if framework and isinstance(framework, str):
+                    return framework
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            f"Failed to fetch framework from registry for agent '{agent_name}'",
+        )
+    return None
 
 
-def orchestration_workflow_id(agent_name: str) -> str:
-    """Return the Dapr-registered orchestration workflow name for an agent."""
-    return f"dapr.agents.{sanitize_agent_name(agent_name)}.orchestration"
+def broadcast_workflow_id(
+    agent_name: str,
+    framework: Optional[str] = None,
+    infra: Optional[Any] = None,
+) -> str:
+    """Return the Dapr-registered broadcast workflow name for an agent.
+
+    Args:
+        agent_name: Name of the agent.
+        framework: Optional framework name. If not provided, attempts to fetch from registry.
+        infra: Optional infrastructure instance to fetch framework from registry.
+
+    Returns:
+        Workflow name in format: dapr.{framework}.{agent_name}.broadcast
+        Defaults to "agents" if framework cannot be determined.
+    """
+    # Sanitize agent name to comply with OpenAI requirements
+    sanitized_agent_name = sanitize_openai_tool_name(agent_name)
+
+    # Determine framework: use provided, fetch from registry, or default to "agents"
+    if framework is None:
+        framework = _get_framework_from_registry(agent_name, infra)
+    if framework is None:
+        framework = "agents"
+
+    # Sanitize framework name for use in workflow IDs
+    sanitized_framework = sanitize_agent_name(framework.lower())
+
+    return f"dapr.{sanitized_framework}.{sanitized_agent_name}.broadcast"
+
+
+def orchestration_workflow_id(
+    agent_name: str,
+    framework: Optional[str] = None,
+    infra: Optional[Any] = None,
+) -> str:
+    """Return the Dapr-registered orchestration workflow name for an agent.
+
+    Args:
+        agent_name: Name of the agent.
+        framework: Optional framework name. If not provided, attempts to fetch from registry.
+        infra: Optional infrastructure instance to fetch framework from registry.
+
+    Returns:
+        Workflow name in format: dapr.{framework}.{agent_name}.orchestration
+        Defaults to "agents" if framework cannot be determined.
+    """
+    # Sanitize agent name to comply with OpenAI requirements
+    sanitized_agent_name = sanitize_openai_tool_name(agent_name)
+
+    # Determine framework: use provided, fetch from registry, or default to "agents"
+    if framework is None:
+        framework = _get_framework_from_registry(agent_name, infra)
+    if framework is None:
+        framework = "agents"
+
+    # Sanitize framework name for use in workflow IDs
+    sanitized_framework = sanitize_agent_name(framework.lower())
+
+    return f"dapr.{sanitized_framework}.{sanitized_agent_name}.orchestration"
 
 
 class DurableAgent(AgentBase):
@@ -311,7 +386,7 @@ class DurableAgent(AgentBase):
     @property
     def broadcast_workflow_name(self) -> str:
         """Dapr-registered name of this agent's broadcast workflow."""
-        return broadcast_workflow_id(self.name)
+        return broadcast_workflow_id(self.name, infra=self._infra)
 
     # ------------------------------------------------------------------
     # Workflows / Activities
@@ -382,7 +457,7 @@ class DurableAgent(AgentBase):
                     )
 
                 final_message = yield ctx.call_child_workflow(
-                    workflow=orchestration_workflow_id(self.name),
+                    workflow=orchestration_workflow_id(self.name, infra=self._infra),
                     input={
                         "task": task,
                         "instance_id": ctx.instance_id,
@@ -885,7 +960,21 @@ class DurableAgent(AgentBase):
                     f"Available agents: {list(agents_metadata.keys())}"
                 )
 
-            agent_appid = agent_entry["agent"]["appid"]
+            agent_meta = agent_entry.get("agent")
+            if agent_meta is None or not isinstance(agent_meta, dict):
+                raise AgentError(
+                    f"Agent '{next_agent}' has invalid agent metadata. "
+                    f"Available agents: {list(agents_metadata.keys())}"
+                )
+
+            agent_appid = agent_meta.get("appid")
+            if not agent_appid:
+                raise AgentError(
+                    f"Agent '{next_agent}' missing appid in metadata. "
+                    f"Available agents: {list(agents_metadata.keys())}"
+                )
+
+            framework = agent_meta.get("framework")
 
             child_instance_id = str(uuid.uuid4())
             dispatch_time = ctx.current_utc_datetime.isoformat()
@@ -893,6 +982,7 @@ class DurableAgent(AgentBase):
                 next_agent,
                 description="",
                 target_app_id=agent_appid,
+                framework=framework,
             )
             result = yield _agent_tool(
                 ctx=ctx,
@@ -1648,8 +1738,11 @@ class DurableAgent(AgentBase):
         # Build the set of tool_call_ids already present in messages and tool_history
         # so we can skip duplicates on workflow replay (Dapr may re-deliver results).
         existing_tool_ids: set[str] = set()
-        if not skip_messages and entry is not None and hasattr(entry, "messages"):
-            for msg in getattr(entry, "messages"):
+        last_message_is_assistant_with_tool_calls = False
+
+        if entry is not None and hasattr(entry, "messages"):
+            messages_list = getattr(entry, "messages")
+            for msg in messages_list:
                 try:
                     tid = getattr(msg, "tool_call_id", None)
                     if tid:
@@ -1667,6 +1760,55 @@ class DurableAgent(AgentBase):
                 except Exception:
                     pass
 
+            # Check if we can save tool messages
+            # Tool messages must follow an assistant message with tool_call.
+            # If last_message is a tool message, that's fine - we're continuing the same batch
+            # If last_message is an assistant with tool_calls, we can start a new batch
+            if hasattr(entry, "last_message") and entry.last_message is not None:
+                try:
+                    last_msg = entry.last_message
+                    # Handle both dict and Pydantic model messages
+                    if isinstance(last_msg, dict):
+                        last_role = last_msg.get("role")
+                        last_tool_calls = last_msg.get("tool_calls")
+                    else:
+                        last_role = getattr(last_msg, "role", None)
+                        last_tool_calls = getattr(last_msg, "tool_calls", None)
+
+                    if last_role == "assistant" and last_tool_calls:
+                        # Last message is an assistant with tool_calls - we can save tool messages
+                        last_message_is_assistant_with_tool_calls = True
+                    elif last_role == "tool":
+                        # Last message is already a tool message - we're continuing the same batch
+                        # This is valid as long as there's an assistant with tool_calls before it
+                        # Check the message before the last tool message
+                        if len(messages_list) > 1:
+                            # Look for the assistant message that precedes the tool messages
+                            for i in range(len(messages_list) - 2, -1, -1):
+                                prev_msg = messages_list[i]
+                                if isinstance(prev_msg, dict):
+                                    prev_role = prev_msg.get("role")
+                                    prev_tool_calls = prev_msg.get("tool_calls")
+                                else:
+                                    prev_role = getattr(prev_msg, "role", None)
+                                    prev_tool_calls = getattr(
+                                        prev_msg, "tool_calls", None
+                                    )
+
+                                if prev_role == "assistant" and prev_tool_calls:
+                                    last_message_is_assistant_with_tool_calls = True
+                                    break
+                                elif prev_role != "tool":
+                                    # Hit a non-tool, non-assistant message - stop looking
+                                    break
+                except Exception:
+                    # If we can't determine the last message type, err on the side of caution
+                    logger.warning(
+                        "Could not verify last message type before saving tool results. "
+                        "Skipping tool message save to avoid OpenAI API errors."
+                    )
+
+        # Process each tool result
         for tool_result in tool_results:
             tool_call_id = tool_result.tool_call_id
 
@@ -1676,15 +1818,27 @@ class DurableAgent(AgentBase):
 
             # Append role:tool message so the LLM sees the response on the next
             # turn.  Skipped for orchestrator dispatches — see docstring.
-            if not skip_messages and entry is not None and hasattr(entry, "messages"):
-                tool_message_model = (
-                    self._message_coercer(tool_result.model_dump())
-                    if getattr(self, "_message_coercer", None)
-                    else self._message_dict_to_message_model(tool_result.model_dump())
-                )
-                entry.messages.append(tool_message_model)
-                if hasattr(entry, "last_message"):
-                    entry.last_message = tool_message_model
+            # Also validate message ordering when skip_messages=False
+            if not skip_messages:
+                # Only proceed if the last message is an assistant message with tool_calls
+                # All tool messages in this batch are responses to that assistant message
+                if not last_message_is_assistant_with_tool_calls:
+                    logger.warning(
+                        f"Skipping tool result {tool_call_id}: tool messages must follow "
+                        "an assistant message with tool_calls. Last message is not an assistant "
+                        "with tool_calls."
+                    )
+                elif entry is not None and hasattr(entry, "messages"):
+                    tool_message_model = (
+                        self._message_coercer(tool_result.model_dump())
+                        if getattr(self, "_message_coercer", None)
+                        else self._message_dict_to_message_model(
+                            tool_result.model_dump()
+                        )
+                    )
+                    entry.messages.append(tool_message_model)
+                    if hasattr(entry, "last_message"):
+                        entry.last_message = tool_message_model
 
             # Always record in tool_history regardless of skip_messages so that
             # every agent dispatch (including orchestrator ones) is observable.
@@ -1756,8 +1910,9 @@ class DurableAgent(AgentBase):
             logger.exception("Unable to load agents metadata; broadcast aborted.")
             return
 
+        # Sanitize agent name to comply with OpenAI's message name requirements
         message["role"] = "user"
-        message["name"] = self.name
+        message["name"] = sanitize_openai_tool_name(self.name)
         response_message = BroadcastMessage(**message)
 
         async def _broadcast() -> None:
@@ -1793,7 +1948,8 @@ class DurableAgent(AgentBase):
             return
 
         response["role"] = "user"
-        response["name"] = self.name
+        # Sanitize agent name to comply with OpenAI's message name requirements
+        response["name"] = sanitize_openai_tool_name(self.name)
         response["workflow_instance_id"] = target_instance_id
         agent_response = AgentTaskResponse(**response)
 
@@ -1894,18 +2050,61 @@ class DurableAgent(AgentBase):
         registered: List[str] = []
 
         for name, meta in agents_metadata.items():
-            if not self.tool_executor.get_tool(name):
+            # Normalize name for lookup since AgentTool sanitizes names to TitleCase
+            sanitized_name = sanitize_openai_tool_name(name)
+            if not self.tool_executor.get_tool(sanitized_name):
+                # Defensive check: ensure meta is a dict
+                # This should not happen if get_agents_metadata validation works correctly,
+                # but we keep this as a safety check.
+                if meta is None or not isinstance(meta, dict):
+                    logger.error(
+                        "Skipping agent %s: metadata is None or not a dict. "
+                        "This indicates a bug in get_agents_metadata or corrupted registry data.",
+                        name,
+                    )
+                    continue
+
+                agent_meta = meta.get("agent")
+                # Defensive check: ensure agent_meta is a dict
+                # This should not happen if get_agents_metadata validation works correctly,
+                # but we keep this as a safety check.
+                if agent_meta is None or not isinstance(agent_meta, dict):
+                    logger.error(
+                        "Skipping agent %s: agent metadata is None or not a dict. "
+                        "This indicates a bug in get_agents_metadata or corrupted registry data.",
+                        name,
+                    )
+                    continue
+
+                framework = agent_meta.get("framework")
+
+                # For dapr-agents, check if we can get the actual workflow name
+                workflow_name = None
+                if framework == "Dapr Agents":
+                    # Try to get the actual workflow name if available
+                    # (This would require the agent to store it in metadata, which
+                    # isn't currently done, but we leave this hook for future use)
+                    metadata_dict = agent_meta.get("metadata")
+                    if isinstance(metadata_dict, dict):
+                        workflow_name = metadata_dict.get("workflow_name")
+
                 tool = agent_to_tool(
                     name,
                     description=(
-                        f"{meta['agent'].get('role', '')}. "
-                        f"Goal: {meta['agent'].get('goal', '')}"
+                        f"{agent_meta.get('role', '')}. "
+                        f"Goal: {agent_meta.get('goal', '')}"
                     ),
-                    target_app_id=meta["agent"].get("appid"),
+                    target_app_id=agent_meta.get("appid"),
+                    framework=framework,
+                    workflow_name=workflow_name,
                 )
                 self.tool_executor.register_tool(tool)
                 registered.append(name)
-                logger.debug("Auto-registered registry agent as tool: %s", name)
+                logger.debug(
+                    "Auto-registered registry agent as tool: %s (framework=%s)",
+                    name,
+                    framework,
+                )
 
         if registered:
             logger.info(
@@ -1943,8 +2142,31 @@ class DurableAgent(AgentBase):
             }
         lines = []
         for name, meta in agents_metadata.items():
-            role = meta["agent"].get("role", "Unknown role")
-            goal = meta["agent"].get("goal", "Unknown")
+            # Defensive check: ensure meta is a dict
+            # This should not happen if get_agents_metadata validation works correctly,
+            # but we keep this as a safety check.
+            if meta is None or not isinstance(meta, dict):
+                logger.error(
+                    "Skipping agent %s in team members: metadata is None or not a dict. "
+                    "This indicates a bug in get_agents_metadata or corrupted registry data.",
+                    name,
+                )
+                continue
+
+            agent_meta = meta.get("agent")
+            # Defensive check: ensure agent_meta is a dict
+            # This should not happen if get_agents_metadata validation works correctly,
+            # but we keep this as a safety check.
+            if agent_meta is None or not isinstance(agent_meta, dict):
+                logger.error(
+                    "Skipping agent %s in team members: agent metadata is None or not a dict. "
+                    "This indicates a bug in get_agents_metadata or corrupted registry data.",
+                    name,
+                )
+                continue
+
+            role = agent_meta.get("role", "Unknown role")
+            goal = agent_meta.get("goal", "Unknown")
             lines.append(f"- {name}: {role} (Goal: {goal})")
         return {
             "metadata": agents_metadata,
@@ -2219,7 +2441,7 @@ class DurableAgent(AgentBase):
             runtime.register_workflow(
                 self._named(
                     self.orchestration_workflow,
-                    orchestration_workflow_id(self.name),
+                    orchestration_workflow_id(self.name, infra=self._infra),
                 )
             )
 

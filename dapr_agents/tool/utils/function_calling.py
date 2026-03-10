@@ -12,6 +12,7 @@
 #
 
 import logging
+import re
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ValidationError
@@ -24,6 +25,96 @@ from dapr_agents.types import (
 from dapr_agents.types.exceptions import FunCallBuilderError
 
 logger = logging.getLogger(__name__)
+
+# OpenAI tool name pattern: ^[^\s<|\\/>]+$
+# Tool names cannot contain: spaces, <, |, \, /, >
+_OPENAI_TOOL_NAME_PATTERN = re.compile(r"[^\s<|\\/>]+")
+
+
+def _normalize_to_title_case(name: str) -> str:
+    """
+    Normalize a name to TitleCase format.
+
+    Converts snake_case, kebab-case, and space-separated names to TitleCase.
+    Examples:
+        "get_user" -> "GetUser"
+        "get-user" -> "GetUser"
+        "get user" -> "GetUser"
+        "GetUser" -> "GetUser" (already title case, preserved)
+        "GET_USER" -> "GetUser"
+        "UPPERCASE" -> "Uppercase" (all uppercase converted)
+        "mixed_Case_name" -> "MixedCaseName"
+        "SamwiseGamgee" -> "SamwiseGamgee" (already TitleCase, preserved)
+
+    Args:
+        name: The original name
+
+    Returns:
+        A TitleCase normalized name (no separators)
+    """
+    if not name:
+        return ""
+
+    # Check if name is all uppercase (needs conversion to TitleCase)
+    # This must come before the TitleCase check to handle "UPPERCASE" -> "Uppercase"
+    if name.isupper() and len(name) > 1:
+        return name.capitalize()
+
+    # Check if name is already TitleCase (no separators, starts with uppercase, has lowercase)
+    # This handles cases like "SamwiseGamgee" or "GetUser" that are already correct
+    # We check for at least one lowercase letter to distinguish from all-uppercase
+    if re.match(r"^[A-Z][a-z]", name) and not re.search(r"[_\s-]", name):
+        return name
+
+    # Split on common separators (underscores, hyphens, spaces)
+    parts = re.split(r"[_\s-]+", name)
+
+    # Capitalize each part and join (no separators)
+    # Use capitalize() which makes first char uppercase and rest lowercase
+    title_parts = [part.capitalize() for part in parts if part]
+
+    return "".join(title_parts)
+
+
+def sanitize_openai_tool_name(name: str) -> str:
+    """
+    Sanitize a name to comply with OpenAI's name requirements.
+
+    OpenAI requires names to match the pattern: ^[^\\s<|\\\\/>]+$
+    This means names cannot contain spaces, <, |, \\, /, or >.
+
+    All names (tool names, agent names, etc.) are normalized to TitleCase format,
+    removing all separators (spaces, underscores, hyphens) and capitalizing each word.
+
+    Args:
+        name: The original name (e.g., "get_user", "Samwise Gamgee", "agent<name>")
+
+    Returns:
+        A sanitized name in TitleCase format with invalid characters removed.
+        Examples:
+            "get_user" -> "GetUser"
+            "Samwise Gamgee" -> "SamwiseGamgee"
+            "agent<name>" -> "Agentname"
+    """
+    if not name:
+        return "unnamed_tool"
+
+    # Normalize to TitleCase (converts snake_case, kebab-case, space-separated to TitleCase)
+    # This removes all separators and capitalizes each word
+    sanitized = _normalize_to_title_case(name)
+
+    if not sanitized:
+        return "unnamed_tool"
+
+    # Replace invalid characters (<, |, \, /, >) with empty string (remove them)
+    # Since we're already in TitleCase, we don't want to introduce underscores
+    sanitized = re.sub(r"[<|\\/>]", "", sanitized)
+
+    # Ensure it's not empty after sanitization
+    if not sanitized:
+        sanitized = "unnamed_tool"
+
+    return sanitized
 
 
 def custom_function_schema(model: BaseModel) -> Dict:
@@ -59,7 +150,8 @@ def to_openai_function_call_definition(
     which are then structured according to the OpenAI specification requirements.
 
     Args:
-        name (str): The name of the function.
+        name (str): The name of the function. Will be sanitized to comply with OpenAI's requirements
+                   (no spaces, <, |, \\, /, or > characters).
         description (str): A brief description of what the function does.
         args_schema (BaseModel): The Pydantic schema representing the function's parameters.
         use_deprecated (bool, optional): A flag to determine if the deprecated function format should be used.
@@ -70,8 +162,17 @@ def to_openai_function_call_definition(
                         it includes its type as 'function' under a tool specification; otherwise, it returns
                         the function specification alone.
     """
+    # Sanitize tool name to comply with OpenAI's requirements
+    sanitized_name = sanitize_openai_tool_name(name)
+    if sanitized_name != name:
+        logger.debug(
+            "Sanitized tool name '%s' to '%s' to comply with OpenAI requirements",
+            name,
+            sanitized_name,
+        )
+
     base_function = OAIFunctionDefinition(
-        name=name,
+        name=sanitized_name,
         description=description,
         strict=True,
         parameters=custom_function_schema(args_schema),
