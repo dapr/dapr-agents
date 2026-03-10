@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from importlib.metadata import version
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine
@@ -1654,12 +1655,21 @@ class AgentBase:
     # ------------------------------------------------------------------
     @staticmethod
     def _coerce_datetime(value: Optional[Any]) -> datetime:
-        """Coerce strings/None to a timezone-aware UTC datetime."""
+        """
+        Coerce strings/None to a timezone-aware UTC datetime.
+
+        Args:
+            value: Source value (datetime | str | None).
+
+        Returns:
+            A timezone-aware UTC datetime. If a naive datetime is provided, UTC is assumed.
+        """
         if isinstance(value, datetime):
-            return value
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
         if isinstance(value, str):
             try:
-                return datetime.fromisoformat(value)
+                dt = datetime.fromisoformat(value)
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
             except ValueError:
                 pass
         return datetime.now(timezone.utc)

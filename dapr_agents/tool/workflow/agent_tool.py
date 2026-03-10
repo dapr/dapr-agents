@@ -18,6 +18,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
+from dapr_agents.workflow.utils.core import sanitize_agent_name
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,7 @@ def _schedule_agent_workflow(
     _source_agent: Optional[str] = None,
     workflow_name: Optional[str] = None,
     framework: Optional[str] = None,
+    _child_instance_id: Optional[str] = None,
 ) -> Any:
     """
     Schedule a child workflow for a named agent.
@@ -139,6 +141,9 @@ def _schedule_agent_workflow(
             so the child agent labels the user message as "on behalf of".
         workflow_name: Optional explicit workflow name. Takes precedence over framework.
         framework: Optional framework name for constructing workflow name.
+        _child_instance_id: Explicit instance ID to assign to the child workflow.
+            When provided, this exact ID is used so callers can record it in
+            ``tool_history`` before the yield completes.
     """
     input_payload: dict = {"task": task}
     if _source_agent:
@@ -154,6 +159,8 @@ def _schedule_agent_workflow(
     }
     if target_app_id:
         call_kwargs["app_id"] = target_app_id
+    if _child_instance_id:
+        call_kwargs["instance_id"] = _child_instance_id
 
     logger.debug(
         "Scheduling child workflow '%s' app_id=%r task=%r",
