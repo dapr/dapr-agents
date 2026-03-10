@@ -16,7 +16,7 @@ name = "07-data-agent-mcp-chainlit"
 version = "0.1.0"
 requires-python = ">=3.11, <3.14"
 dependencies = [
-    "chainlit==2.6.8",
+    "chainlit==2.9.4",
     "dapr-agents",
     "psycopg[binary]==3.2.9",
     "python-dotenv>=1.2.1",

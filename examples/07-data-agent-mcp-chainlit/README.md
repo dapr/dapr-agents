@@ -50,27 +50,10 @@ The quickstart includes an OpenAI component configuration in the `components` di
 
 ### Option 1: Using Environment Variables (Recommended)
 
-1. Create a `.env` file in the project root and add your OpenAI API key:
+1. Add your OpenAI API key to a `.env` file in the root directory of this quickstart:
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
-
-2. When running the examples with Dapr, use the helper script to resolve environment variables:
-```bash
-# Get the environment variables from the .env file:
-export $(grep -v '^#' ../../.env | xargs)
-
-# Create a temporary resources folder with resolved environment variables
-temp_resources_folder=$(../resolve_env_templates.py ./components)
-
-# Run your dapr command with the temporary resources
-uv run dapr run --app-id sql --resources-path $temp_resources_folder -- chainlit run app.py -w --port 8001
-
-# Clean up when done
-rm -rf $temp_resources_folder
-```
-
-Note: The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
 
 ### Option 2: Direct Component Configuration
 
@@ -107,11 +90,11 @@ DB_PASSWORD=<PASSWORD>
 
 ### Create a new sample database
 
-First, install Postgres on your machine.
+The quickstart includes sample SQL files (`schema.sql` and `users.sql`) that create a `users` table and seed it with example churn data. This data is used by the example queries in the [Ask Questions](#ask-questions) section below.
 
 #### Option 1: Using Docker
 
-Run the database container (Make sure you are in the quickstart directory):
+Run the database container (Make sure you are in the quickstart directory). The `docker-entrypoint-initdb.d/` directory is automatically mounted, so the schema and seed data are loaded on first start:
 
 ```bash
 docker run --rm --name sampledb \
@@ -176,10 +159,10 @@ docker run --rm -ti -p 8000:8000 \
 
 ### Load data to Postgres and create a knowledge base chat interface
 
-Run the agent (this will launch Chainlit on port 8001):
+Run the agent (this will launch Chainlit on port 8001) after you set the api key:
 
 ```bash
-uv run dapr run --app-id sql --resources-path $temp_resources_folder -- chainlit run app.py -w --port 8001
+uv run dapr run --app-id sql --resources-path resources -- chainlit run app.py -w --port 8001
 ```
 
 Wait until the browser opens up. Once open, you're ready to talk to your Postgres database!
@@ -191,7 +174,7 @@ Now you can start talking to your data. If using the sample database, ask questi
 
 #### Testing the agent's memory
 
-If you exit the app and restart it, the agent will remember all the previous conversation. When you insall Dapr using `dapr init`, Redis is installed by default and this is where the conversation memory is saved. To change it, edit the `./resources/conversationmemory.yaml` file.
+If you exit the app and restart it, the agent will remember all the previous conversation. When you install Dapr using `dapr init`, Redis is installed by default and this is where the conversation memory is saved. To change it, edit the `./resources/conversationmemory.yaml` file.
 
 ## Summary
 
@@ -207,5 +190,5 @@ If you exit the app and restart it, the agent will remember all the previous con
 1. **OpenAI API Key**: Ensure your key is set in `.env` or baked into `resources/openai.yaml`.
 2. **Postgres MCP Server**: The `crystaldba/postgres-mcp` container must be running on port 8000 before launching Chainlit.
 3. **Database Access**: The `.env` values for `DB_HOST`, `DB_USER`, etc., must match a reachable database. Run the provided SQL scripts if you use the sample data.
-4. **Dependencies**: Run `pip install -r requirements.txt` inside your virtual environment.
+4. **Dependencies**: Run `uv sync --active` inside your virtual environment.
 5. **Dapr Timeout**: For long-running conversations set `DAPR_API_TIMEOUT_SECONDS=300` so the Dapr gRPC client waits beyond the 60 s default.

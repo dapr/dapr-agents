@@ -1,0 +1,16 @@
+INSERT INTO users (name, email, plan, status, churned_at, signup_date, last_login, country, product_area) VALUES
+('Alice Martin',   'alice@example.com',   'pro',   'active',  NULL,                        '2024-01-10', NOW() - INTERVAL '2 days',   'US', 'dashboard'),
+('Bob Chen',       'bob@example.com',     'free',  'churned', NOW() - INTERVAL '5 days',   '2024-03-01', NOW() - INTERVAL '35 days',  'CA', 'billing'),
+('Clara Reyes',    'clara@example.com',   'pro',   'churned', NOW() - INTERVAL '12 days',  '2023-11-15', NOW() - INTERVAL '45 days',  'MX', 'billing'),
+('David Park',     'david@example.com',   'team',  'active',  NULL,                        '2024-05-20', NOW() - INTERVAL '1 day',    'KR', 'dashboard'),
+('Eva Fischer',    'eva@example.com',     'pro',   'churned', NOW() - INTERVAL '3 days',   '2024-02-08', NOW() - INTERVAL '20 days',  'DE', 'onboarding'),
+('Frank Okonkwo',  'frank@example.com',   'free',  'churned', NOW() - INTERVAL '8 days',   '2024-04-12', NOW() - INTERVAL '60 days',  'NG', 'onboarding'),
+('Grace Liu',      'grace@example.com',   'team',  'active',  NULL,                        '2023-09-30', NOW() - INTERVAL '3 days',   'CN', 'analytics'),
+('Hiro Tanaka',    'hiro@example.com',    'pro',   'churned', NOW() - INTERVAL '20 days',  '2024-01-25', NOW() - INTERVAL '50 days',  'JP', 'billing'),
+('Ingrid Holm',    'ingrid@example.com',  'free',  'active',  NULL,                        '2024-06-01', NOW() - INTERVAL '10 days',  'SE', 'dashboard'),
+('Jake Torres',    'jake@example.com',    'pro',   'churned', NOW() - INTERVAL '15 days',  '2023-12-05', NOW() - INTERVAL '40 days',  'US', 'billing'),
+('Karen West',     'karen@example.com',   'team',  'active',  NULL,                        '2024-03-18', NOW() - INTERVAL '5 days',   'AU', 'analytics'),
+('Leo Dubois',     'leo@example.com',     'free',  'churned', NOW() - INTERVAL '7 days',   '2024-05-05', NOW() - INTERVAL '30 days',  'FR', 'onboarding'),
+('Mia Santos',     'mia@example.com',     'pro',   'active',  NULL,                        '2024-02-14', NOW() - INTERVAL '1 day',    'BR', 'dashboard'),
+('Noah Kim',       'noah@example.com',    'free',  'churned', NOW() - INTERVAL '25 days',  '2024-01-03', NOW() - INTERVAL '55 days',  'KR', 'billing'),
+('Olivia Brown',   'olivia@example.com',  'team',  'active',  NULL,                        '2023-10-22', NOW() - INTERVAL '2 days',   'UK', 'analytics');
