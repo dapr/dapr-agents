@@ -93,6 +93,7 @@ class MockDaprWorkflowContext:
         self.wait_for_external_event = MagicMock()
         self.create_timer = MagicMock()
         self.continue_as_new = MagicMock()
+        self.set_custom_status = MagicMock()
 
 
 class MockWorkflowActivityContext:

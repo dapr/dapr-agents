@@ -590,7 +590,10 @@ class DurableAgent(AgentBase):
                 verdict = DaprWorkflowStatus.FAILED
             elif turn == self.execution.max_iterations:
                 ctx.set_custom_status("max_iterations_reached")
-                logger.info("Workflow reached max iterations without final response (instance=%s)", ctx.instance_id)
+                logger.info(
+                    "Workflow reached max iterations without final response (instance=%s)",
+                    ctx.instance_id,
+                )
                 verdict = DaprWorkflowStatus.COMPLETED
             else:
                 verdict = DaprWorkflowStatus.COMPLETED
@@ -830,9 +833,7 @@ class DurableAgent(AgentBase):
 
             result_content = result.get("content", "")
             if result_content.startswith("Error:"):
-                raise AgentError(
-                    f"Agent '{next_agent}' failed: {result_content}"
-                )
+                raise AgentError(f"Agent '{next_agent}' failed: {result_content}")
 
             if not ctx.is_replaying:
                 logger.info(
@@ -945,7 +946,10 @@ class DurableAgent(AgentBase):
             if verdict == "continue":
                 ctx.set_custom_status("max_iterations_reached")
                 verdict = "max_iterations_reached"
-                logger.info("Workflow reached max iterations without final response (instance=%s)", ctx.instance_id)
+                logger.info(
+                    "Workflow reached max iterations without final response (instance=%s)",
+                    ctx.instance_id,
+                )
 
             summary_prompt = SUMMARY_GENERATION_PROMPT.format(
                 task=task,
