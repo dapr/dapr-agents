@@ -380,17 +380,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             if not llm_component:
                 llm_component = _get_llm_component(metadata)
 
-            # Extract and serialize response format parameters
+            # Extract additional API parameters (response_format is sent via the
+            # dedicated response_format field, not duplicated here)
             api_params = {}
-            if "response_format" in params:
-                try:
-                    import json
-
-                    api_params["response_format"] = json.dumps(
-                        params["response_format"]
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to serialize response_format: {e}")
             if "structured_mode" in params:
                 api_params["structured_mode"] = str(params["structured_mode"])
 
@@ -421,6 +413,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                 tools=params.get("tools"),
                 tool_choice=tool_choice_param,
                 parameters=api_params or None,
+                response_format=_to_dapr_response_format(params.get("response_format")),
             )
             normalized = self.translate_response(
                 raw, llm_component or self._llm_component
@@ -441,6 +434,30 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             structured_mode=structured_mode,
             stream=False,
         )
+
+
+def _to_dapr_response_format(
+    oai_format: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """
+    Convert an OpenAI-style response_format dict to the flat JSON schema format
+    expected by the Dapr runtime's convertToStructuredOutputDefinition.
+
+    OAI format:  {"type": "json_schema", "json_schema": {"name": ..., "description": ..., "strict": ..., "schema": {<json-schema>}}}
+    Dapr format: {<json-schema fields>, "name": ..., "description": ..., "strict": ...}
+    """
+    if oai_format is None:
+        return None
+    if oai_format.get("type") == "json_schema":
+        inner = oai_format.get("json_schema", {})
+        schema = inner.get("schema", {})
+        return {
+            **schema,
+            "name": inner.get("name", "response"),
+            "description": inner.get("description", ""),
+            "strict": inner.get("strict", False),
+        }
+    return oai_format
 
 
 def _check_dapr_runtime_support(metadata: "GetMetadataResponse"):  # noqa: F821
