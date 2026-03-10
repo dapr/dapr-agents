@@ -603,6 +603,44 @@ def test_register_message_handlers_discovers_class_methods():
     assert "orders.cancelled" in topics
 
 
+def test_register_message_handlers_groups_by_topic():
+    """Test that handlers sharing the same (pubsub, topic) create a single subscription."""
+    mock_client = MagicMock()
+    mock_sub = MagicMock()
+    mock_sub.__iter__.return_value = iter([])
+    mock_client.subscribe.return_value = mock_sub
+
+    class OrderHandler:
+        @message_router(pubsub="messagepubsub", topic="orders.events")
+        def handle_created(self, message: OrderCreated):
+            return "created"
+
+        @message_router(pubsub="messagepubsub", topic="orders.events")
+        def handle_cancelled(self, message: OrderCancelled):
+            return "cancelled"
+
+    handler = OrderHandler()
+    loop = asyncio.new_event_loop()
+    try:
+        closers = register_message_routes(
+            dapr_client=mock_client, targets=[handler], loop=loop
+        )
+    finally:
+        loop.close()
+
+    # Should create only one subscription (grouped by pubsub+topic)
+    assert mock_client.subscribe.call_count == 1
+    assert len(closers) == 1
+
+    # Verify the subscription was created for the shared topic
+    call_args = mock_client.subscribe.call_args
+    assert call_args.kwargs["pubsub_name"] == "messagepubsub"
+    assert call_args.kwargs["topic"] == "orders.events"
+
+    # Both handlers are still registered and will be reachable via schema routing
+    # within the composite handler created for this topic
+
+
 def test_register_message_handlers_ignores_undecorated_methods():
     """Test that methods without @message_router are ignored."""
     mock_client = MagicMock()

@@ -292,7 +292,7 @@ def _subscribe_message_bindings(
     bindings: List[MessageRouteBinding],
     *,
     dapr_client: DaprClient,
-    loop: asyncio.AbstractEventLoop,
+    loop: Optional[asyncio.AbstractEventLoop],
     delivery_mode: Literal["sync", "async"],
     queue_maxsize: int,
     deduper: Optional[DedupeBackend],
@@ -311,7 +311,7 @@ def _subscribe_message_bindings(
     worker_tasks: List[asyncio.Task] = []
 
     if delivery_mode == DELIVERY_MODE_ASYNC:
-        if not loop.is_running():
+        if loop is None or not loop.is_running():
             raise RuntimeError(
                 f"delivery_mode='{DELIVERY_MODE_ASYNC}' requires an active running event loop."
             )
@@ -354,9 +354,28 @@ def _subscribe_message_bindings(
                 _log_workflow_outcome(instance_id, state, log_outcome)
                 if state and state.runtime_status == WorkflowStatus.COMPLETED:
                     return TopicEventResponse(STATUS_SUCCESS)
+                # If workflow failed, drop the message (don't retry failed workflows)
+                if state and state.runtime_status == WorkflowStatus.FAILED:
+                    logger.warning(
+                        f"Workflow {instance_id} failed; dropping message to avoid infinite retries."
+                    )
+                    return TopicEventResponse(STATUS_DROP)
+                # For timeout or other non-completed states, retry
                 return TopicEventResponse(STATUS_RETRY)
 
-            asyncio.create_task(_await_and_log(instance_id))
+            # Only create a detached task if we're running on an existing loop.
+            # If we're in asyncio.run(), tasks will be cancelled when the loop shuts down.
+            try:
+                running_loop = asyncio.get_running_loop()
+                asyncio.create_task(_await_and_log(instance_id))
+            except RuntimeError:
+                # No running loop - use a background thread for outcome logging
+                def _log_in_thread() -> None:
+                    state = _wait_for_completion(instance_id)
+                    _log_workflow_outcome(instance_id, state, log_outcome)
+
+                thread = threading.Thread(target=_log_in_thread, daemon=True)
+                thread.start()
             return TopicEventResponse(STATUS_SUCCESS)
         except Exception:
             logger.exception("Workflow scheduling failed; requesting retry.")
@@ -429,7 +448,7 @@ def _subscribe_message_bindings(
 
                             if delivery_mode == DELIVERY_MODE_ASYNC:
                                 assert queue is not None
-                                if loop.is_running():
+                                if loop is not None and loop.is_running():
                                     # Backpressure-aware enqueue: block until the item is queued
                                     fut = asyncio.run_coroutine_threadsafe(
                                         queue.put((binding.handler, parsed)),
@@ -450,13 +469,28 @@ def _subscribe_message_bindings(
                                 fut = asyncio.run_coroutine_threadsafe(
                                     _schedule_workflow(binding.handler, parsed), loop
                                 )
-                                return fut.result()
+                                try:
+                                    return fut.result()
+                                except Exception:
+                                    logger.exception(
+                                        f"Failed to schedule workflow for handler {binding.name}; "
+                                        "requesting retry."
+                                    )
+                                    return TopicEventResponse(STATUS_RETRY)
 
-                            return asyncio.run(
-                                _schedule_workflow(binding.handler, parsed)
-                            )
+                            try:
+                                return asyncio.run(
+                                    _schedule_workflow(binding.handler, parsed)
+                                )
+                            except Exception:
+                                logger.exception(
+                                    f"Failed to schedule workflow for handler {binding.name}; "
+                                    "requesting retry."
+                                )
+                                return TopicEventResponse(STATUS_RETRY)
 
-                        except Exception:
+                        except (ValueError, TypeError):
+                            # Validation/coercion errors - try next schema
                             continue
 
                     logger.warning(
@@ -492,10 +526,24 @@ def _subscribe_message_bindings(
                     try:
                         response = handler(msg)
                         # Extract status value: handle both enum and string types
-                        if hasattr(response.status, "value"):
-                            status_str = response.status.value
+                        status = response.status
+                        if hasattr(status, "name"):
+                            # Enum with name attribute - use the name (e.g., "success", "retry", "drop")
+                            status_str = status.name.lower()
+                        elif hasattr(status, "value"):
+                            # Enum with value attribute - convert to string
+                            status_str = str(status.value).lower()
                         else:
-                            status_str = str(response.status)
+                            # String or other type
+                            status_str = str(status).lower()
+                            # Normalize common variations (e.g., "TopicEventResponseStatus.success" -> "success")
+                            if "success" in status_str:
+                                status_str = STATUS_SUCCESS
+                            elif "retry" in status_str:
+                                status_str = STATUS_RETRY
+                            elif "drop" in status_str:
+                                status_str = STATUS_DROP
+                        
                         if status_str == STATUS_SUCCESS:
                             sub.respond_success(msg)
                         elif status_str == STATUS_RETRY:
@@ -504,7 +552,7 @@ def _subscribe_message_bindings(
                             sub.respond_drop(msg)
                         else:
                             logger.warning(
-                                f"Unknown status {response.status}, retrying"
+                                f"Unknown status {status} (extracted as '{status_str}'), retrying"
                             )
                             sub.respond_retry(msg)
                     except Exception:
