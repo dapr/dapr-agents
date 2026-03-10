@@ -1,8 +1,21 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from dapr_agents.storage.vectorstores import VectorStoreBase
 from dapr_agents.document.embedder.base import EmbedderBase
 from typing import List, Dict, Literal, Optional, Iterable, Any, Union
 from pydantic import Field, ConfigDict
-import ast
+import json
 import uuid
 import logging
 
@@ -162,12 +175,22 @@ class RedisVectorStore(VectorStoreBase):
             if metadatas is None:
                 metadatas = [{} for _ in documents_list]
 
+            # Validate embedding dimensions match configured size
+            if embeddings:
+                first_embedding_dim = len(embeddings[0])
+                if first_embedding_dim != self.embedding_dimensions:
+                    raise ValueError(
+                        f"Embedding dimension mismatch: expected {self.embedding_dimensions}, "
+                        f"got {first_embedding_dim}. Ensure your embedding function produces "
+                        f"embeddings of size {self.embedding_dimensions}."
+                    )
+
             data = []
             for i, doc in enumerate(documents_list):
                 record = {
                     FIELD_DOC_ID: ids[i],
                     FIELD_DOCUMENT: doc,
-                    FIELD_METADATA: str(metadatas[i]),
+                    FIELD_METADATA: json.dumps(metadatas[i]),
                     FIELD_EMBEDDING: array_to_buffer(
                         embeddings[i], dtype=EMBEDDING_DTYPE
                     ),
@@ -220,10 +243,14 @@ class RedisVectorStore(VectorStoreBase):
 
         Args:
             ids (Optional[List[str]]): The IDs of the documents to retrieve.
-                If None, retrieves all documents.
+                If None, retrieves all documents (limited to 10,000 results).
 
         Returns:
             List[Dict]: A list of dictionaries containing document data.
+
+        Note:
+            When retrieving all documents (ids=None), results are limited to 10,000.
+            For indexes with more documents, use specific IDs or implement pagination.
         """
         if FilterQuery is None:
             raise ImportError(
@@ -237,10 +264,10 @@ class RedisVectorStore(VectorStoreBase):
                 for doc_id in ids:
                     doc = self.search_index.fetch(doc_id)
                     if doc:
-                        metadata = doc.get(FIELD_METADATA, "{}")
+                        metadata_str = doc.get(FIELD_METADATA, "{}")
                         try:
-                            metadata = ast.literal_eval(metadata)
-                        except (ValueError, SyntaxError):
+                            metadata = json.loads(metadata_str)
+                        except (json.JSONDecodeError, TypeError):
                             metadata = {}
                         results.append(
                             {
@@ -252,14 +279,14 @@ class RedisVectorStore(VectorStoreBase):
             else:
                 query = FilterQuery(
                     return_fields=[FIELD_DOC_ID, FIELD_DOCUMENT, FIELD_METADATA],
-                    num_results=10000, 
+                    num_results=10000,
                 )
                 docs = self.search_index.query(query)
                 for doc in docs:
-                    metadata = doc.get(FIELD_METADATA, "{}")
+                    metadata_str = doc.get(FIELD_METADATA, "{}")
                     try:
-                        metadata = ast.literal_eval(metadata)
-                    except (ValueError, SyntaxError):
+                        metadata = json.loads(metadata_str)
+                    except (json.JSONDecodeError, TypeError):
                         metadata = {}
                     results.append(
                         {
@@ -311,14 +338,19 @@ class RedisVectorStore(VectorStoreBase):
             )
 
         if query_texts is None and query_embeddings is None:
-            raise ValueError(
-                "Either query_texts or query_embeddings must be provided."
-            )
+            raise ValueError("Either query_texts or query_embeddings must be provided.")
 
         if query_texts is not None:
             if isinstance(query_texts, str):
                 query_texts = [query_texts]
             query_embeddings = self.embedding_function(query_texts)
+
+        # Validate query_embeddings is non-empty before accessing
+        if not query_embeddings or len(query_embeddings) == 0:
+            raise ValueError(
+                "query_embeddings cannot be empty. Ensure your embedding function "
+                "returns valid embeddings or provide query_texts instead."
+            )
 
         # Handle single embedding
         if isinstance(query_embeddings[0], (int, float)):
@@ -336,10 +368,10 @@ class RedisVectorStore(VectorStoreBase):
                 results = self.search_index.query(query)
 
                 for doc in results:
-                    metadata = doc.get(FIELD_METADATA, "{}")
+                    metadata_str = doc.get(FIELD_METADATA, "{}")
                     try:
-                        metadata = ast.literal_eval(metadata)
-                    except (ValueError, SyntaxError):
+                        metadata = json.loads(metadata_str)
+                    except (json.JSONDecodeError, TypeError):
                         metadata = {}
                     all_results.append(
                         {
