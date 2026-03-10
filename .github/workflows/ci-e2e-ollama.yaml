@@ -83,6 +83,11 @@ jobs:
       run: |
         wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
 
+    - name: Uninstall Dapr (best effort)
+      continue-on-error: true
+      run: |
+        dapr uninstall --all
+
     - name: Initialize Dapr
       run: |
         dapr init
