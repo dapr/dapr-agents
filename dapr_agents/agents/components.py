@@ -447,7 +447,13 @@ class DaprInfra:
                 )
                 raise
         if entry is None:
-            return
+            try:
+                entry = self.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to get workflow state for instance_id: {instance_id}"
+                )
+                raise
 
         system_messages = [m for m in all_messages if m.get("role") == "system"]
         if not system_messages:
