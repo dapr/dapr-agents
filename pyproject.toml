@@ -27,10 +27,10 @@ authors = [
     {name = "Dapr Authors", email = "dapr@dapr.io"}
 ]
 dependencies = [
-    "dapr>=1.17.0rc2",
-    "dapr-ext-fastapi>=1.17.0rc2",
-    "dapr-ext-workflow>=1.17.0rc2",
-    "durabletask-dapr>=0.2.0a15",
+    "dapr==1.17.1",
+    "dapr-ext-fastapi==1.17.1",
+    "dapr-ext-workflow==1.17.1",
+    "durabletask-dapr==0.17.1",
     "pydantic>=2.11.3,<3.0.0",
     "jinja2>=3.1.0,<4.0.0",
     "pyyaml>=6.0.1,<7.0.0",
@@ -41,7 +41,7 @@ dependencies = [
     "azure-identity>=1.21.0,<2.0.0",
     "huggingface_hub>=0.33.4,<1.0.0",
     "colorama>=0.4.6,<1.0.0",
-    "regex>=2023.0.0,<2026.0.0",
+    "regex>=2024.0.0,<2027.0.0",
     "fastapi>=0.110.0,<1.0.0",
     "uvicorn>=0.27.0,<1.0.0",
     "aiohttp>=3.9.0,<4.0.0",
@@ -50,7 +50,7 @@ dependencies = [
     "mcp>=1.26.0,<2.0.0",
     "websockets>=15.0.0,<17.0.0",
     "posthog<8.0.0",
-    "protobuf>=6.31.0,<7.0.0",
+    "protobuf>=6.33.5,<7.0.0",
     "docker>=7.1.0",
     "toolbox-core>=0.5.3",
     "opentelemetry-api>=1.35.0,<2.0.0",
@@ -63,6 +63,7 @@ dependencies = [
     "opentelemetry.exporter.zipkin.json>=1.39.1",
     "tiktoken>=0.9.0",
     "opentelemetry-instrumentation-httpx>=0.60b1",
+    "opentelemetry-semantic-conventions>=0.60b1",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -81,7 +82,7 @@ vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<6.0.0",
     "chromadb>=0.4.22,<2.0.0",
-    "nltk>=3.8.0,<4.0.0",
+    "nltk>=3.9.3,<4.0.0",
 ]
 
 [dependency-groups]
@@ -94,20 +95,22 @@ dev = [
     "pre-commit>=4.0.0,<5.0.0",
 ]
 test = [
-    "pytest>=7.0.0,<8.0.0",
+    "pytest>=8.0.0,<10.0.0",
     "pytest-asyncio>=0.23.0,<1.0.0",
     "pytest-cov>=4.1.0,<8.0.0",
     "pytest-mock>=3.12.0,<4.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",  # For parallel test execution on quickstart tests
     "httpx>=0.27.0,<1.0.0",  # For testing FastAPI endpoints
     "pytest-timeout>=2.3.0,<3.0.0",
-    "docker>=7.0.0,<8.0.0"
+    "docker>=7.0.0,<8.0.0",
+    "pytest-rerunfailures>=14.0,<16.0",
 ]
 vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<6.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.8.0,<4.0.0",
+    "redisvl>=0.4.0,<1.0.0",
 ]
 
 [tool.uv.dependency-groups]
@@ -136,6 +139,7 @@ asyncio_mode = "auto"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "schema: marks tests that validate the agent metadata JSON schema golden files",
+    "ollama: marks tests compatible with Ollama (local LLM, no API key needed)",
 ]
 # Show logs during test execution (INFO level and above for now)
 log_cli = true

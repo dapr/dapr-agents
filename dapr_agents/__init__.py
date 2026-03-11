@@ -12,7 +12,6 @@
 #
 
 from importlib.metadata import version, PackageNotFoundError
-from dapr_agents.agents.standalone import Agent
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.configs import (
     AgentMetadataSchema,
@@ -34,14 +33,8 @@ from dapr_agents.llm.openai import (
     OpenAIEmbeddingClient,
 )
 from dapr_agents.tool import AgentTool, tool
-from dapr_agents.agents.orchestrators import (
-    LLMOrchestrator,
-    RandomOrchestrator,
-    RoundRobinOrchestrator,
-)
 
 __all__ = [
-    "Agent",
     "DurableAgent",
     "DockerCodeExecutor",
     "LocalCodeExecutor",
@@ -55,9 +48,6 @@ __all__ = [
     "OpenAIEmbeddingClient",
     "AgentTool",
     "tool",
-    "LLMOrchestrator",
-    "RandomOrchestrator",
-    "RoundRobinOrchestrator",
     "AgentMetadataSchema",
     "AgentMetadata",
     "PubSubMetadata",

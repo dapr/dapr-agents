@@ -368,7 +368,7 @@ class DaprInfra:
         and not re-raised so that callers can continue with other cleanup steps.
 
         Note: This method only removes workflow state.  To also purge long-term
-        conversation memory use AgentBase.purge() / LLMOrchestratorBase.purge(),
+        conversation memory use AgentBase.purge() / DurableAgent.purge(),
         which coordinate both workflow-state and memory cleanup in a single call.
 
         Args:
@@ -447,7 +447,13 @@ class DaprInfra:
                 )
                 raise
         if entry is None:
-            return
+            try:
+                entry = self.get_state(instance_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to get workflow state for instance_id: {instance_id}"
+                )
+                raise
 
         system_messages = [m for m in all_messages if m.get("role") == "system"]
         if not system_messages:
@@ -471,7 +477,7 @@ class DaprInfra:
 
         # Assign back if the field exists; otherwise, skip
         if hasattr(entry, "system_messages"):
-            entry.system_messages = new_models  # type: ignore[attr-defined]
+            entry.system_messages = new_models
 
         # De-duplicate in entry.messages if that field exists
         if hasattr(entry, "messages"):
@@ -480,18 +486,11 @@ class DaprInfra:
                 for m in getattr(entry, "messages")
                 if getattr(m, "role", None) != "system"
             ]
-            entry.messages = filtered  # type: ignore[attr-defined]
-            # Fix last_message if applicable
-            if (
-                getattr(entry, "last_message", None) is not None
-                and getattr(entry.last_message, "role", None) == "system"
-            ):
-                non_system = [
-                    m
-                    for m in getattr(entry, "messages")
-                    if getattr(m, "role", None) != "system"
-                ]
-                entry.last_message = non_system[-1] if non_system else None  # type: ignore[attr-defined]
+            entry.messages = filtered
+            # Update last_message to point to the last non-system message
+            # This ensures last_message always reflects the actual last message in the filtered list
+            if hasattr(entry, "last_message"):
+                entry.last_message = filtered[-1] if filtered else None
 
     def _message_dict_to_message_model(self, message: Dict[str, Any]) -> Any:
         """
@@ -688,15 +687,28 @@ class DaprInfra:
                     continue
                 agents_metadata[name] = meta
 
-            filtered = {
-                name: meta
-                for name, meta in agents_metadata.items()
-                if not (exclude_self and name == self.name)
-                and not (
-                    exclude_orchestrator
-                    and meta.get("agent", {}).get("orchestrator", False)
-                )
-            }
+            filtered = {}
+            for name, meta in agents_metadata.items():
+                # Skip self if requested
+                if exclude_self and name == self.name:
+                    continue
+
+                # Validate metadata structure - agent field must exist and be a dict
+                agent_meta = meta.get("agent") if isinstance(meta, dict) else None
+                if agent_meta is None or not isinstance(agent_meta, dict):
+                    logger.error(
+                        "Agent '%s' has invalid metadata structure: missing or invalid 'agent' field. "
+                        "This indicates corrupted registry data. Metadata: %s",
+                        name,
+                        meta,
+                    )
+                    continue
+
+                # Skip orchestrators if requested
+                if exclude_orchestrator and agent_meta.get("orchestrator", False):
+                    continue
+
+                filtered[name] = meta
             return filtered
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to retrieve agents metadata: %s", exc, exc_info=True)
@@ -808,6 +820,28 @@ class DaprInfra:
         meta = dict(self._base_metadata)
         meta["partitionKey"] = key
         return meta
+
+    def _ensure_registry_initialized(self, *, key: str, meta: Dict[str, str]) -> None:
+        """
+        Ensure a registry document exists to create an ETag for concurrency control.
+
+        Args:
+            key: Registry document key.
+            meta: Dapr state metadata to use for the operation.
+        """
+        current, etag = self.registry_state.load_with_etag(
+            key=key,
+            default={},
+            state_metadata=meta,
+        )
+        if etag is None:
+            self.registry_state.save(
+                key=key,
+                value={},
+                etag=None,
+                state_metadata=meta,
+                state_options=self._save_options,
+            )
 
     @staticmethod
     def _coerce_datetime(value: Optional[Any]) -> datetime:

@@ -14,7 +14,7 @@
 from typing import Any
 
 # ============================================================================
-# Library Availability Detection and Imports
+# Library Imports
 # ============================================================================
 
 from opentelemetry import context as context_api
@@ -33,8 +33,35 @@ from openinference.semconv.trace import (
     SpanAttributes,
     ToolCallAttributes,
 )
+
+from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
+    GEN_AI_OPERATION_NAME,
+    GEN_AI_PROVIDER_NAME,
+    GEN_AI_AGENT_NAME,
+    GEN_AI_AGENT_ID,
+    GEN_AI_AGENT_DESCRIPTION,
+    GEN_AI_REQUEST_MODEL,
+    GEN_AI_RESPONSE_MODEL,
+    GEN_AI_USAGE_INPUT_TOKENS,
+    GEN_AI_USAGE_OUTPUT_TOKENS,
+    GEN_AI_INPUT_MESSAGES,
+    GEN_AI_OUTPUT_MESSAGES,
+    GEN_AI_SYSTEM_INSTRUCTIONS,
+    GEN_AI_TOOL_DEFINITIONS,
+    GEN_AI_TOOL_NAME,
+    GEN_AI_TOOL_CALL_ID,
+    GEN_AI_RESPONSE_ID,
+    GEN_AI_RESPONSE_FINISH_REASONS,
+    GenAiOperationNameValues as _GenAiOpEnum,
+)
+
+# Not yet in the Python semconv package (0.60b1) but defined in the spec:
+# https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
+GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS = "gen_ai.usage.cache_creation.input_tokens"
+GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS = "gen_ai.usage.cache_read.input_tokens"
+
 # ============================================================================
-# OpenInference Semantic Conventions with Fallback Constants
+# OpenInference Semantic Conventions
 # ============================================================================
 
 # Primary constants from OpenInference
@@ -75,7 +102,20 @@ TOOL_CALL_FUNCTION_ARGUMENTS_JSON = ToolCallAttributes.TOOL_CALL_FUNCTION_ARGUME
 WORKFLOW_RUN_SUPPRESSION_KEY = "dapr_agents.workflow.skip_run_span"
 
 # ============================================================================
-# Utility Functions with OpenInference Integration
+# OTel GenAI Semantic Conventions — pre-resolved string values
+# ============================================================================
+# The semconv enum members are not accepted by OTel's set_attribute (it
+# requires primitive types), so we resolve them to plain strings here once.
+
+
+class GenAiOperationNameValues:
+    CHAT: str = _GenAiOpEnum.CHAT.value
+    EXECUTE_TOOL: str = _GenAiOpEnum.EXECUTE_TOOL.value
+    INVOKE_AGENT: str = _GenAiOpEnum.INVOKE_AGENT.value
+
+
+# ============================================================================
+# Utility Functions
 # ============================================================================
 
 
@@ -140,6 +180,27 @@ __all__ = [
     "TOOL_CALL_FUNCTION_NAME",
     "TOOL_CALL_FUNCTION_ARGUMENTS_JSON",
     "WORKFLOW_RUN_SUPPRESSION_KEY",
+    # GenAI semconv constants
+    "GEN_AI_OPERATION_NAME",
+    "GEN_AI_PROVIDER_NAME",
+    "GEN_AI_AGENT_NAME",
+    "GEN_AI_AGENT_ID",
+    "GEN_AI_AGENT_DESCRIPTION",
+    "GEN_AI_REQUEST_MODEL",
+    "GEN_AI_RESPONSE_MODEL",
+    "GEN_AI_USAGE_INPUT_TOKENS",
+    "GEN_AI_USAGE_OUTPUT_TOKENS",
+    "GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS",
+    "GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS",
+    "GEN_AI_INPUT_MESSAGES",
+    "GEN_AI_OUTPUT_MESSAGES",
+    "GEN_AI_SYSTEM_INSTRUCTIONS",
+    "GEN_AI_TOOL_DEFINITIONS",
+    "GEN_AI_TOOL_NAME",
+    "GEN_AI_TOOL_CALL_ID",
+    "GEN_AI_RESPONSE_ID",
+    "GEN_AI_RESPONSE_FINISH_REASONS",
+    "GenAiOperationNameValues",
     # Helper functions
     "safe_json_dumps",
 ]

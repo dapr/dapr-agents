@@ -13,7 +13,7 @@
 
 from dapr_agents.types.executor import ExecutionRequest, ExecutionResult
 from typing import List, Any, Optional, Union, Literal, TypedDict
-from dapr_agents.executors import CodeExecutorBase
+from dapr_agents.executors.base import CodeExecutorBase
 from pydantic import Field
 import tempfile
 import logging

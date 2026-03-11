@@ -13,7 +13,7 @@
 
 import asyncio
 import pytest
-from typing import Union, Optional
+from typing import Union, Optional, List
 from dataclasses import dataclass
 from unittest.mock import MagicMock
 from pydantic import BaseModel, Field
@@ -26,6 +26,35 @@ from dapr_agents.workflow.utils.routers import (
     parse_cloudevent,
 )
 from dapr_agents.workflow.utils.registration import register_message_routes
+
+
+def create_mock_dapr_client(pubsub_names: List[str]) -> MagicMock:
+    """
+    Create a mock DaprClient with specified pubsub components registered.
+
+    Args:
+        pubsub_names: List of pubsub component names to register in the mock.
+
+    Returns:
+        A MagicMock configured to return the pubsub components in get_metadata.
+    """
+    mock_client = MagicMock()
+    mock_sub = MagicMock()
+    mock_sub.__iter__.return_value = iter([])
+    mock_client.subscribe.return_value = mock_sub
+
+    # Set up get_metadata to return the pubsub components
+    mock_metadata = MagicMock()
+    components = []
+    for name in pubsub_names:
+        component = MagicMock()
+        component.type = "pubsub.redis"
+        component.name = name
+        components.append(component)
+    mock_metadata.registered_components = components
+    mock_client.get_metadata.return_value = mock_metadata
+
+    return mock_client
 
 
 # Test Models
@@ -538,10 +567,11 @@ def test_message_router_with_class_method():
 
 def test_register_message_handlers_discovers_standalone_function():
     """Test that standalone decorated functions are discovered."""
-    mock_client = MagicMock()
-    mock_client.subscribe_with_handler.return_value = MagicMock()
+    mock_client = create_mock_dapr_client(["messagepubsub"])
 
-    @message_router(pubsub="messagepubsub", topic="orders")
+    @message_router(
+        pubsub="messagepubsub", topic="orders", dead_letter_topic="orders_DEAD"
+    )
     def handle_order(message: OrderCreated):
         return "success"
 
@@ -554,11 +584,11 @@ def test_register_message_handlers_discovers_standalone_function():
         loop.close()
 
     # Should create one subscription
-    assert mock_client.subscribe_with_handler.call_count == 1
+    assert mock_client.subscribe.call_count == 1
     assert len(closers) == 1
 
     # Verify subscription parameters
-    call_args = mock_client.subscribe_with_handler.call_args
+    call_args = mock_client.subscribe.call_args
     assert call_args.kwargs["pubsub_name"] == "messagepubsub"
     assert call_args.kwargs["topic"] == "orders"
     assert call_args.kwargs["dead_letter_topic"] == "orders_DEAD"
@@ -566,8 +596,7 @@ def test_register_message_handlers_discovers_standalone_function():
 
 def test_register_message_handlers_discovers_class_methods():
     """Test that decorated methods in class instances are discovered."""
-    mock_client = MagicMock()
-    mock_client.subscribe_with_handler.return_value = MagicMock()
+    mock_client = create_mock_dapr_client(["messagepubsub"])
 
     class OrderHandler:
         @message_router(pubsub="messagepubsub", topic="orders.created")
@@ -588,22 +617,53 @@ def test_register_message_handlers_discovers_class_methods():
         loop.close()
 
     # Should create two subscriptions
-    assert mock_client.subscribe_with_handler.call_count == 2
+    assert mock_client.subscribe.call_count == 2
     assert len(closers) == 2
 
     # Verify both topics were registered
-    topics = [
-        call.kwargs["topic"]
-        for call in mock_client.subscribe_with_handler.call_args_list
-    ]
+    topics = [call.kwargs["topic"] for call in mock_client.subscribe.call_args_list]
     assert "orders.created" in topics
     assert "orders.cancelled" in topics
 
 
+def test_register_message_handlers_groups_by_topic():
+    """Test that handlers sharing the same (pubsub, topic) create a single subscription."""
+    mock_client = create_mock_dapr_client(["messagepubsub"])
+
+    class OrderHandler:
+        @message_router(pubsub="messagepubsub", topic="orders.events")
+        def handle_created(self, message: OrderCreated):
+            return "created"
+
+        @message_router(pubsub="messagepubsub", topic="orders.events")
+        def handle_cancelled(self, message: OrderCancelled):
+            return "cancelled"
+
+    handler = OrderHandler()
+    loop = asyncio.new_event_loop()
+    try:
+        closers = register_message_routes(
+            dapr_client=mock_client, targets=[handler], loop=loop
+        )
+    finally:
+        loop.close()
+
+    # Should create only one subscription (grouped by pubsub+topic)
+    assert mock_client.subscribe.call_count == 1
+    assert len(closers) == 1
+
+    # Verify the subscription was created for the shared topic
+    call_args = mock_client.subscribe.call_args
+    assert call_args.kwargs["pubsub_name"] == "messagepubsub"
+    assert call_args.kwargs["topic"] == "orders.events"
+
+    # Both handlers are still registered and will be reachable via schema routing
+    # within the composite handler created for this topic
+
+
 def test_register_message_handlers_ignores_undecorated_methods():
     """Test that methods without @message_router are ignored."""
-    mock_client = MagicMock()
-    mock_client.subscribe_with_handler.return_value = MagicMock()
+    mock_client = create_mock_dapr_client(["messagepubsub"])
 
     class MixedHandler:
         @message_router(pubsub="messagepubsub", topic="orders")
@@ -624,14 +684,13 @@ def test_register_message_handlers_ignores_undecorated_methods():
         loop.close()
 
     # Should only create one subscription (for decorated method)
-    assert mock_client.subscribe_with_handler.call_count == 1
+    assert mock_client.subscribe.call_count == 1
     assert len(closers) == 1
 
 
 def test_register_message_handlers_handles_multiple_targets():
     """Test registering multiple targets (functions and instances)."""
-    mock_client = MagicMock()
-    mock_client.subscribe_with_handler.return_value = MagicMock()
+    mock_client = create_mock_dapr_client(["messagepubsub"])
 
     @message_router(pubsub="messagepubsub", topic="orders")
     def standalone_handler(message: OrderCreated):
@@ -654,14 +713,13 @@ def test_register_message_handlers_handles_multiple_targets():
         loop.close()
 
     # Should create two subscriptions
-    assert mock_client.subscribe_with_handler.call_count == 2
+    assert mock_client.subscribe.call_count == 2
     assert len(closers) == 2
 
 
 def test_register_message_handlers_returns_closers():
     """Test that closer functions are returned for each subscription."""
-    mock_client = MagicMock()
-    mock_client.subscribe_with_handler.return_value = MagicMock()
+    mock_client = create_mock_dapr_client(["messagepubsub"])
 
     @message_router(pubsub="messagepubsub", topic="orders.created")
     def handle_created(message: OrderCreated):

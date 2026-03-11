@@ -133,7 +133,7 @@ class AgentStateConfig:
         # Schema auto-selected by agent type
         config = AgentStateConfig(store=StateStoreService(...))
         agent = DurableAgent(state=config, ...)  # → AgentWorkflowState
-        orch = LLMOrchestrator(state=config, ...)  # → LLMWorkflowState
+        orch = DurableAgent(state=config, orchestration_mode='agent', ...)  # → LLMWorkflowState
 
         # With custom hooks
         config = AgentStateConfig(
@@ -426,7 +426,7 @@ class WorkflowRetryPolicy:
         retry_timeout: Optional total timeout for all retries in seconds.
     """
 
-    max_attempts: Optional[int] = 1
+    max_attempts: Optional[int] = 3
     initial_backoff_seconds: Optional[int] = 5
     max_backoff_seconds: Optional[int] = 30
     backoff_multiplier: Optional[float] = 1.5
