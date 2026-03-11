@@ -1376,10 +1376,7 @@ class DurableAgent(AgentBase):
                 new_status = u["status"]
 
                 logger.debug(
-                    "Updating step %s/%s to status '%s'",
-                    step_id,
-                    sub_id,
-                    new_status,
+                    f"Updating step {step_id}/{sub_id} to status '{new_status}'"
                 )
                 target = find_step_in_plan(plan, step_id, sub_id)
                 if not target:
