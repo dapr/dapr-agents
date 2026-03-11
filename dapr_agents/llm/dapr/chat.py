@@ -373,7 +373,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                     f"Alpha2 parameters keys: {list(params.get('parameters', {}).keys())}"
                 )
             # get metadata information from the dapr client
-            metadata = self.client.dapr_client.get_metadata()
+            metadata = self.client.get_metadata()
             _check_dapr_runtime_support(metadata)
 
             llm_component = llm_component or self._llm_component
