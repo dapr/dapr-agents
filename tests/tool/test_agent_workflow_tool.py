@@ -108,18 +108,22 @@ class TestAgentWorkflowSuffix:
             == explicit_name
         )
 
-    def test_agent_workflow_id_with_type(self):
-        assert agent_workflow_id("strands-default", agent_type="strands") == "dapr.strands.strands-default.workflow"
-        assert agent_workflow_id("my-agent", agent_type="Strands") == "dapr.strands.my-agent.workflow"
-        assert agent_workflow_id("sam", agent_type="agents") == "dapr.agents.sam.workflow"
-
-    def test_agent_workflow_id_durableagent_alias(self):
-        """DurableAgent type maps to 'agents' for backward compat."""
-        assert agent_workflow_id("sam", agent_type="DurableAgent") == "dapr.agents.sam.workflow"
-        assert agent_workflow_id("sam", agent_type="durableagent") == "dapr.agents.sam.workflow"
+    def test_agent_workflow_id_with_strands_framework(self):
+        """Strands framework uses TitleCase sanitized names."""
+        assert (
+            agent_workflow_id("strands-default", framework="strands")
+            == "dapr.strands.StrandsDefault.workflow"
+        )
+        assert (
+            agent_workflow_id("my-agent", framework="Strands")
+            == "dapr.strands.MyAgent.workflow"
+        )
 
     def test_agent_workflow_id_langgraph(self):
-        assert agent_workflow_id("schedule-planner", agent_type="CompiledStateGraph") == "dapr.compiledstategraph.schedule-planner.workflow"
+        assert (
+            agent_workflow_id("schedule-planner", framework="CompiledStateGraph")
+            == "dapr.compiledstategraph.SchedulePlanner.workflow"
+        )
 
 
 class TestAgentTaskArgs:
@@ -152,11 +156,16 @@ class TestScheduleAgentWorkflow:
             app_id="legolas-app",
         )
 
-    def test_schedules_with_custom_agent_type(self):
+    def test_schedules_with_custom_framework(self):
         ctx = MagicMock()
-        _schedule_agent_workflow(ctx, task="estimate costs", agent_name="strands-default", agent_type="strands")
+        _schedule_agent_workflow(
+            ctx,
+            task="estimate costs",
+            agent_name="strands-default",
+            framework="strands",
+        )
         ctx.call_child_workflow.assert_called_once_with(
-            workflow="dapr.strands.strands-default.workflow",
+            workflow="dapr.strands.StrandsDefault.workflow",
             input={"task": "estimate costs"},
         )
 
@@ -343,11 +352,12 @@ class TestAgentToTool:
         assert (
             sanitize_openai_tool_name("get_user") == "GetUser"
         )  # snake_case -> TitleCase
-    def test_tool_with_custom_agent_type(self):
-        tool = agent_to_tool("strands-default", "Budget analyst.", agent_type="strands")
+
+    def test_tool_with_custom_framework(self):
+        tool = agent_to_tool("strands-default", "Budget analyst.", framework="strands")
         ctx = MagicMock()
         tool(ctx=ctx, task="Estimate costs")
         ctx.call_child_workflow.assert_called_once_with(
-            workflow="dapr.strands.strands-default.workflow",
+            workflow="dapr.strands.StrandsDefault.workflow",
             input={"task": "Estimate costs"},
         )

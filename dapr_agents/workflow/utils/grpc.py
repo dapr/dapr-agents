@@ -67,9 +67,7 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
     if options.keepalive_time_ms:
         grpc_options.append(("grpc.keepalive_time_ms", options.keepalive_time_ms))
     if options.keepalive_timeout_ms:
-        grpc_options.append(
-            ("grpc.keepalive_timeout_ms", options.keepalive_timeout_ms)
-        )
+        grpc_options.append(("grpc.keepalive_timeout_ms", options.keepalive_timeout_ms))
 
     def get_grpc_channel_with_options(
         host_address: Optional[str],

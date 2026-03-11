@@ -1383,9 +1383,12 @@ class DurableAgent(AgentBase):
                 )
                 target = find_step_in_plan(plan, step_id, sub_id)
                 if not target:
-                    msg = f"Step {step_id}/{sub_id} not present in plan."
-                    logger.error(msg)
-                    raise ValueError(msg)
+                    logger.warning(
+                        "Step %s/%s not present in plan — skipping status update.",
+                        step_id,
+                        sub_id,
+                    )
+                    continue
 
                 # Apply status update
                 target["status"] = new_status

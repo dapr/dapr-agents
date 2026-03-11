@@ -199,16 +199,12 @@ def test_keepalive_time_ms_validation_negative():
 
 
 def test_keepalive_timeout_ms_validation_zero():
-    with pytest.raises(
-        ValueError, match="keepalive_timeout_ms must be greater than 0"
-    ):
+    with pytest.raises(ValueError, match="keepalive_timeout_ms must be greater than 0"):
         WorkflowGrpcOptions(keepalive_timeout_ms=0)
 
 
 def test_keepalive_timeout_ms_validation_negative():
-    with pytest.raises(
-        ValueError, match="keepalive_timeout_ms must be greater than 0"
-    ):
+    with pytest.raises(ValueError, match="keepalive_timeout_ms must be greater than 0"):
         WorkflowGrpcOptions(keepalive_timeout_ms=-1)
 
 
@@ -227,9 +223,7 @@ def test_apply_grpc_options_keepalive_only():
     create_durabletask_module(shared)
 
     with patch.dict("sys.modules", {"grpc": grpc_mock}):
-        opts = WorkflowGrpcOptions(
-            keepalive_time_ms=30000, keepalive_timeout_ms=5000
-        )
+        opts = WorkflowGrpcOptions(keepalive_time_ms=30000, keepalive_timeout_ms=5000)
         apply_grpc_options(opts)
 
         assert shared.get_grpc_channel is not original
