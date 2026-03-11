@@ -26,7 +26,12 @@ logger = logging.getLogger(__name__)
 
 class DaprInferenceClient:
     def __init__(self):
-        self.dapr_client = DaprClient()
+        pass  # No persistent client - use per-call context manager
+
+    def get_metadata(self):
+        """Fetch Dapr sidecar metadata using a fresh per-call client."""
+        with DaprClient() as client:
+            return client.get_metadata()
 
     # ──────────────────────────────────────────────────────────────────────────
     # Alpha2 (Tool Calling) support
@@ -77,16 +82,17 @@ class DaprInferenceClient:
         if not temperature:
             temperature = 1
 
-        response_alpha2 = self.dapr_client.converse_alpha2(
-            name=llm,
-            inputs=inputs,
-            context_id=context_id,
-            parameters=parameters,
-            scrub_pii=scrub_pii,
-            temperature=temperature,
-            tools=conv_tools,
-            tool_choice=tool_choice,
-        )
+        with DaprClient() as client:
+            response_alpha2 = client.converse_alpha2(
+                name=llm,
+                inputs=inputs,
+                context_id=context_id,
+                parameters=parameters,
+                scrub_pii=scrub_pii,
+                temperature=temperature,
+                tools=conv_tools,
+                tool_choice=tool_choice,
+            )
 
         outputs: List[Dict[str, Any]] = []
         for output in getattr(response_alpha2, "outputs", []) or []:
