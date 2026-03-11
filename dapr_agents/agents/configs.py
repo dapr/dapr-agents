@@ -101,6 +101,8 @@ class WorkflowGrpcOptions:
 
     max_send_message_length: Optional[int] = None
     max_receive_message_length: Optional[int] = None
+    keepalive_time_ms: Optional[int] = None
+    keepalive_timeout_ms: Optional[int] = None
 
     def __post_init__(self) -> None:
         if (
@@ -113,6 +115,10 @@ class WorkflowGrpcOptions:
             and self.max_receive_message_length <= 0
         ):
             raise ValueError("max_receive_message_length must be greater than 0")
+        if self.keepalive_time_ms is not None and self.keepalive_time_ms <= 0:
+            raise ValueError("keepalive_time_ms must be greater than 0")
+        if self.keepalive_timeout_ms is not None and self.keepalive_timeout_ms <= 0:
+            raise ValueError("keepalive_timeout_ms must be greater than 0")
 
 
 @dataclass
