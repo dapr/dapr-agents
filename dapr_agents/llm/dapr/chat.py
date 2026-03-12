@@ -373,7 +373,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                     f"Alpha2 parameters keys: {list(params.get('parameters', {}).keys())}"
                 )
             # get metadata information from the dapr client
-            metadata = self.client.dapr_client.get_metadata()
+            metadata = self.client.get_metadata()
             _check_dapr_runtime_support(metadata)
 
             llm_component = llm_component or self._llm_component
@@ -421,9 +421,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             logger.debug(f"Dapr Conversation API response: {raw}")
             logger.debug(f"Normalized response: {normalized}")
         except Exception as e:
-            logger.error(
-                f"An error occurred during the Dapr Conversation API call: {e}"
-            )
+            logger.warning(f"Dapr Conversation API call failed: {e}")
             raise
 
         # 7) Hand off to our unified handler (always non‐stream)
@@ -434,6 +432,49 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             structured_mode=structured_mode,
             stream=False,
         )
+
+
+def _simplify_anyof(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursively collapse ``anyOf`` unions into a single ``type`` field.
+
+    The Dapr runtime's ``convertToStructuredOutputSchema`` (Go) requires every
+    sub-schema to have a ``"type"`` string.  Pydantic emits
+    ``anyOf: [{"type": "X"}, {"type": "null"}]`` for ``Optional[X]`` fields,
+    which has *no* top-level ``"type"`` and causes a conversion error that
+    crashes the sidecar (nil-logger panic on the error path).
+
+    This helper rewrites such patterns to ``{"type": "X"}`` (dropping the
+    null variant) so the Go code can process the schema safely.
+    """
+    result = dict(schema)
+
+    # Collapse anyOf: [{"type": T}, {"type": "null"}] → {"type": T}
+    if "anyOf" in result and "type" not in result:
+        variants = result.get("anyOf", [])
+        non_null = [
+            v for v in variants if isinstance(v, dict) and v.get("type") != "null"
+        ]
+        if len(non_null) == 1:
+            collapsed = dict(non_null[0])
+            # Preserve sibling keys (description, title, default, etc.)
+            for k, v in result.items():
+                if k != "anyOf" and k not in collapsed:
+                    collapsed[k] = v
+            result = collapsed
+
+    # Recurse into object properties
+    if result.get("type") == "object" and "properties" in result:
+        result["properties"] = {
+            k: _simplify_anyof(v) if isinstance(v, dict) else v
+            for k, v in result["properties"].items()
+        }
+
+    # Recurse into array items
+    if result.get("type") == "array" and isinstance(result.get("items"), dict):
+        result["items"] = _simplify_anyof(result["items"])
+
+    return result
 
 
 def _to_dapr_response_format(
@@ -451,8 +492,9 @@ def _to_dapr_response_format(
     if oai_format.get("type") == "json_schema":
         inner = oai_format.get("json_schema", {})
         schema = inner.get("schema", {})
+        simplified = _simplify_anyof(schema)
         return {
-            **schema,
+            **simplified,
             "name": inner.get("name", "response"),
             "description": inner.get("description", ""),
             "strict": inner.get("strict", False),

@@ -118,6 +118,7 @@ def _schedule_agent_workflow(
     ctx: Any,
     task: str,
     agent_name: str,
+    agent_type: str = "agents",
     target_app_id: Optional[str] = None,
     _source_agent: Optional[str] = None,
     workflow_name: Optional[str] = None,
@@ -136,6 +137,7 @@ def _schedule_agent_workflow(
         ctx: Dapr workflow context supplied by the dispatch loop.
         task: The instruction to forward to the child agent.
         agent_name: Registered name of the target agent.
+        agent_type: Framework/type prefix for the workflow name (e.g. "strands", "agents").
         target_app_id: Dapr app-id for cross-app routing; ``None`` for in-process.
         _source_agent: Name of the calling agent; forwarded in ``_message_metadata``
             so the child agent labels the user message as "on behalf of".
@@ -175,6 +177,7 @@ def agent_to_tool(
     agent_name: str,
     description: str,
     *,
+    agent_type: str = "agents",
     target_app_id: Optional[str] = None,
     workflow_name: Optional[str] = None,
     framework: Optional[str] = None,
@@ -200,6 +203,8 @@ def agent_to_tool(
             normalization, rather than needing to match character-for-character.
         description: Human-readable description shown to the LLM in the tool
             schema (e.g. ``"Ring-bearer. Goal: carry the One Ring to Mordor."``).
+        agent_type: Framework/type prefix for the workflow name (e.g. "strands",
+            "agents").  Defaults to "agents" for backward compatibility.
         target_app_id: Dapr app-id of the app hosting the target agent.
             Pass ``None`` (default) for in-process invocation where both
             agents are registered in the same Dapr application.
@@ -236,6 +241,7 @@ def agent_to_tool(
     executor = functools.partial(
         _schedule_agent_workflow,
         agent_name=agent_name,
+        agent_type=agent_type,
         target_app_id=target_app_id,
         workflow_name=workflow_name,
         framework=framework,

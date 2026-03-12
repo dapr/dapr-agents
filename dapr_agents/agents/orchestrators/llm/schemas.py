@@ -14,7 +14,7 @@
 from functools import cached_property
 import json
 from typing import List, Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from dapr_agents.agents.orchestrators.llm.state import PlanStep
 from dapr_agents.llm.utils import StructureHandler
@@ -47,6 +47,15 @@ class NextStep(BaseModel):
         description="The substep number (if applicable) the agent will be working on.",
     )
 
+    @field_validator("substep", mode="before")
+    @classmethod
+    def normalize_substep(cls, v: Optional[float]) -> Optional[float]:
+        """Treat whole-number floats (0.0, 1.0, 2.0, ...) as None — they indicate
+        the parent step, not a real substep."""
+        if v is not None and float(v) == int(float(v)):
+            return None
+        return v
+
 
 class TaskPlan(BaseModel):
     """Encapsulates the structured execution plan."""
@@ -60,6 +69,16 @@ class PlanStatusUpdate(BaseModel):
         None,
         description="Substep identifier (float, e.g., 1.1, 2.3). Set to None if updating a step.",
     )
+
+    @field_validator("substep", mode="before")
+    @classmethod
+    def normalize_substep(cls, v: Optional[float]) -> Optional[float]:
+        """Treat whole-number floats (0.0, 1.0, 2.0, ...) as None — they indicate
+        the parent step, not a real substep."""
+        if v is not None and float(v) == int(float(v)):
+            return None
+        return v
+
     status: Literal["not_started", "in_progress", "blocked", "completed"] = Field(
         ..., description="Updated status for the step or sub-step."
     )

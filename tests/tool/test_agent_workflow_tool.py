@@ -108,6 +108,23 @@ class TestAgentWorkflowSuffix:
             == explicit_name
         )
 
+    def test_agent_workflow_id_with_strands_framework(self):
+        """Strands framework uses TitleCase sanitized names."""
+        assert (
+            agent_workflow_id("strands-default", framework="strands")
+            == "dapr.strands.StrandsDefault.workflow"
+        )
+        assert (
+            agent_workflow_id("my-agent", framework="Strands")
+            == "dapr.strands.MyAgent.workflow"
+        )
+
+    def test_agent_workflow_id_langgraph(self):
+        assert (
+            agent_workflow_id("schedule-planner", framework="CompiledStateGraph")
+            == "dapr.compiledstategraph.SchedulePlanner.workflow"
+        )
+
 
 class TestAgentTaskArgs:
     def test_task_field_required(self):
@@ -137,6 +154,19 @@ class TestScheduleAgentWorkflow:
             workflow=agent_workflow_id("legolas"),
             input={"task": "scout ahead"},
             app_id="legolas-app",
+        )
+
+    def test_schedules_with_custom_framework(self):
+        ctx = MagicMock()
+        _schedule_agent_workflow(
+            ctx,
+            task="estimate costs",
+            agent_name="strands-default",
+            framework="strands",
+        )
+        ctx.call_child_workflow.assert_called_once_with(
+            workflow="dapr.strands.StrandsDefault.workflow",
+            input={"task": "estimate costs"},
         )
 
     def test_no_app_id_when_none(self):
@@ -322,3 +352,12 @@ class TestAgentToTool:
         assert (
             sanitize_openai_tool_name("get_user") == "GetUser"
         )  # snake_case -> TitleCase
+
+    def test_tool_with_custom_framework(self):
+        tool = agent_to_tool("strands-default", "Budget analyst.", framework="strands")
+        ctx = MagicMock()
+        tool(ctx=ctx, task="Estimate costs")
+        ctx.call_child_workflow.assert_called_once_with(
+            workflow="dapr.strands.StrandsDefault.workflow",
+            input={"task": "Estimate costs"},
+        )
