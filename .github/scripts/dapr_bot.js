@@ -67,8 +67,6 @@ async function handleIssueCommentCreate({ github, context }) {
 
     // Commands that can be executed by anyone.
     if (command == '/assign') {
-        // FIX: Pass context.actor (which preserves exact casing) and the payload object.
-        // Passing the .toLowerCase() 'username' causes the GitHub API assignment to fail silently.
         await cmdAssign(github, issue, context.actor, isFromPulls, payload)
         return
     }
