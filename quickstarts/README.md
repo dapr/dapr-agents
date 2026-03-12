@@ -51,6 +51,12 @@ source .venv/bin/activate
 uv sync --active
 ```
 
+Ensure Dapr is running locally
+
+```bash
+dapr init
+```
+
 </details>
 
 ## LLM Configuration
