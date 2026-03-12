@@ -140,10 +140,8 @@ async function cmdAssign(github, issue, actor, isFromPulls, payload) {
         )
         return
     } else if (payload.issue.assignees && payload.issue.assignees.length !== 0) {
-        // FIX: Check payload.issue.assignees instead of issue.assignees 
-        // (context.issue does not contain the assignees array, which caused this check to always fail).
-        console.log(
-            '[cmdAssign] issue already has assignees, skipping command execution.'
+console.log(
+'[cmdAssign] issue already has assignees, skipping command execution.'
         )
         return
     }
