@@ -112,12 +112,6 @@ spec:
     value: "gpt-4o-mini"
 ```
 
-Then export your key:
-
-```bash
-export OPENAI_API_KEY=your_key_here
-```
-
 ### Alternative: Other Providers
 
 Dapr supports Anthropic, Mistral, and other LLM providers through the Conversation API. Replace the component type and metadata while keeping the component name as `llm-provider`. See the [Dapr Conversation component reference](https://docs.dapr.io/reference/components-reference/supported-conversation/) for the full list of supported providers and their configuration.
