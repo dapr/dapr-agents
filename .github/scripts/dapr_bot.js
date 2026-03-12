@@ -140,8 +140,8 @@ async function cmdAssign(github, issue, actor, isFromPulls, payload) {
         )
         return
     } else if (payload.issue.assignees && payload.issue.assignees.length !== 0) {
-console.log(
-'[cmdAssign] issue already has assignees, skipping command execution.'
+        console.log(
+            '[cmdAssign] issue already has assignees, skipping command execution.'
         )
         return
     }
@@ -150,7 +150,7 @@ console.log(
         owner: issue.owner,
         repo: issue.repo,
         issue_number: issue.number,
-        assignees: [actor], // FIX: Use properly cased actor name here
+        assignees: [actor],
     })
 }
 
@@ -188,6 +188,6 @@ async function commentUserNotAllowed(github, issue, username) {
         owner: issue.owner,
         repo: issue.repo,
         issue_number: issue.number,
-        body: `👋 @${username}, my apologies but I can't perform this action for you because your username is not in the allowlist in the file ${'\`.github/scripts/dapr_bot.js\`'}.`,
+        body: `👋 @${username}, my apologies but I can't perform this action for you because your username is not in the allowlist in the file \`.github/scripts/dapr_bot.js\`.`,
     })
 }
