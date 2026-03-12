@@ -1240,7 +1240,7 @@ class TestDurableAgent:
         )
 
         assert agent._retry_policy is not None
-        assert agent._retry_policy.max_number_of_attempts == 1
+        assert agent._retry_policy.max_number_of_attempts == 3
         assert agent._retry_policy.first_retry_interval.total_seconds() == 5
         assert agent._retry_policy.max_retry_interval.total_seconds() == 30
         assert agent._retry_policy.backoff_coefficient == 1.5

@@ -15,7 +15,7 @@ import asyncio
 import pytest
 from typing import Union, Optional, List
 from dataclasses import dataclass
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from pydantic import BaseModel, Field
 
 from dapr_agents.workflow.decorators.decorators import message_router
@@ -26,6 +26,9 @@ from dapr_agents.workflow.utils.routers import (
     parse_cloudevent,
 )
 from dapr_agents.workflow.utils.registration import register_message_routes
+
+
+_PATCH_TARGET = "dapr_agents.workflow.utils.registration.DaprClient"
 
 
 def create_mock_dapr_client(pubsub_names: List[str]) -> MagicMock:
@@ -53,6 +56,10 @@ def create_mock_dapr_client(pubsub_names: List[str]) -> MagicMock:
         components.append(component)
     mock_metadata.registered_components = components
     mock_client.get_metadata.return_value = mock_metadata
+
+    # Support context manager usage (with DaprClient() as client:)
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
 
     return mock_client
 
@@ -577,9 +584,10 @@ def test_register_message_handlers_discovers_standalone_function():
 
     loop = asyncio.new_event_loop()
     try:
-        closers = register_message_routes(
-            dapr_client=mock_client, targets=[handle_order], loop=loop
-        )
+        with patch(_PATCH_TARGET, return_value=mock_client):
+            closers = register_message_routes(
+                dapr_client=mock_client, targets=[handle_order], loop=loop
+            )
     finally:
         loop.close()
 
@@ -610,9 +618,10 @@ def test_register_message_handlers_discovers_class_methods():
     handler = OrderHandler()
     loop = asyncio.new_event_loop()
     try:
-        closers = register_message_routes(
-            dapr_client=mock_client, targets=[handler], loop=loop
-        )
+        with patch(_PATCH_TARGET, return_value=mock_client):
+            closers = register_message_routes(
+                dapr_client=mock_client, targets=[handler], loop=loop
+            )
     finally:
         loop.close()
 
@@ -642,9 +651,10 @@ def test_register_message_handlers_groups_by_topic():
     handler = OrderHandler()
     loop = asyncio.new_event_loop()
     try:
-        closers = register_message_routes(
-            dapr_client=mock_client, targets=[handler], loop=loop
-        )
+        with patch(_PATCH_TARGET, return_value=mock_client):
+            closers = register_message_routes(
+                dapr_client=mock_client, targets=[handler], loop=loop
+            )
     finally:
         loop.close()
 
@@ -677,9 +687,10 @@ def test_register_message_handlers_ignores_undecorated_methods():
     handler = MixedHandler()
     loop = asyncio.new_event_loop()
     try:
-        closers = register_message_routes(
-            dapr_client=mock_client, targets=[handler], loop=loop
-        )
+        with patch(_PATCH_TARGET, return_value=mock_client):
+            closers = register_message_routes(
+                dapr_client=mock_client, targets=[handler], loop=loop
+            )
     finally:
         loop.close()
 
@@ -704,11 +715,12 @@ def test_register_message_handlers_handles_multiple_targets():
     handler_instance = OrderHandler()
     loop = asyncio.new_event_loop()
     try:
-        closers = register_message_routes(
-            dapr_client=mock_client,
-            targets=[standalone_handler, handler_instance],
-            loop=loop,
-        )
+        with patch(_PATCH_TARGET, return_value=mock_client):
+            closers = register_message_routes(
+                dapr_client=mock_client,
+                targets=[standalone_handler, handler_instance],
+                loop=loop,
+            )
     finally:
         loop.close()
 
@@ -731,11 +743,12 @@ def test_register_message_handlers_returns_closers():
 
     loop = asyncio.new_event_loop()
     try:
-        closers = register_message_routes(
-            dapr_client=mock_client,
-            targets=[handle_created, handle_cancelled],
-            loop=loop,
-        )
+        with patch(_PATCH_TARGET, return_value=mock_client):
+            closers = register_message_routes(
+                dapr_client=mock_client,
+                targets=[handle_created, handle_cancelled],
+                loop=loop,
+            )
     finally:
         loop.close()
 

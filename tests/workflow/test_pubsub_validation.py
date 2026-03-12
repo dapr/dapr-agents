@@ -1,10 +1,12 @@
 """Tests for PubSub component validation during subscription."""
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from dapr_agents.types.exceptions import PubSubNotAvailableError
 from dapr_agents.workflow.utils.registration import _validate_pubsub_components
+
+_PATCH_TARGET = "dapr_agents.workflow.utils.registration.DaprClient"
 
 
 class TestPubSubNotAvailableError:
@@ -41,115 +43,111 @@ class TestPubSubNotAvailableError:
         assert exc.topic == "my-topic"
 
 
+def _mock_dapr_client_with_pubsubs(pubsub_names: list[str]) -> MagicMock:
+    """Create a mock DaprClient constructor that returns a context-manager mock
+    whose ``get_metadata()`` reports the given pubsub component names."""
+    mock_client = MagicMock()
+    mock_metadata = MagicMock()
+
+    components = []
+    for name in pubsub_names:
+        component = MagicMock()
+        component.type = "pubsub.redis"
+        component.name = name
+        components.append(component)
+
+    mock_metadata.registered_components = components
+    mock_client.get_metadata.return_value = mock_metadata
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+
+    # The constructor mock — calling DaprClient() returns mock_client
+    mock_cls = MagicMock(return_value=mock_client)
+    return mock_cls, mock_client
+
+
 class TestValidatePubSubComponents:
     """Tests for _validate_pubsub_components function."""
 
-    def _create_mock_dapr_client(self, pubsub_names: list[str]) -> MagicMock:
-        """Helper to create a mock DaprClient with specific pubsub components."""
-        mock_client = MagicMock()
-        mock_metadata = MagicMock()
-
-        components = []
-        for name in pubsub_names:
-            component = MagicMock()
-            component.type = "pubsub.redis"
-            component.name = name
-            components.append(component)
-
-        mock_metadata.registered_components = components
-        mock_client.get_metadata.return_value = mock_metadata
-        return mock_client
-
     def test_validation_passes_when_component_exists(self):
         """Test that validation passes when required pubsub component exists."""
-        mock_client = self._create_mock_dapr_client(["agent-pubsub"])
-        pubsub_names = {"agent-pubsub"}
-        topics_by_pubsub = {"agent-pubsub": {"test-topic"}}
-
-        # Should not raise
-        _validate_pubsub_components(mock_client, pubsub_names, topics_by_pubsub)
+        mock_cls, _ = _mock_dapr_client_with_pubsubs(["agent-pubsub"])
+        with patch(_PATCH_TARGET, mock_cls):
+            _validate_pubsub_components(
+                MagicMock(), {"agent-pubsub"}, {"agent-pubsub": {"test-topic"}}
+            )
 
     def test_validation_raises_when_component_missing(self):
         """Test that validation raises PubSubNotAvailableError when component is missing."""
-        mock_client = self._create_mock_dapr_client(["other-pubsub"])
-        pubsub_names = {"agent-pubsub"}
-        topics_by_pubsub = {"agent-pubsub": {"test-topic"}}
-
-        with pytest.raises(PubSubNotAvailableError) as exc_info:
-            _validate_pubsub_components(mock_client, pubsub_names, topics_by_pubsub)
-
-        exc = exc_info.value
-        assert exc.pubsub_name == "agent-pubsub"
-        assert exc.topic == "test-topic"
+        mock_cls, _ = _mock_dapr_client_with_pubsubs(["other-pubsub"])
+        with patch(_PATCH_TARGET, mock_cls):
+            with pytest.raises(PubSubNotAvailableError) as exc_info:
+                _validate_pubsub_components(
+                    MagicMock(), {"agent-pubsub"}, {"agent-pubsub": {"test-topic"}}
+                )
+            exc = exc_info.value
+            assert exc.pubsub_name == "agent-pubsub"
+            assert exc.topic == "test-topic"
 
     def test_validation_with_multiple_pubsubs_all_exist(self):
         """Test validation passes when all required pubsubs exist."""
-        mock_client = self._create_mock_dapr_client(["pubsub-a", "pubsub-b"])
-        pubsub_names = {"pubsub-a", "pubsub-b"}
-        topics_by_pubsub = {"pubsub-a": {"topic-a"}, "pubsub-b": {"topic-b"}}
-
-        # Should not raise
-        _validate_pubsub_components(mock_client, pubsub_names, topics_by_pubsub)
+        mock_cls, _ = _mock_dapr_client_with_pubsubs(["pubsub-a", "pubsub-b"])
+        with patch(_PATCH_TARGET, mock_cls):
+            _validate_pubsub_components(
+                MagicMock(),
+                {"pubsub-a", "pubsub-b"},
+                {"pubsub-a": {"topic-a"}, "pubsub-b": {"topic-b"}},
+            )
 
     def test_validation_with_multiple_pubsubs_one_missing(self):
         """Test validation raises when one of multiple pubsubs is missing."""
-        mock_client = self._create_mock_dapr_client(["pubsub-a"])
-        pubsub_names = {"pubsub-a", "pubsub-b"}
-        topics_by_pubsub = {"pubsub-a": {"topic-a"}, "pubsub-b": {"topic-b"}}
-
-        with pytest.raises(PubSubNotAvailableError) as exc_info:
-            _validate_pubsub_components(mock_client, pubsub_names, topics_by_pubsub)
-
-        exc = exc_info.value
-        assert exc.pubsub_name == "pubsub-b"
+        mock_cls, _ = _mock_dapr_client_with_pubsubs(["pubsub-a"])
+        with patch(_PATCH_TARGET, mock_cls):
+            with pytest.raises(PubSubNotAvailableError) as exc_info:
+                _validate_pubsub_components(
+                    MagicMock(),
+                    {"pubsub-a", "pubsub-b"},
+                    {"pubsub-a": {"topic-a"}, "pubsub-b": {"topic-b"}},
+                )
+            assert exc_info.value.pubsub_name == "pubsub-b"
 
     def test_validation_with_empty_pubsub_names(self):
         """Test validation does nothing when no pubsubs are required."""
-        mock_client = MagicMock()
-        pubsub_names: set[str] = set()
-        topics_by_pubsub: dict[str, set[str]] = {}
-
-        # Should not raise and should not call get_metadata
-        _validate_pubsub_components(mock_client, pubsub_names, topics_by_pubsub)
-        mock_client.get_metadata.assert_not_called()
+        # Empty pubsub_names → early return, no DaprClient created
+        _validate_pubsub_components(MagicMock(), set(), {})
 
     def test_validation_with_no_registered_components(self):
         """Test validation raises when no components are registered."""
-        mock_client = MagicMock()
-        mock_metadata = MagicMock()
-        mock_metadata.registered_components = []
-        mock_client.get_metadata.return_value = mock_metadata
-
-        pubsub_names = {"agent-pubsub"}
-        topics_by_pubsub = {"agent-pubsub": {"test-topic"}}
-
-        with pytest.raises(PubSubNotAvailableError):
-            _validate_pubsub_components(mock_client, pubsub_names, topics_by_pubsub)
+        mock_cls, _ = _mock_dapr_client_with_pubsubs([])
+        with patch(_PATCH_TARGET, mock_cls):
+            with pytest.raises(PubSubNotAvailableError):
+                _validate_pubsub_components(
+                    MagicMock(), {"agent-pubsub"}, {"agent-pubsub": {"test-topic"}}
+                )
 
     def test_validation_with_none_registered_components(self):
         """Test validation handles None registered_components gracefully."""
-        mock_client = MagicMock()
-        mock_metadata = MagicMock()
-        mock_metadata.registered_components = None
-        mock_client.get_metadata.return_value = mock_metadata
-
-        pubsub_names = {"agent-pubsub"}
-        topics_by_pubsub = {"agent-pubsub": {"test-topic"}}
-
-        with pytest.raises(PubSubNotAvailableError):
-            _validate_pubsub_components(mock_client, pubsub_names, topics_by_pubsub)
+        mock_cls, mock_client = _mock_dapr_client_with_pubsubs([])
+        mock_client.get_metadata.return_value.registered_components = None
+        with patch(_PATCH_TARGET, mock_cls):
+            with pytest.raises(PubSubNotAvailableError):
+                _validate_pubsub_components(
+                    MagicMock(), {"agent-pubsub"}, {"agent-pubsub": {"test-topic"}}
+                )
 
     def test_validation_raises_on_metadata_error(self, caplog):
         """Test that metadata retrieval errors are logged and raise an exception."""
         mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get_metadata.side_effect = Exception("Connection refused")
+        mock_cls = MagicMock(return_value=mock_client)
 
-        pubsub_names = {"agent-pubsub"}
-        topics_by_pubsub = {"agent-pubsub": {"test-topic"}}
-
-        # Should raise the exception after logging an error
-        with pytest.raises(Exception, match="Connection refused"):
-            _validate_pubsub_components(mock_client, pubsub_names, topics_by_pubsub)
+        with patch(_PATCH_TARGET, mock_cls):
+            with pytest.raises(Exception, match="Connection refused"):
+                _validate_pubsub_components(
+                    MagicMock(), {"agent-pubsub"}, {"agent-pubsub": {"test-topic"}}
+                )
         assert "Could not validate PubSub component availability" in caplog.text
         assert "Failing startup to prevent silent subscription failures" in caplog.text
 
@@ -158,7 +156,6 @@ class TestValidatePubSubComponents:
         mock_client = MagicMock()
         mock_metadata = MagicMock()
 
-        # Add various component types
         state_component = MagicMock()
         state_component.type = "state.redis"
         state_component.name = "agent-pubsub"  # Same name but wrong type
@@ -169,29 +166,32 @@ class TestValidatePubSubComponents:
 
         mock_metadata.registered_components = [state_component, pubsub_component]
         mock_client.get_metadata.return_value = mock_metadata
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_cls = MagicMock(return_value=mock_client)
 
-        # Should raise because "agent-pubsub" is a state store, not a pubsub
-        pubsub_names = {"agent-pubsub"}
-        topics_by_pubsub = {"agent-pubsub": {"test-topic"}}
-
-        with pytest.raises(PubSubNotAvailableError):
-            _validate_pubsub_components(mock_client, pubsub_names, topics_by_pubsub)
+        with patch(_PATCH_TARGET, mock_cls):
+            with pytest.raises(PubSubNotAvailableError):
+                _validate_pubsub_components(
+                    MagicMock(), {"agent-pubsub"}, {"agent-pubsub": {"test-topic"}}
+                )
 
     def test_validation_with_pubsub_type_variations(self):
         """Test validation handles different pubsub type strings."""
         mock_client = MagicMock()
         mock_metadata = MagicMock()
 
-        # Test different pubsub type variations
         pubsub_component = MagicMock()
-        pubsub_component.type = "pubsub.kafka"  # Different broker
+        pubsub_component.type = "pubsub.kafka"
         pubsub_component.name = "agent-pubsub"
 
         mock_metadata.registered_components = [pubsub_component]
         mock_client.get_metadata.return_value = mock_metadata
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_cls = MagicMock(return_value=mock_client)
 
-        pubsub_names = {"agent-pubsub"}
-        topics_by_pubsub = {"agent-pubsub": {"test-topic"}}
-
-        # Should not raise - "pubsub" is in the type string
-        _validate_pubsub_components(mock_client, pubsub_names, topics_by_pubsub)
+        with patch(_PATCH_TARGET, mock_cls):
+            _validate_pubsub_components(
+                MagicMock(), {"agent-pubsub"}, {"agent-pubsub": {"test-topic"}}
+            )

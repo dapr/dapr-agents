@@ -90,7 +90,8 @@ def _validate_pubsub_components(
         return
 
     try:
-        metadata = dapr_client.get_metadata()
+        with DaprClient() as client:
+            metadata = client.get_metadata()
         registered_components = metadata.registered_components or []
 
         # Find all registered pubsub components

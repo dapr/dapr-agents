@@ -966,6 +966,8 @@ class DurableAgent(AgentBase):
                     f"Agent '{next_agent}' has invalid agent metadata. "
                     f"Available agents: {list(agents_metadata.keys())}"
                 )
+            agent_appid = agent_entry["agent"]["appid"]
+            agent_type = agent_entry["agent"].get("type", "agents").lower()
 
             agent_appid = agent_meta.get("appid")
             if not agent_appid:
@@ -981,6 +983,7 @@ class DurableAgent(AgentBase):
             _agent_tool = agent_to_tool(
                 next_agent,
                 description="",
+                agent_type=agent_type,
                 target_app_id=agent_appid,
                 framework=framework,
             )
@@ -1373,16 +1376,16 @@ class DurableAgent(AgentBase):
                 new_status = u["status"]
 
                 logger.debug(
-                    "Updating step %s/%s to status '%s'",
-                    step_id,
-                    sub_id,
-                    new_status,
+                    f"Updating step {step_id}/{sub_id} to status '{new_status}'"
                 )
                 target = find_step_in_plan(plan, step_id, sub_id)
                 if not target:
-                    msg = f"Step {step_id}/{sub_id} not present in plan."
-                    logger.error(msg)
-                    raise ValueError(msg)
+                    logger.warning(
+                        "Step %s/%s not present in plan — skipping status update.",
+                        step_id,
+                        sub_id,
+                    )
+                    continue
 
                 # Apply status update
                 target["status"] = new_status
