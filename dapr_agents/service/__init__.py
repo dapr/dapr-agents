@@ -11,7 +11,6 @@
 # limitations under the License.
 #
 
-from .base import APIServerBase
 from .fastapi import DaprFastAPIServer
 
-__all__ = ["APIServerBase", "DaprFastAPIServer"]
+__all__ = ["DaprFastAPIServer"]

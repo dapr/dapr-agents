@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence, Tuple
 
 from dapr_agents.agents.configs import WorkflowGrpcOptions
 
@@ -37,10 +37,12 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
     """
     if not options:
         return
-    # Early return if neither option is set
+    # Early return if no options are set
     if (
         options.max_send_message_length is None
         and options.max_receive_message_length is None
+        and options.keepalive_time_ms is None
+        and options.keepalive_timeout_ms is None
     ):
         return
 
@@ -53,7 +55,7 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
         )
         raise
 
-    grpc_options = []
+    grpc_options: list[Tuple[str, Any]] = []
     if options.max_send_message_length:
         grpc_options.append(
             ("grpc.max_send_message_length", options.max_send_message_length)
@@ -62,12 +64,22 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
         grpc_options.append(
             ("grpc.max_receive_message_length", options.max_receive_message_length)
         )
+    if options.keepalive_time_ms:
+        grpc_options.append(("grpc.keepalive_time_ms", options.keepalive_time_ms))
+    if options.keepalive_timeout_ms:
+        grpc_options.append(("grpc.keepalive_timeout_ms", options.keepalive_timeout_ms))
 
     def get_grpc_channel_with_options(
         host_address: Optional[str],
         secure_channel: bool = False,
-        interceptors: Optional[Sequence["grpc.ClientInterceptor"]] = None,
-    ):
+        interceptors: Optional[Sequence[Any]] = None,
+        options: Optional[Sequence[Tuple[str, Any]]] = None,
+    ) -> Any:
+        merged: dict[str, Any] = dict(grpc_options)
+        if options:
+            merged.update(dict(options))
+        final_options: list[Tuple[str, Any]] = list(merged.items())
+
         if host_address is None:
             host_address = shared.get_default_host_address()
 
@@ -86,10 +98,10 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
         if secure_channel:
             credentials = grpc.ssl_channel_credentials()
             channel = grpc.secure_channel(
-                host_address, credentials, options=grpc_options
+                host_address, credentials, options=final_options
             )
         else:
-            channel = grpc.insecure_channel(host_address, options=grpc_options)
+            channel = grpc.insecure_channel(host_address, options=final_options)
 
         if interceptors:
             channel = grpc.intercept_channel(channel, *interceptors)

@@ -23,12 +23,25 @@ from ..constants import (
     OPENINFERENCE_SPAN_KIND,
     OUTPUT_MIME_TYPE,
     OUTPUT_VALUE,
+    GEN_AI_OPERATION_NAME,
+    GEN_AI_PROVIDER_NAME,
+    GEN_AI_REQUEST_MODEL,
+    GEN_AI_USAGE_INPUT_TOKENS,
+    GEN_AI_USAGE_OUTPUT_TOKENS,
+    GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+    GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
+    GEN_AI_INPUT_MESSAGES,
+    GEN_AI_OUTPUT_MESSAGES,
+    GEN_AI_RESPONSE_ID,
+    GEN_AI_RESPONSE_FINISH_REASONS,
+    GenAiOperationNameValues,
     Status,
     StatusCode,
     context_api,
     safe_json_dumps,
 )
 from ..message_processors import (
+    convert_messages_to_genai_format,
     convert_messages_to_openinference,
     extract_token_usage,
     extract_tool_schemas,
@@ -36,7 +49,12 @@ from ..message_processors import (
     get_output_message_attributes,
     process_llm_response,
 )
-from ..utils import bind_arguments, serialize_tools_for_tracing, strip_method_args
+from ..utils import (
+    bind_arguments,
+    resolve_provider_name,
+    serialize_tools_for_tracing,
+    strip_method_args,
+)
 from openinference.instrumentation import get_attributes_from_context
 
 logger = logging.getLogger(__name__)
@@ -62,6 +80,7 @@ class LLMWrapper:
     - Comprehensive error handling with fallback serialization
     - Template information capture when available from prompt templates
     - Async/sync execution support with proper OpenTelemetry context propagation
+    - GenAI semconv dual-emit (gen_ai.operation.name=chat, provider, model, usage, messages)
 
     The implementation follows OpenInference standards to ensure proper display
     of tool calls, messages, and schemas in Phoenix UI observability dashboards.
@@ -101,13 +120,20 @@ class LLMWrapper:
             return wrapped(*args, **kwargs)
 
         # Extract method parameters and build attributes
+        messages = args[0] if args else kwargs.get("messages")
+        model = kwargs.get("model") or getattr(instance, "model", None)
         attributes = self._build_llm_attributes(wrapped, instance, args, kwargs)
+        span_name = f"chat {model}" if model else "chat"
 
         # Handle async vs sync execution
         if asyncio.iscoroutinefunction(wrapped):
-            return self._handle_async_execution(wrapped, args, kwargs, attributes)
+            return self._handle_async_execution(
+                wrapped, args, kwargs, span_name, attributes, instance, messages
+            )
         else:
-            return self._handle_sync_execution(wrapped, args, kwargs, attributes)
+            return self._handle_sync_execution(
+                wrapped, args, kwargs, span_name, attributes, instance, messages
+            )
 
     def _build_llm_attributes(
         self, wrapped: Any, instance: Any, args: Any, kwargs: Any
@@ -135,16 +161,20 @@ class LLMWrapper:
         tools = kwargs.get("tools") or []
         agent_name = getattr(instance, "agent_name", None) or "ChatClient"
 
-        # Build base span attributes
+        # Build base span attributes (OpenInference + GenAI semconv)
         attributes = {
             OPENINFERENCE_SPAN_KIND: LLM,
             INPUT_MIME_TYPE: "application/json",
             OUTPUT_MIME_TYPE: "application/json",
             "agent.name": agent_name,
+            # GenAI semconv
+            GEN_AI_OPERATION_NAME: GenAiOperationNameValues.CHAT,
+            GEN_AI_PROVIDER_NAME: resolve_provider_name(instance),
         }
 
         if model:
             attributes[LLM_MODEL_NAME] = model
+            attributes[GEN_AI_REQUEST_MODEL] = model
 
         # Serialize input arguments with proper tool formatting
         input_args = bind_arguments(wrapped, *args, **kwargs)
@@ -160,6 +190,10 @@ class LLMWrapper:
         if messages:
             input_message_attrs = self._extract_input_messages(messages)
             attributes.update(input_message_attrs)
+            # GenAI semconv: single JSON string for input messages
+            attributes[GEN_AI_INPUT_MESSAGES] = convert_messages_to_genai_format(
+                messages
+            )
 
         # Add tool schema attributes
         if tools:
@@ -207,10 +241,6 @@ class LLMWrapper:
         """
         Extract prompt template information for comprehensive LLM tracing.
 
-        Captures template metadata including format, variables, and content
-        to provide complete visibility into prompt construction and template
-        usage within LLM interactions.
-
         Args:
             prompt_template (Any): Prompt template object containing template data
             instance (Any): LLM client instance with potential template configuration
@@ -236,20 +266,26 @@ class LLMWrapper:
         return template_info
 
     def _handle_async_execution(
-        self, wrapped: Any, args: Any, kwargs: Any, attributes: Dict[str, Any]
+        self,
+        wrapped: Any,
+        args: Any,
+        kwargs: Any,
+        span_name: str,
+        attributes: Dict[str, Any],
+        instance: Any = None,
+        messages: Any = None,
     ) -> Any:
         """
         Handle asynchronous LLM execution with comprehensive span tracing.
-
-        Manages async LLM calls by creating spans with proper attribute handling,
-        result processing, and error management within OpenTelemetry context,
-        ensuring complete LLM interaction tracing.
 
         Args:
             wrapped (callable): Original async LLM method to execute
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
+            span_name (str): Name for the created span (e.g., "chat gpt-4o")
             attributes (Dict[str, Any]): Pre-built span attributes including input messages and tools
+            instance (Any): LLM client instance
+            messages (Any): Input messages for GenAI output conversion
 
         Returns:
             Any: Coroutine that executes the wrapped method with proper span instrumentation,
@@ -258,7 +294,7 @@ class LLMWrapper:
 
         async def async_wrapper():
             with self._tracer.start_as_current_span(
-                "ChatCompletion", attributes=attributes
+                span_name, attributes=attributes
             ) as span:
                 try:
                     result = await wrapped(*args, **kwargs)
@@ -267,33 +303,40 @@ class LLMWrapper:
                     return result
                 except Exception as e:
                     span.set_status(Status(StatusCode.ERROR, str(e)))
+                    span.set_attribute("error.type", type(e).__qualname__)
                     span.record_exception(e)
                     raise
 
         return async_wrapper()
 
     def _handle_sync_execution(
-        self, wrapped: Any, args: Any, kwargs: Any, attributes: Dict[str, Any]
+        self,
+        wrapped: Any,
+        args: Any,
+        kwargs: Any,
+        span_name: str,
+        attributes: Dict[str, Any],
+        instance: Any = None,
+        messages: Any = None,
     ) -> Any:
         """
         Handle synchronous LLM execution with comprehensive span tracing.
-
-        Manages sync LLM calls by creating spans with proper attribute handling,
-        result processing, and error management within OpenTelemetry context,
-        ensuring complete LLM interaction tracing.
 
         Args:
             wrapped (callable): Original sync LLM method to execute
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
+            span_name (str): Name for the created span (e.g., "chat gpt-4o")
             attributes (Dict[str, Any]): Pre-built span attributes including input messages and tools
+            instance (Any): LLM client instance
+            messages (Any): Input messages for GenAI output conversion
 
         Returns:
             Any: Result from wrapped method execution with proper span instrumentation,
                  output processing, and comprehensive error handling
         """
         with self._tracer.start_as_current_span(
-            "ChatCompletion", attributes=attributes
+            span_name, attributes=attributes
         ) as span:
             try:
                 result = wrapped(*args, **kwargs)
@@ -302,6 +345,7 @@ class LLMWrapper:
                 return result
             except Exception as e:
                 span.set_status(Status(StatusCode.ERROR, str(e)))
+                span.set_attribute("error.type", type(e).__qualname__)
                 span.record_exception(e)
                 raise
 
@@ -328,6 +372,27 @@ class LLMWrapper:
                 # Set OpenInference message attributes for Phoenix UI display
                 self._set_message_attributes(span, message)
 
+                # GenAI semconv: output messages as JSON string
+                out_msg = {
+                    "role": getattr(message, "role", "assistant"),
+                    "content": getattr(message, "content", None) or "",
+                }
+                if hasattr(message, "tool_calls") and message.tool_calls:
+                    from ..message_processors import _tool_calls_to_plain
+
+                    out_msg["tool_calls"] = _tool_calls_to_plain(message.tool_calls)
+                span.set_attribute(GEN_AI_OUTPUT_MESSAGES, safe_json_dumps([out_msg]))
+
+                # GenAI semconv: response.id
+                resp_id = getattr(message, "id", None)
+                if resp_id:
+                    span.set_attribute(GEN_AI_RESPONSE_ID, resp_id)
+
+                # GenAI semconv: finish_reasons
+                finish_reason = getattr(message, "finish_reason", None)
+                if finish_reason:
+                    span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, [finish_reason])
+
                 # Set token counts from metadata if available
                 if metadata:
                     self._set_token_attributes(span, metadata)
@@ -341,10 +406,6 @@ class LLMWrapper:
     def _set_serialized_output(self, span: Any, result: Any) -> None:
         """
         Set serialized output value with multiple serialization strategies.
-
-        Attempts various serialization methods to capture the complete LLM
-        response structure, with graceful fallback to string representation
-        for comprehensive output tracing.
 
         Args:
             span (Any): OpenTelemetry span to set OUTPUT_VALUE attribute on
@@ -366,10 +427,6 @@ class LLMWrapper:
     def _set_message_attributes(self, span: Any, message: Any) -> None:
         """
         Set OpenInference message attributes for proper Phoenix UI display.
-
-        Converts assistant messages with tool_calls to the OpenInference Message
-        format that Phoenix UI expects, ensuring tool calls and responses are
-        properly visualized in the observability dashboard.
 
         Args:
             span (Any): OpenTelemetry span to set message attributes on
@@ -414,6 +471,63 @@ class LLMWrapper:
         token_attrs = extract_token_usage(metadata)
         for attr_key, attr_value in token_attrs.items():
             span.set_attribute(attr_key, attr_value)
+
+        # GenAI semconv token attributes
+        usage = None
+        if isinstance(metadata, dict) and "usage" in metadata:
+            usage = metadata["usage"]
+        elif hasattr(metadata, "usage"):
+            usage = metadata.usage
+
+        if usage is not None:
+            input_tokens = (
+                usage.get("prompt_tokens")
+                if isinstance(usage, dict)
+                else getattr(usage, "prompt_tokens", None)
+            )
+            output_tokens = (
+                usage.get("completion_tokens")
+                if isinstance(usage, dict)
+                else getattr(usage, "completion_tokens", None)
+            )
+            if input_tokens is not None:
+                span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, input_tokens)
+            if output_tokens is not None:
+                span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, output_tokens)
+
+            # Cache token details (spec-defined, not yet in Python semconv pkg)
+            prompt_details = (
+                usage.get("prompt_tokens_details")
+                if isinstance(usage, dict)
+                else getattr(usage, "prompt_tokens_details", None)
+            )
+            if prompt_details is not None:
+                cached = (
+                    prompt_details.get("cached_tokens")
+                    if isinstance(prompt_details, dict)
+                    else getattr(prompt_details, "cached_tokens", None)
+                )
+                if cached is not None:
+                    span.set_attribute(GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS, cached)
+
+            # Top-level cache_creation_input_tokens (e.g. Anthropic prompt caching)
+            cache_creation = (
+                usage.get("cache_creation_input_tokens")
+                if isinstance(usage, dict)
+                else getattr(usage, "cache_creation_input_tokens", None)
+            )
+            if cache_creation is not None:
+                span.set_attribute(
+                    GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS, cache_creation
+                )
+            # Top-level cache_read_input_tokens (e.g. Anthropic prompt caching)
+            cache_read = (
+                usage.get("cache_read_input_tokens")
+                if isinstance(usage, dict)
+                else getattr(usage, "cache_read_input_tokens", None)
+            )
+            if cache_read is not None:
+                span.set_attribute(GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS, cache_read)
 
 
 # ============================================================================

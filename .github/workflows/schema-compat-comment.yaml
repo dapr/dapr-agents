@@ -24,24 +24,45 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-    - uses: actions/checkout@v6
+    - name: Checkout base branch
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        path: base
+    - name: Checkout PR head
+      uses: actions/checkout@v6
       with:
         ref: ${{ github.event.pull_request.head.sha }}
+        path: head
+    - name: Check if schema changed
+      id: schema-diff
+      run: |
+        if diff -q base/schemas/agent-metadata/latest.json head/schemas/agent-metadata/latest.json > /dev/null 2>&1; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        fi
     - name: Set up Python 3.11
+      if: steps.schema-diff.outputs.changed == 'true'
       uses: actions/setup-python@v6
       with:
         python-version: "3.11"
     - name: Install uv
+      if: steps.schema-diff.outputs.changed == 'true'
       uses: astral-sh/setup-uv@v3
       with:
         version: "latest"
     - name: Install dependencies
+      if: steps.schema-diff.outputs.changed == 'true'
+      working-directory: head
       run: uv sync --group test
     - name: Check for breaking schema changes
+      if: steps.schema-diff.outputs.changed == 'true'
+      working-directory: head
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        REPORT=$(uv run python scripts/check_schema_compat.py)
+        REPORT=$(uv run python scripts/check_schema_compat.py --old "${{ github.workspace }}/base/schemas/agent-metadata/latest.json")
         if echo "$REPORT" | grep -q "Breaking"; then
           gh pr comment ${{ github.event.pull_request.number }} \
             --body "## Metadata Schema Compatibility Report

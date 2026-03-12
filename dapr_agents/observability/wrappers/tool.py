@@ -23,6 +23,9 @@ from ..constants import (
     Status,
     StatusCode,
     TOOL,
+    GEN_AI_OPERATION_NAME,
+    GEN_AI_TOOL_NAME,
+    GenAiOperationNameValues,
     context_api,
 )
 from ..utils import bind_arguments, get_input_value
@@ -49,6 +52,7 @@ class ExecuteToolsWrapper:
     - Error handling with span status management and exception recording
     - Agent context preservation and attribute extraction
     - Maintains compatibility with OpenInference TOOL span standards
+    - GenAI semconv dual-emit (gen_ai.operation.name=execute_tool)
 
     The wrapper creates spans with TOOL span kind to represent the batch
     coordination of multiple tool executions within agent workflows.
@@ -92,6 +96,8 @@ class ExecuteToolsWrapper:
             INPUT_VALUE: get_input_value(wrapped, *args, **kwargs),
             INPUT_MIME_TYPE: "application/json",
             "agent.name": agent_name,
+            # GenAI semconv
+            GEN_AI_OPERATION_NAME: GenAiOperationNameValues.EXECUTE_TOOL,
         }
 
         # Add context attributes
@@ -137,6 +143,7 @@ class ExecuteToolsWrapper:
                     return result
                 except Exception as e:
                     span.set_status(Status(StatusCode.ERROR, str(e)))
+                    span.set_attribute("error.type", type(e).__qualname__)
                     span.record_exception(e)
                     raise
 
@@ -170,6 +177,7 @@ class ExecuteToolsWrapper:
                 return result
             except Exception as e:
                 span.set_status(Status(StatusCode.ERROR, str(e)))
+                span.set_attribute("error.type", type(e).__qualname__)
                 span.record_exception(e)
                 raise
 
@@ -193,6 +201,7 @@ class RunToolWrapper:
     - Error handling with span status management and exception recording
     - Tool name-based span naming for clear hierarchy and identification
     - Comprehensive attribute extraction including tool metadata
+    - GenAI semconv dual-emit (gen_ai.operation.name=execute_tool, gen_ai.tool.name)
 
     The wrapper creates spans with TOOL span kind and uses the actual tool
     name as the span name for clear identification in trace hierarchies.
@@ -231,7 +240,7 @@ class RunToolWrapper:
         agent_name = getattr(instance, "name", instance.__class__.__name__)
         arguments = bind_arguments(wrapped, *args, **kwargs)
         tool_name = arguments.get("tool_name", args[0] if args else "unknown_tool")
-        span_name = f"{tool_name}"
+        span_name = f"execute_tool {tool_name}"
 
         # Build span attributes
         attributes = {
@@ -240,6 +249,9 @@ class RunToolWrapper:
             INPUT_MIME_TYPE: "application/json",
             "agent.name": agent_name,
             "tool.name": tool_name,
+            # GenAI semconv
+            GEN_AI_OPERATION_NAME: GenAiOperationNameValues.EXECUTE_TOOL,
+            GEN_AI_TOOL_NAME: tool_name,
         }
 
         # Add context attributes
@@ -261,15 +273,11 @@ class RunToolWrapper:
         """
         Handle asynchronous individual tool execution with comprehensive span tracing.
 
-        Manages async run_tool execution by creating spans with proper
-        attribute handling, tool result processing, and error management for
-        individual tool execution workflows.
-
         Args:
             wrapped (callable): Original async run_tool method to execute
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
-            span_name (str): Name for the created span (typically the tool name)
+            span_name (str): Name for the created span (e.g., "execute_tool search")
             attributes (dict): Span attributes including agent context and tool metadata
 
         Returns:
@@ -289,6 +297,7 @@ class RunToolWrapper:
                     return result
                 except Exception as e:
                     span.set_status(Status(StatusCode.ERROR, str(e)))
+                    span.set_attribute("error.type", type(e).__qualname__)
                     span.record_exception(e)
                     raise
 
@@ -300,15 +309,11 @@ class RunToolWrapper:
         """
         Handle synchronous individual tool execution with comprehensive span tracing.
 
-        Manages sync run_tool execution by creating spans with proper
-        attribute handling, tool result processing, and error management for
-        individual tool execution workflows.
-
         Args:
             wrapped (callable): Original sync run_tool method to execute
             args (tuple): Positional arguments for the wrapped method
             kwargs (dict): Keyword arguments for the wrapped method
-            span_name (str): Name for the created span (typically the tool name)
+            span_name (str): Name for the created span (e.g., "execute_tool search")
             attributes (dict): Span attributes including agent context and tool metadata
 
         Returns:
@@ -326,6 +331,7 @@ class RunToolWrapper:
                 return result
             except Exception as e:
                 span.set_status(Status(StatusCode.ERROR, str(e)))
+                span.set_attribute("error.type", type(e).__qualname__)
                 span.record_exception(e)
                 raise
 

@@ -11,15 +11,24 @@
 # limitations under the License.
 #
 
-apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: conversationstore
-spec:
-  type: state.redis
-  version: v1
-  metadata:
-  - name: redisHost
-    value: localhost:6379
-  - name: redisPassword
-    value: ""
+version: 1
+common:
+  resourcesPath: ./resources
+  logLevel: info
+  appLogDestination: console
+  daprdLogDestination: console
+
+apps:
+  - appID: triage-agent
+    appDirPath: ./
+    command: ["python3", "05_triage_agent.py"]
+    appPort: 8001
+
+  - appID: expert-agent
+    appDirPath: ./
+    command: ["python3", "05_expert_agent.py"]
+    appPort: 8002
+
+  - appID: workflow
+    appDirPath: ./
+    command: ["python3", "05_workflow_agents.py"]

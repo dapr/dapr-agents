@@ -140,6 +140,7 @@ Assess the task progress based on **conversation history**, execution results, a
    - If a **substep is completed**, check if **all** substeps are `"completed"` **before marking the parent step as "completed"**.
    - **If a step is "completed" but has "not_started" substeps, DO NOT modify those substeps.** They remain unchanged unless explicitly acted upon.
    - **IMPORTANT: If you are making ANY status updates (step or substep), set `plan_needs_update` to `true`.**
+   - **SUBSTEP FORMAT**: When updating a parent step (not a substep), set `substep` to `null`. Substep IDs must use decimal notation (e.g., 1.1, 1.2, 2.3). NEVER use 0.0, 1.0, 2.0, or other whole numbers as substep IDs.
 
 4. **Plan Adjustments (Only If Necessary)**
    - If the step descriptions are **unclear or incomplete**, update `"plan_restructure"` with a **single modified step**.

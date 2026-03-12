@@ -476,6 +476,67 @@ def extract_usage_from_object(usage: Any) -> Dict[str, Any]:
 
 
 # ============================================================================
+# GenAI Semantic Convention Message Conversion
+# ============================================================================
+
+
+def convert_messages_to_genai_format(messages: Any) -> str:
+    """
+    Convert messages into the GenAI semconv JSON-string format.
+
+    The OTel GenAI semantic conventions expect ``gen_ai.input.messages`` and
+    ``gen_ai.output.messages`` to be a **single JSON string** containing an
+    array of message objects with ``role`` and ``content`` keys.
+
+    Args:
+        messages: Input messages in various formats (str, list of dicts/objects).
+
+    Returns:
+        A JSON string representing the messages array.
+    """
+    result = []
+    try:
+        if isinstance(messages, str):
+            result.append({"role": "user", "content": messages})
+        elif isinstance(messages, list):
+            for msg in messages:
+                entry: Dict[str, Any] = {}
+                if isinstance(msg, dict):
+                    entry["role"] = msg.get("role", "user")
+                    entry["content"] = msg.get("content", "")
+                    if tc := msg.get("tool_calls"):
+                        entry["tool_calls"] = _tool_calls_to_plain(tc)
+                    if tcid := msg.get("tool_call_id"):
+                        entry["tool_call_id"] = tcid
+                elif hasattr(msg, "role"):
+                    entry["role"] = getattr(msg, "role", "user")
+                    entry["content"] = getattr(msg, "content", "") or ""
+                    if tc := getattr(msg, "tool_calls", None):
+                        entry["tool_calls"] = _tool_calls_to_plain(tc)
+                    if tcid := getattr(msg, "tool_call_id", None):
+                        entry["tool_call_id"] = tcid
+                if entry:
+                    result.append(entry)
+    except Exception as exc:
+        logger.debug("Failed to convert messages to GenAI format: %s", exc)
+
+    return safe_json_dumps(result)
+
+
+def _tool_calls_to_plain(tool_calls: Any) -> List[Dict[str, Any]]:
+    """Normalise tool_calls (dicts or Pydantic objects) to plain dicts."""
+    out: List[Dict[str, Any]] = []
+    for tc in tool_calls:
+        if hasattr(tc, "model_dump"):
+            out.append(tc.model_dump())
+        elif isinstance(tc, dict):
+            out.append(tc)
+        else:
+            out.append({"id": getattr(tc, "id", ""), "function": {}})
+    return out
+
+
+# ============================================================================
 # Exported Functions
 # ============================================================================
 
@@ -492,4 +553,5 @@ __all__ = [
     "extract_token_usage",
     "extract_usage_from_dict",
     "extract_usage_from_object",
+    "convert_messages_to_genai_format",
 ]

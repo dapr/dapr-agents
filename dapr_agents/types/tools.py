@@ -12,10 +12,11 @@
 #
 
 from typing import Optional, List, Dict, Literal, Any
-from pydantic import BaseModel, field_validator, ValidationInfo, Field
-from datetime import datetime
+from pydantic import BaseModel, field_validator, ValidationInfo, Field, model_validator
+from datetime import datetime, timezone
 import uuid
 from datetime import timedelta
+from enum import Enum
 
 
 class OAIFunctionDefinition(BaseModel):
@@ -142,35 +143,100 @@ class WebSocketServerParameters(BaseModel):
     )
 
 
+class ToolExecutionStatus(str, Enum):
+    """
+    Tool execution lifecycle status, aligned with DaprWorkflowStatus values.
+    TIMEOUT is a tool-specific addition for calls that exceed a deadline.
+    """
+
+    PENDING = "pending"  # Dispatched but not yet started
+    RUNNING = "running"  # Currently executing
+    COMPLETED = "completed"  # Finished successfully
+    FAILED = "failed"  # Finished with an error
+    TIMEOUT = "timeout"  # Exceeded execution deadline
+
+
 class ToolExecutionRecord(BaseModel):
     """
-    Represents a record of a tool execution, including the tool name and parameters used.
+    Represents a record of a tool execution, capturing identity, timing, status,
+    and result data useful for workflow observability and debugging.
     """
 
     id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
-        description="Unique identifier for the tool execution record",
-    )
-    timestamp: datetime = Field(
-        default_factory=datetime.now,
-        description="Timestamp when the tool execution record was created",
+        description="Unique identifier for this execution record",
     )
     tool_call_id: str = Field(
         ...,
-        description="Unique identifier for the tool call",
+        description="LLM-assigned identifier for the tool call (matches the message tool_call_id)",
     )
     tool_name: str = Field(
         ...,
-        description="Name of tool suggested by the model to run for a specific task.",
+        description="Name of the tool or agent invoked",
     )
     tool_args: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Tool arguments suggested by the model to run for a specific task.",
+        description="Arguments passed to the tool",
     )
+
+    # Status
+    status: ToolExecutionStatus = Field(
+        default=ToolExecutionStatus.PENDING,
+        description="Execution lifecycle status",
+    )
+    is_agent_call: bool = Field(
+        default=False,
+        description="True when this tool call invoked another agent rather than a local function",
+    )
+
+    # Timing
+    started_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Timestamp when the tool execution was dispatched",
+    )
+    completed_at: Optional[datetime] = Field(
+        None,
+        description="Timestamp when the tool execution returned",
+    )
+    duration_ms: Optional[float] = Field(
+        None,
+        description="Wall-clock execution time in milliseconds (auto-computed when both started_at and completed_at are set)",
+    )
+
+    # Result
     execution_result: Optional[str] = Field(
         None,
-        description="Result of the tool execution, if available.",
+        description="Text representation of the tool result",
     )
+    structured_result: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Structured (JSON-serializable) result for tools that return rich data",
+    )
+    error_message: Optional[str] = Field(
+        None,
+        description="Error detail when status is 'failed' or 'timeout'",
+    )
+
+    # Provenance
+    executing_agent: Optional[str] = Field(
+        None,
+        description="Name of the agent that dispatched this tool call",
+    )
+    agent_workflow_instance_id: Optional[str] = Field(
+        None,
+        description="Workflow instance ID of the invoked agent (populated for agent-as-tool calls)",
+    )
+    attempt: int = Field(
+        default=1,
+        description="Attempt number starting at 1; incremented on retries",
+    )
+
+    @model_validator(mode="after")
+    def _compute_duration(self) -> "ToolExecutionRecord":
+        if self.duration_ms is None and self.started_at and self.completed_at:
+            delta = self.completed_at - self.started_at
+            self.duration_ms = delta.total_seconds() * 1000
+        return self
 
 
 class TextContent(BaseModel):

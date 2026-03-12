@@ -13,13 +13,16 @@
 
 """Check for breaking changes between the latest and previous metadata schema.
 
-Compares ``latest.json`` against the most recent *previous* versioned schema
-file in ``schemas/agent-metadata/``.
+Compares ``latest.json`` against a baseline schema.  The baseline can be
+provided explicitly via ``--old <path>`` (used in CI to compare the base
+branch's ``latest.json`` against the PR head) or is automatically resolved
+to the most recent *previous* versioned schema from ``index.json``.
 
 Always exits 0 — this script is informational and never blocks CI.
 Output is a markdown report written to stdout.
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -109,13 +112,30 @@ def check_compat(old: Dict[str, Any], new: Dict[str, Any]) -> List[str]:
 
 
 def main() -> None:
-    prev_file = _previous_version_file()
-    if prev_file is None or not prev_file.exists():
-        print("No previous schema version found — skipping compatibility check.")
-        sys.exit(0)
+    parser = argparse.ArgumentParser(
+        description="Check for breaking metadata schema changes."
+    )
+    parser.add_argument(
+        "--old",
+        type=Path,
+        default=None,
+        help="Explicit path to the baseline schema file (e.g. base branch latest.json).",
+    )
+    args = parser.parse_args()
+
+    if args.old is not None:
+        old_file = args.old
+        if not old_file.exists():
+            print(f"Baseline file not found: {old_file}")
+            sys.exit(0)
+    else:
+        old_file = _previous_version_file()
+        if old_file is None or not old_file.exists():
+            print("No previous schema version found — skipping compatibility check.")
+            sys.exit(0)
 
     latest = _load_json(LATEST_FILE)
-    previous = _load_json(prev_file)
+    previous = _load_json(old_file)
 
     issues = check_compat(old=previous, new=latest)
 
