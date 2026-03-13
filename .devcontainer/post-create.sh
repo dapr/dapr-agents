@@ -11,10 +11,11 @@
 # limitations under the License.
 #
 
+curl -fsSL https://raw.githubusercontent.com/dapr/cli/master/install/install.sh | /bin/bash
+
 dapr uninstall
 dapr init
+
 pip install --upgrade pip
-pip install mkdocs
-pip install mkdocs-material
-pip install "mkdocs-material[imaging]"
-pip install mkdocs-jupyter
+
+curl -LsSf https://astral.sh/uv/install.sh | sh
