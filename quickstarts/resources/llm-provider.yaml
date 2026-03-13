@@ -19,9 +19,9 @@ spec:
   type: conversation.openai
   version: v1
   metadata:
-  - name: key
-    value: "ollama"
-  - name: model
-    value: "{{OLLAMA_MODEL}}"
-  - name: endpoint
-    value: "{{OLLAMA_ENDPOINT}}"
+    - name: key
+      value: "ollama"
+    - name: model
+      envRef: OLLAMA_MODEL
+    - name: endpoint
+      envRef: OLLAMA_ENDPOINT
