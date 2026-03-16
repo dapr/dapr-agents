@@ -63,26 +63,24 @@ class TestHelloWorldQuickstart:
         assert "Response:" in result.stdout
 
     def test_02_durable_agent_workflow(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent workflow-only example (02_durable_agent_workflow.py).
+        """Test durable agent workflow example (02_durable_agent_workflow.py).
 
-        Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
-        The fixture is needed for setup, even though we don't use the value directly.
+        The server (02_durable_agent_workflow.py) runs as a daemon waiting for
+        workflow invocations. The trigger (02_durable_agent_trigger_within_workflow.py)
+        schedules a workflow, waits for completion, and exits. Both run via dapr run -f.
         """
-        script_path = self.quickstart_dir / "02_durable_agent_workflow.py"
-        result = run_quickstart_or_examples_script(
-            script_path,
+        dapr_yaml = self.quickstart_dir / "02_durable_agent.yaml"
+        result = run_quickstart_or_examples_multi_app(
+            dapr_yaml,
             cwd=self.quickstart_dir,
             env=self.env,
             timeout=180,
-            use_dapr=True,
-            app_id="durable-agent-workflow",
-            resources_path=self.resources_path,
+            stream_logs=True,
         )
 
         assert result.returncode == 0, (
-            f"Quickstart script '{script_path}' failed with return code {result.returncode}.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
+            f"Multi-app quickstart '{dapr_yaml}' failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 

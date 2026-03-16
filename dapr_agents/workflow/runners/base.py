@@ -617,8 +617,7 @@ class WorkflowRunner(SignalMixin):
         status = getattr(state.runtime_status, "name", str(state.runtime_status))
         if status == "COMPLETED":
             logger.info(
-                f"[{self._name}] {instance_id} completed. Final Output=%s",
-                self._name,
+                "[agent-runner] %s completed. Final Output=%s",
                 instance_id,
                 getattr(state, "serialized_output", None),
             )

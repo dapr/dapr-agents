@@ -538,6 +538,7 @@ def run_quickstart_or_examples_multi_app(
     trigger_pubsub: Optional[Dict[str, Any]] = None,
     create_venv: bool = True,
     stream_logs: bool = False,
+    orchestrator_workflow_name: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """
     Run a quickstart using Dapr multi-app run (`dapr run -f`).
@@ -555,6 +556,8 @@ def run_quickstart_or_examples_multi_app(
         create_venv: Whether to create and use an ephemeral test venv (defaults to True).
         stream_logs: If True, stream stdout/stderr to logger in real-time (defaults to False).
                   Useful for debugging long-running tests.
+        orchestrator_workflow_name: Optional explicit orchestrator workflow name for completion
+                  detection. If None, inferred from YAML filename.
 
     Returns:
         subprocess.CompletedProcess with the result
@@ -642,13 +645,13 @@ def run_quickstart_or_examples_multi_app(
     # We need to detect workflow completion and then gracefully shut down.
     if stream_logs:
         result = _run_multi_app_with_completion_detection(
-            cmd, cwd_path, full_env, timeout
+            cmd, cwd_path, full_env, timeout, orchestrator_workflow_name
         )
     else:
         # For non-streaming, we still need completion detection
         # but we'll collect output first, then check for completion
         result = _run_multi_app_with_completion_detection(
-            cmd, cwd_path, full_env, timeout
+            cmd, cwd_path, full_env, timeout, orchestrator_workflow_name
         )
 
     # Wait for all app ports from the YAML to be released before returning.
