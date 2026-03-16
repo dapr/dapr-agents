@@ -1,34 +1,19 @@
-import asyncio
-from dapr_agents.agents import DurableAgent
-from dapr_agents.workflow import WorkflowRetryPolicy
+import pytest
+import importlib
 
+# We use import_module because the filename starts with a number (08), 
+# which is not allowed in standard Python import syntax.
+retry_module = importlib.import_module("guide_rapide.08_durable_agent_retry")
+perform_task = retry_module.perform_task
+agent = retry_module.agent
 
-# Define policy: 3 attempts with exponential backoff
-retry_policy = WorkflowRetryPolicy(
-    max_attempts=3,
-    initial_interval_ms=1000,
-    backoff_coefficient=2.0,
-)
-
-
-# Instantiate the agent directly using the retry policy
-agent = DurableAgent(
-    name="ResilientAgent",
-    retry_policy=retry_policy,
-)
-
-
-async def perform_task():
-    """Simulates a task running with the active retry policy."""
-    print(f"[{agent.name}] Running task with active retry policy.")
-    # Here you would typically use agent.run() or a similar execution method
-    return "Task Success"
-
-
-async def main():
+@pytest.mark.asyncio
+async def test_durable_agent_retry_logic():
+    """
+    Tests the retry logic implementation in a functional way.
+    """
     result = await perform_task()
-    print(result)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    
+    assert result == "Task Success"
+    assert agent.name == "ResilientAgent"
+    assert agent.retry_policy.max_attempts == 3
