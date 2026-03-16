@@ -22,12 +22,15 @@ class TestDurableAgentToolCallQuickstart:
     """Integration tests for 02-durable-agent-tool-call example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, examples_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key, is_ollama):
         """Setup test environment."""
         import os
 
         self.quickstart_dir = examples_dir / "02-durable-agent-tool-call"
         self.env = {"OPENAI_API_KEY": openai_api_key}
+        if is_ollama:
+            self.env["OPENAI_MODEL"] = os.environ["OLLAMA_MODEL"]
+            self.env["OPENAI_BASE_URL"] = os.environ["OLLAMA_ENDPOINT"]
 
         # Add optional API keys if they're set for local development
         if os.getenv("HUGGINGFACE_API_KEY"):
