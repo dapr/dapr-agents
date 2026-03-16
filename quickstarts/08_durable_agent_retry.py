@@ -13,19 +13,21 @@ retry_policy = WorkflowRetryPolicy(
 )
 
 
-class ResilientAgent(DurableAgent):
-    def __init__(self):
-        super().__init__(name="ResilientAgent", retry_policy=retry_policy)
+# Instantiate the agent directly using the retry policy
+agent = DurableAgent(
+    name="ResilientAgent",
+    retry_policy=retry_policy
+)
 
-    async def perform_task(self):
-        print(f"[{self.name}] Running task with active retry policy.")
-        return "Task Success"
-
+async def perform_task():
+    """Simulates a task running with the active retry policy."""
+    print(f"[{agent.name}] Running task with active retry policy.")
+    # Here you would typically use agent.run() or a similar execution method
+    return "Task Success"
 
 async def main():
-    agent = ResilientAgent()
-    await agent.perform_task()
-
+    result = await perform_task()
+    print(result)
 
 if __name__ == "__main__":
     asyncio.run(main())
