@@ -214,6 +214,7 @@ def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
 def start_math_server_http():
     import subprocess
     import time
+    import socket
 
     proc = subprocess.Popen(
         [
@@ -225,7 +226,18 @@ def start_math_server_http():
             "8000",
         ]
     )
-    time.sleep(1.5)  # Give the server time to start
+    # Poll until the server is accepting connections (up to 10 seconds)
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", 8000), timeout=0.5):
+                break
+        except OSError:
+            time.sleep(0.1)
+    else:
+        proc.terminate()
+        proc.wait()
+        raise RuntimeError("MCP math server did not start within 10 seconds")
     yield
     proc.terminate()
     proc.wait()
