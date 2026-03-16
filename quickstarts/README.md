@@ -51,6 +51,12 @@ source .venv/bin/activate
 uv sync --active
 ```
 
+Ensure Dapr is running locally
+
+```bash
+dapr init
+```
+
 </details>
 
 ## LLM Configuration
@@ -104,12 +110,6 @@ spec:
     value: "{{OPENAI_API_KEY}}"
   - name: model
     value: "gpt-4o-mini"
-```
-
-Then export your key:
-
-```bash
-export OPENAI_API_KEY=your_key_here
 ```
 
 ### Alternative: Other Providers
