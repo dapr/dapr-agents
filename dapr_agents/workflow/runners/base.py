@@ -429,7 +429,9 @@ class WorkflowRunner(SignalMixin):
                     time.sleep(_retry_delay)
                     _retry_delay *= 2
                 else:
-                    logger.error(f"[{self._name}] Failed to schedule workflow: {str(e)}")
+                    logger.error(
+                        f"[{self._name}] Failed to schedule workflow: {str(e)}"
+                    )
                     raise
 
     @overload
@@ -625,7 +627,7 @@ class WorkflowRunner(SignalMixin):
         fd = getattr(state, "failure_details", None)
         if fd:
             logger.error(
-                f"{self._name} {instance_id}: FAILED. type={getattr(fd, 'error_type', None)} message={getattr(fd, 'message', None)}\n{getattr(fd, 'stack_trace', '') or ""}",
+                f"{self._name} {instance_id}: FAILED. type={getattr(fd, 'error_type', None)} message={getattr(fd, 'message', None)}\n{getattr(fd, 'stack_trace', '') or ''}",
             )
         else:
             logger.error(

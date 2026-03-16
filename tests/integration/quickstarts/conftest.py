@@ -342,7 +342,9 @@ def run_quickstart_or_examples_script(
             python_cmd = str(venv_python.absolute())
 
         # Dynamically reassign dapr_http_port if in use from a previous test
-        if (trigger_curl or trigger_pubsub) and _is_port_in_use("127.0.0.1", dapr_http_port):
+        if (trigger_curl or trigger_pubsub) and _is_port_in_use(
+            "127.0.0.1", dapr_http_port
+        ):
             dapr_http_port = _find_free_port("127.0.0.1", dapr_http_port)
 
         # When using trigger_curl with a fixed app_port,

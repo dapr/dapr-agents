@@ -108,7 +108,9 @@ class TestLLMCallOpenAIQuickstart:
     def test_embeddings(self):
         """Test embeddings example (embeddings.py)."""
         if self.is_ollama:
-            pytest.skip("Embeddings example uses text-embedding-ada-002 which is not supported by Ollama")
+            pytest.skip(
+                "Embeddings example uses text-embedding-ada-002 which is not supported by Ollama"
+            )
         script = self.quickstart_dir / "embeddings.py"
         result = run_quickstart_or_examples_script(
             script,

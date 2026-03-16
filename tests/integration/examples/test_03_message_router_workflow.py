@@ -28,6 +28,7 @@ class TestMessageRouterWorkflowQuickstart:
         self.env = {"OPENAI_API_KEY": openai_api_key}
         if is_ollama:
             import os
+
             self.env["OPENAI_MODEL"] = os.environ["OLLAMA_MODEL"]
             self.env["OPENAI_BASE_URL"] = os.environ["OLLAMA_ENDPOINT"]
 

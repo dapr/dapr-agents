@@ -29,8 +29,12 @@ class TestLLMCallDaprQuickstart:
         self.quickstart_dir = examples_dir / "01-llm-call-dapr"
         self.env = {
             "OPENAI_API_KEY": openai_api_key,
-            "OPENAI_MODEL": os.environ.get("OLLAMA_MODEL", "gpt-4-turbo") if is_ollama else "gpt-4-turbo",
-            "OPENAI_BASE_URL": os.environ.get("OLLAMA_ENDPOINT", "") if is_ollama else "",
+            "OPENAI_MODEL": os.environ.get("OLLAMA_MODEL", "gpt-4-turbo")
+            if is_ollama
+            else "gpt-4-turbo",
+            "OPENAI_BASE_URL": os.environ.get("OLLAMA_ENDPOINT", "")
+            if is_ollama
+            else "",
         }
 
     def test_text_completion(self, dapr_runtime):  # noqa: ARG002
