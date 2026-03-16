@@ -92,18 +92,6 @@ By default, the quickstart uses [Ollama](https://ollama.com/) so you can run eve
 
 > **Tip:** For more reliable tool calling, use a larger model such as `qwen2.5:3b` or `llama3.1:8b`.
 
-4. **Expand environment variables into component files**
-Dapr reads component YAML files as-is; it does not expand `{{VAR}}` placeholders.
-`resolve_env_templates.py` substitutes your exported variables into a temporary copy of the `resources/` folder and prints its path.
-Run this once per shell session after setting your env vars, then use the printed path as `--resources-path` in the quickstart commands below:
-
-```bash
-export DAPR_RESOURCES=$(python resolve_env_templates.py resources)
-# DAPR_RESOURCES now points to a temp dir like /tmp/rendered_resources_xyz/
-# where llm-provider.yaml has your actual endpoint and model filled in
-```
-
-
 ### Alternative: OpenAI
 
 To use OpenAI instead, replace `resources/llm-provider.yaml` with:
@@ -134,7 +122,7 @@ Dapr supports Anthropic, Mistral, and other LLM providers through the Conversati
 This example shows the simplest way to call an LLM using the Dapr Chat Client, which sends prompts through the Dapr Conversation API. It’s a minimal starting point before introducing agents in later examples.
 
 ```bash
-uv run dapr run --app-id llm-client --resources-path "$DAPR_RESOURCES" -- python 01_llm_client.py
+uv run dapr run --app-id llm-client --resources-path resources -- python 01_llm_client.py
 ```
 
 ## Expected Behavior
@@ -160,7 +148,7 @@ The agent keeps its runtime alive and waits for incoming workflow calls.
 **Terminal 1 — start the agent:**
 
 ```bash
-uv run dapr run --app-id weather-agent --resources-path "$DAPR_RESOURCES" -- python 02_durable_agent_workflow.py
+uv run dapr run --app-id weather-agent --resources-path resources -- python 02_durable_agent_workflow.py
 ```
 
 Then, in a second terminal, choose one of the two trigger options below depending on your use case.
@@ -219,7 +207,7 @@ The agent starts its workflow runtime and waits for external triggers. When trig
 
 This example introduces the `DurableAgent`, a workflow-native agent backed by the Dapr Workflow engine. Every step of the agent’s execution is persisted to durable storage, allowing long-running interactions to survive interruptions. The agent exposes an HTTP endpoint to start a new workflow and provides a way to query progress or retrieve the final result at any time.
 ```bash
-uv run dapr run --app-id durable-agent --resources-path "$DAPR_RESOURCES" -- python 03_durable_agent_http.py
+uv run dapr run --app-id durable-agent --resources-path resources -- python 03_durable_agent_http.py
 ```
 
 On a different terminal, trigger the agent:
@@ -278,7 +266,7 @@ This example takes the same durable agent behavior from the previous example, bu
 
 The agent code remains unchanged; only the AgentRunner configuration switches from REST to pub/sub.
 ```bash
-uv run dapr run --app-id durable-agent-subscriber --resources-path "$DAPR_RESOURCES" --dapr-http-port 3500 -- python 04_durable_agent_pubsub.py
+uv run dapr run --app-id durable-agent-subscriber --resources-path resources --dapr-http-port 3500 -- python 04_durable_agent_pubsub.py
 ```
 
 On a different terminal, publish a message to the subscribed topic:
@@ -308,7 +296,7 @@ Try publishing multiple messages to the topic and observe the agent process each
 This example does not use an agent. Instead, it demonstrates how to create a Dapr workflow that performs LLM calls in a deterministic, durable sequence.
 
 ```bash
-uv run dapr run --app-id workflow-llms --resources-path "$DAPR_RESOURCES" -- python 05_workflow_llm.py
+uv run dapr run --app-id workflow-llms --resources-path resources -- python 05_workflow_llm.py
 ```
 
 ## Expected Behavior
@@ -372,7 +360,7 @@ docker run -d -p 9411:9411 openzipkin/zipkin
 Now run the durable agent with tracing enabled and prompting included:
 
 ```
-uv run dapr run --app-id durable-agent-trace --resources-path "$DAPR_RESOURCES" -- python 07_durable_agent_tracing.py
+uv run dapr run --app-id durable-agent-trace --resources-path resources -- python 07_durable_agent_tracing.py
 ```
 
 ## Expected Behavior
@@ -396,7 +384,7 @@ This example shows how to subscribe a durable agent to a Dapr Configuration Stor
 First, ensure the `runtime-config` component is available in your resources path. You can use the one provided in `resources/configstore.yaml`. For supported configuration store backends, see the [Dapr docs](https://docs.dapr.io/reference/components-reference/supported-configuration-stores/).
 
 ```bash
-dapr run --app-id hot-reload-agent --resources-path "$DAPR_RESOURCES" -- python 08_durable_agent_hot_reload.py
+dapr run --app-id hot-reload-agent --resources-path resources -- python 08_durable_agent_hot_reload.py
 ```
 
 In a separate terminal, update a configuration value directly in Redis:
@@ -432,7 +420,7 @@ If you want to coordinate multiple agents that run in separate applications or c
 # Troubleshooting
 
 1. **Ollama not responding**: Ensure `ollama serve` is running and the model is pulled (`ollama pull qwen3:0.6b`)
-2. **Environment variables**: Verify `OLLAMA_ENDPOINT` and `OLLAMA_MODEL` are exported (or `OPENAI_API_KEY` if using OpenAI), then re-run `export RESOLVED=$(python resolve_env_templates.py resources)` to pick up changes
+2. **Environment variables**: Verify `OLLAMA_ENDPOINT` and `OLLAMA_MODEL` are exported (or `OPENAI_API_KEY` if using OpenAI)
 3. **API Key Issues**: If using OpenAI and you see an authentication error, verify your key is set in the `llm-provider.yaml` component
 4. **Python Version**: If you encounter compatibility issues, make sure you're using Python 3.10+
 5. **Environment Activation**: Ensure your virtual environment is activated before running examples
