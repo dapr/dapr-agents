@@ -103,7 +103,7 @@ test = [
     "httpx>=0.27.0,<1.0.0",  # For testing FastAPI endpoints
     "pytest-timeout>=2.3.0,<3.0.0",
     "docker>=7.0.0,<8.0.0",
-    "pytest-rerunfailures>=14.0,<16.0",
+    "pytest-rerunfailures>=14.0,<17.0",
 ]
 vectorstore = [
     "torch>=2.7.0",
