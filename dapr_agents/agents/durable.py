@@ -100,6 +100,8 @@ def _get_framework_from_registry(
     """Fetch framework from agent metadata in registry if available."""
     if infra is None:
         return None
+    if not getattr(infra, "registry_state", None):
+        return None
     try:
         # Try to get agent metadata from registry
         agents_metadata = infra.get_agents_metadata(exclude_self=False)
@@ -801,19 +803,20 @@ class DurableAgent(AgentBase):
             if not ctx.is_replaying:
                 logger.info(f"Received plan from initialization with {len(plan)} steps")
 
-            if self.broadcast_topic_name:
-                yield ctx.call_activity(
-                    self.broadcast_to_team,
-                    input={"message": plan},
-                    retry_policy=self._retry_policy,
-                )
-
             plan_content = json.dumps({"objects": plan}, indent=2)
             plan_message = {
                 "role": "assistant",
                 "name": self.name,
                 "content": plan_content,
             }
+
+            if self.broadcast_topic_name:
+                yield ctx.call_activity(
+                    self.broadcast_to_team,
+                    input={"message": plan_message},
+                    retry_policy=self._retry_policy,
+                )
+
             yield ctx.call_activity(
                 self.save_plan,
                 input={
