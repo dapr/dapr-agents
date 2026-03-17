@@ -2441,7 +2441,10 @@ class DurableAgent(AgentBase):
         ``AgentRunner`` discovers the registered names via the
         ``agent_workflow_name`` / ``broadcast_workflow_name`` properties and
         passes them as strings to ``schedule_new_workflow`` — no wrapper
-        bookkeeping is needed here.
+        bookkeeping is needed here.  The broadcast workflow (``*.broadcast``)
+        is registered only when a broadcast/pubsub topic is configured
+        (i.e., when ``broadcast_topic_name`` is set), so callers should use
+        ``broadcast_workflow_name`` only in that case.
 
         Args:
             runtime: The Dapr workflow runtime to register with.
