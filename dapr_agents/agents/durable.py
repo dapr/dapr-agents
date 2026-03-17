@@ -801,11 +801,12 @@ class DurableAgent(AgentBase):
             if not ctx.is_replaying:
                 logger.info(f"Received plan from initialization with {len(plan)} steps")
 
-            yield ctx.call_activity(
-                self.broadcast_to_team,
-                input={"message": plan},
-                retry_policy=self._retry_policy,
-            )
+            if self.broadcast_topic_name:
+                yield ctx.call_activity(
+                    self.broadcast_to_team,
+                    input={"message": plan},
+                    retry_policy=self._retry_policy,
+                )
 
             plan_content = json.dumps({"objects": plan}, indent=2)
             plan_message = {
@@ -2446,9 +2447,10 @@ class DurableAgent(AgentBase):
         runtime.register_workflow(
             self._named(self.agent_workflow, self.agent_workflow_name)
         )
-        runtime.register_workflow(
-            self._named(self.broadcast_workflow, self.broadcast_workflow_name)
-        )
+        if self.broadcast_topic_name:
+            runtime.register_workflow(
+                self._named(self.broadcast_workflow, self.broadcast_workflow_name)
+            )
 
         # Standard agent activities
         runtime.register_activity(self.record_initial_entry)
