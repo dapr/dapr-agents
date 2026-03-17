@@ -28,6 +28,7 @@ You will learn how to:
 These examples form the foundation of the Dapr Agents programming model and illustrate how LLM reasoning, tool execution, durable workflows, and agent coordination fit together.
 
 ---
+
 ## Prerequisites
 
 - Python >= 3.11 (https://www.python.org/downloads/)
@@ -89,7 +90,7 @@ By default, the quickstart uses [Ollama](https://ollama.com/) so you can run eve
    export OLLAMA_MODEL=qwen3:0.6b
    ```
 
-   The `resources/llm-provider.yaml` component resolves `{{OLLAMA_ENDPOINT}}` and `{{OLLAMA_MODEL}}` from your environment automatically.
+   The `resources/llm-provider.yaml` component resolves `OLLAMA_ENDPOINT` and `OLLAMA_MODEL` from your environment automatically.
 
 > **Tip:** For more reliable tool calling, use a larger model such as `qwen2.5:3b` or `llama3.1:8b`.
 
@@ -106,11 +107,13 @@ spec:
   type: conversation.openai
   version: v1
   metadata:
-  - name: key
-    value: "{{OPENAI_API_KEY}}"
-  - name: model
-    value: "gpt-4o-mini"
+    - name: key
+      envRef: OPENAI_API_KEY
+    - name: model
+      value: "gpt-4o-mini"
 ```
+
+> **Note:** In production, you should store sensitive information like API keys in secrets by using a dedicated secret store.
 
 ### Alternative: Other Providers
 
@@ -127,6 +130,7 @@ uv run dapr run --app-id llm-client --resources-path resources -- python 01_llm_
 ```
 
 ## Expected Behavior
+
 Running the script sends the prompt to the LLM provider and prints the model’s reply. By default, the Conversation API component uses Ollama, but you can switch to OpenAI or other providers by updating the component YAML (see [LLM Configuration](#llm-configuration)).
 
 ## How This Works
@@ -143,6 +147,7 @@ Dapr Agents also include native LLM clients for other modalities (e.g., audio), 
 # 2. Durable Agent Serve
 
 This example introduces the `DurableAgent`, a workflow-native agent backed by the Dapr Workflow engine. Every step of the agent’s execution is persisted to durable storage, allowing long-running interactions to survive interruptions. The agent exposes an HTTP endpoint to start a new workflow and provides a way to query progress or retrieve the final result at any time.
+
 ```bash
 uv run dapr run --app-id durable-agent --resources-path resources -- python 02_durable_agent_http.py
 ```
@@ -154,6 +159,7 @@ curl -i -X POST http://localhost:8001/agent/run \
   -H "Content-Type: application/json" \
   -d '{"task": "What is the weather in London?"}'
 ```
+
 You will receive a WORKFLOW_ID in response. Query the result:
 
 ```bash
@@ -174,7 +180,6 @@ The agent exposes a REST endpoint, accepts a prompt, and returns a workflow ID t
 4. The agent creates another workflow activity to return the tool call result to the LLM and complete the reasoning step.
 5. The agent finishes the execution, persisting every interaction and the final result. The workflow engine ensures reliable progression so no LLM or tool call is repeated unless required.
 
-
 **Testing durability:**
 
 This example includes a different tool, **SlowWeatherTool**, which intentionally waits five seconds before returning a result. This delay allows you to interrupt the agent mid-execution and verify that the workflow engine resumes from the same point after the agent restarts.
@@ -191,9 +196,9 @@ In summary, the workflow engine preserves execution state across restarts, enabl
 
 ## How to Extend This Example
 
-* Add custom workflow activities for business logic or integrations.
-* Combine multiple agents inside the same durable workflow.
-* To see multi-step workflows with LLM interactions, refer to the [LLM-based workflows quickstart](../04-llm-based-workflows/README.md).
+- Add custom workflow activities for business logic or integrations.
+- Combine multiple agents inside the same durable workflow.
+- To see multi-step workflows with LLM interactions, refer to the [LLM-based workflows quickstart](../04-llm-based-workflows/README.md).
 
 ---
 
@@ -202,6 +207,7 @@ In summary, the workflow engine preserves execution state across restarts, enabl
 This example takes the same durable agent behavior from the previous example, but instead of exposing an HTTP endpoint, it uses pub/sub. With this setup, the durable agent runs in the background as an ambient agent and listens for incoming events on a message topic. When a message arrives, it automatically starts a workflow execution.
 
 The agent code remains unchanged; only the AgentRunner configuration switches from REST to pub/sub.
+
 ```bash
 uv run dapr run --app-id durable-agent-subscriber --resources-path resources --dapr-http-port 3500 -- python 03_durable_agent_pubsub.py
 ```
@@ -230,6 +236,7 @@ Try publishing multiple messages to the topic and observe the agent process each
 ---
 
 # 4. Workflow with LLM Activities
+
 This example does not use an agent. Instead, it demonstrates how to create a Dapr workflow that performs LLM calls in a deterministic, durable sequence.
 
 ```bash
@@ -246,8 +253,9 @@ The workflow generates a short outline for the given topic using an LLM, then us
 2. The resulting outline is passed to a second LLM-backed activity, which uses the LLM to generate the final blog post. This output is returned as the result of the workflow.
 
 ## How to Extend This Example
-* Modify the workflow to include additional activities that do not interact with LLMs, such as inserting validation steps, transformations, or business logic between LLM activities.
-* Use structured output to enforce schema-based responses from the LLM for predictable and validated workflow inputs. To see structured output and validation, refer to the [LLM Call quickstart](../02-llm-call-open-ai/README.md).
+
+- Modify the workflow to include additional activities that do not interact with LLMs, such as inserting validation steps, transformations, or business logic between LLM activities.
+- Use structured output to enforce schema-based responses from the LLM for predictable and validated workflow inputs. To see structured output and validation, refer to the [LLM Call quickstart](../02-llm-call-open-ai/README.md).
 
 ---
 
@@ -271,6 +279,7 @@ When the workflow runs, it first delegates the request to a triage agent, which 
 4. Although agents can use tools and maintain their own memory, the workflow execution is what provides durability: if interrupted, it restarts from the last completed step.
 
 ## How to Extend This Example
+
 Add additional workflow activities—some invoking agents, others performing business logic or LLM steps to create richer multi-stage workflows.
 
 ---
@@ -308,6 +317,7 @@ When the script runs, the durable agent executes its workflow in-process and emi
 2. The application enables Dapr Agents instrumentation, which intercepts agent-level operations—including LLM invocations, tool calls, memory reads/writes, and decision steps—and records them as additional spans. Once the agent runs, you can open the Zipkin UI at the URL above and inspect the complete trace to see exactly how the agent behaves and how these spans are connected.
 
 ## How to Extend This Example
+
 Open the Zipkin UI at the URL above and explore the full trace to see how the workflow spans and agent spans connect end-to-end.
 
 ---
@@ -341,13 +351,14 @@ The agent starts with its initial role (`Original Role`) and subscribes to the D
 
 ## How to Extend This Example
 
-* Update multiple keys at once by setting a JSON object as the configuration value.
-* Add additional keys for LLM settings (`llm_model`, `llm_provider`) to swap models at runtime.
-* For the full list of supported configuration keys, see the [hot-reload example README](../examples/09-durable-agent-hot-reload/README.md).
+- Update multiple keys at once by setting a JSON object as the configuration value.
+- Add additional keys for LLM settings (`llm_model`, `llm_provider`) to swap models at runtime.
+- For the full list of supported configuration keys, see the [hot-reload example README](../examples/09-durable-agent-hot-reload/README.md).
 
 ---
 
 # Other Dapr Agent Examples
+
 If you want to coordinate multiple agents that run in separate applications or communicate through Pub/Sub, check out the [multi-agent workflows quickstart](../05-multi-agent-workflows/README.md).
 
 ---
@@ -362,4 +373,5 @@ If you want to coordinate multiple agents that run in separate applications or c
 6. **Import Errors**: If you see module not found errors, verify that `uv sync --active` completed successfully
 
 # Other Dapr Agents Examples
+
 If you want to see more Dapr Agents examples, check out the [examples](../examples/) folder.
