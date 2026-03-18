@@ -195,3 +195,6 @@ docker-entrypoint-initdb.d/
 
 *requirements.txt
 *.chainlit/
+
+# IDE settings
+.vscode/
