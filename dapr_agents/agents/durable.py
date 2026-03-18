@@ -100,6 +100,8 @@ def _get_framework_from_registry(
     """Fetch framework from agent metadata in registry if available."""
     if infra is None:
         return None
+    if not getattr(infra, "registry_state", None):
+        return None
     try:
         # Try to get agent metadata from registry
         agents_metadata = infra.get_agents_metadata(exclude_self=False)
@@ -801,18 +803,20 @@ class DurableAgent(AgentBase):
             if not ctx.is_replaying:
                 logger.info(f"Received plan from initialization with {len(plan)} steps")
 
-            yield ctx.call_activity(
-                self.broadcast_to_team,
-                input={"message": plan},
-                retry_policy=self._retry_policy,
-            )
-
             plan_content = json.dumps({"objects": plan}, indent=2)
             plan_message = {
                 "role": "assistant",
                 "name": self.name,
                 "content": plan_content,
             }
+
+            if self.broadcast_topic_name:
+                yield ctx.call_activity(
+                    self.broadcast_to_team,
+                    input={"message": plan_message},
+                    retry_policy=self._retry_policy,
+                )
+
             yield ctx.call_activity(
                 self.save_plan,
                 input={
@@ -2437,7 +2441,10 @@ class DurableAgent(AgentBase):
         ``AgentRunner`` discovers the registered names via the
         ``agent_workflow_name`` / ``broadcast_workflow_name`` properties and
         passes them as strings to ``schedule_new_workflow`` — no wrapper
-        bookkeeping is needed here.
+        bookkeeping is needed here.  The broadcast workflow (``*.broadcast``)
+        is registered only when a broadcast/pubsub topic is configured
+        (i.e., when ``broadcast_topic_name`` is set), so callers should use
+        ``broadcast_workflow_name`` only in that case.
 
         Args:
             runtime: The Dapr workflow runtime to register with.
@@ -2446,9 +2453,10 @@ class DurableAgent(AgentBase):
         runtime.register_workflow(
             self._named(self.agent_workflow, self.agent_workflow_name)
         )
-        runtime.register_workflow(
-            self._named(self.broadcast_workflow, self.broadcast_workflow_name)
-        )
+        if self.broadcast_topic_name:
+            runtime.register_workflow(
+                self._named(self.broadcast_workflow, self.broadcast_workflow_name)
+            )
 
         # Standard agent activities
         runtime.register_activity(self.record_initial_entry)
