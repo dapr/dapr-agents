@@ -13,14 +13,14 @@
 
 import asyncio
 import logging
-from dapr_agents.agents.durable import DurableAgent
+from dapr_agents import DurableAgent
 from dapr_agents.agents.configs import (
     RuntimeConfigKey,
     RuntimeSubscriptionConfig,
     AgentStateConfig,
 )
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
-from dapr_agents.workflow.runners import AgentRunner
+from dapr_agents import AgentRunner
 
 logging.basicConfig(level=logging.INFO)
 

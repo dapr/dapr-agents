@@ -45,14 +45,14 @@ def single_task_workflow_structured(ctx: DaprWorkflowContext, name: str):
 @runtime.activity(name="describe_dog")
 def describe_dog(ctx, name: str) -> Dog:
     result = llm.generate(
-        prompt=f"You are a JSON-only API. Return a Dog object for the dog named {name}.",
+        messages=f"You are a JSON-only API. Return a Dog object for the dog named {name}.",
         response_format=Dog,
     )
     try:
         dog = Dog.model_validate(result)
     except Exception as e:
         raise RuntimeError(f"LLM did not return a valid Dog: {e}")
-    return dog
+    return dog.model_dump()
 
 
 if __name__ == "__main__":

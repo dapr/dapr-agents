@@ -22,4 +22,6 @@ spec:
   - name: key
     envRef: OPENAI_API_KEY
   - name: model
-    value: gpt-5-2025-08-07
+    value: "{{OPENAI_MODEL}}"
+  - name: endpoint
+    value: "{{OPENAI_BASE_URL}}"

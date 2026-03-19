@@ -89,7 +89,7 @@ from dapr_agents.tool.workflow.agent_tool import (
     agent_workflow_id,
 )
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
-from dapr_agents.workflow.utils.core import sanitize_agent_name
+from dapr_agents.workflow.utils.names import sanitize_agent_name
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ def _get_framework_from_registry(
     agent_name: str, infra: Optional[Any] = None
 ) -> Optional[str]:
     """Fetch framework from agent metadata in registry if available."""
-    if infra is None:
+    if infra is None or not getattr(infra, "registry_state", None):
         return None
     if not getattr(infra, "registry_state", None):
         return None

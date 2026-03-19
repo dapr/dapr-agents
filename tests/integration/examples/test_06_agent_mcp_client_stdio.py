@@ -22,10 +22,15 @@ class TestMCPClientStdioQuickstart:
     """Integration tests for 06-agent-mcp-client-stdio example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, examples_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key, is_ollama):
         """Setup test environment."""
         self.quickstart_dir = examples_dir / "06-agent-mcp-client-stdio"
         self.env = {"OPENAI_API_KEY": openai_api_key}
+        if is_ollama:
+            import os
+
+            self.env["OPENAI_MODEL"] = os.environ["OLLAMA_MODEL"]
+            self.env["OPENAI_BASE_URL"] = os.environ["OLLAMA_ENDPOINT"]
 
     def test_mcp_agent_stdio(self, dapr_runtime):  # noqa: ARG002
         """Test MCP agent with STDIO transport (agent.py)."""
