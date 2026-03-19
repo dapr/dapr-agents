@@ -687,7 +687,6 @@ class DurableAgent(AgentBase):
                 retry_policy=self._retry_policy,
             )
 
-
         if self.memory is not None:
             yield ctx.call_activity(
                 self.summarize,
@@ -1534,9 +1533,7 @@ class DurableAgent(AgentBase):
         entry.trace_context = trace_context
         self.save_state(instance_id, entry=entry)
 
-    def record_broadcast(
-        self, _ctx: wf.WorkflowActivityContext, message: dict
-    ) -> None:
+    def record_broadcast(self, _ctx: wf.WorkflowActivityContext, message: dict) -> None:
         """
         Persist a received team broadcast in agent memory.
 
