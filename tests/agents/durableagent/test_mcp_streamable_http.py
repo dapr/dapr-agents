@@ -234,7 +234,9 @@ def start_math_server_http():
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
         try:
-            with socket.create_connection(("127.0.0.1", MCP_HTTP_TEST_PORT), timeout=0.5):
+            with socket.create_connection(
+                ("127.0.0.1", MCP_HTTP_TEST_PORT), timeout=0.5
+            ):
                 break
         except OSError:
             time.sleep(0.1)
