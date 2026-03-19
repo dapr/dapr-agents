@@ -379,6 +379,15 @@ class AgentRunner(WorkflowRunner):
         if self._wired_pubsub or self._dapr_client is None:
             return
 
+        try:
+            deduper = TTLDedupeBackend()
+        except ImportError:
+            logger.warning(
+                "cachetools not installed; disabling pub/sub message deduplication for agent %s",
+                getattr(agent, "name", agent),
+            )
+            deduper = None
+
         closers = register_message_routes(
             routes=specs,
             dapr_client=self._dapr_client,
@@ -389,7 +398,7 @@ class AgentRunner(WorkflowRunner):
             await_timeout=await_timeout,
             fetch_payloads=fetch_payloads,
             log_outcome=log_outcome,
-            deduper=TTLDedupeBackend(),
+            deduper=deduper,
         )
         self._pubsub_closers.extend(closers)
         self._wired_pubsub = True

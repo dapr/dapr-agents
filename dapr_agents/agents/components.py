@@ -269,13 +269,16 @@ class DaprInfra:
         try:
             if isinstance(snapshot, dict):
                 entry = self._entry_model_cls.model_validate(snapshot)
+                self._state_model = entry
                 return entry
             raise TypeError(f"Unexpected state snapshot type {type(snapshot)}")
         except (ValidationError, TypeError) as exc:
             logger.warning(
                 "Invalid workflow state encountered (%s); returning default entry.", exc
             )
-            return self._initial_state_model()
+            default_entry = self._initial_state_model()
+            self._state_model = default_entry
+            return default_entry
 
     def save_state(
         self,

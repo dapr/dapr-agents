@@ -1027,6 +1027,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "azure-identity" },
+    { name = "cachetools" },
     { name = "cloudevents" },
     { name = "colorama" },
     { name = "dapr" },
@@ -1074,7 +1075,6 @@ vectorstore = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "cachetools" },
     { name = "flake8" },
     { name = "mypy" },
     { name = "pip-tools" },
@@ -1104,6 +1104,7 @@ vectorstore = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.9.0,<4.0.0" },
     { name = "azure-identity", specifier = ">=1.21.0,<2.0.0" },
+    { name = "cachetools", specifier = ">=6.1.0,<8.0.0" },
     { name = "chromadb", marker = "extra == 'vectorstore'", specifier = ">=0.4.22,<2.0.0" },
     { name = "cloudevents", specifier = ">=1.11.0,<2.0.0" },
     { name = "colorama", specifier = ">=0.4.6,<1.0.0" },
@@ -1148,7 +1149,6 @@ provides-extras = ["vectorstore"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "cachetools", specifier = ">=6.1.0,<8.0.0" },
     { name = "flake8", specifier = ">=7.3.0" },
     { name = "mypy", specifier = ">=1.15.0,<2.0.0" },
     { name = "pip-tools", specifier = ">=7.4.1,<8.0.0" },
