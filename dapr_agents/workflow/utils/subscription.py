@@ -25,6 +25,7 @@ from dapr.clients import DaprClient
 from dapr.clients.grpc._response import TopicEventResponse
 from dapr.common.pubsub.subscription import SubscriptionMessage
 from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
+from cachetools import TTLCache
 
 from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
@@ -66,8 +67,6 @@ class TTLDedupeBackend:
     """
 
     def __init__(self, maxsize: int = 4096, ttl: float = 60.0) -> None:
-        from cachetools import TTLCache
-
         self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
         self._lock = threading.Lock()
 

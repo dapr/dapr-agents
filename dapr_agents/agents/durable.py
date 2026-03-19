@@ -423,7 +423,7 @@ class DurableAgent(AgentBase):
         source = metadata.get("source") or "direct"
 
         if not ctx.is_replaying:
-            logger.info("Initial message from %s -> %s", source, self.name)
+            logger.info(f"Initial message from {source} -> {self.name}")
 
         # Record initial entry via activity to keep deterministic/replay-friendly I/O.
         yield ctx.call_activity(
@@ -649,10 +649,7 @@ class DurableAgent(AgentBase):
                     final_message = assistant_response
                     if not ctx.is_replaying:
                         logger.debug(
-                            "Agent %s produced final response on turn %d (instance=%s)",
-                            self.name,
-                            turn,
-                            ctx.instance_id,
+                            f"Agent {self.name} produced final response on turn {turn} (instance={ctx.instance_id})",
                         )
                     break
                 else:
@@ -667,14 +664,11 @@ class DurableAgent(AgentBase):
                     final_message = {"role": "assistant", "content": base}
                     if not ctx.is_replaying:
                         logger.warning(
-                            "Agent %s hit max iterations (%d) without a final response (instance=%s)",
-                            self.name,
-                            self.execution.max_iterations,
-                            ctx.instance_id,
+                            f"Agent {self.name} hit max iterations ({self.execution.max_iterations}) without a final response (instance={ctx.instance_id})",
                         )
 
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Agent %s workflow failed: %s", self.name, exc)
+            logger.exception(f"Agent {self.name} workflow failed: {exc}")
             _workflow_exc = exc
             final_message = {"role": "assistant", "content": f"Error: {str(exc)}"}
 
@@ -1295,7 +1289,7 @@ class DurableAgent(AgentBase):
             logger.debug("Agent %s ignoring self-originated broadcast.", self.name)
             return
 
-        logger.info("Agent %s received broadcast from %s", self.name, source)
+        logger.info(f"Agent {self.name} received broadcast from {source}")
         yield ctx.call_activity(
             self.record_broadcast,
             input=message,
@@ -1464,7 +1458,7 @@ class DurableAgent(AgentBase):
             status_updates.append(
                 {"step": step, "substep": substep, "status": "completed"}
             )
-            logger.debug("Marked step %s/%s as completed", step, substep)
+            logger.debug(f"Marked step {step}/{substep} as completed")
 
             # If it's a substep, check if all sibling substeps are completed
             if substep is not None:
