@@ -321,7 +321,7 @@ class AgentPubSubConfig:
 
     Attributes:
         pubsub_name: Name of the Dapr pub/sub component to use for all agent traffic.
-        topic: Primary topic for direct messages to the agent. Defaults to ``name``.
+        agent_topic: Primary topic for direct messages to the agent. Defaults to ``name``.
         broadcast_topic: Optional topic shared by a team for broadcast messages.
     """
 
