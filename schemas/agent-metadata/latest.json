@@ -324,7 +324,7 @@
           ],
           "default": null,
           "description": "Pub/Sub topic for direct agent messages",
-          "title": "Agent Topic"
+          "title": "Topic"
         }
       },
       "required": [
@@ -489,5 +489,5 @@
   "title": "AgentMetadataSchema",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "version": "0.13.1"
+  "version": "0.13.1.dev145+ge31367664"
 }
