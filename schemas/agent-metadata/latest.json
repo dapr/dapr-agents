@@ -313,7 +313,7 @@
           "description": "Pub/Sub topic for broadcasting messages",
           "title": "Broadcast Topic"
         },
-        "topic": {
+        "agent_topic": {
           "anyOf": [
             {
               "type": "string"
@@ -324,7 +324,7 @@
           ],
           "default": null,
           "description": "Pub/Sub topic for direct agent messages",
-          "title": "Topic"
+          "title": "Agent Topic"
         }
       },
       "required": [
