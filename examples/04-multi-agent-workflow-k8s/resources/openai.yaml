@@ -24,4 +24,8 @@ spec:
       name: openai-secrets
       key: OPENAI_API_KEY
   - name: model
+    value: "{{OPENAI_MODEL}}"
+  - name: endpoint
+    value: "{{OPENAI_BASE_URL}}"
+  - name: model
     value: gpt-4o-mini

@@ -341,16 +341,23 @@ def run_quickstart_or_examples_script(
             # Use absolute path for Python command
             python_cmd = str(venv_python.absolute())
 
+        # Dynamically reassign dapr_http_port if in use from a previous test
+        if (trigger_curl or trigger_pubsub) and _is_port_in_use(
+            "127.0.0.1", dapr_http_port
+        ):
+            dapr_http_port = _find_free_port("127.0.0.1", dapr_http_port)
+
         # When using trigger_curl with a fixed app_port,
         # avoid bind conflicts by using a free port if the requested one is in use (e.g. from a previous test).
         if trigger_curl and app_port is not None:
             if _is_port_in_use("127.0.0.1", app_port):
                 app_port = _find_free_port("127.0.0.1", app_port)
-                full_env["PORT"] = str(app_port)
                 trigger_curl = {
                     **trigger_curl,
                     "url": _replace_url_port(trigger_curl["url"], app_port),
                 }
+            # Always set PORT so the app binds to the expected port
+            full_env["PORT"] = str(app_port)
 
         cmd = [
             "dapr",
@@ -531,6 +538,7 @@ def run_quickstart_or_examples_multi_app(
     trigger_pubsub: Optional[Dict[str, Any]] = None,
     create_venv: bool = True,
     stream_logs: bool = False,
+    orchestrator_workflow_name: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """
     Run a quickstart using Dapr multi-app run (`dapr run -f`).
@@ -548,6 +556,8 @@ def run_quickstart_or_examples_multi_app(
         create_venv: Whether to create and use an ephemeral test venv (defaults to True).
         stream_logs: If True, stream stdout/stderr to logger in real-time (defaults to False).
                   Useful for debugging long-running tests.
+        orchestrator_workflow_name: Optional explicit orchestrator workflow name for completion
+                  detection. If None, inferred from YAML filename.
 
     Returns:
         subprocess.CompletedProcess with the result
@@ -627,19 +637,39 @@ def run_quickstart_or_examples_multi_app(
             cmd, cwd_path, full_env, timeout, trigger_pubsub, dapr_http_port
         )
 
+    # Kill any lingering processes holding app ports before launching.
+    _free_ports_in_yaml(dapr_yaml_path)
+
     # Run the multi-app command with completion detection
     # dapr run -f runs continuously, and runner.serve() is a long-running service.
     # We need to detect workflow completion and then gracefully shut down.
     if stream_logs:
         result = _run_multi_app_with_completion_detection(
-            cmd, cwd_path, full_env, timeout
+            cmd, cwd_path, full_env, timeout, orchestrator_workflow_name
         )
     else:
         # For non-streaming, we still need completion detection
         # but we'll collect output first, then check for completion
         result = _run_multi_app_with_completion_detection(
-            cmd, cwd_path, full_env, timeout
+            cmd, cwd_path, full_env, timeout, orchestrator_workflow_name
         )
+
+    # Wait for all app ports from the YAML to be released before returning.
+    # This prevents port conflicts when multiple tests reuse the same port (e.g. 8004).
+    try:
+        with open(dapr_yaml_path, "r") as _f:
+            _yaml_data = yaml.safe_load(_f)
+        for _app in (_yaml_data or {}).get("apps", []):
+            _app_port = _app.get("appPort")
+            if _app_port:
+                if _wait_for_port_free("127.0.0.1", int(_app_port), timeout=30):
+                    logger.info(f"Port {_app_port} released after multi-app run.")
+                else:
+                    logger.warning(
+                        f"Port {_app_port} still in use after 30s; next test may fail."
+                    )
+    except Exception as _e:
+        logger.warning(f"Could not check app ports from {dapr_yaml_path}: {_e}")
 
     if result.returncode != 0:
         raise RuntimeError(
@@ -724,6 +754,48 @@ def _wait_for_port_free(host: str, port: int, timeout: int = 15) -> bool:
             return True
         time.sleep(0.5)
     return False
+
+
+def _kill_processes_on_port(port: int) -> None:
+    """Kill any process bound to the given port (best-effort, POSIX only)."""
+    if os.name != "posix":
+        return
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True,
+            text=True,
+        )
+        pids = [p.strip() for p in result.stdout.strip().splitlines() if p.strip()]
+        for pid_str in pids:
+            try:
+                os.kill(int(pid_str), signal.SIGKILL)
+                logger.info(f"Killed PID {pid_str} that was holding port {port}")
+            except (ProcessLookupError, ValueError):
+                pass
+    except FileNotFoundError:
+        pass  # lsof not available
+    except Exception as e:
+        logger.debug(f"Could not kill processes on port {port}: {e}")
+
+
+def _free_ports_in_yaml(dapr_yaml_path: Path) -> None:
+    """Kill any lingering processes on appPorts defined in a Dapr multi-app YAML."""
+    try:
+        with open(dapr_yaml_path, "r") as f:
+            yaml_data = yaml.safe_load(f)
+        for app in (yaml_data or {}).get("apps", []):
+            app_port = app.get("appPort")
+            if app_port:
+                port = int(app_port)
+                if _is_port_in_use("127.0.0.1", port):
+                    logger.info(
+                        f"Port {port} is in use before test start — killing holder..."
+                    )
+                    _kill_processes_on_port(port)
+                    _wait_for_port_free("127.0.0.1", port, timeout=10)
+    except Exception as e:
+        logger.warning(f"Could not pre-free ports from {dapr_yaml_path}: {e}")
 
 
 def _find_free_port(host: str = "127.0.0.1", start_port: int = 8001) -> int:
@@ -1426,12 +1498,11 @@ def _run_with_curl_trigger(
 
         # when we intentionally terminate after a successful HTTP response, dapr run
         # often exits with 1 (app exited before Dapr shutdown). Treat 2xx as success.
+        # If the curl request itself failed (no response), treat as failure.
         returncode = process.returncode
-        if (
-            response_status is not None
-            and 200 <= response_status < 300
-            and returncode != 0
-        ):
+        if response_status is None:
+            returncode = 1
+        elif 200 <= response_status < 300 and returncode != 0:
             returncode = 0
 
         # wait for app port to be released so the next test can bind to it.
@@ -1444,6 +1515,16 @@ def _run_with_curl_trigger(
                     f"Port {app_port} still in use after 15s (next test may use dynamic port)."
                 )
 
+        # wait for dapr http port to be released so the next test can use it.
+        if dapr_http_port is not None:
+            logger.info(f"Waiting for Dapr port {dapr_http_port} to be released...")
+            if _wait_for_port_free("127.0.0.1", dapr_http_port, timeout=15):
+                logger.info(f"Dapr port {dapr_http_port} released.")
+            else:
+                logger.warning(
+                    f"Dapr port {dapr_http_port} still in use after 15s (next test may use dynamic port)."
+                )
+
         return subprocess.CompletedProcess(cmd, returncode, combined_stdout, stderr)
 
     except Exception as e:
@@ -1453,9 +1534,11 @@ def _run_with_curl_trigger(
             process.wait(timeout=5)
         except Exception:
             process.kill()
-        # Give the port time to be released for the next test
+        # Give the ports time to be released for the next test
         if app_port:
             _wait_for_port_free("127.0.0.1", app_port, timeout=10)
+        if dapr_http_port is not None:
+            _wait_for_port_free("127.0.0.1", dapr_http_port, timeout=10)
         raise RuntimeError(f"Error running with curl trigger: {e}")
 
 

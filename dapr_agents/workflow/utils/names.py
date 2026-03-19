@@ -11,24 +11,24 @@
 # limitations under the License.
 #
 
-version: 1
-common:
-  resourcesPath: ./resources
-  logLevel: info
-  appLogDestination: console
-  daprdLogDestination: console
+import re
 
-apps:
-  - appID: triage-agent
-    appDirPath: ./
-    command: ["python3", "05_triage_agent.py"]
-    appPort: 8001
 
-  - appID: expert-agent
-    appDirPath: ./
-    command: ["python3", "05_expert_agent.py"]
-    appPort: 8002
+def sanitize_agent_name(name: str) -> str:
+    """
+    Sanitize an agent name for use in Dapr workflow IDs.
 
-  - appID: workflow
-    appDirPath: ./
-    command: ["python3", "05_workflow_agents.py"]
+    Keeps only alphanumeric characters, hyphens, and underscores.
+    All other characters are replaced with underscores.
+
+    Args:
+        name: The agent name to sanitize.
+
+    Returns:
+        A sanitized name safe for use in Dapr workflow IDs.
+
+    Example:
+        >>> sanitize_agent_name("my-agent@123")
+        'my-agent_123'
+    """
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", name)

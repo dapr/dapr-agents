@@ -27,7 +27,6 @@ from typing import (
 )
 
 from pydantic import BaseModel, Field, model_validator
-
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.openai.client.base import OpenAIClientBase
 from dapr_agents.llm.utils import RequestHandler, ResponseHandler
@@ -40,6 +39,7 @@ from dapr_agents.types.message import (
     LLMChatCandidateChunk,
     LLMChatResponse,
 )
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,10 @@ class OpenAIChatClient(OpenAIClientBase, ChatClientBase):
         Ensure `.model` is always set.  If unset, fall back to `azure_deployment`
         or default to `"gpt-4o"`.
         """
-        if not values.get("model"):
+        env_model = os.environ.get("OPENAI_MODEL")
+        if env_model:
+            values["model"] = env_model
+        elif not values.get("model"):
             values["model"] = values.get("azure_deployment", "gpt-4o")
         return values
 

@@ -17,6 +17,7 @@ import asyncio
 import functools
 import logging
 import threading
+import time
 import uuid
 from typing import (
     Any,
@@ -119,12 +120,11 @@ class WorkflowRunner(SignalMixin):
         """
         if exc_type:
             logger.error(
-                "[%s] Context exited with exception",
-                self._name,
+                f"{self._name} Context exited with exception",
                 exc_info=(exc_type, exc, tb),
             )
         else:
-            logger.debug("[%s] Context exited cleanly (sync).", self._name)
+            logger.debug(f"{self._name} Context exited cleanly (sync).")
 
         try:
             if self._signals_installed_by_us:
@@ -159,12 +159,11 @@ class WorkflowRunner(SignalMixin):
         """
         if exc_type:
             logger.error(
-                "[%s] Async context exited with exception",
-                self._name,
+                f"{self._name} Async context exited with exception",
                 exc_info=(exc_type, exc, tb),
             )
         else:
-            logger.debug("[%s] Async context exited cleanly.", self._name)
+            logger.debug(f"{self._name} Async context exited cleanly.")
 
         try:
             await self.graceful_shutdown()
@@ -396,24 +395,44 @@ class WorkflowRunner(SignalMixin):
 
         chosen_id = instance_id or uuid.uuid4().hex
         logger.debug(
-            "[%s] Scheduling workflow %s id=%s",
-            self._name,
-            getattr(workflow, "__name__", workflow),
-            chosen_id,
+            f"[{self._name}] Scheduling workflow {getattr(workflow, '__name__', workflow)} id={chosen_id}",
         )
 
-        try:
-            with self._client_lock:
-                result = self._wf_client.schedule_new_workflow(
-                    workflow=workflow,
-                    input=payload,
-                    instance_id=chosen_id,
+        _max_retries = 3
+        _retry_delay = 1.0
+        for attempt in range(_max_retries + 1):
+            try:
+                with self._client_lock:
+                    result = self._wf_client.schedule_new_workflow(
+                        workflow=workflow,
+                        input=payload,
+                        instance_id=chosen_id,
+                    )
+                logger.debug(f"{self._name} Scheduled workflow id={result}")
+                return result
+            except Exception as e:
+                import grpc
+
+                is_transient = isinstance(e, grpc.RpcError) and e.code() in (
+                    grpc.StatusCode.CANCELLED,
+                    grpc.StatusCode.UNAVAILABLE,
                 )
-            logger.debug("[%s] Scheduled workflow id=%s", self._name, result)
-            return result
-        except Exception as e:
-            logger.error("[%s] Failed to schedule workflow: %s", self._name, str(e))
-            raise
+                if is_transient and attempt < _max_retries:
+                    logger.warning(
+                        f"{self._name} Transient gRPC error scheduling workflow (attempt %d/%d): %s — retrying in %.1fs",
+                        self._name,
+                        attempt + 1,
+                        _max_retries,
+                        e.details(),
+                        _retry_delay,
+                    )
+                    time.sleep(_retry_delay)
+                    _retry_delay *= 2
+                else:
+                    logger.error(
+                        f"[{self._name}] Failed to schedule workflow: {str(e)}"
+                    )
+                    raise
 
     @overload
     async def run_workflow_async(
@@ -475,7 +494,7 @@ class WorkflowRunner(SignalMixin):
         effective_timeout = timeout_in_seconds or self._timeout_in_seconds
 
         if detach:
-            logger.info("[%s] Running in detached mode", self._name)
+            logger.info(f"[{self._name}] Running in detached mode")
             if log:
                 asyncio.create_task(
                     self._await_and_log_state(
@@ -484,7 +503,7 @@ class WorkflowRunner(SignalMixin):
                 )
             return instance
 
-        logger.info("[%s] Waiting for workflow completion...", self._name)
+        logger.info(f"{self._name} Waiting for workflow completion...")
         state = await self._await_state(instance, effective_timeout, fetch_payloads)
 
         if log:
@@ -575,9 +594,7 @@ class WorkflowRunner(SignalMixin):
             self._log_state(instance_id, state)
         except Exception:
             logger.exception(
-                "[%s] %s: error while monitoring workflow outcome",
-                self._name,
-                instance_id,
+                f"[{self._name}] {instance_id}: error while monitoring workflow outcome",
             )
 
     def _log_state(self, instance_id: str, state: Optional[WorkflowState]) -> None:
@@ -593,17 +610,14 @@ class WorkflowRunner(SignalMixin):
         """
         if not state:
             logger.warning(
-                "[%s] %s: no state returned (timeout or missing).",
-                self._name,
-                instance_id,
+                f"[{self._name}] {instance_id}: no state returned (timeout or missing).",
             )
             return
 
         status = getattr(state.runtime_status, "name", str(state.runtime_status))
         if status == "COMPLETED":
             logger.info(
-                "[%s] %s completed. Final Output=%s",
-                self._name,
+                "[agent-runner] %s completed. Final Output=%s",
                 instance_id,
                 getattr(state, "serialized_output", None),
             )
@@ -612,20 +626,11 @@ class WorkflowRunner(SignalMixin):
         fd = getattr(state, "failure_details", None)
         if fd:
             logger.error(
-                "[%s] %s: FAILED. type=%s message=%s\n%s",
-                self._name,
-                instance_id,
-                getattr(fd, "error_type", None),
-                getattr(fd, "message", None),
-                getattr(fd, "stack_trace", "") or "",
+                f"{self._name} {instance_id}: FAILED. type={getattr(fd, 'error_type', None)} message={getattr(fd, 'message', None)}\n{getattr(fd, 'stack_trace', '') or ''}",
             )
         else:
             logger.error(
-                "[%s] %s: finished with status=%s. custom_status=%s",
-                self._name,
-                instance_id,
-                status,
-                getattr(state, "serialized_custom_status", None),
+                f"[{self._name}] {instance_id}: finished with status={status}. custom_status={getattr(state, 'serialized_custom_status', None)}",
             )
 
     # ----------------------- admin utilities ----------------------------
