@@ -587,7 +587,7 @@ class AgentBase:
         if self.pubsub is not None and self.message_bus_name:
             pubsub_meta = PubSubMetadata(
                 resource_name=self.message_bus_name,
-                topic=self.pubsub.agent_topic,
+                agent_topic=self.pubsub.agent_topic,
                 broadcast_topic=self.pubsub.broadcast_topic,
             )
 
