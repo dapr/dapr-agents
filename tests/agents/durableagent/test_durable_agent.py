@@ -300,7 +300,7 @@ class TestDurableAgent:
         assert metadata.name == "TestDurableAgent"
         assert metadata.agent.role == "Test Durable Assistant"
         assert metadata.agent.goal == "Help with testing"
-        assert metadata.pubsub.topic == "TestDurableAgent"
+        assert metadata.pubsub.agent_topic == "TestDurableAgent"
         assert metadata.pubsub.resource_name == "testpubsub"
         assert metadata.agent.orchestrator is False
 
