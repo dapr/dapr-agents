@@ -46,46 +46,29 @@ The quickstart includes an OpenAI component configuration in the `components` di
 OPENAI_API_KEY=your_api_key_here
 ```
 
-2. When running the examples with Dapr, use the helper script to resolve environment variables:
+2. Export the environment variable before running:
 
 #### macOS / Linux (Bash)
+
 ```bash
 # Get the environment variables from the .env file:
 export $(grep -v '^#' ../../.env | xargs)
-
-# Create a temporary resources folder with resolved environment variables
-temp_resources_folder=$(../resolve_env_templates.py ./components)
-
-# Run your dapr command with the temporary resources
-uv run dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python 01_sequential_workflow.py
-
-# Clean up when done
-rm -rf $temp_resources_folder
 ```
 
 #### Windows (PowerShell)
+
 ```powershell
 # Get the environment variables from the .env file:
 Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object {
     $name, $value = $_.Split('=', 2)
     [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
 }
-
-# Create a temporary resources folder with resolved environment variables
-$temp_resources_folder = python ../resolve_env_templates.py ./components
-
-# Run your dapr command with the temporary resources
-uv run dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python 01_sequential_workflow.py
-
-# Clean up when done
-Remove-Item -Recurse -Force $temp_resources_folder
 ```
-
-> The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
 
 ### Option 2: Direct Component Configuration
 
 You can directly update the `key` in [resources/openai.yaml](resources/openai.yaml):
+
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -100,7 +83,7 @@ spec:
 
 Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key.
 
-> Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
+> **Note:** Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
 
 ### Additional Components
 

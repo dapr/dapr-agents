@@ -160,12 +160,29 @@ class TestRegisterWorkflowsNaming:
         assert agent_workflow_id("frodo") in registered_names
 
     def test_broadcast_workflow_registered_with_name_suffix(self, mock_llm):
-        sam = _make_agent("sam", mock_llm)
+        from dapr_agents.agents.configs import AgentPubSubConfig
+
+        sam = _make_agent(
+            "sam",
+            mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="test-bus",
+                broadcast_topic="broadcast",
+            ),
+        )
         rt = self._register_and_get_calls(sam)
         registered_names = [
             call.args[0].__name__ for call in rt.register_workflow.call_args_list
         ]
         assert broadcast_workflow_id("sam") in registered_names
+
+    def test_broadcast_workflow_not_registered_without_pubsub(self, mock_llm):
+        sam = _make_agent("sam", mock_llm)
+        rt = self._register_and_get_calls(sam)
+        registered_names = [
+            call.args[0].__name__ for call in rt.register_workflow.call_args_list
+        ]
+        assert broadcast_workflow_id("sam") not in registered_names
 
     def test_agent_workflow_name_property(self, mock_llm):
         frodo = _make_agent("frodo", mock_llm)
