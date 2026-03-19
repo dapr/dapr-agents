@@ -321,12 +321,12 @@ class AgentPubSubConfig:
 
     Attributes:
         pubsub_name: Name of the Dapr pub/sub component to use for all agent traffic.
-        agent_topic: Primary topic for direct messages to the agent. Defaults to ``name``.
+        topic: Primary topic for direct messages to the agent. Defaults to ``name``.
         broadcast_topic: Optional topic shared by a team for broadcast messages.
     """
 
     pubsub_name: str
-    agent_topic: Optional[str] = None
+    topic: Optional[str] = None
     broadcast_topic: Optional[str] = None
 
 
@@ -621,7 +621,7 @@ class PubSubMetadata(BaseModel):
     broadcast_topic: Optional[str] = Field(
         default=None, description="Pub/Sub topic for broadcasting messages"
     )
-    agent_topic: Optional[str] = Field(
+    topic: Optional[str] = Field(
         default=None, description="Pub/Sub topic for direct agent messages"
     )
 

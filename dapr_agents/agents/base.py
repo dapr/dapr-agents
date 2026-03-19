@@ -428,7 +428,7 @@ class AgentBase:
                         logger.debug(f"topic: {name}.topic")
                         pubsub = AgentPubSubConfig(
                             pubsub_name=component.name,
-                            agent_topic=f"{name.replace(' ', '-').lower()}.topic",
+                            topic=f"{name.replace(' ', '-').lower()}.topic",
                             broadcast_topic="agents.broadcast",
                         )
                     if (
@@ -587,7 +587,7 @@ class AgentBase:
         if self.pubsub is not None and self.message_bus_name:
             pubsub_meta = PubSubMetadata(
                 resource_name=self.message_bus_name,
-                agent_topic=self.pubsub.agent_topic,
+                topic=self.pubsub.topic,
                 broadcast_topic=self.pubsub.broadcast_topic,
             )
 
@@ -997,10 +997,10 @@ class AgentBase:
             return self._infra.registry_state
 
     @property
-    def agent_topic_name(self):
+    def topic_name(self):
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
-            return self._infra.agent_topic_name
+            return self._infra.topic_name
 
     @property
     def message_bus_name(self):
@@ -1051,10 +1051,10 @@ class AgentBase:
         if hasattr(self, "_infra"):
             return self._infra.workflow_state
 
-    def save_state(self, workflow_instance_id: str) -> None:
+    def save_state(self, workflow_instance_id: str, entry=None) -> None:
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
-            return self._infra.save_state(workflow_instance_id)
+            return self._infra.save_state(workflow_instance_id, entry=entry)
 
     def get_state(self, instance_id: str) -> Optional[Any]:
         """Delegate to DaprInfra."""

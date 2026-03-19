@@ -63,7 +63,7 @@ def main() -> None:
 
     pubsub = AgentPubSubConfig(
         pubsub_name="messagepubsub",
-        agent_topic="weather.requests",
+        topic="weather.requests",
         broadcast_topic="agents.broadcast",
     )
     state = AgentStateConfig(

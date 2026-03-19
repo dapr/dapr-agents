@@ -65,7 +65,7 @@ async def main() -> None:
 
     gandalf_pubsub = AgentPubSubConfig(
         pubsub_name="messagepubsub",
-        agent_topic="fellowship.gandalf.requests",
+        topic="fellowship.gandalf.requests",
         broadcast_topic="fellowship.broadcast",
     )
     gandalf_state = AgentStateConfig(

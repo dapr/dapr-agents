@@ -70,7 +70,7 @@ async def main() -> None:
 
     sam_pubsub = AgentPubSubConfig(
         pubsub_name="messagepubsub",
-        agent_topic="fellowship.sam.requests",
+        topic="fellowship.sam.requests",
         broadcast_topic="fellowship.broadcast",
     )
     sam_state = AgentStateConfig(

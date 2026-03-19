@@ -41,7 +41,7 @@ def main() -> None:
         name=os.getenv("ORCHESTRATOR_NAME", "FellowshipRoundRobin"),
         pubsub=AgentPubSubConfig(
             pubsub_name=os.getenv("PUBSUB_NAME", "messagepubsub"),
-            agent_topic=os.getenv(
+            topic=os.getenv(
                 "ORCHESTRATOR_TOPIC", "fellowship.orchestrator.roundrobin.requests"
             ),
             broadcast_topic=os.getenv("BROADCAST_TOPIC", "fellowship.broadcast"),

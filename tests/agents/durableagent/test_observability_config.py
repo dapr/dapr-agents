@@ -93,7 +93,7 @@ class TestObservabilityConfigFromInstantiation:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -130,7 +130,7 @@ class TestObservabilityConfigFromInstantiation:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -162,7 +162,7 @@ class TestObservabilityConfigFromInstantiation:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -238,7 +238,7 @@ class TestObservabilityConfigFromEnvironment:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -270,7 +270,7 @@ class TestObservabilityConfigFromEnvironment:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -299,7 +299,7 @@ class TestObservabilityConfigFromEnvironment:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -325,7 +325,7 @@ class TestObservabilityConfigFromEnvironment:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -420,7 +420,7 @@ class TestObservabilityConfigFromStatestore:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -459,7 +459,7 @@ class TestObservabilityConfigFromStatestore:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -491,7 +491,7 @@ class TestObservabilityConfigFromStatestore:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -523,7 +523,7 @@ class TestObservabilityConfigFromStatestore:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -619,7 +619,7 @@ class TestObservabilityConfigPrecedence:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -663,7 +663,7 @@ class TestObservabilityConfigPrecedence:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -714,7 +714,7 @@ class TestObservabilityConfigPrecedence:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -763,7 +763,7 @@ class TestObservabilityConfigPrecedence:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -793,7 +793,7 @@ class TestObservabilityConfigPrecedence:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -883,7 +883,7 @@ class TestObservabilityConfigMergeLogic:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -919,7 +919,7 @@ class TestObservabilityConfigMergeLogic:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -955,7 +955,7 @@ class TestObservabilityConfigMergeLogic:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")

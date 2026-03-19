@@ -282,10 +282,17 @@ def _shutdown_thread(
 
     thread.join(timeout=THREAD_SHUTDOWN_TIMEOUT_SECONDS)
     if thread.is_alive():
-        raise RuntimeError(
-            f"Consumer thread for {pubsub_name}:{topic_name} did not stop within "
-            f"{THREAD_SHUTDOWN_TIMEOUT_SECONDS}s timeout. Thread may be a zombie."
-        )
+        if thread.daemon:
+            logger.warning(
+                f"Consumer thread for {pubsub_name}:{topic_name} did not stop within "
+                f"{THREAD_SHUTDOWN_TIMEOUT_SECONDS}s; it is a daemon thread and will "
+                f"be reaped on process exit."
+            )
+        else:
+            raise RuntimeError(
+                f"Consumer thread for {pubsub_name}:{topic_name} did not stop within "
+                f"{THREAD_SHUTDOWN_TIMEOUT_SECONDS}s timeout. Thread may be a zombie."
+            )
 
 
 def _subscribe_message_bindings(
@@ -342,6 +349,13 @@ def _subscribe_message_bindings(
             input_json = json.dumps(wf_input, ensure_ascii=False, indent=2)
             logger.debug(f"Scheduling workflow: {workflow_name} | input={input_json}")
 
+            # All pub/sub-triggered handlers go through schedule_new_workflow for
+            # durable execution. Two distinct paths exist downstream:
+            #   • agent_workflow: full durable agent run (LLM, tools, state).
+            #     Required for external callers who cannot use call_child_workflow,
+            #     which only works from inside a running Dapr workflow context.
+            #   • on_broadcast: lightweight context storage from team peers, kept as
+            #     a workflow for durable execution and future hook extensibility.
             instance_id = await asyncio.to_thread(
                 wf_client.schedule_new_workflow,
                 workflow=bound_workflow,

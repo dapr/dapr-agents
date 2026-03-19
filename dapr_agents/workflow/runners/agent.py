@@ -311,7 +311,7 @@ class AgentRunner(WorkflowRunner):
             meta = getattr(handler, "_message_router_data", {})
             is_broadcast = meta.get("is_broadcast", False)
             topic: Optional[str] = (
-                config.broadcast_topic if is_broadcast else config.agent_topic
+                config.broadcast_topic if is_broadcast else config.topic
             )
             if not topic:
                 kind = "broadcast" if is_broadcast else "direct"

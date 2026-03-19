@@ -175,7 +175,7 @@ class TestDurableAgentToolExecutionMode:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestAgent",
+                topic="TestAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")

@@ -65,7 +65,7 @@ async def main() -> None:
 
     frodo_pubsub = AgentPubSubConfig(
         pubsub_name="messagepubsub",
-        agent_topic="fellowship.frodo.requests",
+        topic="fellowship.frodo.requests",
         broadcast_topic="fellowship.broadcast",
     )
     frodo_state = AgentStateConfig(

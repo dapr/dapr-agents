@@ -46,7 +46,7 @@ def main() -> None:
 
     pubsub = AgentPubSubConfig(
         pubsub_name=os.getenv("PUBSUB_NAME", "messagepubsub"),
-        agent_topic=os.getenv("ORCHESTRATOR_TOPIC", "agent.orchestrator.requests"),
+        topic=os.getenv("ORCHESTRATOR_TOPIC", "agent.orchestrator.requests"),
         broadcast_topic=os.getenv("BROADCAST_TOPIC", "fellowship.broadcast"),
     )
 

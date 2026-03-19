@@ -174,7 +174,7 @@ class TestDurableAgent:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestDurableAgent",
+                topic="TestDurableAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -202,7 +202,7 @@ class TestDurableAgent:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="ToolDurableAgent",
+                topic="ToolDurableAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -230,7 +230,7 @@ class TestDurableAgent:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="TestDurableAgent",
+                topic="TestDurableAgent",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -247,7 +247,7 @@ class TestDurableAgent:
         assert agent.execution.max_iterations == 10  # default value
         assert agent.tool_history == []
         assert agent.pubsub.pubsub_name == "testpubsub"
-        assert agent.pubsub.agent_topic == "TestDurableAgent"
+        assert agent.pubsub.topic == "TestDurableAgent"
 
     def test_durable_agent_initialization_with_custom_topic(self, mock_llm):
         """Test durable agent initialization with custom topic name."""
@@ -258,7 +258,7 @@ class TestDurableAgent:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="custom-topic",
+                topic="custom-topic",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -268,7 +268,7 @@ class TestDurableAgent:
             ),
         )
 
-        assert agent.pubsub.agent_topic == "custom-topic"
+        assert agent.pubsub.topic == "custom-topic"
 
     def test_durable_agent_initialization_name_from_role(self, mock_llm):
         """Test durable agent initialization with name derived from role."""
@@ -279,7 +279,7 @@ class TestDurableAgent:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="Test Durable Assistant",
+                topic="Test Durable Assistant",
             ),
             state=AgentStateConfig(
                 store=StateStoreService(store_name="teststatestore")
@@ -290,7 +290,7 @@ class TestDurableAgent:
         )
 
         assert agent.name == "Test Durable Assistant"
-        assert agent.pubsub.agent_topic == "Test Durable Assistant"
+        assert agent.pubsub.topic == "Test Durable Assistant"
 
     def test_durable_agent_metadata(self, basic_durable_agent):
         """Test durable agent metadata creation."""
@@ -300,7 +300,7 @@ class TestDurableAgent:
         assert metadata.name == "TestDurableAgent"
         assert metadata.agent.role == "Test Durable Assistant"
         assert metadata.agent.goal == "Help with testing"
-        assert metadata.pubsub.agent_topic == "TestDurableAgent"
+        assert metadata.pubsub.topic == "TestDurableAgent"
         assert metadata.pubsub.resource_name == "testpubsub"
         assert metadata.agent.orchestrator is False
 
@@ -363,32 +363,6 @@ class TestDurableAgent:
         # so this should execute without error but skip the actual broadcast
         basic_durable_agent.broadcast_to_team(mock_ctx, {"message": message})
         # Test passes if no exception is raised
-
-    @pytest.mark.asyncio
-    async def test_return_response_activity(self, basic_durable_agent):
-        """Test sending response back to target agent activity."""
-        response = {"content": "Test response"}
-        target_agent = "TargetAgent"
-        target_instance_id = "target-instance-123"
-
-        # Mock the activity context and _run_asyncio_task
-        mock_ctx = Mock()
-
-        with patch.object(
-            basic_durable_agent,
-            "_run_asyncio_task",
-            side_effect=lambda coro: coro.close(),
-        ) as mock_run_task:
-            basic_durable_agent.return_response(
-                mock_ctx,
-                {
-                    "response": response,
-                    "target_agent": target_agent,
-                    "target_instance_id": target_instance_id,
-                },
-            )
-            # Verify the async task was called
-            mock_run_task.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_finish_workflow_activity(self, basic_durable_agent):
@@ -1209,7 +1183,7 @@ class TestDurableAgent:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="RetryTestAgent",
+                topic="RetryTestAgent",
             ),
             retry_policy=WorkflowRetryPolicy(
                 max_attempts=5,
@@ -1235,7 +1209,7 @@ class TestDurableAgent:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="RetryDefaultAgent",
+                topic="RetryDefaultAgent",
             ),
         )
 
@@ -1256,7 +1230,7 @@ class TestDurableAgent:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="RetryEnvAgent",
+                topic="RetryEnvAgent",
             ),
             retry_policy=WorkflowRetryPolicy(max_attempts=3),
         )
@@ -1274,7 +1248,7 @@ class TestDurableAgent:
             llm=mock_llm,
             pubsub=AgentPubSubConfig(
                 pubsub_name="testpubsub",
-                agent_topic="RetryInvalidEnvAgent",
+                topic="RetryInvalidEnvAgent",
             ),
             retry_policy=WorkflowRetryPolicy(max_attempts=3),
         )
@@ -1293,7 +1267,7 @@ class TestDurableAgent:
                 llm=mock_llm,
                 pubsub=AgentPubSubConfig(
                     pubsub_name="testpubsub",
-                    agent_topic="RetryZeroAgent",
+                    topic="RetryZeroAgent",
                 ),
                 retry_policy=WorkflowRetryPolicy(max_attempts=0),
             )

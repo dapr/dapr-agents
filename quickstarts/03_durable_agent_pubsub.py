@@ -50,7 +50,7 @@ async def main() -> None:
         # This is where the agent listens for incoming tasks.
         pubsub=AgentPubSubConfig(
             pubsub_name="agent-pubsub",
-            agent_topic="weather.requests",
+            topic="weather.requests",
             broadcast_topic="agents.broadcast",
         ),
         # This is where the agent registry is found
