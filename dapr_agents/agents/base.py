@@ -1271,6 +1271,15 @@ class AgentBase:
                     workflow_instance_id,
                     exc_info=True,
                 )
+            try:
+                self.memory.purge_memory("broadcast")
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to purge broadcast memory for agent %s; "
+                    "continuing with partial purge.",
+                    getattr(self, "name", "unknown"),
+                    exc_info=True,
+                )
 
     def _summarize_conversation(
         self,
@@ -1508,7 +1517,27 @@ class AgentBase:
                 )
                 raise
 
-        return entry.messages
+        messages = list(entry.messages)
+
+        # Prepend the most recent broadcasts so the LLM knows what peers have reported.
+        if self.memory is not None:
+            try:
+                broadcasts = self.memory.get_messages("broadcast")
+                if broadcasts:
+                    recent = broadcasts[-10:]
+                    broadcast_msgs = [
+                        {"role": m.get("role", "user"), "content": m.get("content", "")}
+                        for m in recent
+                    ]
+                    messages = broadcast_msgs + messages
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to load broadcast memory for agent %s; continuing without it.",
+                    getattr(self, "name", "unknown"),
+                    exc_info=True,
+                )
+
+        return messages
 
     def _sync_system_messages_with_state(
         self,
