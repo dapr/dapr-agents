@@ -1004,7 +1004,7 @@ wheels = [
 
 [[package]]
 name = "dapr"
-version = "1.17.2"
+version = "1.17.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1014,9 +1014,9 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1f/80/c8c3882aab0ec35b237c1693d1fa3a3f891571d1defe6f102ba2891aafa6/dapr-1.17.2.tar.gz", hash = "sha256:600e1059879623f51134b80608a6df5b43516abe56566ffa051f730ab7301c5c", size = 172180, upload-time = "2026-03-11T21:10:24.734Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4f/3e/684103b142afbe100d56d1dcc4c2262ab2fa38ad1a86dc604d3ce4af28a4/dapr-1.17.3.tar.gz", hash = "sha256:228919bf92b5c65736ed4c790a8b58a5d43cd84768aa52c516763b294752f47f", size = 172202, upload-time = "2026-03-19T19:24:39.911Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/54/0aa0891089ad2214f88918095301069f169b79a2ddf5bc0b9538fb7e2876/dapr-1.17.2-py3-none-any.whl", hash = "sha256:e8c6c07e9721cf284905bd672f75d084ccfdb5513588048b5edad0a033bedaa6", size = 242987, upload-time = "2026-03-11T21:10:23.281Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/98/61a30f19a884cc3ef909935fdd52adaf055f01d69fc0ab6989df464fd78f/dapr-1.17.3-py3-none-any.whl", hash = "sha256:e5bd0c5e6289b2b1774a671380b2a27e86606cf33c713e3aedbc60b71b6e0175", size = 242988, upload-time = "2026-03-19T19:24:38.592Z" },
 ]
 
 [[package]]
@@ -1025,6 +1025,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "azure-identity" },
+    { name = "cachetools" },
     { name = "cloudevents" },
     { name = "colorama" },
     { name = "dapr" },
@@ -1072,7 +1073,6 @@ vectorstore = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "cachetools" },
     { name = "flake8" },
     { name = "mypy" },
     { name = "pip-tools" },
@@ -1102,12 +1102,13 @@ vectorstore = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.9.0,<4.0.0" },
     { name = "azure-identity", specifier = ">=1.21.0,<2.0.0" },
+    { name = "cachetools", specifier = ">=6.1.0,<8.0.0" },
     { name = "chromadb", marker = "extra == 'vectorstore'", specifier = ">=0.4.22,<2.0.0" },
     { name = "cloudevents", specifier = ">=1.11.0,<2.0.0" },
     { name = "colorama", specifier = ">=0.4.6,<1.0.0" },
-    { name = "dapr", specifier = "==1.17.2" },
-    { name = "dapr-ext-fastapi", specifier = "==1.17.2" },
-    { name = "dapr-ext-workflow", specifier = "==1.17.2" },
+    { name = "dapr", specifier = "==1.17.3" },
+    { name = "dapr-ext-fastapi", specifier = "==1.17.3" },
+    { name = "dapr-ext-workflow", specifier = "==1.17.3" },
     { name = "docker", specifier = ">=7.1.0" },
     { name = "durabletask-dapr", specifier = "==0.17.4" },
     { name = "fastapi", specifier = ">=0.110.0,<1.0.0" },
@@ -1146,7 +1147,6 @@ provides-extras = ["vectorstore"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "cachetools", specifier = ">=6.1.0,<8.0.0" },
     { name = "flake8", specifier = ">=7.3.0" },
     { name = "mypy", specifier = ">=1.15.0,<2.0.0" },
     { name = "pip-tools", specifier = ">=7.4.1,<8.0.0" },
@@ -1174,29 +1174,29 @@ vectorstore = [
 
 [[package]]
 name = "dapr-ext-fastapi"
-version = "1.17.2"
+version = "1.17.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dapr" },
     { name = "fastapi" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/eb/77/1e04b87886d1b6bde2a62b44e1401248d98db1b203b99ec0f989af64ffa0/dapr_ext_fastapi-1.17.2.tar.gz", hash = "sha256:7710758cb18869cfcbe2f2b3dda046bd9eae32423e550472ee352abc8e3602ad", size = 10412, upload-time = "2026-03-11T21:11:11.772Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/ad/19423a0e77df67a6a411e720b0928212e79eb76577bfb639001264c7c0f9/dapr_ext_fastapi-1.17.3.tar.gz", hash = "sha256:59bc3cf6519d82e2b3a82c71599ee0ee9be51b17ef54136e737906488f8fca47", size = 10395, upload-time = "2026-03-19T19:26:47.196Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/5e/8a54e163614c9519c85e42f6daea5d57b97a7bfca6f774051a602b54ebf3/dapr_ext_fastapi-1.17.2-py3-none-any.whl", hash = "sha256:243e01859a4641a091e80266d882009f572c6bbd3b0ca08763eb2bc36b096e31", size = 10677, upload-time = "2026-03-11T21:11:10.947Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/9a/c59ac2fee3d6af38ce10e11dc37e2a38bf0b5d4abad5e1b5cf43066fb554/dapr_ext_fastapi-1.17.3-py3-none-any.whl", hash = "sha256:7dd0209d3e8ce255e4c37aee49daef00b2d9923b302236698e0236a956fe37d8", size = 10677, upload-time = "2026-03-19T19:26:46.366Z" },
 ]
 
 [[package]]
 name = "dapr-ext-workflow"
-version = "1.17.2"
+version = "1.17.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dapr" },
     { name = "durabletask-dapr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/12/65/5b9e6ed07489ccba6eaa8cbdd210337e036198fdaee78d9ab9e360a1b254/dapr_ext_workflow-1.17.2.tar.gz", hash = "sha256:42cd06be765e6984eb9e27b6fbc6dc17710a51ddbe192517eed9763db8f696de", size = 24413, upload-time = "2026-03-11T21:10:43.055Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/d8/98225c65774fcfcf095405c49796144062de1d5bf3b5e18d61c914e23e46/dapr_ext_workflow-1.17.3.tar.gz", hash = "sha256:2d488f69139de9ec4f7d8c39ae0402398858f24ffa3bad0a5dfcbf9cabe7b58d", size = 24426, upload-time = "2026-03-19T19:26:26.73Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5e/41/caf6f634012c381705a899eb220cefbceb0e4fc475a040ffa0b6d0911665/dapr_ext_workflow-1.17.2-py3-none-any.whl", hash = "sha256:b792bef57ba21dc62d71aa4e29d049c2bb21eba5aab956f85976c0bceb842e6e", size = 29229, upload-time = "2026-03-11T21:10:41.89Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/ce/864a3d199a107125c158a199c4bd6967273c3127688895e67458b0dd3588/dapr_ext_workflow-1.17.3-py3-none-any.whl", hash = "sha256:879a3ac6c0c61fd4e07db62d3f37b80232dc6c649be8e5ca61f51b19b7e1cb3a", size = 29231, upload-time = "2026-03-19T19:26:25.607Z" },
 ]
 
 [[package]]

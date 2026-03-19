@@ -365,32 +365,6 @@ class TestDurableAgent:
         # Test passes if no exception is raised
 
     @pytest.mark.asyncio
-    async def test_return_response_activity(self, basic_durable_agent):
-        """Test sending response back to target agent activity."""
-        response = {"content": "Test response"}
-        target_agent = "TargetAgent"
-        target_instance_id = "target-instance-123"
-
-        # Mock the activity context and _run_asyncio_task
-        mock_ctx = Mock()
-
-        with patch.object(
-            basic_durable_agent,
-            "_run_asyncio_task",
-            side_effect=lambda coro: coro.close(),
-        ) as mock_run_task:
-            basic_durable_agent.return_response(
-                mock_ctx,
-                {
-                    "response": response,
-                    "target_agent": target_agent,
-                    "target_instance_id": target_instance_id,
-                },
-            )
-            # Verify the async task was called
-            mock_run_task.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_finish_workflow_activity(self, basic_durable_agent):
         """Test finishing workflow activity."""
 

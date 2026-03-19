@@ -12,6 +12,7 @@
 #
 
 import asyncio
+import time
 import pytest
 from typing import Union, Optional, List
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ from dapr_agents.workflow.utils.routers import (
     parse_cloudevent,
 )
 from dapr_agents.workflow.utils.registration import register_message_routes
+from dapr_agents.workflow.utils.subscription import TTLDedupeBackend
 
 
 _PATCH_TARGET = "dapr_agents.workflow.utils.registration.DaprClient"
@@ -755,3 +757,26 @@ def test_register_message_handlers_returns_closers():
     # Should return two closers
     assert len(closers) == 2
     assert all(callable(closer) for closer in closers)
+
+
+class TestTTLDedupeBackend:
+    def test_unseen_key_returns_false(self) -> None:
+        backend = TTLDedupeBackend(maxsize=8, ttl=1.0)
+        assert not backend.seen("event-1")
+
+    def test_marked_key_is_seen(self) -> None:
+        backend = TTLDedupeBackend(maxsize=8, ttl=1.0)
+        backend.mark("event-1")
+        assert backend.seen("event-1")
+
+    def test_different_keys_are_independent(self) -> None:
+        backend = TTLDedupeBackend(maxsize=8, ttl=1.0)
+        backend.mark("event-1")
+        assert not backend.seen("event-2")
+
+    def test_key_expires_after_ttl(self) -> None:
+        backend = TTLDedupeBackend(maxsize=8, ttl=0.1)
+        backend.mark("event-1")
+        assert backend.seen("event-1")
+        time.sleep(0.15)
+        assert not backend.seen("event-1")

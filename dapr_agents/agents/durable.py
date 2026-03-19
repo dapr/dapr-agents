@@ -65,7 +65,6 @@ from dapr_agents.agents.configs import (
 )
 from dapr_agents.agents.prompting import AgentProfileConfig
 from dapr_agents.agents.schemas import (
-    AgentTaskResponse,
     AgentWorkflowMessage,
     BroadcastMessage,
     TriggerAction,
@@ -75,6 +74,7 @@ from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.types import (
     AgentError,
     DaprWorkflowStatus,
+    UserMessage,
     ToolMessage,
     AssistantMessage,
 )
@@ -82,7 +82,7 @@ from dapr_agents.types.tools import ToolExecutionRecord, ToolExecutionStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
-from dapr_agents.workflow.utils.pubsub import broadcast_message, send_message_to_agent
+from dapr_agents.workflow.utils.pubsub import broadcast_message
 from dapr_agents.tool.workflow.agent_tool import (
     AgentWorkflowTool,
     agent_to_tool,
@@ -423,7 +423,7 @@ class DurableAgent(AgentBase):
         source = metadata.get("source") or "direct"
 
         if not ctx.is_replaying:
-            logger.info("Initial message from %s -> %s", source, self.name)
+            logger.info(f"Initial message from {source} -> {self.name}")
 
         # Record initial entry via activity to keep deterministic/replay-friendly I/O.
         yield ctx.call_activity(
@@ -558,14 +558,6 @@ class DurableAgent(AgentBase):
                                         }
                                     )
                                 workflow_tasks.append(tool_obj(**call_kwargs))
-                                workflow_meta.append(
-                                    {
-                                        "order": idx,
-                                        "tool_call": tc,
-                                        "child_instance_id": child_instance_id,
-                                        "dispatch_time": ctx.current_utc_datetime.isoformat(),
-                                    }
-                                )
                             # Invoke and execute regular tools.
                             else:
                                 activity_tasks.append(
@@ -657,10 +649,7 @@ class DurableAgent(AgentBase):
                     final_message = assistant_response
                     if not ctx.is_replaying:
                         logger.debug(
-                            "Agent %s produced final response on turn %d (instance=%s)",
-                            self.name,
-                            turn,
-                            ctx.instance_id,
+                            f"Agent {self.name} produced final response on turn {turn} (instance={ctx.instance_id})",
                         )
                     break
                 else:
@@ -675,34 +664,20 @@ class DurableAgent(AgentBase):
                     final_message = {"role": "assistant", "content": base}
                     if not ctx.is_replaying:
                         logger.warning(
-                            "Agent %s hit max iterations (%d) without a final response (instance=%s)",
-                            self.name,
-                            self.execution.max_iterations,
-                            ctx.instance_id,
+                            f"Agent {self.name} hit max iterations ({self.execution.max_iterations}) without a final response (instance={ctx.instance_id})",
                         )
 
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Agent %s workflow failed: %s", self.name, exc)
+            logger.exception(f"Agent {self.name} workflow failed: {exc}")
             _workflow_exc = exc
             final_message = {"role": "assistant", "content": f"Error: {str(exc)}"}
 
-        # Optionally broadcast the final message to the team.
-        if self.broadcast_topic_name:
+        # Orchestrators broadcast the final message to the team for context sharing.
+        # Non-orchestrators with broadcast_topic_name are subscribers only.
+        if self.broadcast_topic_name and self.orchestrator:
             yield ctx.call_activity(
                 self.broadcast_to_team,
                 input={"message": final_message},
-                retry_policy=self._retry_policy,
-            )
-
-        # Optionally send a direct response back to the trigger origin.
-        if source and trigger_instance_id:
-            yield ctx.call_activity(
-                self.return_response,
-                input={
-                    "response": final_message,
-                    "target_agent": source,
-                    "target_instance_id": trigger_instance_id,
-                },
                 retry_policy=self._retry_policy,
             )
 
@@ -809,13 +784,6 @@ class DurableAgent(AgentBase):
                 "name": self.name,
                 "content": plan_content,
             }
-
-            if self.broadcast_topic_name:
-                yield ctx.call_activity(
-                    self.broadcast_to_team,
-                    input={"message": plan_message},
-                    retry_policy=self._retry_policy,
-                )
 
             yield ctx.call_activity(
                 self.save_plan,
@@ -1191,6 +1159,25 @@ class DurableAgent(AgentBase):
                 retry_policy=self._retry_policy,
             )
 
+        # Broadcast the final plan state to the team so workers have the completed picture.
+        # Done here (after all turns) rather than at plan-creation time so workers receive
+        # accurate step statuses, not an all-not_started snapshot.
+        if self.broadcast_topic_name:
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                plan = orch_state.get("plan", [])
+                broadcast_msg = {
+                    "role": "assistant",
+                    "name": self.name,
+                    "content": json.dumps({"objects": plan}, indent=2),
+                }
+            else:
+                broadcast_msg = final_message
+            yield ctx.call_activity(
+                self.broadcast_to_team,
+                input={"message": broadcast_msg},
+                retry_policy=self._retry_policy,
+            )
+
         if not ctx.is_replaying:
             logger.info(f"Orchestration workflow completed for instance {instance_id}")
 
@@ -1284,12 +1271,16 @@ class DurableAgent(AgentBase):
         return self._orchestration_strategy.finalize(ctx, payload["state"])
 
     @message_router(message_model=BroadcastMessage, broadcast=True)
-    def broadcast_workflow(self, ctx: wf.DaprWorkflowContext, message: dict) -> None:
+    def on_broadcast(self, ctx: wf.DaprWorkflowContext, message: dict):
         """
-        Handle broadcast messages sent by other agents and store them in memory.
+        Handle incoming broadcast messages from team agents.
+
+        Stores received context in agent memory so future LLM calls are
+        informed by peer activity. Self-originated broadcasts are silently
+        ignored to prevent feedback loops.
 
         Args:
-            ctx: Dapr workflow context (unused).
+            ctx: Dapr workflow context.
             message: Broadcast payload containing content and metadata.
         """
         metadata = message.get("_message_metadata", {}) or {}
@@ -1298,8 +1289,12 @@ class DurableAgent(AgentBase):
             logger.debug("Agent %s ignoring self-originated broadcast.", self.name)
             return
 
-        logger.info("Agent %s received broadcast from %s", self.name, source)
-        logger.debug("Full broadcast message: %s", message)
+        logger.info(f"Agent {self.name} received broadcast from {source}")
+        yield ctx.call_activity(
+            self.record_broadcast,
+            input=message,
+            retry_policy=self._retry_policy,
+        )
 
     @staticmethod
     def _convert_plan_objects_to_dicts(plan_objects: List[Any]) -> List[Dict[str, Any]]:
@@ -1463,7 +1458,7 @@ class DurableAgent(AgentBase):
             status_updates.append(
                 {"step": step, "substep": substep, "status": "completed"}
             )
-            logger.debug("Marked step %s/%s as completed", step, substep)
+            logger.debug(f"Marked step {step}/{substep} as completed")
 
             # If it's a substep, check if all sibling substeps are completed
             if substep is not None:
@@ -1530,7 +1525,36 @@ class DurableAgent(AgentBase):
         entry.source = source
         entry.triggering_workflow_instance_id = triggering_instance
         entry.trace_context = trace_context
-        self.save_state(instance_id)
+        self.save_state(instance_id, entry=entry)
+
+    def record_broadcast(self, _ctx: wf.WorkflowActivityContext, message: dict) -> None:
+        """
+        Persist a received team broadcast in agent memory.
+
+        Stored as a user message so it is available as context for future
+        LLM calls. Called by on_broadcast when a non-self-originated broadcast
+        arrives on the shared team topic.
+
+        Args:
+            message: Broadcast payload containing content and metadata.
+        """
+        # Use a fixed session key so all broadcasts accumulate in one memory slot.
+        # Key in store: {agent_name}:_memory_broadcast
+        session_id = "broadcast"
+        metadata = message.get("_message_metadata", {}) or {}
+        source = metadata.get("source") or "unknown"
+        content = message.get("content", "")
+        if self.memory is not None:
+            self.memory.add_message(
+                UserMessage(content=f"[Broadcast from {source}]: {content}"),
+                session_id,
+            )
+        logger.info(
+            "Agent %s recorded broadcast from %s in memory (session=%s)",
+            self.name,
+            source,
+            session_id,
+        )
 
     def call_llm(
         self,
@@ -1639,7 +1663,7 @@ class DurableAgent(AgentBase):
         if not self.orchestrator:
             self.text_formatter.print_message(assistant_message)
         # Single save for the entire activity
-        self.save_state(instance_id)
+        self.save_state(instance_id, entry=entry)
         return assistant_message
 
     def run_tool(
@@ -1769,6 +1793,7 @@ class DurableAgent(AgentBase):
         # so we can skip duplicates on workflow replay (Dapr may re-deliver results).
         existing_tool_ids: set[str] = set()
         last_message_is_assistant_with_tool_calls = False
+        messages_list: list = []
 
         if entry is not None and hasattr(entry, "messages"):
             messages_list = getattr(entry, "messages")
@@ -1790,53 +1815,34 @@ class DurableAgent(AgentBase):
                 except Exception:
                     pass
 
-            # Check if we can save tool messages
-            # Tool messages must follow an assistant message with tool_call.
-            # If last_message is a tool message, that's fine - we're continuing the same batch
-            # If last_message is an assistant with tool_calls, we can start a new batch
-            if hasattr(entry, "last_message") and entry.last_message is not None:
-                try:
-                    last_msg = entry.last_message
-                    # Handle both dict and Pydantic model messages
-                    if isinstance(last_msg, dict):
-                        last_role = last_msg.get("role")
-                        last_tool_calls = last_msg.get("tool_calls")
+        # Check if the last non-tool message is an assistant with tool_calls.
+        # Scan messages_list from the end, skipping tool messages already saved.
+        # Only set True when we actually confirm the right message is present;
+        # an empty messages_list stays False so we never append tool results
+        # to a message list that has no preceding assistant+tool_calls message.
+        if messages_list:
+            try:
+                for msg in reversed(messages_list):
+                    if isinstance(msg, dict):
+                        role = msg.get("role")
+                        tool_calls_field = msg.get("tool_calls")
                     else:
-                        last_role = getattr(last_msg, "role", None)
-                        last_tool_calls = getattr(last_msg, "tool_calls", None)
-
-                    if last_role == "assistant" and last_tool_calls:
-                        # Last message is an assistant with tool_calls - we can save tool messages
+                        role = getattr(msg, "role", None)
+                        tool_calls_field = getattr(msg, "tool_calls", None)
+                    if role == "tool":
+                        continue  # skip existing tool responses, keep scanning back
+                    if role == "assistant" and tool_calls_field:
                         last_message_is_assistant_with_tool_calls = True
-                    elif last_role == "tool":
-                        # Last message is already a tool message - we're continuing the same batch
-                        # This is valid as long as there's an assistant with tool_calls before it
-                        # Check the message before the last tool message
-                        if len(messages_list) > 1:
-                            # Look for the assistant message that precedes the tool messages
-                            for i in range(len(messages_list) - 2, -1, -1):
-                                prev_msg = messages_list[i]
-                                if isinstance(prev_msg, dict):
-                                    prev_role = prev_msg.get("role")
-                                    prev_tool_calls = prev_msg.get("tool_calls")
-                                else:
-                                    prev_role = getattr(prev_msg, "role", None)
-                                    prev_tool_calls = getattr(
-                                        prev_msg, "tool_calls", None
-                                    )
-
-                                if prev_role == "assistant" and prev_tool_calls:
-                                    last_message_is_assistant_with_tool_calls = True
-                                    break
-                                elif prev_role != "tool":
-                                    # Hit a non-tool, non-assistant message - stop looking
-                                    break
-                except Exception:
-                    # If we can't determine the last message type, err on the side of caution
-                    logger.warning(
-                        "Could not verify last message type before saving tool results. "
-                        "Skipping tool message save to avoid OpenAI API errors."
-                    )
+                    else:
+                        # Last non-tool message is not an assistant+tool_calls — not safe to append
+                        last_message_is_assistant_with_tool_calls = False
+                    break
+            except Exception:
+                logger.warning(
+                    "Could not scan messages to verify tool result ordering; "
+                    "proceeding with save (optimistic)."
+                )
+                last_message_is_assistant_with_tool_calls = True
 
         # Process each tool result
         for tool_result in tool_results:
@@ -1914,7 +1920,7 @@ class DurableAgent(AgentBase):
 
             logger.debug(f"Added tool result {tool_call_id} to memory")
 
-        self.save_state(instance_id)
+        self.save_state(instance_id, entry=entry)
 
     def broadcast_to_team(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -1958,44 +1964,6 @@ class DurableAgent(AgentBase):
             self._run_asyncio_task(_broadcast())
         except Exception:  # noqa: BLE001
             logger.exception("Failed to publish broadcast message.")
-
-    def return_response(
-        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
-    ) -> None:
-        """
-        Send the final response back to the triggering agent.
-
-        Args:
-            payload: Dict containing 'response', 'target_agent', 'target_instance_id'.
-        """
-        response = payload.get("response", {})
-        target_agent = payload.get("target_agent", "")
-        target_instance_id = payload.get("target_instance_id", "")
-        if not target_agent or not target_instance_id:
-            logger.debug(
-                "Target agent or instance missing; skipping response publication."
-            )
-            return
-
-        response["role"] = "user"
-        # Sanitize agent name to comply with OpenAI's message name requirements
-        response["name"] = sanitize_openai_tool_name(self.name)
-        response["workflow_instance_id"] = target_instance_id
-        agent_response = AgentTaskResponse(**response)
-
-        agents_metadata = self.get_agents_metadata()
-
-        try:
-            self._run_asyncio_task(
-                send_message_to_agent(
-                    source=self.name,
-                    target_agent=target_agent,
-                    message=agent_response,
-                    agents_metadata=agents_metadata,
-                )
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to publish response to %s", target_agent)
 
     def summarize(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -2046,7 +2014,7 @@ class DurableAgent(AgentBase):
             return
 
         entry.triggering_workflow_instance_id = triggering_workflow_instance_id
-        self.save_state(instance_id)
+        self.save_state(instance_id, entry=entry)
 
     # ------------------------------------------------------------------
     # Agent-as-tool: registry discovery activity
@@ -2322,7 +2290,7 @@ class DurableAgent(AgentBase):
             instance_id,
         )
 
-        self.save_state(instance_id)
+        self.save_state(instance_id, entry=entry)
         logger.info(f"Saved plan to memory for instance {instance_id}")
 
     # ------------------------------------------------------------------
@@ -2455,16 +2423,16 @@ class DurableAgent(AgentBase):
         )
         if self.broadcast_topic_name:
             runtime.register_workflow(
-                self._named(self.broadcast_workflow, self.broadcast_workflow_name)
+                self._named(self.on_broadcast, self.broadcast_workflow_name)
             )
 
         # Standard agent activities
         runtime.register_activity(self.record_initial_entry)
+        runtime.register_activity(self.record_broadcast)
         runtime.register_activity(self.call_llm)
         runtime.register_activity(self.run_tool)
         runtime.register_activity(self.save_tool_results)
         runtime.register_activity(self.broadcast_to_team)
-        runtime.register_activity(self.return_response)
         runtime.register_activity(self.summarize)
         runtime.register_activity(self.finalize_workflow)
         runtime.register_activity(self.get_team_members)
