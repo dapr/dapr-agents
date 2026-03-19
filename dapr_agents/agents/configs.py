@@ -621,7 +621,7 @@ class PubSubMetadata(BaseModel):
     broadcast_topic: Optional[str] = Field(
         default=None, description="Pub/Sub topic for broadcasting messages"
     )
-    topic: Optional[str] = Field(
+    agent_topic: Optional[str] = Field(
         default=None, description="Pub/Sub topic for direct agent messages"
     )
 
