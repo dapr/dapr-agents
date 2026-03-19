@@ -29,6 +29,7 @@ from dapr_agents.workflow.utils.registration import (
     register_http_routes,
     register_message_routes,
 )
+from dapr_agents.workflow.utils.subscription import TTLDedupeBackend
 
 logger = logging.getLogger(__name__)
 
@@ -388,6 +389,7 @@ class AgentRunner(WorkflowRunner):
             await_timeout=await_timeout,
             fetch_payloads=fetch_payloads,
             log_outcome=log_outcome,
+            deduper=TTLDedupeBackend(),
         )
         self._pubsub_closers.extend(closers)
         self._wired_pubsub = True

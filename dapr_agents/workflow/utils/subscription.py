@@ -57,6 +57,29 @@ class DedupeBackend(Protocol):
     def mark(self, key: str) -> None: ...
 
 
+class TTLDedupeBackend:
+    """Thread-safe in-memory deduplication backend using a TTL cache.
+
+    Entries expire after `ttl` seconds, so memory is bounded and old IDs
+    are not retained indefinitely.  Suitable for Dapr at-least-once delivery
+    where duplicate messages typically arrive within a short retry window.
+    """
+
+    def __init__(self, maxsize: int = 4096, ttl: float = 60.0) -> None:
+        from cachetools import TTLCache
+
+        self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
+        self._lock = threading.Lock()
+
+    def seen(self, key: str) -> bool:
+        with self._lock:
+            return key in self._cache
+
+    def mark(self, key: str) -> None:
+        with self._lock:
+            self._cache[key] = True
+
+
 SchedulerFn = Callable[[Callable[..., Any], dict], Optional[str]]
 TopicKey = Tuple[str, str]
 BindingSchemaPair = Tuple["MessageRouteBinding", Type[Any]]
