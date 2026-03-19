@@ -792,13 +792,6 @@ class DurableAgent(AgentBase):
                 "content": plan_content,
             }
 
-            if self.broadcast_topic_name:
-                yield ctx.call_activity(
-                    self.broadcast_to_team,
-                    input={"message": plan_message},
-                    retry_policy=self._retry_policy,
-                )
-
             yield ctx.call_activity(
                 self.save_plan,
                 input={
@@ -1170,6 +1163,25 @@ class DurableAgent(AgentBase):
             final_message = yield ctx.call_activity(
                 self.finalize_orchestration,
                 input={"state": orch_state, "task": task, "instance_id": instance_id},
+                retry_policy=self._retry_policy,
+            )
+
+        # Broadcast the final plan state to the team so workers have the completed picture.
+        # Done here (after all turns) rather than at plan-creation time so workers receive
+        # accurate step statuses, not an all-not_started snapshot.
+        if self.broadcast_topic_name:
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                plan = orch_state.get("plan", [])
+                broadcast_msg = {
+                    "role": "assistant",
+                    "name": self.name,
+                    "content": json.dumps({"objects": plan}, indent=2),
+                }
+            else:
+                broadcast_msg = final_message
+            yield ctx.call_activity(
+                self.broadcast_to_team,
+                input={"message": broadcast_msg},
                 retry_policy=self._retry_policy,
             )
 

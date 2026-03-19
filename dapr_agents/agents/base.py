@@ -1524,7 +1524,7 @@ class AgentBase:
             try:
                 broadcasts = self.memory.get_messages("broadcast")
                 if broadcasts:
-                    recent = broadcasts[-10:]
+                    recent = broadcasts[-3:]
                     broadcast_msgs = [
                         {"role": m.get("role", "user"), "content": m.get("content", "")}
                         for m in recent
