@@ -209,23 +209,41 @@ def test_execute_tool_activity_with_mcp_tool(durable_agent_with_mcp_tool):
     assert result["content"] == "4"  # Serialized as string
 
 
+MCP_HTTP_TEST_PORT = 8765
+
+
 # Shared fixture to start the math server with streamable HTTP
 @pytest.fixture(scope="module")
 def start_math_server_http():
     import subprocess
+    import sys
     import time
+    import socket
 
     proc = subprocess.Popen(
         [
-            "python",
+            sys.executable,
             "tests/agents/durableagent/test_mcp_math_server.py",
             "--server_type",
             "streamable-http",
             "--port",
-            "8000",
+            str(MCP_HTTP_TEST_PORT),
         ]
     )
-    time.sleep(1.5)  # Give the server time to start
+    # Poll until the server is accepting connections (up to 10 seconds)
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(
+                ("127.0.0.1", MCP_HTTP_TEST_PORT), timeout=0.5
+            ):
+                break
+        except OSError:
+            time.sleep(0.1)
+    else:
+        proc.terminate()
+        proc.wait()
+        raise RuntimeError("MCP math server did not start within 10 seconds")
     yield
     proc.terminate()
     proc.wait()
@@ -237,7 +255,7 @@ async def get_agent_tools_from_http():
 
     client = MCPClient()
     await client.connect_streamable_http(
-        server_name="local", url="http://127.0.0.1:8000/mcp/"
+        server_name="local", url=f"http://127.0.0.1:{MCP_HTTP_TEST_PORT}/mcp/"
     )
     return client.get_all_tools()
 

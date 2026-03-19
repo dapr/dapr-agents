@@ -11,18 +11,18 @@
 # limitations under the License.
 #
 
-apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: openai
-spec:
-  type: conversation.openai
-  metadata:
-  - name: key
-    envRef: OPENAI_API_KEY
-  - name: endpoint
-    envRef: OPENAI_BASE_URL
-  - name: model
-    value: OPENAI_MODEL
-  - name: cacheTTL
-    value: 10m
+version: 1
+common:
+  resourcesPath: ./resources
+  logLevel: info
+  appLogDestination: console
+  daprdLogDestination: console
+
+apps:
+  - appID: weather-agent
+    appDirPath: ./
+    command: ["python3", "02_durable_agent_workflow.py"]
+
+  - appID: weather-trigger
+    appDirPath: ./
+    command: ["python3", "02_durable_agent_trigger_within_workflow.py"]

@@ -11,18 +11,17 @@
 # limitations under the License.
 #
 
-apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: openai
-spec:
-  type: conversation.openai
-  metadata:
-  - name: key
-    envRef: OPENAI_API_KEY
-  - name: endpoint
-    envRef: OPENAI_BASE_URL
-  - name: model
-    value: OPENAI_MODEL
-  - name: cacheTTL
-    value: 10m
+from dapr_agents import trigger_agent
+
+
+def main() -> None:
+    result = trigger_agent(
+        "WeatherAgent",
+        input={"task": "What is the weather in London?"},
+        app_id="weather-agent",
+    )
+    print(f"Result: {result}")
+
+
+if __name__ == "__main__":
+    main()

@@ -79,32 +79,35 @@ def research_workflow(ctx: DaprWorkflowContext, topic: str):
 # ----- Activities -----
 
 
+@runtime.activity(name="generate_questions")
 def generate_questions(ctx, topic: str) -> Questions:
     result = llm.generate(
-        prompt=f"You are a research assistant. Generate exactly 3 focused research questions about the topic: {topic}. Return only a JSON object with a 'questions' list, each item having a 'text' field.",
+        messages=f"You are a research assistant. Generate exactly 3 focused research questions about the topic: {topic}. Return only a JSON object with a 'questions' list, each item having a 'text' field.",
         response_format=Questions,
     )
     try:
         questions = Questions.model_validate(result)
     except Exception as e:
         raise RuntimeError(f"LLM did not return valid Questions: {e}")
-    return questions
+    return questions.model_dump()
 
 
 @runtime.activity(name="gather_information")
 def gather_information(ctx, question: str) -> str:
     return str(
         llm.generate(
-            prompt=f"Research the following question and provide a detailed, well-cited answer (paragraphs + bullet points where helpful).\nQuestion: {question}\n"
+            messages=f"Research the following question and provide a detailed, well-cited answer (paragraphs + bullet points where helpful).\nQuestion: {question}\n"
         )
     )
 
 
 @runtime.activity(name="synthesize_results")
-def synthesize_results(ctx, topic: str, research_results: List[str]) -> str:
+def synthesize_results(ctx, input_data: dict) -> str:
+    topic = input_data["topic"]
+    research_results = input_data["research_results"]
     return str(
         llm.generate(
-            prompt=f"""
+            messages=f"""
 Create a comprehensive research report on the topic \"{topic}\" using the following research findings:\n\n{research_results}\n\nRequirements:\n- Clear executive summary (3-5 sentences)\n- Key findings (bulleted)\n- Risks/unknowns\n- Short conclusion\n\nReturn plain text (no JSON).\n"""
         )
     )
