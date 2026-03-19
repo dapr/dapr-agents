@@ -90,6 +90,8 @@ class MCPServer:
                     "Resumability requested but event_store module not found. Proceeding without resumability."
                 )
 
+        import contextlib
+
         session_manager = StreamableHTTPSessionManager(
             self.mcp._mcp_server,
             event_store=event_store,
@@ -104,22 +106,20 @@ class MCPServer:
             logger.info("🔌 Streamable HTTP connection established")
             await session_manager.handle_request(scope, receive, send)
 
+        @contextlib.asynccontextmanager
+        async def lifespan(app):
+            async with session_manager.run():
+                yield
+
         app = Starlette(
             debug=False,
             routes=[
                 Mount("/mcp", app=handle_streamable_http),
             ],
+            lifespan=lifespan,
         )
 
-        async def serve():
-            async with session_manager.run():
-                config = uvicorn.Config(app, host=host, port=port, log_level="info")
-                server = uvicorn.Server(config)
-                await server.serve()
-
-        import asyncio
-
-        asyncio.run(serve())
+        uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 # ─────────────────────────────────────────────

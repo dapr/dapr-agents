@@ -1111,7 +1111,7 @@ requires-dist = [
     { name = "dapr-ext-fastapi", specifier = "==1.17.2" },
     { name = "dapr-ext-workflow", specifier = "==1.17.2" },
     { name = "docker", specifier = ">=7.1.0" },
-    { name = "durabletask-dapr", specifier = "==0.17.2" },
+    { name = "durabletask-dapr", specifier = "==0.17.4" },
     { name = "fastapi", specifier = ">=0.110.0,<1.0.0" },
     { name = "huggingface-hub", specifier = ">=0.33.4,<2.0.0" },
     { name = "jinja2", specifier = ">=3.1.0,<4.0.0" },
@@ -1268,16 +1268,16 @@ wheels = [
 
 [[package]]
 name = "durabletask-dapr"
-version = "0.17.2"
+version = "0.17.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asyncio" },
     { name = "grpcio" },
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b4/24/7bf9c7c08c8e20bf2bff24e19b70dd1ccb0763ab59a412a94ad65e2b3707/durabletask_dapr-0.17.2.tar.gz", hash = "sha256:68746e26f8048e8375db99d0361b5bef8d140c949550ee6d4f6c325e3be15985", size = 102708, upload-time = "2026-03-11T17:47:45.437Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ab/7e/2dffbaad08f4a2f6cae8817b88e58761dcffeb3e3f568fbc66e0e0b36ea6/durabletask_dapr-0.17.4.tar.gz", hash = "sha256:6418d763447054ca6fd39a5914de035c48f120fc3a2867e6c08833f8f4f798a1", size = 103203, upload-time = "2026-03-12T14:18:06.296Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/74/dd/8d8a8a9f53d8ad09046a75018f3d4747dc61b4637d0de8c94a9927348011/durabletask_dapr-0.17.2-py3-none-any.whl", hash = "sha256:847c557c24bf3821e26bd5a51c88aa1b980c3f05c84a023c323e318d36e61402", size = 68711, upload-time = "2026-03-11T17:47:44.106Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/fb/f360bf5581c81abe99b61322a3792506eb96d11d866231cfe205f033d0b1/durabletask_dapr-0.17.4-py3-none-any.whl", hash = "sha256:e1fed8dcdf35c8408b29355c5fb85ed619f878bdfa1ee5c88df6ac3cce4598a0", size = 69202, upload-time = "2026-03-12T14:18:05.169Z" },
 ]
 
 [[package]]

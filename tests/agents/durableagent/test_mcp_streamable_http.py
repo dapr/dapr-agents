@@ -237,7 +237,7 @@ async def get_agent_tools_from_http():
 
     client = MCPClient()
     await client.connect_streamable_http(
-        server_name="local", url="http://localhost:8000/mcp/"
+        server_name="local", url="http://127.0.0.1:8000/mcp/"
     )
     return client.get_all_tools()
 
