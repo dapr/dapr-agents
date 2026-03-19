@@ -428,7 +428,7 @@ class AgentBase:
                         logger.debug(f"topic: {name}.topic")
                         pubsub = AgentPubSubConfig(
                             pubsub_name=component.name,
-                            topic=f"{name.replace(' ', '-').lower()}.topic",
+                            agent_topic=f"{name.replace(' ', '-').lower()}.topic",
                             broadcast_topic="agents.broadcast",
                         )
                     if (
@@ -587,7 +587,7 @@ class AgentBase:
         if self.pubsub is not None and self.message_bus_name:
             pubsub_meta = PubSubMetadata(
                 resource_name=self.message_bus_name,
-                topic=self.pubsub.topic,
+                topic=self.pubsub.agent_topic,
                 broadcast_topic=self.pubsub.broadcast_topic,
             )
 

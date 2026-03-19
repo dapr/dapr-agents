@@ -75,7 +75,7 @@ def main() -> None:
         registry=registry,
         pubsub=AgentPubSubConfig(
             pubsub_name=os.getenv("PUBSUB_NAME", "agent-pubsub"),
-            topic=os.getenv("SAM_TOPIC", "fellowship.sam.requests"),
+            agent_topic=os.getenv("SAM_TOPIC", "fellowship.sam.requests"),
             broadcast_topic=os.getenv("BROADCAST_TOPIC", "fellowship.broadcast"),
         ),
         state=AgentStateConfig(

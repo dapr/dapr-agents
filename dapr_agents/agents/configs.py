@@ -326,7 +326,7 @@ class AgentPubSubConfig:
     """
 
     pubsub_name: str
-    topic: Optional[str] = None
+    agent_topic: Optional[str] = None
     broadcast_topic: Optional[str] = None
 
 

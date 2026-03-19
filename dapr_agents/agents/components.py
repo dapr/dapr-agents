@@ -87,7 +87,7 @@ class DaprInfra:
             # Copy only what we need to avoid accidental external mutation.
             self._pubsub = AgentPubSubConfig(
                 pubsub_name=pubsub.pubsub_name,
-                topic=pubsub.topic or name,
+                agent_topic=pubsub.agent_topic or name,
                 broadcast_topic=pubsub.broadcast_topic,
             )
 
@@ -174,7 +174,7 @@ class DaprInfra:
         """Return the per-agent topic name, or None if no pubsub configured."""
         if not self._pubsub:
             return None
-        return self._pubsub.topic or self.name
+        return self._pubsub.agent_topic or self.name
 
     @property
     def broadcast_topic_name(self) -> Optional[str]:

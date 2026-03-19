@@ -65,7 +65,7 @@ async def main() -> None:
 
     legolas_pubsub = AgentPubSubConfig(
         pubsub_name="messagepubsub",
-        topic="fellowship.legolas.requests",
+        agent_topic="fellowship.legolas.requests",
         broadcast_topic="fellowship.broadcast",
     )
     legolas_state = AgentStateConfig(
