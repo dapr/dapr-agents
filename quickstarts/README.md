@@ -411,7 +411,7 @@ The agent starts with its initial role (`Original Role`) and subscribes to the D
 This example shows how to configure a `WorkflowRetryPolicy` on a durable agent so that every workflow activity — LLM calls, tool calls, and state writes — is automatically retried with exponential backoff when a transient failure occurs. This is essential for production workloads where network hiccups, rate limits, or temporary provider outages should not crash the workflow.
 
 ```bash
-uv run dapr run --app-id durable-agent-retry --resources-path resources -- python durable_agent_retry.py
+uv run dapr run --app-id durable-agent-retry --resources-path resources -- python 12_durable_agent_retry.py
 ```
 
 ## Expected Behavior
