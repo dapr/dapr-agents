@@ -13,7 +13,7 @@ limitations under the License.
 
 # Durable Agent Tool Call with Dapr Agents
 
-This quickstart builds on the standalone version and shows how to run the same weather assistant as a **DurableAgent**. The agent logic stays the same, but execution happens inside Dapr Workflows—so runs are fault-tolerant, replayable, and can be triggered via pub/sub or HTTP.
+This example builds on the standalone version and shows how to run the same weather assistant as a **DurableAgent**. The agent logic stays the same, but execution happens inside Dapr Workflows—so runs are fault-tolerant, replayable, and can be triggered via pub/sub or HTTP.
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
+The example includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -102,7 +102,7 @@ Note: Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, 
 
 ### Additional Components
 
-The quickstart includes other necessary Dapr components in the `components` directory:
+The example includes other necessary Dapr components in the `components` directory:
 
 - `statestore.yaml`: Agent state configuration
 - `pubsub.yaml`: Pub/Sub message bus configuration

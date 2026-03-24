@@ -13,7 +13,7 @@ limitations under the License.
 
 # MCP Agent with SSE Transport
 
-This quickstart demonstrates how to build a simple agent that uses tools exposed via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) over SSE (Server-Sent Events) transport. You'll learn how to create MCP tools in a standalone server and connect to them using SSE communication.
+This example demonstrates how to build a simple agent that uses tools exposed via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) over SSE (Server-Sent Events) transport. You'll learn how to create MCP tools in a standalone server and connect to them using SSE communication.
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
+The example includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -101,7 +101,7 @@ Set up the SSE server for your MCP tools in `server.py`.
 
 ### Agent Creation
 
-`app.py` now mirrors the durable service pattern used in other quickstarts:
+`app.py` now mirrors the durable service pattern used in other examples:
 
 1. Connect to the MCP server via SSE and load tools.
 2. Build a `DurableAgent` with Dapr configs (`AgentPubSubConfig`, state, registry, memory, execution).
@@ -185,13 +185,13 @@ curl -X POST http://localhost:8001/agent/run \
 
 ## Alternative: Using STDIO Transport
 
-While this quickstart uses SSE transport, MCP also supports STDIO for process-based communication. This approach is useful when:
+While this example uses SSE transport, MCP also supports STDIO for process-based communication. This approach is useful when:
 
 - Tools need to run in the same process as the agent
 - Simplicity is preferred over network distribution
 - You're developing locally and don't need separate services
 
-To explore STDIO transport, check out the related [MCP with STDIO Transport quickstart](../07-agent-mcp-client-stdio).
+To explore STDIO transport, check out the related [MCP with STDIO Transport example](../06-agent-mcp-client-stdio).
 
 ## Troubleshooting
 
@@ -203,7 +203,7 @@ To explore STDIO transport, check out the related [MCP with STDIO Transport quic
 
 ## Next Steps
 
-After completing this quickstart, you might want to explore:
+After completing this example, you might want to explore:
 - Creating more complex MCP tools with actual API integrations
 - Deploying your agent as a Dapr microservice in Kubernetes
 - Exploring the [MCP specification](https://modelcontextprotocol.io/) for advanced usage

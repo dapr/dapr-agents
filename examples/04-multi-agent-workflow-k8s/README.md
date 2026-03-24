@@ -13,7 +13,7 @@ limitations under the License.
 
 # Run Multi agent workflows in Kubernetes
 
-This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using Dapr Agents running on Kubernetes.
+This example demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using Dapr Agents running on Kubernetes.
 
 ## Prerequisites
 
@@ -38,7 +38,7 @@ The script will:
 1. Install Kind with a local registry
 1. Install Bitnami Redis
 1. Install Dapr
-1. Build the images for [05-multi-agent-workflows](../05-multi-agent-workflows/)
+1. Build the images for [04-multi-agent-workflows](../04-multi-agent-workflows/)
 1. Push the images to local in-cluster registry
 1. Install the [components for the agents](./resources/)
 1. Create the kubernetes secret from `.env` file
