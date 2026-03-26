@@ -180,7 +180,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         self._apply_context_propagation_fix()
 
         # Apply agent wrappers (Regular Agent class execution paths)
-        self._apply_agent_wrappers()
+        self._apply_tool_wrappers()
 
         # Apply workflow wrappers directly since start_runtime() is now called in model_post_init
         # This eliminates the need for callback mechanism
@@ -258,16 +258,14 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                 exc_info=True,
             )
 
-    def _apply_agent_wrappers(self) -> None:
+    def _apply_tool_wrappers(self) -> None:
         """
-        Apply observability wrappers for agent tool execution methods.
+        Apply observability wrappers for tool execution.
 
         Instruments AgentToolExecutor.run_tool to create TOOL spans for individual
-        tool executions. DurableAgent execution is instrumented separately via
-        _apply_workflow_wrappers.
+        tool executions.
         """
         try:
-            # Individual tool execution wrapper (TOOL span - actual tool execution)
             wrap_function_wrapper(
                 module="dapr_agents.tool.executor",
                 name="AgentToolExecutor.run_tool",
@@ -275,7 +273,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
             )
 
         except Exception as e:
-            logger.error(f"Error applying agent wrappers: {e}", exc_info=True)
+            logger.error(f"Error applying tool wrappers: {e}", exc_info=True)
 
     def _apply_workflow_wrappers(self) -> None:
         """
