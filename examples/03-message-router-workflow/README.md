@@ -13,7 +13,7 @@ limitations under the License.
 
 # Message Router Workflow (Pub/Sub → Workflow)
 
-This quickstart shows how to trigger a Dapr Workflow directly from a Pub/Sub message using the `@message_router` decorator. The decorator is applied to the workflow itself, enabling automatic message validation and workflow scheduling. Activities use direct LLM calls (with optional schema validation) to offload work to an LLM.
+This example shows how to trigger a Dapr Workflow directly from a Pub/Sub message using the `@message_router` decorator. The decorator is applied to the workflow itself, enabling automatic message validation and workflow scheduling. Activities use direct LLM calls (with optional schema validation) to offload work to an LLM.
 
 You'll run two processes:
 
@@ -48,7 +48,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
+The example includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -122,7 +122,7 @@ Make sure Dapr is initialized on your system:
 dapr init
 ```
 
-The quickstart includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
+The example includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
 
 Look at the `workflowstate.yaml` file in the `components` directory:
 

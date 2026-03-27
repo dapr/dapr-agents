@@ -11,18 +11,15 @@
 # limitations under the License.
 #
 
-from .llm import LLMWrapper
-from .tool import RunToolWrapper
-from .workflow import (
-    WorkflowMonitorWrapper,
-    WorkflowRunWrapper,
-)
-from .workflow_task import WorkflowActivityRegistrationWrapper
-
-__all__ = [
-    "LLMWrapper",
-    "RunToolWrapper",
-    "WorkflowMonitorWrapper",
-    "WorkflowRunWrapper",
-    "WorkflowActivityRegistrationWrapper",
-]
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: docstore
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+  - name: redisHost
+    value: localhost:6379
+  - name: redisPassword
+    value: ""
