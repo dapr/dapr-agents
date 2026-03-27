@@ -219,11 +219,11 @@ class TestChatPromptTemplateFormatPrompt:
             [
                 ("user", "Hello {name}"),
             ],
-            template_format="f-string",  # Default format
+            template_format="jinja2",  # Default format differs from override
         )
 
-        # Should work with matching format
-        result = template.format_prompt(name="Alice")
+        # Should use the overridden template_format, not the default
+        result = template.format_prompt(template_format="f-string", name="Alice")
         assert result[0]["content"] == "Hello Alice"
 
     def test_format_prompt_handles_multiple_variables_in_message(self):
