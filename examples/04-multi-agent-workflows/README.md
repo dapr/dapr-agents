@@ -13,7 +13,7 @@ limitations under the License.
 
 # Multi-Agent Workflows with Configuration Classes
 
-This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using **Agent Configuration Classes** from Dapr Agents. You'll learn how to set up agents as separate services, implement three different workflow orchestration patterns, and enable real-time agent collaboration through pub/sub messaging—all using the modern configuration-based approach.
+This example demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using **Agent Configuration Classes** from Dapr Agents. You'll learn how to set up agents as separate services, implement three different workflow orchestration patterns, and enable real-time agent collaboration through pub/sub messaging—all using the modern configuration-based approach.
 
 ## What You'll Learn
 
@@ -44,7 +44,7 @@ uv sync --active
 
 ## The Fellowship: Multi-Agent Architecture
 
-This quickstart features four agents from the Fellowship of the Ring, each with distinct roles and expertise:
+This example features four agents from the Fellowship of the Ring, each with distinct roles and expertise:
 
 | Agent | Role | Expertise | Topic |
 |-------|------|-----------|-------|
@@ -139,7 +139,7 @@ Make sure Dapr is initialized:
 dapr init
 ```
 
-This quickstart uses these Dapr components (in `resources/` directory):
+This example uses these Dapr components (in `resources/` directory):
 
 - `openai.yaml`: LLM conversation component
 - `workflowstate.yaml`: Workflow state storage
@@ -182,7 +182,7 @@ This quickstart uses these Dapr components (in `resources/` directory):
 
 ## Agent Configuration with Config Classes
 
-Each agent in this quickstart uses the latest **Agent Configuration Classes** updates.
+Each agent in this example uses the latest **Agent Configuration Classes** updates.
 
 ### Key Benefits of Configuration Classes
 
@@ -194,7 +194,7 @@ Each agent in this quickstart uses the latest **Agent Configuration Classes** up
 
 ## Running the Multi-Agent System
 
-The quickstart includes three Dapr Multi-App Run configurations, each showcasing a different orchestration pattern.
+The example includes three Dapr Multi-App Run configurations, each showcasing a different orchestration pattern.
 
 ### Option 1: Random Orchestrator
 
@@ -365,8 +365,7 @@ registry = AgentRegistryConfig(
 
 ## Learn More
 
-- **Configuration Classes Guide**: [`03-durable-agent-with-configs`](../03-durable-agent-with-configs/) - Complete guide to all configuration classes
-- **Simple Agent Example**: [`03-durable-agent-tool-call`](../03-durable-agent-tool-call/) - Basic single-agent pattern
-- **Message Router**: [`04-message-router-workflow`](../04-message-router-workflow/) - Pub/sub workflow patterns
+- **Simple Agent Example**: [`02-durable-agent-tool-call`](../02-durable-agent-tool-call/) - Basic single-agent pattern
+- **Message Router**: [`03-message-router-workflow`](../03-message-router-workflow/) - Pub/sub workflow patterns
 - **Dapr Multi-App Run**: [Dapr Documentation](https://docs.dapr.io/developing-applications/local-development/multi-app-dapr-run/)
 - **Dapr Pub/Sub**: [Pub/Sub Building Block](https://docs.dapr.io/developing-applications/building-blocks/pubsub/)

@@ -13,7 +13,7 @@ limitations under the License.
 
 # Agent-based Workflow Patterns
 
-This quickstart demonstrates how to orchestrate agentic tasks using Dapr Workflows and agent-backed activities. You’ll learn how to compose multi-step workflows that call autonomous agents—each powered by LLMs—for reasoning, decision-making, and task execution.
+This example demonstrates how to orchestrate agentic tasks using Dapr Workflows and agent-backed activities. You’ll learn how to compose multi-step workflows that call autonomous agents—each powered by LLMs—for reasoning, decision-making, and task execution.
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
+The example includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -93,7 +93,7 @@ Make sure Dapr is initialized on your system:
 dapr init
 ```
 
-The quickstart includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
+The example includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
 
 Look at the `workflowstate.yaml` file in the `components` directory:
 
@@ -178,4 +178,4 @@ Dapr Agents workflows leverage Dapr's core capabilities:
 
 ## Next Steps
 
-After completing this quickstart, move on to the [Multi-Agent Workflow quickstart](../05-multi-agent-workflows/README.md) to learn how to create distributed systems of collaborating agents.
+After completing this example, move on to the [Multi-Agent Workflow example](../04-multi-agent-workflows/README.md) to learn how to create distributed systems of collaborating agents.

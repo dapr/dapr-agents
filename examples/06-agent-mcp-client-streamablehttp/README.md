@@ -13,7 +13,7 @@ limitations under the License.
 
 # MCP Agent with Streamable HTTP transport
 
-This quickstart demonstrates how to build a simple agent that uses tools exposed via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) over Streamable HTTP transport. You'll learn how to create MCP tools in a standalone server and connect to them using Streamable HTTP communication.
+This example demonstrates how to build a simple agent that uses tools exposed via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) over Streamable HTTP transport. You'll learn how to create MCP tools in a standalone server and connect to them using Streamable HTTP communication.
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart ships with component templates under `resources/`. They include:
+The example ships with component templates under `resources/`. They include:
 
 - `openai.yaml` for LLM access
 - Redis-backed state stores (`agentstatestore`, `agentregistrystore`, `conversationstore`, `workflowstatestore`)
@@ -92,7 +92,7 @@ Set up the server for your MCP tools in `server.py`.
 
 ### Agent Creation
 
-`app.py` now mirrors the other MCP quickstarts:
+`app.py` now mirrors the other MCP examples:
 
 1. Connect to the MCP server via streamable HTTP, fetch tools, and close the client.
 2. Configure a `DurableAgent` with pub/sub, memory, registry, and workflow state stores.
@@ -165,7 +165,7 @@ curl -X POST http://localhost:8001/agent/run \
 
 ## Next Steps
 
-After completing this quickstart, you might want to explore:
+After completing this example, you might want to explore:
 - Creating more complex MCP tools with actual API integrations
 - Deploying your agent as a Dapr microservice in Kubernetes
 - Exploring the [MCP specification](https://modelcontextprotocol.io/) for advanced usage
