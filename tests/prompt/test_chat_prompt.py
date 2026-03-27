@@ -127,7 +127,7 @@ class TestChatPromptTemplateFormatPrompt:
 
         # Missing the required variable
         with caplog.at_level("INFO"):
-            result = template.format_prompt()
+            template.format_prompt()
 
         # Should still return result but log missing variables
         assert "Some input variables were not provided" in caplog.text
