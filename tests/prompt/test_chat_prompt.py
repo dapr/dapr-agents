@@ -117,7 +117,7 @@ class TestChatPromptTemplateFormatPrompt:
             template.format_prompt(unexpected_var="value")
 
     def test_format_prompt_logs_missing_variables(self, caplog):
-        """Test that format_prompt logs info when variables are not provided."""
+        """Test that format_prompt logs info about missing variables before raising."""
         template = ChatPromptTemplate.from_messages(
             [
                 ("user", "Name: {name}"),
@@ -125,11 +125,11 @@ class TestChatPromptTemplateFormatPrompt:
             template_format="f-string",
         )
 
-        # Missing the required variable
+        # Missing the required variable — logs info then raises KeyError during formatting
         with caplog.at_level("INFO"):
-            template.format_prompt()
+            with pytest.raises(KeyError):
+                template.format_prompt()
 
-        # Should still return result but log missing variables
         assert "Some input variables were not provided" in caplog.text
         assert "name" in caplog.text
 
