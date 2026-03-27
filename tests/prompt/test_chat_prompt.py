@@ -56,6 +56,7 @@ class TestChatPromptTemplateFormatPrompt:
         assert result[0]["role"] == "system"
         assert result[0]["content"] == "You are helpful."
         assert result[1]["role"] == "user"
+        assert result[1]["content"] == "What is 2+2?"
 
     def test_format_prompt_with_base_message_objects(self):
         """Test format_prompt with BaseMessage instances."""
