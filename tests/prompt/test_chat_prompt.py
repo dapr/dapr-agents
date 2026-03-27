@@ -80,7 +80,7 @@ class TestChatPromptTemplateFormatPrompt:
                 ("system", "You are a {role}"),
                 ("user", "My name is {name}"),
             ],
-            template_format="f-string"
+            template_format="f-string",
         )
         result = template.format_prompt(role="assistant", name="Alice")
 
@@ -94,7 +94,7 @@ class TestChatPromptTemplateFormatPrompt:
             [
                 ("user", "Hello {name}!"),
             ],
-            template_format="f-string"
+            template_format="f-string",
         )
 
         # Pre-fill the name variable
@@ -122,7 +122,7 @@ class TestChatPromptTemplateFormatPrompt:
             [
                 ("user", "Name: {name}"),
             ],
-            template_format="f-string"
+            template_format="f-string",
         )
 
         # Missing the required variable
@@ -141,7 +141,7 @@ class TestChatPromptTemplateFormatPrompt:
                 ("system", "You are helpful."),
                 MessagePlaceHolder(variable_name="history"),
                 ("user", "What happened before?"),
-            ]
+            ],
         )
 
         # Provide dynamic messages via placeholder
@@ -168,7 +168,7 @@ class TestChatPromptTemplateFormatPrompt:
                 ("system", "Start"),
                 MessagePlaceHolder(variable_name="history"),
                 ("user", "End"),
-            ]
+            ],
         )
 
         with caplog.at_level("INFO"):
@@ -218,7 +218,7 @@ class TestChatPromptTemplateFormatPrompt:
             [
                 ("user", "Hello {name}"),
             ],
-            template_format="f-string"  # Default format
+            template_format="f-string",  # Default format
         )
 
         # Should work with matching format
@@ -231,7 +231,7 @@ class TestChatPromptTemplateFormatPrompt:
             [
                 ("user", "{greeting} {name}, you are {age} years old"),
             ],
-            template_format="f-string"
+            template_format="f-string",
         )
         result = template.format_prompt(greeting="Hi", name="Charlie", age="25")
 
