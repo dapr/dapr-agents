@@ -1,14 +1,13 @@
-# Welcome to Chainlit! 🚀🤖
+# Document Agent
 
-Hi there, Developer! 👋 We're excited to have you on board. Chainlit is a powerful tool designed to help you prototype, debug and share applications built on top of LLMs.
+Welcome to the Document Agent, a conversational assistant powered by Dapr Agents.
 
-## Useful Links 🔗
+Upload a PDF document and ask questions about its contents. The agent will parse your document, learn its structure and content, and answer your questions based on what it finds.
 
-- **Documentation:** Get started with our comprehensive [Chainlit Documentation](https://docs.chainlit.io) 📚
-- **Discord Community:** Join our friendly [Chainlit Discord](https://discord.gg/k73SQ3FyUh) to ask questions, share your projects, and connect with other developers! 💬
+## How to use
 
-We can't wait to see what you create with Chainlit! Happy coding! 💻😊
+1. Upload a PDF file (up to 10 MB) when prompted.
+2. Wait for the agent to process and learn the document.
+3. Ask any question about the uploaded content.
 
-## Welcome screen
-
-To modify the welcome screen, edit the `chainlit.md` file at the root of your project. If you do not want a welcome screen, just leave this file empty.
+The agent remembers your conversation history across sessions, so you can pick up where you left off.
