@@ -346,7 +346,7 @@
             }
           ],
           "default": null,
-          "description": "Dapr resource name backing the registry (e.g. state store component)",
+          "description": "Dapr resource name backing the registry (e.g., state store component)",
           "title": "Resource Name"
         },
         "name": {
