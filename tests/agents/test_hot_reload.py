@@ -273,9 +273,33 @@ class TestSetupConfigurationSubscription:
             store_name="runtime-config",
             keys=["agent_role", "agent_goal"],
             handler=agent._config_handler,
-            config_metadata={"pgNotifyChannel": "config"},
+            config_metadata={},
         )
         assert agent._subscription_id == "sub-123"
+
+    def test_passes_user_provided_metadata(self, mock_llm_client):
+        """User-supplied metadata must pass through unchanged; no automatic injection."""
+        agent = ConcreteAgentBase(
+            name="MetadataAgent",
+            llm=mock_llm_client,
+            configuration=RuntimeSubscriptionConfig(
+                store_name="runtime-config",
+                keys=["agent_role"],
+                metadata={"pgNotifyChannel": "my-channel"},
+            ),
+        )
+        mock_client = MagicMock()
+        mock_client.subscribe_configuration.return_value = "sub-789"
+
+        with patch("dapr_agents.agents.base.DaprClient", return_value=mock_client):
+            agent._setup_configuration_subscription()
+
+        mock_client.subscribe_configuration.assert_called_once_with(
+            store_name="runtime-config",
+            keys=["agent_role"],
+            handler=agent._config_handler,
+            config_metadata={"pgNotifyChannel": "my-channel"},
+        )
 
     def test_defaults_keys_to_agent_name(self, mock_llm_client):
         agent = ConcreteAgentBase(
@@ -475,7 +499,7 @@ class TestLoadInitialConfiguration:
         assert agent.profile.role == "Loaded Role"
 
     def test_get_configuration_does_not_pass_metadata(self, mock_llm_client):
-        """Metadata (e.g. pgNotifyChannel) must NOT be passed to get_configuration."""
+        """Subscription metadata must NOT be passed to get_configuration (initial load)."""
         agent = ConcreteAgentBase(
             name="MetaAgent",
             role="Default",

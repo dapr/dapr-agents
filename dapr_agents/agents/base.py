@@ -697,16 +697,13 @@ class AgentBase:
 
         self._load_initial_configuration(keys)
 
-        subscribe_metadata = dict(self.configuration.metadata)
-        subscribe_metadata.setdefault("pgNotifyChannel", "config")
-
         try:
             self._config_client = DaprClient()
             self._subscription_id = self._config_client.subscribe_configuration(
                 store_name=self.configuration.store_name,
                 keys=keys,
                 handler=self._config_handler,
-                config_metadata=subscribe_metadata,
+                config_metadata=dict(self.configuration.metadata),
             )
             logger.info(
                 "Agent %s subscribed to configuration store '%s' for keys %s (ID: %s)",
