@@ -116,6 +116,9 @@ vectorstore = [
 [tool.uv.dependency-groups]
 vectorstore = {requires-python = ">=3.11,<3.14"}
 
+[tool.uv]
+exclude-newer = "7 days"
+
 [project.urls]
 Documentation = "https://github.com/dapr/docs"
 Source = "https://github.com/dapr/python-sdk"
