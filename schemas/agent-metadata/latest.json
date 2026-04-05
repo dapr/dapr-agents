@@ -1,7 +1,7 @@
 {
   "$defs": {
     "AgentMetadata": {
-      "description": "Metadata about an agent's configuration and capabilities.",
+      "description": "Metadata describing an agent's configuration and capabilities.",
       "properties": {
         "appid": {
           "description": "Dapr application ID (APP_ID) of the sidecar; may differ from the agent name",
