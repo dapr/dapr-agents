@@ -29,11 +29,11 @@ Dapr Agents is a developer framework designed to build production-grade resilien
 
 ## Key Features
 
-- **Scale and Efficiency**: Run thousands of agents efficiently on a single core. Dapr distributes single and multi-agent apps transparently across fleets of machines and handles their lifecycle.
+- **Scale and Efficiency**: Run thousands of agents efficiently on a single core. Dapr distributes single and multi-agent applications transparently across fleets of machines and handles their lifecycle.
 - **Workflow Resilience**: Automatically retries agentic workflows and ensures task completion.
 - **Kubernetes-Native**: Easily deploy and manage agents in Kubernetes environments.
 - **Data-Driven Agents**: Directly integrate with databases, documents, and unstructured data by connecting to dozens of different data sources.
-- **Multi-Agent Systems**: Secure and observable by default, enabling collaboration between agents.
+- **Multi-Agent Systems**: Secure and observable by default, enabling seamless collaboration between agents.
 - **Vendor-Neutral & Open Source**: Avoid vendor lock-in and gain flexibility across cloud and on-premises deployments.
 - **Platform-Ready**: Access scopes and declarative resources enable platform teams to integrate Dapr Agents into their systems.
 
