@@ -84,7 +84,7 @@ As a part of **CNCF**, Dapr Agents is vendor-neutral, eliminating concerns about
 
 Check the [project view](https://github.com/orgs/dapr/projects/92) for some of the major features we're working on:
 
-For a complete list of issue (including bug fixes) please check out our [GitHub issues](https://github.com/dapr/dapr-agents/issues).
+For a complete list of issues (including bug fixes) please check out our [GitHub issues](https://github.com/dapr/dapr-agents/issues).
 
 ### Language Support
 
