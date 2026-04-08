@@ -1,21 +1,49 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+
 import logging
 import os
 from pathlib import Path
 from typing import (
-    Any, ClassVar, Dict, Iterable, Iterator, List, Literal, Optional, Type, Union
+    Any,
+    ClassVar,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Literal,
+    Optional,
+    Type,
+    Union,
 )
 
 from pydantic import BaseModel, Field, model_validator
 
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.mistral.client import MistralClientBase
-from dapr_agents.llm.utils import RequestHandler, ResponseHandler
+from dapr_agents.llm.utils import RequestHandler
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.tool import AgentTool
-from dapr_agents.types.message import BaseMessage, LLMChatCandidateChunk, LLMChatResponse
+from dapr_agents.types.message import (
+    BaseMessage,
+    LLMChatCandidateChunk,
+    LLMChatResponse,
+)
 
 logger = logging.getLogger(__name__)
+
 
 class MistralChatClient(MistralClientBase, ChatClientBase):
     model: Optional[str] = Field(default=None, description="Mistral model name.")
@@ -44,21 +72,18 @@ class MistralChatClient(MistralClientBase, ChatClientBase):
         prompty_source: Union[str, Path],
         timeout: Union[int, float, Dict[str, Any]] = 1500,
     ) -> "MistralChatClient":
-        prompty_instance = Prompty.load(prompty_source)
-        prompt_template = Prompty.to_prompt_template(prompty_instance)
-        cfg = prompty_instance.model.configuration
-
-        return cls.model_validate({
-            "model": cfg.name,
-            "api_key": getattr(cfg, "api_key", None),
-            "endpoint": getattr(cfg, "base_url", None),
-            "prompty": prompty_instance,
-            "prompt_template": prompt_template,
-        })
+        raise NotImplementedError(
+            "Prompty configuration is not yet supported for the Mistral provider."
+        )
 
     def generate(
         self,
-        messages: Union[str, Dict[str, Any], BaseMessage, Iterable[Union[Dict[str, Any], BaseMessage]]] = None,
+        messages: Union[
+            str,
+            Dict[str, Any],
+            BaseMessage,
+            Iterable[Union[Dict[str, Any], BaseMessage]],
+        ] = None,
         *,
         input_data: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
@@ -67,10 +92,18 @@ class MistralChatClient(MistralClientBase, ChatClientBase):
         structured_mode: Literal["json", "function_call"] = "json",
         stream: bool = False,
         **kwargs: Any,
-    ) -> Union[Iterator[LLMChatCandidateChunk], LLMChatResponse, BaseModel, List[BaseModel]]:
-        
-        if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
-            raise ValueError(f"structured_mode must be one of {self.SUPPORTED_STRUCTURED_MODES}")
+    ) -> Union[
+        Iterator[LLMChatCandidateChunk], LLMChatResponse, BaseModel, List[BaseModel]
+    ]:
+
+        if stream:
+            raise NotImplementedError(
+                "Streaming is not yet supported for the Mistral provider."
+            )
+        if tools or response_format:
+            raise NotImplementedError(
+                "Tools and structured output are not yet supported for the Mistral provider."
+            )
 
         if input_data:
             if not self.prompt_template:
@@ -87,30 +120,29 @@ class MistralChatClient(MistralClientBase, ChatClientBase):
             params.update(kwargs)
 
         params["model"] = model or self.model
-
-        params = RequestHandler.process_params(
-            params,
-            llm_provider=self.provider,
-            tools=tools,
-            response_format=response_format,
-            structured_mode=structured_mode,
-        )
         params = RequestHandler.make_params_json_serializable(params)
 
         try:
             logger.info("Calling Mistral ChatCompletion...")
-            if stream:
-                resp = self.client.chat.stream(**params)
-            else:
-                resp = self.client.chat.complete(**params)
+            resp = self.client.chat.complete(**params)
 
-            return ResponseHandler.process_response(
-                response=resp,
-                llm_provider=self.provider,
-                response_format=response_format,
-                structured_mode=structured_mode,
-                stream=stream,
+            return LLMChatResponse(
+                id=resp.id,
+                model=resp.model,
+                results=[
+                    {
+                        "index": choice.index,
+                        "message": {
+                            "role": choice.message.role,
+                            "content": choice.message.content,
+                        },
+                        "finish_reason": choice.finish_reason,
+                    }
+                    for choice in resp.choices
+                ],
+                usage=resp.usage.model_dump() if getattr(resp, "usage", None) else None,
             )
+
         except Exception as e:
             logger.error("Mistral API error", exc_info=True)
             raise ValueError(f"Mistral API error: {e}") from e
