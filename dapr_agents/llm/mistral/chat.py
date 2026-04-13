@@ -46,6 +46,15 @@ logger = logging.getLogger(__name__)
 
 
 class MistralChatClient(MistralClientBase, ChatClientBase):
+    """
+    Mistral Chat Client for Dapr Agents.
+
+    Consumers can configure the model used by this client in three ways:
+    1. Passing it explicitly during initialization.
+    2. Setting the `MISTRAL_MODEL` environment variable.
+    3. Relying on the default fallback: `mistral-large-latest`.
+    """
+
     model: Optional[str] = Field(default=None, description="Mistral model name.")
     prompty: Optional[Prompty] = Field(default=None)
     prompt_template: Optional[PromptTemplateBase] = Field(default=None)
@@ -54,7 +63,12 @@ class MistralChatClient(MistralClientBase, ChatClientBase):
 
     @model_validator(mode="before")
     def validate_and_initialize(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        """Ensure `.model` is set, falling back to env var or a default."""
+        """
+        Ensure `.model` is set.
+
+        Falls back to the `MISTRAL_MODEL` environment variable if not provided.
+        Defaults to `mistral-large-latest` if the environment variable is missing.
+        """
         env_model = os.environ.get("MISTRAL_MODEL")
         if env_model:
             values["model"] = env_model
