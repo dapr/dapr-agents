@@ -13,7 +13,7 @@ limitations under the License.
 
 # LLM calls with Hugging Face
 
-This quickstart demonstrates how to use Dapr Agents' LLM capabilities to interact with the Hugging Face Hub language models and generate both free-form text and structured data. You'll learn how to make basic calls to LLMs and how to extract structured information in a type-safe manner.
+This example demonstrates how to use Dapr Agents' LLM capabilities to interact with the Hugging Face Hub language models and generate both free-form text and structured data. You'll learn how to make basic calls to LLMs and how to extract structured information in a type-safe manner.
 
 ## Prerequisites
 

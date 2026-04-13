@@ -13,7 +13,7 @@ limitations under the License.
 
 # LLM Call with Dapr Chat Client
 
-This quickstart demonstrates how to use Dapr Agents' `DaprChatClient` to call LLMs. You'll learn how to configure [different LLM backends](https://docs.dapr.io/reference/components-reference/supported-conversation/) using Dapr components and switch between them without changing your application code.
+This example demonstrates how to use Dapr Agents' `DaprChatClient` to call LLMs. You'll learn how to configure [different LLM backends](https://docs.dapr.io/reference/components-reference/supported-conversation/) using Dapr components and switch between them without changing your application code.
 
 ## Prerequisites
 
@@ -277,4 +277,4 @@ After completing these examples, you could:
 
 1. Interact with other LLMs supported by Dapr [Conversation Components](https://docs.dapr.io/reference/components-reference/supported-conversation/).
 2. Implement structured outputs using `DaprChatClient` and Pydantic models
-3. Move on to the [Agent Tool Call quickstart](../03-agent-tool-call) to learn how to build agents that can use tools
+3. Move on to the [Durable Agent Tool Call example](../02-durable-agent-tool-call) to learn how to build agents that can use tools

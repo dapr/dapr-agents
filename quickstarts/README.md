@@ -263,7 +263,7 @@ In summary, the workflow engine preserves execution state across restarts, enabl
 
 - Add custom workflow activities for business logic or integrations.
 - Combine multiple agents inside the same durable workflow.
-- To see multi-step workflows with LLM interactions, refer to the [LLM-based workflows quickstart](../04-llm-based-workflows/README.md).
+- To see multi-step workflows with LLM interactions, refer to the [LLM-based workflows example](../examples/03-llm-based-workflows/README.md).
 
 ---
 
@@ -319,7 +319,7 @@ The workflow generates a short outline for the given topic using an LLM, then us
 ## How to Extend This Example
 
 - Modify the workflow to include additional activities that do not interact with LLMs, such as inserting validation steps, transformations, or business logic between LLM activities.
-- Use structured output to enforce schema-based responses from the LLM for predictable and validated workflow inputs. To see structured output and validation, refer to the [LLM Call quickstart](../02-llm-call-open-ai/README.md).
+- Use structured output to enforce schema-based responses from the LLM for predictable and validated workflow inputs. To see structured output and validation, refer to the [LLM Call example](../examples/01-llm-call-open-ai/README.md).
 
 ---
 
@@ -425,7 +425,7 @@ The agent starts with its initial role (`Original Role`) and subscribes to the D
 
 # Other Dapr Agent Examples
 
-If you want to coordinate multiple agents that run in separate applications or communicate through Pub/Sub, check out the [multi-agent workflows quickstart](../05-multi-agent-workflows/README.md).
+If you want to coordinate multiple agents that run in separate applications or communicate through Pub/Sub, check out the [multi-agent workflows example](../examples/04-multi-agent-workflows/README.md).
 
 ---
 

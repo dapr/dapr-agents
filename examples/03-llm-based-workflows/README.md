@@ -14,7 +14,7 @@ limitations under the License.
 
 # LLM-based Workflow Patterns
 
-This quickstart demonstrates how to orchestrate sequential and parallel tasks using Dapr Agents' workflow capabilities powered by Language Models (LLMs). You'll learn how to build resilient, stateful workflows that leverage LLMs for reasoning, structured output, and automation, using direct LLM calls with schema validation and the native Dapr workflow runtime.
+This example demonstrates how to orchestrate sequential and parallel tasks using Dapr Agents' workflow capabilities powered by Language Models (LLMs). You'll learn how to build resilient, stateful workflows that leverage LLMs for reasoning, structured output, and automation, using direct LLM calls with schema validation and the native Dapr workflow runtime.
 
 ## Prerequisites
 
@@ -37,7 +37,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
+The example includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -111,7 +111,7 @@ Make sure Dapr is initialized on your system:
 dapr init
 ```
 
-The quickstart includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
+The example includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
 
 Look at the `workflowstate.yaml` file in the `components` directory:
 
@@ -205,4 +205,4 @@ Dapr Agents workflows leverage Dapr's core capabilities:
 
 ## Next Steps
 
-After completing this quickstart, move on to the [Agent-Based Workflow Quickstart](../04-agent-based-workflows/README.md) to learn how to integrate full agents into workflow steps.
+After completing this example, move on to the [Agent-Based Workflow example](../03-agent-based-workflows/README.md) to learn how to integrate full agents into workflow steps.

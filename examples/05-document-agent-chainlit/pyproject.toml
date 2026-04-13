@@ -11,18 +11,16 @@
 # limitations under the License.
 #
 
-from .llm import LLMWrapper
-from .tool import RunToolWrapper
-from .workflow import (
-    WorkflowMonitorWrapper,
-    WorkflowRunWrapper,
-)
-from .workflow_task import WorkflowActivityRegistrationWrapper
-
-__all__ = [
-    "LLMWrapper",
-    "RunToolWrapper",
-    "WorkflowMonitorWrapper",
-    "WorkflowRunWrapper",
-    "WorkflowActivityRegistrationWrapper",
+[project]
+name = "05-document-agent-chainlit"
+version = "0.1.0"
+requires-python = ">=3.11, <3.14"
+dependencies = [
+    "chainlit==2.9.4",
+    "dapr-agents",
+    "python-dotenv>=1.2.1",
+    "unstructured[all-docs]==0.18.18",
 ]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }

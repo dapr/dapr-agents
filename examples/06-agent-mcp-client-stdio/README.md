@@ -13,7 +13,7 @@ limitations under the License.
 
 # MCP Agent with STDIO Transport
 
-This quickstart demonstrates how to build a simple agent that uses tools exposed via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) over STDIO transport. You'll learn how to create MCP tools in a standalone module and connect to them using STDIO communication.
+This example demonstrates how to build a simple agent that uses tools exposed via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) over STDIO transport. You'll learn how to create MCP tools in a standalone module and connect to them using STDIO communication.
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart ships with Dapr component templates under `resources/`. You can inject your OpenAI key via environment variables or by editing the component directly.
+The example ships with Dapr component templates under `resources/`. You can inject your OpenAI key via environment variables or by editing the component directly.
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -122,13 +122,13 @@ The agent connects to the MCP tools over STDIO, reasons about the query, invokes
 
 ## Alternative: Using SSE Transport
 
-While this quickstart uses STDIO transport, MCP also supports Server-Sent Events (SSE) for network-based communication. This approach is useful when:
+While this example uses STDIO transport, MCP also supports Server-Sent Events (SSE) for network-based communication. This approach is useful when:
 
 - Tools need to run as separate services
 - Tools are distributed across different machines
 - You need long-running services that multiple agents can connect to
 
-To explore SSE transport, check out the related [MCP with SSE Transport quickstart](../07-agent-mcp-client-sse).
+To explore SSE transport, check out the related [MCP with SSE Transport example](../06-agent-mcp-client-sse).
 
 ## Troubleshooting
 
@@ -140,7 +140,7 @@ To explore SSE transport, check out the related [MCP with SSE Transport quicksta
 
 ## Next Steps
 
-After completing this quickstart, you might want to explore:
+After completing this example, you might want to explore:
 
-- Checkout SSE transport example [MCP with SSE Transport quickstart](../07-agent-mcp-client-sse).
+- Checkout SSE transport example [MCP with SSE Transport example](../06-agent-mcp-client-sse).
 - Exploring the [MCP specification](https://modelcontextprotocol.io/) for advanced usage
