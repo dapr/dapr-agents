@@ -11,25 +11,18 @@
 # limitations under the License.
 #
 
-import asyncio
-
 from dapr_agents.llm import DaprChatClient
 
 from dapr_agents import DurableAgent
-from dapr_agents.agents.configs import (
-    AgentMemoryConfig,
-    AgentPubSubConfig,
-    AgentStateConfig,
-    AgentRegistryConfig,
-)
+from dapr_agents.agents.configs import AgentMemoryConfig, AgentStateConfig
 from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
-from dapr_agents.workflow.runners import AgentRunner
-from dapr_agents.workflow.utils.core import wait_for_shutdown
+from dapr_agents import AgentRunner
 from function_tools import slow_weather_func
 
 
-async def main() -> None:
+def main() -> None:
+    # This agent is of type durable agent where the execution is durable
     weather_agent = DurableAgent(
         name="WeatherAgent",
         role="Weather Assistant",
@@ -47,25 +40,18 @@ async def main() -> None:
         state=AgentStateConfig(
             store=StateStoreService(store_name="agent-workflow"),
         ),
-        # This is where the agent listens for incoming tasks.
-        pubsub=AgentPubSubConfig(
-            pubsub_name="agent-pubsub",
-            agent_topic="weather.requests",
-            broadcast_topic="agents.broadcast",
-        ),
-        # This is where the agent registry is found
-        registry=AgentRegistryConfig(
-            store=StateStoreService(store_name="agent-registry"),
-        ),
     )
 
+    # This runner will run the agent and expose it on port 8001
     runner = AgentRunner()
     try:
-        runner.subscribe(weather_agent)
-        await wait_for_shutdown()
+        runner.serve(weather_agent, port=8001)
     finally:
         runner.shutdown()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nInterrupted by user. Exiting gracefully...")

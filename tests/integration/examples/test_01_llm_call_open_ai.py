@@ -13,6 +13,8 @@
 
 """Integration tests for 01-llm-call-open-ai example."""
 
+import os
+
 import pytest
 from tests.integration.quickstarts.conftest import run_quickstart_or_examples_script
 
@@ -22,10 +24,14 @@ class TestLLMCallOpenAIQuickstart:
     """Integration tests for 01-llm-call-open-ai example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, examples_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key, is_ollama):
         """Setup test environment."""
         self.quickstart_dir = examples_dir / "01-llm-call-open-ai"
         self.env = {"OPENAI_API_KEY": openai_api_key}
+        self.is_ollama = is_ollama
+        if is_ollama:
+            self.env["OPENAI_BASE_URL"] = os.environ["OLLAMA_ENDPOINT"]
+            self.env["OPENAI_MODEL"] = os.environ["OLLAMA_MODEL"]
 
     def test_text_completion(self):
         """Test text completion example (text_completion.py)."""
@@ -101,6 +107,10 @@ class TestLLMCallOpenAIQuickstart:
 
     def test_embeddings(self):
         """Test embeddings example (embeddings.py)."""
+        if self.is_ollama:
+            pytest.skip(
+                "Embeddings example uses text-embedding-ada-002 which is not supported by Ollama"
+            )
         script = self.quickstart_dir / "embeddings.py"
         result = run_quickstart_or_examples_script(
             script,
@@ -119,6 +129,8 @@ class TestLLMCallOpenAIQuickstart:
 
     def test_audio_transcription(self):
         """Test audio transcription example (audio_transcription.py)."""
+        if self.is_ollama:
+            pytest.skip("Audio transcription not supported by Ollama")
         script = self.quickstart_dir / "audio_transcription.py"
         result = run_quickstart_or_examples_script(
             script,
@@ -137,6 +149,8 @@ class TestLLMCallOpenAIQuickstart:
 
     def test_audio_translation(self):
         """Test audio translation example (audio_translation.py)."""
+        if self.is_ollama:
+            pytest.skip("Audio translation not supported by Ollama")
         script = self.quickstart_dir / "audio_translation.py"
         result = run_quickstart_or_examples_script(
             script,
@@ -155,6 +169,8 @@ class TestLLMCallOpenAIQuickstart:
 
     def test_text_to_speech(self):
         """Test text to speech example (text_to_speech.py)."""
+        if self.is_ollama:
+            pytest.skip("Text-to-speech not supported by Ollama")
         script = self.quickstart_dir / "text_to_speech.py"
         result = run_quickstart_or_examples_script(
             script,

@@ -43,7 +43,7 @@ def task_chain_workflow(ctx: DaprWorkflowContext):
 def get_character(ctx) -> str:
     return str(
         llm.generate(
-            prompt="""
+            messages="""
 Pick a random character from The Lord of the Rings.
 Respond with the character's name only.
 """
@@ -53,7 +53,7 @@ Respond with the character's name only.
 
 @runtime.activity(name="get_line")
 def get_line(ctx, character: str) -> str:
-    return str(llm.generate(prompt=f"What is a famous line by {character}?"))
+    return str(llm.generate(messages=f"What is a famous line by {character}?"))
 
 
 if __name__ == "__main__":

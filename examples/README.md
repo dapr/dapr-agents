@@ -70,19 +70,6 @@ This example shows both basic text generation and structured data extraction fro
 
 [Go to OpenAI LLM call](./01-llm-call-open-ai)
 
-### Agent Tool Call
-
-Create your first AI agent with custom tools:
-
-- **Tool Definition**: Creating reusable tools with the @tool decorator
-- **Agent Configuration**: Setting up agents with roles, goals, and tools
-- **Function Calling**: Enabling LLMs to execute Python functions
-- **Vector Store Integration**: Building agents with document search and storage capabilities
-
-This example demonstrates how to build a weather assistant that can fetch information and perform actions, including examples with vector stores for document retrieval.
-
-[Go to Agent Tool Call](./02-standalone-agent-tool-call)
-
 ### Durable Agent Tool Call (with Dapr Workflows)
 
 Create a stateful AI agent using Dapr Agents' DurableAgent and Dapr workflows:
@@ -229,7 +216,7 @@ Learn how to use AI agents as activities within Dapr workflows and add observabi
 
 This example demonstrates how to build resilient, stateful workflows that leverage agents for intelligent activity execution, decision-making, and multi-step reasoning, with full observability.
 
-[Go to Agents as Activities in Workflows with Observability](./08-agents-as-activities-observability)
+[Go to Agents as Activities in Workflows with Observability](./07-agents-as-activities-observability)
 
 ### Durable Agent Hot-Reload
 
@@ -243,6 +230,32 @@ Dynamically update a running agent's persona and settings without restarting, us
 This example demonstrates how to build an agent that reacts to configuration changes streamed from a backing store (e.g. Redis), enabling zero-downtime persona and setting updates.
 
 [Go to Durable Agent Hot-Reload](./09-durable-agent-hot-reload)
+
+### Agents as Tools
+
+Learn how one DurableAgent can call another agent as a synchronous child workflow tool, enabling agent-to-agent delegation:
+
+- **In-Process**: Both agents share one Dapr sidecar
+- **Cross-App**: Agents run in separate Dapr apps communicating via multi-app child workflow routing
+- **Auto-Discovery**: Agents register in a shared state-store registry and are auto-discovered at workflow start
+- **LLM-Driven Tool Selection**: The calling agent's LLM picks which agent tool to invoke
+
+This example demonstrates in-process and cross-app patterns for agents calling other agents as tools.
+
+[Go to Agents as Tools](./08-agents-as-tools)
+
+### OpenTelemetry Observability on Kubernetes
+
+Demonstrates four different ways to configure OpenTelemetry observability for Dapr Agents running on Kubernetes:
+
+- **Code Configuration**: Configure OTel via Python constructor
+- **Environment Variables**: Set OTel parameters through env vars
+- **Dapr State Store**: Load OTel config from `agent-runtime` state store
+- **Configuration Store with Hot-Reload**: Subscribe to a Dapr Configuration Store for real-time OTel updates
+
+This example shows how to deploy agents with full observability on Kubernetes, including zero-gap hot-reload of tracing and logging configuration.
+
+[Go to OpenTelemetry Observability on Kubernetes](./demo-otel-k8s)
 
 ### Contributing to Dapr Agents Examples
 

@@ -13,7 +13,7 @@ limitations under the License.
 
 # Agents as Activities in Workflows with Dapr Agents
 
-This quickstart demonstrates how to use AI agents as activities within Dapr workflows, enabling sophisticated orchestration of agent-based automation. You'll learn how to build resilient, stateful workflows that leverage agents for intelligent activity execution, decision-making, and multi-step reasoning. Additionally, this quickstart demonstrates how to add observability to Dapr Agent workflows with Phoenix Arize for distributed tracing and monitoring.
+This example demonstrates how to use AI agents as activities within Dapr workflows, enabling sophisticated orchestration of agent-based automation. You'll learn how to build resilient, stateful workflows that leverage agents for intelligent activity execution, decision-making, and multi-step reasoning. Additionally, this example demonstrates how to add observability to Dapr Agent workflows with Phoenix Arize for distributed tracing and monitoring.
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart includes component configurations in the `components` directory for various LLM providers. You have two options to configure your API keys:
+The example includes component configurations in the `components` directory for various LLM providers. You have two options to configure your API keys:
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -100,7 +100,7 @@ spec:
       value: "YOUR_OPENAI_API_KEY"
 ```
 
-2. For NVIDIA ([resources/nvidia.yaml](resources/nvidia.yaml)):
+2. For NVIDIA:
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -113,7 +113,7 @@ spec:
       value: "YOUR_NVIDIA_API_KEY"
 ```
 
-3. For Hugging Face ([resources/huggingface.yaml](resources/huggingface.yaml)):
+3. For Hugging Face:
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -138,7 +138,7 @@ Make sure Dapr is initialized on your system:
 dapr init
 ```
 
-The quickstart includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
+The example includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
 
 Look at the `workflowstate.yaml` file in the `components` directory:
 
@@ -176,7 +176,7 @@ dapr run \
 rm -rf "$temp_resources_folder"
 ```
 
-The quickstart also includes tracing variants (`sequential_workflow_tracing.py`) and a multi-model version (`sequential_workflow_multi_model_tracing.py`) that shows how to instrument Phoenix OpenTelemetry and mix OpenAI/NVIDIA/Hugging Face agents in a single workflow.
+The example also includes tracing variants (`sequential_workflow_tracing.py`) and a multi-model version (`sequential_workflow_multi_model_tracing.py`) that shows how to instrument Phoenix OpenTelemetry and mix OpenAI/NVIDIA/Hugging Face agents in a single workflow.
 
 Run them the same way, swapping the script name:
 

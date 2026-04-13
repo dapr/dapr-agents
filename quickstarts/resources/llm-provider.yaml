@@ -22,6 +22,6 @@ spec:
   - name: key
     value: "ollama"
   - name: model
-    value: "{{OLLAMA_MODEL}}"
+    envRef: OLLAMA_MODEL
   - name: endpoint
-    value: "{{OLLAMA_ENDPOINT}}"
+    envRef: OLLAMA_ENDPOINT

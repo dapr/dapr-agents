@@ -15,6 +15,8 @@ import time
 
 import dapr.ext.workflow as wf
 
+from dapr_agents.workflow.utils.core import call_agent
+
 wfr = wf.WorkflowRuntime()
 
 
@@ -22,18 +24,18 @@ wfr = wf.WorkflowRuntime()
 def support_workflow(ctx: wf.DaprWorkflowContext, request: dict) -> str:
     """Process a support request through triage and expert agents."""
     # Each step is durable and can be retried.
-    # Workflow names follow the "{agent_name}_agent_workflow" convention
-    # set by DurableAgent.register_workflows().
-    triage_result = yield ctx.call_child_workflow(
-        workflow="triage_agent_agent_workflow",
+    triage_result = yield call_agent(
+        ctx,
+        "triage_agent",
         input={"task": f"Assist with the following support request:\n\n{request}"},
         app_id="triage-agent",
     )
     if triage_result:
         print("Triage result:", triage_result.get("content", ""), flush=True)
 
-    recommendation = yield ctx.call_child_workflow(
-        workflow="expert_agent_agent_workflow",
+    recommendation = yield call_agent(
+        ctx,
+        "expert_agent",
         input={"task": triage_result.get("content", "")},
         app_id="expert-agent",
     )
@@ -58,7 +60,11 @@ if __name__ == "__main__":
     )
     print(f"Workflow started: {instance_id}", flush=True)
 
-    state = client.wait_for_workflow_completion(instance_id, timeout_in_seconds=60)
+    try:
+        state = client.wait_for_workflow_completion(instance_id, timeout_in_seconds=120)
+    except TimeoutError:
+        print(f"Workflow {instance_id} timed out waiting for completion.")
+        state = None
     if not state:
         print("No workflow state returned.")
     elif state.runtime_status.name == "COMPLETED":

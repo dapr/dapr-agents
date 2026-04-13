@@ -30,7 +30,7 @@ Two scenarios are provided:
 
 - Dapr CLI installed and a local Redis instance running
 - Python ≥ 3.11, [`uv`](https://docs.astral.sh/uv/) (recommended) or `pip`
-- `OPENAI_API_KEY` environment variable set (or configure a different LLM provider in `components/llm-provider.yaml`)
+- `OPENAI_API_KEY` environment variable set (the `resources/llm-provider.yaml` component uses `envRef` to resolve it)
 
 ## In-Process Scenario
 
