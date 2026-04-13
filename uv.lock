@@ -16,6 +16,10 @@ resolution-markers = [
     "(python_full_version < '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32')",
 ]
 
+[options]
+exclude-newer = "2026-03-25T16:40:08.190493Z"
+exclude-newer-span = "P7D"
+
 [manifest]
 members = [
     "01-llm-call-dapr",
