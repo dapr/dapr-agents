@@ -1078,14 +1078,15 @@ wheels = [
 
 [[package]]
 name = "cloudevents"
-version = "1.12.0"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "deprecation" },
+    { name = "python-dateutil" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7a/aa/804bdb5f2f021fcc887eeabfa24bad0ffd4b150f60850ae88faa51d393a5/cloudevents-1.12.0.tar.gz", hash = "sha256:ebd5544ceb58c8378a0787b657a2ae895e929b80a82d6675cba63f0e8c5539e0", size = 34494, upload-time = "2025-06-02T18:58:45.104Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/ee/22614a29a1754e6abd979eebfb5f5ecc8ffb6e4e267f3879f017bc5d5531/cloudevents-2.0.0.tar.gz", hash = "sha256:3224851b2ac902b868ed4bc1aa10772ada8cdf85f180322b12968d90a1dceef2", size = 46940, upload-time = "2026-03-24T16:22:20.214Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/b6/4e29b74bb40daa7580310a5ff0df5f121a08ce98340e01a960b668468aab/cloudevents-1.12.0-py3-none-any.whl", hash = "sha256:49196267f5f963d87ae156f93fc0fa32f4af69485f2c8e62e0db8b0b4b8b8921", size = 55762, upload-time = "2025-06-02T18:58:44.013Z" },
+    { url = "https://files.pythonhosted.org/packages/43/3a/4df9a7de0bbb30dc6c0f9f707602160ff269dd01a11127f237ef01232b13/cloudevents-2.0.0-py3-none-any.whl", hash = "sha256:babb257989a933b18312897c3bf3a7cc65e270831227822f2db10b50d1278546", size = 94592, upload-time = "2026-03-24T16:22:19.094Z" },
 ]
 
 [[package]]
@@ -1464,7 +1465,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.21.0,<2.0.0" },
     { name = "cachetools", specifier = ">=6.1.0,<8.0.0" },
     { name = "chromadb", marker = "extra == 'vectorstore'", specifier = ">=0.4.22,<2.0.0" },
-    { name = "cloudevents", specifier = ">=1.11.0,<2.0.0" },
+    { name = "cloudevents", specifier = ">=1.11.0,<3.0.0" },
     { name = "colorama", specifier = ">=0.4.6,<1.0.0" },
     { name = "dapr", specifier = "==1.17.3" },
     { name = "dapr-ext-fastapi", specifier = "==1.17.3" },
