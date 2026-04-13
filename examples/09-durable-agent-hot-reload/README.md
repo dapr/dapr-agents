@@ -82,8 +82,8 @@ CREATE TABLE IF NOT EXISTS configuration (
 );
 
 -- Trigger function that fires a pg_notify on every INSERT or UPDATE.
--- The channel name MUST match the pgNotifyChannel in the
--- RuntimeSubscriptionConfig metadata dict (default: "config").
+-- The channel name must match the pgNotifyChannel configured in the
+-- Dapr component spec (configstore-postgres.yaml).
 CREATE OR REPLACE FUNCTION notify_event()
 RETURNS TRIGGER AS $$
 DECLARE
