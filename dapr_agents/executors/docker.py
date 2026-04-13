@@ -217,7 +217,9 @@ class DockerCodeExecutor(CodeExecutorBase):
                 exec_result = await asyncio.to_thread(self.container.exec_run, cmd)
 
                 exit_code = exec_result.exit_code
-                logs = exec_result.output.decode("utf-8", errors="ignore").strip()
+                output = exec_result.output
+                assert isinstance(output, bytes)
+                logs = output.decode("utf-8", errors="ignore").strip()
                 status = "success" if exit_code == 0 else "error"
 
                 results.append(
@@ -290,7 +292,9 @@ class DockerCodeExecutor(CodeExecutorBase):
         result = await asyncio.to_thread(self.container.exec_run, command)
 
         if result.exit_code != 0:
-            error_msg = result.output.decode().strip()
+            output = result.output
+            assert isinstance(output, bytes)
+            error_msg = output.decode().strip()
             logger.error(f"Dependency installation failed: {error_msg}")
             raise RuntimeError(f"Dependency installation failed: {error_msg}")
 
