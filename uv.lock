@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-03-25T16:40:08.190493Z"
+exclude-newer = "2026-04-07T04:35:44.332556396Z"
 exclude-newer-span = "P7D"
 
 [manifest]
@@ -6317,7 +6317,7 @@ wheels = [
 
 [[package]]
 name = "toolbox-core"
-version = "0.6.0"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -6326,9 +6326,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/25/88/16672a4b95befbe1b02a855394c09504f662298c25c546bab8bb314d8bb5/toolbox_core-0.6.0.tar.gz", hash = "sha256:85ba3c5616b161c7419a37c9acd3ac4900b8371f3cff964b6859ed4bad844a56", size = 61124, upload-time = "2026-03-05T15:02:47.575Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/5c/599a13fb527bda261b276f3b6d60a10c24eac433f0ac1c6100f596b9f925/toolbox_core-1.0.0.tar.gz", hash = "sha256:4da19c19797b15ffddfd2526be191ec084549348abef01c91738e6da174b0825", size = 52775, upload-time = "2026-03-25T12:50:18.35Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/c8/6445fe7425f919c253086abe7c93089cc70067d5dfa6b2377f5b8a74a394/toolbox_core-0.6.0-py3-none-any.whl", hash = "sha256:994b1ad99aa3e0b26bb69fdbb0f8ae999853c0550605fd24483ab20140b8ba3a", size = 49772, upload-time = "2026-03-05T15:02:46.285Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/86/6685bcce748cb27dc8a0cf5e5abe207081fadc0c31d81de31fe81dfc52db/toolbox_core-1.0.0-py3-none-any.whl", hash = "sha256:f181c33a1b3ac4189794036b9d36b192b2f0c405f947df09fa1aed83e4e1dc67", size = 51011, upload-time = "2026-03-25T12:50:17.108Z" },
 ]
 
 [[package]]
