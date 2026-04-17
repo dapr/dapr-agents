@@ -352,10 +352,7 @@ class TestAgentToTool:
         assert sanitize_openai_tool_name("search:query") == "searchquery"
 
         # Hyphens, underscores, and casing are preserved verbatim
-        assert (
-            sanitize_openai_tool_name("get-xyz-count")
-            == "get-xyz-count"
-        )
+        assert sanitize_openai_tool_name("get-xyz-count") == "get-xyz-count"
         assert sanitize_openai_tool_name("get_user") == "get_user"
         assert sanitize_openai_tool_name("valid_name") == "valid_name"
         assert sanitize_openai_tool_name("tool___name") == "tool___name"
@@ -379,11 +376,12 @@ class TestAgentToTool:
         assert sanitize_openai_tool_name("@#$%") == "unnamed_tool"
 
     def test_sanitize_openai_tool_name_logs_warning_on_change(self, caplog):
-        """A WARNING should be emitted whenever sanitization mutates the name.
-        """
+        """A WARNING should be emitted whenever sanitization mutates the name."""
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="dapr_agents.tool.utils.function_calling"):
+        with caplog.at_level(
+            logging.WARNING, logger="dapr_agents.tool.utils.function_calling"
+        ):
             result = sanitize_openai_tool_name("Randomagee Geegee")
         assert result == "RandomageeGeegee"
         assert any(
@@ -393,11 +391,10 @@ class TestAgentToTool:
 
         # No warning when the name is already valid (including kebab-case)
         caplog.clear()
-        with caplog.at_level(logging.WARNING, logger="dapr_agents.tool.utils.function_calling"):
-            assert (
-                sanitize_openai_tool_name("get-xyz-count")
-                == "get-xyz-count"
-            )
+        with caplog.at_level(
+            logging.WARNING, logger="dapr_agents.tool.utils.function_calling"
+        ):
+            assert sanitize_openai_tool_name("get-xyz-count") == "get-xyz-count"
         assert not caplog.records, (
             "Valid kebab-case names must not trigger a sanitization warning"
         )

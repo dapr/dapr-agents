@@ -197,12 +197,15 @@ def agent_to_tool(
     Args:
         agent_name: The name of the target agent (e.g., ``"catering-coordinator"``).
             This value is used to derive the tool name exposed to the LLM.
-            The underlying :class:`AgentTool` only strips characters rejected
-            by the OpenAI/Anthropic tool-name specs (whitespace, ``<``, ``|``,
-            ``\\``, ``/``, ``>``); hyphens, underscores, and the original
-            casing are preserved, so ``"catering-coordinator"`` reaches the
-            LLM as ``catering-coordinator`` and ``"my agent"`` becomes
-            ``"myagent"``.
+            The underlying :class:`AgentTool` sanitizes the name to satisfy
+            the OpenAI/Anthropic tool-name constraints, preserving only ASCII
+            letters, digits, underscores, and hyphens. Other characters,
+            including whitespace, punctuation such as ``.`` or ``:``, and
+            non-ASCII characters, are removed. Hyphens, underscores, and the
+            original casing are preserved when valid, so
+            ``"catering-coordinator"`` reaches the LLM as
+            ``catering-coordinator`` and ``"my agent:v2"`` becomes
+            ``"myagentv2"``.
         description: Human-readable description shown to the LLM in the tool
             schema (e.g. ``"Ring-bearer. Goal: carry the One Ring to Mordor."``).
         agent_type: Framework/type prefix for the workflow name (e.g. "strands",

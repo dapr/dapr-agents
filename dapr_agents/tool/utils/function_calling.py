@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # OpenAI and Anthropic both require tool names to match ^[a-zA-Z0-9_-]{1,64}$.
 # Only letters, digits, underscores, and hyphens are allowed.
 # Everything else (spaces, dots, slashes, special symbols, non-ASCII) is stripped.
-_VALID_TOOL_NAME_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
+_INVALID_TOOL_NAME_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
 _MAX_TOOL_NAME_LENGTH = 64
 
 
@@ -66,7 +66,7 @@ def sanitize_openai_tool_name(name: str) -> str:
     if not name:
         return "unnamed_tool"
 
-    sanitized = _VALID_TOOL_NAME_CHARS.sub("", name)
+    sanitized = _INVALID_TOOL_NAME_CHARS.sub("", name)
 
     if not sanitized:
         return "unnamed_tool"
