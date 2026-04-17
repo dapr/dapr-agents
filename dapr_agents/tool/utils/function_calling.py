@@ -26,93 +26,67 @@ from dapr_agents.types.exceptions import FunCallBuilderError
 
 logger = logging.getLogger(__name__)
 
-# OpenAI tool name pattern: ^[^\s<|\\/>]+$
-# Tool names cannot contain: spaces, <, |, \, /, >
-_OPENAI_TOOL_NAME_PATTERN = re.compile(r"[^\s<|\\/>]+")
-
-
-def _normalize_to_title_case(name: str) -> str:
-    """
-    Normalize a name to TitleCase format.
-
-    Converts snake_case, kebab-case, and space-separated names to TitleCase.
-    Examples:
-        "get_user" -> "GetUser"
-        "get-user" -> "GetUser"
-        "get user" -> "GetUser"
-        "GetUser" -> "GetUser" (already title case, preserved)
-        "GET_USER" -> "GetUser"
-        "UPPERCASE" -> "Uppercase" (all uppercase converted)
-        "mixed_Case_name" -> "MixedCaseName"
-        "SamwiseGamgee" -> "SamwiseGamgee" (already TitleCase, preserved)
-
-    Args:
-        name: The original name
-
-    Returns:
-        A TitleCase normalized name (no separators)
-    """
-    if not name:
-        return ""
-
-    # Check if name is all uppercase (needs conversion to TitleCase)
-    # This must come before the TitleCase check to handle "UPPERCASE" -> "Uppercase"
-    if name.isupper() and len(name) > 1:
-        return name.capitalize()
-
-    # Check if name is already TitleCase (no separators, starts with uppercase, has lowercase)
-    # This handles cases like "SamwiseGamgee" or "GetUser" that are already correct
-    # We check for at least one lowercase letter to distinguish from all-uppercase
-    if re.match(r"^[A-Z][a-z]", name) and not re.search(r"[_\s-]", name):
-        return name
-
-    # Split on common separators (underscores, hyphens, spaces)
-    parts = re.split(r"[_\s-]+", name)
-
-    # Capitalize each part and join (no separators)
-    # Use capitalize() which makes first char uppercase and rest lowercase
-    title_parts = [part.capitalize() for part in parts if part]
-
-    return "".join(title_parts)
+# OpenAI and Anthropic both require tool names to match ^[a-zA-Z0-9_-]{1,64}$.
+# Only letters, digits, underscores, and hyphens are allowed.
+# Everything else (spaces, dots, slashes, special symbols, non-ASCII) is stripped.
+_INVALID_TOOL_NAME_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
+_MAX_TOOL_NAME_LENGTH = 64
 
 
 def sanitize_openai_tool_name(name: str) -> str:
     """
-    Sanitize a name to comply with OpenAI's name requirements.
+    Sanitize a name to comply with OpenAI/Anthropic tool-name requirements.
 
-    OpenAI requires names to match the pattern: ^[^\\s<|\\\\/>]+$
-    This means names cannot contain spaces, <, |, \\, /, or >.
-
-    All names (tool names, agent names, etc.) are normalized to TitleCase format,
-    removing all separators (spaces, underscores, hyphens) and capitalizing each word.
+    Provider APIs require tool names to match ``^[a-zA-Z0-9_-]{1,64}$``.
+    Any character outside that set is stripped. Hyphens, underscores, and
+    the original casing are preserved so that a valid name such as
+    ``get-xyz-count`` reaches the LLM unchanged — matching what developers
+    write in YAML/config and what ``toolbox_core.ToolboxTool`` exposes as
+    the tool's name.
 
     Args:
-        name: The original name (e.g., "get_user", "Samwise Gamgee", "agent<name>")
+        name: The original name (e.g., ``get-items``, ``My Agent``,
+            ``agent<name>``).
 
     Returns:
-        A sanitized name in TitleCase format with invalid characters removed.
-        Examples:
-            "get_user" -> "GetUser"
-            "Samwise Gamgee" -> "SamwiseGamgee"
-            "agent<name>" -> "Agentname"
+        A sanitized name with only invalid characters removed. Returns
+        ``"unnamed_tool"`` if the input is empty or becomes empty after
+        sanitization.
+
+    Raises:
+        ValueError: If the sanitized name exceeds 64 characters.
+
+    Examples:
+        ``get-xyz-count`` -> ``get-xyz-count``
+        ``get_user`` -> ``get_user``
+        ``My Agent`` -> ``MyAgent``
+        ``agent<name>`` -> ``agentname``
+        ``café_finder`` -> ``caf_finder``
     """
     if not name:
         return "unnamed_tool"
 
-    # Normalize to TitleCase (converts snake_case, kebab-case, space-separated to TitleCase)
-    # This removes all separators and capitalizes each word
-    sanitized = _normalize_to_title_case(name)
+    sanitized = _INVALID_TOOL_NAME_CHARS.sub("", name)
 
     if not sanitized:
         return "unnamed_tool"
 
-    # Replace invalid characters (<, |, \, /, >) with empty string (remove them)
-    # Since we're already in TitleCase, we don't want to introduce underscores
-    sanitized = re.sub(r"[<|\\/>]", "", sanitized)
+    if len(sanitized) > _MAX_TOOL_NAME_LENGTH:
+        raise ValueError(
+            f"Tool/agent name '{name}' is {len(sanitized)} characters after "
+            f"sanitization (max {_MAX_TOOL_NAME_LENGTH}). Shorten the name "
+            f"to fit within the limit."
+        )
 
-    # Ensure it's not empty after sanitization
-    if not sanitized:
-        sanitized = "unnamed_tool"
+    if sanitized != name:
+        logger.warning(
+            "Tool/agent name '%s' contained characters rejected by the "
+            "OpenAI/Anthropic tool-name spec (^[a-zA-Z0-9_-]{1,64}$); "
+            "sanitized to '%s'. Update any instruction strings that "
+            "reference the original name.",
+            name,
+            sanitized,
+        )
 
     return sanitized
 

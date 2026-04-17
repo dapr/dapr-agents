@@ -42,7 +42,8 @@ def test_call_agent_sanitizes_name():
     ctx = _make_ctx()
     call_agent(ctx, "weather agent", input={}, app_id="weather-agent")
     kwargs = ctx.call_child_workflow.call_args.kwargs
-    assert kwargs["workflow"] == "dapr.agents.WeatherAgent.workflow"
+    # Spaces are stripped (invalid per spec), but casing is preserved
+    assert kwargs["workflow"] == "dapr.agents.weatheragent.workflow"
 
 
 def test_call_agent_passes_app_id():

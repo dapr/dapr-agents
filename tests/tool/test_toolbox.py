@@ -66,7 +66,11 @@ class TestFromToolbox:
 
         agent_tool = AgentTool.from_toolbox(mock_tool)
 
-        assert agent_tool.name == "GetUser"  # Normalized name
+        # Valid names (underscores allowed by the spec) are preserved verbatim —
+        # this matters for parity with toolbox_core.ToolboxTool._name, which
+        # returns the YAML key unchanged, so instruction strings referencing
+        # the YAML key still match the registered tool.
+        assert agent_tool.name == "get_user"
         assert agent_tool.description == "Fetches a user by ID"
         assert agent_tool.args_model is not None
         assert "user_id" in agent_tool.args_model.model_fields
@@ -106,7 +110,7 @@ class TestFromToolbox:
 
         agent_tool = AgentTool.from_toolbox(mock_tool)
 
-        assert agent_tool.name == "GetCurrentTime"
+        assert agent_tool.name == "get_current_time"
         assert agent_tool.description == "Returns the current server time"
         # Should have an empty args model, not None
         assert agent_tool.args_model is not None
@@ -124,7 +128,7 @@ class TestFromToolbox:
 
         agent_tool = AgentTool.from_toolbox(mock_tool)
 
-        assert agent_tool.name == "Ping"
+        assert agent_tool.name == "ping"
         # Should have an empty args model even when params is None
         assert agent_tool.args_model is not None
 
@@ -212,12 +216,18 @@ class TestFromToolbox:
         assert "ValidationError" in result.content[0].text
 
     def test_name_normalization(self):
-        """Test that tool names are properly normalized."""
+        """Tool names are preserved verbatim when they contain only spec-legal
+        characters (letters, digits, underscores, hyphens). Only characters
+        the OpenAI/Anthropic APIs actually reject are stripped.
+        """
         test_cases = [
-            ("get_user_by_id", "GetUserById"),
-            ("simple", "Simple"),
-            ("UPPERCASE", "Uppercase"),
-            ("mixed_Case_name", "MixedCaseName"),
+            ("get_user_by_id", "get_user_by_id"),
+            ("get-xyz-count", "get-xyz-count"),
+            ("simple", "simple"),
+            ("UPPERCASE", "UPPERCASE"),
+            ("mixed_Case_name", "mixed_Case_name"),
+            ("agent<name>", "agentname"),
+            ("Randomagee Geegee", "RandomageeGeegee"),
         ]
 
         for original, expected in test_cases:
@@ -262,9 +272,9 @@ class TestFromToolboxMany:
 
         assert len(agent_tools) == 3
         assert all(isinstance(t, AgentTool) for t in agent_tools)
-        assert agent_tools[0].name == "ToolOne"
-        assert agent_tools[1].name == "ToolTwo"
-        assert agent_tools[2].name == "ToolThree"
+        assert agent_tools[0].name == "tool_one"
+        assert agent_tools[1].name == "tool_two"
+        assert agent_tools[2].name == "tool_three"
 
     def test_empty_list(self):
         """Test conversion of empty list."""
@@ -284,7 +294,7 @@ class TestFromToolboxMany:
         agent_tools = AgentTool.from_toolbox_many(mock_tools)
 
         assert len(agent_tools) == 1
-        assert agent_tools[0].name == "OnlyTool"
+        assert agent_tools[0].name == "only_tool"
 
 
 class TestFromToolboxIntegration:
@@ -388,7 +398,12 @@ class TestFromToolboxEdgeCases:
         assert "<html>" in agent_tool.description
 
     def test_unicode_in_tool_name_and_description(self):
-        """Test tool with unicode characters."""
+        """Test tool with unicode characters.
+
+        Non-ASCII characters in the name are stripped by sanitization
+        (OpenAI/Anthropic require ^[a-zA-Z0-9_-]{1,64}$), but the
+        description is passed through unchanged.
+        """
         mock_tool = MockToolboxSyncTool(
             name="café_finder",
             description="Finds nearby cafés ☕",
@@ -397,4 +412,40 @@ class TestFromToolboxEdgeCases:
 
         agent_tool = AgentTool.from_toolbox(mock_tool)
 
+        assert agent_tool.name == "caf_finder"
         assert "☕" in agent_tool.description
+
+
+class TestExecutorFuzzyLookup:
+    """The tool executor normalizes names (lowercase, strip spaces/underscores)
+    so that case and underscore variations resolve to the same tool.
+    """
+
+    def test_case_insensitive_lookup(self):
+        from dapr_agents.tool.executor import AgentToolExecutor
+
+        def dummy(**kwargs):
+            return "ok"
+
+        tool = AgentTool(name="get_user", description="test", func=dummy)
+        executor = AgentToolExecutor(tools=[tool])
+
+        assert executor.get_tool("get_user") is tool
+        assert executor.get_tool("GET_USER") is tool
+        assert executor.get_tool("getuser") is tool
+        assert executor.get_tool("Get_User") is tool
+
+    def test_kebab_case_is_distinct(self):
+        """Hyphens are meaningful — ``get-user`` and ``get_user`` are different tools."""
+        from dapr_agents.tool.executor import AgentToolExecutor
+
+        def dummy(**kwargs):
+            return "ok"
+
+        tool = AgentTool(name="get-user", description="test", func=dummy)
+        executor = AgentToolExecutor(tools=[tool])
+
+        assert executor.get_tool("get-user") is tool
+        assert executor.get_tool("GET-USER") is tool
+        # Underscore variant is a different normalized key
+        assert executor.get_tool("get_user") is None
