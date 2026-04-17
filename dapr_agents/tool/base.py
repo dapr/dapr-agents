@@ -67,6 +67,20 @@ class AgentTool(BaseModel):
     func: Optional[Callable] = Field(
         None, description="Optional function implementing the tool's behavior."
     )
+    requires_approval: bool = Field(
+        default=False,
+        description=(
+            "When True, the workflow pauses and waits for human approval before "
+            "this tool runs. Only takes effect when AgentApprovalConfig.enabled is True."
+        ),
+    )
+    approval_timeout_seconds: Optional[int] = Field(
+        default=None,
+        description=(
+            "Seconds to wait for human approval before auto-denying. "
+            "Falls back to AgentApprovalConfig.default_timeout_seconds when None."
+        ),
+    )
 
     _is_async: bool = PrivateAttr(default=False)
 
@@ -510,7 +524,11 @@ class AgentTool(BaseModel):
 
 
 def tool(
-    func: Optional[Callable] = None, *, args_model: Optional[Type[BaseModel]] = None
+    func: Optional[Callable] = None,
+    *,
+    args_model: Optional[Type[BaseModel]] = None,
+    requires_approval: bool = False,
+    approval_timeout_seconds: Optional[int] = None,
 ) -> AgentTool:
     """
     A decorator to wrap a function with an `AgentTool` for validation and metadata.
@@ -518,6 +536,10 @@ def tool(
     Args:
         func (Optional[Callable]): The function to wrap.
         args_model (Optional[Type[BaseModel]]): Optional Pydantic model for argument validation.
+        requires_approval (bool): When True, the workflow pauses for human approval before
+            running this tool. Only active when AgentApprovalConfig.enabled=True on the agent.
+        approval_timeout_seconds (Optional[int]): Per-tool approval timeout override. Falls back
+            to AgentApprovalConfig.default_timeout_seconds when not set.
 
     Returns:
         AgentTool: The wrapped function as an `AgentTool`.
@@ -525,6 +547,11 @@ def tool(
 
     def decorator(f: Callable) -> AgentTool:
         ToolHelper.check_docstring(f)
-        return AgentTool(func=f, args_model=args_model)
+        return AgentTool(
+            func=f,
+            args_model=args_model,
+            requires_approval=requires_approval,
+            approval_timeout_seconds=approval_timeout_seconds,
+        )
 
     return decorator(func) if func else decorator

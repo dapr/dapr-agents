@@ -26,6 +26,60 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class ApprovalRequiredEvent(BaseModel):
+    """
+    Event published to Dapr Pub/Sub when a tool requires human approval before it executes.
+
+    The workflow publishes this event, then suspends. An external approval service
+    (Slack bot, web UI, CLI) receives it, notifies a human, and sends back an
+    ApprovalResponseEvent to resume the workflow.
+    """
+
+    approval_request_id: str = Field(
+        description="Deterministic UUID for this request, stable across workflow replays"
+    )
+    instance_id: str = Field(
+        description="Workflow instance that is waiting for approval"
+    )
+    tool_name: str = Field(description="Name of the tool that needs approval")
+    tool_call_id: str = Field(
+        description="LLM-assigned ID of the tool call (from the assistant message)"
+    )
+    tool_arguments: Dict[str, Any] = Field(
+        description="Arguments the LLM wants to pass to the tool"
+    )
+    context: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context for the approval decision",
+    )
+    requested_at: datetime = Field(
+        default_factory=utcnow, description="When approval was requested"
+    )
+    timeout_seconds: int = Field(
+        description="Seconds before the workflow auto-denies if no human responds"
+    )
+
+
+class ApprovalResponseEvent(BaseModel):
+    """
+    Event sent back to a waiting workflow with the human's approval decision.
+
+    External approval services construct and send this event using
+    DurableAgent.raise_approval_event() after a human reviews the request.
+    """
+
+    approval_request_id: str = Field(
+        description="ID matching the original ApprovalRequiredEvent"
+    )
+    approved: bool = Field(description="True if approved, False if not approved")
+    reason: Optional[str] = Field(
+        default=None, description="Human-provided reason for the decision"
+    )
+    decided_at: datetime = Field(
+        default_factory=utcnow, description="When the decision was made"
+    )
+
+
 class BroadcastMessage(BaseMessage):
     """
     Represents a broadcast message from an agent.
@@ -108,4 +162,11 @@ class AgentWorkflowEntry(BaseModel):
     trace_context: Optional[Dict[str, Any]] = Field(
         default=None,
         description="OpenTelemetry trace context for workflow resumption.",
+    )
+    approval_requests: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description=(
+            "Tracks approval requests that have already been published, keyed by "
+            "approval_request_id. Prevents duplicate publishes when the workflow replays."
+        ),
     )
