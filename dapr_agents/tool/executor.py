@@ -47,8 +47,13 @@ class AgentToolExecutor(BaseModel):
 
     @staticmethod
     def _normalize(name: str) -> str:
-        """Normalize a tool name: lowercase, strip spaces and underscores."""
-        return name.lower().replace(" ", "").replace("_", "")
+        """Normalize a tool name for fuzzy lookup.
+
+        Lowercases and strips spaces, underscores, and hyphens so that
+        ``TestTool``, ``test-tool``, and ``test`` all resolve
+        to the same key (``testtool``).
+        """
+        return name.lower().replace(" ", "").replace("_", "").replace("-", "")
 
     def register_tool(self, tool: Union[AgentTool, Callable]) -> None:
         """
