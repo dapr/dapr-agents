@@ -400,6 +400,29 @@ class OrchestrationMode(StrEnum):
 
 
 @dataclass
+class AgentApprovalConfig:
+    """
+    Configuration for human-in-the-loop approval before tool execution.
+
+    When enabled, any tool decorated with requires_approval=True will pause the
+    workflow and wait for a human decision before running. Tools without that flag
+    are unaffected and execute immediately as usual.
+
+    Attributes:
+        enabled: When False (the default) approval checks are skipped entirely.
+        pubsub_name: Dapr pub/sub component where ApprovalRequiredEvent is published.
+        topic: Topic name for outbound approval requests.
+        default_timeout_seconds: Seconds to wait before auto-denying when a tool does
+            not specify its own approval_timeout_seconds.
+    """
+
+    enabled: bool = False
+    pubsub_name: str = "dapr-agents-pubsub"
+    topic: str = "agent-approval-requests"
+    default_timeout_seconds: int = 300
+
+
+@dataclass
 class AgentExecutionConfig:
     """
     Dials to configure the agent execution.
@@ -411,6 +434,7 @@ class AgentExecutionConfig:
     tool_choice: Optional[str] = "auto"
     tool_execution_mode: ToolExecutionMode = ToolExecutionMode.PARALLEL
     orchestration_mode: Optional[OrchestrationMode] = None
+    approval: AgentApprovalConfig = field(default_factory=AgentApprovalConfig)
 
 
 @dataclass

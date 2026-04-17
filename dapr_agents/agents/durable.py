@@ -53,6 +53,7 @@ from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
     OrchestrationMode,
     ToolExecutionMode,
+    AgentApprovalConfig,
     AgentExecutionConfig,
     AgentMemoryConfig,
     AgentPubSubConfig,
@@ -66,6 +67,8 @@ from dapr_agents.agents.configs import (
 from dapr_agents.agents.prompting import AgentProfileConfig
 from dapr_agents.agents.schemas import (
     AgentWorkflowMessage,
+    ApprovalRequiredEvent,
+    ApprovalResponseEvent,
     BroadcastMessage,
     TriggerAction,
 )
@@ -507,6 +510,35 @@ class DurableAgent(AgentBase):
                                 turn,
                             )
 
+                        # approval pass:
+                        # for each tool that requires approval, pause the workflow
+                        # and collect the human decision before we build any task lists.
+                        # approvals are processed one at a time because each blocks
+                        # until a human responds (or the timeout elapses).
+                        approval_decisions: Dict[str, bool] = {}
+                        if self.execution.approval.enabled:
+                            for tc in tool_calls:
+                                fn_name_check = tc["function"]["name"]
+                                check_obj = self.tool_executor.get_tool(fn_name_check)
+                                if check_obj and getattr(
+                                    check_obj, "requires_approval", False
+                                ):
+                                    approved = yield from self._request_approval(
+                                        ctx, ctx.instance_id, tc
+                                    )
+                                    approval_decisions[tc["id"]] = approved
+                                    if not ctx.is_replaying:
+                                        logger.debug(
+                                            "Approval for tool '%s': %s (instance=%s)",
+                                            fn_name_check,
+                                            "approved" if approved else "not approved",
+                                            ctx.instance_id,
+                                        )
+
+                        ordered: List[Optional[Dict[str, Any]]] = [None] * len(
+                            tool_calls
+                        )
+
                         workflow_tasks: List[Any] = []
                         workflow_meta: List[Dict[str, Any]] = []
                         activity_tasks: List[Any] = []
@@ -514,6 +546,31 @@ class DurableAgent(AgentBase):
 
                         for idx, tc in enumerate(tool_calls):
                             fn_name = tc["function"]["name"]
+
+                            # inject denial message and skip execution for any tool
+                            # whose approval was not granted or timed out
+                            if (
+                                tc["id"] in approval_decisions
+                                and not approval_decisions[tc["id"]]
+                            ):
+                                denial_msg = ToolMessage(
+                                    content=(
+                                        f"Tool '{fn_name}' was not executed: "
+                                        "approval was not granted."
+                                    ),
+                                    role="tool",
+                                    name=fn_name,
+                                    tool_call_id=tc["id"],
+                                )
+                                ordered[idx] = denial_msg.model_dump()
+                                if not ctx.is_replaying:
+                                    logger.info(
+                                        "Skipping tool '%s': approval was not granted (instance=%s)",
+                                        fn_name,
+                                        ctx.instance_id,
+                                    )
+                                continue
+
                             tool_obj = self.tool_executor.get_tool(fn_name)
 
                             # WorkflowContextInjectedTool instances get executed inline as workflow tasks so they can receive the workflow context.
@@ -591,10 +648,6 @@ class DurableAgent(AgentBase):
                         else:
                             results: List[Any] = yield wf.when_all(all_tasks)
 
-                        ordered: List[Optional[Dict[str, Any]]] = [None] * len(
-                            tool_calls
-                        )
-
                         for meta, res in zip(
                             workflow_meta, results[: len(workflow_tasks)]
                         ):
@@ -634,6 +687,18 @@ class DurableAgent(AgentBase):
                                 for meta in activity_meta
                             }
                         )
+                        # include denied tool calls so save_tool_results can log them
+                        # in tool_history for observability
+                        for tc in tool_calls:
+                            if (
+                                tc["id"] in approval_decisions
+                                and not approval_decisions[tc["id"]]
+                            ):
+                                tool_calls_by_id[tc["id"]] = {
+                                    "tool_call": tc,
+                                    "is_agent_call": False,
+                                    "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                }
                         yield ctx.call_activity(
                             self.save_tool_results,
                             input={
@@ -725,6 +790,140 @@ class DurableAgent(AgentBase):
             ) from _workflow_exc
 
         return final_message
+
+    # human-in-the-loop helpers
+    def _request_approval(
+        self,
+        ctx: wf.DaprWorkflowContext,
+        instance_id: str,
+        tool_call: Dict[str, Any],
+    ):
+        """
+        Pause the workflow and wait for a human to approve or deny a tool call.
+
+        This generator is called with ``yield from`` from agent_workflow. It publishes
+        an ApprovalRequiredEvent the first time it runs for a given tool_call_id, then
+        suspends the workflow via wait_for_external_event. On replay, the publish is
+        skipped if the request ID already exists in workflow state
+        The timeout per tool comes from the tool's approval_timeout_seconds field;
+        if not set, AgentApprovalConfig.default_timeout_seconds is used.
+
+        Args:
+            ctx: Dapr workflow context.
+            instance_id: Running workflow instance ID.
+            tool_call: Tool call dict with 'id' and 'function' keys.
+
+        Returns:
+            True if the human approved, False if not approved or the timeout elapsed.
+        """
+        approval_config = self.execution.approval
+        fn_name = tool_call.get("function", {}).get("name", "unknown")
+        tool_call_id = tool_call.get("id", "")
+
+        # use the per-tool timeout when set, otherwise fall back to the agent default
+        tool_obj = self.tool_executor.get_tool(fn_name)
+        tool_timeout = (
+            getattr(tool_obj, "approval_timeout_seconds", None) if tool_obj else None
+        )
+        timeout_seconds = (
+            tool_timeout
+            if tool_timeout is not None
+            else approval_config.default_timeout_seconds
+        )
+
+        # deterministic UUID derived from instance + tool_call so it is identical on replay
+        approval_request_id = str(
+            uuid.uuid5(uuid.NAMESPACE_DNS, f"{instance_id}:{tool_call_id}")
+        )
+
+        raw_args = tool_call.get("function", {}).get("arguments", "")
+        try:
+            tool_args = json.loads(raw_args) if raw_args else {}
+        except json.JSONDecodeError:
+            tool_args = {}
+
+        approval_event = ApprovalRequiredEvent(
+            approval_request_id=approval_request_id,
+            instance_id=instance_id,
+            tool_name=fn_name,
+            tool_call_id=tool_call_id,
+            tool_arguments=tool_args,
+            timeout_seconds=timeout_seconds,
+        )
+
+        if not ctx.is_replaying:
+            logger.info(
+                "Requesting approval: tool='%s' approval_request_id=%s instance=%s timeout=%ds",
+                fn_name,
+                approval_request_id,
+                instance_id,
+                timeout_seconds,
+            )
+
+        # Always yield this activity unconditionally — DurableTask returns the cached
+        # result on replay without re-executing the function
+        yield ctx.call_activity(
+            self.publish_approval_request,
+            input={
+                "event": approval_event.model_dump(mode="json"),
+                "pubsub_name": approval_config.pubsub_name,
+                "topic": approval_config.topic,
+            },
+            retry_policy=self._retry_policy,
+        )
+
+        if not ctx.is_replaying:
+            logger.info(
+                "Approval request %s published to topic '%s' (tool='%s', instance=%s)",
+                approval_request_id,
+                approval_config.topic,
+                fn_name,
+                instance_id,
+            )
+
+        # suspend until the external approval event arrives or the timeout elapses;
+        # wait_for_external_event has no timeout parameter in this SDK version so we
+        # race the event against a create_timer using when_any instead.
+        from durabletask import task as dt
+
+        event_name = f"approval_response_{approval_request_id}"
+        event_task = ctx.wait_for_external_event(event_name)
+        timer_task = ctx.create_timer(timedelta(seconds=timeout_seconds))
+        winner = yield dt.when_any([event_task, timer_task])
+
+        if winner is timer_task:
+            if not ctx.is_replaying:
+                logger.warning(
+                    "Approval request %s timed out for tool '%s' (instance=%s) — auto-denying",
+                    approval_request_id,
+                    fn_name,
+                    instance_id,
+                )
+            return False
+
+        # event won the race — read the human decision
+        try:
+            response_data = event_task.get_result()
+            response = ApprovalResponseEvent(**response_data)
+        except Exception as exc:
+            if not ctx.is_replaying:
+                logger.warning(
+                    "Could not parse approval response for request %s: %s — auto-denying",
+                    approval_request_id,
+                    exc,
+                )
+            return False
+
+        if not ctx.is_replaying:
+            logger.info(
+                "Approval decision for request %s, tool '%s': %s (instance=%s)",
+                approval_request_id,
+                fn_name,
+                "approved" if response.approved else "not approved",
+                instance_id,
+            )
+
+        return response.approved
 
     def orchestration_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
         """Dedicated orchestration workflow using strategy pattern.
@@ -1922,6 +2121,41 @@ class DurableAgent(AgentBase):
 
         self.save_state(instance_id, entry=entry)
 
+    def publish_approval_request(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> None:
+        """
+        Publish an ApprovalRequiredEvent to the configured Dapr pub/sub topic.
+
+        This activity is called from _request_approval inside agent_workflow.
+        Wrapping the publish in an activity keeps the workflow deterministic — the
+        activity result is cached, so on replay the publish does not fire again.
+
+        Args:
+            payload: Keys 'event' (serialized ApprovalRequiredEvent dict),
+                'pubsub_name' (pub/sub component name), 'topic' (topic name).
+        """
+        event_data = payload["event"]
+        pubsub_name = payload["pubsub_name"]
+        topic = payload["topic"]
+
+        async def _publish() -> None:
+            from dapr_agents.workflow.utils.pubsub import publish_message
+
+            await publish_message(
+                pubsub_name=pubsub_name,
+                topic_name=topic,
+                message=event_data,
+            )
+
+        self._run_asyncio_task(_publish())
+        logger.info(
+            "Published approval request %s for tool '%s' to topic '%s'",
+            event_data.get("approval_request_id"),
+            event_data.get("tool_name"),
+            topic,
+        )
+
     def broadcast_to_team(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
@@ -2293,6 +2527,53 @@ class DurableAgent(AgentBase):
         self.save_state(instance_id, entry=entry)
         logger.info(f"Saved plan to memory for instance {instance_id}")
 
+    # human-in-the-loop control API
+    def raise_approval_event(
+        self,
+        instance_id: str,
+        approval_request_id: str,
+        approved: bool,
+        reason: Optional[str] = None,
+    ) -> None:
+        """
+        Send a human approval decision back to a workflow that is waiting for it.
+
+        External approval services — a Slack bot, a web dashboard, a CLI script —
+        call this method after a human reviews the ApprovalRequiredEvent they
+        received. The workflow resumes immediately after the event is delivered.
+
+        Args:
+            instance_id: Workflow instance ID from the ApprovalRequiredEvent.
+            approval_request_id: Unique request ID from the ApprovalRequiredEvent.
+            approved: True to allow the tool to run, False to block it.
+            reason: Optional human-provided explanation for the decision.
+
+        Raises:
+            Exception: If the Dapr workflow client cannot deliver the event.
+        """
+        from dapr.ext.workflow import DaprWorkflowClient
+
+        event_name = f"approval_response_{approval_request_id}"
+        response = ApprovalResponseEvent(
+            approval_request_id=approval_request_id,
+            approved=approved,
+            reason=reason,
+        )
+
+        client = DaprWorkflowClient()
+        client.raise_workflow_event(
+            instance_id=instance_id,
+            event_name=event_name,
+            data=response.model_dump(mode="json"),
+        )
+
+        logger.info(
+            "Raised approval event '%s' for instance %s: %s",
+            event_name,
+            instance_id,
+            "approved" if approved else "not approved",
+        )
+
     # ------------------------------------------------------------------
     # Runtime control
     # ------------------------------------------------------------------
@@ -2432,6 +2713,7 @@ class DurableAgent(AgentBase):
         runtime.register_activity(self.call_llm)
         runtime.register_activity(self.run_tool)
         runtime.register_activity(self.save_tool_results)
+        runtime.register_activity(self.publish_approval_request)
         runtime.register_activity(self.broadcast_to_team)
         runtime.register_activity(self.summarize)
         runtime.register_activity(self.finalize_workflow)
