@@ -417,32 +417,11 @@ class TestFromToolboxEdgeCases:
 
 
 class TestExecutorFuzzyLookup:
-    """The tool executor must resolve tool names regardless of whether the
-    caller uses kebab-case, snake_case, or the legacy TitleCase form produced
-    by the old ``_normalize_to_title_case`` helper.
-
-    This matters for backwards compatibility: LLMs that were previously shown
-    the TitleCase name (e.g. ``TestTool``) may continue to emit it even
-    after the sanitization fix preserves the original ``test-tool``.
+    """The tool executor normalizes names (lowercase, strip spaces/underscores)
+    so that case and underscore variations resolve to the same tool.
     """
 
-    def test_kebab_and_titlecase_resolve_to_same_tool(self):
-        from dapr_agents.tool.executor import AgentToolExecutor
-
-        def dummy(**kwargs):
-            return "ok"
-
-        tool = AgentTool(name="test-tool", description="test", func=dummy)
-        executor = AgentToolExecutor(tools=[tool])
-
-        # All of these should find the same tool
-        assert executor.get_tool("test-tool") is tool
-        assert executor.get_tool("TestTool") is tool
-        assert executor.get_tool("test_tool") is tool
-        assert executor.get_tool("TEST-TOOL") is tool
-        assert executor.get_tool("testtool") is tool
-
-    def test_snake_case_and_titlecase_resolve_to_same_tool(self):
+    def test_case_insensitive_lookup(self):
         from dapr_agents.tool.executor import AgentToolExecutor
 
         def dummy(**kwargs):
@@ -452,7 +431,21 @@ class TestExecutorFuzzyLookup:
         executor = AgentToolExecutor(tools=[tool])
 
         assert executor.get_tool("get_user") is tool
-        assert executor.get_tool("GetUser") is tool
         assert executor.get_tool("GET_USER") is tool
-        assert executor.get_tool("get-user") is tool
         assert executor.get_tool("getuser") is tool
+        assert executor.get_tool("Get_User") is tool
+
+    def test_kebab_case_is_distinct(self):
+        """Hyphens are meaningful — ``get-user`` and ``get_user`` are different tools."""
+        from dapr_agents.tool.executor import AgentToolExecutor
+
+        def dummy(**kwargs):
+            return "ok"
+
+        tool = AgentTool(name="get-user", description="test", func=dummy)
+        executor = AgentToolExecutor(tools=[tool])
+
+        assert executor.get_tool("get-user") is tool
+        assert executor.get_tool("GET-USER") is tool
+        # Underscore variant is a different normalized key
+        assert executor.get_tool("get_user") is None
