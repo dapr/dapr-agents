@@ -411,6 +411,11 @@ class AgentExecutionConfig:
     tool_choice: Optional[str] = "auto"
     tool_execution_mode: ToolExecutionMode = ToolExecutionMode.PARALLEL
     orchestration_mode: Optional[OrchestrationMode] = None
+    # Number of extra attempts when a structured-output LLM call returns empty
+    # or malformed content. Defaults to 1 retry, which is usually enough to
+    # recover from transient flakiness (e.g. a model emitting tool calls on
+    # the first turn instead of JSON) without masking real schema mismatches.
+    structured_output_retries: int = 1
 
 
 @dataclass

@@ -122,6 +122,23 @@ class TestAgentExecutionConfigToolMode:
         assert config.tool_choice == "auto"
         assert config.orchestration_mode is None
 
+    def test_structured_output_retries_default(self):
+        """Default retry count gives flaky models one recovery attempt.
+
+        A default of 1 recovers from transient tool-call vs JSON emissions
+        without masking real schema mismatches (which would fail both times).
+        """
+        config = AgentExecutionConfig()
+        assert config.structured_output_retries == 1
+
+    def test_structured_output_retries_configurable(self):
+        config = AgentExecutionConfig(structured_output_retries=3)
+        assert config.structured_output_retries == 3
+
+    def test_structured_output_retries_zero_disables_retry(self):
+        config = AgentExecutionConfig(structured_output_retries=0)
+        assert config.structured_output_retries == 0
+
 
 # ---------------------------------------------------------------------------
 # DurableAgent integration tests

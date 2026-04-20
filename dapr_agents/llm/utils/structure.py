@@ -43,6 +43,20 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+def _preview_content(content: Any, limit: int = 200) -> str:
+    """Return a short preview of LLM content for error messages.
+
+    Keeps errors diagnostic without exploding log size when the model
+    returns large payloads.
+    """
+    if content is None:
+        return "<none>"
+    text = content if isinstance(content, str) else str(content)
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"... [truncated, {len(text) - limit} more chars]"
+
+
 class StructureHandler:
     @staticmethod
     def is_json_string(input_string: str) -> bool:
@@ -269,11 +283,17 @@ class StructureHandler:
                             return content
                         except json.JSONDecodeError:
                             pass
-                    raise StructureError("No tool_calls found for function_call mode.")
+                    raise StructureError(
+                        "No tool_calls found for function_call mode "
+                        f"(provider={llm_provider!r}). "
+                        f"content_present={bool(content)}, "
+                        f"content_preview={_preview_content(content)!r}."
+                    )
 
                 elif structured_mode == "json":
                     content = getattr(message, "content", None)
                     refusal = getattr(message, "refusal", None)
+                    tool_calls = getattr(message, "tool_calls", None)
 
                     if refusal:
                         logger.warning(
@@ -282,7 +302,15 @@ class StructureHandler:
                         raise StructureError(f"Request refused by the model: {refusal}")
 
                     if not content:
-                        raise StructureError("No content found for JSON mode.")
+                        raise StructureError(
+                            "No content found for JSON mode "
+                            f"(provider={llm_provider!r}). "
+                            f"tool_calls_present={bool(tool_calls)}. "
+                            f"The model may have emitted tool calls instead of "
+                            f"structured content; retry with a stronger "
+                            f"instruction to respond with JSON only, or use "
+                            f"structured_mode='function_call'."
+                        )
 
                     # Try to parse content as JSON first
                     try:

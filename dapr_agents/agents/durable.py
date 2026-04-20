@@ -1630,10 +1630,63 @@ class DurableAgent(AgentBase):
         if tools and self.execution.tool_choice is not None:
             generate_kwargs["tool_choice"] = self.execution.tool_choice
 
-        try:
-            response = self.llm.generate(**generate_kwargs)
-        except Exception as exc:  # noqa: BLE001
-            raise AgentError(str(exc)) from exc
+        # Structured-output calls are where orchestration failures manifest
+        # most often — the model returns empty content or tool calls instead
+        # of JSON. Retry once (configurable) with an explicit nudge so
+        # transient flakiness doesn't abort the whole orchestration.
+        structured_retries = (
+            int(getattr(self.execution, "structured_output_retries", 0))
+            if response_model is not None
+            else 0
+        )
+        attempt = 0
+        while True:
+            try:
+                response = self.llm.generate(**generate_kwargs)
+                break
+            except Exception as exc:  # noqa: BLE001
+                if response_model is not None and attempt < structured_retries:
+                    attempt += 1
+                    logger.warning(
+                        "Structured-output call failed (schema=%r, attempt=%d/%d, "
+                        "agent=%r): %s. Retrying with JSON-only nudge.",
+                        response_format_name,
+                        attempt,
+                        structured_retries,
+                        self.name,
+                        exc,
+                    )
+                    # Append a system nudge so the LLM is steered back to
+                    # emitting structured content. Rebuild the messages list
+                    # so we don't mutate the caller's reference.
+                    nudge = {
+                        "role": "system",
+                        "content": (
+                            "Respond with valid JSON matching the requested "
+                            "schema. Do not emit tool calls or commentary."
+                        ),
+                    }
+                    generate_kwargs["messages"] = list(
+                        generate_kwargs["messages"]
+                    ) + [nudge]
+                    continue
+
+                # When structured output was requested (orchestration progress
+                # checks, plan generation, etc.) a flaky LLM response produces a
+                # StructureError deep inside the nested activity/sub-orchestration
+                # chain. Surface enough context to make the root cause obvious
+                # instead of letting "Extraction failed: No content found for JSON
+                # mode" bubble up through three layers of task-numbered errors.
+                if response_model is not None:
+                    provider = getattr(self.llm, "provider", "unknown")
+                    model_name = getattr(self.llm, "model", "unknown")
+                    raise AgentError(
+                        f"LLM structured-output call failed (schema="
+                        f"{response_format_name!r}, provider={provider!r}, "
+                        f"model={model_name!r}, agent={self.name!r}, "
+                        f"retries_exhausted={attempt}): {exc}"
+                    ) from exc
+                raise AgentError(str(exc)) from exc
 
         # Handle structured output response (Pydantic model) vs regular chat response
         if response_model is not None:
