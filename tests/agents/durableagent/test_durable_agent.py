@@ -465,6 +465,43 @@ class TestDurableAgent:
             assert len(entry.messages) == 0  # No tool message added by run_tool
             assert len(entry.tool_history) == 0  # No tool history added by run_tool
 
+    def test_run_tool_rejects_workflow_context_tool(self, basic_durable_agent):
+        """AgentWorkflowTool instances can't run as activities — error clearly.
+
+        Regression guard: historically, when an AgentWorkflowTool ended up in
+        the run_tool activity (e.g. due to dispatch-loop state drift), it
+        would fail with the opaque 'Missing workflow context. Pass it as
+        ctx=<DaprWorkflowContext>.' error, which reads like a framework bug
+        rather than a structural misuse. The run_tool guard raises an
+        AgentError naming the tool and the reason, pointing the user at
+        the dispatch loop.
+        """
+        from dapr_agents.tool.workflow.agent_tool import agent_to_tool
+        from dapr_agents.types.exceptions import AgentError
+
+        workflow_tool = agent_to_tool("mongodb_agent", "MongoDB sub-agent.")
+        basic_durable_agent.tool_executor.register_tool(workflow_tool)
+
+        tool_call = {
+            "id": "call_123",
+            "function": {"name": "mongodb_agent", "arguments": "{}"},
+        }
+        mock_ctx = Mock()
+
+        with pytest.raises(AgentError) as exc_info:
+            basic_durable_agent.run_tool(
+                mock_ctx,
+                {
+                    "tool_call": tool_call,
+                    "instance_id": "test-instance-123",
+                    "time": "2024-01-01T00:00:00+00:00",
+                    "order": 0,
+                },
+            )
+        msg = str(exc_info.value)
+        assert "mongodb_agent" in msg.lower()
+        assert "DaprWorkflowContext" in msg or "workflow context" in msg.lower()
+
     def test_run_tool_unwraps_kwargs_for_mcp_tools(
         self, basic_durable_agent, mock_tool
     ):
@@ -1298,6 +1335,11 @@ class TestDurableAgent:
                 activity_name = activity.__func__.__name__
             else:
                 activity_name = str(activity)
+            # Activities are registered with agent-scoped names like
+            # dapr.agents.<AgentName>.<method>; match on the trailing
+            # method segment so this test works regardless of scoping.
+            if "." in activity_name:
+                activity_name = activity_name.rsplit(".", 1)[-1]
 
             if activity_name == "call_llm":
                 return {
@@ -1371,10 +1413,14 @@ class TestDurableAgent:
             )
 
         # Verify the key activities were called
-        activity_names = [
-            getattr(call["activity"], "__name__", str(call["activity"]))
-            for call in call_activity_calls
-        ]
+        # Activities are registered under agent-scoped names
+        # (dapr.agents.<AgentName>.<method>); match on the trailing method
+        # segment so the assertion doesn't break if the scoping format
+        # changes later.
+        activity_names = []
+        for call in call_activity_calls:
+            raw = getattr(call["activity"], "__name__", str(call["activity"]))
+            activity_names.append(raw.rsplit(".", 1)[-1] if "." in raw else raw)
         assert "record_initial_entry" in activity_names, (
             f"Missing record_initial_entry in {activity_names}"
         )
@@ -1410,6 +1456,11 @@ class TestDurableAgent:
                 activity_name = activity.__func__.__name__
             else:
                 activity_name = str(activity)
+            # Activities are registered with agent-scoped names like
+            # dapr.agents.<AgentName>.<method>; match on the trailing
+            # method segment so this test works regardless of scoping.
+            if "." in activity_name:
+                activity_name = activity_name.rsplit(".", 1)[-1]
 
             if activity_name == "call_llm":
                 call_llm_count += 1
@@ -1500,6 +1551,11 @@ class TestDurableAgent:
                 activity_name = activity.__func__.__name__
             else:
                 activity_name = str(activity)
+            # Activities are registered with agent-scoped names like
+            # dapr.agents.<AgentName>.<method>; match on the trailing
+            # method segment so this test works regardless of scoping.
+            if "." in activity_name:
+                activity_name = activity_name.rsplit(".", 1)[-1]
 
             if activity_name == "record_initial_entry":
                 return None
