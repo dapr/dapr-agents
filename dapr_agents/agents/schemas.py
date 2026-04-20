@@ -109,3 +109,7 @@ class AgentWorkflowEntry(BaseModel):
         default=None,
         description="OpenTelemetry trace context for workflow resumption.",
     )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session identifier when the run is driven by an AgentExecutorBase.",
+    )

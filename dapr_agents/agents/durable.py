@@ -69,6 +69,7 @@ from dapr_agents.agents.schemas import (
     BroadcastMessage,
     TriggerAction,
 )
+from dapr_agents.agents.executors import AgentExecutorBase
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.types import (
@@ -211,6 +212,7 @@ class DurableAgent(AgentBase):
         # Memory
         memory: Optional[AgentMemoryConfig] = None,
         llm: Optional[ChatClientBase] = None,
+        executor: Optional[AgentExecutorBase] = None,
         tools: Optional[Iterable[Any]] = None,
         # Behavior / execution
         execution: Optional[AgentExecutionConfig] = None,
@@ -243,7 +245,14 @@ class DurableAgent(AgentBase):
             execution: Execution dials for the agent run.
 
             memory: Enable long-term conversation memory storage; defaults to false.
-            llm: Chat client; defaults to `get_default_llm()`.
+            llm: Chat client; defaults to `get_default_llm()`. Mutually
+                exclusive with ``executor``.
+            executor: Stateful agent runtime (implements
+                :class:`~dapr_agents.agents.executors.AgentExecutorBase`).
+                Mutually exclusive with ``llm``. When provided the workflow
+                dispatches a ``run_executor`` activity that drives the
+                executor's async event stream and persists Dapr state at
+                session granularity instead of message granularity.
             tools: Optional tool callables or ``AgentTool`` instances.
                 All agents sharing the same registry are auto-discovered as
                 tools at workflow start via ``load_tools``.
@@ -285,6 +294,7 @@ class DurableAgent(AgentBase):
             agent_metadata=agent_metadata,
             workflow_grpc=workflow_grpc,
             llm=llm,
+            executor=executor,
             tools=tools,
             prompt_template=prompt_template,
             agent_observability=agent_observability,
@@ -474,6 +484,30 @@ class DurableAgent(AgentBase):
                         "Orchestration workflow completed (instance=%s)",
                         ctx.instance_id,
                     )
+
+            # Delegate to an AgentExecutorBase (stateful agent runtime) if one is
+            # attached. The executor owns the tool/reasoning loop; we only drive
+            # its async event stream and checkpoint at session granularity.
+            elif self.executor is not None:
+                if not ctx.is_replaying:
+                    logger.info(
+                        "Agent %s delegating to executor %s (instance=%s)",
+                        self.name,
+                        type(self.executor).__name__,
+                        ctx.instance_id,
+                    )
+
+                final_message = yield ctx.call_activity(
+                    self.run_executor,
+                    input={
+                        "task": task,
+                        "instance_id": ctx.instance_id,
+                        "session_id": ctx.instance_id,
+                        "source": source,
+                        "time": ctx.current_utc_datetime.isoformat(),
+                    },
+                    retry_policy=self._retry_policy,
+                )
 
             # Standard agent execution loop
             else:
@@ -1666,6 +1700,205 @@ class DurableAgent(AgentBase):
         self.save_state(instance_id, entry=entry)
         return assistant_message
 
+    def run_executor(
+        self,
+        ctx: wf.WorkflowActivityContext,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Drive an :class:`AgentExecutorBase` to completion and return the final
+        assistant message.
+
+        The executor owns the full tool/reasoning loop; this activity only
+        consumes the async event stream, mirrors selected events into Dapr
+        state (for observability), and checkpoints on ``session`` events.
+
+        Args:
+            payload: Keys ``task``, ``instance_id``, ``session_id``, ``source``.
+
+        Returns:
+            Final assistant message dict as emitted by the executor's
+            terminal ``complete`` event.
+
+        Raises:
+            AgentError: If the executor is not configured or yields an
+                ``error`` event, or if the stream ends without ``complete``.
+        """
+        import asyncio
+
+        if self.executor is None:  # Defensive; agent_workflow guards this.
+            raise AgentError(
+                "run_executor called on an agent without an AgentExecutorBase."
+            )
+
+        return asyncio.run(self._consume_executor(payload))
+
+    async def _consume_executor(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Async helper for :meth:`run_executor` — iterates the executor's event
+        stream and persists state at session granularity.
+
+        Implementation notes:
+
+        * ``message`` events are appended to ``entry.messages`` for
+          observability (via :meth:`_save_assistant_message`).
+        * ``tool_call`` / ``tool_result`` events append
+          :class:`ToolExecutionRecord` rows to ``entry.tool_history``.
+        * ``session`` events trigger a checkpoint save.
+        * ``complete`` captures the final assistant message and terminates
+          the loop.
+        * ``error`` raises :class:`AgentError` (the activity retries per
+          the configured retry policy).
+        * ``text_delta`` is currently used only for console streaming and is
+          not persisted (avoids per-token state writes).
+        """
+        instance_id: str = payload["instance_id"]
+        session_id: Optional[str] = payload.get("session_id") or instance_id
+        task: Optional[str] = payload.get("task")
+        source: Optional[str] = payload.get("source")
+
+        entry = self._infra.get_state(instance_id)
+
+        # Record session_id and the user-turn message in state before handing
+        # off to the executor so replay/audit sees the full trace.
+        if hasattr(entry, "session_id"):
+            entry.session_id = session_id
+        if task:
+            user_message = {"role": "user", "content": task}
+            self._process_user_message(
+                instance_id, task, user_message, entry=entry, skip_save=True
+            )
+            if not self.orchestrator:
+                print_msg = dict(user_message)
+                if source and source != "direct":
+                    print_msg["name"] = f"on-behalf-of {source}"
+                self.text_formatter.print_message(print_msg)
+
+        final_message: Optional[Dict[str, Any]] = None
+        tool_records: Dict[str, ToolExecutionRecord] = {}
+        prompt = task or ""
+
+        try:
+            stream = self.executor.run(prompt, session_id=session_id)
+            async for event in stream:
+                if event.type == "text_delta":
+                    # Intentionally not persisted; live-stream in the future.
+                    continue
+
+                if event.type == "message":
+                    message_dict = (
+                        event.content
+                        if isinstance(event.content, dict)
+                        else {"role": "assistant", "content": str(event.content)}
+                    )
+                    if message_dict.get("role") == "assistant":
+                        self._save_assistant_message(
+                            instance_id,
+                            dict(message_dict),
+                            entry=entry,
+                            skip_save=True,
+                        )
+                        if not self.orchestrator:
+                            self.text_formatter.print_message(message_dict)
+                    continue
+
+                if event.type == "tool_call":
+                    call = event.content if isinstance(event.content, dict) else {}
+                    tc_id = str(call.get("id") or uuid.uuid4())
+                    record = ToolExecutionRecord(
+                        tool_call_id=tc_id,
+                        tool_name=str(call.get("name", "")),
+                        tool_args=dict(call.get("arguments", {}) or {}),
+                        status=ToolExecutionStatus.RUNNING,
+                        is_agent_call=False,
+                        executing_agent=self.name,
+                        agent_workflow_instance_id=instance_id,
+                    )
+                    tool_records[tc_id] = record
+                    entry.tool_history.append(record)
+                    continue
+
+                if event.type == "tool_result":
+                    result = event.content if isinstance(event.content, dict) else {}
+                    tc_id = str(result.get("tool_call_id", ""))
+                    record = tool_records.get(tc_id)
+                    payload_result = result.get("result")
+                    completed_at = datetime.now(timezone.utc)
+                    if record is not None:
+                        record.status = ToolExecutionStatus.COMPLETED
+                        record.completed_at = completed_at
+                        record.execution_result = (
+                            payload_result
+                            if isinstance(payload_result, str)
+                            else json.dumps(payload_result, default=str)
+                        )
+                    else:
+                        entry.tool_history.append(
+                            ToolExecutionRecord(
+                                tool_call_id=tc_id or str(uuid.uuid4()),
+                                tool_name=str(result.get("name", "")),
+                                tool_args={},
+                                status=ToolExecutionStatus.COMPLETED,
+                                is_agent_call=False,
+                                executing_agent=self.name,
+                                agent_workflow_instance_id=instance_id,
+                                completed_at=completed_at,
+                                execution_result=(
+                                    payload_result
+                                    if isinstance(payload_result, str)
+                                    else json.dumps(payload_result, default=str)
+                                ),
+                            )
+                        )
+                    continue
+
+                if event.type == "session":
+                    # Session-level checkpoint: persist what we've accumulated.
+                    self.save_state(instance_id, entry=entry)
+                    # Refresh the entry so subsequent mutations see the saved etag.
+                    entry = self._infra.get_state(instance_id)
+                    continue
+
+                if event.type == "complete":
+                    final_message = (
+                        event.content
+                        if isinstance(event.content, dict)
+                        else {"role": "assistant", "content": str(event.content)}
+                    )
+                    break
+
+                if event.type == "error":
+                    raise AgentError(f"AgentExecutor emitted error: {event.content}")
+        except AgentError:
+            # Persist whatever state we accumulated before surfacing.
+            self.save_state(instance_id, entry=entry)
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self.save_state(instance_id, entry=entry)
+            raise AgentError(
+                f"AgentExecutor {type(self.executor).__name__} raised "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+        if final_message is None:
+            self.save_state(instance_id, entry=entry)
+            raise AgentError("AgentExecutor stream ended without a 'complete' event.")
+
+        # Record the terminal assistant message if the executor did not already
+        # emit it as a 'message' event.
+        already_persisted = any(
+            getattr(m, "role", None) == "assistant"
+            and getattr(m, "content", None) == final_message.get("content")
+            for m in entry.messages
+        )
+        if not already_persisted:
+            self._save_assistant_message(
+                instance_id, dict(final_message), entry=entry, skip_save=True
+            )
+
+        self.save_state(instance_id, entry=entry)
+        return final_message
+
     def run_tool(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -2430,6 +2663,7 @@ class DurableAgent(AgentBase):
         runtime.register_activity(self.record_initial_entry)
         runtime.register_activity(self.record_broadcast)
         runtime.register_activity(self.call_llm)
+        runtime.register_activity(self.run_executor)
         runtime.register_activity(self.run_tool)
         runtime.register_activity(self.save_tool_results)
         runtime.register_activity(self.broadcast_to_team)

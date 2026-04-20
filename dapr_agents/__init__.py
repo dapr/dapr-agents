@@ -22,6 +22,12 @@ from dapr_agents.agents.configs import (
     RegistryMetadata,
     LLMMetadata,
 )
+from dapr_agents.agents.executors import (
+    AgentEvent,
+    AgentEventType,
+    AgentExecutorBase,
+    EchoAgentExecutor,
+)
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
 from dapr_agents.llm.dapr import DaprChatClient
 from dapr_agents.llm.elevenlabs import ElevenLabsSpeechClient
@@ -38,6 +44,10 @@ from dapr_agents.workflow.utils.core import call_agent, trigger_agent
 
 __all__ = [
     "DurableAgent",
+    "AgentEvent",
+    "AgentEventType",
+    "AgentExecutorBase",
+    "EchoAgentExecutor",
     "DockerCodeExecutor",
     "LocalCodeExecutor",
     "ElevenLabsSpeechClient",
