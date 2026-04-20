@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
-import threading
 import time
 import uuid
 from typing import (
@@ -83,7 +82,6 @@ class WorkflowRunner(SignalMixin):
         self._wf_client: DaprWorkflowClient = wf_client or DaprWorkflowClient()
         self._wf_client_owned = wf_client is None
         self._timeout_in_seconds = timeout_in_seconds
-        self._client_lock = threading.Lock()
         self._auto_install_signals = auto_install_signals
         self._signals_installed_by_us = False
 
@@ -402,12 +400,11 @@ class WorkflowRunner(SignalMixin):
         _retry_delay = 1.0
         for attempt in range(_max_retries + 1):
             try:
-                with self._client_lock:
-                    result = self._wf_client.schedule_new_workflow(
-                        workflow=workflow,
-                        input=payload,
-                        instance_id=chosen_id,
-                    )
+                result = self._wf_client.schedule_new_workflow(
+                    workflow=workflow,
+                    input=payload,
+                    instance_id=chosen_id,
+                )
                 logger.debug(f"{self._name} Scheduled workflow id={result}")
                 return result
             except Exception as e:
@@ -420,7 +417,6 @@ class WorkflowRunner(SignalMixin):
                 if is_transient and attempt < _max_retries:
                     logger.warning(
                         f"{self._name} Transient gRPC error scheduling workflow (attempt %d/%d): %s — retrying in %.1fs",
-                        self._name,
                         attempt + 1,
                         _max_retries,
                         e.details(),
@@ -530,12 +526,11 @@ class WorkflowRunner(SignalMixin):
         """
         effective_timeout = timeout_in_seconds or self._timeout_in_seconds
         try:
-            with self._client_lock:
-                return self._wf_client.wait_for_workflow_completion(
-                    instance_id,
-                    fetch_payloads=fetch_payloads,
-                    timeout_in_seconds=effective_timeout,
-                )
+            return self._wf_client.wait_for_workflow_completion(
+                instance_id,
+                fetch_payloads=fetch_payloads,
+                timeout_in_seconds=effective_timeout,
+            )
         except Exception as exc:
             logger.error("Error while waiting for %s completion: %s", instance_id, exc)
             return None
@@ -561,12 +556,11 @@ class WorkflowRunner(SignalMixin):
         """
 
         def _wait() -> Optional[WorkflowState]:
-            with self._client_lock:
-                return self._wf_client.wait_for_workflow_completion(
-                    instance_id,
-                    fetch_payloads=fetch_payloads,
-                    timeout_in_seconds=timeout_in_seconds,
-                )
+            return self._wf_client.wait_for_workflow_completion(
+                instance_id,
+                fetch_payloads=fetch_payloads,
+                timeout_in_seconds=timeout_in_seconds,
+            )
 
         return await asyncio.to_thread(_wait)
 
@@ -651,5 +645,4 @@ class WorkflowRunner(SignalMixin):
         Returns:
             None
         """
-        with self._client_lock:
-            self._wf_client.terminate_workflow(instance_id=instance_id, output=output)
+        self._wf_client.terminate_workflow(instance_id=instance_id, output=output)
