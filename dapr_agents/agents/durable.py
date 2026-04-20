@@ -1666,9 +1666,9 @@ class DurableAgent(AgentBase):
                             "schema. Do not emit tool calls or commentary."
                         ),
                     }
-                    generate_kwargs["messages"] = list(
-                        generate_kwargs["messages"]
-                    ) + [nudge]
+                    generate_kwargs["messages"] = list(generate_kwargs["messages"]) + [
+                        nudge
+                    ]
                     continue
 
                 # When structured output was requested (orchestration progress

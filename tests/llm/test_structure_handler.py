@@ -70,9 +70,7 @@ class TestFunctionCallModeErrors:
     def test_no_tool_calls_error_names_provider(self):
         msg = _message(content=None, tool_calls=None)
         with pytest.raises(StructureError) as exc_info:
-            StructureHandler.extract_structured_response(
-                msg, "openai", "function_call"
-            )
+            StructureHandler.extract_structured_response(msg, "openai", "function_call")
         text = str(exc_info.value)
         assert "No tool_calls found for function_call mode" in text
         assert "provider='openai'" in text
