@@ -13,7 +13,7 @@ limitations under the License.
 
 # Multi-Agent Workflows with Configuration Classes
 
-This quickstart demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using **Agent Configuration Classes** from Dapr Agents. You'll learn how to set up agents as separate services, implement three different workflow orchestration patterns, and enable real-time agent collaboration through pub/sub messaging—all using the modern configuration-based approach.
+This example demonstrates how to create and orchestrate event-driven workflows with multiple autonomous agents using **Agent Configuration Classes** from Dapr Agents. You'll learn how to set up agents as separate services, implement three different workflow orchestration patterns, and enable real-time agent collaboration through pub/sub messaging—all using the modern configuration-based approach.
 
 ## What You'll Learn
 
@@ -44,7 +44,7 @@ uv sync --active
 
 ## The Fellowship: Multi-Agent Architecture
 
-This quickstart features four agents from the Fellowship of the Ring, each with distinct roles and expertise:
+This example features four agents from the Fellowship of the Ring, each with distinct roles and expertise:
 
 | Agent | Role | Expertise | Topic |
 |-------|------|-----------|-------|
@@ -75,9 +75,7 @@ Three orchestrators coordinate the Fellowship (all using `DurableAgent` with dif
 ## Environment Setup
 
 ```bash
-# Create a virtual environment
-python3.10 -m venv .venv
-
+uv venv
 # Activate the virtual environment
 # On Windows:
 .venv\Scripts\activate
@@ -93,6 +91,7 @@ pip install -r requirements.txt
 ### Option 1: Using Environment Variables (Recommended)
 
 1. Create a `.env` file in the project root:
+
 ```env
 OPENAI_API_KEY=your_api_key_here
 ```
@@ -100,12 +99,14 @@ OPENAI_API_KEY=your_api_key_here
 2. Export environment variables before running:
 
 #### macOS / Linux (Bash)
+
 ```bash
 # Get environment variables from .env file
 export $(grep -v '^#' ../../.env | xargs)
 ```
 
 #### Windows (PowerShell)
+
 ```powershell
 # Get the environment variables from the .env file:
 Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object {
@@ -117,6 +118,7 @@ Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Ob
 ### Option 2: Direct Component Configuration
 
 Update the `key` in [resources/openai.yaml](resources/openai.yaml):
+
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -137,7 +139,8 @@ Make sure Dapr is initialized:
 dapr init
 ```
 
-This quickstart uses these Dapr components (in `resources/` directory):
+This example uses these Dapr components (in `resources/` directory):
+
 - `openai.yaml`: LLM conversation component
 - `workflowstate.yaml`: Workflow state storage
 - `memorystore.yaml`: Conversation memory storage
@@ -179,7 +182,7 @@ This quickstart uses these Dapr components (in `resources/` directory):
 
 ## Agent Configuration with Config Classes
 
-Each agent in this quickstart uses the latest **Agent Configuration Classes** updates.
+Each agent in this example uses the latest **Agent Configuration Classes** updates.
 
 ### Key Benefits of Configuration Classes
 
@@ -191,7 +194,7 @@ Each agent in this quickstart uses the latest **Agent Configuration Classes** up
 
 ## Running the Multi-Agent System
 
-The quickstart includes three Dapr Multi-App Run configurations, each showcasing a different orchestration pattern.
+The example includes three Dapr Multi-App Run configurations, each showcasing a different orchestration pattern.
 
 ### Option 1: Random Orchestrator
 
@@ -202,6 +205,7 @@ dapr run -f dapr-random.yaml
 ```
 
 **What's running:**
+
 - ✅ Frodo agent
 - ✅ Sam agent
 - ✅ Random orchestrator
@@ -216,6 +220,7 @@ dapr run -f dapr-roundrobin.yaml
 ```
 
 **What's running:**
+
 - ✅ Frodo agent
 - ✅ Sam agent
 - ✅ Gandalf agent
@@ -231,6 +236,7 @@ dapr run -f dapr-agent.yaml
 ```
 
 **What's running:**
+
 - ✅ Frodo agent
 - ✅ Sam agent
 - ✅ Gandalf agent
@@ -251,10 +257,10 @@ uv run python services/client/pubsub_client.py --orchestrator roundrobin
 
 That publishes `TriggerAction` messages onto the same topics the orchestrators subscribe to.
 
-
 ### Expected Output
 
 You'll see logs from all services showing:
+
 1. **Agent startup**: Each agent registers with the fellowship registry
 2. **Client message**: Task published to orchestrator topic
 3. **Orchestration**: Orchestrator selects and routes to an agent
@@ -264,7 +270,9 @@ You'll see logs from all services showing:
 ## How Agent Coordination Works
 
 ### 1. Shared Registry
+
 All agents register themselves in the fellowship registry:
+
 ```python
 registry = AgentRegistryConfig(
     store=StateStoreService(store_name="agentregistrystore"),
@@ -275,11 +283,13 @@ registry = AgentRegistryConfig(
 ### 2. Message Flow
 
 **Via Orchestrator:**
+
 ```
 Client → Orchestrator Topic → Orchestrator Logic → Agent Topic → Specific Agent
 ```
 
 **Direct to Agent:**
+
 ```
 Client → Agent Topic → Specific Agent
 ```
@@ -287,6 +297,7 @@ Client → Agent Topic → Specific Agent
 ### 3. Agent Discovery
 
 Orchestrators query the registry to discover available agents:
+
 ```python
 # Orchestrator can find all fellowship members
 available_agents = registry.get_team_members("fellowship")
@@ -296,6 +307,7 @@ available_agents = registry.get_team_members("fellowship")
 ### 4. Broadcast Messages
 
 Send to all agents simultaneously:
+
 ```python
 # All agents subscribed to fellowship.broadcast receive this
 pubsub_client.py --topic fellowship.broadcast --task "Emergency: Nazgûl approaching!"
@@ -304,21 +316,25 @@ pubsub_client.py --topic fellowship.broadcast --task "Emergency: Nazgûl approac
 ## Agent Profiles Summary
 
 ### Frodo - Ring-bearer
+
 - **Focus**: Endurance, stealth, burden management
 - **Style**: Humble, determined, shows vulnerability but maintains courage
 - **Best for**: Tasks requiring persistence and careful navigation
 
 ### Sam - Logistics Expert
+
 - **Focus**: Supplies, provisions, morale, practical support
 - **Style**: Warm, plain-spoken, grounded, loyal
 - **Best for**: Resource management and practical problem-solving
 
 ### Gandalf - Wizard & Strategist
+
 - **Focus**: Strategy, lore, magic, long-term planning
 - **Style**: Wise, patient, mysterious yet clear in critical moments
 - **Best for**: Complex decisions requiring wisdom and foresight
 
 ### Legolas - Scout & Marksman
+
 - **Focus**: Scouting, threat detection, terrain navigation, ranged tactics
 - **Style**: Graceful, precise, observant, elvish elegance
 - **Best for**: Reconnaissance and tactical positioning
@@ -328,6 +344,7 @@ pubsub_client.py --topic fellowship.broadcast --task "Emergency: Nazgûl approac
 ### Issue: Agents not discovering each other
 
 **Solution:** Verify all agents use the same registry configuration:
+
 ```python
 registry = AgentRegistryConfig(
     store=StateStoreService(store_name="agentregistrystore"),
@@ -338,6 +355,7 @@ registry = AgentRegistryConfig(
 ### Issue: Messages not reaching agents
 
 **Solution:** Check topic names match between client and agent configurations:
+
 - Client publishes to: `fellowship.frodo.requests`
 - Agent subscribes to: `fellowship.frodo.requests` (must match exactly)
 
@@ -347,8 +365,7 @@ registry = AgentRegistryConfig(
 
 ## Learn More
 
-- **Configuration Classes Guide**: [`03-durable-agent-with-configs`](../03-durable-agent-with-configs/) - Complete guide to all configuration classes
-- **Simple Agent Example**: [`03-durable-agent-tool-call`](../03-durable-agent-tool-call/) - Basic single-agent pattern
-- **Message Router**: [`04-message-router-workflow`](../04-message-router-workflow/) - Pub/sub workflow patterns
+- **Simple Agent Example**: [`02-durable-agent-tool-call`](../02-durable-agent-tool-call/) - Basic single-agent pattern
+- **Message Router**: [`03-message-router-workflow`](../03-message-router-workflow/) - Pub/sub workflow patterns
 - **Dapr Multi-App Run**: [Dapr Documentation](https://docs.dapr.io/developing-applications/local-development/multi-app-dapr-run/)
 - **Dapr Pub/Sub**: [Pub/Sub Building Block](https://docs.dapr.io/developing-applications/building-blocks/pubsub/)

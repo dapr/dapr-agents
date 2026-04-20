@@ -13,7 +13,7 @@ limitations under the License.
 
 # Elevenlabs LLM calls with Dapr Agents
 
-This quickstart demonstrates how to use Dapr Agents to convert text to speech using the ElevenLabs API. You'll learn how to generate natural-sounding audio from text, configure voices and models, and save the resulting audio to a file in your Python application.
+This example demonstrates how to use Dapr Agents to convert text to speech using the ElevenLabs API. You'll learn how to generate natural-sounding audio from text, configure voices and models, and save the resulting audio to a file in your Python application.
 
 ## Prerequisites
 
@@ -66,7 +66,7 @@ While these examples don't explicitly use Dapr's distributed capabilities, Dapr 
 - **Type Safety**: Structured data extraction and validation
 - **Integration Path**: Foundation for building more complex, distributed LLM applications
 
-In later quickstarts, you'll see how these LLM interactions integrate with Dapr's building blocks.
+In later examples, you'll see how these LLM interactions integrate with Dapr's building blocks.
 
 ## Troubleshooting
 
@@ -76,4 +76,4 @@ In later quickstarts, you'll see how these LLM interactions integrate with Dapr'
 
 ## Next Steps
 
-After completing these examples, move on to the [Agent Tool Call quickstart](../03-agent-tool-call) to learn how to build agents that can use tools to interact with external systems.
+After completing these examples, move on to the [Durable Agent Tool Call example](../02-durable-agent-tool-call) to learn how to build agents that can use tools to interact with external systems.

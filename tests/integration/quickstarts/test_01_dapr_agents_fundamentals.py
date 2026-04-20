@@ -36,7 +36,6 @@ class TestHelloWorldQuickstart:
         if is_ollama:
             self.env["OLLAMA_MODEL"] = os.getenv("OLLAMA_MODEL", "qwen3:0.6b")
 
-    @pytest.mark.ollama
     def test_01_llm_client(self, dapr_runtime):  # noqa: ARG002
         """Test LLM client example (01_llm_client.py).
 
@@ -63,14 +62,35 @@ class TestHelloWorldQuickstart:
         # Verify LLM response was received
         assert "Response:" in result.stdout
 
-    @pytest.mark.ollama
-    def test_02_durable_agent_http(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent HTTP example (02_durable_agent_http.py).
+    def test_02_durable_agent_workflow(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent workflow example (02_durable_agent_workflow.py).
+
+        The server (02_durable_agent_workflow.py) runs as a daemon waiting for
+        workflow invocations. The trigger (02_durable_agent_trigger_within_workflow.py)
+        schedules a workflow, waits for completion, and exits. Both run via dapr run -f.
+        """
+        dapr_yaml = self.quickstart_dir / "02_durable_agent.yaml"
+        result = run_quickstart_or_examples_multi_app(
+            dapr_yaml,
+            cwd=self.quickstart_dir,
+            env=self.env,
+            timeout=180,
+            stream_logs=True,
+        )
+
+        assert result.returncode == 0, (
+            f"Multi-app quickstart '{dapr_yaml}' failed with return code {result.returncode}.\n"
+            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+
+    def test_03_durable_agent_http(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent HTTP example (03_durable_agent_http.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        script_path = self.quickstart_dir / "02_durable_agent_http.py"
+        script_path = self.quickstart_dir / "03_durable_agent_http.py"
         result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
@@ -96,13 +116,13 @@ class TestHelloWorldQuickstart:
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 
-    def test_03_durable_agent_pubsub(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent pub/sub example (03_durable_agent_pubsub.py).
+    def test_04_durable_agent_pubsub(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent pub/sub example (04_durable_agent_pubsub.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        script_path = self.quickstart_dir / "03_durable_agent_pubsub.py"
+        script_path = self.quickstart_dir / "04_durable_agent_pubsub.py"
         result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
@@ -127,14 +147,13 @@ class TestHelloWorldQuickstart:
         )
         assert len(result.stdout) > 0 or len(result.stderr) > 0
 
-    @pytest.mark.ollama
-    def test_04_workflow_llm(self, dapr_runtime):  # noqa: ARG002
-        """Test workflow with LLM activities example (04_workflow_llm.py).
+    def test_05_workflow_llm(self, dapr_runtime):  # noqa: ARG002
+        """Test workflow with LLM activities example (05_workflow_llm.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        script_path = self.quickstart_dir / "04_workflow_llm.py"
+        script_path = self.quickstart_dir / "05_workflow_llm.py"
         result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,
@@ -158,13 +177,13 @@ class TestHelloWorldQuickstart:
             or "Final Blog Post" in result.stdout
         )
 
-    def test_05_workflow_agents(self, dapr_runtime):  # noqa: ARG002
-        """Test workflow with agent activities example (05_workflow_agents.py).
+    def test_06_workflow_agents(self, dapr_runtime):  # noqa: ARG002
+        """Test workflow with agent activities example (06_workflow_agents.py).
 
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
-        dapr_yaml = self.quickstart_dir / "05_workflow_agents.yaml"
+        dapr_yaml = self.quickstart_dir / "06_workflow_agents.yaml"
         result = run_quickstart_or_examples_multi_app(
             dapr_yaml,
             cwd=self.quickstart_dir,
@@ -186,9 +205,9 @@ class TestHelloWorldQuickstart:
             f"Expected workflow output in combined stdout+stderr. Got: {combined[:500]!r}..."
         )
 
-    def test_06_durable_agent_tracing(self, dapr_runtime):  # noqa: ARG002
-        """Test durable agent tracing example (06_durable_agent_tracing.py)."""
-        script_path = self.quickstart_dir / "06_durable_agent_tracing.py"
+    def test_07_durable_agent_tracing(self, dapr_runtime):  # noqa: ARG002
+        """Test durable agent tracing example (07_durable_agent_tracing.py)."""
+        script_path = self.quickstart_dir / "07_durable_agent_tracing.py"
         result = run_quickstart_or_examples_script(
             script_path,
             cwd=self.quickstart_dir,

@@ -29,6 +29,7 @@ from dapr_agents.workflow.utils.registration import (
     register_http_routes,
     register_message_routes,
 )
+from dapr_agents.workflow.utils.subscription import TTLDedupeBackend
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,35 @@ class AgentRunner(WorkflowRunner):
             return self._run_coro_in_new_loop_thread(coro)
         except RuntimeError:
             return asyncio.run(coro)
+
+    def workflow(
+        self,
+        agent: DurableAgent,
+    ) -> "AgentRunner":
+        """
+        Start the agent's workflow runtime without wiring pub/sub or HTTP routes.
+
+        Use this when the agent is triggered by external Dapr workflows or the
+        Dapr Workflow API rather than pub/sub messages or HTTP requests. Call
+        ``await wait_for_shutdown()`` after this to keep the runtime alive.
+
+        Args:
+            agent: Durable agent instance.
+
+        Returns:
+            The runner (to allow fluent chaining).
+        """
+        try:
+            agent.start()
+        except RuntimeError:
+            # The agent is already started
+            pass
+
+        with self._lock:
+            if agent not in self._managed_agents:
+                self._managed_agents.append(agent)
+
+        return self
 
     def discover_entry(self, agent: Any) -> Callable[..., Any]:
         """
@@ -378,6 +408,15 @@ class AgentRunner(WorkflowRunner):
         if self._wired_pubsub or self._dapr_client is None:
             return
 
+        try:
+            deduper = TTLDedupeBackend()
+        except ImportError:
+            logger.warning(
+                "cachetools not installed; disabling pub/sub message deduplication for agent %s",
+                getattr(agent, "name", agent),
+            )
+            deduper = None
+
         closers = register_message_routes(
             routes=specs,
             dapr_client=self._dapr_client,
@@ -388,6 +427,7 @@ class AgentRunner(WorkflowRunner):
             await_timeout=await_timeout,
             fetch_payloads=fetch_payloads,
             log_outcome=log_outcome,
+            deduper=deduper,
         )
         self._pubsub_closers.extend(closers)
         self._wired_pubsub = True

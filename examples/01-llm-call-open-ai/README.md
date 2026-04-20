@@ -13,7 +13,7 @@ limitations under the License.
 
 # OpenAI LLM calls with Dapr Agents
 
-This quickstart demonstrates how to use Dapr Agents' LLM capabilities to interact with language models and generate both free-form text and structured data. You'll learn how to make basic calls to LLMs and how to extract structured information in a type-safe manner.
+This example demonstrates how to use Dapr Agents' LLM capabilities to interact with language models and generate both free-form text and structured data. You'll learn how to make basic calls to LLMs and how to extract structured information in a type-safe manner.
 
 ## Prerequisites
 
@@ -140,4 +140,4 @@ uv run python embeddings.py
 
 ## Next Steps
 
-After completing these examples, move on to the [Agent Tool Call quickstart](../03-agent-tool-call/README.md) to learn how to build agents that can use tools to interact with external systems.
+After completing these examples, move on to the [Durable Agent Tool Call example](../02-durable-agent-tool-call/README.md) to learn how to build agents that can use tools to interact with external systems.

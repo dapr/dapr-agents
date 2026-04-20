@@ -20,13 +20,6 @@ all agent types with W3C Trace Context propagation across Dapr Workflow boundari
 
 Span Hierarchy by Agent Type:
 
-**Regular Agent (Direct Execution):**
-- Agent.run (AGENT span) - Root span for agent execution
-  └── Agent._conversation_loop (CHAIN span) - Reasoning turns
-      ├── Agent._execute_tool_calls (TOOL span) - Batch tool coordination
-      │   └── AgentToolExecutor.run_tool (TOOL span) - Individual tool execution
-      └── ChatClient.generate (LLM span) - Language model interactions
-
 **DurableAgent (Workflow-based with Monitoring):**
 - WorkflowRunner.run_workflow_async (AGENT span when wait=True) - DurableAgent lifecycle
   └── registered workflow entry (CHAIN span) - Orchestration logic
@@ -65,10 +58,7 @@ from .constants import (
     wrap_function_wrapper,
 )
 from .wrappers import (
-    AgentRunWrapper,
-    ExecuteToolsWrapper,
     LLMWrapper,
-    ProcessIterationsWrapper,
     RunToolWrapper,
     WorkflowMonitorWrapper,
     WorkflowRunWrapper,
@@ -190,7 +180,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         self._apply_context_propagation_fix()
 
         # Apply agent wrappers (Regular Agent class execution paths)
-        self._apply_agent_wrappers()
+        self._apply_tool_wrappers()
 
         # Apply workflow wrappers directly since start_runtime() is now called in model_post_init
         # This eliminates the need for callback mechanism
@@ -268,50 +258,22 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                 exc_info=True,
             )
 
-    def _apply_agent_wrappers(self) -> None:
+    def _apply_tool_wrappers(self) -> None:
         """
-        Apply observability wrappers for agent execution methods.
+        Apply observability wrappers for tool execution.
 
-        Instruments core agent methods to create AGENT spans (top-level) and CHAIN spans
-        (processing steps) for comprehensive agent execution tracing in Phoenix UI.
+        Instruments AgentToolExecutor.run_tool to create TOOL spans for individual
+        tool executions.
         """
         try:
-            # Main agent run wrapper (AGENT span - top level)
-            # Note: This only instruments regular Agent.run, not DurableAgent.run
-            # DurableAgent uses WorkflowMonitorWrapper instead
-            wrap_function_wrapper(
-                module="dapr_agents.agents.standalone",
-                name="Agent.run",
-                wrapper=self._track_wrapper(AgentRunWrapper(self._tracer)),
-            )
-
-            # Process iterations wrapper (CHAIN span - processing steps)
-            wrap_function_wrapper(
-                module="dapr_agents.agents.standalone",
-                name="Agent._conversation_loop",
-                wrapper=self._track_wrapper(ProcessIterationsWrapper(self._tracer)),
-            )
-
-            # Tool execution batch wrapper (TOOL span - batch execution)
-            wrap_function_wrapper(
-                module="dapr_agents.agents.standalone",
-                name="Agent._execute_tool_calls",
-                wrapper=self._track_wrapper(ExecuteToolsWrapper(self._tracer)),
-            )
-
-            # Individual tool execution wrapper (TOOL span - actual tool execution)
             wrap_function_wrapper(
                 module="dapr_agents.tool.executor",
                 name="AgentToolExecutor.run_tool",
                 wrapper=self._track_wrapper(RunToolWrapper(self._tracer)),
             )
 
-            # Note: DurableAgent.run is not instrumented here because it's instrumented in the _apply_workflow_wrappers method
-            # and we don't want to double instrument it. And also, instrumenting DurableAgent.run here will cause issues with the async nature of the method.
-            # So we instrument it in the _apply_workflow_wrappers method.
-
         except Exception as e:
-            logger.error(f"Error applying agent wrappers: {e}", exc_info=True)
+            logger.error(f"Error applying tool wrappers: {e}", exc_info=True)
 
     def _apply_workflow_wrappers(self) -> None:
         """

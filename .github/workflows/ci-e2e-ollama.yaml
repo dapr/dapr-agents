@@ -108,7 +108,7 @@ jobs:
         OPENAI_BASE_URL: http://localhost:11434/v1
         OLLAMA_NUM_PARALLEL: "1"
       run: |
-        uv run pytest -m "integration and ollama" -v \
+        uv run pytest -m "integration" -v \
           --timeout=300 \
           --reruns 2 \
           --reruns-delay 10 \

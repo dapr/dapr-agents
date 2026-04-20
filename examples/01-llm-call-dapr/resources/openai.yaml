@@ -18,9 +18,11 @@ metadata:
 spec:
   type: conversation.openai
   metadata:
-    - name: key
-      value: "{{OPENAI_API_KEY}}"
-    - name: model
-      value: gpt-4-turbo
-    - name: cacheTTL
-      value: 10m
+  - name: key
+    envRef: OPENAI_API_KEY
+  - name: endpoint
+    envRef: OPENAI_BASE_URL
+  - name: model
+    value: OPENAI_MODEL
+  - name: cacheTTL
+    value: 10m

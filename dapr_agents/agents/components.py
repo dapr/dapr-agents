@@ -128,7 +128,11 @@ class DaprInfra:
 
         self._state_default_model: BaseModel = self._default_entry_model()
         self._state_model: BaseModel = self._state_default_model.model_copy(deep=True)
-        self._last_etag: Optional[str] = None
+        # Per-instance-id etag cache replaces the single _last_etag field.
+        # Using a dict keyed by state-store key prevents concurrent activities
+        # (different workflow_instance_ids on the same DurableAgent object) from
+        # overwriting each other's cached etag.
+        self._etag_cache: Dict[str, Optional[str]] = {}
 
         # -----------------------------
         # Registry configuration
@@ -166,7 +170,7 @@ class DaprInfra:
         return self._pubsub.pubsub_name
 
     @property
-    def agent_topic_name(self) -> Optional[str]:
+    def topic_name(self) -> Optional[str]:
         """Return the per-agent topic name, or None if no pubsub configured."""
         if not self._pubsub:
             return None
@@ -234,10 +238,13 @@ class DaprInfra:
         Get the workflow state for a given workflow instance ID (read + set in-memory).
 
         Loads the entry from the store, validates it as the bundle's entry Pydantic model,
-        sets it as the current in-memory state (so a subsequent save_state persists it),
-        and returns it. Callers should mutate the returned model and then call save_state.
+        and returns it. Callers should mutate the returned model and then call
+        save_state(workflow_instance_id, entry=entry) to persist it.
 
-        The etag is cached so that a subsequent save_state can skip an extra load.
+        The etag is cached per state-store key so that a subsequent save_state can skip
+        an extra round-trip. Using a per-key dict (rather than a single _last_etag field)
+        ensures concurrent activities on the same DurableAgent object do not overwrite
+        each other's cached etag.
 
         Args:
             workflow_instance_id: The ID of the workflow instance to get the state for.
@@ -258,7 +265,7 @@ class DaprInfra:
             default=self._initial_state(),
             state_metadata=meta,
         )
-        self._last_etag = etag
+        self._etag_cache[key] = etag
         try:
             if isinstance(snapshot, dict):
                 entry = self._entry_model_cls.model_validate(snapshot)
@@ -269,16 +276,26 @@ class DaprInfra:
             logger.warning(
                 "Invalid workflow state encountered (%s); returning default entry.", exc
             )
-            default = self._initial_state_model()
-            self._state_model = default
-            return default
+            default_entry = self._initial_state_model()
+            self._state_model = default_entry
+            return default_entry
 
-    def save_state(self, workflow_instance_id: str) -> None:
+    def save_state(
+        self,
+        workflow_instance_id: str,
+        entry: Optional[BaseModel] = None,
+    ) -> None:
         """
         Persist the current workflow state with optimistic concurrency.
 
         No-op when no state store is configured. Uses load_with_etag + save(etag=...)
         with a short retry loop to avoid lost updates under contention.
+
+        Args:
+            workflow_instance_id: The ID of the workflow instance to save state for.
+            entry: The state entry to persist. Must be provided to avoid a shared-state
+                race condition when multiple workflow activities run concurrently on the
+                same agent object. If omitted, falls back to self._state_model (legacy).
         """
         if not self.state_store:
             logger.debug("No state store configured; skipping state persistence.")
@@ -293,11 +310,18 @@ class DaprInfra:
         meta = self._state_metadata_for_key(key)
         attempts = max(1, min(self._max_etag_attempts, 10))
 
-        # Use the cached etag from a prior get_state when available to avoid
+        # Serialize the locally-held entry to avoid a race with concurrent activities
+        # that may have already overwritten self._state_model for their own instance.
+        value = (
+            entry.model_dump(mode="json")
+            if entry is not None
+            else self._state_model.model_dump(mode="json")
+        )
+
+        # Use the per-key cached etag from a prior get_state when available to avoid
         # an extra round-trip.  Falls back to load_with_etag on the first
         # attempt when no cached etag exists, and always on retries.
-        etag = self._last_etag
-        self._last_etag = None  # consume; stale after save
+        etag = self._etag_cache.pop(key, None)
 
         if etag is None:
             # No cached etag — ensure the document exists so we get one.
@@ -311,7 +335,7 @@ class DaprInfra:
                     # Initialize to get an etag
                     self.state_store.save(
                         key=key,
-                        value=current if isinstance(current, dict) else self.state,
+                        value=current if isinstance(current, dict) else value,
                         etag=None,
                         state_metadata=meta,
                         state_options=self._save_options,
@@ -337,7 +361,7 @@ class DaprInfra:
                     )
                 self.state_store.save(
                     key=key,
-                    value=self.state,
+                    value=value,
                     etag=etag,
                     state_metadata=meta,
                     state_options=self._save_options,

@@ -766,7 +766,7 @@ class AgentBase:
         needs_otel_reload = False
         try:
             for key, item in response.items.items():
-                logger.info("Received configuration update for key: %s", key)
+                logger.info(f"Received configuration update for key: {key}")
                 # If the value is a JSON dict, apply each nested k/v pair.
                 try:
                     data = json.loads(item.value)
@@ -842,7 +842,7 @@ class AgentBase:
         try:
             descriptor.setter(self, coerced_value)
         except (AttributeError, TypeError):
-            logger.debug("Could not apply setter for key '%s' (likely read-only)", key)
+            logger.debug(f"Could not apply setter for key '{key}' (likely read-only)")
 
         # Rebuild prompt template if a profile key changed
         if descriptor.rebuilds_prompt:
@@ -924,7 +924,7 @@ class AgentBase:
             try:
                 self.configuration.on_config_change(key, value)
             except Exception as e:
-                logger.warning("Config change callback failed for key '%s': %s", key, e)
+                logger.warning(f"Config change callback failed for key '{key}': {e}")
 
     def _sync_metadata_after_config_update(self) -> None:
         """Re-register agent metadata in the registry after a config update."""
@@ -955,7 +955,7 @@ class AgentBase:
         try:
             self.register_agentic_system(metadata=meta)
         except Exception as e:
-            logger.warning("Failed to re-register agent after config update: %s", e)
+            logger.warning(f"Failed to re-register agent after config update: {e}")
 
     def stop(self) -> None:
         """Stop the agent and cleanup resources."""
@@ -997,10 +997,10 @@ class AgentBase:
             return self._infra.registry_state
 
     @property
-    def agent_topic_name(self):
+    def topic_name(self):
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
-            return self._infra.agent_topic_name
+            return self._infra.topic_name
 
     @property
     def message_bus_name(self):
@@ -1051,10 +1051,10 @@ class AgentBase:
         if hasattr(self, "_infra"):
             return self._infra.workflow_state
 
-    def save_state(self, workflow_instance_id: str) -> None:
+    def save_state(self, workflow_instance_id: str, entry=None) -> None:
         """Delegate to DaprInfra."""
         if hasattr(self, "_infra"):
-            return self._infra.save_state(workflow_instance_id)
+            return self._infra.save_state(workflow_instance_id, entry=entry)
 
     def get_state(self, instance_id: str) -> Optional[Any]:
         """Delegate to DaprInfra."""
@@ -1184,7 +1184,7 @@ class AgentBase:
         try:
             history = self.memory.get_messages(workflow_instance_id)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Memory get_messages failed: %s", exc)
+            logger.warning(f"Memory get_messages failed: {exc}")
             return []
 
         normalized: List[Dict[str, Any]] = []
@@ -1271,6 +1271,15 @@ class AgentBase:
                     workflow_instance_id,
                     exc_info=True,
                 )
+            try:
+                self.memory.purge_memory("broadcast")
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to purge broadcast memory for agent %s; "
+                    "continuing with partial purge.",
+                    getattr(self, "name", "unknown"),
+                    exc_info=True,
+                )
 
     def _summarize_conversation(
         self,
@@ -1297,7 +1306,7 @@ class AgentBase:
             raise AgentError("Long-term conversation memory is not enabled.")
 
         if not messages_list:
-            logger.debug("No messages to summarize for instance_id=%s", instance_id)
+            logger.debug(f"No messages to summarize for instance_id={instance_id}")
             return {}
 
         lines = []
@@ -1344,7 +1353,7 @@ class AgentBase:
             raise AgentError(
                 f"Failed to save summary to memory for instance_id={instance_id}"
             )
-        logger.info("Saved summary to memory for instance_id=%s", instance_id)
+        logger.info(f"Saved summary to memory for instance_id={instance_id}")
         if getattr(self, "text_formatter", None):
             self.text_formatter.print_message(
                 {**summary_message, "name": f"{self.name}"}
@@ -1508,7 +1517,27 @@ class AgentBase:
                 )
                 raise
 
-        return entry.messages
+        messages = list(entry.messages)
+
+        # Prepend the most recent broadcasts so the LLM knows what peers have reported.
+        if self.memory is not None:
+            try:
+                broadcasts = self.memory.get_messages("broadcast")
+                if broadcasts:
+                    recent = broadcasts[-3:]
+                    broadcast_msgs = [
+                        {"role": m.get("role", "user"), "content": m.get("content", "")}
+                        for m in recent
+                    ]
+                    messages = broadcast_msgs + messages
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to load broadcast memory for agent %s; continuing without it.",
+                    getattr(self, "name", "unknown"),
+                    exc_info=True,
+                )
+
+        return messages
 
     def _sync_system_messages_with_state(
         self,
@@ -1953,7 +1982,7 @@ class AgentBase:
                     logger_provider=noop_logger_provider,
                 )
             self._shutdown_otel_providers(old_tracer_provider, old_logger_provider)
-            logger.info("Agent %s: OTel disabled via hot-reload", self.name)
+            logger.info(f"Agent {self.name}: OTel disabled via hot-reload")
             return
 
         try:
@@ -1980,7 +2009,7 @@ class AgentBase:
 
         # Shutdown old providers (flushes pending spans/logs)
         self._shutdown_otel_providers(old_tracer_provider, old_logger_provider)
-        logger.info("Agent %s: OTel providers reloaded via hot-reload", self.name)
+        logger.info(f"Agent {self.name}: OTel providers reloaded via hot-reload")
 
     @staticmethod
     def _shutdown_otel_providers(tracer_provider, logger_provider) -> None:

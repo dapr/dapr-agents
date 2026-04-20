@@ -13,7 +13,7 @@ limitations under the License.
 
 # Agent-based Workflow Patterns
 
-This quickstart demonstrates how to orchestrate agentic tasks using Dapr Workflows and agent-backed activities. You’ll learn how to compose multi-step workflows that call autonomous agents—each powered by LLMs—for reasoning, decision-making, and task execution.
+This example demonstrates how to orchestrate agentic tasks using Dapr Workflows and agent-backed activities. You’ll learn how to compose multi-step workflows that call autonomous agents—each powered by LLMs—for reasoning, decision-making, and task execution.
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ uv sync --active
 
 ## Configuration
 
-The quickstart includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
+The example includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -46,46 +46,29 @@ The quickstart includes an OpenAI component configuration in the `components` di
 OPENAI_API_KEY=your_api_key_here
 ```
 
-2. When running the examples with Dapr, use the helper script to resolve environment variables:
+2. Export the environment variable before running:
 
 #### macOS / Linux (Bash)
+
 ```bash
 # Get the environment variables from the .env file:
 export $(grep -v '^#' ../../.env | xargs)
-
-# Create a temporary resources folder with resolved environment variables
-temp_resources_folder=$(../resolve_env_templates.py ./components)
-
-# Run your dapr command with the temporary resources
-uv run dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python 01_sequential_workflow.py
-
-# Clean up when done
-rm -rf $temp_resources_folder
 ```
 
 #### Windows (PowerShell)
+
 ```powershell
 # Get the environment variables from the .env file:
 Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object {
     $name, $value = $_.Split('=', 2)
     [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
 }
-
-# Create a temporary resources folder with resolved environment variables
-$temp_resources_folder = python ../resolve_env_templates.py ./components
-
-# Run your dapr command with the temporary resources
-uv run dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python 01_sequential_workflow.py
-
-# Clean up when done
-Remove-Item -Recurse -Force $temp_resources_folder
 ```
-
-> The temporary resources folder will be automatically deleted when the Dapr sidecar is stopped or when the computer is restarted.
 
 ### Option 2: Direct Component Configuration
 
 You can directly update the `key` in [resources/openai.yaml](resources/openai.yaml):
+
 ```yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -100,7 +83,7 @@ spec:
 
 Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key.
 
-> Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
+> **Note:** Many LLM providers are compatible with OpenAI's API (DeepSeek, Google AI, etc.) and can be used with this component by configuring the appropriate parameters. Dapr also has [native support](https://docs.dapr.io/reference/components-reference/supported-conversation/) for other providers like Google AI, Anthropic, Mistral, DeepSeek, etc.
 
 ### Additional Components
 
@@ -110,7 +93,7 @@ Make sure Dapr is initialized on your system:
 dapr init
 ```
 
-The quickstart includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
+The example includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
 
 Look at the `workflowstate.yaml` file in the `components` directory:
 
@@ -195,4 +178,4 @@ Dapr Agents workflows leverage Dapr's core capabilities:
 
 ## Next Steps
 
-After completing this quickstart, move on to the [Multi-Agent Workflow quickstart](../05-multi-agent-workflows/README.md) to learn how to create distributed systems of collaborating agents.
+After completing this example, move on to the [Multi-Agent Workflow example](../04-multi-agent-workflows/README.md) to learn how to create distributed systems of collaborating agents.

@@ -22,10 +22,11 @@ class TestAgentBasedWorkflowsQuickstart:
     """Integration tests for 03-agent-based-workflows example."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, examples_dir, openai_api_key):
+    def setup(self, examples_dir, openai_api_key, is_ollama):
         """Setup test environment."""
         self.quickstart_dir = examples_dir / "03-agent-based-workflows"
         self.env = {"OPENAI_API_KEY": openai_api_key}
+        self.is_ollama = is_ollama
 
     def test_sequential_workflow(self, dapr_runtime):  # noqa: ARG002
         """Test sequential agent workflow (01_sequential_workflow.py).
@@ -33,6 +34,10 @@ class TestAgentBasedWorkflowsQuickstart:
         Note: dapr_runtime parameter ensures Dapr is initialized before this test runs.
         The fixture is needed for setup, even though we don't use the value directly.
         """
+        if self.is_ollama:
+            pytest.skip(
+                "Sequential agent workflow requires a capable LLM; Ollama small models not supported"
+            )
         dapr_yaml = self.quickstart_dir / "sequential.yaml"
         # TODO: rm this once we get the next Dapr CLI RC with this set by default.
         env = self.env.copy()

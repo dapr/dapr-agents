@@ -25,6 +25,7 @@ from dapr.clients import DaprClient
 from dapr.clients.grpc._response import TopicEventResponse
 from dapr.common.pubsub.subscription import SubscriptionMessage
 from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
+from cachetools import TTLCache
 
 from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
@@ -55,6 +56,27 @@ class DedupeBackend(Protocol):
     def seen(self, key: str) -> bool: ...
 
     def mark(self, key: str) -> None: ...
+
+
+class TTLDedupeBackend:
+    """Thread-safe in-memory deduplication backend using a TTL cache.
+
+    Entries expire after `ttl` seconds, so memory is bounded and old IDs
+    are not retained indefinitely.  Suitable for Dapr at-least-once delivery
+    where duplicate messages typically arrive within a short retry window.
+    """
+
+    def __init__(self, maxsize: int = 4096, ttl: float = 60.0) -> None:
+        self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
+        self._lock = threading.Lock()
+
+    def seen(self, key: str) -> bool:
+        with self._lock:
+            return key in self._cache
+
+    def mark(self, key: str) -> None:
+        with self._lock:
+            self._cache[key] = True
 
 
 SchedulerFn = Callable[[Callable[..., Any], dict], Optional[str]]
@@ -282,10 +304,17 @@ def _shutdown_thread(
 
     thread.join(timeout=THREAD_SHUTDOWN_TIMEOUT_SECONDS)
     if thread.is_alive():
-        raise RuntimeError(
-            f"Consumer thread for {pubsub_name}:{topic_name} did not stop within "
-            f"{THREAD_SHUTDOWN_TIMEOUT_SECONDS}s timeout. Thread may be a zombie."
-        )
+        if thread.daemon:
+            logger.warning(
+                f"Consumer thread for {pubsub_name}:{topic_name} did not stop within "
+                f"{THREAD_SHUTDOWN_TIMEOUT_SECONDS}s; it is a daemon thread and will "
+                f"be reaped on process exit."
+            )
+        else:
+            raise RuntimeError(
+                f"Consumer thread for {pubsub_name}:{topic_name} did not stop within "
+                f"{THREAD_SHUTDOWN_TIMEOUT_SECONDS}s timeout. Thread may be a zombie."
+            )
 
 
 def _subscribe_message_bindings(
@@ -342,6 +371,13 @@ def _subscribe_message_bindings(
             input_json = json.dumps(wf_input, ensure_ascii=False, indent=2)
             logger.debug(f"Scheduling workflow: {workflow_name} | input={input_json}")
 
+            # All pub/sub-triggered handlers go through schedule_new_workflow for
+            # durable execution. Two distinct paths exist downstream:
+            #   • agent_workflow: full durable agent run (LLM, tools, state).
+            #     Required for external callers who cannot use call_child_workflow,
+            #     which only works from inside a running Dapr workflow context.
+            #   • on_broadcast: lightweight context storage from team peers, kept as
+            #     a workflow for durable execution and future hook extensibility.
             instance_id = await asyncio.to_thread(
                 wf_client.schedule_new_workflow,
                 workflow=bound_workflow,

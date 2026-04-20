@@ -424,7 +424,9 @@ class TestAgentBaseClass:
         basic_agent.purge("wf-abc")
 
         basic_agent._infra.purge_state.assert_called_once_with("wf-abc")
-        basic_agent.memory.purge_memory.assert_called_once_with("wf-abc")
+        assert basic_agent.memory.purge_memory.call_count == 2
+        basic_agent.memory.purge_memory.assert_any_call("wf-abc")
+        basic_agent.memory.purge_memory.assert_any_call("broadcast")
 
     def test_purge_without_memory_only_calls_purge_state(self, basic_agent):
         """purge() must not error when memory is None and still purge state."""

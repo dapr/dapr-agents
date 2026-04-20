@@ -17,6 +17,8 @@ from types import TracebackType
 import asyncio
 import logging
 
+from anyio import BrokenResourceError
+
 from pydantic import BaseModel, ValidationError, Field, PrivateAttr
 from mcp import ClientSession
 from mcp.types import CallToolResult, TextContent
@@ -116,18 +118,62 @@ class MCPClient(BaseModel):
         config = self._server_configs.get(server_name)
         if not config:
             raise ToolError(f"No stored config found for server '{server_name}'")
-        async with AsyncExitStack() as stack:
-            transport = config["transport"]
-            params = config["params"]
+
+        stack = AsyncExitStack()
+        transport = config["transport"]
+        params = config["params"]
+        try:
+            session = await start_transport_session(transport, params, stack)
+            await session.initialize()
+        except Exception as e:
+            # Ensure cleanup errors do not mask the original failure.
             try:
-                session = await start_transport_session(transport, params, stack)
-                await session.initialize()
-                yield session
-            except Exception as e:
-                logger.error(f"Failed to create ephemeral session: {e}")
-                raise ToolError(
-                    f"Could not create session for '{server_name}': {e}"
-                ) from e
+                await stack.aclose()
+            except Exception as exc:
+                # Handle both a bare BrokenResourceError and an ExceptionGroup
+                # (anyio wraps task-group errors) that contains only BrokenResourceError.
+                sub_exceptions = getattr(exc, "exceptions", None)
+                if isinstance(exc, BrokenResourceError) or (
+                    sub_exceptions is not None
+                    and all(
+                        isinstance(err, BrokenResourceError) for err in sub_exceptions
+                    )
+                ):
+                    logger.debug(
+                        "Ignoring BrokenResourceError during ephemeral session cleanup "
+                        "after failed creation (expected for stdio transport)"
+                    )
+                else:
+                    logger.warning(
+                        "Error during cleanup after failed ephemeral session creation: %s",
+                        exc,
+                    )
+            logger.error(f"Failed to create ephemeral session: {e}")
+            raise ToolError(f"Could not create session for '{server_name}': {e}") from e
+
+        try:
+            yield session
+        finally:
+            # BrokenResourceError during cleanup is expected for stdio transport:
+            # ClientSession exits before stdio_client's task group, closing the
+            # read_stream receive end while stdout_reader may still be sending.
+            # This is benign — the tool call has already completed successfully.
+            try:
+                await stack.aclose()
+            except Exception as exc:
+                # Handle both a bare BrokenResourceError and an ExceptionGroup
+                # (anyio wraps task-group errors) that contains only BrokenResourceError.
+                sub_exceptions = getattr(exc, "exceptions", None)
+                if isinstance(exc, BrokenResourceError) or (
+                    sub_exceptions is not None
+                    and all(isinstance(e, BrokenResourceError) for e in sub_exceptions)
+                ):
+                    logger.debug(
+                        "Ignoring BrokenResourceError during ephemeral session cleanup "
+                        "(expected for stdio transport)"
+                    )
+                else:
+                    raise
 
     async def connect(self, config: dict) -> None:
         """
