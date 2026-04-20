@@ -952,9 +952,11 @@ class DurableAgent(AgentBase):
 
             child_instance_id = str(uuid.uuid4())
             dispatch_time = ctx.current_utc_datetime.isoformat()
-            agent_workflow_name = agent_meta.get("metadata", {}).get(
-                "workflow_name"
-            ) if isinstance(agent_meta.get("metadata"), dict) else None
+            agent_workflow_name = (
+                agent_meta.get("metadata", {}).get("workflow_name")
+                if isinstance(agent_meta.get("metadata"), dict)
+                else None
+            )
             _agent_tool = agent_to_tool(
                 next_agent,
                 description="",
