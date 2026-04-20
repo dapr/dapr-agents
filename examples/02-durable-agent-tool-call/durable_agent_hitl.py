@@ -88,6 +88,7 @@ async def _receive_approval_request(request: Request):
 def get_weather(location: str) -> str:
     """Get weather information for a location."""
     import random
+
     temperature = random.randint(60, 85)
     return f"{location}: {temperature}F, partly cloudy."
 
@@ -116,7 +117,7 @@ async def main():
     )
     _uvicorn_server = uvicorn.Server(_uvicorn_config)
     _uvicorn_task = asyncio.create_task(_uvicorn_server.serve())
-    await asyncio.sleep(0.5) 
+    await asyncio.sleep(0.5)
 
     approval_config = AgentApprovalConfig(
         pubsub_name="messagepubsub",
