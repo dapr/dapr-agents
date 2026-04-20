@@ -93,6 +93,16 @@ from dapr_agents.tool.workflow.agent_tool import (
 )
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 from dapr_agents.workflow.utils.names import sanitize_agent_name
+from dapr_agents.hooks import (
+    Hooks,
+    HookContext,
+    HookDecision,
+    Proceed,
+    Skip,
+    Modify,
+    RequireApproval,
+    Deny,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +234,7 @@ class DurableAgent(AgentBase):
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
         agent_observability: Optional[AgentObservabilityConfig] = None,
         configuration: Optional[RuntimeSubscriptionConfig] = None,
+        hooks: Optional[Hooks] = None,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -314,6 +325,7 @@ class DurableAgent(AgentBase):
         self._runtime_owned = runtime is None
         self._registered = False
         self._started = False
+        self._hooks: Optional[Hooks] = hooks
 
         try:
             retries = int(getenv("DAPR_API_MAX_RETRIES", ""))
@@ -510,30 +522,54 @@ class DurableAgent(AgentBase):
                                 turn,
                             )
 
-                        # approval pass:
-                        # for each tool that requires approval, pause the workflow
-                        # and collect the human decision before we build any task lists.
-                        # approvals are processed one at a time because each blocks
-                        # until a human responds (or the timeout elapses).
-                        approval_decisions: Dict[str, bool] = {}
-                        if self.execution.approval.enabled:
+                        # hook pass: run before_tool_call for every tool in this turn and collect decisions before dispatching anything.
+                        hook_decisions: Dict[str, HookDecision] = {}
+                        if self._hooks and self._hooks.before_tool_call:
                             for tc in tool_calls:
                                 fn_name_check = tc["function"]["name"]
-                                check_obj = self.tool_executor.get_tool(fn_name_check)
-                                if check_obj and getattr(
-                                    check_obj, "requires_approval", False
-                                ):
-                                    approved = yield from self._request_approval(
-                                        ctx, ctx.instance_id, tc
+                                tool_obj_check = self.tool_executor.get_tool(
+                                    fn_name_check
+                                )
+                                raw_args_check = tc["function"].get("arguments", "")
+                                try:
+                                    hook_payload = (
+                                        json.loads(raw_args_check)
+                                        if raw_args_check
+                                        else {}
                                     )
-                                    approval_decisions[tc["id"]] = approved
+                                except json.JSONDecodeError:
+                                    hook_payload = {}
+                                hook_ctx = HookContext(
+                                    step_name=fn_name_check,
+                                    step_kind="tool",
+                                    source=getattr(tool_obj_check, "source", "local"),
+                                    payload=hook_payload,
+                                    tool_call_id=tc["id"],
+                                )
+                                decision = self._hooks.before_tool_call(hook_ctx)
+                                if decision is None or isinstance(decision, Proceed):
+                                    pass  # no-op, tool runs normally
+                                elif isinstance(decision, RequireApproval):
+                                    # suspend here and wait for human; convert outcome to Deny or Proceed
+                                    approved = yield from self._request_approval(
+                                        ctx, ctx.instance_id, tc, decision
+                                    )
+                                    hook_decisions[tc["id"]] = (
+                                        Proceed()
+                                        if approved
+                                        else Deny(
+                                            reason="approval was not granted or timed out"
+                                        )
+                                    )
                                     if not ctx.is_replaying:
                                         logger.debug(
-                                            "Approval for tool '%s': %s (instance=%s)",
+                                            "RequireApproval for tool '%s': %s (instance=%s)",
                                             fn_name_check,
                                             "approved" if approved else "not approved",
                                             ctx.instance_id,
                                         )
+                                else:
+                                    hook_decisions[tc["id"]] = decision
 
                         ordered: List[Optional[Dict[str, Any]]] = [None] * len(
                             tool_calls
@@ -547,17 +583,16 @@ class DurableAgent(AgentBase):
                         for idx, tc in enumerate(tool_calls):
                             fn_name = tc["function"]["name"]
 
-                            # inject denial message and skip execution for any tool
-                            # whose approval was not granted or timed out
-                            if (
-                                tc["id"] in approval_decisions
-                                and not approval_decisions[tc["id"]]
-                            ):
+                            # check hook decisions for this tool call
+                            hook_decision = hook_decisions.get(tc["id"])
+
+                            if isinstance(hook_decision, Deny):
+                                # hook blocked the tool outright — synthesize a denial message
+                                block_reason = (
+                                    hook_decision.reason or "blocked by policy"
+                                )
                                 denial_msg = ToolMessage(
-                                    content=(
-                                        f"Tool '{fn_name}' was not executed: "
-                                        "approval was not granted."
-                                    ),
+                                    content=f"Tool '{fn_name}' was not executed: {block_reason}.",
                                     role="tool",
                                     name=fn_name,
                                     tool_call_id=tc["id"],
@@ -565,11 +600,47 @@ class DurableAgent(AgentBase):
                                 ordered[idx] = denial_msg.model_dump()
                                 if not ctx.is_replaying:
                                     logger.info(
-                                        "Skipping tool '%s': approval was not granted (instance=%s)",
+                                        "Skipping tool '%s': %s (instance=%s)",
+                                        fn_name,
+                                        block_reason,
+                                        ctx.instance_id,
+                                    )
+                                continue
+
+                            if isinstance(hook_decision, Skip):
+                                # hook provided a result — use it directly without running the tool
+                                skip_content = (
+                                    str(hook_decision.result)
+                                    if hook_decision.result is not None
+                                    else f"Tool '{fn_name}' was skipped."
+                                )
+                                skip_msg = ToolMessage(
+                                    content=skip_content,
+                                    role="tool",
+                                    name=fn_name,
+                                    tool_call_id=tc["id"],
+                                )
+                                ordered[idx] = skip_msg.model_dump()
+                                if not ctx.is_replaying:
+                                    logger.info(
+                                        "Skipping tool '%s' with hook-provided result (instance=%s)",
                                         fn_name,
                                         ctx.instance_id,
                                     )
                                 continue
+
+                            if (
+                                isinstance(hook_decision, Modify)
+                                and hook_decision.payload is not None
+                            ):
+                                # hook mutated the arguments — rebuild tc with new payload
+                                tc = {
+                                    **tc,
+                                    "function": {
+                                        **tc.get("function", {}),
+                                        "arguments": json.dumps(hook_decision.payload),
+                                    },
+                                }
 
                             tool_obj = self.tool_executor.get_tool(fn_name)
 
@@ -687,17 +758,21 @@ class DurableAgent(AgentBase):
                                 for meta in activity_meta
                             }
                         )
-                        # include denied tool calls so save_tool_results can log them
-                        # in tool_history for observability
+                        # include hook-blocked/skipped tool calls so save_tool_results
+                        # can record them in tool_history for observability
                         for tc in tool_calls:
-                            if (
-                                tc["id"] in approval_decisions
-                                and not approval_decisions[tc["id"]]
-                            ):
+                            decision_for_tracking = hook_decisions.get(tc["id"])
+                            if isinstance(decision_for_tracking, (Deny, Skip)):
+                                hook_label = (
+                                    "denied"
+                                    if isinstance(decision_for_tracking, Deny)
+                                    else "skipped"
+                                )
                                 tool_calls_by_id[tc["id"]] = {
                                     "tool_call": tc,
                                     "is_agent_call": False,
                                     "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                    "hook_decision": hook_label,
                                 }
                         yield ctx.call_activity(
                             self.save_tool_results,
@@ -797,21 +872,21 @@ class DurableAgent(AgentBase):
         ctx: wf.DaprWorkflowContext,
         instance_id: str,
         tool_call: Dict[str, Any],
+        decision: RequireApproval,
     ):
         """
         Pause the workflow and wait for a human to approve or deny a tool call.
 
-        This generator is called with ``yield from`` from agent_workflow. It publishes
-        an ApprovalRequiredEvent the first time it runs for a given tool_call_id, then
-        suspends the workflow via wait_for_external_event. On replay, the publish is
-        skipped if the request ID already exists in workflow state
-        The timeout per tool comes from the tool's approval_timeout_seconds field;
-        if not set, AgentApprovalConfig.default_timeout_seconds is used.
+        Called with ``yield from`` from agent_workflow when a before_tool_call hook
+        returns RequireApproval. Publishes an ApprovalRequiredEvent the first time it
+        runs for a given tool_call_id, then suspends via wait_for_external_event. On
+        replay, the activity result is cached so the publish does not fire again.
 
         Args:
             ctx: Dapr workflow context.
             instance_id: Running workflow instance ID.
             tool_call: Tool call dict with 'id' and 'function' keys.
+            decision: The RequireApproval decision returned by the hook.
 
         Returns:
             True if the human approved, False if not approved or the timeout elapsed.
@@ -820,14 +895,10 @@ class DurableAgent(AgentBase):
         fn_name = tool_call.get("function", {}).get("name", "unknown")
         tool_call_id = tool_call.get("id", "")
 
-        # use the per-tool timeout when set, otherwise fall back to the agent default
-        tool_obj = self.tool_executor.get_tool(fn_name)
-        tool_timeout = (
-            getattr(tool_obj, "approval_timeout_seconds", None) if tool_obj else None
-        )
+        # use the decision's timeout first, then fall back to the agent-level default
         timeout_seconds = (
-            tool_timeout
-            if tool_timeout is not None
+            decision.timeout_seconds
+            if decision.timeout_seconds is not None
             else approval_config.default_timeout_seconds
         )
 
@@ -842,13 +913,17 @@ class DurableAgent(AgentBase):
         except json.JSONDecodeError:
             tool_args = {}
 
+        tool_obj = self.tool_executor.get_tool(fn_name)
         approval_event = ApprovalRequiredEvent(
             approval_request_id=approval_request_id,
             instance_id=instance_id,
-            tool_name=fn_name,
+            step_name=fn_name,
+            step_kind="tool",
+            source=getattr(tool_obj, "source", "local"),
             tool_call_id=tool_call_id,
             tool_arguments=tool_args,
             timeout_seconds=timeout_seconds,
+            instructions=decision.instructions,
         )
 
         if not ctx.is_replaying:
@@ -2134,12 +2209,20 @@ class DurableAgent(AgentBase):
                 agent_wf_instance_id = tc_info.get("child_instance_id") or (
                     tool_call_id if is_agent_call else None
                 )
+                # map hook decision labels to the right execution status
+                hook_decision_label = tc_info.get("hook_decision")
+                if hook_decision_label == "denied":
+                    exec_status = ToolExecutionStatus.DENIED
+                elif hook_decision_label == "skipped":
+                    exec_status = ToolExecutionStatus.SKIPPED
+                else:
+                    exec_status = ToolExecutionStatus.COMPLETED
                 entry.tool_history.append(
                     ToolExecutionRecord(
                         tool_call_id=tool_call_id,
                         tool_name=tool_result.name or fn.get("name", ""),
                         tool_args=args,
-                        status=ToolExecutionStatus.COMPLETED,
+                        status=exec_status,
                         is_agent_call=is_agent_call,
                         execution_result=tool_result.content,
                         executing_agent=self.name,

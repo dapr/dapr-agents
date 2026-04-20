@@ -154,6 +154,8 @@ class ToolExecutionStatus(str, Enum):
     COMPLETED = "completed"  # Finished successfully
     FAILED = "failed"  # Finished with an error
     TIMEOUT = "timeout"  # Exceeded execution deadline
+    DENIED = "denied"  # Blocked by a hook Deny decision (no human involved)
+    SKIPPED = "skipped"  # Bypassed by a hook Skip decision (result provided by hook)
 
 
 class ToolExecutionRecord(BaseModel):

@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from dapr_agents.types import MessageContent, ToolExecutionRecord
 from dapr_agents.types.message import BaseMessage
@@ -28,11 +28,15 @@ def utcnow() -> datetime:
 
 class ApprovalRequiredEvent(BaseModel):
     """
-    Event published to Dapr Pub/Sub when a tool requires human approval before it executes.
+    Event published to Dapr Pub/Sub when a step requires human approval.
 
-    The workflow publishes this event, then suspends. An external approval service
+    The workflow publishes this event and suspends. An external approval service
     (Slack bot, web UI, CLI) receives it, notifies a human, and sends back an
     ApprovalResponseEvent to resume the workflow.
+
+    The primary field is `step_name`. The `tool_name` property is kept for
+    backward compatibility — existing listeners that read `event.tool_name`
+    continue to work without changes.
     """
 
     approval_request_id: str = Field(
@@ -41,12 +45,23 @@ class ApprovalRequiredEvent(BaseModel):
     instance_id: str = Field(
         description="Workflow instance that is waiting for approval"
     )
-    tool_name: str = Field(description="Name of the tool that needs approval")
+    step_name: str = Field(
+        description="Name of the step that needs approval (tool name or 'llm')"
+    )
+    step_kind: str = Field(default="tool", description="'tool' or 'llm'")
+    source: str = Field(
+        default="local",
+        description="Where the tool came from: 'local', 'mcp', 'openapi', etc.",
+    )
     tool_call_id: str = Field(
         description="LLM-assigned ID of the tool call (from the assistant message)"
     )
     tool_arguments: Dict[str, Any] = Field(
         description="Arguments the LLM wants to pass to the tool"
+    )
+    instructions: Optional[str] = Field(
+        default=None,
+        description="Human-readable instructions shown to the approver",
     )
     context: Dict[str, Any] = Field(
         default_factory=dict,
@@ -58,6 +73,20 @@ class ApprovalRequiredEvent(BaseModel):
     timeout_seconds: int = Field(
         description="Seconds before the workflow auto-denies if no human responds"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compat_tool_name(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "tool_name" in data and "step_name" not in data:
+            data = dict(data)
+            data["step_name"] = data.pop("tool_name")
+        return data
+
+    @computed_field
+    @property
+    def tool_name(self) -> str:
+        """backward compat alias for step_name — existing listeners can keep reading this."""
+        return self.step_name
 
 
 class ApprovalResponseEvent(BaseModel):

@@ -13,13 +13,15 @@
 
 """
 Human-in-the-loop (HITL) example for DurableAgent.
+
 This script shows how to:
-  1. Define a tool that requires human approval before it runs.
-  2. Run a DurableAgent with approval enabled.
+  1. Register a before_tool_call hook that returns RequireApproval for specific tools.
+  2. Run a DurableAgent with that hook — no decorator changes needed on any tool.
   3. Receive the ApprovalRequiredEvent via Dapr Pub/Sub.
   4. Send the human decision back to resume the waiting workflow.
 
-Start the Dapr sidecar alongside this script
+The hook approach works for all tool sources — anything loaded at runtime.
+
 The script will:
   1. Start the agent workflow.
   2. Receive the ApprovalRequiredEvent from the pub/sub topic.
@@ -40,6 +42,7 @@ from fastapi import FastAPI, Request, Response
 from dapr_agents import DurableAgent, tool, AgentApprovalConfig
 from dapr_agents.agents.configs import AgentExecutionConfig
 from dapr_agents.agents.schemas import ApprovalRequiredEvent
+from dapr_agents.hooks import Hooks, HookContext, HookDecision, RequireApproval, Proceed
 from dapr_agents.workflow.runners import AgentRunner
 from dapr_agents.llm.openai import OpenAIChatClient
 
@@ -47,7 +50,8 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# both Uvicorn and main() run in the same event loop (via asyncio.create_task), so put_nowait() from the FastAPI handler immediately wakes up get() in main()
+# both uvicorn and main() run in the same event loop (via asyncio.create_task),
+# so put_nowait() from the fastapi handler immediately wakes up get() in main()
 _approval_queue: asyncio.Queue = asyncio.Queue()
 _dapr_app = FastAPI()
 
@@ -65,9 +69,7 @@ def _subscribe():
 
 @_dapr_app.post("/agent-approval-requests")
 async def _receive_approval_request(request: Request):
-    """Called by Dapr when the workflow publishes an approval request.
-    Parses the CloudEvent and pushes the typed payload to the queue for main() to handle.
-    """
+    """Called by Dapr when the workflow publishes an approval request."""
     body = await request.body()
     envelope = json.loads(body)
     data = envelope.get("data") or envelope
@@ -75,45 +77,48 @@ async def _receive_approval_request(request: Request):
     _approval_queue.put_nowait(event)
     logger.info(
         "Approval request received via pub/sub: tool='%s' request_id=%s instance=%s",
-        event.tool_name,
+        event.step_name,
         event.approval_request_id,
         event.instance_id,
     )
     return Response(status_code=200)
 
 
-# mock tools
 @tool
 def get_weather(location: str) -> str:
     """Get weather information for a location."""
     import random
-
     temperature = random.randint(60, 85)
     return f"{location}: {temperature}F, partly cloudy."
 
 
-@tool(requires_approval=True, approval_timeout_seconds=120)
+@tool
 def delete_old_data(dataset: str) -> str:
     """Permanently delete a dataset by name."""
     return f"Dataset '{dataset}' has been deleted."
 
 
-# main
+# the hook decides at runtime which tools need approval
+def before_tool(ctx: HookContext) -> HookDecision:
+    if ctx.step_name == "DeleteOldData":
+        return RequireApproval(
+            timeout_seconds=120,
+            instructions=f"confirm deletion of dataset: {ctx.payload.get('dataset')}",
+        )
+    return Proceed()
+
+
 async def main():
     logging.basicConfig(level=logging.INFO)
 
-    # run Uvicorn as a task in this event loop so the pub/sub handler and queue.get() share the same loop.
     _uvicorn_config = uvicorn.Config(
         _dapr_app, host="0.0.0.0", port=8001, log_level="warning"
     )
     _uvicorn_server = uvicorn.Server(_uvicorn_config)
     _uvicorn_task = asyncio.create_task(_uvicorn_server.serve())
-    await asyncio.sleep(
-        0.5
-    )  # wait for Uvicorn to open the socket before Dapr delivers messages
+    await asyncio.sleep(0.5) 
 
     approval_config = AgentApprovalConfig(
-        enabled=True,
         pubsub_name="messagepubsub",
         topic="agent-approval-requests",
         default_timeout_seconds=120,
@@ -127,9 +132,13 @@ async def main():
             "Use delete_old_data when asked to clean up or remove data.",
             "Use get_weather for weather queries.",
         ],
-        llm=OpenAIChatClient(model="openai/gpt-4o-mini"),
+        llm=OpenAIChatClient(
+            model="openai/gpt-5-nano",
+            base_url="https://openrouter.ai/api/v1",
+        ),
         tools=[get_weather, delete_old_data],
         execution=AgentExecutionConfig(approval=approval_config),
+        hooks=Hooks(before_tool_call=before_tool),
     )
 
     runner = AgentRunner()
@@ -145,7 +154,6 @@ async def main():
     )
     print(f"workflow started: instance_id = {instance_id}\n")
 
-    # block until the workflow publishes an ApprovalRequiredEvent and Dapr delivers it here
     print("waiting for approval request from pub/sub (workflow is paused) ...\n")
     try:
         approval_event: ApprovalRequiredEvent = await asyncio.wait_for(
@@ -165,10 +173,12 @@ async def main():
     print("\n" + "=" * 60)
     print("  APPROVAL REQUIRED")
     print("=" * 60)
-    print(f"  tool      : {approval_event.tool_name}")
+    print(f"  tool      : {approval_event.step_name}")
     print(f"  arguments : {approval_event.tool_arguments}")
     print(f"  instance  : {approval_event.instance_id}")
     print(f"  request   : {approval_event.approval_request_id}")
+    if approval_event.instructions:
+        print(f"  note      : {approval_event.instructions}")
     print("=" * 60)
     decision_word = "approved" if APPROVED else "denied"
     print(
@@ -197,7 +207,7 @@ async def main():
         print("\n" + "=" * 60)
         print("  ANOTHER APPROVAL REQUIRED")
         print("=" * 60)
-        print(f"  tool      : {next_event.tool_name}")
+        print(f"  tool      : {next_event.step_name}")
         print(f"  arguments : {next_event.tool_arguments}")
         print("=" * 60)
         print(

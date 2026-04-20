@@ -24,6 +24,16 @@ from dapr_agents.agents.configs import (
     LLMMetadata,
 )
 from dapr_agents.agents.schemas import ApprovalRequiredEvent, ApprovalResponseEvent
+from dapr_agents.hooks import (
+    Hooks,
+    HookContext,
+    HookDecision,
+    Proceed,
+    Skip,
+    Modify,
+    RequireApproval,
+    Deny,
+)
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
 from dapr_agents.llm.dapr import DaprChatClient
 from dapr_agents.llm.elevenlabs import ElevenLabsSpeechClient
@@ -58,6 +68,14 @@ __all__ = [
     "AgentApprovalConfig",
     "ApprovalRequiredEvent",
     "ApprovalResponseEvent",
+    "Hooks",
+    "HookContext",
+    "HookDecision",
+    "Proceed",
+    "Skip",
+    "Modify",
+    "RequireApproval",
+    "Deny",
     "AgentMetadataSchema",
     "AgentMetadata",
     "PubSubMetadata",
