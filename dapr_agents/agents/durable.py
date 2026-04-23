@@ -1724,14 +1724,12 @@ class DurableAgent(AgentBase):
             AgentError: If the executor is not configured or yields an
                 ``error`` event, or if the stream ends without ``complete``.
         """
-        import asyncio
-
         if self.executor is None:  # Defensive; agent_workflow guards this.
             raise AgentError(
                 "run_executor called on an agent without an AgentExecutorBase."
             )
 
-        return asyncio.run(self._consume_executor(payload))
+        return AgentBase._run_asyncio_task(self._consume_executor(payload))
 
     async def _consume_executor(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
