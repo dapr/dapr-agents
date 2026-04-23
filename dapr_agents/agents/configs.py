@@ -417,7 +417,8 @@ class AgentApprovalConfig:
 
     pubsub_name: str = "dapr-agents-pubsub"
     topic: str = "agent-approval-requests"
-    default_timeout_seconds: int = 300
+    # None means wait indefinitely — the workflow suspends until a human responds, with no automatic denial. Use a positive int (seconds) to auto-deny after that window elapses when approvers may be unavailable.
+    default_timeout_seconds: Optional[int] = 300
 
 
 @dataclass

@@ -23,6 +23,9 @@ from typing import Any, Dict, Iterable, List, Optional
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
+from dapr.ext.workflow import DaprWorkflowClient
+from dapr.ext.workflow.workflow_state import WorkflowStatus
+from durabletask import task as dt
 
 from dapr_agents.agents.orchestration import (
     OrchestrationStrategy,
@@ -85,7 +88,7 @@ from dapr_agents.types.tools import ToolExecutionRecord, ToolExecutionStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
-from dapr_agents.workflow.utils.pubsub import broadcast_message
+from dapr_agents.workflow.utils.pubsub import broadcast_message, publish_message
 from dapr_agents.tool.workflow.agent_tool import (
     AgentWorkflowTool,
     agent_to_tool,
@@ -956,25 +959,26 @@ class DurableAgent(AgentBase):
                 instance_id,
             )
 
-        # suspend until the external approval event arrives or the timeout elapses;
-        # wait_for_external_event has no timeout parameter in this SDK version so we
-        # race the event against a create_timer using when_any instead.
-        from durabletask import task as dt
-
         event_name = f"approval_response_{approval_request_id}"
         event_task = ctx.wait_for_external_event(event_name)
-        timer_task = ctx.create_timer(timedelta(seconds=timeout_seconds))
-        winner = yield dt.when_any([event_task, timer_task])
 
-        if winner is timer_task:
-            if not ctx.is_replaying:
-                logger.warning(
-                    "Approval request %s timed out for tool '%s' (instance=%s) — auto-denying",
-                    approval_request_id,
-                    fn_name,
-                    instance_id,
-                )
-            return False
+        if timeout_seconds is None:
+            # No timeout: suspend indefinitely until a human sends the approval event. The workflow stays paused in Dapr's durable state.
+            yield event_task
+        else:
+            # Race the approval event against a timer
+            timer_task = ctx.create_timer(timedelta(seconds=timeout_seconds))
+            winner = yield dt.when_any([event_task, timer_task])
+
+            if winner is timer_task:
+                if not ctx.is_replaying:
+                    logger.warning(
+                        "Approval request %s timed out for tool '%s' (instance=%s) — auto-denying",
+                        approval_request_id,
+                        fn_name,
+                        instance_id,
+                    )
+                return False
 
         # event won the race — read the human decision
         try:
@@ -2255,8 +2259,6 @@ class DurableAgent(AgentBase):
         topic = payload["topic"]
 
         async def _publish() -> None:
-            from dapr_agents.workflow.utils.pubsub import publish_message
-
             await publish_message(
                 pubsub_name=pubsub_name,
                 topic_name=topic,
@@ -2265,10 +2267,7 @@ class DurableAgent(AgentBase):
 
         self._run_asyncio_task(_publish())
         logger.info(
-            "Published approval request %s for tool '%s' to topic '%s'",
-            event_data.get("approval_request_id"),
-            event_data.get("tool_name"),
-            topic,
+            f"Published approval request {event_data.get('approval_request_id')} for tool '{event_data.get('tool_name')}' to topic '{topic}'"
         )
 
     def broadcast_to_team(
@@ -2668,8 +2667,6 @@ class DurableAgent(AgentBase):
         Raises:
             Exception: If the Dapr workflow client cannot deliver the event.
         """
-        from dapr.ext.workflow import DaprWorkflowClient
-
         event_name = f"approval_response_{approval_request_id}"
         response = ApprovalResponseEvent(
             approval_request_id=approval_request_id,
@@ -2677,8 +2674,24 @@ class DurableAgent(AgentBase):
             reason=reason,
         )
 
-        client = DaprWorkflowClient()
-        client.raise_workflow_event(
+        wf_client = DaprWorkflowClient()
+
+        # Guard against late responses: Dapr silently drops events on finished workflows, leaving the human with no feedback. Fail explicitly instead.
+        _TERMINAL = {
+            WorkflowStatus.COMPLETED,
+            WorkflowStatus.FAILED,
+            WorkflowStatus.TERMINATED,
+        }
+        state = wf_client.get_workflow_state(instance_id, fetch_payloads=False)
+        if state is None or state.runtime_status in _TERMINAL:
+            status_label = state.runtime_status.name if state else "NOT_FOUND"
+            raise RuntimeError(
+                f"Workflow '{instance_id}' is no longer waiting for approval "
+                f"(status: {status_label}). The approval request has already expired or "
+                f"the workflow has finished — your response was not delivered."
+            )
+
+        wf_client.raise_workflow_event(
             instance_id=instance_id,
             event_name=event_name,
             data=response.model_dump(mode="json"),
