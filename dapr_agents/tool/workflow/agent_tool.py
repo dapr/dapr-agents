@@ -49,7 +49,7 @@ def agent_workflow_id(
     - Explicit workflow names passed directly
 
     Args:
-        agent_name: The agent name (e.g., "catering-coordinator", "Samwise Gamgee")
+        agent_name: The agent name (e.g., "catering-coordinator", "My Agent")
         framework: Optional framework name (e.g., "openai", "pydantic_ai", "langgraph", "crewai").
             If None or "Dapr Agents", uses the standard dapr.agents.* format.
         workflow_name: Optional explicit workflow name. If provided, this takes precedence
@@ -196,11 +196,16 @@ def agent_to_tool(
 
     Args:
         agent_name: The name of the target agent (e.g., ``"catering-coordinator"``).
-            This value is used to derive the tool name exposed to the LLM; the
-            underlying :class:`AgentTool` normalizes it (title-casing, removing
-            spaces and underscores), so e.g. ``"my agent"`` becomes ``"MyAgent"``.
-            It should correspond to the agent's registered name under this
-            normalization, rather than needing to match character-for-character.
+            This value is used to derive the tool name exposed to the LLM.
+            The underlying :class:`AgentTool` sanitizes the name to satisfy
+            the OpenAI/Anthropic tool-name constraints, preserving only ASCII
+            letters, digits, underscores, and hyphens. Other characters,
+            including whitespace, punctuation such as ``.`` or ``:``, and
+            non-ASCII characters, are removed. Hyphens, underscores, and the
+            original casing are preserved when valid, so
+            ``"catering-coordinator"`` reaches the LLM as
+            ``catering-coordinator`` and ``"my agent:v2"`` becomes
+            ``"myagentv2"``.
         description: Human-readable description shown to the LLM in the tool
             schema (e.g. ``"Ring-bearer. Goal: carry the One Ring to Mordor."``).
         agent_type: Framework/type prefix for the workflow name (e.g. "strands",
@@ -236,7 +241,7 @@ def agent_to_tool(
             "Coordinates catering services.",
             framework="openai",
         )
-        # This will call workflow: dapr.openai.CateringCoordinator.workflow
+        # This will call workflow: dapr.openai.catering-coordinator.workflow
     """
     executor = functools.partial(
         _schedule_agent_workflow,

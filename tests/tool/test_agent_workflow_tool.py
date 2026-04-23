@@ -34,9 +34,9 @@ class TestAgentWorkflowSuffix:
         assert AGENT_WORKFLOW_SUFFIX == "_agent_workflow"  # backward compat
 
     def test_agent_workflow_id(self):
-        # Agent names are sanitized to TitleCase for OpenAI compliance
-        assert agent_workflow_id("sam") == "dapr.agents.Sam.workflow"
-        assert agent_workflow_id("frodo") == "dapr.agents.Frodo.workflow"
+        # Valid agent names are preserved verbatim (casing, hyphens, underscores).
+        assert agent_workflow_id("sam") == "dapr.agents.sam.workflow"
+        assert agent_workflow_id("frodo") == "dapr.agents.frodo.workflow"
 
     def test_agent_workflow_id_with_full_workflow_name(self):
         """Test that full workflow names are returned as-is."""
@@ -46,47 +46,47 @@ class TestAgentWorkflowSuffix:
         full_name2 = "dapr.pydantic_ai.decoration-planner.workflow"
         assert agent_workflow_id(full_name2) == full_name2
 
-        # Legacy format should still work (agent name sanitized to TitleCase)
+        # Legacy format: kebab-case agent names are preserved verbatim
         assert (
             agent_workflow_id("catering-coordinator")
-            == "dapr.agents.CateringCoordinator.workflow"
+            == "dapr.agents.catering-coordinator.workflow"
         )
 
     def test_agent_workflow_id_with_framework(self):
-        """Test that framework parameter constructs correct workflow names."""
-        # Agent names are sanitized to TitleCase for OpenAI compliance
-        # OpenAI framework
+        """Test that framework parameter constructs correct workflow names.
+
+        Agent names are preserved verbatim (hyphens/underscores/casing) —
+        only characters rejected by the OpenAI/Anthropic tool-name specs
+        are stripped.
+        """
         assert (
             agent_workflow_id("catering-coordinator", framework="openai")
-            == "dapr.openai.CateringCoordinator.workflow"
+            == "dapr.openai.catering-coordinator.workflow"
         )
 
-        # Pydantic AI framework
         assert (
             agent_workflow_id("decoration-planner", framework="pydantic_ai")
-            == "dapr.pydantic-ai.DecorationPlanner.workflow"
+            == "dapr.pydantic-ai.decoration-planner.workflow"
         )
 
-        # LangGraph framework
         assert (
             agent_workflow_id("schedule-planner", framework="langgraph")
-            == "dapr.langgraph.SchedulePlanner.workflow"
+            == "dapr.langgraph.schedule-planner.workflow"
         )
 
-        # CrewAI framework
         assert (
             agent_workflow_id("venue-scout", framework="crewai")
-            == "dapr.crewai.VenueScout.workflow"
+            == "dapr.crewai.venue-scout.workflow"
         )
 
         # Dapr Agents framework (should use standard format)
         assert (
             agent_workflow_id("sam", framework="Dapr Agents")
-            == "dapr.agents.Sam.workflow"
+            == "dapr.agents.sam.workflow"
         )
 
         # None framework (should use standard format)
-        assert agent_workflow_id("sam", framework=None) == "dapr.agents.Sam.workflow"
+        assert agent_workflow_id("sam", framework=None) == "dapr.agents.sam.workflow"
 
     def test_agent_workflow_id_with_explicit_workflow_name(self):
         """Test that explicit workflow_name takes precedence."""
@@ -109,20 +109,20 @@ class TestAgentWorkflowSuffix:
         )
 
     def test_agent_workflow_id_with_strands_framework(self):
-        """Strands framework uses TitleCase sanitized names."""
+        """Kebab-case agent names are preserved verbatim."""
         assert (
             agent_workflow_id("strands-default", framework="strands")
-            == "dapr.strands.StrandsDefault.workflow"
+            == "dapr.strands.strands-default.workflow"
         )
         assert (
             agent_workflow_id("my-agent", framework="Strands")
-            == "dapr.strands.MyAgent.workflow"
+            == "dapr.strands.my-agent.workflow"
         )
 
     def test_agent_workflow_id_langgraph(self):
         assert (
             agent_workflow_id("schedule-planner", framework="CompiledStateGraph")
-            == "dapr.compiledstategraph.SchedulePlanner.workflow"
+            == "dapr.compiledstategraph.schedule-planner.workflow"
         )
 
 
@@ -165,7 +165,7 @@ class TestScheduleAgentWorkflow:
             framework="strands",
         )
         ctx.call_child_workflow.assert_called_once_with(
-            workflow="dapr.strands.StrandsDefault.workflow",
+            workflow="dapr.strands.strands-default.workflow",
             input={"task": "estimate costs"},
         )
 
@@ -185,9 +185,9 @@ class TestScheduleAgentWorkflow:
             agent_name="catering-coordinator",
             framework="openai",
         )
-        # Agent name is sanitized to TitleCase for OpenAI compliance
+        # Hyphens are valid per OpenAI/Anthropic specs and preserved verbatim
         ctx.call_child_workflow.assert_called_once_with(
-            workflow="dapr.openai.CateringCoordinator.workflow",
+            workflow="dapr.openai.catering-coordinator.workflow",
             input={"task": "coordinate catering"},
         )
 
@@ -288,9 +288,9 @@ class TestAgentToTool:
         )
         ctx = MagicMock()
         tool(ctx=ctx, task="Plan the menu")
-        # Agent name is sanitized to TitleCase for OpenAI compliance
+        # Hyphens are valid per OpenAI/Anthropic specs and preserved verbatim
         ctx.call_child_workflow.assert_called_once_with(
-            workflow="dapr.openai.CateringCoordinator.workflow",
+            workflow="dapr.openai.catering-coordinator.workflow",
             input={"task": "Plan the menu"},
         )
         assert tool.target_agent_name == "catering-coordinator"
@@ -311,53 +311,99 @@ class TestAgentToTool:
         )
 
     def test_agent_to_tool_sanitizes_name_with_spaces(self):
-        """Test that agent names with spaces are sanitized for OpenAI compatibility."""
-        tool = agent_to_tool("Samwise Gamgee", "Helper.")
-        # Tool name should be sanitized to TitleCase (spaces removed, no separators)
-        assert tool.name == "SamwiseGamgee"
+        """Test that agent names with spaces have the spaces stripped."""
+        tool = agent_to_tool("Randomagee Geegee", "Helper.")
+        # Whitespace is stripped; original casing is preserved.
+        assert tool.name == "RandomageeGeegee"
 
-        # Verify the sanitized name is used in OpenAI function call format
         function_call = tool.to_function_call()
-        assert function_call["function"]["name"] == "SamwiseGamgee"
+        assert function_call["function"]["name"] == "RandomageeGeegee"
 
     def test_agent_to_tool_sanitizes_name_with_special_chars(self):
-        """Test that agent names with special characters are sanitized."""
+        """Test that agent names with invalid characters have them stripped."""
         tool = agent_to_tool("agent<name>", "Test agent.")
-        # Special characters are removed, name converted to TitleCase
-        assert tool.name == "Agentname"
+        # Only the invalid characters (<, >) are removed; casing preserved.
+        assert tool.name == "agentname"
 
         function_call = tool.to_function_call()
-        assert function_call["function"]["name"] == "Agentname"
+        assert function_call["function"]["name"] == "agentname"
 
     def test_sanitize_openai_tool_name(self):
-        """Test the sanitize_openai_tool_name function directly."""
-        # Names are normalized to TitleCase (no separators) and invalid chars removed
-        assert sanitize_openai_tool_name("Samwise Gamgee") == "SamwiseGamgee"
-        assert sanitize_openai_tool_name("agent<name>") == "Agentname"
-        assert sanitize_openai_tool_name("tool|name") == "Toolname"
-        assert sanitize_openai_tool_name("tool\\name") == "Toolname"
-        assert sanitize_openai_tool_name("tool/name") == "Toolname"
-        assert sanitize_openai_tool_name("tool>name") == "Toolname"
-        assert sanitize_openai_tool_name("tool  name") == "ToolName"  # Multiple spaces
-        assert (
-            sanitize_openai_tool_name("tool___name") == "ToolName"
-        )  # Multiple underscores
-        assert (
-            sanitize_openai_tool_name("_tool_name_") == "ToolName"
-        )  # Leading/trailing
-        assert sanitize_openai_tool_name("") == "unnamed_tool"  # Empty string
-        assert (
-            sanitize_openai_tool_name("valid_name") == "ValidName"
-        )  # Converted to TitleCase
-        assert (
-            sanitize_openai_tool_name("get_user") == "GetUser"
-        )  # snake_case -> TitleCase
+        """Test the sanitize_openai_tool_name function directly.
+
+        Provider APIs require tool names to match ``^[a-zA-Z0-9_-]{1,64}$``.
+        Any character outside that set is stripped. Hyphens, underscores,
+        and the original casing must be preserved so developer-written names
+        (e.g. kebab-case YAML keys) reach the LLM unchanged.
+        """
+        # Characters outside [a-zA-Z0-9_-] are stripped
+        assert sanitize_openai_tool_name("Randomagee Geegee") == "RandomageeGeegee"
+        assert sanitize_openai_tool_name("agent<name>") == "agentname"
+        assert sanitize_openai_tool_name("tool|name") == "toolname"
+        assert sanitize_openai_tool_name("tool\\name") == "toolname"
+        assert sanitize_openai_tool_name("tool/name") == "toolname"
+        assert sanitize_openai_tool_name("tool>name") == "toolname"
+        assert sanitize_openai_tool_name("tool  name") == "toolname"
+
+        # Dots, special symbols, non-ASCII are stripped
+        assert sanitize_openai_tool_name("my.tool.name") == "mytoolname"
+        assert sanitize_openai_tool_name("tool!@#$%^&*()") == "tool"
+        assert sanitize_openai_tool_name("café_finder") == "caf_finder"
+        assert sanitize_openai_tool_name("search:query") == "searchquery"
+
+        # Hyphens, underscores, and casing are preserved verbatim
+        assert sanitize_openai_tool_name("get-xyz-count") == "get-xyz-count"
+        assert sanitize_openai_tool_name("get_user") == "get_user"
+        assert sanitize_openai_tool_name("valid_name") == "valid_name"
+        assert sanitize_openai_tool_name("tool___name") == "tool___name"
+        assert sanitize_openai_tool_name("_tool_name_") == "_tool_name_"
+        assert sanitize_openai_tool_name("GetUser") == "GetUser"
+        assert sanitize_openai_tool_name("RandomageeGeegee") == "RandomageeGeegee"
+        assert sanitize_openai_tool_name("UPPERCASE") == "UPPERCASE"
+
+        # Names exceeding 64 characters raise ValueError
+        with pytest.raises(ValueError, match="65 characters"):
+            sanitize_openai_tool_name("a" * 65)
+
+        # Exactly 64 is fine
+        assert sanitize_openai_tool_name("a" * 64) == "a" * 64
+
+        # Fallback cases
+        assert sanitize_openai_tool_name("") == "unnamed_tool"
+        assert sanitize_openai_tool_name("   ") == "unnamed_tool"
+        assert sanitize_openai_tool_name("<|\\/>") == "unnamed_tool"
+        assert sanitize_openai_tool_name("...") == "unnamed_tool"
+        assert sanitize_openai_tool_name("@#$%") == "unnamed_tool"
+
+    def test_sanitize_openai_tool_name_logs_warning_on_change(self, caplog):
+        """A WARNING should be emitted whenever sanitization mutates the name."""
+        import logging
+
+        with caplog.at_level(
+            logging.WARNING, logger="dapr_agents.tool.utils.function_calling"
+        ):
+            result = sanitize_openai_tool_name("Randomagee Geegee")
+        assert result == "RandomageeGeegee"
+        assert any(
+            "Randomagee Geegee" in rec.message and "RandomageeGeegee" in rec.message
+            for rec in caplog.records
+        ), "Expected a WARNING containing both original and sanitized names"
+
+        # No warning when the name is already valid (including kebab-case)
+        caplog.clear()
+        with caplog.at_level(
+            logging.WARNING, logger="dapr_agents.tool.utils.function_calling"
+        ):
+            assert sanitize_openai_tool_name("get-xyz-count") == "get-xyz-count"
+        assert not caplog.records, (
+            "Valid kebab-case names must not trigger a sanitization warning"
+        )
 
     def test_tool_with_custom_framework(self):
         tool = agent_to_tool("strands-default", "Budget analyst.", framework="strands")
         ctx = MagicMock()
         tool(ctx=ctx, task="Estimate costs")
         ctx.call_child_workflow.assert_called_once_with(
-            workflow="dapr.strands.StrandsDefault.workflow",
+            workflow="dapr.strands.strands-default.workflow",
             input={"task": "Estimate costs"},
         )
