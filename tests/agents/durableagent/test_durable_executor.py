@@ -97,10 +97,13 @@ def setup_env(monkeypatch):
     os.environ["OPENAI_API_KEY"] = "test-api-key"
     mock_client = MockDaprClient()
     mock_client.get_state.return_value = Mock(data=None)
-    monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
-    monkeypatch.setattr("dapr_agents.agents.base.DaprClient", lambda: mock_client)
+    monkeypatch.setattr("dapr.clients.DaprClient", lambda *a, **kw: mock_client)
     monkeypatch.setattr(
-        "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
+        "dapr_agents.agents.base.DaprClient", lambda *a, **kw: mock_client
+    )
+    monkeypatch.setattr(
+        "dapr_agents.storage.daprstores.statestore.DaprClient",
+        lambda *a, **kw: mock_client,
     )
     yield
     os.environ.pop("OPENAI_API_KEY", None)
@@ -294,6 +297,65 @@ class TestConsumeExecutor:
         record = entry.tool_history[0]
         assert record.tool_call_id == "t1"
         assert record.tool_name == "search"
+        assert record.status == ToolExecutionStatus.COMPLETED
+        assert record.execution_result == "ok"
+
+    def test_tool_result_after_session_checkpoint_is_persisted(self):
+        """Session refresh must not orphan in-flight tool-call records.
+
+        Simulates the real Dapr roundtrip: save_state snapshots the entry,
+        get_state returns a freshly-validated copy (new Python objects).
+        Without the tool_records rebuild, the tool_result update lands on
+        stale references and the final persisted state stays ``RUNNING``.
+        """
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="tool_call",
+                    content={
+                        "id": "t1",
+                        "name": "search",
+                        "arguments": {"q": "x"},
+                    },
+                ),
+                AgentEvent(type="session", content={}),
+                AgentEvent(
+                    type="tool_result",
+                    content={"tool_call_id": "t1", "result": "ok"},
+                ),
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "done"},
+                ),
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        saved: List[AgentWorkflowEntry] = []
+
+        def _save(instance_id, entry=None):
+            if entry is not None:
+                saved.append(entry.model_copy(deep=True))
+
+        def _get_state(wid):
+            if not saved:
+                return entry
+            return saved[-1].model_copy(deep=True)
+
+        with (
+            patch.object(agent, "save_state", side_effect=_save),
+            patch.object(agent._infra, "get_state", side_effect=_get_state),
+        ):
+            asyncio.run(
+                agent._consume_executor({"task": None, "instance_id": "inst-1"})
+            )
+
+        assert saved, "expected at least one save_state call"
+        final = saved[-1]
+        assert len(final.tool_history) == 1
+        record = final.tool_history[0]
+        assert record.tool_call_id == "t1"
         assert record.status == ToolExecutionStatus.COMPLETED
         assert record.execution_result == "ok"
 

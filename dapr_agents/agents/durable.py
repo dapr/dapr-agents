@@ -1853,8 +1853,17 @@ class DurableAgent(AgentBase):
                 if event.type == "session":
                     # Session-level checkpoint: persist what we've accumulated.
                     self.save_state(instance_id, entry=entry)
-                    # Refresh the entry so subsequent mutations see the saved etag.
+                    # Refresh the entry so subsequent mutations see the saved
+                    # etag, and rebuild tool_records so later tool_result events
+                    # update the records that will actually be persisted with
+                    # entry.tool_history (get_state validates into new objects,
+                    # so pre-refresh references go stale).
                     entry = self._infra.get_state(instance_id)
+                    tool_records = {
+                        record.tool_call_id: record
+                        for record in entry.tool_history
+                        if record.tool_call_id
+                    }
                     continue
 
                 if event.type == "complete":
