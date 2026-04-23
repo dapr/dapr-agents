@@ -98,6 +98,7 @@ def setup_env(monkeypatch):
     mock_client = MockDaprClient()
     mock_client.get_state.return_value = Mock(data=None)
     monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
+    monkeypatch.setattr("dapr_agents.agents.base.DaprClient", lambda: mock_client)
     monkeypatch.setattr(
         "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
     )
