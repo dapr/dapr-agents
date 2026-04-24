@@ -2048,7 +2048,7 @@ class DurableAgent(AgentBase):
         registered: List[str] = []
 
         for name, meta in agents_metadata.items():
-            # Normalize name for lookup since AgentTool sanitizes names to TitleCase
+            # Normalize name for lookup: AgentTool strips spec-illegal chars at registration
             sanitized_name = sanitize_openai_tool_name(name)
             if not self.tool_executor.get_tool(sanitized_name):
                 # Defensive check: ensure meta is a dict
