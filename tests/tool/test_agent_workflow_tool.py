@@ -146,12 +146,12 @@ class TestAgentWorkflowSuffix:
 
         Regression guard for the cross-process dispatch bug: if the orchestrator
         read a registry entry with framework='dapr-agents' (hyphen) or a
-        different casing, it used to build 'dapr.dapr-agents.SreAgent.workflow'
+        different casing, it used to build 'dapr.dapr-agents.sre-agent.workflow'
         which the sub-agent never registered.
         """
         assert (
             agent_workflow_id("sre-agent", framework=framework)
-            == "dapr.agents.SreAgent.workflow"
+            == "dapr.agents.sre-agent.workflow"
         )
 
 

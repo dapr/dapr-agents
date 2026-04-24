@@ -203,7 +203,7 @@ class TestRegisterWorkflowsNaming:
         agent_meta = frodo.agent_metadata.agent
         published = (agent_meta.metadata or {}).get("workflow_name")
         assert published == frodo.agent_workflow_name
-        assert published == "dapr.agents.Frodo.workflow"
+        assert published == "dapr.agents.frodo.workflow"
 
     def test_broadcast_workflow_name_property(self, mock_llm):
         sam = _make_agent("sam", mock_llm)
