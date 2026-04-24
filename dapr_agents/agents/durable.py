@@ -329,6 +329,10 @@ class DurableAgent(AgentBase):
         self._registered = False
         self._started = False
         self._hooks: Optional[Hooks] = hooks
+        # In-memory store of active approval requests, keyed by approval_request_id.
+        # Populated by publish_approval_request activity; consumed by raise_approval_event.
+        # Used by GET /hitl/approvals when serving over HTTP without pub/sub.
+        self._pending_approvals: Dict[str, Dict[str, Any]] = {}
 
         try:
             retries = int(getenv("DAPR_API_MAX_RETRIES", ""))
@@ -2244,31 +2248,50 @@ class DurableAgent(AgentBase):
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
         """
-        Publish an ApprovalRequiredEvent to the configured Dapr pub/sub topic.
+        Deliver an ApprovalRequiredEvent and track it for HTTP polling.
 
         This activity is called from _request_approval inside agent_workflow.
-        Wrapping the publish in an activity keeps the workflow deterministic — the
-        activity result is cached, so on replay the publish does not fire again.
+        Wrapping the delivery in an activity keeps the workflow deterministic — the
+        activity result is cached, so on replay the delivery does not fire again.
+
+        Always stores the event in _pending_approvals so GET /hitl/approvals can
+        surface it regardless of serving mode. If pubsub_name is set, also publishes
+        to the configured Dapr pub/sub topic so external listeners (Slack bots,
+        dashboards) can receive it.
 
         Args:
             payload: Keys 'event' (serialized ApprovalRequiredEvent dict),
-                'pubsub_name' (pub/sub component name), 'topic' (topic name).
+                'pubsub_name' (optional pub/sub component name), 'topic' (topic name).
         """
         event_data = payload["event"]
-        pubsub_name = payload["pubsub_name"]
-        topic = payload["topic"]
+        pubsub_name = payload.get("pubsub_name")
+        topic = payload.get("topic")
+        approval_request_id = event_data.get("approval_request_id")
 
-        async def _publish() -> None:
-            await publish_message(
-                pubsub_name=pubsub_name,
-                topic_name=topic,
-                message=event_data,
+        self._pending_approvals[approval_request_id] = event_data
+
+        if pubsub_name:
+
+            async def _publish() -> None:
+                await publish_message(
+                    pubsub_name=pubsub_name,
+                    topic_name=topic,
+                    message=event_data,
+                )
+
+            self._run_asyncio_task(_publish())
+            logger.info(
+                "Published approval request %s for step '%s' to topic '%s'",
+                approval_request_id,
+                event_data.get("step_name"),
+                topic,
             )
-
-        self._run_asyncio_task(_publish())
-        logger.info(
-            f"Published approval request {event_data.get('approval_request_id')} for tool '{event_data.get('tool_name')}' to topic '{topic}'"
-        )
+        else:
+            logger.info(
+                "Stored approval request %s for step '%s' (no pub/sub configured; poll GET /hitl/approvals or use Dapr sidecar raiseEvent API)",
+                approval_request_id,
+                event_data.get("step_name"),
+            )
 
     def broadcast_to_team(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -2697,12 +2720,25 @@ class DurableAgent(AgentBase):
             data=response.model_dump(mode="json"),
         )
 
+        self._pending_approvals.pop(approval_request_id, None)
+
         logger.info(
             "Raised approval event '%s' for instance %s: %s",
             event_name,
             instance_id,
             "approved" if approved else "not approved",
         )
+
+    def list_pending_approvals(self) -> List[Dict[str, Any]]:
+        """
+        Return all approval requests currently waiting for a human decision.
+
+        Used by GET /hitl/approvals when the agent is served over HTTP. The list
+        is populated by publish_approval_request and cleared by raise_approval_event.
+        On process restart the list starts empty; pending workflows are still suspended
+        in Dapr's durable state and can be resumed via the Dapr sidecar raiseEvent API.
+        """
+        return list(self._pending_approvals.values())
 
     # ------------------------------------------------------------------
     # Runtime control

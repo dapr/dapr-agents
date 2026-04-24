@@ -404,18 +404,28 @@ class AgentApprovalConfig:
     """
     Infrastructure configuration for human-in-the-loop approval.
 
-    This tells the agent where to publish ApprovalRequiredEvent messages when a
+    This tells the agent how to deliver ApprovalRequiredEvent messages when a
     hook returns RequireApproval. The gate for whether approval runs is the hook
     itself — if no hook returns RequireApproval, this config is never used.
 
+    Delivery modes:
+        - pubsub_name set: publishes the event to the configured Dapr pub/sub topic.
+          Use this when the agent is running in subscribe() or serve() mode and a
+          pub/sub component is available (e.g. a Slack bot or dashboard is listening).
+        - pubsub_name None (default): no pub/sub publish. The event is held in memory
+          and exposed via GET /hitl/approvals when the agent is running in serve() mode.
+          For workflow-only agents, submit responses directly via the Dapr sidecar:
+          POST <sidecar>/v1.0-beta1/workflows/dapr/{instance_id}/raiseEvent/approval_response_{id}
+
     Attributes:
-        pubsub_name: Dapr pub/sub component where ApprovalRequiredEvent is published.
-        topic: Topic name for outbound approval requests.
+        pubsub_name: Optional Dapr pub/sub component for outbound approval events.
+            Set to None (default) to disable pub/sub delivery and use HTTP polling instead.
+        topic: Topic name used when pubsub_name is set.
         default_timeout_seconds: Seconds to wait before auto-denying when a
             RequireApproval decision does not specify its own timeout_seconds.
     """
 
-    pubsub_name: str = "dapr-agents-pubsub"
+    pubsub_name: Optional[str] = None
     topic: str = "agent-approval-requests"
     # None means wait indefinitely — the workflow suspends until a human responds, with no automatic denial. Use a positive int (seconds) to auto-deny after that window elapses when approvers may be unavailable.
     default_timeout_seconds: Optional[int] = 300

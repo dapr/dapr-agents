@@ -176,9 +176,10 @@ class TestApprovalResponseEvent:
 
 
 class TestAgentApprovalConfig:
-    def test_default_pubsub_and_topic(self):
+    def test_default_pubsub_is_none(self):
+        # pubsub_name defaults to None — HTTP polling is the default delivery mode
         cfg = AgentApprovalConfig()
-        assert cfg.pubsub_name == "dapr-agents-pubsub"
+        assert cfg.pubsub_name is None
         assert cfg.topic == "agent-approval-requests"
 
     def test_default_timeout(self):
@@ -194,6 +195,11 @@ class TestAgentApprovalConfig:
         assert cfg.pubsub_name == "my-pubsub"
         assert cfg.topic == "my-topic"
         assert cfg.default_timeout_seconds == 60
+
+    def test_pubsub_name_explicit_none_leaves_topic_default(self):
+        cfg = AgentApprovalConfig(pubsub_name=None)
+        assert cfg.pubsub_name is None
+        assert cfg.topic == "agent-approval-requests"
 
 
 class TestAgentExecutionConfigApprovalField:
