@@ -567,6 +567,16 @@ class AgentBase:
             max_iterations = getattr(self.execution, "max_iterations", None)
             tool_choice = getattr(self.execution, "tool_choice", None)
 
+        # Publish the canonical workflow name when the subclass exposes one
+        # (e.g. DurableAgent.agent_workflow_name). This lets orchestrators in
+        # other processes dispatch by the literal workflow ID the sub-agent
+        # registered, decoupling cross-process dispatch from name-sanitization
+        # agreement between the orchestrator and the sub-agent.
+        agent_metadata = dict(agent_metadata or {})
+        workflow_name_attr = getattr(self, "agent_workflow_name", None)
+        if isinstance(workflow_name_attr, str) and workflow_name_attr:
+            agent_metadata.setdefault("workflow_name", workflow_name_attr)
+
         # Build AgentMetadata
         agent_meta = AgentMetadata(
             appid=self.appid or "unknown",
