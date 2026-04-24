@@ -47,11 +47,7 @@ class TestJsonModeErrors:
         assert "tool_calls_present=False" in text
 
     def test_empty_content_with_tool_calls_hints_at_root_cause(self):
-        """When the model emitted tool calls instead of content, hint at it.
-
-        This is the exact failure mode Cassie saw with gemma4:e4b and Alice
-        saw during the Ford POC orchestration progress checks.
-        """
+        """When the model emitted tool calls instead of content, hint at it."""
         tool_calls = [MagicMock()]  # non-empty marker
         msg = _message(content="", tool_calls=tool_calls)
         with pytest.raises(StructureError) as exc_info:
