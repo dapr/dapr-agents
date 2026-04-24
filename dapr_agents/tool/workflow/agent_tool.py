@@ -13,6 +13,7 @@
 
 import functools
 import logging
+import re
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -23,6 +24,18 @@ from dapr_agents.workflow.utils.names import sanitize_agent_name
 logger = logging.getLogger(__name__)
 
 AGENT_WORKFLOW_SUFFIX = "_agent_workflow"  # kept for backward compat
+
+
+def _is_dapr_agents_framework(framework: str) -> bool:
+    """Return True if ``framework`` is any spelling of "Dapr Agents".
+
+    Registry writers and users sometimes spell "Dapr Agents" with different
+    separators or casing ("dapr-agents", "dapr_agents", "Dapr.Agents", etc.);
+    treating them as equivalent prevents cross-process dispatch from routing
+    to a framework-prefixed workflow name that was never registered.
+    """
+    collapsed = re.sub(r"[\s\-_.]", "", framework).lower()
+    return collapsed == "dapragents"
 
 
 def agent_workflow_id(
@@ -37,7 +50,9 @@ def agent_workflow_id(
     1. If workflow_name is provided, use it directly
     2. If agent_name is already a full workflow name (starts with 'dapr.' and ends
        with '.workflow'), return it as-is
-    3. If framework is provided and not "Dapr Agents", use 'dapr.{framework}.{agent_name}.workflow'
+    3. If framework is provided and not any spelling of "Dapr Agents" (e.g.
+       "dapr-agents", "dapr_agents", "Dapr.Agents" all collapse to the default),
+       use 'dapr.{framework}.{agent_name}.workflow'
     4. Otherwise, use the standard format: 'dapr.agents.{agent_name}.workflow'
 
     Agent names are sanitized to comply with OpenAI's name requirements (no spaces,
@@ -51,7 +66,8 @@ def agent_workflow_id(
     Args:
         agent_name: The agent name (e.g., "catering-coordinator", "My Agent")
         framework: Optional framework name (e.g., "openai", "pydantic_ai", "langgraph", "crewai").
-            If None or "Dapr Agents", uses the standard dapr.agents.* format.
+            If None or any spelling of "Dapr Agents" (case- and separator-insensitive),
+            uses the standard dapr.agents.* format.
         workflow_name: Optional explicit workflow name. If provided, this takes precedence
             over all other parameters.
 
@@ -72,8 +88,8 @@ def agent_workflow_id(
     # This ensures workflow names don't contain invalid characters
     sanitized_agent_name = sanitize_openai_tool_name(agent_name)
 
-    # Priority 3: Use framework if provided and not "Dapr Agents"
-    if framework and framework != "Dapr Agents":
+    # Priority 3: Use framework if provided and not any spelling of "Dapr Agents"
+    if framework and not _is_dapr_agents_framework(framework):
         # Normalize framework name (replace spaces/underscores with dots if needed)
         normalized_framework = framework.replace(" ", "-").replace("_", "-").lower()
         return f"dapr.{normalized_framework}.{sanitized_agent_name}.workflow"
@@ -164,12 +180,33 @@ def _schedule_agent_workflow(
     if _child_instance_id:
         call_kwargs["instance_id"] = _child_instance_id
 
-    logger.debug(
-        "Scheduling child workflow '%s' app_id=%r task=%r",
-        workflow_id,
-        target_app_id,
-        task,
-    )
+    # Log dispatch intent so an OrchestratorNotRegisteredError raised on yield
+    # can be correlated back to the name/framework/app_id that produced the
+    # unregistered workflow ID. Downgrade to DEBUG during replay to keep the
+    # replay log clean.
+    if getattr(ctx, "is_replaying", False):
+        logger.debug(
+            "Scheduling child workflow '%s' agent_name=%r framework=%r app_id=%r "
+            "source_agent=%r instance_id=%r task=%r",
+            workflow_id,
+            agent_name,
+            framework,
+            target_app_id,
+            _source_agent,
+            _child_instance_id,
+            task,
+        )
+    else:
+        logger.info(
+            "Scheduling child workflow '%s' agent_name=%r framework=%r app_id=%r "
+            "source_agent=%r instance_id=%r",
+            workflow_id,
+            agent_name,
+            framework,
+            target_app_id,
+            _source_agent,
+            _child_instance_id,
+        )
     return ctx.call_child_workflow(**call_kwargs)
 
 
