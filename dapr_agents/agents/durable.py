@@ -497,15 +497,23 @@ class DurableAgent(AgentBase):
                         ctx.instance_id,
                     )
 
+                executor_input: Dict[str, Any] = {
+                    "task": task,
+                    "instance_id": ctx.instance_id,
+                    "source": source,
+                }
+                # Caller-supplied session_id resumes a prior executor session;
+                # omitting it lets the executor auto-assign per its contract.
+                caller_session_id = message.get("session_id")
+                if caller_session_id:
+                    executor_input["session_id"] = caller_session_id
+                caller_context = message.get("context")
+                if isinstance(caller_context, dict):
+                    executor_input["context"] = caller_context
+
                 final_message = yield ctx.call_activity(
                     self.run_executor,
-                    input={
-                        "task": task,
-                        "instance_id": ctx.instance_id,
-                        "session_id": ctx.instance_id,
-                        "source": source,
-                        "time": ctx.current_utc_datetime.isoformat(),
-                    },
+                    input=executor_input,
                     retry_policy=self._retry_policy,
                 )
 
@@ -1746,7 +1754,10 @@ class DurableAgent(AgentBase):
         state (for observability), and checkpoints on ``session`` events.
 
         Args:
-            payload: Keys ``task``, ``instance_id``, ``session_id``, ``source``.
+            payload: Required keys ``task``, ``instance_id``, ``source``;
+                optional ``session_id`` (caller-supplied identifier to
+                resume a prior executor session) and ``context``
+                (provider-specific extras forwarded to the executor).
 
         Returns:
             Final assistant message dict as emitted by the executor's
@@ -1783,15 +1794,18 @@ class DurableAgent(AgentBase):
           not persisted (avoids per-token state writes).
         """
         instance_id: str = payload["instance_id"]
-        session_id: Optional[str] = payload.get("session_id") or instance_id
+        # session_id may be None: caller didn't request resume, so the
+        # executor will auto-assign one (captured back via event.session_id).
+        session_id: Optional[str] = payload.get("session_id")
         task: Optional[str] = payload.get("task")
         source: Optional[str] = payload.get("source")
+        context: Optional[Dict[str, Any]] = payload.get("context")
 
         entry = self._infra.get_state(instance_id)
 
-        # Record session_id and the user-turn message in state before handing
-        # off to the executor so replay/audit sees the full trace.
-        if hasattr(entry, "session_id"):
+        # Seed entry.session_id only when the caller supplied one; otherwise
+        # leave it untouched until the executor emits an event.session_id.
+        if session_id and hasattr(entry, "session_id"):
             entry.session_id = session_id
         if task:
             user_message = {"role": "user", "content": task}
@@ -1808,9 +1822,19 @@ class DurableAgent(AgentBase):
         tool_records: Dict[str, ToolExecutionRecord] = {}
         prompt = task or ""
 
+        def _record_session(observed: Optional[str]) -> None:
+            """Capture executor-assigned/changed session_id into local + entry state."""
+            nonlocal session_id
+            if not observed or observed == session_id:
+                return
+            session_id = observed
+            if hasattr(entry, "session_id"):
+                entry.session_id = observed
+
         try:
-            stream = self.executor.run(prompt, session_id=session_id)
+            stream = self.executor.run(prompt, session_id=session_id, context=context)
             async for event in stream:
+                _record_session(event.session_id)
                 if event.type == "text_delta":
                     # Intentionally not persisted; live-stream in the future.
                     continue

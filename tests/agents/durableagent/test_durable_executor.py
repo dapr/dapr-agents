@@ -420,6 +420,118 @@ class TestConsumeExecutor:
         assert "par" not in assistant_contents
         assert "tial" not in assistant_contents
 
+    def test_caller_session_id_passes_through(self):
+        """Caller-supplied session_id must reach executor.run unchanged."""
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "done"},
+                )
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+        ):
+            asyncio.run(
+                agent._consume_executor(
+                    {
+                        "task": "hi",
+                        "instance_id": "inst-1",
+                        "session_id": "sess-resume",
+                    }
+                )
+            )
+
+        assert executor.calls[-1]["session_id"] == "sess-resume"
+        assert entry.session_id == "sess-resume"
+
+    def test_omitted_session_id_yields_none_to_executor(self):
+        """No payload session_id ⇒ executor.run gets None so it can auto-assign."""
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "done"},
+                )
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+        ):
+            asyncio.run(
+                agent._consume_executor({"task": "hi", "instance_id": "inst-1"})
+            )
+
+        assert executor.calls[-1]["session_id"] is None
+
+    def test_event_session_id_updates_entry(self):
+        """Executor-assigned session_id from events must land on entry.session_id."""
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="message",
+                    content={"role": "assistant", "content": "hi"},
+                    session_id="exec-assigned-123",
+                ),
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "hi"},
+                    session_id="exec-assigned-123",
+                ),
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+        ):
+            asyncio.run(
+                agent._consume_executor({"task": "hi", "instance_id": "inst-1"})
+            )
+
+        assert entry.session_id == "exec-assigned-123"
+
+    def test_caller_context_threads_to_executor(self):
+        """Caller-supplied context dict must reach executor.run unchanged."""
+        ctx_payload = {"mcp_servers": ["primary"], "scopes": ["read"]}
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "done"},
+                )
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+        ):
+            asyncio.run(
+                agent._consume_executor(
+                    {
+                        "task": "hi",
+                        "instance_id": "inst-1",
+                        "context": ctx_payload,
+                    }
+                )
+            )
+
+        assert executor.calls[-1]["context"] == ctx_payload
+
 
 class TestRunExecutorActivity:
     """The public workflow-activity wrapper around _consume_executor."""
@@ -475,3 +587,89 @@ class TestRunExecutorActivity:
         )
         with pytest.raises(AgentError, match="without an AgentExecutorBase"):
             agent.run_executor(Mock(), {"task": "x", "instance_id": "i"})
+
+
+class TestAgentWorkflowExecutorBranch:
+    """Asserts the producer side: agent_workflow → run_executor activity input."""
+
+    def _drive_workflow(self, agent: DurableAgent, message: Dict[str, Any]):
+        """Pump the workflow generator and capture every call_activity payload."""
+        from dapr.ext.workflow import DaprWorkflowContext
+
+        ctx = DaprWorkflowContext()
+        ctx.instance_id = "wf-inst-42"
+        ctx.is_replaying = False
+
+        captured: List[Dict[str, Any]] = []
+
+        def track(activity, **kwargs):
+            captured.append(
+                {
+                    "name": getattr(activity, "__name__", None)
+                    or getattr(activity, "__func__", activity).__name__,
+                    "input": kwargs.get("input"),
+                    "retry_policy": kwargs.get("retry_policy"),
+                }
+            )
+            if captured[-1]["name"] == "run_executor":
+                return {"role": "assistant", "content": "done"}
+            return None
+
+        ctx.call_activity = Mock(side_effect=track)
+        ctx.current_utc_datetime = Mock()
+        ctx.current_utc_datetime.isoformat = Mock(return_value="2026-04-27T00:00:00")
+
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        agent._infra._state_model = entry
+
+        with patch.object(agent._infra, "get_state", side_effect=lambda wid: entry):
+            gen = agent.agent_workflow(ctx, message)
+            result = None
+            try:
+                while True:
+                    result = gen.send(result)
+            except StopIteration as exc:
+                result = exc.value
+
+        return captured, result
+
+    def test_payload_omits_time_session_and_context_by_default(self):
+        """Plain message ⇒ run_executor input has neither session_id, context, nor time."""
+        executor = _ScriptedExecutor([])  # never actually consumed; activity is mocked
+        agent = _make_agent(executor)
+
+        captured, _ = self._drive_workflow(agent, {"task": "hi"})
+
+        run_calls = [c for c in captured if c["name"] == "run_executor"]
+        assert len(run_calls) == 1
+        payload = run_calls[0]["input"]
+        assert "time" not in payload
+        assert "session_id" not in payload
+        assert "context" not in payload
+        assert payload["task"] == "hi"
+        assert payload["instance_id"] == "wf-inst-42"
+        assert run_calls[0]["retry_policy"] is agent._retry_policy
+
+    def test_payload_passes_caller_session_id_and_context(self):
+        """Message with session_id/context ⇒ they flow into run_executor input."""
+        executor = _ScriptedExecutor([])
+        agent = _make_agent(executor)
+
+        captured, _ = self._drive_workflow(
+            agent,
+            {
+                "task": "hi",
+                "session_id": "resume-7",
+                "context": {"mcp_servers": ["primary"]},
+            },
+        )
+
+        payload = next(c["input"] for c in captured if c["name"] == "run_executor")
+        assert payload["session_id"] == "resume-7"
+        assert payload["context"] == {"mcp_servers": ["primary"]}
+        assert "time" not in payload
