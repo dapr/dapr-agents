@@ -125,6 +125,35 @@ class TestAgentWorkflowSuffix:
             == "dapr.compiledstategraph.schedule-planner.workflow"
         )
 
+    @pytest.mark.parametrize(
+        "framework",
+        [
+            "Dapr Agents",
+            "dapr agents",
+            "DAPR AGENTS",
+            "dapr-agents",
+            "Dapr-Agents",
+            "dapr_agents",
+            "Dapr_Agents",
+            "dapr.agents",
+            "Dapr.Agents",
+            "DaprAgents",
+            "daprAgents",
+        ],
+    )
+    def test_dapr_agents_framework_aliases_route_to_default(self, framework):
+        """All separator/casing variants of 'Dapr Agents' resolve to dapr.agents.*.
+
+        Regression guard for the cross-process dispatch bug: if the orchestrator
+        read a registry entry with framework='dapr-agents' (hyphen) or a
+        different casing, it used to build 'dapr.dapr-agents.sre-agent.workflow'
+        which the sub-agent never registered.
+        """
+        assert (
+            agent_workflow_id("sre-agent", framework=framework)
+            == "dapr.agents.sre-agent.workflow"
+        )
+
 
 class TestAgentTaskArgs:
     def test_task_field_required(self):
@@ -203,6 +232,28 @@ class TestScheduleAgentWorkflow:
             workflow="dapr.custom.workflow.name",
             input={"task": "custom task"},
         )
+
+
+class TestWorkflowContextInjectedToolError:
+    """Error surfaced by WorkflowContextInjectedTool when ctx is missing."""
+
+    def test_error_names_the_tool_and_class(self):
+        """Missing ctx error should include tool name and class for diagnosis.
+
+        The old message ('Missing workflow context. Pass it as ...') read like
+        a framework bug; it gave the user no way to tell which tool, which
+        dispatch path, or why ctx was absent. The enriched message names the
+        offending tool so the user can trace it back to the dispatch loop.
+        """
+        from dapr_agents.types import ToolError
+
+        tool = agent_to_tool("frodo", "Ring-bearer.")
+        with pytest.raises(ToolError) as exc_info:
+            tool(task="Carry it to Mordor")  # no ctx passed
+        msg = str(exc_info.value)
+        assert "frodo" in msg.lower() or "Frodo" in msg
+        assert "AgentWorkflowTool" in msg
+        assert "ctx=<DaprWorkflowContext>" in msg
 
 
 class TestAgentToTool:

@@ -49,8 +49,15 @@ class WorkflowContextInjectedTool(AgentTool):
         """
         ctx = kwargs.pop(self.context_kwarg, None)
         if ctx is None:
+            tool_name = getattr(self, "name", "<unknown>")
+            tool_class = type(self).__name__
             raise ToolError(
-                f"Missing workflow context. Pass it as '{self.context_kwarg}=<DaprWorkflowContext>'."
+                f"Missing workflow context for tool '{tool_name}' ({tool_class}). "
+                f"This tool must be yielded from a workflow context (pass "
+                f"'{self.context_kwarg}=<DaprWorkflowContext>'), not executed "
+                f"through the run_tool activity. If the LLM emitted this tool "
+                f"call, ensure the dispatch loop routed it inline via "
+                f"WorkflowContextInjectedTool handling, not via ctx.call_activity."
             )
         source_agent = kwargs.pop("_source_agent", None)
         child_instance_id = kwargs.pop("_child_instance_id", None)

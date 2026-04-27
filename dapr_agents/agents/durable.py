@@ -952,19 +952,51 @@ class DurableAgent(AgentBase):
 
             child_instance_id = str(uuid.uuid4())
             dispatch_time = ctx.current_utc_datetime.isoformat()
+            agent_workflow_name = (
+                agent_meta.get("metadata", {}).get("workflow_name")
+                if isinstance(agent_meta.get("metadata"), dict)
+                else None
+            )
             _agent_tool = agent_to_tool(
                 next_agent,
                 description="",
                 agent_type=agent_type,
                 target_app_id=agent_appid,
                 framework=framework,
+                workflow_name=agent_workflow_name,
             )
-            result = yield _agent_tool(
-                ctx=ctx,
-                task=instruction,
-                _source_agent=self.name,
-                _child_instance_id=child_instance_id,
-            )
+            try:
+                result = yield _agent_tool(
+                    ctx=ctx,
+                    task=instruction,
+                    _source_agent=self.name,
+                    _child_instance_id=child_instance_id,
+                )
+            except Exception as dispatch_exc:
+                # Enrich registration-not-found errors with the dispatch context
+                # so users can tell whether the name, framework, app_id, or
+                # missing sub-agent registration is at fault. We match by class
+                # name + message substring to avoid a hard dependency on
+                # durabletask-client's exception module.
+                exc_name = type(dispatch_exc).__name__
+                exc_msg = str(dispatch_exc)
+                if (
+                    "OrchestratorNotRegisteredError" in exc_name
+                    or "was not registered" in exc_msg
+                ):
+                    raise AgentError(
+                        f"Failed to dispatch to sub-agent '{next_agent}': "
+                        f"{exc_msg}. Dispatch context: framework={framework!r}, "
+                        f"target_app_id={agent_appid!r}, "
+                        f"published_workflow_name={agent_workflow_name!r}. "
+                        f"Verify the target app is running and registered a "
+                        f"workflow whose ID matches what the orchestrator "
+                        f"dispatches. If framework casing or separators "
+                        f"differ across processes, publish "
+                        f"'metadata.workflow_name' from the sub-agent side "
+                        f"to pin the canonical name."
+                    ) from dispatch_exc
+                raise
             # Use the child workflow instance ID as the tool_call_id — there is
             # no LLM-assigned ID here since the orchestrator dispatches agents
             # directly (not via LLM tool calls).  save_tool_results will derive
@@ -2076,15 +2108,17 @@ class DurableAgent(AgentBase):
 
                 framework = agent_meta.get("framework")
 
-                # For dapr-agents, check if we can get the actual workflow name
+                # Prefer the canonical workflow name published by the sub-agent
+                # in its registry metadata. When present, it is the literal
+                # name the target agent registered with its Dapr runtime, so
+                # dispatch does not depend on sanitization agreement across
+                # processes. Falls back to framework + name construction.
                 workflow_name = None
-                if framework == "Dapr Agents":
-                    # Try to get the actual workflow name if available
-                    # (This would require the agent to store it in metadata, which
-                    # isn't currently done, but we leave this hook for future use)
-                    metadata_dict = agent_meta.get("metadata")
-                    if isinstance(metadata_dict, dict):
-                        workflow_name = metadata_dict.get("workflow_name")
+                metadata_dict = agent_meta.get("metadata")
+                if isinstance(metadata_dict, dict):
+                    candidate = metadata_dict.get("workflow_name")
+                    if isinstance(candidate, str) and candidate:
+                        workflow_name = candidate
 
                 tool = agent_to_tool(
                     name,
