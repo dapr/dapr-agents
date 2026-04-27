@@ -167,6 +167,14 @@ class RequestHandler:
                 **params,
             )
 
+        # When streaming for OpenAI-compatible providers, request usage on the
+        # terminal chunk so observability/accumulators can record token counts.
+        # Harmless when the provider ignores the flag.
+        if params.get("stream") and llm_provider in ("openai", "nvidia"):
+            stream_options = params.get("stream_options") or {}
+            stream_options.setdefault("include_usage", True)
+            params["stream_options"] = stream_options
+
         return params
 
     @staticmethod

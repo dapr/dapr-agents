@@ -18,8 +18,9 @@ import functools
 import json
 import logging
 import re
+import threading
 import uuid
-from typing import Any, Callable, Dict, Iterable, List, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
@@ -75,12 +76,32 @@ from dapr_agents.agents.schemas import (
 from dapr_agents.agents.executors import AgentExecutorBase
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.prompt.base import PromptTemplateBase
+from dapr_agents.streaming.emitter import StreamEmitter
+from dapr_agents.streaming.keys import (
+    INCLUDE_COMPLETE_MESSAGE,
+    MESSAGE_METADATA,
+    STREAM_CONTEXT,
+    STREAM_LISTENER_CONFIG,
+    STREAM_PHASE,
+    StreamContextDict,
+)
+from dapr_agents.streaming.listeners import (
+    _REGISTRY_LOCK as _LISTENER_REGISTRY_LOCK,
+    _USER_LISTENERS,
+    StreamListener,
+    build_listener,
+)
 from dapr_agents.types import (
     AgentError,
     DaprWorkflowStatus,
+    LLMChatResponse,
     UserMessage,
     ToolMessage,
     AssistantMessage,
+)
+from dapr_agents.types.streaming import (
+    AssistantMessageAccumulator,
+    StreamChunkType,
 )
 from dapr_agents.types.tools import ToolExecutionRecord, ToolExecutionStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
@@ -92,6 +113,10 @@ from dapr_agents.tool.workflow.agent_tool import (
     AgentWorkflowTool,
     agent_to_tool,
     agent_workflow_id,
+)
+from dapr_agents.tool.workflow.ask_user_tool import (
+    ASK_USER_TOOL_NAME,
+    build_ask_user_tool,
 )
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 from dapr_agents.workflow.utils.names import sanitize_agent_name
@@ -329,6 +354,12 @@ class DurableAgent(AgentBase):
             if self._agents_as_tools and self.execution.tool_choice is None:
                 self.execution.tool_choice = "auto"
 
+        # Register built-in tools (e.g., ``ask_user``) unless the caller opted
+        # out via ``execution.builtin_tools``. These are lazy: streaming must
+        # be enabled and a session stream_context must be present for the tool
+        # to do anything useful.
+        self._register_builtin_tools()
+
         grpc_options = getattr(self, "workflow_grpc_options", None)
         apply_grpc_options(grpc_options)
 
@@ -347,6 +378,14 @@ class DurableAgent(AgentBase):
         self._wf_client: Optional[wf.DaprWorkflowClient] = (
             wf.DaprWorkflowClient() if (hooks and hooks.before_tool_call) else None
         )
+
+        # Per-session listener cache, keyed by (instance_id, cfg_hash).
+        # Only cacheable listener types (pub/sub + webhook) land here —
+        # in-process listeners are cheap to build and tied to a specific
+        # asyncio loop, so we don't cache them. Reaped in
+        # ``finalize_workflow`` so session-scoped threads don't leak.
+        self._stream_listener_cache: Dict[tuple, StreamListener] = {}
+        self._stream_listener_cache_lock = threading.Lock()
 
         try:
             retries = int(getenv("DAPR_API_MAX_RETRIES", ""))
@@ -446,7 +485,7 @@ class DurableAgent(AgentBase):
             AgentError: If the loop finishes without producing a final response.
         """
         task = message.get("task")
-        metadata = message.get("_message_metadata", {}) or {}
+        metadata = message.get(MESSAGE_METADATA, {}) or {}
 
         # Propagate OTel/parent workflow relations if present.
         otel_span_context = message.get("_otel_span_context")
@@ -460,6 +499,15 @@ class DurableAgent(AgentBase):
 
         logger.info(f"Initial message from {source} -> {self.name}")
 
+        # Resolve streaming context for this workflow instance. The root
+        # synthesizes from an inbound ``_stream_listener_config``; children
+        # inherit the parent's ``_stream_context`` and extend call_path.
+        stream_ctx = self._resolve_stream_context(
+            metadata=metadata,
+            instance_id=ctx.instance_id,
+            otel_span_context=otel_span_context,
+        )
+
         # Record initial entry via activity to keep deterministic/replay-friendly I/O.
         yield ctx.call_activity(
             self._activity_name(self.record_initial_entry),
@@ -468,6 +516,7 @@ class DurableAgent(AgentBase):
                 "source": source,
                 "triggering_workflow_instance_id": trigger_instance_id,
                 "trace_context": otel_span_context,
+                "stream_context": stream_ctx,
             },
             retry_policy=self._retry_policy,
         )
@@ -492,14 +541,17 @@ class DurableAgent(AgentBase):
                     ctx.instance_id,
                 )
 
+                orch_input: Dict[str, Any] = {
+                    "task": task,
+                    "instance_id": ctx.instance_id,
+                    "triggering_workflow_instance_id": trigger_instance_id,
+                    "start_time": ctx.current_utc_datetime.isoformat(),
+                }
+                if stream_ctx:
+                    orch_input[MESSAGE_METADATA] = {STREAM_CONTEXT: stream_ctx}
                 final_message = yield ctx.call_child_workflow(
                     workflow=orchestration_workflow_id(self.name, infra=self._infra),
-                    input={
-                        "task": task,
-                        "instance_id": ctx.instance_id,
-                        "triggering_workflow_instance_id": trigger_instance_id,
-                        "start_time": ctx.current_utc_datetime.isoformat(),
-                    },
+                    input=orch_input,
                     retry_policy=self._retry_policy,
                 )
 
@@ -558,6 +610,7 @@ class DurableAgent(AgentBase):
                             "instance_id": ctx.instance_id,
                             "time": ctx.current_utc_datetime.isoformat(),
                             "source": source,
+                            "turn": turn,
                         },
                         retry_policy=self._retry_policy,
                     )
@@ -712,6 +765,20 @@ class DurableAgent(AgentBase):
                                     call_kwargs["_child_instance_id"] = (
                                         child_instance_id
                                     )
+                                    if stream_ctx:
+                                        child_stream_ctx = dict(stream_ctx)
+                                        child_stream_ctx["parent_agent"] = self.name
+                                        child_stream_ctx["parent_instance_id"] = (
+                                            ctx.instance_id
+                                        )
+                                        child_stream_ctx["depth"] = (
+                                            int(stream_ctx.get("depth", 0)) + 1
+                                        )
+                                        call_kwargs[
+                                            "_stream_context"
+                                        ] = (  # kwarg name, not metadata key
+                                            child_stream_ctx
+                                        )
                                     workflow_meta.append(
                                         {
                                             "order": idx,
@@ -752,6 +819,41 @@ class DurableAgent(AgentBase):
                                 )
 
                         all_tasks = workflow_tasks + activity_tasks
+
+                        # Emit TURN_PAUSED before dispatching agent-as-tool
+                        # calls so UIs know this agent is waiting on child
+                        # workflows. The paired TURN_RESUMED is emitted
+                        # after the fan-out yield below. Note: this is
+                        # intentionally the child-agent split only — pure
+                        # tool runs don't pause the agent visually.
+                        child_agent_dispatches = [
+                            m for m in workflow_meta if m.get("child_instance_id")
+                        ]
+                        if stream_ctx and child_agent_dispatches:
+                            yield ctx.call_activity(
+                                self._activity_name(self.publish_stream_event),
+                                input={
+                                    "instance_id": ctx.instance_id,
+                                    "event_type": "turn_paused",
+                                    "turn": turn,
+                                    "event_data": {
+                                        "reason": "child_agent_dispatch",
+                                        "children": [
+                                            {
+                                                "child_agent": m["tool_call"][
+                                                    "function"
+                                                ]["name"],
+                                                "child_instance_id": m[
+                                                    "child_instance_id"
+                                                ],
+                                            }
+                                            for m in child_agent_dispatches
+                                        ],
+                                    },
+                                },
+                                retry_policy=self._retry_policy,
+                            )
+
                         if (
                             self.execution.tool_execution_mode
                             == ToolExecutionMode.SEQUENTIAL
@@ -761,6 +863,30 @@ class DurableAgent(AgentBase):
                                 results.append((yield task))
                         else:
                             results: List[Any] = yield wf.when_all(all_tasks)
+
+                        if stream_ctx and child_agent_dispatches:
+                            yield ctx.call_activity(
+                                self._activity_name(self.publish_stream_event),
+                                input={
+                                    "instance_id": ctx.instance_id,
+                                    "event_type": "turn_resumed",
+                                    "turn": turn,
+                                    "event_data": {
+                                        "children": [
+                                            {
+                                                "child_agent": m["tool_call"][
+                                                    "function"
+                                                ]["name"],
+                                                "child_instance_id": m[
+                                                    "child_instance_id"
+                                                ],
+                                            }
+                                            for m in child_agent_dispatches
+                                        ],
+                                    },
+                                },
+                                retry_policy=self._retry_policy,
+                            )
 
                         for meta, res in zip(
                             workflow_meta, results[: len(workflow_tasks)]
@@ -877,6 +1003,7 @@ class DurableAgent(AgentBase):
                 "final_output": final_message.get("content", ""),
                 "end_time": ctx.current_utc_datetime.isoformat(),
                 "triggering_workflow_instance_id": trigger_instance_id,
+                "final_message": final_message,
             },
             retry_policy=self._retry_policy,
         )
@@ -1033,6 +1160,8 @@ class DurableAgent(AgentBase):
         """
         task = message.get("task")
         instance_id = message.get("instance_id")
+        metadata = message.get(MESSAGE_METADATA, {}) or {}
+        stream_ctx = metadata.get(STREAM_CONTEXT)
 
         logger.info(
             f"Orchestration workflow started for instance {instance_id} with task: {task}"
@@ -1055,6 +1184,7 @@ class DurableAgent(AgentBase):
                     "task": plan_prompt,
                     "time": ctx.current_utc_datetime.isoformat(),
                     "response_format": "IterablePlanStep",
+                    STREAM_PHASE: "planning",
                 },
                 retry_policy=self._retry_policy,
             )
@@ -1138,6 +1268,7 @@ class DurableAgent(AgentBase):
                         "task": next_step_prompt,
                         "time": ctx.current_utc_datetime.isoformat(),
                         "response_format": "NextStep",
+                        STREAM_PHASE: "routing",
                     },
                     retry_policy=self._retry_policy,
                 )
@@ -1251,13 +1382,49 @@ class DurableAgent(AgentBase):
                 framework=framework,
                 workflow_name=agent_workflow_name,
             )
-            try:
-                result = yield _agent_tool(
-                    ctx=ctx,
-                    task=instruction,
-                    _source_agent=self.name,
-                    _child_instance_id=child_instance_id,
+            _agent_tool_kwargs: Dict[str, Any] = {
+                "ctx": ctx,
+                "task": instruction,
+                "_source_agent": self.name,
+                "_child_instance_id": child_instance_id,
+            }
+            if stream_ctx:
+                child_stream_ctx = dict(stream_ctx)
+                child_stream_ctx["parent_agent"] = self.name
+                child_stream_ctx["parent_instance_id"] = ctx.instance_id
+                child_stream_ctx["depth"] = int(stream_ctx.get("depth", 0)) + 1
+                _agent_tool_kwargs["_stream_context"] = child_stream_ctx
+
+                yield ctx.call_activity(
+                    self._activity_name(self.publish_stream_event),
+                    input={
+                        "instance_id": instance_id,
+                        "event_type": "orchestration_decision",
+                        "event_data": {
+                            "selected_agent": next_agent,
+                            "instruction": instruction,
+                            "child_instance_id": child_instance_id,
+                        },
+                        "phase": "routing",
+                    },
+                    retry_policy=self._retry_policy,
                 )
+                yield ctx.call_activity(
+                    self._activity_name(self.publish_stream_event),
+                    input={
+                        "instance_id": instance_id,
+                        "event_type": "turn_paused",
+                        "event_data": {
+                            "reason": "orchestration_dispatch",
+                            "child_agent": next_agent,
+                            "child_instance_id": child_instance_id,
+                        },
+                        "phase": "routing",
+                    },
+                    retry_policy=self._retry_policy,
+                )
+            try:
+                result = yield _agent_tool(**_agent_tool_kwargs)
             except Exception as dispatch_exc:
                 # Enrich registration-not-found errors with the dispatch context
                 # so users can tell whether the name, framework, app_id, or
@@ -1283,6 +1450,20 @@ class DurableAgent(AgentBase):
                         f"to pin the canonical name."
                     ) from dispatch_exc
                 raise
+            if stream_ctx:
+                yield ctx.call_activity(
+                    self._activity_name(self.publish_stream_event),
+                    input={
+                        "instance_id": instance_id,
+                        "event_type": "turn_resumed",
+                        "event_data": {
+                            "child_agent": next_agent,
+                            "child_instance_id": child_instance_id,
+                        },
+                        "phase": "routing",
+                    },
+                    retry_policy=self._retry_policy,
+                )
             # Use the child workflow instance ID as the tool_call_id — there is
             # no LLM-assigned ID here since the orchestrator dispatches agents
             # directly (not via LLM tool calls).  save_tool_results will derive
@@ -1358,6 +1539,7 @@ class DurableAgent(AgentBase):
                         "task": progress_prompt,
                         "time": ctx.current_utc_datetime.isoformat(),
                         "response_format": "ProgressCheckOutput",
+                        STREAM_PHASE: "evaluating",
                     },
                     retry_policy=self._retry_policy,
                 )
@@ -1458,6 +1640,7 @@ class DurableAgent(AgentBase):
                     "instance_id": instance_id,
                     "task": summary_prompt,
                     "time": ctx.current_utc_datetime.isoformat(),
+                    STREAM_PHASE: "summarizing",
                 },
                 retry_policy=self._retry_policy,
             )
@@ -1598,7 +1781,7 @@ class DurableAgent(AgentBase):
             ctx: Dapr workflow context.
             message: Broadcast payload containing content and metadata.
         """
-        metadata = message.get("_message_metadata", {}) or {}
+        metadata = message.get(MESSAGE_METADATA, {}) or {}
         source = metadata.get("source") or "unknown"
         if source == self.name:
             logger.debug("Agent %s ignoring self-originated broadcast.", self.name)
@@ -1820,12 +2003,14 @@ class DurableAgent(AgentBase):
         """
         Record the initial entry for a workflow instance.
         Input/output/status/timestamps come from Dapr get_workflow.
-        We only source, triggering_workflow_instance_id, trace_context.
+        We only source, triggering_workflow_instance_id, trace_context,
+        and stream_context.
         """
         instance_id = ctx.workflow_id
         trace_context = payload.get("trace_context")
         source = payload.get("source", "direct")
         triggering_instance = payload.get("triggering_workflow_instance_id")
+        stream_context = payload.get("stream_context")
 
         try:
             entry = self._infra.get_state(instance_id)
@@ -1840,6 +2025,7 @@ class DurableAgent(AgentBase):
         entry.source = source
         entry.triggering_workflow_instance_id = triggering_instance
         entry.trace_context = trace_context
+        entry.stream_context = stream_context
         self.save_state(instance_id, entry=entry)
 
     def record_broadcast(self, _ctx: wf.WorkflowActivityContext, message: dict) -> None:
@@ -1856,7 +2042,7 @@ class DurableAgent(AgentBase):
         # Use a fixed session key so all broadcasts accumulate in one memory slot.
         # Key in store: {agent_name}:_memory_broadcast
         session_id = "broadcast"
-        metadata = message.get("_message_metadata", {}) or {}
+        metadata = message.get(MESSAGE_METADATA, {}) or {}
         source = metadata.get("source") or "unknown"
         content = message.get("content", "")
         if self.memory is not None:
@@ -1962,6 +2148,17 @@ class DurableAgent(AgentBase):
             if self.execution.tool_choice is not None:
                 generate_kwargs["tool_choice"] = self.execution.tool_choice
 
+        # Resolve streaming context: if the session opted in, we emit chunks
+        # via a StreamListener in addition to returning the final message.
+        # NOTE: the actual ``self.llm.generate(...)`` call happens below, after
+        # before_llm_call hook dispatch (HEAD moved generation past the hooks).
+        stream_ctx = getattr(entry, "stream_context", None)
+        streaming_requested = bool(
+            self.execution.streaming and stream_ctx and response_model is None
+        )
+        if streaming_requested:
+            generate_kwargs["stream"] = True
+
         # before_llm_call hook dispatch. Hooks fire inside this activity (rather
         # than in the workflow body) so they can perform non-deterministic work
         # like web search; the activity boundary records the final assistant
@@ -2034,7 +2231,7 @@ class DurableAgent(AgentBase):
                     ) from exc
                 raise AgentError(str(exc)) from exc
 
-            # Handle structured output response (Pydantic model) vs regular chat response
+            # Handle structured output (Pydantic model) vs streaming vs regular.
             if response_model is not None:
                 # Structured output: response is the Pydantic model itself
                 if hasattr(response, "model_dump"):
@@ -2048,12 +2245,53 @@ class DurableAgent(AgentBase):
                     "role": "assistant",
                     "content": content,
                 }
+                # Structured-output path still honours streaming: emit a uniform
+                # START+TURN_COMPLETE so consumers see the final payload.
+                if stream_ctx and self.execution.streaming:
+                    self._emit_non_streaming_stream(
+                        stream_ctx=stream_ctx,
+                        instance_id=instance_id,
+                        turn=int(payload.get("turn", 0)),
+                        phase=payload.get(STREAM_PHASE),
+                        assistant_message=assistant_message,
+                        metadata={"structured_output": True},
+                    )
+            elif streaming_requested and self._is_chunk_iterator(response):
+                assistant_message = self._consume_llm_stream(
+                    response=response,
+                    stream_ctx=stream_ctx,
+                    instance_id=instance_id,
+                    turn=int(payload.get("turn", 0)),
+                    phase=payload.get(STREAM_PHASE),
+                )
             else:
-                # Regular chat response
-                assistant_message = response.get_message()
+                # Regular chat response — either streaming wasn't requested or the
+                # provider fell back (e.g., Dapr Conversation API pre-streaming).
+                if isinstance(response, LLMChatResponse):
+                    assistant_message = response.get_message()
+                    fallback = bool(
+                        (response.metadata or {}).get("dapr_streaming_fallback")
+                    )
+                else:
+                    assistant_message = response.get_message()
+                    fallback = False
                 if assistant_message is None:
                     raise AgentError("LLM returned no assistant message.")
                 assistant_message = assistant_message.model_dump()
+                if streaming_requested or fallback:
+                    # Preserve the uniform stream shape when a streaming request
+                    # ended up non-streaming (Dapr fallback, future providers).
+                    if stream_ctx and self.execution.streaming:
+                        self._emit_non_streaming_stream(
+                            stream_ctx=stream_ctx,
+                            instance_id=instance_id,
+                            turn=int(payload.get("turn", 0)),
+                            phase=payload.get(STREAM_PHASE),
+                            assistant_message=assistant_message,
+                            metadata={"dapr_streaming_fallback": fallback}
+                            if fallback
+                            else None,
+                        )
 
         # after_llm_call hook dispatch. Receives a copy of the built
         # assistant_message and may return Mutate(payload=<replacement dict>) to
@@ -2341,6 +2579,336 @@ class DurableAgent(AgentBase):
             raise AgentError("AgentExecutor stream ended without a 'complete' event.")
 
         return final_message
+
+    # ------------------------------------------------------------------
+    # Built-in tool registration
+    # ------------------------------------------------------------------
+
+    def _register_builtin_tools(self) -> None:
+        """Install the framework's built-in tools (``ask_user``, ...).
+
+        Gated so upgrading agents don't accidentally expose new tools to the
+        LLM (backwards-compatibility preservation):
+
+        - Skipped when ``streaming`` is disabled — ``ask_user`` only functions
+          when a session ``stream_context`` is present; surfacing it to the
+          LLM without streaming would hang on ``wait_for_external_event`` and
+          eventually time out with a sentinel, which is a regression.
+        - Skipped for orchestrators — they coordinate via strategy, not by
+          asking the user directly.
+        - Skipped unless the user explicitly lists the tool in
+          ``AgentExecutionConfig.builtin_tools`` (default is an empty list).
+        """
+
+        if self.execution.orchestration_mode:
+            return
+        if not self.execution.streaming:
+            return
+        enabled = set(self.execution.builtin_tools or [])
+        if ASK_USER_TOOL_NAME in enabled:
+            existing = self.tool_executor.get_tool(ASK_USER_TOOL_NAME)
+            if existing is None:
+                tool = build_ask_user_tool(self._activity_name(self.publish_stream_event))
+                self.tool_executor.register_tool(tool)
+
+    # ------------------------------------------------------------------
+    # Streaming helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_stream_context(
+        self,
+        *,
+        metadata: Dict[str, Any],
+        instance_id: str,
+        otel_span_context: Optional[Dict[str, Any]],
+    ) -> Optional[StreamContextDict]:
+        """Return the stream context for this workflow, or ``None`` when not streaming.
+
+        Pure function of inputs — safe to call from the workflow body. Does
+        **not** read ``self.execution.streaming`` or
+        ``self.execution.stream_listener`` because those are mutable at
+        runtime (hot-reload via Configuration Store) and reading them here
+        would make workflow replays non-deterministic. The runner is
+        responsible for stamping ``STREAM_LISTENER_CONFIG`` into the payload
+        metadata before scheduling when streaming is enabled for the
+        session; for ``.subscribe()`` callers that want streaming on
+        pub/sub-triggered invocations, include ``_stream_listener_config``
+        in the ``TriggerAction._message_metadata`` at publish time.
+
+        Resolution order:
+        - If inbound metadata carries ``STREAM_CONTEXT``, inherit it and
+          append ``self.name`` to ``call_path``.
+        - Otherwise, if metadata has ``STREAM_LISTENER_CONFIG``, synthesize
+          a root context with ``depth=0`` and ``call_path=[self.name]``.
+        - If neither is present, streaming is disabled for this run.
+        """
+
+        incoming = metadata.get(STREAM_CONTEXT) if metadata else None
+        if incoming:
+            ctx_copy = dict(incoming)
+            path = list(ctx_copy.get("call_path") or [])
+            if not path or path[-1] != self.name:
+                path.append(self.name)
+            ctx_copy["call_path"] = path
+            return ctx_copy
+
+        listener_config = None
+        if metadata:
+            listener_config = metadata.get(STREAM_LISTENER_CONFIG)
+
+        if not listener_config:
+            return None
+
+        trace_parent = None
+        if otel_span_context and isinstance(otel_span_context, dict):
+            trace_parent = otel_span_context.get("traceparent")
+
+        include_complete = bool((metadata or {}).get(INCLUDE_COMPLETE_MESSAGE, False))
+
+        return {
+            "root_instance_id": instance_id,
+            "listener_config": listener_config,
+            "parent_agent": None,
+            "parent_instance_id": None,
+            "depth": 0,
+            "call_path": [self.name],
+            "trace_parent": trace_parent,
+            "include_complete_message": include_complete,
+        }
+
+    @staticmethod
+    def _is_chunk_iterator(response: Any) -> bool:
+        """Return True if the LLM response is a streaming chunk iterator.
+
+        Non-streaming responses from every provider are ``LLMChatResponse``
+        (or a subclass). Anything else that is iterable but not a string
+        we treat as a chunk stream.
+        """
+
+        if isinstance(response, LLMChatResponse):
+            return False
+        if isinstance(response, (str, bytes, dict)):
+            return False
+        return hasattr(response, "__iter__") or hasattr(response, "__next__")
+
+    # Listener types worth caching per-session (building them spawns a
+    # background thread + event loop; rebuilding per event is wasteful in
+    # orchestrators that emit many lightweight events like
+    # ORCHESTRATION_DECISION / TURN_PAUSED). In-process listeners are
+    # excluded because they're cheap to build and bound to a specific
+    # asyncio loop whose lifetime the runner manages.
+    _CACHEABLE_LISTENER_TYPES: frozenset = frozenset({"pubsub", "webhook", "composite"})
+    # Listener types the agent will build from a config that arrived via
+    # durable workflow state. Explicitly excludes ``"custom"`` (dotted-import
+    # factory): the HTTP surface already rejects custom types at the 400
+    # boundary, but state can be populated through other paths (compromised
+    # child agent, direct state-store write during migration). Keeping this
+    # allowlist here is defence-in-depth for that eventuality. Registered
+    # user factories are referenced by their registered name — they don't
+    # need the ``"custom"`` type discriminator — so they remain reachable
+    # for the legitimate use case.
+    _STATE_SAFE_LISTENER_TYPES: frozenset = frozenset(
+        {"pubsub", "in_process", "webhook", "composite"}
+    )
+
+    def _acquire_listener(
+        self,
+        listener_cfg: Dict[str, Any],
+        instance_id: str,
+        root_instance_id: Optional[str] = None,
+    ) -> Tuple[Optional[StreamListener], bool]:
+        """Return ``(listener, owns_it)`` for this session's listener config.
+
+        When the listener type is cacheable, stores the built listener on
+        ``self._stream_listener_cache`` keyed by ``(root_instance_id, cfg_hash)``
+        so every agent in a multi-agent session reuses a single transport
+        thread rather than each spawning its own. Only the root agent's
+        ``finalize_workflow`` reaps the cache entry on session end; sub-agent
+        finalizations don't touch it.
+
+        For non-cacheable types (in-process), builds fresh and transfers
+        ownership to the caller (``owns_it=True``).
+
+        Listener construction runs with ``allow_custom=False`` to prevent
+        the dotted-import factory from being reachable via any path that
+        writes into workflow state. Registered user factories (via
+        ``register_stream_listener("my-type", ...)``) remain usable — they
+        are looked up by their registered name, not the ``"custom"``
+        discriminator.
+        """
+
+        ltype = listener_cfg.get("type")
+        with _LISTENER_REGISTRY_LOCK:
+            registered_user_types = set(_USER_LISTENERS)
+        if (
+            ltype not in self._STATE_SAFE_LISTENER_TYPES
+            and ltype not in registered_user_types
+        ):
+            logger.error(
+                "Refusing to build listener of unknown/unsafe type %r for "
+                "instance=%s (listener_cfg came from workflow state).",
+                ltype,
+                instance_id,
+            )
+            return None, False
+
+        cacheable = ltype in self._CACHEABLE_LISTENER_TYPES
+        cache_key: Optional[tuple] = None
+        # Fall back to the current instance id only when the caller
+        # couldn't provide the root — keeps single-agent sessions working
+        # even without stream_ctx propagation.
+        cache_owner = root_instance_id or instance_id
+        if cacheable:
+            cache_key = (
+                cache_owner,
+                json.dumps(listener_cfg, sort_keys=True, default=str),
+            )
+            with self._stream_listener_cache_lock:
+                cached = self._stream_listener_cache.get(cache_key)
+            if cached is not None:
+                return cached, False
+        try:
+            listener = build_listener(
+                listener_cfg, infra=self._infra, allow_custom=False
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to build stream listener for instance=%s: %s",
+                instance_id,
+                exc,
+            )
+            return None, False
+        if cacheable and cache_key is not None:
+            with self._stream_listener_cache_lock:
+                # Another activity may have raced us; prefer the cached one.
+                existing = self._stream_listener_cache.get(cache_key)
+                if existing is not None:
+                    listener.close()
+                    return existing, False
+                self._stream_listener_cache[cache_key] = listener
+            return listener, False
+        return listener, True
+
+    def _drop_session_listeners(self, root_instance_id: str) -> None:
+        """Close and remove every cached listener for the given session.
+
+        Only the ROOT instance's ``finalize_workflow`` should call this —
+        sub-agents share the same cache entries and would otherwise tear
+        down the listener while orchestrator turns are still emitting.
+        """
+        to_close: List[StreamListener] = []
+        with self._stream_listener_cache_lock:
+            for key in list(self._stream_listener_cache.keys()):
+                if key[0] == root_instance_id:
+                    to_close.append(self._stream_listener_cache.pop(key))
+        for listener in to_close:
+            try:
+                listener.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "Cached listener close raised for root=%s: %s",
+                    root_instance_id,
+                    exc,
+                )
+
+    def _build_stream_emitter(
+        self,
+        *,
+        stream_ctx: Dict[str, Any],
+        instance_id: str,
+        turn: int,
+        phase: Optional[str],
+    ) -> Optional[StreamEmitter]:
+        """Resolve the listener for this session and wrap it in a ``StreamEmitter``.
+
+        Returns ``None`` when the listener cannot be built (misconfigured
+        session). Errors are logged at WARNING; the activity falls back to
+        the non-streaming code path so durability is never compromised.
+        """
+
+        listener_cfg = stream_ctx.get("listener_config")
+        if not listener_cfg:
+            logger.warning(
+                "stream_context on entry=%s is missing 'listener_config'; "
+                "skipping stream emission",
+                instance_id,
+            )
+            return None
+        root_instance_id = stream_ctx.get("root_instance_id", instance_id)
+        listener, owns = self._acquire_listener(
+            listener_cfg, instance_id, root_instance_id=root_instance_id
+        )
+        if listener is None:
+            return None
+        include_complete = bool(stream_ctx.get("include_complete_message", False))
+        return StreamEmitter(
+            listener=listener,
+            owns_listener=owns,
+            agent_name=self.name,
+            workflow_instance_id=instance_id,
+            turn=turn,
+            root_instance_id=root_instance_id,
+            parent_agent=stream_ctx.get("parent_agent"),
+            parent_instance_id=stream_ctx.get("parent_instance_id"),
+            depth=int(stream_ctx.get("depth", 0)),
+            call_path=stream_ctx.get("call_path"),
+            phase=phase,
+            trace_parent=stream_ctx.get("trace_parent"),
+            include_complete_message=include_complete,
+        )
+
+    def _consume_llm_stream(
+        self,
+        *,
+        response: Any,
+        stream_ctx: Dict[str, Any],
+        instance_id: str,
+        turn: int,
+        phase: Optional[str],
+    ) -> Dict[str, Any]:
+        """Iterate a provider chunk stream through the configured listener."""
+
+        emitter = self._build_stream_emitter(
+            stream_ctx=stream_ctx,
+            instance_id=instance_id,
+            turn=turn,
+            phase=phase,
+        )
+        if emitter is None:
+            # Listener unavailable — accumulate locally without emission.
+            accumulator = AssistantMessageAccumulator()
+            for packet in response:
+                accumulator.ingest(packet)
+            return accumulator.assistant_message()
+        try:
+            return emitter.consume(response)
+        finally:
+            emitter.close()
+
+    def _emit_non_streaming_stream(
+        self,
+        *,
+        stream_ctx: Dict[str, Any],
+        instance_id: str,
+        turn: int,
+        phase: Optional[str],
+        assistant_message: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Emit a uniform ``START + TURN_COMPLETE`` when no real streaming happened."""
+
+        emitter = self._build_stream_emitter(
+            stream_ctx=stream_ctx,
+            instance_id=instance_id,
+            turn=turn,
+            phase=phase,
+        )
+        if emitter is None:
+            return
+        try:
+            emitter.consume_non_streaming(assistant_message, metadata=metadata)
+        finally:
+            emitter.close()
 
     def run_tool(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -2810,9 +3378,15 @@ class DurableAgent(AgentBase):
         """
         Finalize workflow state: persist triggering_workflow_instance_id if provided.
         Status/output/end_time come from Dapr get_workflow; we do not store them here.
+
+        If this instance is the root of a streaming session (``depth == 0``),
+        emit a ``SESSION_COMPLETE`` chunk so consumers know the whole session
+        is done (vs. a sub-agent ``TURN_COMPLETE`` which only terminates one
+        agent's turn).
         """
         instance_id = payload.get("instance_id")
         triggering_workflow_instance_id = payload.get("triggering_workflow_instance_id")
+        final_message = payload.get("final_message")
 
         try:
             entry = self._infra.get_state(instance_id)
@@ -2828,6 +3402,93 @@ class DurableAgent(AgentBase):
 
         entry.triggering_workflow_instance_id = triggering_workflow_instance_id
         self.save_state(instance_id, entry=entry)
+
+        stream_ctx = getattr(entry, "stream_context", None)
+        if stream_ctx and int(stream_ctx.get("depth", 0)) == 0:
+            self._publish_session_complete(
+                stream_ctx=stream_ctx,
+                instance_id=instance_id,
+                final_message=final_message,
+            )
+
+        # Reap cached listeners only from the session root. Sub-agents
+        # share cache entries keyed by root_instance_id and must not close
+        # the transport while orchestrator turns are still emitting.
+        if stream_ctx and int(stream_ctx.get("depth", 0)) == 0:
+            root_id = stream_ctx.get("root_instance_id", instance_id)
+            self._drop_session_listeners(root_id)
+
+    def publish_stream_event(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> None:
+        """Emit a one-off stream event (orchestration decision, turn pause, etc.).
+
+        Takes a ``StreamChunkType`` value and an optional ``event_data`` /
+        ``phase`` and publishes the envelope through the session's configured
+        listener. Activity so replay semantics remain clean: on workflow
+        replay the cached activity result ensures we don't double-emit.
+        """
+        instance_id = payload.get("instance_id")
+        event_type_raw = payload.get("event_type")
+        event_data = payload.get("event_data")
+        phase = payload.get("phase")
+        turn = int(payload.get("turn", 0))
+        if not instance_id or not event_type_raw:
+            return
+        try:
+            event_type = StreamChunkType(event_type_raw)
+        except ValueError:
+            logger.warning("Unknown stream event type: %s", event_type_raw)
+            return
+        try:
+            entry = self._infra.get_state(instance_id)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "publish_stream_event: load state failed for %s", instance_id
+            )
+            return
+        stream_ctx = getattr(entry, "stream_context", None) if entry else None
+        if not stream_ctx:
+            return
+        emitter = self._build_stream_emitter(
+            stream_ctx=stream_ctx,
+            instance_id=instance_id,
+            turn=turn,
+            phase=phase,
+        )
+        if emitter is None:
+            return
+        try:
+            # Bump sequence, emit a standalone event.
+            emitter.emit_event(event_type, event_data=event_data)
+        finally:
+            emitter.close()
+
+    def _publish_session_complete(
+        self,
+        *,
+        stream_ctx: Dict[str, Any],
+        instance_id: str,
+        final_message: Optional[Dict[str, Any]],
+    ) -> None:
+        """Emit a terminal ``SESSION_COMPLETE`` chunk from the root instance."""
+
+        emitter = self._build_stream_emitter(
+            stream_ctx=stream_ctx,
+            instance_id=instance_id,
+            turn=0,
+            phase=None,
+        )
+        if emitter is None:
+            return
+        try:
+            payload: Dict[str, Any] = {"event_data": {"status": "completed"}}
+            include_complete = bool(stream_ctx.get("include_complete_message", False))
+            if include_complete and final_message is not None:
+                payload["complete_message"] = final_message
+            emitter.emit_event(StreamChunkType.SESSION_COMPLETE, **payload)
+        finally:
+            emitter.close()
 
     # ------------------------------------------------------------------
     # Agent-as-tool: registry discovery activity
@@ -3328,6 +3989,7 @@ class DurableAgent(AgentBase):
             self.broadcast_to_team,
             self.summarize,
             self.finalize_workflow,
+            self.publish_stream_event,
             self.get_team_members,
             self.load_tools,
         )

@@ -46,6 +46,8 @@ class WorkflowContextInjectedTool(AgentTool):
                                     labelling (optional)
           - ``_child_instance_id`` — explicit instance ID for child workflows
                                       (optional, used by AgentWorkflowTool)
+          - ``_stream_context``  — streaming session context propagated into child
+                                     workflows (optional, used by AgentWorkflowTool)
         """
         ctx = kwargs.pop(self.context_kwarg, None)
         if ctx is None:
@@ -61,6 +63,7 @@ class WorkflowContextInjectedTool(AgentTool):
             )
         source_agent = kwargs.pop("_source_agent", None)
         child_instance_id = kwargs.pop("_child_instance_id", None)
+        stream_context = kwargs.pop("_stream_context", None)
 
         validated = super()._validate_and_prepare_args(func, *args, **kwargs)
         validated[self.context_kwarg] = ctx
@@ -68,4 +71,6 @@ class WorkflowContextInjectedTool(AgentTool):
             validated["_source_agent"] = source_agent
         if child_instance_id is not None:
             validated["_child_instance_id"] = child_instance_id
+        if stream_context is not None:
+            validated["_stream_context"] = stream_context
         return validated

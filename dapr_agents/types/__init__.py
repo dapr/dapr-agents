@@ -39,6 +39,13 @@ from .message import (
     LLMChatCandidate,
 )
 from .schemas import OAIJSONSchema, OAIResponseFormatSchema
+from .streaming import (
+    AgentStreamChunk,
+    STREAM_SCHEMA_VERSION,
+    StreamChunkType,
+    StreamDelta,
+    UserInputResponse,
+)
 from .tools import (
     ClaudeToolDefinition,
     OAIFunctionDefinition,
@@ -78,6 +85,11 @@ __all__ = [
     "UserMessage",
     "OAIJSONSchema",
     "OAIResponseFormatSchema",
+    "AgentStreamChunk",
+    "STREAM_SCHEMA_VERSION",
+    "StreamChunkType",
+    "StreamDelta",
+    "UserInputResponse",
     "ClaudeToolDefinition",
     "OAIFunctionDefinition",
     "OAIToolDefinition",

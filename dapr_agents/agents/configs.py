@@ -323,11 +323,19 @@ class AgentPubSubConfig:
         pubsub_name: Name of the Dapr pub/sub component to use for all agent traffic.
         agent_topic: Primary topic for direct messages to the agent. Defaults to ``name``.
         broadcast_topic: Optional topic shared by a team for broadcast messages.
+        stream_topic_prefix: Prefix for per-session streaming topics. The full topic
+            name is ``<stream_topic_prefix>.<root_instance_id>``. All descendant agents
+            in a session publish chunks to this topic; users subscribe once per session.
+        control_topic_prefix: Prefix for per-session control topics carrying inbound
+            ``UserInputResponse`` messages. The full topic is
+            ``<control_topic_prefix>.<root_instance_id>``.
     """
 
     pubsub_name: str
     agent_topic: Optional[str] = None
     broadcast_topic: Optional[str] = None
+    stream_topic_prefix: str = "agents.stream"
+    control_topic_prefix: str = "agents.control"
 
 
 @dataclass
@@ -437,6 +445,34 @@ class AgentExecutionConfig:
     Dials to configure the agent execution.
 
     Attributes:
+        max_iterations: Cap on LLM/tool iterations per turn.
+        tool_choice: Pass-through for provider ``tool_choice`` parameter.
+        tool_execution_mode: Parallel vs. sequential execution of tool calls.
+        orchestration_mode: Enable orchestrator strategy (agent/random/roundrobin).
+        streaming: Opt in to streaming responses. When False, non-streaming path is
+            byte-for-byte unchanged. When True, the agent emits ``AgentStreamChunk``
+            events through a ``StreamListener`` resolved from ``stream_listener``
+            (or a mode default).
+
+            Usage notes:
+
+            * ``AgentRunner.run_stream(agent, ...)`` always enables streaming
+              for that invocation regardless of this flag — the runner stamps
+              the listener config into the payload metadata before scheduling.
+              This flag only gates streaming for pub/sub-triggered agents
+              (``.subscribe()`` / ``.serve()``'s non-streaming entry), and
+              also gates registration of the built-in ``ask_user`` tool.
+            * For pub/sub-triggered sessions with ``streaming=True``, the
+              caller must stamp ``_stream_listener_config`` into
+              ``TriggerAction._message_metadata`` at publish time; without
+              it the agent skips streaming silently (not an error).
+            * This flag alone does not produce a readable stream — always
+              pair with a consumer via ``run_stream`` or by subscribing to
+              the configured pub/sub topic.
+        stream_listener: Optional listener override as a JSON-serializable config dict
+            (``{"type": "pubsub" | "in_process" | "webhook" | "composite" | "custom",
+            ...}``). See ``dapr_agents.streaming.listeners`` for accepted shapes. When
+            ``None``, the runner/server picks a topology-safe default per mode.
         max_grpc_inbound_message_size_bytes: Optional gRPC inbound message size
             limit in bytes. When set, takes precedence over
             ``DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES`` for this agent only —
@@ -453,6 +489,14 @@ class AgentExecutionConfig:
     orchestration_mode: Optional[OrchestrationMode] = None
     approval: AgentApprovalConfig = field(default_factory=AgentApprovalConfig)
     max_grpc_inbound_message_size_bytes: Optional[int] = None
+    streaming: bool = False
+    stream_listener: Optional[Dict[str, Any]] = None
+    # Built-in tools are opt-in. Default is an empty list to preserve strict
+    # backwards compatibility — upgrading agents do not suddenly see new tools
+    # in their LLM tool schema. To enable ``ask_user``, set
+    # ``builtin_tools=["ask_user"]`` *and* ``streaming=True``; the tool is
+    # registered only when both are true and the agent is not an orchestrator.
+    builtin_tools: List[str] = field(default_factory=list)
 
 
 @dataclass

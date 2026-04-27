@@ -203,3 +203,13 @@ class AgentWorkflowEntry(BaseModel):
             "approval_request_id. Prevents duplicate publishes when the workflow replays."
         ),
     )
+    stream_context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Streaming context for this workflow instance. Populated at session "
+            "root and inherited by every descendant agent. Carries "
+            "``root_instance_id``, ``listener_config``, parent agent metadata, "
+            "depth, call_path, and trace correlation. ``None`` when streaming "
+            "is not enabled for this run."
+        ),
+    )
