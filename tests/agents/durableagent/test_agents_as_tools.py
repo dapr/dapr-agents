@@ -188,6 +188,23 @@ class TestRegisterWorkflowsNaming:
         frodo = _make_agent("frodo", mock_llm)
         assert frodo.agent_workflow_name == agent_workflow_id("frodo")
 
+    def test_agent_publishes_canonical_workflow_name_in_metadata(self, mock_llm):
+        """DurableAgent records its registered workflow name in registry metadata.
+
+        This is what lets an orchestrator in another process dispatch by the
+        literal workflow ID the sub-agent registered, so dispatch does not
+        depend on both processes producing the same sanitization for the agent
+        name. Without this, orchestrators have to reconstruct the workflow ID
+        from (name, framework) and any divergence leads to
+        OrchestratorNotRegisteredError.
+        """
+        frodo = _make_agent("frodo", mock_llm)
+        assert frodo.agent_metadata is not None
+        agent_meta = frodo.agent_metadata.agent
+        published = (agent_meta.metadata or {}).get("workflow_name")
+        assert published == frodo.agent_workflow_name
+        assert published == "dapr.agents.frodo.workflow"
+
     def test_broadcast_workflow_name_property(self, mock_llm):
         sam = _make_agent("sam", mock_llm)
         assert sam.broadcast_workflow_name == broadcast_workflow_id("sam")
