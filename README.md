@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/dapr-dapr-agents-badge.png)](https://mseep.ai/app/dapr-dapr-agents)
+
 <!--
 Copyright 2026 The Dapr Authors
 Licensed under the Apache License, Version 2.0 (the "License");
