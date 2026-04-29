@@ -587,7 +587,7 @@ def test_register_message_handlers_discovers_standalone_function():
     loop = asyncio.new_event_loop()
     try:
         with patch(_PATCH_TARGET, return_value=mock_client):
-            closers = register_message_routes(
+            closers, status_functions = register_message_routes(
                 dapr_client=mock_client, targets=[handle_order], loop=loop
             )
     finally:
@@ -596,6 +596,7 @@ def test_register_message_handlers_discovers_standalone_function():
     # Should create one subscription
     assert mock_client.subscribe.call_count == 1
     assert len(closers) == 1
+    assert len(status_functions) == 1
 
     # Verify subscription parameters
     call_args = mock_client.subscribe.call_args
@@ -621,7 +622,7 @@ def test_register_message_handlers_discovers_class_methods():
     loop = asyncio.new_event_loop()
     try:
         with patch(_PATCH_TARGET, return_value=mock_client):
-            closers = register_message_routes(
+            closers, status_functions = register_message_routes(
                 dapr_client=mock_client, targets=[handler], loop=loop
             )
     finally:
@@ -630,6 +631,7 @@ def test_register_message_handlers_discovers_class_methods():
     # Should create two subscriptions
     assert mock_client.subscribe.call_count == 2
     assert len(closers) == 2
+    assert len(status_functions) == 2
 
     # Verify both topics were registered
     topics = [call.kwargs["topic"] for call in mock_client.subscribe.call_args_list]
@@ -654,7 +656,7 @@ def test_register_message_handlers_groups_by_topic():
     loop = asyncio.new_event_loop()
     try:
         with patch(_PATCH_TARGET, return_value=mock_client):
-            closers = register_message_routes(
+            closers, status_functions = register_message_routes(
                 dapr_client=mock_client, targets=[handler], loop=loop
             )
     finally:
@@ -663,6 +665,7 @@ def test_register_message_handlers_groups_by_topic():
     # Should create only one subscription (grouped by pubsub+topic)
     assert mock_client.subscribe.call_count == 1
     assert len(closers) == 1
+    assert len(status_functions) == 1
 
     # Verify the subscription was created for the shared topic
     call_args = mock_client.subscribe.call_args
@@ -690,7 +693,7 @@ def test_register_message_handlers_ignores_undecorated_methods():
     loop = asyncio.new_event_loop()
     try:
         with patch(_PATCH_TARGET, return_value=mock_client):
-            closers = register_message_routes(
+            closers, status_functions = register_message_routes(
                 dapr_client=mock_client, targets=[handler], loop=loop
             )
     finally:
@@ -699,6 +702,7 @@ def test_register_message_handlers_ignores_undecorated_methods():
     # Should only create one subscription (for decorated method)
     assert mock_client.subscribe.call_count == 1
     assert len(closers) == 1
+    assert len(status_functions) == 1
 
 
 def test_register_message_handlers_handles_multiple_targets():
@@ -718,7 +722,7 @@ def test_register_message_handlers_handles_multiple_targets():
     loop = asyncio.new_event_loop()
     try:
         with patch(_PATCH_TARGET, return_value=mock_client):
-            closers = register_message_routes(
+            closers, status_functions = register_message_routes(
                 dapr_client=mock_client,
                 targets=[standalone_handler, handler_instance],
                 loop=loop,
@@ -729,6 +733,7 @@ def test_register_message_handlers_handles_multiple_targets():
     # Should create two subscriptions
     assert mock_client.subscribe.call_count == 2
     assert len(closers) == 2
+    assert len(status_functions) == 2
 
 
 def test_register_message_handlers_returns_closers():
@@ -746,7 +751,7 @@ def test_register_message_handlers_returns_closers():
     loop = asyncio.new_event_loop()
     try:
         with patch(_PATCH_TARGET, return_value=mock_client):
-            closers = register_message_routes(
+            closers, _ = register_message_routes(
                 dapr_client=mock_client,
                 targets=[handle_created, handle_cancelled],
                 loop=loop,
@@ -757,6 +762,34 @@ def test_register_message_handlers_returns_closers():
     # Should return two closers
     assert len(closers) == 2
     assert all(callable(closer) for closer in closers)
+
+
+def test_register_message_handlers_returns_status_functions():
+    """Test that status functions are returned for each subscription."""
+    mock_client = create_mock_dapr_client(["messagepubsub"])
+
+    @message_router(pubsub="messagepubsub", topic="orders.created")
+    def handle_created(message: OrderCreated):
+        pass
+
+    @message_router(pubsub="messagepubsub", topic="orders.cancelled")
+    def handle_cancelled(message: OrderCancelled):
+        pass
+
+    loop = asyncio.new_event_loop()
+    try:
+        with patch(_PATCH_TARGET, return_value=mock_client):
+            _, status_functions = register_message_routes(
+                dapr_client=mock_client,
+                targets=[handle_created, handle_cancelled],
+                loop=loop,
+            )
+    finally:
+        loop.close()
+
+    # Should return two status functions
+    assert len(status_functions) == 2
+    assert all(callable(status_function) for status_function in status_functions)
 
 
 class TestTTLDedupeBackend:
