@@ -417,7 +417,7 @@ class AgentRunner(WorkflowRunner):
             )
             deduper = None
 
-        closers = register_message_routes(
+        closers, status_functions = register_message_routes(
             routes=specs,
             dapr_client=self._dapr_client,
             delivery_mode=delivery_mode,
@@ -430,6 +430,7 @@ class AgentRunner(WorkflowRunner):
             deduper=deduper,
         )
         self._pubsub_closers.extend(closers)
+        self._pubsub_consumer_status_functions.extend(status_functions)
         self._wired_pubsub = True
 
     def _wire_http_routes(
@@ -506,6 +507,8 @@ class AgentRunner(WorkflowRunner):
         expose_entry: bool = True,
         entry_path: str = "/agent/run",
         status_path: str = "/agent/instances/{instance_id}",
+        health_check_path: str = "/livez",
+        readiness_check_path: str = "/readyz",
         workflow_component: str = "dapr",
         fetch_status_payloads: bool = True,
         delivery_mode: Literal["sync", "async"] = "sync",
@@ -523,6 +526,8 @@ class AgentRunner(WorkflowRunner):
             expose_entry: Mount a default POST endpoint that schedules the workflow entry.
             entry_path: HTTP path for the default POST endpoint.
             status_path: HTTP path for the status endpoint (must include `{instance_id}`).
+            health_check_path: HTTP path for the endpoint for Kubernetes liveness probes.
+            readiness_check_path: HTTP path for the endpoint for Dapr health /Kubernetes readiness probes.
             workflow_component: Workflow component name used in the returned status URL.
             fetch_status_payloads: Include payloads when fetching workflow status.
             delivery_mode: Delivery mode forwarded to `subscribe`.
@@ -562,6 +567,16 @@ class AgentRunner(WorkflowRunner):
                 fetch_status_payloads=fetch_status_payloads,
             )
 
+        self._mount_health_endpoints(
+            fastapi_app=fastapi_app,
+            agent=agent,
+            health_check_path=health_check_path,
+            readiness_check_path=readiness_check_path,
+            expose_entry=expose_entry,
+            entry_path=entry_path,
+            status_path=status_path,
+        )
+
         auto_run = app is None
         if auto_run:
             try:
@@ -596,6 +611,94 @@ class AgentRunner(WorkflowRunner):
         if not path.startswith("/"):
             path = f"/{path}"
         return path
+
+    def _mount_health_endpoints(
+        self,
+        *,
+        fastapi_app: FastAPI,
+        agent: DurableAgent,
+        health_check_path: str,
+        readiness_check_path: str,
+        expose_entry: bool,
+        entry_path: str,
+        status_path: str,
+    ) -> None:
+        health_check_path = self._normalize_path(health_check_path)
+        readiness_check_path = self._normalize_path(readiness_check_path)
+
+        if health_check_path not in self._default_http_paths:
+            self._default_http_paths.add(health_check_path)
+
+            async def _get_health_status() -> dict[str, str]:
+                return {"status": "ok"}
+
+            fastapi_app.add_api_route(
+                health_check_path,
+                _get_health_status,
+                methods=["GET"],
+                summary="Get agent health",
+                tags=["health"],
+            )
+
+            logger.info("Mounted health endpoint at %s", health_check_path)
+        else:
+            logger.debug("Health endpoint already mounted at %s", health_check_path)
+
+        if readiness_check_path in self._default_http_paths:
+            logger.debug(
+                "Readiness endpoint already mounted at %s", readiness_check_path
+            )
+            return
+
+        self._default_http_paths.add(readiness_check_path)
+
+        def _is_ready(
+            agent: DurableAgent, expose_entry: bool, entry_path: str, status_path: str
+        ) -> bool:
+            # Ensure agent is not shutting down
+            if self.is_shutdown_requested():
+                return False
+
+            # Ensure workflow runtime is started and agent workflows/activites are registered
+            if not agent.is_started:
+                return False
+
+            # Ensure subscription consumers are running and able to process messages
+            if getattr(agent, "pubsub", None):
+                if not self._wired_pubsub or not all(
+                    is_ready() for is_ready in self._pubsub_consumer_status_functions
+                ):
+                    return False
+
+            # Ensure agent routes are mounted
+            if not self._wired_http:
+                return False
+
+            # Ensure default service routes are mounted if given (other routes are the caller's responsibility)
+            if expose_entry and not (
+                entry_path in self._default_http_paths
+                and status_path in self._default_http_paths
+            ):
+                return False
+
+            return True
+
+        async def _get_ready_status() -> dict[str, str]:
+            if _is_ready(agent, expose_entry, entry_path, status_path):
+                return {"status": "ok"}
+            raise HTTPException(
+                status_code=503, detail="Agent is not ready, check logs for details"
+            )
+
+        fastapi_app.add_api_route(
+            readiness_check_path,
+            _get_ready_status,
+            methods=["GET"],
+            summary="Get agent readiness",
+            tags=["health"],
+        )
+
+        logger.info("Mounted readiness endpoint at %s", readiness_check_path)
 
     def _mount_service_routes(
         self,

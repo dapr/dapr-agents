@@ -89,6 +89,7 @@ class WorkflowRunner(SignalMixin):
         self._dapr_client: Optional[DaprClient] = dapr_client
         self._dapr_client_owned: bool = dapr_client is None
         self._pubsub_closers: List[Callable[[], None]] = []
+        self._pubsub_consumer_status_functions: List[Callable[[], bool]] = []
         self._wired_pubsub = False
         self._wired_http = False
 
@@ -290,7 +291,7 @@ class WorkflowRunner(SignalMixin):
         # ---- Discovery mode (targets) ----
         if use_targets:
             if not self._wired_pubsub and self._dapr_client is not None:
-                closers = register_message_routes(
+                closers, status_functions = register_message_routes(
                     dapr_client=self._dapr_client,
                     targets=targets or [],
                     routes=None,
@@ -303,6 +304,7 @@ class WorkflowRunner(SignalMixin):
                     log_outcome=log_outcome,
                 )
                 self._pubsub_closers.extend(closers)
+                self._pubsub_consumer_status_functions.extend(status_functions)
                 self._wired_pubsub = True
 
             if fastapi_app is not None and not self._wired_http:
@@ -320,7 +322,7 @@ class WorkflowRunner(SignalMixin):
         http_specs = [r for r in specs if isinstance(r, HttpRouteSpec)]
 
         if pubsub_specs and not self._wired_pubsub and self._dapr_client is not None:
-            closers = register_message_routes(
+            closers, status_functions = register_message_routes(
                 routes=pubsub_specs,
                 dapr_client=self._dapr_client,
                 delivery_mode=delivery_mode,
@@ -332,6 +334,7 @@ class WorkflowRunner(SignalMixin):
                 log_outcome=log_outcome,
             )
             self._pubsub_closers.extend(closers)
+            self._pubsub_consumer_status_functions.extend(status_functions)
             self._wired_pubsub = True
 
         if http_specs and fastapi_app is not None and not self._wired_http:
@@ -354,6 +357,7 @@ class WorkflowRunner(SignalMixin):
             except Exception:
                 logger.exception("Error while closing subscription")
         self._pubsub_closers.clear()
+        self._pubsub_consumer_status_functions.clear()
         self._wired_pubsub = False
 
     # -------------------- workflow scheduling APIs ----------------------
