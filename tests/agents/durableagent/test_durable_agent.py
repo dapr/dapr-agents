@@ -1555,3 +1555,213 @@ class TestDurableAgent:
             assert "TestDurableAgent" in str(exc_info.value)
             # Verify it's chained to the original exception
             assert exc_info.value.__cause__ == test_exception
+
+
+class TestCallLlmRequestShape:
+    """call_llm must omit tools/tool_choice when starting a fresh structured-output
+    turn (response_format set, last assistant has no tool_calls), and keep them
+    otherwise. This eliminates the "model emits tool calls instead of JSON"
+    failure mode without breaking mid-tool-loop message validity.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_env(self, monkeypatch):
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        mock_client = MockDaprClient()
+        mock_client.get_state.return_value = Mock(data=None)
+        monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
+        )
+        yield
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+
+    @pytest.fixture
+    def mock_llm(self):
+        from dapr_agents.types.message import (
+            LLMChatResponse,
+            LLMChatCandidate,
+            AssistantMessage,
+        )
+
+        mock = Mock(spec=OpenAIChatClient)
+        mock.prompt_template = None
+        mock.__class__.__name__ = "MockLLMClient"
+        mock.provider = "openai"
+        mock.api = "MockOpenAIAPI"
+        mock.model = "gpt-4o-mock"
+
+        def _generate(**kwargs):
+            return LLMChatResponse(
+                results=[
+                    LLMChatCandidate(
+                        message=AssistantMessage(content="ok"),
+                        finish_reason="stop",
+                    )
+                ]
+            )
+
+        mock.generate = Mock(side_effect=_generate)
+        return mock
+
+    @pytest.fixture
+    def agent_with_tool(self, mock_llm):
+        tool = Mock(spec=AgentTool)
+        tool.name = "test_tool"
+        tool.description = "A test tool"
+        tool.run = AsyncMock(return_value="result")
+        tool._is_async = True
+        return DurableAgent(
+            name="ShapeAgent",
+            role="Test",
+            goal="Test",
+            instructions=["x"],
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub", agent_topic="ShapeAgent"
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+            memory=AgentMemoryConfig(
+                store=ConversationDaprStateMemory(
+                    store_name="teststatestore",
+                    workflow_instance_id="test_session",
+                )
+            ),
+            tools=[tool],
+            execution=AgentExecutionConfig(max_iterations=5),
+        )
+
+    def _stub_call_llm_helpers(self, agent, messages):
+        """Patch internal helpers so call_llm runs with controlled messages."""
+        agent._infra = Mock()
+        agent._infra.get_state = Mock(return_value=Mock(messages=[]))
+        agent._reconstruct_conversation_history = Mock(return_value=[])
+        agent.prompting_helper = Mock()
+        agent.prompting_helper.build_initial_messages = Mock(return_value=messages)
+        agent._sync_system_messages_with_state = Mock()
+        agent._process_user_message = Mock()
+        agent._save_assistant_message = Mock()
+        agent.save_state = Mock()
+        agent._get_last_user_message = Mock(return_value=None)
+        agent.text_formatter = Mock()
+
+    def _ctx(self):
+        ctx = Mock(spec=DaprWorkflowContext)
+        ctx.instance_id = "wf-shape-1"
+        return ctx
+
+    def test_no_response_format_passes_tools_normally(self, agent_with_tool):
+        messages = [{"role": "user", "content": "hi"}]
+        self._stub_call_llm_helpers(agent_with_tool, messages)
+
+        agent_with_tool.call_llm(
+            self._ctx(),
+            payload={"instance_id": "wf-shape-1", "task": None, "source": "direct"},
+        )
+
+        kwargs = agent_with_tool.llm.generate.call_args.kwargs
+        assert "tools" in kwargs and kwargs["tools"], (
+            "tools should be passed in non-structured turn"
+        )
+        assert "tool_choice" in kwargs
+        assert "response_format" not in kwargs
+
+    def test_response_format_without_prior_tool_calls_omits_tools(
+        self, agent_with_tool
+    ):
+        # Last assistant message has no tool_calls → fresh structured turn.
+        messages = [
+            {"role": "user", "content": "summarize"},
+            {"role": "assistant", "content": "ok"},
+        ]
+        self._stub_call_llm_helpers(agent_with_tool, messages)
+
+        agent_with_tool.call_llm(
+            self._ctx(),
+            payload={
+                "instance_id": "wf-shape-1",
+                "task": None,
+                "source": "direct",
+                "response_format": "IterablePlanStep",
+            },
+        )
+
+        kwargs = agent_with_tool.llm.generate.call_args.kwargs
+        assert "response_format" in kwargs, (
+            "structured request must include response_format"
+        )
+        assert "tools" not in kwargs, (
+            "tools must be omitted on fresh structured-output turn so the model "
+            "can't legitimately respond with a tool call instead of JSON"
+        )
+        assert "tool_choice" not in kwargs
+
+    def test_response_format_with_prior_tool_calls_keeps_tools(self, agent_with_tool):
+        # Last assistant message DID emit tool_calls → mid-loop. Tools must
+        # remain attached so tool_call_id references stay valid.
+        messages = [
+            {"role": "user", "content": "search and summarize"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_1", "function": {"name": "x", "arguments": "{}"}}
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "result"},
+        ]
+        self._stub_call_llm_helpers(agent_with_tool, messages)
+
+        agent_with_tool.call_llm(
+            self._ctx(),
+            payload={
+                "instance_id": "wf-shape-1",
+                "task": None,
+                "source": "direct",
+                "response_format": "ProgressCheckOutput",
+            },
+        )
+
+        kwargs = agent_with_tool.llm.generate.call_args.kwargs
+        assert "response_format" in kwargs
+        assert "tools" in kwargs and kwargs["tools"], (
+            "tools must remain when the conversation is mid-tool-loop"
+        )
+        assert "tool_choice" in kwargs
+
+    def test_structured_output_failure_wraps_with_diagnostic_context(
+        self, agent_with_tool
+    ):
+        from dapr_agents.types.exceptions import StructureError
+
+        messages = [{"role": "user", "content": "plan"}]
+        self._stub_call_llm_helpers(agent_with_tool, messages)
+        agent_with_tool.llm.generate = Mock(
+            side_effect=ValueError(
+                "OpenAI API error (StructureError): No content found for JSON mode."
+            )
+        )
+
+        with pytest.raises(AgentError) as exc_info:
+            agent_with_tool.call_llm(
+                self._ctx(),
+                payload={
+                    "instance_id": "wf-shape-1",
+                    "task": None,
+                    "source": "direct",
+                    "response_format": "IterablePlanStep",
+                },
+            )
+
+        msg = str(exc_info.value)
+        assert "structured-output call failed" in msg
+        assert "schema='IterablePlanStep'" in msg
+        assert "provider='openai'" in msg
+        assert "model='gpt-4o-mock'" in msg
+        assert "agent='ShapeAgent'" in msg

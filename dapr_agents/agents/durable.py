@@ -1652,19 +1652,54 @@ class DurableAgent(AgentBase):
                     print_msg["name"] = f"on-behalf-of {source}"
                 self.text_formatter.print_message(print_msg)
 
+        # Build generate kwargs. When the caller requested structured output
+        # AND the conversation isn't mid-tool-loop (no tool_calls on the last
+        # assistant message), omit tools/tool_choice so the model can't
+        # legitimately respond with a tool call instead of JSON. This is the
+        # dominant root cause of "No content found for JSON mode" with
+        # smaller models when the agent has tools registered. When the
+        # conversation IS mid-tool-loop, keep tools attached so the existing
+        # tool_call_id references in the message history remain valid.
+        last_assistant = next(
+            (
+                m
+                for m in reversed(messages)
+                if isinstance(m, dict) and m.get("role") == "assistant"
+            ),
+            None,
+        )
+        last_had_tool_calls = bool(last_assistant and last_assistant.get("tool_calls"))
+
         tools = self.get_llm_tools()
-        generate_kwargs = {
-            "messages": messages,
-            "tools": tools,
-        }
-        if response_model is not None:
+        generate_kwargs: Dict[str, Any] = {"messages": messages}
+
+        if response_model is not None and not last_had_tool_calls:
             generate_kwargs["response_format"] = response_model
-        if tools and self.execution.tool_choice is not None:
-            generate_kwargs["tool_choice"] = self.execution.tool_choice
+        else:
+            if tools:
+                generate_kwargs["tools"] = tools
+                if self.execution.tool_choice is not None:
+                    generate_kwargs["tool_choice"] = self.execution.tool_choice
+            if response_model is not None:
+                generate_kwargs["response_format"] = response_model
 
         try:
             response = self.llm.generate(**generate_kwargs)
         except Exception as exc:  # noqa: BLE001
+            # When structured output was requested (orchestration plan,
+            # routing, progress check, etc.) a flaky LLM response surfaces a
+            # StructureError deep inside the nested activity / sub-orchestration
+            # chain. Attach enough context so the workflow log shows the
+            # failing schema/provider/model instead of a bare
+            # "Extraction failed: No content found for JSON mode".
+            if response_model is not None:
+                provider = getattr(self.llm, "provider", "unknown")
+                model_name = getattr(self.llm, "model", "unknown")
+                raise AgentError(
+                    f"LLM structured-output call failed (schema="
+                    f"{response_format_name!r}, provider={provider!r}, "
+                    f"model={model_name!r}, agent={self.name!r}): {exc}"
+                ) from exc
             raise AgentError(str(exc)) from exc
 
         # Handle structured output response (Pydantic model) vs regular chat response
