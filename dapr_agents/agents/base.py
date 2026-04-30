@@ -97,10 +97,15 @@ from opentelemetry.exporter.otlp.proto.http._log_exporter import (
 from opentelemetry.exporter.zipkin.json import ZipkinExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk._logs import LoggerProvider
-from opentelemetry.sdk._logs.export import (
-    BatchLogRecordProcessor,
-    ConsoleLogRecordExporter,
-)
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+
+try:
+    from opentelemetry.sdk._logs.export import ConsoleLogRecordExporter
+except ImportError:
+    # opentelemetry-sdk < 1.39 exposed it under the older name.
+    from opentelemetry.sdk._logs.export import (
+        ConsoleLogExporter as ConsoleLogRecordExporter,
+    )
 from dapr_agents.observability import DaprAgentsInstrumentor
 
 
