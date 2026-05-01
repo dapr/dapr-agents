@@ -61,6 +61,7 @@ dependencies = [
     "wrapt>=1.14.0,<2.0.0",
     "openinference-instrumentation>=0.1.0,<1.0.0",
     "openinference-semantic-conventions>=0.1.0,<1.0.0",
+    "mistralai>=2.2.0",
     # The below have specific lax settings to allow greater compatability for downstream consumers
     "opentelemetry-instrumentation-grpc>=0.59b0",
     "opentelemetry-exporter-zipkin-json>=1.36.0",
