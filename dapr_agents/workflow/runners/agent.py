@@ -527,7 +527,7 @@ class AgentRunner(WorkflowRunner):
             entry_path: HTTP path for the default POST endpoint.
             status_path: HTTP path for the status endpoint (must include `{instance_id}`).
             health_check_path: HTTP path for the endpoint for Kubernetes liveness probes.
-            readiness_check_path: HTTP path for the endpoint for Dapr health /Kubernetes readiness probes.
+            readiness_check_path: HTTP path for the endpoint for Dapr health/Kubernetes readiness probes.
             workflow_component: Workflow component name used in the returned status URL.
             fetch_status_payloads: Include payloads when fetching workflow status.
             delivery_mode: Delivery mode forwarded to `subscribe`.
