@@ -659,7 +659,7 @@ class AgentRunner(WorkflowRunner):
             if self.is_shutdown_requested():
                 return False
 
-            # Ensure workflow runtime is started and agent workflows/activites are registered
+            # Ensure workflow runtime is started and agent workflows/activities are registered
             if not agent.is_started:
                 return False
 
