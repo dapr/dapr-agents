@@ -477,7 +477,6 @@ class TestDurableAgent:
         the dispatch loop.
         """
         from dapr_agents.tool.workflow.agent_tool import agent_to_tool
-        from dapr_agents.types.exceptions import AgentError
 
         workflow_tool = agent_to_tool("mongodb_agent", "MongoDB sub-agent.")
         basic_durable_agent.tool_executor.register_tool(workflow_tool)

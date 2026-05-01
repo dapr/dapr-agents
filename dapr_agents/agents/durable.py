@@ -1704,9 +1704,10 @@ class DurableAgent(AgentBase):
         """
         Execute a single tool call.
 
-        Always returns a ToolMessage, even if tool execution fails.
-        This ensures every tool_call_id has a corresponding tool message,
-        maintaining proper conversation history.
+        Once the validation guards below pass, always returns a ToolMessage
+        — even if tool execution itself fails. This ensures every
+        tool_call_id has a corresponding tool message, maintaining proper
+        conversation history.
 
         Args:
             payload: Keys 'tool_call', 'instance_id', 'time', 'order'.
@@ -1715,7 +1716,9 @@ class DurableAgent(AgentBase):
             ToolMessage as a dict. Contains error message if execution failed.
 
         Raises:
-            AgentError: If tool arguments contain invalid JSON.
+            AgentError: If tool arguments contain invalid JSON, or if the
+                resolved tool is a ``WorkflowContextInjectedTool`` (which
+                cannot run inside an activity — see the guard below).
         """
         tool_call = payload.get("tool_call", {})
         fn_name = tool_call["function"]["name"]
@@ -2494,13 +2497,20 @@ class DurableAgent(AgentBase):
         """
         Register workflows/activities for this agent.
 
-        Each workflow and activity is registered under a unique, agent-scoped
-        name using the ``dapr.agents.<name>.<kind>`` format:
-        ``*.workflow``, ``*.broadcast``, ``*.orchestration`` for workflows,
-        and ``*.<method>`` for activities. This prevents name collisions when
-        multiple agents share the same Dapr app / WorkflowRuntime — Dapr's
-        activity registration is last-write-wins by name, so unscoped
-        registration would let a second agent silently clobber the first.
+        Every registration is agent-scoped so multiple agents sharing a
+        ``WorkflowRuntime`` don't clobber each other (Dapr's
+        ``register_activity`` is last-write-wins by name; unscoped
+        registration would let a second agent silently replace the first).
+        The exact names come from per-purpose helpers and differ slightly:
+
+        - Workflows (``agent_workflow_name``, ``broadcast_workflow_name``,
+          ``orchestration_workflow_id``) use
+          ``dapr.<framework>.<sanitized_name>.<kind>`` where ``<kind>`` is
+          ``workflow`` / ``broadcast`` / ``orchestration``. ``<framework>``
+          defaults to ``agents`` but can be overridden per agent via the
+          registry.
+        - Activities (``_activity_name``) always use the fixed prefix
+          ``dapr.agents.<sanitized_name>.<method>``.
 
         ``AgentRunner`` discovers the registered names via the
         ``agent_workflow_name`` / ``broadcast_workflow_name`` properties and
