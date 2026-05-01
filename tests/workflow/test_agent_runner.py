@@ -292,11 +292,12 @@ async def test_readyz_agent_shutting_down():
         runner.serve(agent, app=mock_fastapi_app, expose_entry=False)
 
     runner.install_signal_handlers()
-
-    if runner._shutdown_event is not None:
+    try:
         runner._shutdown_event.set()
+        
+        client = _MockClient(mock_fastapi_app)
 
-    client = _MockClient(mock_fastapi_app)
-
-    readyz = await client.get("/readyz")
-    assert readyz.status_code == 503
+        readyz = await client.get("/readyz")
+        assert readyz.status_code == 503
+    finally:
+        runner.remove_signal_handlers()

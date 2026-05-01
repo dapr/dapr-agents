@@ -637,20 +637,32 @@ def _subscribe_message_bindings(
             _make_closer(subscription, consumer_thread, pubsub_name, topic_name)
         )
 
-        def _make_status_func(subscription: Any) -> Callable[[], bool]:
+        def _make_status_func(subscription: Any, ps_name: str, t_name: str) -> Callable[[], bool]:
             def _is_ready() -> bool:
                 """Check if a stream consumer is able to process messages.
 
                 Returns:
                     True if a consumer's stream is active.
                     False if a non-recoverable error or caller-initiated shutdown occurred,
-                        or if the stream is currently reconnecting.
+                    if the stream is currently reconnecting, or if the stream's status cannot be determined.
                 """
-                return subscription._is_stream_active()
+                is_stream_active = getattr(subscription, "_is_stream_active", None)
+
+                if not callable(is_stream_active):
+                    return False
+                
+                try:
+                    return bool(is_stream_active())
+                except Exception:
+                    logger.exception(
+                        f"Error checking stream consumer {ps_name}:{t_name} status.",
+                        exc_info=True,
+                    )
+                    return False
 
             return _is_ready
 
-        consumer_status_functions.append(_make_status_func(subscription))
+        consumer_status_functions.append(_make_status_func(subscription, pubsub_name, topic_name))
 
         logger.debug(
             f"Subscribed streaming to pubsub={pubsub_name} topic={topic_name} "
@@ -715,7 +727,7 @@ def subscribe_message_bindings(
         RuntimeError: If async mode is used without a running event loop.
     """
     if not bindings:
-        return []
+        return [], []
 
     _validate_delivery_mode(delivery_mode)
     _validate_dead_letter_topics(bindings)

@@ -538,6 +538,11 @@ class AgentRunner(WorkflowRunner):
         """
 
         fastapi_app = app or FastAPI(title="Dapr Agent Service", version="1.0.0")
+        
+        entry_path = self._normalize_path(entry_path)
+        status_path = self._normalize_path(status_path)
+        health_check_path = self._normalize_path(health_check_path)
+        readiness_check_path = self._normalize_path(readiness_check_path)
 
         try:
             agent.start()
@@ -623,9 +628,6 @@ class AgentRunner(WorkflowRunner):
         entry_path: str,
         status_path: str,
     ) -> None:
-        health_check_path = self._normalize_path(health_check_path)
-        readiness_check_path = self._normalize_path(readiness_check_path)
-
         if health_check_path not in self._default_http_paths:
             self._default_http_paths.add(health_check_path)
 
@@ -710,9 +712,6 @@ class AgentRunner(WorkflowRunner):
         workflow_component: str,
         fetch_status_payloads: bool,
     ) -> None:
-        entry_path = self._normalize_path(entry_path)
-        status_path = self._normalize_path(status_path)
-
         if "{instance_id}" not in status_path:
             raise ValueError("status_path must include '{instance_id}'.")
 
