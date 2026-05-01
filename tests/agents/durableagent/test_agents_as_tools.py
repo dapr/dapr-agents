@@ -232,7 +232,7 @@ class TestRegisterWorkflowsNaming:
             call.args[0].__name__ for call in rt.register_activity.call_args_list
         ]
         for registered in registered_names:
-            assert registered.startswith("dapr.agents.Frodo."), registered
+            assert registered.startswith("dapr.agents.frodo."), registered
 
     def test_two_agents_have_distinct_activity_names(self, mock_llm):
         """Two agents' activities must not collide on a shared runtime."""
