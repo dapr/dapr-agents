@@ -1385,11 +1385,11 @@ class AgentBase:
         }
         try:
             self.memory.add_message(summary_message, workflow_instance_id=instance_id)
-        except Exception:
+        except Exception as exc:
             # Memory store failures are infrastructure issues — surface them.
             raise AgentError(
                 f"Failed to save summary to memory for instance_id={instance_id}"
-            )
+            ) from exc
         logger.info(f"Saved summary to memory for instance_id={instance_id}")
         if getattr(self, "text_formatter", None):
             self.text_formatter.print_message(

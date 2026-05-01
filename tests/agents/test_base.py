@@ -11,6 +11,8 @@
 # limitations under the License.
 #
 
+import logging
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -470,15 +472,19 @@ class TestAgentBaseClass:
         basic_agent.memory = Mock()
         basic_agent.text_formatter = None
 
-        result = basic_agent._summarize_conversation(
-            instance_id="wf-1",
-            messages_list=self._stub_messages(),
-            tool_history=[],
-        )
+        with caplog.at_level(logging.WARNING, logger="dapr_agents.agents.base"):
+            result = basic_agent._summarize_conversation(
+                instance_id="wf-1",
+                messages_list=self._stub_messages(),
+                tool_history=[],
+            )
 
         assert result == {"content": ""}
         # Memory must NOT be touched if no summary was produced.
         basic_agent.memory.add_message.assert_not_called()
+        # The failure must be visible in logs, not silently swallowed.
+        assert "LLM summarize failed" in caplog.text
+        assert "wf-1" in caplog.text
 
     def test_summarize_returns_degraded_when_summary_is_empty(self, basic_agent):
         """An empty summary string must degrade rather than raise."""
