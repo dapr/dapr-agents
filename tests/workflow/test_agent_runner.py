@@ -320,7 +320,7 @@ async def test_readyz_agent_shutting_down():
     runner.install_signal_handlers()
     try:
         runner._shutdown_event.set()
-        
+
         client = _MockClient(mock_fastapi_app)
 
         readyz = await client.get("/readyz")

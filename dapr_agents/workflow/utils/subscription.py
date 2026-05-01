@@ -637,7 +637,11 @@ def _subscribe_message_bindings(
             _make_closer(subscription, consumer_thread, pubsub_name, topic_name)
         )
 
-        def _make_status_func(subscription: Any, ps_name: str, t_name: str) -> Callable[[], bool]:
+        def _make_status_func(
+            subscription: Any,
+            ps_name: str,
+            t_name: str,
+        ) -> Callable[[], bool]:
             def _is_ready() -> bool:
                 """Check if a stream consumer is able to process messages.
 
@@ -650,7 +654,7 @@ def _subscribe_message_bindings(
 
                 if not callable(is_stream_active):
                     return False
-                
+
                 try:
                     return bool(is_stream_active())
                 except Exception:
@@ -662,7 +666,9 @@ def _subscribe_message_bindings(
 
             return _is_ready
 
-        consumer_status_functions.append(_make_status_func(subscription, pubsub_name, topic_name))
+        consumer_status_functions.append(
+            _make_status_func(subscription, pubsub_name, topic_name)
+        )
 
         logger.debug(
             f"Subscribed streaming to pubsub={pubsub_name} topic={topic_name} "

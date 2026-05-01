@@ -538,7 +538,7 @@ class AgentRunner(WorkflowRunner):
         """
 
         fastapi_app = app or FastAPI(title="Dapr Agent Service", version="1.0.0")
-        
+
         entry_path = self._normalize_path(entry_path)
         status_path = self._normalize_path(status_path)
         health_check_path = self._normalize_path(health_check_path)
