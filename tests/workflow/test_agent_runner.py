@@ -239,6 +239,32 @@ async def test_readyz_agent_pubsub_wired_but_not_ready():
 
 
 @pytest.mark.asyncio
+async def test_readyz_agent_pubsub_wired_but_not_all_ready():
+    """When some pub/sub consumers are not ready, readyz reports 'not ready'."""
+    runner = _make_agent_runner()
+    mock_fastapi_app = _make_mock_fastapi_app()
+    agent = _make_mock_agent(is_started=True, pubsub=object())
+
+    with (
+        patch(
+            "dapr_agents.workflow.runners.agent.register_http_routes",
+            return_value=([MagicMock()], [MagicMock()]),
+        ),
+        patch(
+            "dapr_agents.workflow.runners.agent.register_message_routes",
+            return_value=([MagicMock()], [lambda: True, lambda: False, lambda: True]),
+        ),
+        patch.object(runner, "_build_pubsub_specs", return_value=[MagicMock()]),
+    ):
+        runner.serve(agent, app=mock_fastapi_app, expose_entry=False)
+
+    client = _MockClient(mock_fastapi_app)
+
+    readyz = await client.get("/readyz")
+    assert readyz.status_code == 503
+
+
+@pytest.mark.asyncio
 async def test_readyz_agent_service_routes_mounted():
     """When default service routes are mounted, readyz reports 'ready'."""
     runner = _make_agent_runner()
