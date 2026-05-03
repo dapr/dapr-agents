@@ -570,10 +570,7 @@ class DurableAgent(AgentBase):
                                     )
                                     if not ctx.is_replaying:
                                         logger.debug(
-                                            "RequireApproval for tool '%s': %s (instance=%s)",
-                                            fn_name_check,
-                                            "approved" if approved else "not approved",
-                                            ctx.instance_id,
+                                            f"RequireApproval for tool '{fn_name_check}': {'approved' if approved else 'not approved'} (instance={ctx.instance_id})"
                                         )
                                 else:
                                     hook_decisions[tc["id"]] = decision
@@ -607,10 +604,7 @@ class DurableAgent(AgentBase):
                                 ordered[idx] = denial_msg.model_dump()
                                 if not ctx.is_replaying:
                                     logger.info(
-                                        "Skipping tool '%s': %s (instance=%s)",
-                                        fn_name,
-                                        block_reason,
-                                        ctx.instance_id,
+                                        f"Skipping tool '{fn_name}': {block_reason} (instance={ctx.instance_id})"
                                     )
                                 continue
 
@@ -630,9 +624,7 @@ class DurableAgent(AgentBase):
                                 ordered[idx] = skip_msg.model_dump()
                                 if not ctx.is_replaying:
                                     logger.info(
-                                        "Skipping tool '%s' with hook-provided result (instance=%s)",
-                                        fn_name,
-                                        ctx.instance_id,
+                                        f"Skipping tool '{fn_name}' with hook-provided result (instance={ctx.instance_id})"
                                     )
                                 continue
 
@@ -935,11 +927,7 @@ class DurableAgent(AgentBase):
 
         if not ctx.is_replaying:
             logger.info(
-                "Requesting approval: tool='%s' approval_request_id=%s instance=%s timeout=%ds",
-                fn_name,
-                approval_request_id,
-                instance_id,
-                timeout_seconds,
+                f"Requesting approval: tool='{fn_name}' approval_request_id={approval_request_id} instance={instance_id} timeout={timeout_seconds}s"
             )
 
         # Always yield this activity unconditionally — DurableTask returns the cached
@@ -956,11 +944,7 @@ class DurableAgent(AgentBase):
 
         if not ctx.is_replaying:
             logger.info(
-                "Approval request %s published to topic '%s' (tool='%s', instance=%s)",
-                approval_request_id,
-                approval_config.topic,
-                fn_name,
-                instance_id,
+                f"Approval request {approval_request_id} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
             )
 
         event_name = f"approval_response_{approval_request_id}"
@@ -977,10 +961,7 @@ class DurableAgent(AgentBase):
             if winner is timer_task:
                 if not ctx.is_replaying:
                     logger.warning(
-                        "Approval request %s timed out for tool '%s' (instance=%s) — auto-denying",
-                        approval_request_id,
-                        fn_name,
-                        instance_id,
+                        f"Approval request {approval_request_id} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
                     )
                 return False
 
@@ -991,19 +972,13 @@ class DurableAgent(AgentBase):
         except Exception as exc:
             if not ctx.is_replaying:
                 logger.warning(
-                    "Could not parse approval response for request %s: %s — auto-denying",
-                    approval_request_id,
-                    exc,
+                    f"Could not parse approval response for request {approval_request_id}: {exc} — auto-denying"
                 )
             return False
 
         if not ctx.is_replaying:
             logger.info(
-                "Approval decision for request %s, tool '%s': %s (instance=%s)",
-                approval_request_id,
-                fn_name,
-                "approved" if response.approved else "not approved",
-                instance_id,
+                f"Approval decision for request {approval_request_id}, tool '{fn_name}': {'approved' if response.approved else 'not approved'} (instance={instance_id})"
             )
 
         return response.approved
@@ -2281,16 +2256,11 @@ class DurableAgent(AgentBase):
 
             self._run_asyncio_task(_publish())
             logger.info(
-                "Published approval request %s for step '%s' to topic '%s'",
-                approval_request_id,
-                event_data.get("step_name"),
-                topic,
+                f"Published approval request {approval_request_id} for step '{event_data.get('step_name')}' to topic '{topic}'"
             )
         else:
             logger.info(
-                "Stored approval request %s for step '%s' (no pub/sub configured; poll GET /hitl/approvals or use Dapr sidecar raiseEvent API)",
-                approval_request_id,
-                event_data.get("step_name"),
+                f"Stored approval request {approval_request_id} for step '{event_data.get('step_name')}' (no pub/sub configured; poll GET /hitl/approvals or use Dapr sidecar raiseEvent API)"
             )
 
     def broadcast_to_team(
@@ -2723,10 +2693,7 @@ class DurableAgent(AgentBase):
         self._pending_approvals.pop(approval_request_id, None)
 
         logger.info(
-            "Raised approval event '%s' for instance %s: %s",
-            event_name,
-            instance_id,
-            "approved" if approved else "not approved",
+            f"Raised approval event '{event_name}' for instance {instance_id}: {'approved' if approved else 'not approved'}"
         )
 
     def list_pending_approvals(self) -> List[Dict[str, Any]]:

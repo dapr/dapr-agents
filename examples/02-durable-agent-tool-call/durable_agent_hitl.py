@@ -17,14 +17,14 @@ Human-in-the-loop (HITL) example for DurableAgent.
 This script shows how to:
   1. Register a before_tool_call hook that returns RequireApproval for specific tools.
   2. Run a DurableAgent with that hook — no decorator changes needed on any tool.
-  3. Receive the ApprovalRequiredEvent via Dapr Pub/Sub.
+  3. Poll the agent's in-process pending-approval list to detect when the workflow pauses.
   4. Send the human decision back to resume the waiting workflow.
 
 The hook approach works for all tool sources — anything loaded at runtime.
 
 The script will:
   1. Start the agent workflow.
-  2. Receive the ApprovalRequiredEvent from the pub/sub topic.
+  2. Poll agent.list_pending_approvals() until an approval request appears.
   3. Print the tool name and arguments.
   4. Auto-approve after 5 s (set APPROVED = False in main() to test denial).
   5. Resume or skip the tool based on the decision.
@@ -32,16 +32,12 @@ The script will:
 """
 
 import asyncio
-import json
 import logging
+import time
 
 from dotenv import load_dotenv
-import uvicorn
-from fastapi import FastAPI, Request, Response
 
-from dapr_agents import DurableAgent, tool, AgentApprovalConfig
-from dapr_agents.agents.configs import AgentExecutionConfig
-from dapr_agents.agents.schemas import ApprovalRequiredEvent
+from dapr_agents import DurableAgent, tool
 from dapr_agents.hooks import Hooks, HookContext, HookDecision, RequireApproval, Proceed
 from dapr_agents.workflow.runners import AgentRunner
 from dapr_agents.llm.openai import OpenAIChatClient
@@ -49,39 +45,6 @@ from dapr_agents.llm.openai import OpenAIChatClient
 load_dotenv()
 
 logger = logging.getLogger(__name__)
-
-# both uvicorn and main() run in the same event loop (via asyncio.create_task),
-# so put_nowait() from the fastapi handler immediately wakes up get() in main()
-_approval_queue: asyncio.Queue = asyncio.Queue()
-_dapr_app = FastAPI()
-
-
-@_dapr_app.get("/dapr/subscribe")
-def _subscribe():
-    return [
-        {
-            "pubsubname": "messagepubsub",
-            "topic": "agent-approval-requests",
-            "route": "/agent-approval-requests",
-        }
-    ]
-
-
-@_dapr_app.post("/agent-approval-requests")
-async def _receive_approval_request(request: Request):
-    """Called by Dapr when the workflow publishes an approval request."""
-    body = await request.body()
-    envelope = json.loads(body)
-    data = envelope.get("data") or envelope
-    event = ApprovalRequiredEvent(**data)
-    _approval_queue.put_nowait(event)
-    logger.info(
-        "Approval request received via pub/sub: tool='%s' request_id=%s instance=%s",
-        event.step_name,
-        event.approval_request_id,
-        event.instance_id,
-    )
-    return Response(status_code=200)
 
 
 @tool
@@ -112,19 +75,6 @@ def before_tool(ctx: HookContext) -> HookDecision:
 async def main():
     logging.basicConfig(level=logging.INFO)
 
-    _uvicorn_config = uvicorn.Config(
-        _dapr_app, host="0.0.0.0", port=8001, log_level="warning"
-    )
-    _uvicorn_server = uvicorn.Server(_uvicorn_config)
-    _uvicorn_task = asyncio.create_task(_uvicorn_server.serve())
-    await asyncio.sleep(0.5)
-
-    approval_config = AgentApprovalConfig(
-        pubsub_name="messagepubsub",
-        topic="agent-approval-requests",
-        default_timeout_seconds=120,
-    )
-
     agent = DurableAgent(
         name="hitl-demo",
         role="Operations Assistant",
@@ -133,12 +83,8 @@ async def main():
             "Use delete_old_data when asked to clean up or remove data.",
             "Use get_weather for weather queries.",
         ],
-        llm=OpenAIChatClient(
-            model="openai/gpt-5-nano",
-            base_url="https://openrouter.ai/api/v1",
-        ),
+        llm=OpenAIChatClient(model="gpt-4o-mini"),
         tools=[get_weather, delete_old_data],
-        execution=AgentExecutionConfig(approval=approval_config),
         hooks=Hooks(before_tool_call=before_tool),
     )
 
@@ -155,70 +101,52 @@ async def main():
     )
     print(f"workflow started: instance_id = {instance_id}\n")
 
-    print("waiting for approval request from pub/sub (workflow is paused) ...\n")
-    try:
-        approval_event: ApprovalRequiredEvent = await asyncio.wait_for(
-            _approval_queue.get(), timeout=60.0
-        )
-    except asyncio.TimeoutError:
-        print(
-            "\n[ERROR] No approval request received within 60 s.\n"
-            "Check that the Dapr sidecar is running (--app-port 8001) and that\n"
-            "Redis pub/sub is reachable.\n"
-        )
-        return
-
     AUTO_APPROVE_DELAY = 5  # seconds to pause before sending the decision
     APPROVED = True  # set to False to test denial path
 
-    print("\n" + "=" * 60)
-    print("  APPROVAL REQUIRED")
-    print("=" * 60)
-    print(f"  tool      : {approval_event.step_name}")
-    print(f"  arguments : {approval_event.tool_arguments}")
-    print(f"  instance  : {approval_event.instance_id}")
-    print(f"  request   : {approval_event.approval_request_id}")
-    if approval_event.instructions:
-        print(f"  note      : {approval_event.instructions}")
-    print("=" * 60)
-    decision_word = "approved" if APPROVED else "denied"
-    print(
-        f"\n  Auto-{'approving' if APPROVED else 'denying'} in {AUTO_APPROVE_DELAY} s "
-        f"(edit APPROVED in durable_agent_hitl.py to change).\n"
-    )
-
-    await asyncio.sleep(AUTO_APPROVE_DELAY)
-
-    print(f"  decision: {decision_word}\n")
-    agent.raise_approval_event(
-        instance_id=approval_event.instance_id,
-        approval_request_id=approval_event.approval_request_id,
-        approved=APPROVED,
-        reason=f"demo auto-decision: {decision_word}",
-    )
-
+    # When the workflow pauses at a HITL checkpoint, the agent stores the pending approval
+    # in-process. Polling list_pending_approvals() here avoids a separate pub/sub subscriber.
+    first = True
     while True:
-        try:
-            next_event: ApprovalRequiredEvent = await asyncio.wait_for(
-                _approval_queue.get(), timeout=10.0
-            )
-        except asyncio.TimeoutError:
-            break
+        # Allow more time on the first check (workflow is warming up); shorter for subsequent ones.
+        poll_timeout = 60 if first else 10
+        approval_data = None
+        deadline = time.monotonic() + poll_timeout
+        while time.monotonic() < deadline:
+            pending = agent.list_pending_approvals()
+            if pending:
+                approval_data = pending[0]
+                break
+            await asyncio.sleep(1)
+
+        if approval_data is None:
+            break  # No more pending approvals within the window; workflow has likely finished.
+
+        first = False
+        approval_request_id = approval_data["approval_request_id"]
+        decision_word = "approved" if APPROVED else "denied"
 
         print("\n" + "=" * 60)
-        print("  ANOTHER APPROVAL REQUIRED")
+        print("  APPROVAL REQUIRED")
         print("=" * 60)
-        print(f"  tool      : {next_event.step_name}")
-        print(f"  arguments : {next_event.tool_arguments}")
+        print(f"  tool      : {approval_data['step_name']}")
+        print(f"  arguments : {approval_data['tool_arguments']}")
+        print(f"  instance  : {approval_data['instance_id']}")
+        print(f"  request   : {approval_request_id}")
+        if approval_data.get("instructions"):
+            print(f"  note      : {approval_data['instructions']}")
         print("=" * 60)
         print(
-            f"\n  Auto-{'approving' if APPROVED else 'denying'} in {AUTO_APPROVE_DELAY} s ...\n"
+            f"\n  Auto-{'approving' if APPROVED else 'denying'} in {AUTO_APPROVE_DELAY} s "
+            f"(edit APPROVED in durable_agent_hitl.py to change).\n"
         )
+
         await asyncio.sleep(AUTO_APPROVE_DELAY)
+
         print(f"  decision: {decision_word}\n")
         agent.raise_approval_event(
-            instance_id=next_event.instance_id,
-            approval_request_id=next_event.approval_request_id,
+            instance_id=approval_data["instance_id"],
+            approval_request_id=approval_request_id,
             approved=APPROVED,
             reason=f"demo auto-decision: {decision_word}",
         )
@@ -236,15 +164,10 @@ async def main():
             "\nworkflow did not complete within the wait window.\n"
             "If the approval event was sent, the workflow is still running.\n"
             f"Re-send manually with:\n"
-            f"  python approval_sender.py {instance_id} "
-            f"{approval_event.approval_request_id} approve\n"
+            f"  python approval_sender.py {instance_id} <approval_request_id> approve\n"
         )
 
-    _uvicorn_server.should_exit = True
-    try:
-        await _uvicorn_task
-    except asyncio.CancelledError:
-        pass
+    runner.shutdown(agent)
 
 
 if __name__ == "__main__":
