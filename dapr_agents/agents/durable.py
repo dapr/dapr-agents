@@ -1655,11 +1655,7 @@ class DurableAgent(AgentBase):
         # Build generate kwargs. When the caller requested structured output
         # AND the conversation isn't mid-tool-loop (no tool_calls on the last
         # assistant message), omit tools/tool_choice so the model can't
-        # legitimately respond with a tool call instead of JSON. This is the
-        # dominant root cause of "No content found for JSON mode" with
-        # smaller models when the agent has tools registered. When the
-        # conversation IS mid-tool-loop, keep tools attached so the existing
-        # tool_call_id references in the message history remain valid.
+        # legitimately respond with a tool call instead of JSON. 
         last_assistant = next(
             (
                 m
