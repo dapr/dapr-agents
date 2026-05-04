@@ -2271,18 +2271,14 @@ class DurableAgent(AgentBase):
                         self._pending_approvals[approval_request_id] = event_data
                 except Exception:
                     logger.debug(
-                        "Could not check workflow state for instance %s during approval restore; skipping.",
-                        instance_id,
+                        f"Could not check workflow state for instance {instance_id} during approval restore; skipping."
                     )
             logger.info(
-                "Restored %d pending approval(s) from state store for agent '%s'.",
-                len(self._pending_approvals),
-                self.name,
+                f"Restored {len(self._pending_approvals)} pending approval(s) from state store for agent '{self.name}'."
             )
         except Exception:
             logger.exception(
-                "Failed to restore pending approvals from state store for agent '%s'.",
-                self.name,
+                f"Failed to restore pending approvals from state store for agent '{self.name}'."
             )
 
     def publish_approval_request(
