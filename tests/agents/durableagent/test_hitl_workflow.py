@@ -372,7 +372,7 @@ class TestHookWorkflowDispatch:
         Returns the input dict passed to save_tool_results.
         """
         message = {"task": "do something"}
-        agent._hooks = Hooks(before_tool_call=hook_fn)
+        agent._hooks = Hooks(before_tool_call=[hook_fn])
         gen = agent.agent_workflow(mock_ctx, message)
 
         try:
@@ -408,7 +408,7 @@ class TestHookWorkflowDispatch:
                 return Deny(reason="schema changes go through DBA review")
             return Proceed()
 
-        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=hook))
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
         save_input = self._drive_workflow_deny_skip(agent, mock_ctx, hook, [tc])
 
         called_fns = [c[0][0] for c in mock_ctx.call_activity.call_args_list]
@@ -429,7 +429,7 @@ class TestHookWorkflowDispatch:
         def hook(ctx: HookContext):
             return Deny(reason="blocked")
 
-        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=hook))
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
         save_input = self._drive_workflow_deny_skip(agent, mock_ctx, hook, [tc])
 
         assert save_input is not None
@@ -450,7 +450,7 @@ class TestHookWorkflowDispatch:
                 return Skip(result="cached-42")
             return Proceed()
 
-        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=hook))
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
         save_input = self._drive_workflow_deny_skip(agent, mock_ctx, hook, [tc])
 
         called_fns = [c[0][0] for c in mock_ctx.call_activity.call_args_list]
@@ -469,7 +469,7 @@ class TestHookWorkflowDispatch:
         def hook(ctx: HookContext):
             return Skip(result="from-cache")
 
-        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=hook))
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
         save_input = self._drive_workflow_deny_skip(agent, mock_ctx, hook, [tc])
 
         assert save_input is not None
@@ -503,7 +503,7 @@ class TestHookWorkflowDispatch:
             return Proceed()
 
         agent = _make_agent(
-            mock_llm, hooks=Hooks(before_tool_call=hook), with_approval=True
+            mock_llm, hooks=Hooks(before_tool_call=[hook]), with_approval=True
         )
         message = {"task": "delete the repo"}
 
@@ -570,7 +570,7 @@ class TestHookWorkflowDispatch:
             return Proceed()
 
         agent = _make_agent(
-            mock_llm, hooks=Hooks(before_tool_call=hook), with_approval=True
+            mock_llm, hooks=Hooks(before_tool_call=[hook]), with_approval=True
         )
         message = {"task": "delete the repo"}
 
@@ -638,7 +638,7 @@ class TestHookWorkflowDispatch:
                 return Deny(reason="blocked")
             return Proceed()
 
-        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=hook))
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
         message = {"task": "drop the table and get weather"}
 
         run_tool_result = {
@@ -703,7 +703,7 @@ class TestHookWorkflowDispatch:
             source="mcp",
         )
         agent = _make_agent(
-            mock_llm, hooks=Hooks(before_tool_call=hook), tools=[mcp_tool]
+            mock_llm, hooks=Hooks(before_tool_call=[hook]), tools=[mcp_tool]
         )
         tc = _tool_call(name="DeleteRepo", args={"repo": "myrepo"})
         message = {"task": "delete the repo"}

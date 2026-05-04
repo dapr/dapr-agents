@@ -25,6 +25,8 @@ from dapr_agents.agents.configs import (
 )
 from dapr_agents.agents.schemas import ApprovalRequiredEvent, ApprovalResponseEvent
 from dapr_agents.hooks import (
+    BeforeHook,
+    AfterHook,
     Hooks,
     HookContext,
     HookDecision,

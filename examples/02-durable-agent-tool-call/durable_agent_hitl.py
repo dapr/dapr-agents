@@ -12,23 +12,21 @@
 #
 
 """
-Human-in-the-loop (HITL) example for DurableAgent.
+HITL via HTTP polling: the agent holds pending approvals in memory (and in the
+Dapr State Store when one is configured). The same process polls
+agent.list_pending_approvals() and calls agent.raise_approval_event() to resume
+the workflow — no pub/sub or separate client needed.
 
-This script shows how to:
-  1. Register a before_tool_call hook that returns RequireApproval for specific tools.
-  2. Run a DurableAgent with that hook — no decorator changes needed on any tool.
-  3. Poll the agent's in-process pending-approval list to detect when the workflow pauses.
-  4. Send the human decision back to resume the waiting workflow.
+How it works
+------------
+1. The before_tool hook returns RequireApproval for the delete_old_data tool.
+2. The workflow suspends and the approval request is stored in the agent.
+3. This script polls list_pending_approvals() until the request appears.
+4. After a short delay it calls raise_approval_event() to approve or deny.
 
-The hook approach works for all tool sources — anything loaded at runtime.
-
-The script will:
-  1. Start the agent workflow.
-  2. Poll agent.list_pending_approvals() until an approval request appears.
-  3. Print the tool name and arguments.
-  4. Auto-approve after 5 s (set APPROVED = False in main() to test denial).
-  5. Resume or skip the tool based on the decision.
-  6. Print the final agent response.
+Other HITL delivery patterns are shown in companion scripts:
+  - hitl_pubsub.py     — agent publishes the request to a Dapr pub/sub topic
+  - hitl_wf_event.py   — resume a paused workflow from the command line
 """
 
 import asyncio
@@ -85,7 +83,7 @@ async def main():
         ],
         llm=OpenAIChatClient(model="gpt-4o-mini"),
         tools=[get_weather, delete_old_data],
-        hooks=Hooks(before_tool_call=before_tool),
+        hooks=Hooks(before_tool_call=[before_tool]),
     )
 
     runner = AgentRunner()
@@ -164,7 +162,7 @@ async def main():
             "\nworkflow did not complete within the wait window.\n"
             "If the approval event was sent, the workflow is still running.\n"
             f"Re-send manually with:\n"
-            f"  python approval_sender.py {instance_id} <approval_request_id> approve\n"
+            f"  python hitl_wf_event.py {instance_id} <approval_request_id> approve\n"
         )
 
     runner.shutdown(agent)

@@ -12,7 +12,7 @@
 #
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 @dataclass
@@ -99,11 +99,15 @@ class Deny(HookDecision):
     reason: Optional[str] = None
 
 
+BeforeHook = Callable[[HookContext], Optional[HookDecision]]
+AfterHook = Callable[[HookContext, Any], Optional[HookDecision]]
+
+
 @dataclass
 class Hooks:
     """
     container for all hook callbacks you want to register on a DurableAgent.
-    only set the hooks you need — unset slots are no-ops.
+    each slot holds a list of callables so multiple hooks can be chained.
 
     example::
 
@@ -124,22 +128,18 @@ class Hooks:
 
         agent = DurableAgent(
             ...,
-            hooks=Hooks(before_tool_call=before_tool),
+            hooks=Hooks(before_tool_call=[before_tool]),
         )
     """
 
-    before_tool_call: Optional[Callable[[HookContext], Optional[HookDecision]]] = None
+    before_tool_call: List[BeforeHook] = field(default_factory=list)
     """called before every tool dispatch. return a HookDecision to control execution."""
 
-    after_tool_call: Optional[Callable[[HookContext, Any], Optional[HookDecision]]] = (
-        None
-    )
+    after_tool_call: List[AfterHook] = field(default_factory=list)
     """called after a tool completes. return Modify(result=...) to replace the output."""
 
-    before_llm_call: Optional[Callable[[HookContext], Optional[HookDecision]]] = None
+    before_llm_call: List[BeforeHook] = field(default_factory=list)
     """called before every llm call."""
 
-    after_llm_call: Optional[Callable[[HookContext, Any], Optional[HookDecision]]] = (
-        None
-    )
+    after_llm_call: List[AfterHook] = field(default_factory=list)
     """called after every llm response."""

@@ -25,7 +25,6 @@ from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
 from dapr.ext.workflow import DaprWorkflowClient
 from dapr.ext.workflow.workflow_state import WorkflowStatus
-from durabletask import task as dt
 
 from dapr_agents.agents.orchestration import (
     OrchestrationStrategy,
@@ -553,7 +552,14 @@ class DurableAgent(AgentBase):
                                     payload=hook_payload,
                                     tool_call_id=tc["id"],
                                 )
-                                decision = self._hooks.before_tool_call(hook_ctx)
+                                decision = None
+                                for hook in self._hooks.before_tool_call:
+                                    result = hook(hook_ctx)
+                                    if result is not None and not isinstance(
+                                        result, Proceed
+                                    ):
+                                        decision = result
+                                        break
                                 if decision is None or isinstance(decision, Proceed):
                                     pass  # no-op, tool runs normally
                                 elif isinstance(decision, RequireApproval):
@@ -956,7 +962,7 @@ class DurableAgent(AgentBase):
         else:
             # Race the approval event against a timer
             timer_task = ctx.create_timer(timedelta(seconds=timeout_seconds))
-            winner = yield dt.when_any([event_task, timer_task])
+            winner = yield wf.when_any([event_task, timer_task])
 
             if winner is timer_task:
                 if not ctx.is_replaying:
@@ -2219,6 +2225,66 @@ class DurableAgent(AgentBase):
 
         self.save_state(instance_id, entry=entry)
 
+    def _pending_approvals_key(self) -> str:
+        """Dapr State Store key for the agent-scoped pending-approvals dict."""
+        return f"{self.name}:pending_approvals".lower()
+
+    def _persist_pending_approvals(self) -> None:
+        """
+        Write the current _pending_approvals dict to Dapr State Store so it
+        survives process crashes.  No-op when no state store is configured.
+        """
+        if not self.state_store:
+            return
+        try:
+            self.state_store.save_state(
+                key=self._pending_approvals_key(),
+                value=json.dumps(self._pending_approvals),
+            )
+        except Exception:
+            logger.exception("Failed to persist pending approvals to state store")
+
+    def _restore_pending_approvals(self) -> None:
+        """
+        Load previously persisted pending approvals from Dapr State Store into
+        _pending_approvals on agent startup.  Entries whose workflow is no longer
+        RUNNING are dropped so stale requests from already-finished workflows are
+        not surfaced.  No-op when no state store is configured.
+        """
+        if not self.state_store:
+            return
+        try:
+            exists, data = self.state_store.try_get_state(
+                key=self._pending_approvals_key()
+            )
+            if not exists or not data:
+                return
+            wf_client = DaprWorkflowClient()
+            _ACTIVE = {WorkflowStatus.RUNNING, WorkflowStatus.SUSPENDED}
+            for approval_request_id, event_data in data.items():
+                instance_id = event_data.get("instance_id", "")
+                try:
+                    state = wf_client.get_workflow_state(
+                        instance_id, fetch_payloads=False
+                    )
+                    if state is not None and state.runtime_status in _ACTIVE:
+                        self._pending_approvals[approval_request_id] = event_data
+                except Exception:
+                    logger.debug(
+                        "Could not check workflow state for instance %s during approval restore; skipping.",
+                        instance_id,
+                    )
+            logger.info(
+                "Restored %d pending approval(s) from state store for agent '%s'.",
+                len(self._pending_approvals),
+                self.name,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to restore pending approvals from state store for agent '%s'.",
+                self.name,
+            )
+
     def publish_approval_request(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
@@ -2244,6 +2310,7 @@ class DurableAgent(AgentBase):
         approval_request_id = event_data.get("approval_request_id")
 
         self._pending_approvals[approval_request_id] = event_data
+        self._persist_pending_approvals()
 
         if pubsub_name:
 
@@ -2691,6 +2758,7 @@ class DurableAgent(AgentBase):
         )
 
         self._pending_approvals.pop(approval_request_id, None)
+        self._persist_pending_approvals()
 
         logger.info(
             f"Raised approval event '{event_name}' for instance {instance_id}: {'approved' if approved else 'not approved'}"
@@ -2702,8 +2770,9 @@ class DurableAgent(AgentBase):
 
         Used by GET /hitl/approvals when the agent is served over HTTP. The list
         is populated by publish_approval_request and cleared by raise_approval_event.
-        On process restart the list starts empty; pending workflows are still suspended
-        in Dapr's durable state and can be resumed via the Dapr sidecar raiseEvent API.
+        On startup, _restore_pending_approvals reloads this from Dapr State Store
+        (when a state store is configured) and drops entries whose workflow is no
+        longer running, so pending approvals survive process crashes.
         """
         return list(self._pending_approvals.values())
 
@@ -2731,6 +2800,9 @@ class DurableAgent(AgentBase):
 
         # Set up lifecycle-managed resources (e.g., configuration subscription)
         super().start()
+
+        # Reload any pending approvals that were persisted before a crash.
+        self._restore_pending_approvals()
 
         if runtime is not None:
             self._runtime = runtime

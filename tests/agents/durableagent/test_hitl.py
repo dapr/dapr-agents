@@ -261,17 +261,17 @@ class TestHookDecisions:
 class TestHooksContainer:
     def test_empty_hooks_has_no_callbacks(self):
         h = Hooks()
-        assert h.before_tool_call is None
-        assert h.after_tool_call is None
-        assert h.before_llm_call is None
-        assert h.after_llm_call is None
+        assert h.before_tool_call == []
+        assert h.after_tool_call == []
+        assert h.before_llm_call == []
+        assert h.after_llm_call == []
 
     def test_before_tool_call_registered(self):
         def my_hook(ctx: HookContext):
             return Proceed()
 
-        h = Hooks(before_tool_call=my_hook)
-        assert h.before_tool_call is my_hook
+        h = Hooks(before_tool_call=[my_hook])
+        assert my_hook in h.before_tool_call
 
     def test_hook_called_with_context(self):
         received: list = []
@@ -280,7 +280,7 @@ class TestHooksContainer:
             received.append(ctx)
             return Deny(reason="test")
 
-        h = Hooks(before_tool_call=capturing_hook)
+        h = Hooks(before_tool_call=[capturing_hook])
         ctx = HookContext(
             step_name="drop_table",
             step_kind="tool",
@@ -288,7 +288,7 @@ class TestHooksContainer:
             payload={"table": "users"},
             tool_call_id="call-123",
         )
-        decision = h.before_tool_call(ctx)
+        decision = h.before_tool_call[0](ctx)
         assert len(received) == 1
         assert received[0].step_name == "drop_table"
         assert isinstance(decision, Deny)
@@ -298,8 +298,8 @@ class TestHooksContainer:
         def passthrough(ctx: HookContext):
             return None  # caller coerces this to Proceed
 
-        h = Hooks(before_tool_call=passthrough)
-        result = h.before_tool_call(HookContext("tool", "tool", "local", {}, "id"))
+        h = Hooks(before_tool_call=[passthrough])
+        result = h.before_tool_call[0](HookContext("tool", "tool", "local", {}, "id"))
         assert result is None  # workflow code handles the None → Proceed coercion
 
 
