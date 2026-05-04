@@ -38,6 +38,13 @@ class NVIDIAClientConfig(BaseModel):
     )
 
 
+class MistralClientConfig(BaseModel):
+    endpoint: Optional[str] = Field(None, description="Base URL for the Mistral API")
+    api_key: Optional[str] = Field(
+        None, description="API key to authenticate the Mistral API"
+    )
+
+
 class DaprInferenceClientConfig:
     pass
 

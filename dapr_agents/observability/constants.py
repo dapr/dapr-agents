@@ -47,7 +47,6 @@ from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GEN_AI_INPUT_MESSAGES,
     GEN_AI_OUTPUT_MESSAGES,
     GEN_AI_SYSTEM_INSTRUCTIONS,
-    GEN_AI_TOOL_DEFINITIONS,
     GEN_AI_TOOL_NAME,
     GEN_AI_TOOL_CALL_ID,
     GEN_AI_RESPONSE_ID,
@@ -55,7 +54,11 @@ from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GenAiOperationNameValues as _GenAiOpEnum,
 )
 
-# Not yet in the Python semconv package (0.60b1) but defined in the spec:
+# Added in semconv 0.60b0; inlined so we can permit older semconv
+# versions (required to coexist with packages pinning opentelemetry-api < 1.39).
+GEN_AI_TOOL_DEFINITIONS = "gen_ai.tool.definitions"
+
+# Not yet in the Python semconv package but defined in the spec:
 # https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
 GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS = "gen_ai.usage.cache_creation.input_tokens"
 GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS = "gen_ai.usage.cache_read.input_tokens"
