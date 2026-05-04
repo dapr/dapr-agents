@@ -637,7 +637,7 @@ def _subscribe_message_bindings(
             _make_closer(subscription, consumer_thread, pubsub_name, topic_name)
         )
 
-        def _make_status_func(
+        def _make_status_function(
             subscription: Any,
             ps_name: str,
             t_name: str,
@@ -667,7 +667,7 @@ def _subscribe_message_bindings(
             return _is_ready
 
         consumer_status_functions.append(
-            _make_status_func(subscription, pubsub_name, topic_name)
+            _make_status_function(subscription, pubsub_name, topic_name)
         )
 
         logger.debug(
