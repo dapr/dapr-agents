@@ -642,13 +642,13 @@ class AgentRunner(WorkflowRunner):
                 tags=["health"],
             )
 
-            logger.info("Mounted health endpoint at %s", health_check_path)
+            logger.info(f"Mounted health endpoint at {health_check_path}")
         else:
-            logger.debug("Health endpoint already mounted at %s", health_check_path)
+            logger.debug(f"Health endpoint already mounted at {health_check_path}")
 
         if readiness_check_path in self._default_http_paths:
             logger.debug(
-                "Readiness endpoint already mounted at %s", readiness_check_path
+                f"Readiness endpoint already mounted at {readiness_check_path}"
             )
             return
 
@@ -700,7 +700,7 @@ class AgentRunner(WorkflowRunner):
             tags=["health"],
         )
 
-        logger.info("Mounted readiness endpoint at %s", readiness_check_path)
+        logger.info(f"Mounted readiness endpoint at {readiness_check_path}")
 
     def _mount_service_routes(
         self,
@@ -783,12 +783,12 @@ class AgentRunner(WorkflowRunner):
                 tags=["agent"],
             )
 
-            logger.info("Mounted default agent run endpoint at %s", entry_path)
+            logger.info(f"Mounted default agent run endpoint at {entry_path}")
         else:
-            logger.debug("Workflow entry endpoint already mounted at %s", entry_path)
+            logger.debug(f"Workflow entry endpoint already mounted at {entry_path}")
 
         if status_path in self._default_http_paths:
-            logger.debug("Workflow status endpoint already mounted at %s", status_path)
+            logger.debug(f"Workflow status endpoint already mounted at {status_path}")
             return
 
         self._default_http_paths.add(status_path)
@@ -821,7 +821,7 @@ class AgentRunner(WorkflowRunner):
             summary="Get workflow status",
             tags=["workflow"],
         )
-        logger.info("Mounted default workflow status endpoint at %s", status_path)
+        logger.info(f"Mounted default workflow status endpoint at {status_path}")
 
     def shutdown(self, agent: Optional[DurableAgent] = None) -> None:
         """
