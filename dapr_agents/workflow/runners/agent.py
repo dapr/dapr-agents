@@ -655,7 +655,11 @@ class AgentRunner(WorkflowRunner):
         self._default_http_paths.add(readiness_check_path)
 
         def _is_ready(
-            fastapi_app: FastAPI, agent: DurableAgent, expose_entry: bool, entry_path: str, status_path: str
+            fastapi_app: FastAPI,
+            agent: DurableAgent,
+            expose_entry: bool,
+            entry_path: str,
+            status_path: str,
         ) -> bool:
             # Ensure agent is not shutting down
             if self.is_shutdown_requested():
