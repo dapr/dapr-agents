@@ -655,7 +655,7 @@ class AgentRunner(WorkflowRunner):
         self._default_http_paths.add(readiness_check_path)
 
         def _is_ready(
-            agent: DurableAgent, expose_entry: bool, entry_path: str, status_path: str
+            fastapi_app: FastAPI, agent: DurableAgent, expose_entry: bool, entry_path: str, status_path: str
         ) -> bool:
             # Ensure agent is not shutting down
             if self.is_shutdown_requested():
@@ -673,7 +673,7 @@ class AgentRunner(WorkflowRunner):
                     return False
 
             # Ensure agent routes are mounted
-            if not self._wired_http:
+            if fastapi_app and not self._wired_http:
                 return False
 
             # Ensure default service routes are mounted if given (other routes are the caller's responsibility)
@@ -686,7 +686,7 @@ class AgentRunner(WorkflowRunner):
             return True
 
         async def _get_ready_status() -> dict[str, str]:
-            if _is_ready(agent, expose_entry, entry_path, status_path):
+            if _is_ready(fastapi_app, agent, expose_entry, entry_path, status_path):
                 return {"status": "ok"}
             raise HTTPException(
                 status_code=503, detail="Agent is not ready, check logs for details"
