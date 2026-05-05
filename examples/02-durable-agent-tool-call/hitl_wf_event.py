@@ -12,76 +12,134 @@
 #
 
 """
-HITL via direct workflow event: resume a paused workflow by raising an event
-through the Dapr Workflow client, with no pub/sub or HTTP endpoint required.
+Example 3 — HITL via direct workflow event.
 
-How it works
-------------
-When a DurableAgent workflow pauses for approval, it is waiting for an external
-event named approval_response_{approval_request_id}. This script sends that
-event directly to the Dapr sidecar, which forwards it to the waiting workflow.
+Agent side : the workflow pauses and waits for an external event named
+             approval_response_{approval_request_id}. No pub/sub topic is
+             configured — the agent holds the request in memory only.
+Client side: a human reads the pending request (printed to stdout here) and
+             raises the workflow event directly via DaprWorkflowClient, which
+             delivers it straight to the waiting workflow through the Dapr sidecar.
 
-Use this when:
-- You are operating entirely from the command line.
-- The agent is not configured with a pub/sub approval topic.
-- You know the instance_id and approval_request_id (printed by the agent).
+No pub/sub component required. The Dapr sidecar must be reachable.
 
-Usage
------
-Run the agent first (e.g. durable_agent_hitl.py or hitl_pubsub.py), then:
+This script runs both sides in the same process for simplicity.
+In production the client call would be a separate CLI command or script.
 
-    python hitl_wf_event.py <instance_id> <approval_request_id> [approve|deny]
-
-Example:
-
-    python hitl_wf_event.py abc123 550e8400-e29b-41d4-a716-446655440000 approve
+Other patterns:
+  - durable_agent_hitl.py  — approval round-trip over HTTP
+  - hitl_pubsub.py         — approval round-trip over Dapr pub/sub
 """
 
-import sys
+import asyncio
 import logging
+import time
 
+from dapr.ext.workflow import DaprWorkflowClient
 from dotenv import load_dotenv
+
+from dapr_agents import DurableAgent, tool
+from dapr_agents.agents.schemas import ApprovalResponseEvent
+from dapr_agents.hooks import Hooks, HookContext, HookDecision, RequireApproval, Proceed
+from dapr_agents.workflow.runners import AgentRunner
+from dapr_agents.llm.openai import OpenAIChatClient
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+APPROVED = True  # set to False to test the denial path
 
-def main():
-    if len(sys.argv) < 3:
-        print(__doc__)
-        sys.exit(1)
 
-    instance_id = sys.argv[1]
-    approval_request_id = sys.argv[2]
-    decision = sys.argv[3].lower() if len(sys.argv) > 3 else "approve"
-    approved = decision == "approve"
+@tool
+def delete_old_data(dataset: str) -> str:
+    """Permanently delete a dataset by name."""
+    return f"Dataset '{dataset}' has been deleted."
 
-    from dapr.ext.workflow import DaprWorkflowClient
-    from dapr_agents.agents.schemas import ApprovalResponseEvent
 
+def before_tool(ctx: HookContext) -> HookDecision:
+    if ctx.step_name == "DeleteOldData":
+        return RequireApproval(
+            timeout_seconds=120,
+            instructions=f"Confirm deletion of dataset: {ctx.payload.get('dataset')}",
+        )
+    return Proceed()
+
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+
+    agent = DurableAgent(
+        name="hitl-wf-event-demo",
+        role="Operations Assistant",
+        goal="Help the user manage data.",
+        instructions=["Use delete_old_data when asked to clean up or remove data."],
+        llm=OpenAIChatClient(model="gpt-4o-mini"),
+        tools=[delete_old_data],
+        hooks=Hooks(before_tool_call=[before_tool]),
+        # No AgentApprovalConfig pubsub_name — request is held in memory only.
+    )
+
+    runner = AgentRunner()
+
+    instance_id = await runner.run(
+        agent,
+        payload={"task": "Please delete the old 'sales-2023' dataset."},
+        wait=False,
+    )
+    print(f"\nWorkflow started: instance_id = {instance_id}\n")
+
+    # --- client side: poll in-memory list until the request appears ---
+    approval_data = None
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        pending = agent.list_pending_approvals()
+        if pending:
+            approval_data = pending[0]
+            break
+        await asyncio.sleep(1)
+
+    if approval_data is None:
+        print("No approval request appeared within the wait window.")
+        runner.shutdown(agent)
+        return
+
+    approval_request_id = approval_data["approval_request_id"]
+    print(f"  tool      : {approval_data['step_name']}")
+    print(f"  arguments : {approval_data['tool_arguments']}")
+    print(f"  instance  : {approval_data['instance_id']}")
+    print(f"  request   : {approval_request_id}")
+    print(f"\n  Raising workflow event: {'approve' if APPROVED else 'deny'}\n")
+
+    # --- client side: raise the workflow event directly via DaprWorkflowClient ---
     event_name = f"approval_response_{approval_request_id}"
     response = ApprovalResponseEvent(
         approval_request_id=approval_request_id,
-        approved=approved,
-        reason=f"Sent via hitl_wf_event.py (decision={decision})",
+        approved=APPROVED,
+        reason="approved via workflow event example",
     )
-
-    print(
-        f"Sending decision: instance={instance_id}, "
-        f"request={approval_request_id}, approved={approved}"
-    )
-
-    client = DaprWorkflowClient()
-    client.raise_workflow_event(
-        instance_id=instance_id,
+    wf_client = DaprWorkflowClient()
+    wf_client.raise_workflow_event(
+        instance_id=approval_data["instance_id"],
         event_name=event_name,
         data=response.model_dump(mode="json"),
     )
 
-    print("Event sent. The workflow will resume shortly.")
+    result = await asyncio.to_thread(
+        runner.wait_for_workflow_completion,
+        instance_id,
+        timeout_in_seconds=120,
+    )
+    if result:
+        print(f"\nFinal output:\n{getattr(result, 'serialized_output', result)}\n")
+    else:
+        print("\nWorkflow did not complete within the wait window.")
+
+    runner.shutdown(agent)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

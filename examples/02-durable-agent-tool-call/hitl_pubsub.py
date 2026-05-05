@@ -12,35 +12,38 @@
 #
 
 """
-HITL via Pub/Sub: the agent publishes ApprovalRequiredEvent to a Dapr topic.
-An external subscriber (a Slack bot, dashboard, or the companion script below)
-reads from that topic and sends back the decision.
+Example 2 — HITL via Pub/Sub.
 
-How it works
-------------
-1. The before_tool hook returns RequireApproval for the delete_old_data tool.
-2. The agent publishes an ApprovalRequiredEvent to the topic configured in
-   AgentApprovalConfig (pubsub_name + topic).
-3. The workflow suspends and waits for an approval_response_{id} event.
-4. An external system subscribes to the topic, presents the request to a human,
-   and calls DaprWorkflowClient.raise_workflow_event() to resume the workflow.
+Agent side : when the workflow pauses, it publishes an ApprovalRequiredEvent to
+             the Dapr pub/sub topic configured in AgentApprovalConfig.
+Client side: a Dapr subscriber receives that event, inspects it, and publishes
+             an ApprovalResponseEvent back to a response topic. The agent's
+             pub/sub subscriber picks it up and raises the workflow event to resume.
 
-To test locally, run this script in one terminal, then run hitl_wf_event.py in
-a second terminal passing the instance_id and approval_request_id printed here.
+Both agent and client use Dapr pub/sub throughout — no direct HTTP calls or
+workflow client calls on the client side.
 
 Prerequisites
 -------------
-- dapr sidecar running (dapr run ...)
-- a Dapr pub/sub component named "pubsub" pointing at Redis or similar
+- Dapr sidecar running  (dapr run ...)
+- A Dapr pub/sub component named "pubsub" (e.g. Redis streams)
+- Two topics: "agent-approval-requests" (outbound) and "agent-approval-responses" (inbound)
+
+Other patterns:
+  - durable_agent_hitl.py  — approval round-trip over HTTP
+  - hitl_wf_event.py       — approval round-trip via direct workflow event
 """
 
 import asyncio
+import json
 import logging
 
+from dapr.aio.clients import DaprClient
 from dotenv import load_dotenv
 
 from dapr_agents import DurableAgent, tool
 from dapr_agents.agents.configs import AgentApprovalConfig, AgentExecutionConfig
+from dapr_agents.agents.schemas import ApprovalRequiredEvent, ApprovalResponseEvent
 from dapr_agents.hooks import Hooks, HookContext, HookDecision, RequireApproval, Proceed
 from dapr_agents.workflow.runners import AgentRunner
 from dapr_agents.llm.openai import OpenAIChatClient
@@ -48,6 +51,11 @@ from dapr_agents.llm.openai import OpenAIChatClient
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+PUBSUB_NAME = "pubsub"
+REQUEST_TOPIC = "agent-approval-requests"
+RESPONSE_TOPIC = "agent-approval-responses"
+APPROVED = True  # set to False to test the denial path
 
 
 @tool
@@ -65,6 +73,53 @@ def before_tool(ctx: HookContext) -> HookDecision:
     return Proceed()
 
 
+async def approval_subscriber(agent: DurableAgent) -> None:
+    """
+    Client side: subscribe to REQUEST_TOPIC, read the ApprovalRequiredEvent,
+    and publish an ApprovalResponseEvent back to RESPONSE_TOPIC.
+
+    In a real system this would be a separate service (a Slack bot, a dashboard,
+    etc.). Here it runs as a background coroutine in the same process so the
+    example is self-contained.
+    """
+    async with DaprClient() as client:
+        # Dapr Python SDK streaming subscription
+        async with client.subscribe(
+            pubsub_name=PUBSUB_NAME,
+            topic=REQUEST_TOPIC,
+        ) as subscription:
+            async for message in subscription:
+                try:
+                    event = ApprovalRequiredEvent(**json.loads(message.data()))
+                except Exception:
+                    logger.exception("Failed to parse ApprovalRequiredEvent; skipping.")
+                    await subscription.respond_success(message)
+                    continue
+
+                logger.info(
+                    f"Subscriber received approval request: tool='{event.step_name}' "
+                    f"request_id={event.approval_request_id}"
+                )
+
+                # Publish the human decision back via pub/sub.
+                response = ApprovalResponseEvent(
+                    approval_request_id=event.approval_request_id,
+                    approved=APPROVED,
+                    reason="approved via pub/sub example",
+                )
+                await client.publish_event(
+                    pubsub_name=PUBSUB_NAME,
+                    topic_name=RESPONSE_TOPIC,
+                    data=response.model_dump_json(),
+                    data_content_type="application/json",
+                )
+                logger.info(
+                    f"Subscriber published response: approved={APPROVED} "
+                    f"for request_id={event.approval_request_id}"
+                )
+                await subscription.respond_success(message)
+
+
 async def main():
     logging.basicConfig(level=logging.INFO)
 
@@ -78,27 +133,27 @@ async def main():
         hooks=Hooks(before_tool_call=[before_tool]),
         execution=AgentExecutionConfig(
             approval=AgentApprovalConfig(
-                pubsub_name="pubsub",
-                topic="agent-approval-requests",
+                pubsub_name=PUBSUB_NAME,
+                topic=REQUEST_TOPIC,
             )
         ),
     )
 
     runner = AgentRunner()
 
+    # Start the client-side subscriber as a background task.
+    subscriber_task = asyncio.create_task(approval_subscriber(agent))
+
     instance_id = await runner.run(
         agent,
         payload={"task": "Please delete the old 'sales-2023' dataset."},
         wait=False,
     )
-
     print(f"\nWorkflow started: instance_id = {instance_id}")
     print(
-        "\nThe agent has published an ApprovalRequiredEvent to the 'agent-approval-requests' topic."
+        f"Agent will publish approval request to topic '{REQUEST_TOPIC}'.\n"
+        f"Subscriber will respond on topic '{RESPONSE_TOPIC}'.\n"
     )
-    print("Your subscriber should receive it and prompt a human for a decision.")
-    print("\nTo approve or deny manually, run in a separate terminal:")
-    print(f"  python hitl_wf_event.py {instance_id} <approval_request_id> approve\n")
 
     result = await asyncio.to_thread(
         runner.wait_for_workflow_completion,
@@ -110,6 +165,7 @@ async def main():
     else:
         print("\nWorkflow did not complete within the wait window.")
 
+    subscriber_task.cancel()
     runner.shutdown(agent)
 
 

@@ -23,8 +23,6 @@ from typing import Any, Dict, Iterable, List, Optional
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
-from dapr.ext.workflow import DaprWorkflowClient
-from dapr.ext.workflow.workflow_state import WorkflowStatus
 
 from dapr_agents.agents.orchestration import (
     OrchestrationStrategy,
@@ -328,9 +326,9 @@ class DurableAgent(AgentBase):
         self._registered = False
         self._started = False
         self._hooks: Optional[Hooks] = hooks
-        # In-memory store of active approval requests, keyed by approval_request_id.
-        # Populated by publish_approval_request activity; consumed by raise_approval_event.
-        # Used by GET /hitl/approvals when serving over HTTP without pub/sub.
+        # Tracks active approval requests in memory, keyed by approval_request_id.
+        # Persisted to Dapr State Store so requests survive pod restarts.
+        # Only populated when HITL (before_tool_call) hooks are configured.
         self._pending_approvals: Dict[str, Dict[str, Any]] = {}
 
         try:
@@ -2232,8 +2230,11 @@ class DurableAgent(AgentBase):
     def _persist_pending_approvals(self) -> None:
         """
         Write the current _pending_approvals dict to Dapr State Store so it
-        survives process crashes.  No-op when no state store is configured.
+        survives process crashes.  No-op when no state store is configured or
+        no HITL hooks are present.
         """
+        if not (self._hooks and self._hooks.before_tool_call):
+            return
         if not self.state_store:
             return
         try:
@@ -2249,8 +2250,11 @@ class DurableAgent(AgentBase):
         Load previously persisted pending approvals from Dapr State Store into
         _pending_approvals on agent startup.  Entries whose workflow is no longer
         RUNNING are dropped so stale requests from already-finished workflows are
-        not surfaced.  No-op when no state store is configured.
+        not surfaced.  No-op when no state store is configured or no HITL hooks
+        are present.
         """
+        if not (self._hooks and self._hooks.before_tool_call):
+            return
         if not self.state_store:
             return
         try:
@@ -2259,8 +2263,8 @@ class DurableAgent(AgentBase):
             )
             if not exists or not data:
                 return
-            wf_client = DaprWorkflowClient()
-            _ACTIVE = {WorkflowStatus.RUNNING, WorkflowStatus.SUSPENDED}
+            wf_client = wf.DaprWorkflowClient()
+            _ACTIVE = {wf.WorkflowStatus.RUNNING, wf.WorkflowStatus.SUSPENDED}
             for approval_request_id, event_data in data.items():
                 instance_id = event_data.get("instance_id", "")
                 try:
@@ -2730,13 +2734,13 @@ class DurableAgent(AgentBase):
             reason=reason,
         )
 
-        wf_client = DaprWorkflowClient()
+        wf_client = wf.DaprWorkflowClient()
 
         # Guard against late responses: Dapr silently drops events on finished workflows, leaving the human with no feedback. Fail explicitly instead.
         _TERMINAL = {
-            WorkflowStatus.COMPLETED,
-            WorkflowStatus.FAILED,
-            WorkflowStatus.TERMINATED,
+            wf.WorkflowStatus.COMPLETED,
+            wf.WorkflowStatus.FAILED,
+            wf.WorkflowStatus.TERMINATED,
         }
         state = wf_client.get_workflow_state(instance_id, fetch_payloads=False)
         if state is None or state.runtime_status in _TERMINAL:

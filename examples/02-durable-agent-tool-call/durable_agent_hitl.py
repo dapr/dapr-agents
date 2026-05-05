@@ -12,27 +12,29 @@
 #
 
 """
-HITL via HTTP polling: the agent holds pending approvals in memory (and in the
-Dapr State Store when one is configured). The same process polls
-agent.list_pending_approvals() and calls agent.raise_approval_event() to resume
-the workflow — no pub/sub or separate client needed.
+Example 1 — HITL via HTTP.
 
-How it works
-------------
-1. The before_tool hook returns RequireApproval for the delete_old_data tool.
-2. The workflow suspends and the approval request is stored in the agent.
-3. This script polls list_pending_approvals() until the request appears.
-4. After a short delay it calls raise_approval_event() to approve or deny.
+Agent side : the workflow pauses and holds the approval request in memory,
+             exposed via GET /hitl/approvals (mounted automatically by AgentRunner).
+Client side: a human polls GET /hitl/approvals and sends the decision back
+             with POST /hitl/approvals/{approval_request_id}/respond.
 
-Other HITL delivery patterns are shown in companion scripts:
-  - hitl_pubsub.py     — agent publishes the request to a Dapr pub/sub topic
-  - hitl_wf_event.py   — resume a paused workflow from the command line
+No pub/sub component or Dapr sidecar required for the approval round-trip —
+just the agent's HTTP server.
+
+This script runs both sides in the same process for simplicity.
+In production the client call would come from a separate service or dashboard.
+
+Other patterns:
+  - hitl_pubsub.py    — approval round-trip over Dapr pub/sub
+  - hitl_wf_event.py  — approval round-trip via direct workflow event
 """
 
 import asyncio
 import logging
 import time
 
+import httpx
 from dotenv import load_dotenv
 
 from dapr_agents import DurableAgent, tool
@@ -44,14 +46,9 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-
-@tool
-def get_weather(location: str) -> str:
-    """Get weather information for a location."""
-    import random
-
-    temperature = random.randint(60, 85)
-    return f"{location}: {temperature}F, partly cloudy."
+# Port the AgentRunner HTTP server will listen on.
+AGENT_PORT = 8080
+APPROVED = True  # set to False to test the denial path
 
 
 @tool
@@ -60,12 +57,11 @@ def delete_old_data(dataset: str) -> str:
     return f"Dataset '{dataset}' has been deleted."
 
 
-# the hook decides at runtime which tools need approval
 def before_tool(ctx: HookContext) -> HookDecision:
     if ctx.step_name == "DeleteOldData":
         return RequireApproval(
             timeout_seconds=120,
-            instructions=f"confirm deletion of dataset: {ctx.payload.get('dataset')}",
+            instructions=f"Confirm deletion of dataset: {ctx.payload.get('dataset')}",
         )
     return Proceed()
 
@@ -74,98 +70,76 @@ async def main():
     logging.basicConfig(level=logging.INFO)
 
     agent = DurableAgent(
-        name="hitl-demo",
+        name="hitl-http-demo",
         role="Operations Assistant",
-        goal="Help the user manage data and fetch information.",
-        instructions=[
-            "Use delete_old_data when asked to clean up or remove data.",
-            "Use get_weather for weather queries.",
-        ],
+        goal="Help the user manage data.",
+        instructions=["Use delete_old_data when asked to clean up or remove data."],
         llm=OpenAIChatClient(model="gpt-4o-mini"),
-        tools=[get_weather, delete_old_data],
+        tools=[delete_old_data],
         hooks=Hooks(before_tool_call=[before_tool]),
     )
 
     runner = AgentRunner()
 
-    prompt = "Please delete the old 'sales-2023' dataset and then tell me the weather in Chicago."
+    # serve() starts the FastAPI HTTP server which mounts GET/POST /hitl/approvals.
+    # We run it as a background task so this script can keep driving the client side.
+    server_task = asyncio.create_task(
+        runner.serve(agent, port=AGENT_PORT, host="127.0.0.1")
+    )
 
-    print("\n--- starting workflow ---\n")
+    # Give the server a moment to come up.
+    await asyncio.sleep(2)
 
     instance_id = await runner.run(
         agent,
-        payload={"task": prompt},
+        payload={"task": "Please delete the old 'sales-2023' dataset."},
         wait=False,
     )
-    print(f"workflow started: instance_id = {instance_id}\n")
+    print(f"\nWorkflow started: instance_id = {instance_id}\n")
 
-    AUTO_APPROVE_DELAY = 5  # seconds to pause before sending the decision
-    APPROVED = True  # set to False to test denial path
-
-    # When the workflow pauses at a HITL checkpoint, the agent stores the pending approval
-    # in-process. Polling list_pending_approvals() here avoids a separate pub/sub subscriber.
-    first = True
-    while True:
-        # Allow more time on the first check (workflow is warming up); shorter for subsequent ones.
-        poll_timeout = 60 if first else 10
-        approval_data = None
-        deadline = time.monotonic() + poll_timeout
+    # --- client side: poll GET /hitl/approvals until the request appears ---
+    base_url = f"http://127.0.0.1:{AGENT_PORT}"
+    approval_data = None
+    deadline = time.monotonic() + 60
+    async with httpx.AsyncClient() as client:
         while time.monotonic() < deadline:
-            pending = agent.list_pending_approvals()
+            resp = await client.get(f"{base_url}/hitl/approvals")
+            pending = resp.json()
             if pending:
                 approval_data = pending[0]
                 break
             await asyncio.sleep(1)
 
         if approval_data is None:
-            break  # No more pending approvals within the window; workflow has likely finished.
+            print("No approval request appeared within the wait window.")
+            runner.shutdown(agent)
+            server_task.cancel()
+            return
 
-        first = False
         approval_request_id = approval_data["approval_request_id"]
-        decision_word = "approved" if APPROVED else "denied"
-
-        print("\n" + "=" * 60)
-        print("  APPROVAL REQUIRED")
-        print("=" * 60)
         print(f"  tool      : {approval_data['step_name']}")
         print(f"  arguments : {approval_data['tool_arguments']}")
-        print(f"  instance  : {approval_data['instance_id']}")
         print(f"  request   : {approval_request_id}")
-        if approval_data.get("instructions"):
-            print(f"  note      : {approval_data['instructions']}")
-        print("=" * 60)
-        print(
-            f"\n  Auto-{'approving' if APPROVED else 'denying'} in {AUTO_APPROVE_DELAY} s "
-            f"(edit APPROVED in durable_agent_hitl.py to change).\n"
+        print(f"\n  Sending HTTP decision: {'approve' if APPROVED else 'deny'}\n")
+
+        # --- client side: POST the decision back via HTTP ---
+        await client.post(
+            f"{base_url}/hitl/approvals/{approval_request_id}/respond",
+            json={"approved": APPROVED, "reason": "approved via HTTP example"},
         )
 
-        await asyncio.sleep(AUTO_APPROVE_DELAY)
-
-        print(f"  decision: {decision_word}\n")
-        agent.raise_approval_event(
-            instance_id=approval_data["instance_id"],
-            approval_request_id=approval_request_id,
-            approved=APPROVED,
-            reason=f"demo auto-decision: {decision_word}",
-        )
-
-    print("\n--- waiting for workflow to finish ---\n")
     result = await asyncio.to_thread(
         runner.wait_for_workflow_completion,
         instance_id,
         timeout_in_seconds=150,
     )
     if result:
-        print(f"\nfinal output:\n{getattr(result, 'serialized_output', result)}\n")
+        print(f"\nFinal output:\n{getattr(result, 'serialized_output', result)}\n")
     else:
-        print(
-            "\nworkflow did not complete within the wait window.\n"
-            "If the approval event was sent, the workflow is still running.\n"
-            f"Re-send manually with:\n"
-            f"  python hitl_wf_event.py {instance_id} <approval_request_id> approve\n"
-        )
+        print("\nWorkflow did not complete within the wait window.")
 
     runner.shutdown(agent)
+    server_task.cancel()
 
 
 if __name__ == "__main__":
