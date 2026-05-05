@@ -54,3 +54,32 @@ def test_mistral_generate(mock_mistral_class):
 
     assert response.get_message().content == "Hello from Mistral"
     mock_instance.chat.complete.assert_called_once()
+
+
+def test_mistral_from_prompty():
+    """Test initializing MistralChatClient from a Prompty template."""
+    prompty_content = """---
+name: Mistral Test
+model:
+  api: chat
+  configuration:
+    type: mistral
+    name: mistral-small
+    endpoint: https://api.mistral.ai/v1
+    api_key: dummy_key
+  parameters:
+    temperature: 0.5
+    max_tokens: 100
+---
+system:
+You are a helpful assistant.
+"""
+    client = MistralChatClient.from_prompty(prompty_content)
+
+    assert client.model == "mistral-small"
+    assert client.api_key == "dummy_key"
+    assert client.endpoint == "https://api.mistral.ai/v1"
+
+    assert client.prompty is not None
+    assert client.prompty.model.parameters.temperature == 0.5
+    assert client.prompty.model.parameters.max_tokens == 100
