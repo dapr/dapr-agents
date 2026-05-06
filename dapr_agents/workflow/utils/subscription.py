@@ -659,8 +659,7 @@ def _subscribe_message_bindings(
                     return bool(is_stream_active())
                 except Exception:
                     logger.exception(
-                        f"Error checking stream consumer {ps_name}:{t_name} status.",
-                        exc_info=True,
+                        f"Error checking stream consumer {ps_name}:{t_name} status."
                     )
                     return False
 
