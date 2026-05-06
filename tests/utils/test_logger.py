@@ -96,3 +96,14 @@ def test_with_logger_context_error_handling():
         failing_workflow(MockContext())
 
     assert workflow_replaying_ctx.get() is False
+
+
+def test_logger_initialization_toggle():
+    """Ensure the suppress_replay_logs flag correctly adds or removes the filter."""
+    logger_name = "toggle_test_logger"
+
+    logger = get_context_aware_logger(logger_name, suppress_replay_logs=False)
+    assert not any(isinstance(f, WorkflowReplayFilter) for f in logger.filters)
+
+    logger = get_context_aware_logger(logger_name, suppress_replay_logs=True)
+    assert any(isinstance(f, WorkflowReplayFilter) for f in logger.filters)

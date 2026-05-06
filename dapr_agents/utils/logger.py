@@ -31,14 +31,22 @@ class WorkflowReplayFilter(logging.Filter):
         return not workflow_replaying_ctx.get()
 
 
-def get_context_aware_logger(name: str) -> logging.Logger:
+def get_context_aware_logger(
+    name: str, suppress_replay_logs: bool = True
+) -> logging.Logger:
     """
     Returns a standard python logger configured with the WorkflowReplayFilter.
+    Set suppress_replay_logs=False to retain standard workflow replay logging.
     """
     logger = logging.getLogger(name)
+    has_filter = any(isinstance(f, WorkflowReplayFilter) for f in logger.filters)
 
-    if not any(isinstance(f, WorkflowReplayFilter) for f in logger.filters):
+    if suppress_replay_logs and not has_filter:
         logger.addFilter(WorkflowReplayFilter())
+    elif not suppress_replay_logs and has_filter:
+        logger.filters = [
+            f for f in logger.filters if not isinstance(f, WorkflowReplayFilter)
+        ]
 
     return logger
 
