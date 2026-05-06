@@ -2564,9 +2564,7 @@ class DurableAgent(AgentBase):
 
             extras = (
                 self._agent_orchestration_activities()
-                if isinstance(
-                    self._orchestration_strategy, AgentOrchestrationStrategy
-                )
+                if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy)
                 else self._static_orchestration_activities()
             )
             for activity in extras:
