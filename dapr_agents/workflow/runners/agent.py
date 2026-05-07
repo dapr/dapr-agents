@@ -654,7 +654,7 @@ class AgentRunner(WorkflowRunner):
 
         self._default_http_paths.add(readiness_check_path)
 
-        def _is_ready(
+        def _get_agent_readiness(
             fastapi_app: FastAPI,
             agent: DurableAgent,
             expose_entry: bool,
@@ -690,7 +690,7 @@ class AgentRunner(WorkflowRunner):
             return True, "Agent is ready"
 
         async def _get_ready_status() -> dict[str, str]:
-            is_ready, detail = _is_ready(fastapi_app, agent, expose_entry, entry_path, status_path)
+            is_ready, detail = _get_agent_readiness(fastapi_app, agent, expose_entry, entry_path, status_path)
 
             if is_ready:
                 return {"status": detail}
