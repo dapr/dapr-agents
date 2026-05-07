@@ -674,7 +674,10 @@ class AgentRunner(WorkflowRunner):
                 if not self._wired_pubsub or not all(
                     is_ready() for is_ready in self._pubsub_consumer_status_functions
                 ):
-                    return False, "Agent subscription consumers are not running or are unable to process messages"
+                    return (
+                        False,
+                        "Agent subscription consumers are not running or are unable to process messages",
+                    )
 
             # Ensure agent routes are mounted
             if fastapi_app and not self._wired_http:
@@ -690,7 +693,9 @@ class AgentRunner(WorkflowRunner):
             return True, "Agent is ready"
 
         async def _get_ready_status() -> dict[str, str]:
-            is_ready, detail = _get_agent_readiness(fastapi_app, agent, expose_entry, entry_path, status_path)
+            is_ready, detail = _get_agent_readiness(
+                fastapi_app, agent, expose_entry, entry_path, status_path
+            )
 
             if is_ready:
                 return {"status": detail}
