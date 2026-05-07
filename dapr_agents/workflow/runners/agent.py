@@ -660,40 +660,42 @@ class AgentRunner(WorkflowRunner):
             expose_entry: bool,
             entry_path: str,
             status_path: str,
-        ) -> bool:
+        ) -> tuple[bool, str]:
             # Ensure agent is not shutting down
             if self.is_shutdown_requested():
-                return False
+                return False, "Agent is shutting down"
 
             # Ensure workflow runtime is started and agent workflows/activities are registered
             if not agent.is_started:
-                return False
+                return False, "Agent workflow runtime is not started"
 
             # Ensure subscription consumers are running and able to process messages
             if getattr(agent, "pubsub", None):
                 if not self._wired_pubsub or not all(
                     is_ready() for is_ready in self._pubsub_consumer_status_functions
                 ):
-                    return False
+                    return False, "Agent subscription consumers are not running or are unable to process messages"
 
             # Ensure agent routes are mounted
             if fastapi_app and not self._wired_http:
-                return False
+                return False, "Agent HTTP routes are not mounted"
 
             # Ensure default service routes are mounted if given (other routes are the caller's responsibility)
             if expose_entry and not (
                 entry_path in self._default_http_paths
                 and status_path in self._default_http_paths
             ):
-                return False
+                return False, "Agent default HTTP service routes are not mounted"
 
-            return True
+            return True, "Agent is ready"
 
         async def _get_ready_status() -> dict[str, str]:
-            if _is_ready(fastapi_app, agent, expose_entry, entry_path, status_path):
-                return {"status": "ok"}
+            is_ready, detail = _is_ready(fastapi_app, agent, expose_entry, entry_path, status_path)
+
+            if is_ready:
+                return {"status": detail}
             raise HTTPException(
-                status_code=503, detail="Agent is not ready, check logs for details"
+                status_code=503, detail=f"{detail}, check logs for details"
             )
 
         fastapi_app.add_api_route(
