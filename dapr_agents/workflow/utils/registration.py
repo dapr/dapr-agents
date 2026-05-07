@@ -302,8 +302,7 @@ def _mount_http_bindings(
                             break
                         except Exception:
                             logger.debug(
-                                "HTTP schema %r did not match; trying next.",
-                                model,
+                                f"HTTP schema {model!r} did not match; trying next.",
                                 exc_info=True,
                             )
 
@@ -317,10 +316,8 @@ def _mount_http_bindings(
 
                     if matched_model is not None:
                         logger.debug(
-                            "Validated HTTP request for %s %s with model=%s",
-                            method_b,
-                            path_b,
-                            getattr(matched_model, "__name__", str(matched_model)),
+                            f"Validated HTTP request for {method_b} {path_b} "
+                            f"with model={getattr(matched_model, '__name__', str(matched_model))}"
                         )
 
                     result = await _invoke(bound_handler, parsed)
@@ -334,7 +331,7 @@ def _mount_http_bindings(
                     return JSONResponse(content=result)
 
                 except Exception:
-                    logger.exception("HTTP handler error for %s %s.", method_b, path_b)
+                    logger.exception(f"HTTP handler error for {method_b} {path_b}.")
                     return JSONResponse(
                         status_code=500, content={"detail": "Internal Server Error"}
                     )
@@ -362,7 +359,7 @@ def _mount_http_bindings(
         closers.append(lambda: None)
         status_functions.append(lambda: True)
 
-        logger.info("Mounted HTTP route %s %s -> %s", _method, _path, _name)
+        logger.info(f"Mounted HTTP route {_method} {_path} -> {_name}")
 
     return closers, status_functions
 
