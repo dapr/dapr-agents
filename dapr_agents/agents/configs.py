@@ -440,9 +440,9 @@ class AgentExecutionConfig:
         """Create execution config from environment variables."""
 
         max_iterations: Optional[int] = None
-        if max_iterations := getenv("MAX_ITERATIONS"):
+        if max_iterations_str := getenv("MAX_ITERATIONS"):
             try:
-                max_iterations = max(1, int(max_iterations))
+                max_iterations = max(1, int(max_iterations_str))
             except ValueError:
                 max_iterations = 10
 

@@ -1764,9 +1764,9 @@ class AgentBase:
 
         try:
             max_iterations: Optional[int] = None
-            if max_iter_str := self._runtime_conf.get("MAX_ITERATIONS"):
+            if max_iterations_str := self._runtime_conf.get("MAX_ITERATIONS"):
                 try:
-                    max_iterations = max(1, int(max_iter_str))
+                    max_iterations = max(1, int(max_iterations_str))
                 except ValueError:
                     max_iterations = 10
 
