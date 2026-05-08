@@ -1809,11 +1809,6 @@ class AgentBase:
             Merged AgentExecutionConfig instance.
         """
 
-        orchestration_mode = (
-            override.orchestration_mode
-            if override.orchestration_mode is not None
-            else base.orchestration_mode
-        )
         app_health_check_enabled = (
             override.app_health_check_enabled
             if override.app_health_check_enabled is not None
@@ -1830,7 +1825,7 @@ class AgentBase:
             tool_choice=override.tool_choice or base.tool_choice,
             tool_execution_mode=override.tool_execution_mode
             or base.tool_execution_mode,
-            orchestration_mode=orchestration_mode,
+            orchestration_mode=override.orchestration_mode or base.orchestration_mode,
             app_health_check_enabled=app_health_check_enabled,
             app_ready_check_enabled=app_ready_check_enabled,
         )
