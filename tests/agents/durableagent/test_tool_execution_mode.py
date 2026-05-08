@@ -8,12 +8,13 @@ from unittest.mock import Mock, MagicMock, AsyncMock
 import pytest
 
 from dapr_agents.agents.configs import (
+    AGENT_DEFAULT_MAX_ITERATIONS,
+    AGENT_DEFAULT_TOOL_CHOICE,
     AgentExecutionConfig,
     AgentMemoryConfig,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
-    ToolChoice,
     ToolExecutionMode,
 )
 from dapr_agents.agents.durable import DurableAgent
@@ -119,9 +120,11 @@ class TestAgentExecutionConfigToolMode:
 
     def test_other_defaults_unchanged(self):
         config = AgentExecutionConfig(tool_execution_mode=ToolExecutionMode.SEQUENTIAL)
-        assert config.max_iterations == 10
-        assert config.tool_choice == ToolChoice.AUTO
+        assert config.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
+        assert config.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
         assert config.orchestration_mode is None
+        assert config.app_health_check_enabled is None
+        assert config.app_ready_check_enabled is None
 
 
 # ---------------------------------------------------------------------------
