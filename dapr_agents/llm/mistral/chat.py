@@ -86,8 +86,38 @@ class MistralChatClient(MistralClientBase, ChatClientBase):
         prompty_source: Union[str, Path],
         timeout: Union[int, float, Dict[str, Any]] = 1500,
     ) -> "MistralChatClient":
-        raise NotImplementedError(
-            "Prompty configuration is not yet supported for the Mistral provider."
+        """
+        Create a MistralChatClient from a Prompty source.
+
+        The `timeout` parameter is accepted to satisfy the `ChatClientBase`
+        contract, but it is not currently applied by this Mistral client
+        implementation.
+        """
+        del timeout
+        prompty = Prompty.load(prompty_source)
+
+        if prompty.model.configuration.type != "mistral":
+            raise ValueError(
+                f"Expected Prompty model configuration type to be 'mistral', "
+                f"but got '{prompty.model.configuration.type}'."
+            )
+
+        prompt_template = prompty.to_prompt_template()
+
+        config = prompty.model.configuration
+        parameters = prompty.model.parameters
+
+        if getattr(parameters, "tools", None):
+            raise NotImplementedError(
+                "Tools are not yet supported for the Mistral provider via Prompty."
+            )
+
+        return cls(
+            model=parameters.model or config.name,
+            api_key=config.api_key,
+            endpoint=config.endpoint,
+            prompty=prompty,
+            prompt_template=prompt_template,
         )
 
     def generate(
