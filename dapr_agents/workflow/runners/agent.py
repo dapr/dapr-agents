@@ -508,9 +508,7 @@ class AgentRunner(WorkflowRunner):
         entry_path: str = "/agent/run",
         status_path: str = "/agent/instances/{instance_id}",
         enable_app_health_check: bool = False,
-        app_health_check_path: str = "/livez",
         enable_app_ready_check: bool = False,
-        app_ready_check_path: str = "/readyz",
         workflow_component: str = "dapr",
         fetch_status_payloads: bool = True,
         delivery_mode: Literal["sync", "async"] = "sync",
@@ -533,13 +531,11 @@ class AgentRunner(WorkflowRunner):
                     1. The `app_health_check_enabled` attribute of the agent execution config
                     2. The `ENABLE_APP_HEALTH_CHECK` environment variable
                     3. The `enable_app_health_check` argument
-            app_health_check_path: HTTP path for the health endpoint for Kubernetes liveness probes.
             enable_app_ready_check: Whether to mount a readiness endpoint for Dapr health/Kubernetes readiness probes.
                 Resolved in the following order (highest to lowest):
                     1. The `app_ready_check_enabled` attribute of the agent execution config
                     2. The `ENABLE_APP_READY_CHECK` environment variable
                     3. The `enable_app_ready_check` argument
-            app_ready_check_path: HTTP path for the readiness endpoint for Dapr health/Kubernetes readiness probes.
             workflow_component: Workflow component name used in the returned status URL.
             fetch_status_payloads: Include payloads when fetching workflow status.
             delivery_mode: Delivery mode forwarded to `subscribe`.
@@ -553,8 +549,6 @@ class AgentRunner(WorkflowRunner):
 
         entry_path = self._normalize_path(entry_path)
         status_path = self._normalize_path(status_path)
-        app_health_check_path = self._normalize_path(app_health_check_path)
-        app_ready_check_path = self._normalize_path(app_ready_check_path)
 
         try:
             agent.start()
@@ -591,7 +585,6 @@ class AgentRunner(WorkflowRunner):
             self._mount_health_endpoint(
                 fastapi_app=fastapi_app,
                 agent=agent,
-                app_health_check_path=app_health_check_path,
             )
 
         app_ready_check_enabled = (
@@ -601,7 +594,6 @@ class AgentRunner(WorkflowRunner):
             self._mount_ready_endpoint(
                 fastapi_app=fastapi_app,
                 agent=agent,
-                app_ready_check_path=app_ready_check_path,
                 expose_entry=expose_entry,
                 entry_path=entry_path,
                 status_path=status_path,
@@ -647,8 +639,8 @@ class AgentRunner(WorkflowRunner):
         *,
         fastapi_app: FastAPI,
         agent: DurableAgent,
-        app_health_check_path: str,
     ):
+        app_health_check_path = "/livez"
         if app_health_check_path in self._default_http_paths:
             logger.debug(f"Health endpoint already mounted at {app_health_check_path}")
             return
@@ -673,11 +665,11 @@ class AgentRunner(WorkflowRunner):
         *,
         fastapi_app: FastAPI,
         agent: DurableAgent,
-        app_ready_check_path: str,
         expose_entry: bool,
         entry_path: str,
         status_path: str,
     ):
+        app_ready_check_path = "/readyz"
         if app_ready_check_path in self._default_http_paths:
             logger.debug(
                 f"Readiness endpoint already mounted at {app_ready_check_path}"
