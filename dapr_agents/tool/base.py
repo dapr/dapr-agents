@@ -67,6 +67,10 @@ class AgentTool(BaseModel):
     func: Optional[Callable] = Field(
         None, description="Optional function implementing the tool's behavior."
     )
+    source: str = Field(
+        default="local",
+        description="Where this tool came from: 'local' for @tool functions, 'mcp' for mcp tools, etc.",
+    )
 
     _is_async: bool = PrivateAttr(default=False)
 
@@ -182,6 +186,7 @@ class AgentTool(BaseModel):
             description=tool_docs,
             func=executor,
             args_model=tool_args_model,
+            source="mcp",
         )
 
     @classmethod
@@ -510,7 +515,9 @@ class AgentTool(BaseModel):
 
 
 def tool(
-    func: Optional[Callable] = None, *, args_model: Optional[Type[BaseModel]] = None
+    func: Optional[Callable] = None,
+    *,
+    args_model: Optional[Type[BaseModel]] = None,
 ) -> AgentTool:
     """
     A decorator to wrap a function with an `AgentTool` for validation and metadata.
@@ -525,6 +532,9 @@ def tool(
 
     def decorator(f: Callable) -> AgentTool:
         ToolHelper.check_docstring(f)
-        return AgentTool(func=f, args_model=args_model)
+        return AgentTool(
+            func=f,
+            args_model=args_model,
+        )
 
     return decorator(func) if func else decorator
