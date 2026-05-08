@@ -472,7 +472,7 @@ class TestAgentBaseClass:
         basic_agent.memory = Mock()
         basic_agent.text_formatter = None
 
-        with caplog.at_level(logging.WARNING, logger="dapr_agents.agents.base"):
+        with caplog.at_level(logging.ERROR, logger="dapr_agents.agents.base"):
             result = basic_agent._summarize_conversation(
                 instance_id="wf-1",
                 messages_list=self._stub_messages(),

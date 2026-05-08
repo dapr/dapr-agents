@@ -1668,16 +1668,15 @@ class DurableAgent(AgentBase):
 
         tools = self.get_llm_tools()
         generate_kwargs: Dict[str, Any] = {"messages": messages}
+        fresh_structured_turn = response_model is not None and not last_had_tool_calls
 
-        if response_model is not None and not last_had_tool_calls:
+        if response_model is not None:
             generate_kwargs["response_format"] = response_model
-        else:
-            if tools:
-                generate_kwargs["tools"] = tools
-                if self.execution.tool_choice is not None:
-                    generate_kwargs["tool_choice"] = self.execution.tool_choice
-            if response_model is not None:
-                generate_kwargs["response_format"] = response_model
+
+        if tools and not fresh_structured_turn:
+            generate_kwargs["tools"] = tools
+            if self.execution.tool_choice is not None:
+                generate_kwargs["tool_choice"] = self.execution.tool_choice
 
         try:
             response = self.llm.generate(**generate_kwargs)

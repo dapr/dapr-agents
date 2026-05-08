@@ -1360,20 +1360,16 @@ class AgentBase:
                 response_format=ConversationSummary,
             )
             summary_content = (summary_model.summary or "").strip()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "LLM summarize failed for instance_id=%s; skipping memory "
-                "summary. error=%s",
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "LLM summarize failed for instance_id=%s; skipping memory summary.",
                 instance_id,
-                exc,
-                exc_info=True,
             )
             return {"content": ""}
 
         if not summary_content:
-            logger.warning(
-                "LLM returned an empty summary for instance_id=%s; skipping "
-                "memory summary.",
+            logger.error(
+                "LLM returned an empty summary for instance_id=%s; skipping memory summary.",
                 instance_id,
             )
             return {"content": ""}
