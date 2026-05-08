@@ -330,6 +330,12 @@ class DurableAgent(AgentBase):
         # Persisted to Dapr State Store so requests survive pod restarts.
         # Only populated when HITL (before_tool_call) hooks are configured.
         self._pending_approvals: Dict[str, Dict[str, Any]] = {}
+        # Shared workflow client for HITL operations (_restore_pending_approvals and
+        # submit_approval_response). Created once here instead of per-call, and only
+        # when HITL hooks are actually configured — the only execution path that needs it.
+        self._wf_client: Optional[wf.DaprWorkflowClient] = (
+            wf.DaprWorkflowClient() if (hooks and hooks.before_tool_call) else None
+        )
 
         try:
             retries = int(getenv("DAPR_API_MAX_RETRIES", ""))
@@ -2263,7 +2269,7 @@ class DurableAgent(AgentBase):
             )
             if not exists or not data:
                 return
-            wf_client = wf.DaprWorkflowClient()
+            wf_client = self._wf_client
             _ACTIVE = {wf.WorkflowStatus.RUNNING, wf.WorkflowStatus.SUSPENDED}
             for approval_request_id, event_data in data.items():
                 instance_id = event_data.get("instance_id", "")
@@ -2734,7 +2740,7 @@ class DurableAgent(AgentBase):
             reason=reason,
         )
 
-        wf_client = wf.DaprWorkflowClient()
+        wf_client = self._wf_client
 
         # Guard against late responses: Dapr silently drops events on finished workflows, leaving the human with no feedback. Fail explicitly instead.
         _TERMINAL = {
