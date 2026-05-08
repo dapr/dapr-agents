@@ -1655,7 +1655,7 @@ class DurableAgent(AgentBase):
         # Build generate kwargs. When the caller requested structured output
         # AND the conversation isn't mid-tool-loop (no tool_calls on the last
         # assistant message), omit tools/tool_choice so the model can't
-        # legitimately respond with a tool call instead of JSON. 
+        # legitimately respond with a tool call instead of JSON.
         last_assistant = next(
             (
                 m
