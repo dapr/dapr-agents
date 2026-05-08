@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from os import getenv
 import re
 from importlib.metadata import version
 from datetime import datetime, timezone
@@ -43,7 +44,10 @@ from dapr_agents.agents.configs import (
     AgentExecutionConfig,
     AgentTracingExporter,
     ConfigFieldDescriptor,
+    OrchestrationMode,
     RuntimeConfigKey,
+    ToolChoice,
+    ToolExecutionMode,
     LLMMetadata,
     MemoryMetadata,
     MemoryStoreMetadata,
@@ -474,7 +478,7 @@ class AgentBase:
         )
 
         self.instrumentor: Optional[DaprAgentsInstrumentor] = None
-        self._setup_agent_runtime_configuration()
+        self._setup_agent_observability_runtime_configuration()
 
         # -----------------------------
         # Registry wiring
@@ -540,6 +544,8 @@ class AgentBase:
         # Execution config
         # -----------------------------
         self.execution = execution or AgentExecutionConfig()
+        self._setup_agent_execution_runtime_configuration()
+
         try:
             self.execution.max_iterations = max(1, int(self.execution.max_iterations))
         except Exception:
@@ -547,13 +553,11 @@ class AgentBase:
         if not self.tools:
             if self.execution.tool_choice is not None:
                 logger.debug(
-                    "No tools configured for agent '%s'; ignoring tool_choice=%r.",
-                    self.name,
-                    self.execution.tool_choice,
+                    f"No tools configured for agent '{self.name}'; ignoring tool_choice={self.execution.tool_choice!r}."
                 )
             self.execution.tool_choice = None
         elif self.execution.tool_choice is None:
-            self.execution.tool_choice = "auto"
+            self.execution.tool_choice = ToolChoice.AUTO
 
         # -----------------------------
         # Agent metadata & registry registration
@@ -1723,6 +1727,116 @@ class AgentBase:
             except ValueError:
                 pass
         return datetime.now(timezone.utc)
+    
+    def _resolve_execution_config(self) -> AgentExecutionConfig:
+        """
+        Resolve the execution configuration for the agent in the following order:
+        1. Passed through instantiation (highest priority)
+        2. Environment variables
+        3. Default statestore runtime config (lowest priority)
+
+        Args:
+            agent_execution: Optional execution config provided during initialization.
+        Returns:
+            Resolved AgentExecutionConfig instance.
+        """
+
+        config = self._load_execution_from_statestore()
+        logger.debug(f"Statestore execution config: {config}")
+
+        env_config = AgentExecutionConfig.from_env()
+        logger.debug(f"Env execution config: {env_config}")
+
+        config = self._merge_execution_configs(config, env_config)
+        logger.debug(f"Merged execution config: {config}")
+
+        if self.execution:
+            config = self._merge_execution_configs(config, self.execution)
+            logger.debug(f"Final execution config with override: {config}")
+        return config
+
+    def _load_execution_from_statestore(self) -> AgentExecutionConfig:
+        """
+        Load execution configuration from the state store.
+
+        Returns:
+            AgentExecutionConfig instance loaded from state store.
+        """
+
+        try:
+            max_iterations: Optional[int] = None
+            if max_iter_str := self._runtime_conf.get("MAX_ITERATIONS"):
+                try:
+                    max_iterations = max(1, int(max_iter_str))
+                except ValueError:
+                    max_iterations = 10
+
+            tool_choice: Optional[ToolChoice] = None
+            if tool_choice_str := self._runtime_conf.get("TOOL_CHOICE"):
+                try:
+                    tool_choice = ToolChoice(tool_choice_str)
+                except (ValueError, KeyError):
+                    tool_choice = ToolChoice.AUTO
+
+            tool_execution_mode: Optional[ToolExecutionMode] = None
+            orchestration_mode: Optional[OrchestrationMode] = None
+            app_health_check_enabled: Optional[bool] = None
+            app_ready_check_enabled: Optional[bool] = None
+
+            return AgentExecutionConfig(
+                max_iterations=max_iterations,
+                tool_choice=tool_choice,
+                tool_execution_mode=tool_execution_mode,
+                orchestration_mode=orchestration_mode,
+                app_health_check_enabled=app_health_check_enabled,
+                app_ready_check_enabled=app_ready_check_enabled,
+            )
+        except Exception as e:
+            logger.debug(f"Could not load execution config from statestore: {e}")
+            return AgentExecutionConfig()
+
+    def _merge_execution_configs(
+        self, base: AgentExecutionConfig, override: AgentExecutionConfig
+    ) -> AgentExecutionConfig:
+        """
+        Merge two execution configurations, with the override taking precedence.
+        Only override if the override value is not None.
+
+        Args:
+            base: Base execution configuration.
+            override: Override execution configuration.
+        Returns:
+            Merged AgentExecutionConfig instance.
+        """
+
+        orchestration_mode = (
+            override.orchestration_mode
+            if override.orchestration_mode is not None
+            else base.orchestration_mode
+        )
+        app_health_check_enabled = (
+            override.app_health_check_enabled
+            if override.app_health_check_enabled is not None
+            else base.app_health_check_enabled
+        )
+        app_ready_check_enabled = (
+            override.app_ready_check_enabled
+            if override.app_ready_check_enabled is not None
+            else base.app_ready_check_enabled
+        )
+
+        merged_config = AgentExecutionConfig(
+            max_iterations=override.max_iterations or base.max_iterations,
+            tool_choice=override.tool_choice or base.tool_choice,
+            tool_execution_mode=override.tool_execution_mode or base.tool_execution_mode,
+            orchestration_mode=orchestration_mode,
+            app_health_check_enabled=app_health_check_enabled,
+            app_ready_check_enabled=app_ready_check_enabled,
+        )
+        return merged_config
+
+    def _setup_agent_execution_runtime_configuration(self) -> None:
+        self.execution = self._resolve_execution_config()
 
     def _resolve_observability_config(self) -> AgentObservabilityConfig:
         """
@@ -1855,7 +1969,7 @@ class AgentBase:
         )
         return merged_config
 
-    def _setup_agent_runtime_configuration(self) -> None:
+    def _setup_agent_observability_runtime_configuration(self) -> None:
         self._agent_observability = self._resolve_observability_config()
         self._setup_agent_observability(self._agent_observability)
 

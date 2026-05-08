@@ -13,6 +13,7 @@ from dapr_agents.agents.configs import (
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
+    ToolChoice,
     ToolExecutionMode,
 )
 from dapr_agents.agents.durable import DurableAgent
@@ -119,7 +120,7 @@ class TestAgentExecutionConfigToolMode:
     def test_other_defaults_unchanged(self):
         config = AgentExecutionConfig(tool_execution_mode=ToolExecutionMode.SEQUENTIAL)
         assert config.max_iterations == 10
-        assert config.tool_choice == "auto"
+        assert config.tool_choice == ToolChoice.AUTO
         assert config.orchestration_mode is None
 
 

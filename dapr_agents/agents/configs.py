@@ -369,6 +369,18 @@ class AgentProfileConfig:
     module_overrides: Dict[str, PromptSection] = field(default_factory=dict)
 
 
+class ToolChoice(StrEnum):
+    """
+    Enumeration of supported tool choice strategies for durable agents.
+
+    AUTO: The agent decides when to use tools based on the prompt and context.
+        This is the default and recommended setting for most use cases,
+        as it allows the agent to leverage tools when beneficial while avoiding unnecessary calls.
+    """
+
+    AUTO = "auto"
+
+
 class ToolExecutionMode(StrEnum):
     """
     Enumeration of supported tool execution modes for durable agents.
@@ -403,14 +415,78 @@ class OrchestrationMode(StrEnum):
 class AgentExecutionConfig:
     """
     Dials to configure the agent execution.
+
+    Attributes:
+        max_iterations: Maximum number of turns allowed for the agent to produce a final response.
+        tool_choice: Tool choice strategy for the agent.
+        tool_execution_mode: Tool execution mode for the agent.
+        orchestration_mode: Orchestration strategy for the agent.
+        app_health_check_enabled: Enable/disable Kubernetes liveness probes.
+        app_ready_check_enabled: Enable/disable Dapr health/Kubernetes readiness probes.
     """
 
     # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
     # TODO: add stop_at_tokens
     max_iterations: int = 10
-    tool_choice: Optional[str] = "auto"
+    tool_choice: Optional[ToolChoice] = ToolChoice.AUTO
     tool_execution_mode: ToolExecutionMode = ToolExecutionMode.PARALLEL
     orchestration_mode: Optional[OrchestrationMode] = None
+
+    app_health_check_enabled: Optional[bool] = None
+    app_ready_check_enabled: Optional[bool] = None
+
+    @classmethod
+    def from_env(cls) -> "AgentExecutionConfig":
+        """Create execution config from environment variables."""
+
+        max_iterations: Optional[int] = None
+        if max_iterations := getenv("MAX_ITERATIONS"):
+            try:
+                max_iterations = max(1, int(max_iterations))
+            except ValueError:
+                max_iterations = 10
+
+        tool_choice: Optional[ToolChoice] = None
+        if tool_choice_str := getenv("TOOL_CHOICE"):
+            try:
+                tool_choice = ToolChoice(tool_choice_str)
+            except (ValueError, KeyError):
+                tool_choice = ToolChoice.AUTO
+
+        tool_execution_mode: Optional[ToolExecutionMode] = None
+        if tool_execution_mode_str := getenv("TOOL_EXECUTION_MODE"):
+            try:
+                tool_execution_mode = ToolExecutionMode(tool_execution_mode_str)
+            except (ValueError, KeyError):
+                tool_execution_mode = ToolExecutionMode.PARALLEL
+
+        orchestration_mode: Optional[OrchestrationMode] = None
+        if orchestration_mode_str := getenv("ORCHESTRATION_MODE"):
+            try:
+                orchestration_mode = OrchestrationMode(orchestration_mode_str)
+            except (ValueError, KeyError):
+                orchestration_mode = None
+
+        app_health_check_enabled: Optional[bool] = None
+        if getenv("ENABLE_APP_HEALTH_CHECK") is not None:
+            app_health_check_enabled = (
+                getenv("ENABLE_APP_HEALTH_CHECK", "false").lower() == "true"
+            )
+
+        app_ready_check_enabled: Optional[bool] = None
+        if getenv("ENABLE_APP_READY_CHECK") is not None:
+            app_ready_check_enabled = (
+                getenv("ENABLE_APP_READY_CHECK", "false").lower() == "true"
+            )
+
+        return cls(
+            max_iterations=max_iterations,
+            tool_choice=tool_choice,
+            tool_execution_mode=tool_execution_mode,
+            orchestration_mode=orchestration_mode,
+            app_health_check_enabled=app_health_check_enabled,
+            app_ready_check_enabled=app_ready_check_enabled,
+        )
 
 
 @dataclass
