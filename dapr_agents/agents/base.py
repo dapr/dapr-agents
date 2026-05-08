@@ -1727,7 +1727,7 @@ class AgentBase:
             except ValueError:
                 pass
         return datetime.now(timezone.utc)
-    
+
     def _resolve_execution_config(self) -> AgentExecutionConfig:
         """
         Resolve the execution configuration for the agent in the following order:
@@ -1828,7 +1828,8 @@ class AgentBase:
         merged_config = AgentExecutionConfig(
             max_iterations=override.max_iterations or base.max_iterations,
             tool_choice=override.tool_choice or base.tool_choice,
-            tool_execution_mode=override.tool_execution_mode or base.tool_execution_mode,
+            tool_execution_mode=override.tool_execution_mode
+            or base.tool_execution_mode,
             orchestration_mode=orchestration_mode,
             app_health_check_enabled=app_health_check_enabled,
             app_ready_check_enabled=app_ready_check_enabled,
