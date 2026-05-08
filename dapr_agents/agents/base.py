@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from os import getenv
 import re
 from importlib.metadata import version
 from datetime import datetime, timezone
