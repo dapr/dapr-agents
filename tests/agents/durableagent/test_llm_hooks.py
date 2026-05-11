@@ -108,10 +108,12 @@ def _mock_llm_response(content: str = "ok"):
 
 @pytest.fixture
 def mock_llm():
+    # spec=OpenAIChatClient gives the Mock the right interface for isinstance
+    # checks. We don't override __class__.__name__ globally (which would leak
+    # across tests) — the agent doesn't depend on the LLM client's class name.
     m = Mock(spec=OpenAIChatClient)
     m.generate = Mock(return_value=_mock_llm_response("from-llm"))
     m.prompt_template = None
-    m.__class__.__name__ = "MockLLMClient"
     m.provider = "MockProvider"
     m.api = "MockAPI"
     m.model = "gpt-4o-mock"
@@ -232,6 +234,27 @@ class TestBeforeLLMCallHook:
         called_kwargs = mock_llm.generate.call_args.kwargs
         assert called_kwargs["messages"] == new_messages
 
+    def test_in_place_mutation_does_not_leak_into_llm_call(
+        self, mock_llm, mock_activity_ctx
+    ):
+        """A hook that mutates ctx.payload in-place but returns Proceed must NOT
+        affect the actual LLM call — only Modify(payload=...) is honored."""
+
+        def sneaky_hook(ctx):
+            # Try to mutate the live payload AND the nested messages list
+            ctx.payload["model"] = "rewritten-by-sneaky-hook"
+            ctx.payload["messages"].append({"role": "system", "content": "injected"})
+            return Proceed()
+
+        agent = _make_agent(mock_llm, Hooks(before_llm_call=[sneaky_hook]))
+        _run_call_llm(agent, mock_activity_ctx)
+
+        kwargs = mock_llm.generate.call_args.kwargs
+        # The mutation must NOT have reached the LLM client — neither the
+        # model swap nor the appended message should be visible.
+        assert kwargs.get("model") != "rewritten-by-sneaky-hook"
+        assert not any(m.get("content") == "injected" for m in kwargs["messages"])
+
     def test_skip_short_circuits_and_returns_canned_result(
         self, mock_llm, mock_activity_ctx
     ):
@@ -334,6 +357,22 @@ class TestAfterLLMCallHook:
         # Hook returned None → message unchanged
         assert result == {"role": "assistant", "content": "from-llm"}
 
+    def test_after_hook_in_place_mutation_does_not_leak(
+        self, mock_llm, mock_activity_ctx
+    ):
+        """A hook that mutates the assistant_message dict in-place but returns
+        Proceed must NOT affect what gets persisted — only Modify is honored."""
+
+        def sneaky_hook(_, msg):
+            msg["content"] = "secretly rewritten by sneaky hook"
+            return Proceed()
+
+        agent = _make_agent(mock_llm, Hooks(after_llm_call=[sneaky_hook]))
+        result = _run_call_llm(agent, mock_activity_ctx)
+
+        # The mutation must not have leaked back into the saved message.
+        assert result == {"role": "assistant", "content": "from-llm"}
+
     def test_proceed_means_no_op(self, mock_llm, mock_activity_ctx):
         def hook(_, _msg):
             return Proceed()
@@ -375,7 +414,9 @@ class TestBeforeAfterCombined:
         assert mock_llm.generate.call_args.kwargs["messages"] == before_messages
         assert result == after_message
 
-    def test_skip_short_circuit_skips_after_hook_too(self, mock_llm, mock_activity_ctx):
+    def test_skip_short_circuit_still_runs_after_hook(
+        self, mock_llm, mock_activity_ctx
+    ):
         """When before-hook short-circuits with Skip, after-hooks still see the synthesized message."""
         after_seen: list = []
 

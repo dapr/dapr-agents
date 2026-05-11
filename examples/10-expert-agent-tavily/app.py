@@ -14,6 +14,7 @@
 """Chainlit entrypoint for the expert agent."""
 
 import json
+import uuid
 from typing import Optional
 
 import chainlit as cl
@@ -31,6 +32,9 @@ load_dotenv()
 # the agent's workflow runtime tries to register itself.
 _agent: Optional[DurableAgent] = None
 _runner: Optional[AgentRunner] = None
+
+# Key under which we stash the per-chat workflow instance id in cl.user_session.
+_INSTANCE_ID_KEY = "agent_instance_id"
 
 
 def _get_agent_and_runner() -> tuple[DurableAgent, AgentRunner]:
@@ -56,6 +60,11 @@ def _extract_content(result: str | None) -> str:
 @cl.on_chat_start
 async def start() -> None:
     _get_agent_and_runner()
+    # One workflow instance per chat session — all messages in this session
+    # use the same instance_id so conversation memory accumulates. Without
+    # this, every message would spawn a fresh workflow and the agent would
+    # forget the previous turns.
+    cl.user_session.set(_INSTANCE_ID_KEY, f"chat-{uuid.uuid4()}")
     await cl.Message(
         content=(
             "Hi! Ask me anything — I'll fetch fresh web context for every "
@@ -67,5 +76,11 @@ async def start() -> None:
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
     agent, runner = _get_agent_and_runner()
-    result = await runner.run(agent, {"task": message.content})
+    instance_id = cl.user_session.get(_INSTANCE_ID_KEY)
+    if instance_id is None:
+        # Defensive: if the chat-start hook didn't run (e.g. session restored
+        # mid-conversation), generate one on the fly.
+        instance_id = f"chat-{uuid.uuid4()}"
+        cl.user_session.set(_INSTANCE_ID_KEY, instance_id)
+    result = await runner.run(agent, {"task": message.content}, instance_id=instance_id)
     await cl.Message(content=_extract_content(result)).send()

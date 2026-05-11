@@ -1936,11 +1936,14 @@ class DurableAgent(AgentBase):
         # hook. First non-Proceed decision wins, mirroring before_tool_call.
         llm_decision: Optional[HookDecision] = None
         if self._hooks and self._hooks.before_llm_call:
+            hook_payload: Dict[str, Any] = dict(generate_kwargs)
+            if "messages" in hook_payload:
+                hook_payload["messages"] = list(hook_payload["messages"])
             before_ctx = HookContext(
                 step_name="llm",
                 step_kind="llm",
                 source="agent",
-                payload=generate_kwargs,
+                payload=hook_payload,
                 tool_call_id="",
             )
             for hook in self._hooks.before_llm_call:
@@ -2003,20 +2006,25 @@ class DurableAgent(AgentBase):
                     raise AgentError("LLM returned no assistant message.")
                 assistant_message = assistant_message.model_dump()
 
-        # after_llm_call hook dispatch. Receives the built assistant_message and
-        # may return Modify(payload=<replacement dict>) to mutate it before
-        # persistence. Skip / Deny / RequireApproval are no-ops on the after-path
-        # since the LLM has already produced output.
+        # after_llm_call hook dispatch. Receives a copy of the built
+        # assistant_message and may return Modify(payload=<replacement dict>) to
+        # mutate it before persistence. Skip / Deny / RequireApproval are no-ops
+        # on the after-path since the LLM has already produced output. Hooks
+        # receive a shallow copy so in-place mutation cannot bypass the Modify
+        # contract.
         if self._hooks and self._hooks.after_llm_call:
+            after_payload: Dict[str, Any] = dict(generate_kwargs)
+            if "messages" in after_payload:
+                after_payload["messages"] = list(after_payload["messages"])
             after_ctx = HookContext(
                 step_name="llm",
                 step_kind="llm",
                 source="agent",
-                payload=generate_kwargs,
+                payload=after_payload,
                 tool_call_id="",
             )
             for hook in self._hooks.after_llm_call:
-                result = hook(after_ctx, assistant_message)
+                result = hook(after_ctx, dict(assistant_message))
                 if isinstance(result, Modify) and result.payload is not None:
                     assistant_message = result.payload
                     break
