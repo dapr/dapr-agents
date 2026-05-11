@@ -109,10 +109,21 @@ class Hooks:
     container for all hook callbacks you want to register on a DurableAgent.
     each slot holds a list of callables so multiple hooks can be chained.
 
-    example::
+    tool hooks (``before_tool_call`` / ``after_tool_call``) fire in the workflow
+    body and must be deterministic; non-determinism is deferred to the activity
+    that actually runs the tool. ``RequireApproval`` is supported here.
 
-        from dapr_agents.hooks import Hooks, HookContext, HookDecision
-        from dapr_agents.hooks import Proceed, RequireApproval, Deny
+    llm hooks (``before_llm_call`` / ``after_llm_call``) fire inside the
+    ``call_llm`` activity and may perform non-deterministic work such as web
+    search; the activity's recorded output makes replays safe.
+    ``RequireApproval`` is NOT supported on llm hooks for this reason.
+
+    tool-hook example::
+
+        from dapr_agents.hooks import (
+            Hooks, HookContext, HookDecision,
+            Proceed, RequireApproval, Deny,
+        )
 
         def before_tool(ctx: HookContext) -> HookDecision:
             # gate any mcp delete_ call through human approval
@@ -130,16 +141,48 @@ class Hooks:
             ...,
             hooks=Hooks(before_tool_call=[before_tool]),
         )
+
+    llm-hook example (RAG via hook — inject fresh web context on every turn)::
+
+        from dapr_agents.hooks import Hooks, HookContext, HookDecision, Proceed, Modify
+        from tavily import TavilyClient
+
+        tavily = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
+
+        def enrich(ctx: HookContext) -> HookDecision:
+            messages = ctx.payload.get("messages", [])
+            if not messages or messages[-1].get("role") != "user":
+                return Proceed()
+            results = tavily.search(query=messages[-1]["content"], max_results=3)
+            snippets = "\\n".join(f"- {r['title']}: {r['content']}" for r in results["results"])
+            enriched = [
+                *messages[:-1],
+                {"role": "system", "content": f"Fresh web context:\\n{snippets}"},
+                messages[-1],
+            ]
+            return Modify(payload={**ctx.payload, "messages": enriched})
+
+        agent = DurableAgent(
+            ...,
+            hooks=Hooks(before_llm_call=[enrich]),
+        )
     """
 
     before_tool_call: List[BeforeHook] = field(default_factory=list)
-    """called before every tool dispatch. return a HookDecision to control execution."""
+    """called before every tool dispatch. return a HookDecision to control execution.
+    runs in the deterministic workflow body. supports Proceed / Skip / Modify /
+    RequireApproval / Deny."""
 
     after_tool_call: List[AfterHook] = field(default_factory=list)
-    """called after a tool completes. return Modify(result=...) to replace the output."""
+    """called after a tool completes. return Modify(payload=...) to replace the output."""
 
     before_llm_call: List[BeforeHook] = field(default_factory=list)
-    """called before every llm call."""
+    """called before every llm call from inside the call_llm activity. supports
+    Proceed / Skip / Modify / Deny. RequireApproval is NOT supported because the
+    activity boundary cannot yield for external events — use before_tool_call
+    for HITL flows."""
 
     after_llm_call: List[AfterHook] = field(default_factory=list)
-    """called after every llm response."""
+    """called after every llm response. return Modify(payload=<assistant_message dict>)
+    to mutate the message that gets persisted and returned. Skip / Deny / RequireApproval
+    are no-ops on this slot (the LLM has already produced output)."""

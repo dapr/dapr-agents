@@ -1929,31 +1929,97 @@ class DurableAgent(AgentBase):
         if tools and self.execution.tool_choice is not None:
             generate_kwargs["tool_choice"] = self.execution.tool_choice
 
-        try:
-            response = self.llm.generate(**generate_kwargs)
-        except Exception as exc:  # noqa: BLE001
-            raise AgentError(str(exc)) from exc
+        # before_llm_call hook dispatch. Hooks fire inside this activity (rather
+        # than in the workflow body) so they can perform non-deterministic work
+        # like web search; the activity boundary records the final assistant
+        # message so replays use the recorded output rather than re-running the
+        # hook. First non-Proceed decision wins, mirroring before_tool_call.
+        llm_decision: Optional[HookDecision] = None
+        if self._hooks and self._hooks.before_llm_call:
+            before_ctx = HookContext(
+                step_name="llm",
+                step_kind="llm",
+                source="agent",
+                payload=generate_kwargs,
+                tool_call_id="",
+            )
+            for hook in self._hooks.before_llm_call:
+                result = hook(before_ctx)
+                if result is not None and not isinstance(result, Proceed):
+                    llm_decision = result
+                    break
 
-        # Handle structured output response (Pydantic model) vs regular chat response
-        if response_model is not None:
-            # Structured output: response is the Pydantic model itself
-            if hasattr(response, "model_dump"):
-                # Response is the structured Pydantic object
-                content = json.dumps(response.model_dump())
-            else:
-                # Fallback: try to serialize as-is
-                content = json.dumps(response)
+        if isinstance(llm_decision, RequireApproval):
+            raise NotImplementedError(
+                "RequireApproval is not supported on before_llm_call. LLM hooks "
+                "run inside the call_llm activity so they can perform non-"
+                "deterministic work (e.g. web search). Workflow yields for "
+                "external approval require the deterministic workflow body, "
+                "where such hooks would not be replay-safe. Use RequireApproval "
+                "on before_tool_call for HITL on tool dispatch instead."
+            )
 
-            assistant_message = {
+        synthesized_message: Optional[Dict[str, Any]] = None
+        if isinstance(llm_decision, Skip):
+            skip_content = (
+                str(llm_decision.result) if llm_decision.result is not None else ""
+            )
+            synthesized_message = {"role": "assistant", "content": skip_content}
+        elif isinstance(llm_decision, Deny):
+            deny_reason = llm_decision.reason or "policy denial"
+            synthesized_message = {
                 "role": "assistant",
-                "content": content,
+                "content": f"LLM call blocked: {deny_reason}",
             }
+        elif isinstance(llm_decision, Modify) and llm_decision.payload is not None:
+            generate_kwargs = llm_decision.payload
+
+        if synthesized_message is not None:
+            assistant_message = synthesized_message
         else:
-            # Regular chat response
-            assistant_message = response.get_message()
-            if assistant_message is None:
-                raise AgentError("LLM returned no assistant message.")
-            assistant_message = assistant_message.model_dump()
+            try:
+                response = self.llm.generate(**generate_kwargs)
+            except Exception as exc:  # noqa: BLE001
+                raise AgentError(str(exc)) from exc
+
+            # Handle structured output response (Pydantic model) vs regular chat response
+            if response_model is not None:
+                # Structured output: response is the Pydantic model itself
+                if hasattr(response, "model_dump"):
+                    # Response is the structured Pydantic object
+                    content = json.dumps(response.model_dump())
+                else:
+                    # Fallback: try to serialize as-is
+                    content = json.dumps(response)
+
+                assistant_message = {
+                    "role": "assistant",
+                    "content": content,
+                }
+            else:
+                # Regular chat response
+                assistant_message = response.get_message()
+                if assistant_message is None:
+                    raise AgentError("LLM returned no assistant message.")
+                assistant_message = assistant_message.model_dump()
+
+        # after_llm_call hook dispatch. Receives the built assistant_message and
+        # may return Modify(payload=<replacement dict>) to mutate it before
+        # persistence. Skip / Deny / RequireApproval are no-ops on the after-path
+        # since the LLM has already produced output.
+        if self._hooks and self._hooks.after_llm_call:
+            after_ctx = HookContext(
+                step_name="llm",
+                step_kind="llm",
+                source="agent",
+                payload=generate_kwargs,
+                tool_call_id="",
+            )
+            for hook in self._hooks.after_llm_call:
+                result = hook(after_ctx, assistant_message)
+                if isinstance(result, Modify) and result.payload is not None:
+                    assistant_message = result.payload
+                    break
 
         self._save_assistant_message(
             instance_id, assistant_message, entry=entry, skip_save=True
