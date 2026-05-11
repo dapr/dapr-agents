@@ -45,6 +45,42 @@ class MistralClientConfig(BaseModel):
     )
 
 
+class MistralModelConfig(MistralClientConfig):
+    type: Literal["mistral"] = Field(
+        "mistral", description="Type of the model, must always be 'mistral'"
+    )
+    name: str = Field(default="", description="Name of the Mistral model")
+
+
+class MistralChatCompletionParams(BaseModel):
+    """
+    Specific settings for the Mistral Chat Completion endpoint.
+    """
+
+    model: Optional[str] = Field(None, description="ID of the model to use")
+    temperature: Optional[float] = Field(
+        0.7, ge=0.0, le=1.0, description="Sampling temperature"
+    )
+    max_tokens: Optional[int] = Field(
+        None, description="Maximum number of tokens to generate"
+    )
+    top_p: Optional[float] = Field(
+        1.0, ge=0.0, le=1.0, description="Nucleus sampling probability mass"
+    )
+    random_seed: Optional[int] = Field(
+        None, description="Seed for deterministic sampling"
+    )
+    safe_prompt: Optional[bool] = Field(
+        False, description="Whether to inject a safety prompt"
+    )
+    tools: Optional[List[Dict[str, Any]]] = Field(
+        None, description="List of tools the model may call"
+    )
+    tool_choice: Optional[Union[str, Literal["auto", "any", "none"]]] = Field(
+        None, description="Controls which tool is called"
+    )
+
+
 class DaprInferenceClientConfig:
     pass
 
@@ -327,13 +363,18 @@ class PromptyModelConfig(BaseModel):
         "chat", description="The API to use, either 'chat' or 'completion'"
     )
     configuration: Union[
-        OpenAIModelConfig, AzureOpenAIModelConfig, HFHubModelConfig, NVIDIAModelConfig
+        OpenAIModelConfig,
+        AzureOpenAIModelConfig,
+        HFHubModelConfig,
+        NVIDIAModelConfig,
+        MistralModelConfig,
     ] = Field(..., description="Model configuration settings")
     parameters: Union[
         OpenAITextCompletionParams,
         OpenAIChatCompletionParams,
         HFHubChatCompletionParams,
         NVIDIAChatCompletionParams,
+        MistralChatCompletionParams,
     ] = Field(..., description="Parameters for the model request")
     response: Literal["first", "full"] = Field(
         "first",
@@ -358,12 +399,15 @@ class PromptyModelConfig(BaseModel):
                 configuration = HFHubModelConfig(**configuration)
             elif configuration.get("type") == "nvidia":
                 configuration = NVIDIAModelConfig(**configuration)
+            elif configuration.get("type") == "mistral":
+                configuration = MistralModelConfig(**configuration)
 
         configuration = cast(
             OpenAIModelConfig
             | AzureOpenAIModelConfig
             | HFHubModelConfig
-            | NVIDIAModelConfig,
+            | NVIDIAModelConfig
+            | MistralModelConfig,
             configuration,
         )
 
@@ -377,11 +421,14 @@ class PromptyModelConfig(BaseModel):
                 parameters = HFHubChatCompletionParams(**parameters)
             elif configuration and isinstance(configuration, NVIDIAModelConfig):
                 parameters = NVIDIAChatCompletionParams(**parameters)
+            elif configuration and isinstance(configuration, MistralModelConfig):
+                parameters = MistralChatCompletionParams(**parameters)
 
         parameters = cast(
             OpenAIChatCompletionParams
             | HFHubChatCompletionParams
-            | NVIDIAChatCompletionParams,
+            | NVIDIAChatCompletionParams
+            | MistralChatCompletionParams,
             parameters,
         )
 

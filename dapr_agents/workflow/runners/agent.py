@@ -20,6 +20,7 @@ from threading import Lock, Thread
 from typing import Any, Callable, Dict, Literal, Optional, TypeVar, Union, List
 
 from fastapi import Body, FastAPI, HTTPException
+from pydantic import BaseModel
 
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.types.workflow import PubSubRouteSpec
@@ -34,6 +35,11 @@ from dapr_agents.workflow.utils.subscription import TTLDedupeBackend
 logger = logging.getLogger(__name__)
 
 R = TypeVar("R")
+
+
+class _HitlRespondBody(BaseModel):
+    approved: bool
+    reason: Optional[str] = None
 
 
 class AgentRunner(WorkflowRunner):
@@ -562,6 +568,8 @@ class AgentRunner(WorkflowRunner):
                 fetch_status_payloads=fetch_status_payloads,
             )
 
+        self._mount_hitl_routes(fastapi_app=fastapi_app, agent=agent)
+
         auto_run = app is None
         if auto_run:
             try:
@@ -720,6 +728,74 @@ class AgentRunner(WorkflowRunner):
             tags=["workflow"],
         )
         logger.info("Mounted default workflow status endpoint at %s", status_path)
+
+    def _mount_hitl_routes(
+        self,
+        *,
+        fastapi_app: FastAPI,
+        agent: DurableAgent,
+    ) -> None:
+        """
+        Register the two HITL HTTP endpoints on the FastAPI app.
+
+        GET  /hitl/approvals                            — list pending approval requests
+        POST /hitl/approvals/{approval_request_id}/respond — submit a human decision
+
+        These endpoints work regardless of whether pub/sub is configured. When
+        pub/sub is not configured, polling GET /hitl/approvals is the only way a
+        human reviewer discovers pending requests. When pub/sub IS configured, these
+        endpoints are still registered as a secondary interface.
+
+        For workflow-only agents (no HTTP server), responders can call the Dapr
+        sidecar raiseEvent API directly instead of using these endpoints.
+        """
+
+        async def _list_approvals() -> List[Dict[str, Any]]:
+            return agent.list_pending_approvals()
+
+        async def _respond_to_approval(
+            approval_request_id: str, body: _HitlRespondBody
+        ) -> Dict[str, Any]:
+            pending = agent._pending_approvals.get(approval_request_id)
+            if pending is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"Approval request '{approval_request_id}' not found. "
+                        "It may have already been responded to, or this process was restarted. "
+                        "You can still submit a response directly via the Dapr sidecar: "
+                        "POST <sidecar-host>/v1.0-beta1/workflows/dapr/{instance_id}"
+                        f"/raiseEvent/approval_response_{approval_request_id}"
+                    ),
+                )
+            instance_id = pending.get("instance_id", "")
+            agent.raise_approval_event(
+                instance_id=instance_id,
+                approval_request_id=approval_request_id,
+                approved=body.approved,
+                reason=body.reason,
+            )
+            return {
+                "status": "ok",
+                "approval_request_id": approval_request_id,
+                "approved": body.approved,
+            }
+
+        fastapi_app.add_api_route(
+            "/hitl/approvals",
+            _list_approvals,
+            methods=["GET"],
+            summary="List pending human approval requests",
+            tags=["hitl"],
+        )
+        fastapi_app.add_api_route(
+            "/hitl/approvals/{approval_request_id}/respond",
+            _respond_to_approval,
+            methods=["POST"],
+            summary="Submit a human approval decision",
+            tags=["hitl"],
+        )
+        logger.info("Mounted HITL endpoints at /hitl/approvals")
 
     def shutdown(self, agent: Optional[DurableAgent] = None) -> None:
         """

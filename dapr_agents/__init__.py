@@ -14,6 +14,7 @@
 from importlib.metadata import version, PackageNotFoundError
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.configs import (
+    AgentApprovalConfig,
     AgentMetadataSchema,
     AgentMetadata,
     PubSubMetadata,
@@ -27,6 +28,19 @@ from dapr_agents.agents.executors import (
     AgentEventType,
     AgentExecutorBase,
     EchoAgentExecutor,
+)
+from dapr_agents.agents.schemas import ApprovalRequiredEvent, ApprovalResponseEvent
+from dapr_agents.hooks import (
+    BeforeHook,
+    AfterHook,
+    Hooks,
+    HookContext,
+    HookDecision,
+    Proceed,
+    Skip,
+    Modify,
+    RequireApproval,
+    Deny,
 )
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
 from dapr_agents.llm.dapr import DaprChatClient
@@ -63,6 +77,17 @@ __all__ = [
     "AgentRunner",
     "call_agent",
     "trigger_agent",
+    "AgentApprovalConfig",
+    "ApprovalRequiredEvent",
+    "ApprovalResponseEvent",
+    "Hooks",
+    "HookContext",
+    "HookDecision",
+    "Proceed",
+    "Skip",
+    "Modify",
+    "RequireApproval",
+    "Deny",
     "AgentMetadataSchema",
     "AgentMetadata",
     "PubSubMetadata",
