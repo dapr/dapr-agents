@@ -311,7 +311,7 @@ def iter_stream(
                         )
                         candidate = LLMChatCandidateChunk(
                             role="assistant",
-                            index=event.index,
+                            index=0,
                             tool_calls=[tool_call_chunk],
                         )
                         yield LLMChatResponseChunk(
@@ -324,7 +324,7 @@ def iter_stream(
                         candidate = LLMChatCandidateChunk(
                             role="assistant",
                             content=delta.text,
-                            index=event.index,
+                            index=0,
                         )
                         yield LLMChatResponseChunk(
                             result=candidate, metadata=dict(meta)
@@ -336,7 +336,7 @@ def iter_stream(
                         )
                         candidate = LLMChatCandidateChunk(
                             role="assistant",
-                            index=event.index,
+                            index=0,
                             tool_calls=[tool_call_chunk],
                         )
                         yield LLMChatResponseChunk(
