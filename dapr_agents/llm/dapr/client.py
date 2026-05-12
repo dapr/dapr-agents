@@ -13,6 +13,7 @@
 
 from dapr_agents.types.llm import DaprInferenceClientConfig
 from dapr_agents.llm.base import LLMClientBase
+from dapr_agents.utils import dapr_client_kwargs
 from dapr.clients import DaprClient
 from dapr.clients.grpc import conversation as dapr_conversation
 from typing import Dict, Any, List, Optional
@@ -32,7 +33,7 @@ class DaprInferenceClient:
 
     def get_metadata(self):
         """Fetch Dapr sidecar metadata using a fresh per-call client."""
-        with DaprClient() as client:
+        with DaprClient(**dapr_client_kwargs()) as client:
             return client.get_metadata()
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -85,7 +86,7 @@ class DaprInferenceClient:
         if temperature is None:
             temperature = 1
 
-        with DaprClient() as client:
+        with DaprClient(**dapr_client_kwargs()) as client:
             kwargs: Dict[str, Any] = dict(
                 name=llm,
                 inputs=inputs,

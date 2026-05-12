@@ -11,6 +11,14 @@
 # limitations under the License.
 #
 
+from .dapr_client_factory import (
+    INBOUND_MESSAGE_SIZE_ENV,
+    dapr_client_kwargs,
+    default_async_dapr_client_factory,
+    default_dapr_client_factory,
+    get_inbound_message_size_bytes,
+    set_inbound_message_size_bytes,
+)
 from .semver import is_version_supported
 from .signal_handlers import add_signal_handlers_cross_platform
 from .signal_mixin import SignalHandlingMixin
@@ -18,5 +26,11 @@ from .signal_mixin import SignalHandlingMixin
 __all__ = [
     "add_signal_handlers_cross_platform",
     "SignalHandlingMixin",
+    "INBOUND_MESSAGE_SIZE_ENV",
+    "dapr_client_kwargs",
+    "default_async_dapr_client_factory",
+    "default_dapr_client_factory",
+    "get_inbound_message_size_bytes",
+    "set_inbound_message_size_bytes",
     "is_version_supported",  # Internal utility, used by dapr chat client
 ]

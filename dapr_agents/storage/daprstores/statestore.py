@@ -25,6 +25,7 @@ from dapr.clients.grpc._response import (
 from dapr.clients.grpc._state import StateItem, StateOptions
 
 from dapr_agents.storage.daprstores.base import DaprStoreBase
+from dapr_agents.utils import dapr_client_kwargs
 
 
 def _coerce_state_options(
@@ -80,7 +81,7 @@ class DaprStateStore(DaprStoreBase):
         Returns:
             `StateResponse` containing bytes payload, etag, and metadata.
         """
-        with DaprClient() as client:
+        with DaprClient(**dapr_client_kwargs()) as client:
             return client.get_state(
                 store_name=self.store_name,
                 key=key,
@@ -129,7 +130,7 @@ class DaprStateStore(DaprStoreBase):
         Returns:
             List of `BulkStateItem`. Items with missing keys may have empty data.
         """
-        with DaprClient() as client:
+        with DaprClient(**dapr_client_kwargs()) as client:
             response: BulkStatesResponse = client.get_bulk_state(
                 store_name=self.store_name,
                 keys=keys,
@@ -158,7 +159,7 @@ class DaprStateStore(DaprStoreBase):
             state_options: `StateOptions` or dict fields for options.
         """
         options = _coerce_state_options(state_options)
-        with DaprClient() as client:
+        with DaprClient(**dapr_client_kwargs()) as client:
             client.save_state(
                 store_name=self.store_name,
                 key=key,
@@ -180,7 +181,7 @@ class DaprStateStore(DaprStoreBase):
             states: List of StateItem to write.
             metadata: Optional request metadata.
         """
-        with DaprClient() as client:
+        with DaprClient(**dapr_client_kwargs()) as client:
             client.save_bulk_state(
                 store_name=self.store_name,
                 states=states,
@@ -205,7 +206,7 @@ class DaprStateStore(DaprStoreBase):
             state_metadata: Optional Dapr metadata.
         """
         options = _coerce_state_options(state_options)
-        with DaprClient() as client:
+        with DaprClient(**dapr_client_kwargs()) as client:
             client.delete_state(
                 store_name=self.store_name,
                 key=key,
@@ -230,7 +231,7 @@ class DaprStateStore(DaprStoreBase):
         Returns:
             `QueryResponse` containing results and metadata.
         """
-        with DaprClient() as client:
+        with DaprClient(**dapr_client_kwargs()) as client:
             return client.query_state(
                 store_name=self.store_name,
                 query=query,
@@ -253,7 +254,7 @@ class DaprStateStore(DaprStoreBase):
         Note:
             Backend must support transactions (e.g., Redis in certain modes).
         """
-        with DaprClient() as client:
+        with DaprClient(**dapr_client_kwargs()) as client:
             client.execute_state_transaction(
                 store_name=self.store_name,
                 operations=list(operations),

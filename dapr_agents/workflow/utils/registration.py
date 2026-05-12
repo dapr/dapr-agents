@@ -35,6 +35,7 @@ from fastapi.responses import JSONResponse, Response
 
 from dapr_agents.types.exceptions import PubSubNotAvailableError
 from dapr_agents.types.workflow import HttpRouteSpec, PubSubRouteSpec
+from dapr_agents.utils import dapr_client_kwargs
 from dapr_agents.workflow.utils.routers import parse_http_json
 from dapr_agents.workflow.utils.subscription import (
     DedupeBackend,
@@ -90,7 +91,7 @@ def _validate_pubsub_components(
         return
 
     try:
-        with DaprClient() as client:
+        with DaprClient(**dapr_client_kwargs()) as client:
             metadata = client.get_metadata()
         registered_components = metadata.registered_components or []
 

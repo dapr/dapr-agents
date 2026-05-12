@@ -36,6 +36,7 @@ from dapr.ext.workflow.workflow_state import WorkflowState
 from fastapi import FastAPI
 
 from dapr_agents.types.workflow import HttpRouteSpec, PubSubRouteSpec
+from dapr_agents.utils import dapr_client_kwargs
 from dapr_agents.utils.signal.mixin import SignalMixin
 from dapr_agents.workflow.utils.registration import (
     register_http_routes,
@@ -199,7 +200,7 @@ class WorkflowRunner(SignalMixin):
             None
         """
         if self._dapr_client is None:
-            self._dapr_client = DaprClient()
+            self._dapr_client = DaprClient(**dapr_client_kwargs())
             self._dapr_client_owned = True
 
     def _close_dapr_client(self) -> None:

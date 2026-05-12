@@ -22,6 +22,10 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
+from dapr_agents.utils import (
+    dapr_client_kwargs,
+    set_inbound_message_size_bytes,
+)
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
     GetMetadataResponse,
@@ -366,8 +370,18 @@ class AgentBase:
         )
         self.agent_metadata = agent_metadata or {}
 
+        # Register the gRPC inbound size override early so that the very first
+        # DaprClient construction below also honours it.
+        if (
+            execution is not None
+            and execution.max_grpc_inbound_message_size_bytes is not None
+        ):
+            set_inbound_message_size_bytes(
+                execution.max_grpc_inbound_message_size_bytes
+            )
+
         try:
-            with DaprClient(http_timeout_seconds=10) as _client:
+            with DaprClient(**dapr_client_kwargs(http_timeout_seconds=10)) as _client:
                 resp: GetMetadataResponse = _client.get_metadata()
                 self.appid = resp.application_id
                 components: Sequence[RegisteredComponents] = resp.registered_components
@@ -716,7 +730,7 @@ class AgentBase:
         subscribe_metadata.setdefault("pgNotifyChannel", "config")
 
         try:
-            self._config_client = DaprClient()
+            self._config_client = DaprClient(**dapr_client_kwargs())
             self._subscription_id = self._config_client.subscribe_configuration(
                 store_name=self.configuration.store_name,
                 keys=keys,
@@ -747,7 +761,7 @@ class AgentBase:
     def _load_initial_configuration(self, keys: List[str]) -> None:
         """Load current configuration values from the store and apply them."""
         try:
-            with DaprClient() as client:
+            with DaprClient(**dapr_client_kwargs()) as client:
                 response: ConfigurationResponse = client.get_configuration(
                     store_name=self.configuration.store_name,  # type: ignore[union-attr]
                     keys=keys,
