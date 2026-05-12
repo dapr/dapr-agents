@@ -2105,8 +2105,14 @@ class DurableAgent(AgentBase):
             if hasattr(entry, "session_id"):
                 entry.session_id = observed
 
+        # Hold the stream outside the try so the `finally` can aclose() it.
+        # `break`-ing on `complete` (and any exception path) would otherwise
+        # leave the generator suspended; its own try/finally cleanup runs
+        # only when aclose() (or full exhaustion) drives GeneratorExit
+        # through it. Real executors may hold subprocess/network/MCP handles
+        # in that cleanup block, so we must close deterministically here.
+        stream = self.executor.run(prompt, session_id=session_id, context=context)
         try:
-            stream = self.executor.run(prompt, session_id=session_id, context=context)
             async for event in stream:
                 _record_session(event.session_id)
                 if event.type == "text_delta":
@@ -2216,6 +2222,8 @@ class DurableAgent(AgentBase):
                 f"AgentExecutor {type(self.executor).__name__} raised "
                 f"{type(exc).__name__}: {exc}"
             ) from exc
+        finally:
+            await stream.aclose()
 
         if final_message is None:
             self.save_state(instance_id, entry=entry)
