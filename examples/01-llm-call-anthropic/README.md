@@ -76,7 +76,7 @@ Reads `chunk.result.content` from the streamed `LLMChatResponseChunk` iterator a
 
 Prompt caching works on both user/assistant messages and the system prompt: pass `cache_control` on individual content blocks. For the system prompt, supply `{"role": "system", "content": [{"type": "text", "text": "...", "cache_control": {"type": "ephemeral"}}]}` — the list-of-blocks form is forwarded verbatim to Anthropic's top-level `system` parameter. A plain string system message still works for the non-cached case.
 
-Tools are translated automatically from the framework's `AgentTool` / OpenAI dict schemas into Anthropic's `{name, description, input_schema}` form via `ToolHelper.format_tool(t, tool_format="claude")`.
+`AgentTool` instances are rendered automatically into Anthropic's `{name, description, input_schema}` form via `ToolHelper.format_tool(t, tool_format="claude")`. Dict tools must already match the Claude shape — OpenAI-style `{"type": "function", "function": {...}}` dicts are not converted and will fail validation.
 
 ## Structured outputs
 
@@ -101,8 +101,10 @@ contact = client.generate(
 
 Two `structured_mode` values are supported:
 
-- `"json"` *(default)* — Anthropic's native `output_config.format` with `type: "json_schema"`. The schema is compiled to a grammar server-side and the model is constrained to emit valid JSON. Requires Sonnet 4.5+, Opus 4.1+, or Haiku 4.5+.
+- `"json"` *(default)* — Anthropic's native `output_config.format` with `type: "json_schema"`. The schema is compiled to a grammar server-side and the model is constrained to emit valid JSON. Requires Sonnet 4.5+, Opus 4.1+, or Haiku 4.5+; older models (Sonnet 3.x / Opus 3.x / Haiku 3.x) will get a runtime API error — use `structured_mode="function_call"` for those.
 - `"function_call"` — emulation via a forced `tool_choice`; useful for older Claude models or when you want the structured payload to appear as a `tool_use` block alongside other tool calls.
+
+Combining `response_format` with `stream=True` returns a chunk iterator, not a validated model — the request is still constrained server-side, but the caller is responsible for buffering and parsing the streamed JSON.
 
 Passing `response_format=list[Contact]` wraps the type into a generated `IterableContact` model. The call returns an `IterableContact` instance whose `.objects` field is the parsed list.
 

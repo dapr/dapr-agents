@@ -70,8 +70,12 @@ def split_messages(
         elif role == "assistant" and msg.get("tool_calls"):
             out.append(as_assistant_with_tool_use(msg))
         else:
-            # Anthropic rejects the `name` field on user/assistant turns.
-            out.append({k: v for k, v in msg.items() if k != "name"})
+            # Anthropic user/assistant turns only accept `role` and `content`.
+            # Drop OpenAI-only keys (`name`, empty `tool_calls`, `function_call`,
+            # `tool_call_id`, etc.) that would otherwise trigger request validation errors.
+            anthropic_keys = ("role", "content")
+            msg_clean = {k: v for k, v in msg.items() if k in anthropic_keys}
+            out.append(msg_clean)
 
     if has_structured_system:
         return system_blocks, out
@@ -82,6 +86,11 @@ def split_messages(
 
 def as_tool_result(msg: dict[str, Any]) -> dict[str, Any]:
     """dapr-agents `{"role": "tool"}` -> Anthropic `tool_result` block on a user turn"""
+    tool_call_id = msg.get("tool_call_id")
+    if not tool_call_id:
+        raise ValueError(
+            "Cannot translate tool message to Anthropic: `tool_call_id` is required."
+        )
     content = msg.get("content")
     content_str = content if isinstance(content, str) else json.dumps(content)
     return {
@@ -89,7 +98,7 @@ def as_tool_result(msg: dict[str, Any]) -> dict[str, Any]:
         "content": [
             {
                 "type": "tool_result",
-                "tool_use_id": msg.get("tool_call_id"),
+                "tool_use_id": tool_call_id,
                 "content": content_str,
             }
         ],
@@ -106,6 +115,13 @@ def as_assistant_with_tool_use(msg: dict[str, Any]) -> dict[str, Any]:
 
     for tool_call in msg["tool_calls"]:
         function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+        tool_call_id = tool_call.get("id") if isinstance(tool_call, dict) else None
+        function_name = function.get("name")
+        if not tool_call_id or not function_name:
+            raise ValueError(
+                f"Cannot translate tool_call to Anthropic: both `id` and `function.name` "
+                f"are required (got id={tool_call_id!r}, name={function_name!r})."
+            )
         args_raw = function.get("arguments", "{}")
         try:
             args_parsed = (
@@ -113,15 +129,20 @@ def as_assistant_with_tool_use(msg: dict[str, Any]) -> dict[str, Any]:
             )
         except json.JSONDecodeError as exc:
             raise ValueError(
-                f"Cannot translate tool_call {tool_call.get('id')!r} ({function.get('name')!r}) "
+                f"Cannot translate tool_call {tool_call_id!r} ({function_name!r}) "
                 f"to Anthropic: arguments are not valid JSON: {args_raw!r}"
             ) from exc
+        if not isinstance(args_parsed, dict):
+            raise ValueError(
+                f"Cannot translate tool_call {tool_call_id!r} ({function_name!r}) "
+                f"to Anthropic: arguments must decode to a JSON object, got {type(args_parsed).__name__}."
+            )
         blocks.append(
             {
                 "type": "tool_use",
-                "id": tool_call.get("id"),
-                "name": function.get("name"),
-                "input": args_parsed if isinstance(args_parsed, dict) else {},
+                "id": tool_call_id,
+                "name": function_name,
+                "input": args_parsed,
             }
         )
     return {"role": "assistant", "content": blocks}
@@ -245,6 +266,7 @@ def to_llm_chat_response(resp: Any) -> LLMChatResponse:
     )
     usage = resp.usage.model_dump() if resp.usage is not None else None
     metadata: dict[str, Any] = {
+        "provider": PROVIDER,
         "id": resp.id,
         "model": resp.model,
         "stop_reason": resp.stop_reason,
@@ -274,6 +296,8 @@ def iter_stream(
                     meta["model"] = event.message.model
 
                 elif event.type == "content_block_start":
+                    # Text blocks only yield on the first `text_delta`; tool_use
+                    # blocks must yield here because id/name only arrive on start.
                     block = event.content_block
                     if block.type == "tool_use":
                         function_chunk = FunctionCallChunk(
