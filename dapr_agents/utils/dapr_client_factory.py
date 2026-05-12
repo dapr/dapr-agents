@@ -106,12 +106,22 @@ def dapr_client_kwargs(**explicit_kwargs: Any) -> Dict[str, Any]:
         return resolved
 
     try:
-        resolved["max_grpc_message_length"] = int(raw)
+        parsed = int(raw)
     except ValueError:
         logger.warning(
             f"Ignoring invalid {INBOUND_MESSAGE_SIZE_ENV}={raw!r}; "
             "expected an integer byte count"
         )
+        return resolved
+
+    if parsed <= 0:
+        logger.warning(
+            f"Ignoring non-positive {INBOUND_MESSAGE_SIZE_ENV}={raw!r}; "
+            "expected a positive integer byte count"
+        )
+        return resolved
+
+    resolved["max_grpc_message_length"] = parsed
     return resolved
 
 

@@ -84,6 +84,24 @@ def test_invalid_env_logs_warning_and_returns_empty(
     assert INBOUND_MESSAGE_SIZE_ENV in caplog.text
 
 
+@pytest.mark.parametrize("raw", ["0", "-1"])
+def test_non_positive_env_logs_warning_and_returns_empty(
+    raw: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with (
+        mock.patch.dict(os.environ, {INBOUND_MESSAGE_SIZE_ENV: raw}),
+        caplog.at_level(
+            logging.WARNING, logger="dapr_agents.utils.dapr_client_factory"
+        ),
+    ):
+        result = dapr_client_kwargs()
+
+    assert result == {}
+    assert "Ignoring non-positive" in caplog.text
+    assert INBOUND_MESSAGE_SIZE_ENV in caplog.text
+
+
 def test_returned_kwargs_is_independent_of_explicit() -> None:
     """The helper must not mutate the caller's kwargs dict."""
     explicit = {"http_timeout_seconds": 10}
