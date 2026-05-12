@@ -2061,17 +2061,24 @@ class DurableAgent(AgentBase):
           not persisted (avoids per-token state writes).
         """
         instance_id: str = payload["instance_id"]
-        # session_id may be None: caller didn't request resume, so the
-        # executor will auto-assign one (captured back via event.session_id).
-        session_id: Optional[str] = payload.get("session_id")
+        caller_session_id: Optional[str] = payload.get("session_id")
         task: Optional[str] = payload.get("task")
         source: Optional[str] = payload.get("source")
         context: Optional[Dict[str, Any]] = payload.get("context")
 
         entry = self._infra.get_state(instance_id)
 
-        # Seed entry.session_id only when the caller supplied one; otherwise
-        # leave it untouched until the executor emits an event.session_id.
+        # Resolve session_id in priority order:
+        #   1. Caller-supplied (explicit resume request).
+        #   2. Persisted entry.session_id (retry-safe: a previous attempt
+        #      already learned the executor session and checkpointed it,
+        #      so a re-invocation of this activity must reuse it rather
+        #      than letting the executor mint a fresh one).
+        #   3. None — first run with no prior session; the executor will
+        #      auto-assign and we capture it via event.session_id.
+        session_id: Optional[str] = caller_session_id or getattr(
+            entry, "session_id", None
+        )
         if session_id and hasattr(entry, "session_id"):
             entry.session_id = session_id
         if task:

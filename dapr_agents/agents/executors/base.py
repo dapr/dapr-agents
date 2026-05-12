@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Dict, Literal, Optional
+from typing import Any, AsyncGenerator, Dict, Literal, Optional
 
 AgentEventType = Literal[
     "text_delta",
@@ -90,7 +90,7 @@ class AgentExecutorBase(ABC):
         *,
         session_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncGenerator[AgentEvent, None]:
         """
         Execute a single agent turn, yielding events in order.
 

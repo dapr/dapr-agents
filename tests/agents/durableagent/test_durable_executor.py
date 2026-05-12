@@ -473,6 +473,35 @@ class TestConsumeExecutor:
 
         assert executor.calls[-1]["session_id"] is None
 
+    def test_retry_resumes_session_from_entry(self):
+        """Retry-safe resumption: payload has no session_id but a prior attempt
+        already checkpointed ``entry.session_id``. The activity must reuse that
+        id instead of letting the executor mint a new one on every retry."""
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "done"},
+                )
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+        # Simulate state left behind by a prior attempt that progressed past
+        # the executor's first `session` checkpoint before failing.
+        entry.session_id = "prior-sess-abc"
+
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+        ):
+            asyncio.run(
+                agent._consume_executor({"task": "retry", "instance_id": "inst-1"})
+            )
+
+        assert executor.calls[-1]["session_id"] == "prior-sess-abc"
+        assert entry.session_id == "prior-sess-abc"
+
     def test_event_session_id_updates_entry(self):
         """Executor-assigned session_id from events must land on entry.session_id."""
         executor = _ScriptedExecutor(

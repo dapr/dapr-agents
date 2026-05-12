@@ -24,7 +24,7 @@ executor branch expects.
 from __future__ import annotations
 
 import copy
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from dapr_agents.agents.executors.base import AgentEvent, AgentExecutorBase
 
@@ -52,7 +52,7 @@ class EchoAgentExecutor(AgentExecutorBase):
         *,
         session_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncGenerator[AgentEvent, None]:
         sid = session_id or f"echo-{id(self):x}-{len(self._sessions)}"
 
         user_message = {"role": "user", "content": prompt}
