@@ -24,6 +24,7 @@ from dapr_agents.llm.anthropic.client import PROVIDER, AnthropicClientBase
 from dapr_agents.llm.anthropic.utils import (
     STRUCTURED_INJECTORS,
     STRUCTURED_PARSERS,
+    assert_json_output_supported,
     iter_stream,
     split_messages,
     to_llm_chat_response,
@@ -154,6 +155,8 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         if tools_formatted:
             params["tools"] = tools_formatted
         if response_format is not None:
+            if structured_mode == "json":
+                assert_json_output_supported(self.client, params["model"])
             inject_structured_request = STRUCTURED_INJECTORS[structured_mode]
             inject_structured_request(params, response_format)
         params = RequestHandler.make_params_json_serializable(params)

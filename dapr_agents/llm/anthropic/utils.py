@@ -10,6 +10,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+import functools
 import json
 import logging
 from collections.abc import Iterator
@@ -196,6 +197,34 @@ def parse_function_call_response(
     raise ValueError(
         f"No tool_use block for {target_model.__name__!r} in Anthropic response."
     )
+
+
+@functools.cache
+def _model_supports_json_output(client: Anthropic, model: str) -> bool:
+    capabilities = client.models.retrieve(model).capabilities
+    return bool(capabilities and capabilities.structured_outputs.supported)
+
+
+def assert_json_output_supported(client: Anthropic, model: str) -> None:
+    """Fetches the capabilities straight from the Anthropic SDK, and
+    raises if `model` does not support JSON output.
+
+    No-op if the fetch fails."""
+    try:
+        supported = _model_supports_json_output(client, model)
+    except Exception:
+        logger.warning(
+            f"Could not verify structured_outputs capability for {model!r}; "
+            "allowing request to proceed.",
+            exc_info=True,
+        )
+        return
+
+    if not supported:
+        raise ValueError(
+            f"Model {model!r} does not support structured_mode='json'. "
+            "Pass structured_mode='function_call' instead."
+        )
 
 
 def inject_json_request(

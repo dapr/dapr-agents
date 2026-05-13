@@ -717,6 +717,133 @@ def test_anthropic_response_format_rejects_unknown_mode(mock_anthropic_class):
 
 
 @patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_json_mode_blocked_for_unsupported_model(mock_anthropic_class):
+    """structured_mode='json' raises when the SDK reports structured_outputs unsupported."""
+    from pydantic import BaseModel
+
+    sdk = MagicMock()
+    sdk.models.retrieve.return_value = SimpleNamespace(
+        capabilities=SimpleNamespace(
+            structured_outputs=SimpleNamespace(supported=False),
+        ),
+    )
+    mock_anthropic_class.return_value = sdk
+
+    client = AnthropicChatClient(api_key="fake-key", model="claude-3-opus-20240229")
+
+    class Out(BaseModel):
+        answer: str
+
+    with pytest.raises(ValueError, match="function_call"):
+        client.generate("hi", response_format=Out)
+
+    sdk.messages.create.assert_not_called()
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_json_mode_allows_function_call_on_unsupported_model(
+    mock_anthropic_class,
+):
+    """The gate only blocks json mode; function_call mode goes through regardless."""
+    from pydantic import BaseModel
+
+    sdk = MagicMock()
+    sdk.models.retrieve.return_value = SimpleNamespace(
+        capabilities=SimpleNamespace(
+            structured_outputs=SimpleNamespace(supported=False),
+        ),
+    )
+    sdk.messages.create.return_value = SimpleNamespace(
+        id="msg_x",
+        model="claude-3-opus-20240229",
+        content=[
+            SimpleNamespace(
+                type="tool_use", id="tu_x", name="Out", input={"answer": "42"}
+            ),
+        ],
+        stop_reason="tool_use",
+        stop_sequence=None,
+        usage=SimpleNamespace(
+            model_dump=lambda: {"input_tokens": 1, "output_tokens": 1}
+        ),
+    )
+    mock_anthropic_class.return_value = sdk
+
+    client = AnthropicChatClient(api_key="fake-key", model="claude-3-opus-20240229")
+
+    class Out(BaseModel):
+        answer: str
+
+    result = client.generate("hi", response_format=Out, structured_mode="function_call")
+    assert isinstance(result, Out)
+    sdk.models.retrieve.assert_not_called()
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_json_mode_fails_open_on_sdk_error(mock_anthropic_class):
+    """If the capability lookup raises, we log and let the request through."""
+    from pydantic import BaseModel
+
+    sdk = MagicMock()
+    sdk.models.retrieve.side_effect = RuntimeError("network down")
+    sdk.messages.create.return_value = SimpleNamespace(
+        id="msg_j",
+        model="claude-some-future-1",
+        content=[SimpleNamespace(type="text", text='{"answer": "ok"}')],
+        stop_reason="end_turn",
+        stop_sequence=None,
+        usage=SimpleNamespace(
+            model_dump=lambda: {"input_tokens": 1, "output_tokens": 1}
+        ),
+    )
+    mock_anthropic_class.return_value = sdk
+
+    client = AnthropicChatClient(api_key="fake-key", model="claude-some-future-1")
+
+    class Out(BaseModel):
+        answer: str
+
+    result = client.generate("hi", response_format=Out)
+    assert isinstance(result, Out)
+    assert result.answer == "ok"
+    sdk.messages.create.assert_called_once()
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_json_mode_caches_capability_lookup(mock_anthropic_class):
+    """Repeat generate() calls with the same client+model only hit models.retrieve once."""
+    from pydantic import BaseModel
+
+    sdk = MagicMock()
+    sdk.models.retrieve.return_value = SimpleNamespace(
+        capabilities=SimpleNamespace(
+            structured_outputs=SimpleNamespace(supported=True),
+        ),
+    )
+    sdk.messages.create.return_value = SimpleNamespace(
+        id="msg_c",
+        model="claude-sonnet-4-6",
+        content=[SimpleNamespace(type="text", text='{"answer": "ok"}')],
+        stop_reason="end_turn",
+        stop_sequence=None,
+        usage=SimpleNamespace(
+            model_dump=lambda: {"input_tokens": 1, "output_tokens": 1}
+        ),
+    )
+    mock_anthropic_class.return_value = sdk
+
+    client = AnthropicChatClient(api_key="fake-key", model="claude-sonnet-4-6")
+
+    class Out(BaseModel):
+        answer: str
+
+    client.generate("hi", response_format=Out)
+    client.generate("hi again", response_format=Out)
+
+    assert sdk.models.retrieve.call_count == 1
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
 def test_anthropic_from_prompty(mock_anthropic_class):
     """from_prompty loads model/config/parameters from an Anthropic Prompty source."""
     mock_anthropic_class.return_value = MagicMock()
