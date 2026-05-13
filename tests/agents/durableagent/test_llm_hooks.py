@@ -218,14 +218,17 @@ class TestBeforeLLMCallHook:
         assert mock_llm.generate.call_count == 1
         assert result == {"role": "assistant", "content": "from-llm"}
 
-    def test_modify_replaces_messages_seen_by_llm(self, mock_llm, mock_activity_ctx):
+    def test_modify_merges_into_generate_kwargs(self, mock_llm, mock_activity_ctx):
+        """before_llm_call's Modify payload is shallow-merged, so a hook that
+        returns only `messages` still gets its messages applied without having
+        to spread `**ctx.payload` to preserve other kwargs."""
         new_messages = [
             {"role": "system", "content": "REWRITTEN system"},
             {"role": "user", "content": "REWRITTEN user"},
         ]
 
-        def hook(ctx):
-            return Modify(payload={**ctx.payload, "messages": new_messages})
+        def hook(_):
+            return Modify(payload={"messages": new_messages})
 
         agent = _make_agent(mock_llm, Hooks(before_llm_call=[hook]))
         _run_call_llm(agent, mock_activity_ctx)
@@ -233,6 +236,46 @@ class TestBeforeLLMCallHook:
         # LLM client must have seen the rewritten messages, not the originals
         called_kwargs = mock_llm.generate.call_args.kwargs
         assert called_kwargs["messages"] == new_messages
+
+    def test_modify_preserves_other_kwargs(self, mock_llm, mock_activity_ctx):
+        """A hook that returns Modify with only `messages` must NOT drop
+        `tools` (or any other generate kwargs originally on the call). This is
+        the regression test for the framework-side merge behavior."""
+        original_tools = [
+            {
+                "type": "function",
+                "function": {"name": "do_thing", "parameters": {}},
+            }
+        ]
+
+        def hook(_):
+            return Modify(payload={"messages": [{"role": "user", "content": "x"}]})
+
+        agent = _make_agent(mock_llm, Hooks(before_llm_call=[hook]))
+        # Reuse the default activity patchers but swap in a non-empty tools list
+        # so we can verify the merge preserves them.
+        patchers = [
+            p
+            for p in _patch_activity_deps(agent)
+            if getattr(p, "attribute", None) != "get_llm_tools"
+        ]
+        patchers.append(
+            patch.object(agent, "get_llm_tools", return_value=original_tools)
+        )
+        for p in patchers:
+            p.start()
+        try:
+            agent.call_llm(
+                mock_activity_ctx,
+                {"instance_id": "wf-test", "task": "x"},
+            )
+        finally:
+            for p in patchers:
+                p.stop()
+
+        called_kwargs = mock_llm.generate.call_args.kwargs
+        assert called_kwargs["tools"] == original_tools
+        assert called_kwargs["messages"] == [{"role": "user", "content": "x"}]
 
     def test_in_place_mutation_does_not_leak_into_llm_call(
         self, mock_llm, mock_activity_ctx
@@ -317,8 +360,8 @@ class TestBeforeLLMCallHook:
         def hook_a(_):
             return Proceed()
 
-        def hook_b(ctx):
-            return Modify(payload={**ctx.payload, "messages": new_messages})
+        def hook_b(_):
+            return Modify(payload={"messages": new_messages})
 
         agent = _make_agent(mock_llm, Hooks(before_llm_call=[hook_a, hook_b]))
         _run_call_llm(agent, mock_activity_ctx)
@@ -399,8 +442,8 @@ class TestBeforeAfterCombined:
         before_messages = [{"role": "user", "content": "BEFORE"}]
         after_message = {"role": "assistant", "content": "AFTER"}
 
-        def before_hook(ctx):
-            return Modify(payload={**ctx.payload, "messages": before_messages})
+        def before_hook(_):
+            return Modify(payload={"messages": before_messages})
 
         def after_hook(_, _msg):
             return Modify(payload=after_message)

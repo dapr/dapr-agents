@@ -1920,7 +1920,7 @@ class DurableAgent(AgentBase):
                 self.text_formatter.print_message(print_msg)
 
         tools = self.get_llm_tools()
-        generate_kwargs = {
+        generate_kwargs: Dict[str, Any] = {
             "messages": messages,
             "tools": tools,
         }
@@ -1975,7 +1975,10 @@ class DurableAgent(AgentBase):
                 "content": f"LLM call blocked: {deny_reason}",
             }
         elif isinstance(llm_decision, Modify) and llm_decision.payload is not None:
-            generate_kwargs = llm_decision.payload
+            # Shallow-merge so a hook can override just the keys it cares about
+            # (e.g. only `messages` for RAG) without dropping `tools`,
+            # `response_format`, or `tool_choice` from generate_kwargs.
+            generate_kwargs = {**generate_kwargs, **llm_decision.payload}
 
         if synthesized_message is not None:
             assistant_message = synthesized_message

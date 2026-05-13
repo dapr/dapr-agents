@@ -61,8 +61,16 @@ class Skip(HookDecision):
 @dataclass
 class Modify(HookDecision):
     """
-    run the step but replace the incoming arguments with `payload` first.
-    for tool calls, `payload` is the new arguments dict passed to the tool.
+    run the step but adjust the incoming payload first. semantics vary by slot:
+
+    * ``before_tool_call`` — ``payload`` *replaces* the tool's arguments dict.
+      the tool sees exactly what's in ``payload`` and nothing else.
+    * ``before_llm_call`` — ``payload`` is *shallow-merged* into the existing
+      llm generate kwargs. return only the keys you want to change
+      (e.g. ``Modify(payload={"messages": enriched})``); other kwargs like
+      ``tools`` / ``response_format`` / ``tool_choice`` are preserved.
+    * ``after_llm_call`` — ``payload`` *replaces* the assistant message dict
+      (the message is a single coherent unit, so partial merges don't apply).
     """
 
     payload: Optional[Dict[str, Any]] = None
@@ -182,7 +190,9 @@ class Hooks:
                 },
                 messages[-1],
             ]
-            return Modify(payload={**ctx.payload, "messages": enriched})
+            # before_llm_call merges payload into the existing generate kwargs,
+            # so we only need to return the keys we're changing.
+            return Modify(payload={"messages": enriched})
 
         agent = DurableAgent(
             ...,

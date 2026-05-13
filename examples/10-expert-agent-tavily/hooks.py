@@ -98,4 +98,6 @@ def enrich_with_tavily(ctx: HookContext) -> HookDecision:
         },
         messages[-1],
     ]
-    return Modify(payload={**ctx.payload, "messages": enriched_messages})
+    # before_llm_call shallow-merges payload into the existing generate kwargs,
+    # so we only need to return the key we changed.
+    return Modify(payload={"messages": enriched_messages})
