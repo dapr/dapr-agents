@@ -43,21 +43,22 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
-def _repair_json_content(text: str) -> Optional[str]:
+def _repair_json_content(text: str) -> str:
     """Best-effort repair of LLM JSON content with common formatting flaws.
 
     Handles markdown code fences (```json ... ``` or ``` ... ```) and
     leading/trailing prose around a JSON object/array. Returns the
-    repaired JSON-like string, or None if no useful repair could be
-    applied. Repairs are deterministic; callers must still attempt
-    parsing on the result and surface the original failure if it still
-    doesn't parse.
+    repaired JSON-like string, or ``""`` if no useful repair could be
+    applied (empty/whitespace input, no JSON brackets present, or the
+    candidate is byte-identical to the input). Repairs are
+    deterministic; callers must still attempt parsing on the result
+    and surface the original failure if it still doesn't parse.
     """
     if not text:
-        return None
+        return ""
     stripped = text.strip()
     if not stripped:
-        return None
+        return ""
 
     # Strip markdown code fences (``` or ```json prefixes).
     if stripped.startswith("```"):
@@ -73,7 +74,7 @@ def _repair_json_content(text: str) -> Optional[str]:
     first_obj = stripped.find("{")
     first_arr = stripped.find("[")
     if first_obj < 0 and first_arr < 0:
-        return None
+        return ""
     if first_obj >= 0 and (first_arr < 0 or first_obj < first_arr):
         open_char, close_char, start = "{", "}", first_obj
     else:
@@ -105,7 +106,7 @@ def _repair_json_content(text: str) -> Optional[str]:
                 break
 
     candidate = stripped[start:end] if end >= 0 else stripped[start:]
-    return candidate if candidate != text else None
+    return candidate if candidate != text else ""
 
 
 class StructureHandler:
@@ -372,7 +373,7 @@ class StructureHandler:
                             return parsed
                         except json.JSONDecodeError:
                             repaired = _repair_json_content(content)
-                            if repaired is not None:
+                            if repaired:
                                 try:
                                     parsed = json.loads(repaired)
                                     logger.warning(

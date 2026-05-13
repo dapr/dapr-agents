@@ -42,12 +42,12 @@ class _SingleField(BaseModel):
 
 
 class TestRepairJsonContent:
-    def test_returns_none_for_empty_input(self):
-        assert _repair_json_content("") is None
-        assert _repair_json_content("   \n  ") is None
+    def test_returns_empty_string_for_empty_input(self):
+        assert _repair_json_content("") == ""
+        assert _repair_json_content("   \n  ") == ""
 
-    def test_returns_none_when_no_json_braces_present(self):
-        assert _repair_json_content("hello world") is None
+    def test_returns_empty_string_when_no_json_braces_present(self):
+        assert _repair_json_content("hello world") == ""
 
     def test_strips_markdown_code_fences_with_language_tag(self):
         text = '```json\n{"summary": "ok"}\n```'
@@ -82,13 +82,13 @@ class TestRepairJsonContent:
     def test_returns_truncated_content_when_unbalanced(self):
         text = 'prose {"a": 1, "b":'  # unbalanced
         repaired = _repair_json_content(text)
-        assert repaired is not None
+        assert repaired
         assert repaired.startswith("{")
 
-    def test_returns_none_when_repair_yields_input_unchanged(self):
+    def test_returns_empty_string_when_repair_yields_input_unchanged(self):
         # Already-clean braces with no fences/prose: no repair needed.
         text = '{"summary": "ok"}'
-        assert _repair_json_content(text) is None
+        assert _repair_json_content(text) == ""
 
 
 class TestExtractStructuredResponseErrors:
