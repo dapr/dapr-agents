@@ -53,6 +53,7 @@ from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
     OrchestrationMode,
     ToolExecutionMode,
+    AgentApprovalConfig,
     AgentExecutionConfig,
     AgentMemoryConfig,
     AgentPubSubConfig,
@@ -66,6 +67,8 @@ from dapr_agents.agents.configs import (
 from dapr_agents.agents.prompting import AgentProfileConfig
 from dapr_agents.agents.schemas import (
     AgentWorkflowMessage,
+    ApprovalRequiredEvent,
+    ApprovalResponseEvent,
     BroadcastMessage,
     TriggerAction,
 )
@@ -82,7 +85,7 @@ from dapr_agents.types.tools import ToolExecutionRecord, ToolExecutionStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
-from dapr_agents.workflow.utils.pubsub import broadcast_message
+from dapr_agents.workflow.utils.pubsub import broadcast_message, publish_message
 from dapr_agents.tool.workflow.agent_tool import (
     AgentWorkflowTool,
     agent_to_tool,
@@ -90,6 +93,16 @@ from dapr_agents.tool.workflow.agent_tool import (
 )
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 from dapr_agents.workflow.utils.names import sanitize_agent_name
+from dapr_agents.hooks import (
+    Hooks,
+    HookContext,
+    HookDecision,
+    Proceed,
+    Skip,
+    Modify,
+    RequireApproval,
+    Deny,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +234,7 @@ class DurableAgent(AgentBase):
         retry_policy: WorkflowRetryPolicy = WorkflowRetryPolicy(),
         agent_observability: Optional[AgentObservabilityConfig] = None,
         configuration: Optional[RuntimeSubscriptionConfig] = None,
+        hooks: Optional[Hooks] = None,
     ) -> None:
         """
         Initialize behavior, infrastructure, and workflow runtime.
@@ -311,6 +325,17 @@ class DurableAgent(AgentBase):
         self._runtime_owned = runtime is None
         self._registered = False
         self._started = False
+        self._hooks: Optional[Hooks] = hooks
+        # Tracks active approval requests in memory, keyed by approval_request_id.
+        # Persisted to Dapr State Store so requests survive pod restarts.
+        # Only populated when HITL (before_tool_call) hooks are configured.
+        self._pending_approvals: Dict[str, Dict[str, Any]] = {}
+        # Shared workflow client for HITL operations (_restore_pending_approvals and
+        # submit_approval_response). Created once here instead of per-call, and only
+        # when HITL hooks are actually configured — the only execution path that needs it.
+        self._wf_client: Optional[wf.DaprWorkflowClient] = (
+            wf.DaprWorkflowClient() if (hooks and hooks.before_tool_call) else None
+        )
 
         try:
             retries = int(getenv("DAPR_API_MAX_RETRIES", ""))
@@ -507,6 +532,63 @@ class DurableAgent(AgentBase):
                                 turn,
                             )
 
+                        # hook pass: run before_tool_call for every tool in this turn and collect decisions before dispatching anything.
+                        hook_decisions: Dict[str, HookDecision] = {}
+                        if self._hooks and self._hooks.before_tool_call:
+                            for tc in tool_calls:
+                                fn_name_check = tc["function"]["name"]
+                                tool_obj_check = self.tool_executor.get_tool(
+                                    fn_name_check
+                                )
+                                raw_args_check = tc["function"].get("arguments", "")
+                                try:
+                                    hook_payload = (
+                                        json.loads(raw_args_check)
+                                        if raw_args_check
+                                        else {}
+                                    )
+                                except json.JSONDecodeError:
+                                    hook_payload = {}
+                                hook_ctx = HookContext(
+                                    step_name=fn_name_check,
+                                    step_kind="tool",
+                                    source=getattr(tool_obj_check, "source", "local"),
+                                    payload=hook_payload,
+                                    tool_call_id=tc["id"],
+                                )
+                                decision = None
+                                for hook in self._hooks.before_tool_call:
+                                    result = hook(hook_ctx)
+                                    if result is not None and not isinstance(
+                                        result, Proceed
+                                    ):
+                                        decision = result
+                                        break
+                                if decision is None or isinstance(decision, Proceed):
+                                    pass  # no-op, tool runs normally
+                                elif isinstance(decision, RequireApproval):
+                                    # suspend here and wait for human; convert outcome to Deny or Proceed
+                                    approved = yield from self._request_approval(
+                                        ctx, ctx.instance_id, tc, decision
+                                    )
+                                    hook_decisions[tc["id"]] = (
+                                        Proceed()
+                                        if approved
+                                        else Deny(
+                                            reason="approval was not granted or timed out"
+                                        )
+                                    )
+                                    if not ctx.is_replaying:
+                                        logger.debug(
+                                            f"RequireApproval for tool '{fn_name_check}': {'approved' if approved else 'not approved'} (instance={ctx.instance_id})"
+                                        )
+                                else:
+                                    hook_decisions[tc["id"]] = decision
+
+                        ordered: List[Optional[Dict[str, Any]]] = [None] * len(
+                            tool_calls
+                        )
+
                         workflow_tasks: List[Any] = []
                         workflow_meta: List[Dict[str, Any]] = []
                         activity_tasks: List[Any] = []
@@ -514,6 +596,61 @@ class DurableAgent(AgentBase):
 
                         for idx, tc in enumerate(tool_calls):
                             fn_name = tc["function"]["name"]
+
+                            # check hook decisions for this tool call
+                            hook_decision = hook_decisions.get(tc["id"])
+
+                            if isinstance(hook_decision, Deny):
+                                # hook blocked the tool outright — synthesize a denial message
+                                block_reason = (
+                                    hook_decision.reason or "blocked by policy"
+                                )
+                                denial_msg = ToolMessage(
+                                    content=f"Tool '{fn_name}' was not executed: {block_reason}.",
+                                    role="tool",
+                                    name=fn_name,
+                                    tool_call_id=tc["id"],
+                                )
+                                ordered[idx] = denial_msg.model_dump()
+                                if not ctx.is_replaying:
+                                    logger.info(
+                                        f"Skipping tool '{fn_name}': {block_reason} (instance={ctx.instance_id})"
+                                    )
+                                continue
+
+                            if isinstance(hook_decision, Skip):
+                                # hook provided a result — use it directly without running the tool
+                                skip_content = (
+                                    str(hook_decision.result)
+                                    if hook_decision.result is not None
+                                    else f"Tool '{fn_name}' was skipped."
+                                )
+                                skip_msg = ToolMessage(
+                                    content=skip_content,
+                                    role="tool",
+                                    name=fn_name,
+                                    tool_call_id=tc["id"],
+                                )
+                                ordered[idx] = skip_msg.model_dump()
+                                if not ctx.is_replaying:
+                                    logger.info(
+                                        f"Skipping tool '{fn_name}' with hook-provided result (instance={ctx.instance_id})"
+                                    )
+                                continue
+
+                            if (
+                                isinstance(hook_decision, Modify)
+                                and hook_decision.payload is not None
+                            ):
+                                # hook mutated the arguments — rebuild tc with new payload
+                                tc = {
+                                    **tc,
+                                    "function": {
+                                        **tc.get("function", {}),
+                                        "arguments": json.dumps(hook_decision.payload),
+                                    },
+                                }
+
                             tool_obj = self.tool_executor.get_tool(fn_name)
 
                             # WorkflowContextInjectedTool instances get executed inline as workflow tasks so they can receive the workflow context.
@@ -591,10 +728,6 @@ class DurableAgent(AgentBase):
                         else:
                             results: List[Any] = yield wf.when_all(all_tasks)
 
-                        ordered: List[Optional[Dict[str, Any]]] = [None] * len(
-                            tool_calls
-                        )
-
                         for meta, res in zip(
                             workflow_meta, results[: len(workflow_tasks)]
                         ):
@@ -634,6 +767,22 @@ class DurableAgent(AgentBase):
                                 for meta in activity_meta
                             }
                         )
+                        # include hook-blocked/skipped tool calls so save_tool_results
+                        # can record them in tool_history for observability
+                        for tc in tool_calls:
+                            decision_for_tracking = hook_decisions.get(tc["id"])
+                            if isinstance(decision_for_tracking, (Deny, Skip)):
+                                hook_label = (
+                                    "denied"
+                                    if isinstance(decision_for_tracking, Deny)
+                                    else "skipped"
+                                )
+                                tool_calls_by_id[tc["id"]] = {
+                                    "tool_call": tc,
+                                    "is_agent_call": False,
+                                    "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                    "hook_decision": hook_label,
+                                }
                         yield ctx.call_activity(
                             self.save_tool_results,
                             input={
@@ -725,6 +874,124 @@ class DurableAgent(AgentBase):
             ) from _workflow_exc
 
         return final_message
+
+    # human-in-the-loop helpers
+    def _request_approval(
+        self,
+        ctx: wf.DaprWorkflowContext,
+        instance_id: str,
+        tool_call: Dict[str, Any],
+        decision: RequireApproval,
+    ):
+        """
+        Pause the workflow and wait for a human to approve or deny a tool call.
+
+        Called with ``yield from`` from agent_workflow when a before_tool_call hook
+        returns RequireApproval. Publishes an ApprovalRequiredEvent the first time it
+        runs for a given tool_call_id, then suspends via wait_for_external_event. On
+        replay, the activity result is cached so the publish does not fire again.
+
+        Args:
+            ctx: Dapr workflow context.
+            instance_id: Running workflow instance ID.
+            tool_call: Tool call dict with 'id' and 'function' keys.
+            decision: The RequireApproval decision returned by the hook.
+
+        Returns:
+            True if the human approved, False if not approved or the timeout elapsed.
+        """
+        approval_config = self.execution.approval
+        fn_name = tool_call.get("function", {}).get("name", "unknown")
+        tool_call_id = tool_call.get("id", "")
+
+        # use the decision's timeout first, then fall back to the agent-level default
+        timeout_seconds = (
+            decision.timeout_seconds
+            if decision.timeout_seconds is not None
+            else approval_config.default_timeout_seconds
+        )
+
+        # deterministic UUID derived from instance + tool_call so it is identical on replay
+        approval_request_id = str(
+            uuid.uuid5(uuid.NAMESPACE_DNS, f"{instance_id}:{tool_call_id}")
+        )
+
+        raw_args = tool_call.get("function", {}).get("arguments", "")
+        try:
+            tool_args = json.loads(raw_args) if raw_args else {}
+        except json.JSONDecodeError:
+            tool_args = {}
+
+        tool_obj = self.tool_executor.get_tool(fn_name)
+        approval_event = ApprovalRequiredEvent(
+            approval_request_id=approval_request_id,
+            instance_id=instance_id,
+            step_name=fn_name,
+            step_kind="tool",
+            source=getattr(tool_obj, "source", "local"),
+            tool_call_id=tool_call_id,
+            tool_arguments=tool_args,
+            timeout_seconds=timeout_seconds,
+            instructions=decision.instructions,
+        )
+
+        if not ctx.is_replaying:
+            logger.info(
+                f"Requesting approval: tool='{fn_name}' approval_request_id={approval_request_id} instance={instance_id} timeout={timeout_seconds}s"
+            )
+
+        # Always yield this activity unconditionally — DurableTask returns the cached
+        # result on replay without re-executing the function
+        yield ctx.call_activity(
+            self.publish_approval_request,
+            input={
+                "event": approval_event.model_dump(mode="json"),
+                "pubsub_name": approval_config.pubsub_name,
+                "topic": approval_config.topic,
+            },
+            retry_policy=self._retry_policy,
+        )
+
+        if not ctx.is_replaying:
+            logger.info(
+                f"Approval request {approval_request_id} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
+            )
+
+        event_name = f"approval_response_{approval_request_id}"
+        event_task = ctx.wait_for_external_event(event_name)
+
+        if timeout_seconds is None:
+            # No timeout: suspend indefinitely until a human sends the approval event. The workflow stays paused in Dapr's durable state.
+            yield event_task
+        else:
+            # Race the approval event against a timer
+            timer_task = ctx.create_timer(timedelta(seconds=timeout_seconds))
+            winner = yield wf.when_any([event_task, timer_task])
+
+            if winner is timer_task:
+                if not ctx.is_replaying:
+                    logger.warning(
+                        f"Approval request {approval_request_id} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
+                    )
+                return False
+
+        # event won the race — read the human decision
+        try:
+            response_data = event_task.get_result()
+            response = ApprovalResponseEvent(**response_data)
+        except Exception as exc:
+            if not ctx.is_replaying:
+                logger.warning(
+                    f"Could not parse approval response for request {approval_request_id}: {exc} — auto-denying"
+                )
+            return False
+
+        if not ctx.is_replaying:
+            logger.info(
+                f"Approval decision for request {approval_request_id}, tool '{fn_name}': {'approved' if response.approved else 'not approved'} (instance={instance_id})"
+            )
+
+        return response.approved
 
     def orchestration_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
         """Dedicated orchestration workflow using strategy pattern.
@@ -1935,12 +2202,20 @@ class DurableAgent(AgentBase):
                 agent_wf_instance_id = tc_info.get("child_instance_id") or (
                     tool_call_id if is_agent_call else None
                 )
+                # map hook decision labels to the right execution status
+                hook_decision_label = tc_info.get("hook_decision")
+                if hook_decision_label == "denied":
+                    exec_status = ToolExecutionStatus.DENIED
+                elif hook_decision_label == "skipped":
+                    exec_status = ToolExecutionStatus.SKIPPED
+                else:
+                    exec_status = ToolExecutionStatus.COMPLETED
                 entry.tool_history.append(
                     ToolExecutionRecord(
                         tool_call_id=tool_call_id,
                         tool_name=tool_result.name or fn.get("name", ""),
                         tool_args=args,
-                        status=ToolExecutionStatus.COMPLETED,
+                        status=exec_status,
                         is_agent_call=is_agent_call,
                         execution_result=tool_result.content,
                         executing_agent=self.name,
@@ -1953,6 +2228,113 @@ class DurableAgent(AgentBase):
             logger.debug(f"Added tool result {tool_call_id} to memory")
 
         self.save_state(instance_id, entry=entry)
+
+    def _pending_approvals_key(self) -> str:
+        """Dapr State Store key for the agent-scoped pending-approvals dict."""
+        return f"{self.name}:pending_approvals".lower()
+
+    def _persist_pending_approvals(self) -> None:
+        """
+        Write the current _pending_approvals dict to Dapr State Store so it
+        survives process crashes.  No-op when no state store is configured or
+        no HITL hooks are present.
+        """
+        if not (self._hooks and self._hooks.before_tool_call):
+            return
+        if not self.state_store:
+            return
+        try:
+            self.state_store.save_state(
+                key=self._pending_approvals_key(),
+                value=json.dumps(self._pending_approvals),
+            )
+        except Exception:
+            logger.exception("Failed to persist pending approvals to state store")
+
+    def _restore_pending_approvals(self) -> None:
+        """
+        Load previously persisted pending approvals from Dapr State Store into
+        _pending_approvals on agent startup.  Entries whose workflow is no longer
+        RUNNING are dropped so stale requests from already-finished workflows are
+        not surfaced.  No-op when no state store is configured or no HITL hooks
+        are present.
+        """
+        if not (self._hooks and self._hooks.before_tool_call):
+            return
+        if not self.state_store:
+            return
+        try:
+            exists, data = self.state_store.try_get_state(
+                key=self._pending_approvals_key()
+            )
+            if not exists or not data:
+                return
+            wf_client = self._wf_client
+            _ACTIVE = {wf.WorkflowStatus.RUNNING, wf.WorkflowStatus.SUSPENDED}
+            for approval_request_id, event_data in data.items():
+                instance_id = event_data.get("instance_id", "")
+                try:
+                    state = wf_client.get_workflow_state(
+                        instance_id, fetch_payloads=False
+                    )
+                    if state is not None and state.runtime_status in _ACTIVE:
+                        self._pending_approvals[approval_request_id] = event_data
+                except Exception:
+                    logger.debug(
+                        f"Could not check workflow state for instance {instance_id} during approval restore; skipping."
+                    )
+            logger.info(
+                f"Restored {len(self._pending_approvals)} pending approval(s) from state store for agent '{self.name}'."
+            )
+        except Exception:
+            logger.exception(
+                f"Failed to restore pending approvals from state store for agent '{self.name}'."
+            )
+
+    def publish_approval_request(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> None:
+        """
+        Deliver an ApprovalRequiredEvent and track it for HTTP polling.
+
+        This activity is called from _request_approval inside agent_workflow.
+        Wrapping the delivery in an activity keeps the workflow deterministic — the
+        activity result is cached, so on replay the delivery does not fire again.
+
+        Always stores the event in _pending_approvals so GET /hitl/approvals can
+        surface it regardless of serving mode. If pubsub_name is set, also publishes
+        to the configured Dapr pub/sub topic so external listeners (Slack bots,
+        dashboards) can receive it.
+
+        Args:
+            payload: Keys 'event' (serialized ApprovalRequiredEvent dict),
+                'pubsub_name' (optional pub/sub component name), 'topic' (topic name).
+        """
+        event_data = payload["event"]
+        pubsub_name = payload.get("pubsub_name")
+        topic = payload.get("topic")
+        approval_request_id = event_data.get("approval_request_id")
+
+        self._pending_approvals[approval_request_id] = event_data
+        self._persist_pending_approvals()
+
+        if pubsub_name:
+
+            async def _publish() -> None:
+                await publish_message(
+                    pubsub_name=pubsub_name,
+                    topic_name=topic,
+                    message=event_data,
+                )
+
+            self._run_asyncio_task(_publish())
+            logger.info(
+                f"Published approval request {approval_request_id} for step '{event_data.get('step_name')}' to topic '{topic}'"
+            )
+        else:
+            logger.info(
+                f"Stored approval request {approval_request_id} for step '{event_data.get('step_name')}' (no pub/sub configured; poll GET /hitl/approvals or use Dapr sidecar raiseEvent API)"
+            )
 
     def broadcast_to_team(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
@@ -2327,6 +2709,79 @@ class DurableAgent(AgentBase):
         self.save_state(instance_id, entry=entry)
         logger.info(f"Saved plan to memory for instance {instance_id}")
 
+    # human-in-the-loop control API
+    def raise_approval_event(
+        self,
+        instance_id: str,
+        approval_request_id: str,
+        approved: bool,
+        reason: Optional[str] = None,
+    ) -> None:
+        """
+        Send a human approval decision back to a workflow that is waiting for it.
+
+        External approval services — a Slack bot, a web dashboard, a CLI script —
+        call this method after a human reviews the ApprovalRequiredEvent they
+        received. The workflow resumes immediately after the event is delivered.
+
+        Args:
+            instance_id: Workflow instance ID from the ApprovalRequiredEvent.
+            approval_request_id: Unique request ID from the ApprovalRequiredEvent.
+            approved: True to allow the tool to run, False to block it.
+            reason: Optional human-provided explanation for the decision.
+
+        Raises:
+            Exception: If the Dapr workflow client cannot deliver the event.
+        """
+        event_name = f"approval_response_{approval_request_id}"
+        response = ApprovalResponseEvent(
+            approval_request_id=approval_request_id,
+            approved=approved,
+            reason=reason,
+        )
+
+        wf_client = self._wf_client
+
+        # Guard against late responses: Dapr silently drops events on finished workflows, leaving the human with no feedback. Fail explicitly instead.
+        _TERMINAL = {
+            wf.WorkflowStatus.COMPLETED,
+            wf.WorkflowStatus.FAILED,
+            wf.WorkflowStatus.TERMINATED,
+        }
+        state = wf_client.get_workflow_state(instance_id, fetch_payloads=False)
+        if state is None or state.runtime_status in _TERMINAL:
+            status_label = state.runtime_status.name if state else "NOT_FOUND"
+            raise RuntimeError(
+                f"Workflow '{instance_id}' is no longer waiting for approval "
+                f"(status: {status_label}). The approval request has already expired or "
+                f"the workflow has finished — your response was not delivered."
+            )
+
+        wf_client.raise_workflow_event(
+            instance_id=instance_id,
+            event_name=event_name,
+            data=response.model_dump(mode="json"),
+        )
+
+        self._pending_approvals.pop(approval_request_id, None)
+        self._persist_pending_approvals()
+
+        logger.info(
+            f"Raised approval event '{event_name}' for instance {instance_id}: {'approved' if approved else 'not approved'}"
+        )
+
+    def list_pending_approvals(self) -> List[Dict[str, Any]]:
+        """
+        Return all approval requests currently waiting for a human decision.
+
+        Used by GET /hitl/approvals when the agent is served over HTTP. The list
+        is populated by publish_approval_request and cleared by raise_approval_event.
+        On startup, _restore_pending_approvals reloads this from Dapr State Store
+        (when a state store is configured) and drops entries whose workflow is no
+        longer running, so pending approvals survive process crashes.
+        """
+        return list(self._pending_approvals.values())
+
     # ------------------------------------------------------------------
     # Runtime control
     # ------------------------------------------------------------------
@@ -2351,6 +2806,9 @@ class DurableAgent(AgentBase):
 
         # Set up lifecycle-managed resources (e.g., configuration subscription)
         super().start()
+
+        # Reload any pending approvals that were persisted before a crash.
+        self._restore_pending_approvals()
 
         if runtime is not None:
             self._runtime = runtime
@@ -2466,6 +2924,7 @@ class DurableAgent(AgentBase):
         runtime.register_activity(self.call_llm)
         runtime.register_activity(self.run_tool)
         runtime.register_activity(self.save_tool_results)
+        runtime.register_activity(self.publish_approval_request)
         runtime.register_activity(self.broadcast_to_team)
         runtime.register_activity(self.summarize)
         runtime.register_activity(self.finalize_workflow)
