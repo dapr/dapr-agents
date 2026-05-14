@@ -13,7 +13,7 @@ limitations under the License.
 
 # Anthropic Claude LLM calls with Dapr Agents
 
-This example demonstrates how to use Dapr Agents' `AnthropicChatClient` to call Claude models through the native Anthropic Python SDK — not through the Dapr Conversation API. That direct path gives you access to Anthropic-specific features (streaming, extended thinking, prompt caching, native tool-use schema, model-specific params like `top_k`) that the normalized Conversation API strips.
+This example demonstrates how to use Dapr Agents' `AnthropicChatClient` to call Claude models through the native Anthropic Python SDK.
 
 ## Prerequisites
 
