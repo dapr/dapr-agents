@@ -105,7 +105,9 @@ def message_router(
         if filter_fn is None:
             continue
         if not callable(filter_fn):
-            raise TypeError(f"`{filter_name}` must be callable, got {type(filter_fn).__name__}.")
+            raise TypeError(
+                f"`{filter_name}` must be callable, got {type(filter_fn).__name__}."
+            )
         if asyncio.iscoroutinefunction(filter_fn):
             raise TypeError(
                 f"`{filter_name}` must be a synchronous callable; "

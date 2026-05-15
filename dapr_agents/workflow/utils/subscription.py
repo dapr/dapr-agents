@@ -618,16 +618,17 @@ class _StreamSubscriber:
 
         for binding, schema in ordered_pairs:
             if not _filter_accepts(
-                binding.payload_filter, event_data, msg_ctx,
-                kind="payload_filter", binding_name=binding.name,
+                binding.payload_filter,
+                event_data,
+                msg_ctx,
+                kind="payload_filter",
+                binding_name=binding.name,
             ):
                 continue
 
             try:
                 payload = (
-                    event_data
-                    if isinstance(event_data, dict)
-                    else {"data": event_data}
+                    event_data if isinstance(event_data, dict) else {"data": event_data}
                 )
                 parsed = validate_message_model(schema, payload)
                 _attach_metadata_to_payload(parsed, metadata)
@@ -636,8 +637,11 @@ class _StreamSubscriber:
                 continue
 
             if not _filter_accepts(
-                binding.model_filter, parsed, msg_ctx,
-                kind="model_filter", binding_name=binding.name,
+                binding.model_filter,
+                parsed,
+                msg_ctx,
+                kind="model_filter",
+                binding_name=binding.name,
             ):
                 continue
 
@@ -675,7 +679,8 @@ class _StreamSubscriber:
             response = self._route_to_binding(pairs, topic_name, event_data, metadata)
 
             if dedup_id is not None and _normalize_status(response.status) in (
-                STATUS_SUCCESS, STATUS_DROP,
+                STATUS_SUCCESS,
+                STATUS_DROP,
             ):
                 self._mark_seen(dedup_id)
 
@@ -730,9 +735,7 @@ class _StreamSubscriber:
                 logger.warning(f"Unknown status {response.status}; retrying.")
                 status = STATUS_RETRY
         except Exception:
-            logger.exception(
-                f"Handler exception in stream {pubsub_name}:{topic_name}"
-            )
+            logger.exception(f"Handler exception in stream {pubsub_name}:{topic_name}")
             status = STATUS_RETRY
 
         responders = {
@@ -760,7 +763,9 @@ class _StreamSubscriber:
             for _ in range(max(1, len(bindings))):
                 self._worker_tasks.append(self.loop.create_task(self._async_worker()))
 
-        for (pubsub_name, topic_name), topic_bindings in _group_bindings_by_topic(bindings).items():
+        for (pubsub_name, topic_name), topic_bindings in _group_bindings_by_topic(
+            bindings
+        ).items():
             pairs = _build_binding_schema_pairs(topic_bindings)
             dead_letter_topic = topic_bindings[0].dead_letter_topic
             handler_fn = partial(self._handle_message, pairs, topic_name)
@@ -778,7 +783,13 @@ class _StreamSubscriber:
             consumer_thread.start()
 
             closers.append(
-                partial(_shutdown_thread, consumer_thread, subscription, pubsub_name, topic_name)
+                partial(
+                    _shutdown_thread,
+                    consumer_thread,
+                    subscription,
+                    pubsub_name,
+                    topic_name,
+                )
             )
             logger.debug(
                 f"Subscribed streaming to pubsub={pubsub_name} topic={topic_name} "
