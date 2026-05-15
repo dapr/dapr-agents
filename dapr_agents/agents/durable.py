@@ -2011,7 +2011,7 @@ class DurableAgent(AgentBase):
         payload: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
-        Drive an :class:`AgentExecutorBase` to completion and return the final
+        Drive an `AgentExecutorBase` to completion and return the final
         assistant message.
 
         The executor owns the full tool/reasoning loop; this activity only
