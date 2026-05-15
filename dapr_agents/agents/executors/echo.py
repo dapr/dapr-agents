@@ -12,12 +12,12 @@
 #
 
 """
-Trivial :class:`AgentExecutorBase` implementation used by tests and as a
+Trivial ``AgentExecutorBase`` implementation used by tests and as a
 copy-pasteable skeleton for real executor providers.
 
-:class:`EchoAgentExecutor` does no real reasoning — it echoes the prompt
+``EchoAgentExecutor`` does no real reasoning — it echoes the prompt
 back — but exercises the full event sequence (``text_delta`` ->
-``message`` -> ``session`` -> ``complete``) that :class:`DurableAgent`'s
+``message`` -> ``session`` -> ``complete``) that ``DurableAgent``'s
 executor branch expects.
 """
 
@@ -26,7 +26,8 @@ from __future__ import annotations
 import copy
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from dapr_agents.agents.executors.base import AgentEvent, AgentExecutorBase
+from dapr_agents.agents.executors.base import AgentExecutorBase
+from dapr_agents.agents.executors.event import AgentEvent
 
 _DEFAULT_CHUNK = 16
 

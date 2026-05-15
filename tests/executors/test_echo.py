@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-"""Unit tests for :class:`EchoAgentExecutor`."""
+"""Unit tests for ``EchoAgentExecutor``."""
 
 import pytest
 

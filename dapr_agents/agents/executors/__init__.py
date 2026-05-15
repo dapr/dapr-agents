@@ -11,12 +11,9 @@
 # limitations under the License.
 #
 
-from dapr_agents.agents.executors.base import (
-    AgentEvent,
-    AgentEventType,
-    AgentExecutorBase,
-)
-from dapr_agents.agents.executors.trivial import EchoAgentExecutor
+from dapr_agents.agents.executors.base import AgentExecutorBase
+from dapr_agents.agents.executors.echo import EchoAgentExecutor
+from dapr_agents.agents.executors.event import AgentEvent, AgentEventType
 
 __all__ = [
     "AgentEvent",

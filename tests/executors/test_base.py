@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-"""Unit tests for :mod:`dapr_agents.agents.executors.base`."""
+"""Unit tests for ``dapr_agents.agents.executors.base`` and ``event``."""
 
 import dataclasses
 import inspect
@@ -23,7 +23,7 @@ from dapr_agents.agents.executors import (
     AgentEventType,
     AgentExecutorBase,
 )
-from dapr_agents.agents.executors import base as executors_base
+from dapr_agents.agents.executors import event as executors_event
 
 
 class TestAgentEvent:
@@ -80,20 +80,20 @@ class TestAgentEventConstants:
         """Each AgentEventType literal must have an EVENT_* constant."""
         literal_values = set(AgentEventType.__args__)  # type: ignore[attr-defined]
         constants = {
-            name: getattr(executors_base, name)
-            for name in dir(executors_base)
+            name: getattr(executors_event, name)
+            for name in dir(executors_event)
             if name.startswith("EVENT_")
         }
         assert set(constants.values()) == literal_values
 
     def test_constants_are_string_literals(self):
-        assert executors_base.EVENT_TEXT_DELTA == "text_delta"
-        assert executors_base.EVENT_TOOL_CALL == "tool_call"
-        assert executors_base.EVENT_TOOL_RESULT == "tool_result"
-        assert executors_base.EVENT_MESSAGE == "message"
-        assert executors_base.EVENT_SESSION == "session"
-        assert executors_base.EVENT_COMPLETE == "complete"
-        assert executors_base.EVENT_ERROR == "error"
+        assert executors_event.EVENT_TEXT_DELTA == "text_delta"
+        assert executors_event.EVENT_TOOL_CALL == "tool_call"
+        assert executors_event.EVENT_TOOL_RESULT == "tool_result"
+        assert executors_event.EVENT_MESSAGE == "message"
+        assert executors_event.EVENT_SESSION == "session"
+        assert executors_event.EVENT_COMPLETE == "complete"
+        assert executors_event.EVENT_ERROR == "error"
 
 
 class TestAgentExecutorBase:
