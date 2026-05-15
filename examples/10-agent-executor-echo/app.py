@@ -11,24 +11,6 @@
 # limitations under the License.
 #
 
-"""
-Smoke test for the AgentExecutorBase abstraction (RFC dapr/dapr-agents#569,
-Linear AI-505).
-
-Runs a DurableAgent backed by :class:`EchoAgentExecutor` — a trivial,
-zero-dependency implementation of :class:`AgentExecutorBase` that echoes
-the prompt back through the full event stream
-(``text_delta`` -> ``message`` -> ``session`` -> ``complete``).
-
-The purpose is to exercise the executor branch in
-``DurableAgent.agent_workflow`` end-to-end against a real Dapr sidecar:
-
-* The workflow reaches the ``elif self.executor is not None`` branch.
-* The ``run_executor`` activity drives the async event stream.
-* Dapr state picks up the ``session_id`` + user/assistant messages.
-
-No LLM provider or API key is required.
-"""
 
 import asyncio
 import logging
