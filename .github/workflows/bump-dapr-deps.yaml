@@ -1,0 +1,102 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: Auto-bump dapr deps
+
+on:
+  schedule:
+    - cron: "0 9,21 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump-python-sdk:
+    name: Bump dapr python-sdk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ssh-key: ${{ secrets.BUMP_DEPS_SSH_KEY }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Detect available version
+        id: check
+        run: python .github/scripts/check_pypi_bump.py dapr dapr-ext-fastapi dapr-ext-workflow
+
+      - name: Bump pins
+        if: steps.check.outputs.should_bump == 'true'
+        env:
+          NEW: ${{ steps.check.outputs.latest }}
+        run: uv add "dapr==${NEW}" "dapr-ext-fastapi==${NEW}" "dapr-ext-workflow==${NEW}"
+
+      - name: Open PR
+        if: steps.check.outputs.should_bump == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          ssh-key: ${{ secrets.BUMP_DEPS_SSH_KEY }}
+          branch: auto/bump-python-sdk-${{ steps.check.outputs.latest }}
+          delete-branch: true
+          commit-message: "chore(deps): bump dapr python-sdk to ${{ steps.check.outputs.latest }}"
+          title: "chore(deps): bump dapr python-sdk to ${{ steps.check.outputs.latest }}"
+          body: |
+            Automated bump of `dapr`, `dapr-ext-fastapi`, and `dapr-ext-workflow`
+            from `${{ steps.check.outputs.current }}` to `${{ steps.check.outputs.latest }}`.
+
+            Release notes: https://github.com/dapr/python-sdk/releases/tag/v${{ steps.check.outputs.latest }}
+
+  bump-durabletask:
+    name: Bump durabletask-dapr
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ssh-key: ${{ secrets.BUMP_DEPS_SSH_KEY }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Detect available version
+        id: check
+        run: python .github/scripts/check_pypi_bump.py durabletask-dapr
+
+      - name: Bump pins
+        if: steps.check.outputs.should_bump == 'true'
+        env:
+          NEW: ${{ steps.check.outputs.latest }}
+        run: uv add "durabletask-dapr==${NEW}"
+
+      - name: Open PR
+        if: steps.check.outputs.should_bump == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          ssh-key: ${{ secrets.BUMP_DEPS_SSH_KEY }}
+          branch: auto/bump-durabletask-${{ steps.check.outputs.latest }}
+          delete-branch: true
+          commit-message: "chore(deps): bump durabletask-dapr to ${{ steps.check.outputs.latest }}"
+          title: "chore(deps): bump durabletask-dapr to ${{ steps.check.outputs.latest }}"
+          body: |
+            Automated bump of `durabletask-dapr`
+            from `${{ steps.check.outputs.current }}` to `${{ steps.check.outputs.latest }}`.
+
+            Release notes: https://github.com/dapr/durabletask-python/releases/tag/v${{ steps.check.outputs.latest }}
