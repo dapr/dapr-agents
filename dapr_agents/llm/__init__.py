@@ -11,6 +11,7 @@
 # limitations under the License.
 #
 
+from .anthropic.chat import AnthropicChatClient
 from .dapr import DaprChatClient
 from .elevenlabs import ElevenLabsSpeechClient
 from .huggingface.chat import HFHubChatClient
@@ -31,4 +32,5 @@ __all__ = [
     "NVIDIAEmbeddingClient",
     "ElevenLabsSpeechClient",
     "DaprChatClient",
+    "AnthropicChatClient",
 ]
