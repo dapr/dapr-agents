@@ -953,9 +953,26 @@ def _run_one_message(mock_dapr, mock_wf, target, message: dict) -> None:
         closer()  # joins the consumer thread after the iterator is exhausted
 
 
+class _FakeTopicEventResponse:
+    """Test stand-in for the SDK's TopicEventResponse.
+
+    `conftest.py` mocks `dapr.clients.grpc._response`, so the real
+    `TopicEventResponse` is a `MagicMock` inside `subscription.py` and its
+    `.status` would be a chained mock. We patch it to a plain class so
+    `_normalize_status` can read the string back out.
+    """
+
+    def __init__(self, status: str) -> None:
+        self.status = status
+
+
 @pytest.fixture
-def filter_env():
+def filter_env(monkeypatch):
     """Mock dapr_client + wf_client suitable for exercising the handler path."""
+    monkeypatch.setattr(
+        "dapr_agents.workflow.utils.subscription.TopicEventResponse",
+        _FakeTopicEventResponse,
+    )
     mock_dapr = create_mock_dapr_client(["messagepubsub"])
     mock_wf = MagicMock()
     mock_wf.schedule_new_workflow.return_value = "instance-1"
@@ -1064,3 +1081,98 @@ def test_message_context_exposes_event_metadata(filter_env):
     assert ctx.event.topic == "orders"
     assert ctx.event.type == "OrderCreated"
     assert ctx.dapr_client is mock_dapr
+
+
+# ============================================================================
+# Dedup behavior — mark on terminal outcome, not on arrival
+# ============================================================================
+
+
+def _run_messages(mock_dapr, mock_wf, target, messages, *, deduper=None) -> None:
+    """Feed `messages` through the subscription thread and join cleanly."""
+    mock_dapr.subscribe.return_value.__iter__.return_value = iter(messages)
+    with patch(_PATCH_TARGET, return_value=mock_dapr):
+        closers = register_message_routes(
+            dapr_client=mock_dapr,
+            targets=[target],
+            wf_client=mock_wf,
+            deduper=deduper,
+        )
+    for closer in closers:
+        closer()
+
+
+def test_dedup_success_drops_redelivery(filter_env):
+    """SUCCESS marks the dedup cache so a redelivery of the same id is ack'd silently."""
+    mock_dapr, mock_wf = filter_env
+
+    @message_router(pubsub="messagepubsub", topic="orders")
+    def handler(message: OrderCreated):
+        return "ok"
+
+    deduper = TTLDedupeBackend(maxsize=8, ttl=60.0)
+    msg = _make_cloudevent(
+        {"order_id": "1", "amount": 100.0, "customer": "Alice"}, id="evt-1"
+    )
+    _run_messages(mock_dapr, mock_wf, handler, [msg, msg], deduper=deduper)
+
+    assert mock_wf.schedule_new_workflow.call_count == 1
+    assert deduper.seen("evt-1")
+
+
+def test_dedup_drop_also_marks(filter_env):
+    """DROP (filter rejection) is terminal too — the duplicate must be dropped silently."""
+    mock_dapr, mock_wf = filter_env
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        model_filter=lambda m, ctx: False,  # always reject -> DROP
+    )
+    def handler(message: OrderCreated):
+        return "ok"
+
+    deduper = TTLDedupeBackend(maxsize=8, ttl=60.0)
+    msg = _make_cloudevent(
+        {"order_id": "1", "amount": 100.0, "customer": "Alice"}, id="evt-1"
+    )
+    _run_messages(mock_dapr, mock_wf, handler, [msg, msg], deduper=deduper)
+
+    assert mock_wf.schedule_new_workflow.call_count == 0
+    assert deduper.seen("evt-1")
+
+
+def test_dedup_retry_does_not_mark(filter_env):
+    """RETRY must NOT mark; otherwise broker redelivery is silently neutralized."""
+    mock_dapr, mock_wf = filter_env
+    mock_wf.schedule_new_workflow.side_effect = RuntimeError("transient")
+
+    @message_router(pubsub="messagepubsub", topic="orders")
+    def handler(message: OrderCreated):
+        return "ok"
+
+    deduper = TTLDedupeBackend(maxsize=8, ttl=60.0)
+    msg = _make_cloudevent(
+        {"order_id": "1", "amount": 100.0, "customer": "Alice"}, id="evt-1"
+    )
+    _run_messages(mock_dapr, mock_wf, handler, [msg, msg], deduper=deduper)
+
+    # Both deliveries reached the handler (RETRY left the cache empty).
+    assert mock_wf.schedule_new_workflow.call_count == 2
+    assert not deduper.seen("evt-1")
+
+
+def test_dedup_disabled_processes_every_message(filter_env):
+    """No deduper = every delivery processes, even with identical ids."""
+    mock_dapr, mock_wf = filter_env
+
+    @message_router(pubsub="messagepubsub", topic="orders")
+    def handler(message: OrderCreated):
+        return "ok"
+
+    msg = _make_cloudevent(
+        {"order_id": "1", "amount": 100.0, "customer": "Alice"}, id="evt-1"
+    )
+    _run_messages(mock_dapr, mock_wf, handler, [msg, msg], deduper=None)
+
+    assert mock_wf.schedule_new_workflow.call_count == 2

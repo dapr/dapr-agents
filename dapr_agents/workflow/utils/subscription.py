@@ -575,25 +575,79 @@ class _StreamSubscriber:
             return self._schedule_on_loop(binding, parsed)
         return self._schedule_standalone(binding, parsed)
 
-    def _is_duplicate(
+    def _dedup_id(
         self, metadata: Optional[dict], event_data: Any, topic_name: str
-    ) -> bool:
-        """True when the deduper has already seen this message; marks it otherwise."""
+    ) -> Optional[str]:
+        """Compute the dedup key for this message, or None when dedup is disabled."""
         if self.deduper is None:
-            return False
-        candidate_id = (metadata or {}).get("id") or (
-            f"{topic_name}:{hash(str(event_data))}"
-        )
+            return None
+        return (metadata or {}).get("id") or f"{topic_name}:{hash(str(event_data))}"
+
+    def _is_seen(self, candidate_id: str) -> bool:
+        """Best-effort check; backend errors are swallowed and reported as 'not seen'."""
+        assert self.deduper is not None
         try:
-            if self.deduper.seen(candidate_id):
-                logger.debug(
-                    f"Duplicate detected id={candidate_id} topic={topic_name}; dropping."
-                )
-                return True
+            return self.deduper.seen(candidate_id)
+        except Exception:
+            logger.debug("Dedupe backend seen() error; continuing.", exc_info=True)
+            return False
+
+    def _mark_seen(self, candidate_id: str) -> None:
+        """Best-effort mark; backend errors are logged but never raise."""
+        assert self.deduper is not None
+        try:
             self.deduper.mark(candidate_id)
         except Exception:
-            logger.debug("Dedupe backend error; continuing.", exc_info=True)
-        return False
+            logger.debug("Dedupe backend mark() error; continuing.", exc_info=True)
+
+    def _route_to_binding(
+        self,
+        pairs: List[BindingSchemaPair],
+        topic_name: str,
+        event_data: Any,
+        metadata: Optional[dict],
+    ) -> TopicEventResponse:
+        """Pick the first matching binding and dispatch; DROP when nothing matches."""
+        msg_ctx = MessageContext(
+            event=EventMessageMetadata.model_validate(metadata or {}),
+            dapr_client=self.dapr_client,
+        )
+        ordered_pairs = _order_pairs_by_cloudevent_type(
+            pairs, (metadata or {}).get("type")
+        )
+
+        for binding, schema in ordered_pairs:
+            if not _filter_accepts(
+                binding.payload_filter, event_data, msg_ctx,
+                kind="payload_filter", binding_name=binding.name,
+            ):
+                continue
+
+            try:
+                payload = (
+                    event_data
+                    if isinstance(event_data, dict)
+                    else {"data": event_data}
+                )
+                parsed = validate_message_model(schema, payload)
+                _attach_metadata_to_payload(parsed, metadata)
+            except (ValueError, TypeError):
+                # Validation/coercion errors, try next schema
+                continue
+
+            if not _filter_accepts(
+                binding.model_filter, parsed, msg_ctx,
+                kind="model_filter", binding_name=binding.name,
+            ):
+                continue
+
+            return self._dispatch(binding, parsed)
+
+        logger.warning(
+            f"No binding accepted message on topic={topic_name!r} "
+            f"(no schema matched or all filters rejected); dropping. raw={event_data!r}"
+        )
+        return TopicEventResponse(STATUS_DROP)
 
     def _handle_message(
         self,
@@ -601,53 +655,31 @@ class _StreamSubscriber:
         topic_name: str,
         message: SubscriptionMessage,
     ) -> TopicEventResponse:
-        """Route one message to the matching binding"""
+        """Route one message to the matching binding.
+
+        Dedup marks happen after a terminal outcome (SUCCESS or DROP). Marking
+        on arrival would silently neutralize RETRY: the broker redelivers, the
+        retry hits the dedup cache, and the message is ack'd without ever being
+        re-processed.
+        """
         try:
             event_data, metadata = extract_cloudevent_data(message)
 
-            if self._is_duplicate(metadata, event_data, topic_name):
+            dedup_id = self._dedup_id(metadata, event_data, topic_name)
+            if dedup_id is not None and self._is_seen(dedup_id):
+                logger.debug(
+                    f"Duplicate detected id={dedup_id} topic={topic_name}; dropping."
+                )
                 return TopicEventResponse(STATUS_SUCCESS)
 
-            msg_ctx = MessageContext(
-                event=EventMessageMetadata.model_validate(metadata or {}),
-                dapr_client=self.dapr_client,
-            )
-            ordered_pairs = _order_pairs_by_cloudevent_type(
-                pairs, (metadata or {}).get("type")
-            )
+            response = self._route_to_binding(pairs, topic_name, event_data, metadata)
 
-            for binding, schema in ordered_pairs:
-                if not _filter_accepts(
-                    binding.payload_filter, event_data, msg_ctx,
-                    kind="payload_filter", binding_name=binding.name,
-                ):
-                    continue
+            if dedup_id is not None and _normalize_status(response.status) in (
+                STATUS_SUCCESS, STATUS_DROP,
+            ):
+                self._mark_seen(dedup_id)
 
-                try:
-                    payload = (
-                        event_data
-                        if isinstance(event_data, dict)
-                        else {"data": event_data}
-                    )
-                    parsed = validate_message_model(schema, payload)
-                    _attach_metadata_to_payload(parsed, metadata)
-                except (ValueError, TypeError):
-                    # Validation/coercion errors, try next schema
-                    continue
-
-                if not _filter_accepts(
-                    binding.model_filter, parsed, msg_ctx,
-                    kind="model_filter", binding_name=binding.name,
-                ):
-                    continue
-
-                return self._dispatch(binding, parsed)
-
-            logger.warning(
-                f"No binding accepted message on topic={topic_name!r} "
-                f"(no schema matched or all filters rejected); dropping. raw={event_data!r}"
-            )
-            return TopicEventResponse(STATUS_DROP)
+            return response
         except Exception:
             logger.exception("Message handler error; requesting retry.")
             return TopicEventResponse(STATUS_RETRY)
