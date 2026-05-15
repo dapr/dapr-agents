@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# AgentExecutorBase smoke test — Echo executor
+# Echo Agent Executor
 
 End-to-end validation for the `AgentExecutorBase` abstraction introduced in
 RFC [dapr/dapr-agents#569](https://github.com/dapr/dapr-agents/issues/569).
