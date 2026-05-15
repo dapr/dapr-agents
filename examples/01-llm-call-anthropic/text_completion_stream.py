@@ -11,20 +11,26 @@
 # limitations under the License.
 #
 
-from .logger import (
-    WorkflowReplayFilter,
-    get_context_aware_logger,
-    with_logger_context,
-)
-from .semver import is_version_supported
-from .signal_handlers import add_signal_handlers_cross_platform
-from .signal_mixin import SignalHandlingMixin
+import logging
+from typing import Iterator
 
-__all__ = [
-    "add_signal_handlers_cross_platform",
-    "SignalHandlingMixin",
-    "is_version_supported",  # Internal utility, used by dapr chat client
-    "get_context_aware_logger",
-    "with_logger_context",
-    "WorkflowReplayFilter",
-]
+from dotenv import load_dotenv
+
+from dapr_agents import AnthropicChatClient
+from dapr_agents.types.message import LLMChatResponseChunk
+
+logging.basicConfig(level=logging.INFO)
+
+# Load environment variables from .env (expects ANTHROPIC_API_KEY)
+load_dotenv()
+
+llm = AnthropicChatClient()
+
+response: Iterator[LLMChatResponseChunk] = llm.generate(
+    "Name a famous dog!", stream=True
+)
+
+for chunk in response:
+    if chunk.result.content:
+        print(chunk.result.content, end="", flush=True)
+print()

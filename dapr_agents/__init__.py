@@ -43,6 +43,7 @@ from dapr_agents.hooks import (
     Deny,
 )
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
+from dapr_agents.llm.anthropic import AnthropicChatClient
 from dapr_agents.llm.dapr import DaprChatClient
 from dapr_agents.llm.elevenlabs import ElevenLabsSpeechClient
 from dapr_agents.llm.huggingface import HFHubChatClient
@@ -64,6 +65,7 @@ __all__ = [
     "EchoAgentExecutor",
     "DockerCodeExecutor",
     "LocalCodeExecutor",
+    "AnthropicChatClient",
     "ElevenLabsSpeechClient",
     "DaprChatClient",
     "HFHubChatClient",
