@@ -43,6 +43,23 @@ from dapr_agents.tool.base import AgentTool
 from dapr_agents.types import AgentError, DaprWorkflowStatus
 
 
+def _activity_method_name(activity: object) -> str:
+    """Return the trailing method segment of an activity reference.
+
+    Activities are registered with agent-scoped names like
+    ``dapr.agents.<AgentName>.<method>``; tests assert on the method
+    segment so they are insensitive to the scoping prefix. Accepts a
+    scoped string name, a bound method, or a function reference.
+    """
+    if hasattr(activity, "__name__"):
+        name = activity.__name__
+    elif hasattr(activity, "__func__"):
+        name = activity.__func__.__name__
+    else:
+        name = str(activity)
+    return name.rsplit(".", 1)[-1] if "." in name else name
+
+
 # We need this otherwise these tests all fail since they require Dapr to be available.
 @pytest.fixture(autouse=True)
 def patch_dapr_check(monkeypatch):
@@ -1328,17 +1345,7 @@ class TestDurableAgent:
                 }
             )
 
-            if hasattr(activity, "__name__"):
-                activity_name = activity.__name__
-            elif hasattr(activity, "__func__"):
-                activity_name = activity.__func__.__name__
-            else:
-                activity_name = str(activity)
-            # Activities are registered with agent-scoped names like
-            # dapr.agents.<AgentName>.<method>; match on the trailing
-            # method segment so this test works regardless of scoping.
-            if "." in activity_name:
-                activity_name = activity_name.rsplit(".", 1)[-1]
+            activity_name = _activity_method_name(activity)
 
             if activity_name == "call_llm":
                 return {
@@ -1448,18 +1455,7 @@ class TestDurableAgent:
         # Mock call_activity to return responses with tool_calls to force iterations
         def mock_call_activity(activity, **kwargs):
             nonlocal call_llm_count
-            # Get activity name - handle both bound methods and functions
-            if hasattr(activity, "__name__"):
-                activity_name = activity.__name__
-            elif hasattr(activity, "__func__"):
-                activity_name = activity.__func__.__name__
-            else:
-                activity_name = str(activity)
-            # Activities are registered with agent-scoped names like
-            # dapr.agents.<AgentName>.<method>; match on the trailing
-            # method segment so this test works regardless of scoping.
-            if "." in activity_name:
-                activity_name = activity_name.rsplit(".", 1)[-1]
+            activity_name = _activity_method_name(activity)
 
             if activity_name == "call_llm":
                 call_llm_count += 1
@@ -1543,18 +1539,7 @@ class TestDurableAgent:
         test_exception = RuntimeError("Test workflow failure")
 
         def mock_call_activity(activity, **kwargs):
-            # Get activity name - handle both bound methods and functions
-            if hasattr(activity, "__name__"):
-                activity_name = activity.__name__
-            elif hasattr(activity, "__func__"):
-                activity_name = activity.__func__.__name__
-            else:
-                activity_name = str(activity)
-            # Activities are registered with agent-scoped names like
-            # dapr.agents.<AgentName>.<method>; match on the trailing
-            # method segment so this test works regardless of scoping.
-            if "." in activity_name:
-                activity_name = activity_name.rsplit(".", 1)[-1]
+            activity_name = _activity_method_name(activity)
 
             if activity_name == "record_initial_entry":
                 return None
