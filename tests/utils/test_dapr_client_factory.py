@@ -19,20 +19,17 @@ import pytest
 
 from dapr_agents.utils.dapr_client_factory import (
     INBOUND_MESSAGE_SIZE_ENV,
+    DaprClientConfig,
     dapr_client_kwargs,
-    get_inbound_message_size_bytes,
-    set_inbound_message_size_bytes,
 )
 
 
 @pytest.fixture(autouse=True)
-def _clear_state() -> None:
-    """Reset env var and programmatic override around every test."""
-    set_inbound_message_size_bytes(None)
+def _clear_env() -> None:
+    """Ensure the inbound size env var is unset around every test."""
     with mock.patch.dict(os.environ, {}, clear=False):
         os.environ.pop(INBOUND_MESSAGE_SIZE_ENV, None)
         yield
-    set_inbound_message_size_bytes(None)
 
 
 def test_no_env_returns_explicit_kwargs_unchanged() -> None:
@@ -110,38 +107,42 @@ def test_returned_kwargs_is_independent_of_explicit() -> None:
     assert explicit == {"http_timeout_seconds": 10}
 
 
-def test_setter_sets_override_consumed_by_kwargs() -> None:
-    set_inbound_message_size_bytes(16 * 1024 * 1024)
-    assert get_inbound_message_size_bytes() == 16 * 1024 * 1024
-    assert dapr_client_kwargs() == {"max_grpc_message_length": 16 * 1024 * 1024}
+def test_config_supplies_max_grpc_message_length() -> None:
+    config = DaprClientConfig(max_grpc_message_length=16 * 1024 * 1024)
+    assert dapr_client_kwargs(config=config) == {
+        "max_grpc_message_length": 16 * 1024 * 1024
+    }
 
 
-def test_setter_override_beats_env_var() -> None:
-    with mock.patch.dict(os.environ, {INBOUND_MESSAGE_SIZE_ENV: str(4 * 1024 * 1024)}):
-        set_inbound_message_size_bytes(32 * 1024 * 1024)
-        result = dapr_client_kwargs()
-
-    assert result == {"max_grpc_message_length": 32 * 1024 * 1024}
-
-
-def test_explicit_kwarg_beats_setter_override() -> None:
-    set_inbound_message_size_bytes(16 * 1024 * 1024)
-    result = dapr_client_kwargs(max_grpc_message_length=64 * 1024 * 1024)
-
-    assert result == {"max_grpc_message_length": 64 * 1024 * 1024}
-
-
-def test_setter_none_clears_override_falls_through_to_env() -> None:
-    set_inbound_message_size_bytes(16 * 1024 * 1024)
-    set_inbound_message_size_bytes(None)
+def test_config_with_none_falls_through_to_env() -> None:
+    config = DaprClientConfig()
     with mock.patch.dict(os.environ, {INBOUND_MESSAGE_SIZE_ENV: "8388608"}):
-        result = dapr_client_kwargs()
+        result = dapr_client_kwargs(config=config)
 
     assert result == {"max_grpc_message_length": 8388608}
 
 
-def test_setter_rejects_non_positive_values() -> None:
+def test_config_beats_env() -> None:
+    config = DaprClientConfig(max_grpc_message_length=32 * 1024 * 1024)
+    with mock.patch.dict(os.environ, {INBOUND_MESSAGE_SIZE_ENV: str(4 * 1024 * 1024)}):
+        result = dapr_client_kwargs(config=config)
+
+    assert result == {"max_grpc_message_length": 32 * 1024 * 1024}
+
+
+def test_explicit_kwarg_beats_config() -> None:
+    config = DaprClientConfig(max_grpc_message_length=16 * 1024 * 1024)
+    result = dapr_client_kwargs(config=config, max_grpc_message_length=64 * 1024 * 1024)
+    assert result == {"max_grpc_message_length": 64 * 1024 * 1024}
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_config_rejects_non_positive_values(value: int) -> None:
     with pytest.raises(ValueError):
-        set_inbound_message_size_bytes(0)
-    with pytest.raises(ValueError):
-        set_inbound_message_size_bytes(-1)
+        DaprClientConfig(max_grpc_message_length=value)
+
+
+def test_dapr_client_config_is_immutable() -> None:
+    config = DaprClientConfig(max_grpc_message_length=16 * 1024 * 1024)
+    with pytest.raises(Exception):
+        config.max_grpc_message_length = 32 * 1024 * 1024  # type: ignore[misc]

@@ -21,6 +21,7 @@ from pydantic import Field
 from dapr_agents.memory import MemoryBase
 from dapr_agents.storage.daprstores.statestore import DaprStateStore
 from dapr_agents.types import BaseMessage
+from dapr_agents.utils import DaprClientConfig
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,19 @@ class ConversationDaprStateMemory(MemoryBase):
     dapr_store: Optional[DaprStateStore] = Field(
         default=None, init=False, description="Dapr State Store."
     )
+    dapr_client_config: Optional[DaprClientConfig] = Field(
+        default=None,
+        description="Optional Dapr client tuning forwarded to the state store.",
+    )
 
     def model_post_init(self, __context: Any) -> None:
         """
         Initializes the Dapr state store after validation.
         """
-        self.dapr_store = DaprStateStore(store_name=self.store_name)
+        self.dapr_store = DaprStateStore(
+            store_name=self.store_name,
+            dapr_client_config=self.dapr_client_config,
+        )
         logger.info(
             f"ConversationDaprStateMemory initialized (store={self.store_name}, agent_name={self.agent_name})",
         )

@@ -35,7 +35,7 @@ from fastapi.responses import JSONResponse, Response
 
 from dapr_agents.types.exceptions import PubSubNotAvailableError
 from dapr_agents.types.workflow import HttpRouteSpec, PubSubRouteSpec
-from dapr_agents.utils import dapr_client_kwargs
+from dapr_agents.utils import DaprClientConfig, dapr_client_kwargs
 from dapr_agents.workflow.utils.routers import parse_http_json
 from dapr_agents.workflow.utils.subscription import (
     DedupeBackend,
@@ -75,6 +75,7 @@ def _validate_pubsub_components(
     dapr_client: DaprClient,
     pubsub_names: Set[str],
     topics_by_pubsub: dict[str, Set[str]],
+    dapr_client_config: Optional[DaprClientConfig] = None,
 ) -> None:
     """
     Validate that the required PubSub components are available in Dapr.
@@ -83,6 +84,8 @@ def _validate_pubsub_components(
         dapr_client: Active Dapr client to query metadata.
         pubsub_names: Set of pubsub component names that are required.
         topics_by_pubsub: Mapping of pubsub name to set of topics being subscribed.
+        dapr_client_config: Optional Dapr client tuning forwarded when constructing
+            the transient metadata-query client.
 
     Raises:
         PubSubNotAvailableError: If any required PubSub component is not registered.
@@ -91,7 +94,7 @@ def _validate_pubsub_components(
         return
 
     try:
-        with DaprClient(**dapr_client_kwargs()) as client:
+        with DaprClient(**dapr_client_kwargs(config=dapr_client_config)) as client:
             metadata = client.get_metadata()
         registered_components = metadata.registered_components or []
 
@@ -380,6 +383,7 @@ def register_message_routes(
     await_timeout: Optional[int] = None,
     fetch_payloads: bool = True,
     log_outcome: bool = True,
+    dapr_client_config: Optional[DaprClientConfig] = None,
 ) -> List[Callable[[], None]]:
     """
     Register workflow-backed pub/sub routes via decorator discovery and/or explicit specs.
@@ -421,7 +425,12 @@ def register_message_routes(
             topics_by_pubsub[binding.pubsub] = set()
         topics_by_pubsub[binding.pubsub].add(binding.topic)
 
-    _validate_pubsub_components(dapr_client, pubsub_names, topics_by_pubsub)
+    _validate_pubsub_components(
+        dapr_client,
+        pubsub_names,
+        topics_by_pubsub,
+        dapr_client_config=dapr_client_config,
+    )
 
     return subscribe_message_bindings(
         bindings,

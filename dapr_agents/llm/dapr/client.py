@@ -13,11 +13,11 @@
 
 from dapr_agents.types.llm import DaprInferenceClientConfig
 from dapr_agents.llm.base import LLMClientBase
-from dapr_agents.utils import dapr_client_kwargs
+from dapr_agents.utils import DaprClientConfig, dapr_client_kwargs
 from dapr.clients import DaprClient
 from dapr.clients.grpc import conversation as dapr_conversation
 from typing import Dict, Any, List, Optional
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from google.protobuf import json_format
 from google.protobuf.struct_pb2 import Struct as GrpcStruct
 
@@ -28,12 +28,13 @@ logger = logging.getLogger(__name__)
 
 
 class DaprInferenceClient:
-    def __init__(self):
-        pass  # No persistent client - use per-call context manager
+    def __init__(self, dapr_client_config: Optional[DaprClientConfig] = None) -> None:
+        # No persistent client - use per-call context manager
+        self.dapr_client_config = dapr_client_config
 
     def get_metadata(self):
         """Fetch Dapr sidecar metadata using a fresh per-call client."""
-        with DaprClient(**dapr_client_kwargs()) as client:
+        with DaprClient(**dapr_client_kwargs(config=self.dapr_client_config)) as client:
             return client.get_metadata()
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ class DaprInferenceClient:
         if temperature is None:
             temperature = 1
 
-        with DaprClient(**dapr_client_kwargs()) as client:
+        with DaprClient(**dapr_client_kwargs(config=self.dapr_client_config)) as client:
             kwargs: Dict[str, Any] = dict(
                 name=llm,
                 inputs=inputs,
@@ -165,6 +166,11 @@ class DaprInferenceClientBase(LLMClientBase):
     Handles client initialization, configuration, and shared logic.
     """
 
+    dapr_client_config: Optional[DaprClientConfig] = Field(
+        default=None,
+        description="Optional Dapr client tuning forwarded to the inference client.",
+    )
+
     @model_validator(mode="before")
     def validate_and_initialize(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         return values
@@ -190,7 +196,7 @@ class DaprInferenceClientBase(LLMClientBase):
         """
         Initializes and returns the Dapr Inference client.
         """
-        return DaprInferenceClient()
+        return DaprInferenceClient(dapr_client_config=self.dapr_client_config)
 
     @classmethod
     def from_config(

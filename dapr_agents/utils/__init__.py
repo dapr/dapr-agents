@@ -13,11 +13,12 @@
 
 from .dapr_client_factory import (
     INBOUND_MESSAGE_SIZE_ENV,
+    DaprClientConfig,
     dapr_client_kwargs,
     default_async_dapr_client_factory,
     default_dapr_client_factory,
-    get_inbound_message_size_bytes,
-    set_inbound_message_size_bytes,
+    make_async_dapr_client_factory,
+    make_dapr_client_factory,
 )
 from .logger import (
     WorkflowReplayFilter,
@@ -32,11 +33,12 @@ __all__ = [
     "add_signal_handlers_cross_platform",
     "SignalHandlingMixin",
     "INBOUND_MESSAGE_SIZE_ENV",
+    "DaprClientConfig",
     "dapr_client_kwargs",
     "default_async_dapr_client_factory",
     "default_dapr_client_factory",
-    "get_inbound_message_size_bytes",
-    "set_inbound_message_size_bytes",
+    "make_async_dapr_client_factory",
+    "make_dapr_client_factory",
     "is_version_supported",  # Internal utility, used by dapr chat client
     "get_context_aware_logger",
     "with_logger_context",

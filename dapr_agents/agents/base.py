@@ -23,8 +23,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, C
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 from dapr_agents.utils import (
+    DaprClientConfig,
     dapr_client_kwargs,
-    set_inbound_message_size_bytes,
 )
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
@@ -370,18 +370,24 @@ class AgentBase:
         )
         self.agent_metadata = agent_metadata or {}
 
-        # Register the gRPC inbound size override early so that the very first
-        # DaprClient construction below also honours it.
+        # Build a Dapr client config from execution settings so every internal
+        # DaprClient construction below honours the requested gRPC limits.
+        self._dapr_client_config: Optional[DaprClientConfig] = None
         if (
             execution is not None
             and execution.max_grpc_inbound_message_size_bytes is not None
         ):
-            set_inbound_message_size_bytes(
-                execution.max_grpc_inbound_message_size_bytes
+            self._dapr_client_config = DaprClientConfig(
+                max_grpc_message_length=execution.max_grpc_inbound_message_size_bytes,
             )
 
         try:
-            with DaprClient(**dapr_client_kwargs(http_timeout_seconds=10)) as _client:
+            with DaprClient(
+                **dapr_client_kwargs(
+                    config=self._dapr_client_config,
+                    http_timeout_seconds=10,
+                )
+            ) as _client:
                 resp: GetMetadataResponse = _client.get_metadata()
                 self.appid = resp.application_id
                 components: Sequence[RegisteredComponents] = resp.registered_components
@@ -395,6 +401,7 @@ class AgentBase:
                             store=ConversationDaprStateMemory(
                                 store_name=component.name,
                                 agent_name=self.name,
+                                dapr_client_config=self._dapr_client_config,
                             )
                         )
                     if "conversation" in component.type and llm is None:
@@ -410,7 +417,10 @@ class AgentBase:
                         and state is None
                     ):
                         state = AgentStateConfig(
-                            store=StateStoreService(store_name=component.name),
+                            store=StateStoreService(
+                                store_name=component.name,
+                                dapr_client_config=self._dapr_client_config,
+                            ),
                             state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
                         )
                     if (
@@ -419,7 +429,10 @@ class AgentBase:
                         and registry is None
                     ):
                         registry = AgentRegistryConfig(
-                            store=StateStoreService(store_name=component.name),
+                            store=StateStoreService(
+                                store_name=component.name,
+                                dapr_client_config=self._dapr_client_config,
+                            ),
                             team_name="default",
                         )
                     if "state" in component.type and component.name == "agent-runtime":
@@ -505,10 +518,18 @@ class AgentBase:
             self._memory.store = ConversationDaprStateMemory(
                 store_name=state.store.store_name,
                 agent_name=self.name,
+                dapr_client_config=self._dapr_client_config,
             )
         self.memory = self._memory.store or ConversationListMemory()
         if hasattr(self.memory, "agent_name"):
             self.memory.agent_name = self.name
+        # Forward the agent's Dapr client config to any state-store dependent
+        # collaborators that support it.
+        self._propagate_dapr_client_config_to_collaborators(
+            state=state,
+            registry=registry,
+            memory_store=self.memory,
+        )
 
         # -----------------------------
         # Prompting helper
@@ -542,6 +563,14 @@ class AgentBase:
         self.llm: ChatClientBase = llm or get_default_llm()
         if self.llm:
             self.llm.prompt_template = self.prompt_template
+            # Forward Dapr client tuning to LLM clients that talk to the sidecar.
+            if self._dapr_client_config is not None and hasattr(
+                self.llm, "dapr_client_config"
+            ):
+                self.llm.dapr_client_config = self._dapr_client_config
+                # Recreate the inner inference client so the new config takes effect.
+                if hasattr(self.llm, "refresh_client"):
+                    self.llm.refresh_client()
 
         # -----------------------------
         # Tools
@@ -730,7 +759,9 @@ class AgentBase:
         subscribe_metadata.setdefault("pgNotifyChannel", "config")
 
         try:
-            self._config_client = DaprClient(**dapr_client_kwargs())
+            self._config_client = DaprClient(
+                **dapr_client_kwargs(config=self._dapr_client_config)
+            )
             self._subscription_id = self._config_client.subscribe_configuration(
                 store_name=self.configuration.store_name,
                 keys=keys,
@@ -761,7 +792,9 @@ class AgentBase:
     def _load_initial_configuration(self, keys: List[str]) -> None:
         """Load current configuration values from the store and apply them."""
         try:
-            with DaprClient(**dapr_client_kwargs()) as client:
+            with DaprClient(
+                **dapr_client_kwargs(config=self._dapr_client_config)
+            ) as client:
                 response: ConfigurationResponse = client.get_configuration(
                     store_name=self.configuration.store_name,  # type: ignore[union-attr]
                     keys=keys,
@@ -1009,6 +1042,51 @@ class AgentBase:
             except Exception:
                 pass
             self._config_client = None
+
+    # ------------------------------------------------------------------
+    # Dapr client config propagation
+    # ------------------------------------------------------------------
+    @property
+    def dapr_client_config(self) -> Optional[DaprClientConfig]:
+        """Return the resolved Dapr client tuning for this agent, if any."""
+        return self._dapr_client_config
+
+    def _propagate_dapr_client_config_to_collaborators(
+        self,
+        *,
+        state: Optional[AgentStateConfig],
+        registry: Optional[AgentRegistryConfig],
+        memory_store: Optional[Any],
+    ) -> None:
+        """Forward the agent's Dapr client config to dependent collaborators.
+
+        Best-effort propagation that only overwrites an unset (``None``)
+        ``dapr_client_config`` on each collaborator, preserving any value a
+        user explicitly supplied. For ``ConversationDaprStateMemory``, the
+        inner ``dapr_store`` is also updated so subsequent state calls see the
+        new config without rebuilding the memory object.
+        """
+        if self._dapr_client_config is None:
+            return
+
+        def _maybe_set(obj: Any) -> None:
+            if obj is None:
+                return
+            if not hasattr(obj, "dapr_client_config"):
+                return
+            if getattr(obj, "dapr_client_config", None) is None:
+                obj.dapr_client_config = self._dapr_client_config
+
+        if state is not None:
+            _maybe_set(state.store)
+        if registry is not None:
+            _maybe_set(registry.store)
+        _maybe_set(memory_store)
+        # ConversationDaprStateMemory creates its inner DaprStateStore eagerly
+        # in model_post_init. Update its inner store as well so reads/writes
+        # pick up the agent's config without rebuilding the memory object.
+        inner_store = getattr(memory_store, "dapr_store", None)
+        _maybe_set(inner_store)
 
     # ------------------------------------------------------------------
     # DaprInfra delegation properties and methods

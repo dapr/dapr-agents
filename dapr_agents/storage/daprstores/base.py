@@ -15,6 +15,8 @@ from dapr.clients import DaprClient
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Any
 
+from dapr_agents.utils import DaprClientConfig
+
 
 class DaprStoreBase(BaseModel):
     """
@@ -24,6 +26,10 @@ class DaprStoreBase(BaseModel):
     store_name: str = Field(..., description="The name of the Dapr store.")
     client: Optional[DaprClient] = Field(
         default=None, init=False, description="Dapr client for store operations."
+    )
+    dapr_client_config: Optional[DaprClientConfig] = Field(
+        default=None,
+        description="Optional Dapr client tuning (e.g. gRPC inbound message size).",
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -85,6 +85,7 @@ from dapr_agents.types.tools import ToolExecutionRecord, ToolExecutionStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
+from dapr_agents.utils import make_async_dapr_client_factory
 from dapr_agents.workflow.utils.pubsub import broadcast_message, publish_message
 from dapr_agents.tool.workflow.agent_tool import (
     AgentWorkflowTool,
@@ -2300,6 +2301,9 @@ class DurableAgent(AgentBase):
                     pubsub_name=pubsub_name,
                     topic_name=topic,
                     message=event_data,
+                    client_factory=make_async_dapr_client_factory(
+                        self.dapr_client_config
+                    ),
                 )
 
             self._run_asyncio_task(_publish())
@@ -2347,6 +2351,7 @@ class DurableAgent(AgentBase):
                 message_bus=self.message_bus_name,
                 source=self.name,
                 agents_metadata=agents_metadata,
+                client_factory=make_async_dapr_client_factory(self.dapr_client_config),
             )
 
         try:
