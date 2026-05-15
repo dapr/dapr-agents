@@ -19,6 +19,7 @@ from typing import Any, Callable, List, Literal, Optional, Type, TypeVar, get_ty
 
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.routers import extract_message_models
+from dapr_agents.utils.logger import with_logger_context
 
 logger = logging.getLogger(__name__)
 
@@ -31,21 +32,25 @@ def workflow_entry(func: Callable[..., R]) -> Callable[..., R]:
     """
     Mark a method/function as the workflow entrypoint for an Agent.
 
-    This decorator does not wrap the function; it simply annotates the callable
-    with `_is_workflow_entry = True` so AgentRunner can discover it on the agent
-    instance via reflection.
+    This decorator wraps the function to inject context-aware logging
+    state (tracking if the workflow is replaying) and annotates the
+    callable with `_is_workflow_entry = True` so AgentRunner can
+    discover it on the agent instance via reflection.
 
     Usage:
         class MyAgent:
             @workflow_entry
-            def my_workflow(self, ctx: DaprWorkflowContext, wf_input: dict) -> str:
+            def my_workflow(
+                self, ctx: DaprWorkflowContext, wf_input: dict
+            ) -> str:
                 ...
 
     Returns:
-        The same callable (unmodified), with an identifying attribute.
+        The wrapped callable, with an identifying attribute.
     """
-    setattr(func, "_is_workflow_entry", True)
-    return func
+    wrapped_func = with_logger_context(func)
+    setattr(wrapped_func, "_is_workflow_entry", True)
+    return wrapped_func
 
 
 def message_router(

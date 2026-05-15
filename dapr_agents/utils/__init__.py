@@ -19,6 +19,11 @@ from .dapr_client_factory import (
     get_inbound_message_size_bytes,
     set_inbound_message_size_bytes,
 )
+from .logger import (
+    WorkflowReplayFilter,
+    get_context_aware_logger,
+    with_logger_context,
+)
 from .semver import is_version_supported
 from .signal_handlers import add_signal_handlers_cross_platform
 from .signal_mixin import SignalHandlingMixin
@@ -33,4 +38,7 @@ __all__ = [
     "get_inbound_message_size_bytes",
     "set_inbound_message_size_bytes",
     "is_version_supported",  # Internal utility, used by dapr chat client
+    "get_context_aware_logger",
+    "with_logger_context",
+    "WorkflowReplayFilter",
 ]
