@@ -93,9 +93,3 @@ be empty (the echo executor emits no `tool_call` events).
 dapr stop --app-id echo-executor-app
 ```
 
-## Related
-
-* RFC: [dapr/dapr-agents#569](https://github.com/dapr/dapr-agents/issues/569)
-* Linear: AI‑505 (this ticket), AI‑506 (Claude Agent SDK provider —
-  the first *real* `AgentExecutorBase`), AI‑509 (end‑to‑end pipeline‑stage
-  validation).
