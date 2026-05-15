@@ -95,14 +95,15 @@ from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 from dapr_agents.workflow.utils.names import sanitize_agent_name
 from dapr_agents.utils.logger import get_context_aware_logger
 from dapr_agents.hooks import (
-    Hooks,
-    HookContext,
-    HookDecision,
-    Proceed,
-    Skip,
-    Modify,
-    RequireApproval,
     Deny,
+    HookDecision,
+    Hooks,
+    LLMHookContext,
+    Mutate,
+    Proceed,
+    RequireApproval,
+    Skip,
+    ToolHookContext,
 )
 
 logger = get_context_aware_logger(__name__)
@@ -545,9 +546,8 @@ class DurableAgent(AgentBase):
                                     )
                                 except json.JSONDecodeError:
                                     hook_payload = {}
-                                hook_ctx = HookContext(
+                                hook_ctx = ToolHookContext(
                                     step_name=fn_name_check,
-                                    step_kind="tool",
                                     source=getattr(tool_obj_check, "source", "local"),
                                     payload=hook_payload,
                                     tool_call_id=tc["id"],
@@ -632,7 +632,7 @@ class DurableAgent(AgentBase):
                                 continue
 
                             if (
-                                isinstance(hook_decision, Modify)
+                                isinstance(hook_decision, Mutate)
                                 and hook_decision.payload is not None
                             ):
                                 # hook mutated the arguments — rebuild tc with new payload
@@ -1909,25 +1909,19 @@ class DurableAgent(AgentBase):
         # like web search; the activity boundary records the final assistant
         # message so replays use the recorded output rather than re-running the
         # hook. First non-Proceed decision wins, mirroring before_tool_call.
-        llm_decision: Optional[HookDecision] = None
+        before_llm_decision: Optional[HookDecision] = None
         if self._hooks and self._hooks.before_llm_call:
             hook_payload: Dict[str, Any] = dict(generate_kwargs)
             if "messages" in hook_payload:
                 hook_payload["messages"] = list(hook_payload["messages"])
-            before_ctx = HookContext(
-                step_name="llm",
-                step_kind="llm",
-                source="agent",
-                payload=hook_payload,
-                tool_call_id="",
-            )
+            before_ctx = LLMHookContext(payload=hook_payload)
             for hook in self._hooks.before_llm_call:
                 result = hook(before_ctx)
                 if result is not None and not isinstance(result, Proceed):
-                    llm_decision = result
+                    before_llm_decision = result
                     break
 
-        if isinstance(llm_decision, RequireApproval):
+        if isinstance(before_llm_decision, RequireApproval):
             raise NotImplementedError(
                 "RequireApproval is not supported on before_llm_call. LLM hooks "
                 "run inside the call_llm activity so they can perform non-"
@@ -1938,22 +1932,27 @@ class DurableAgent(AgentBase):
             )
 
         synthesized_message: Optional[Dict[str, Any]] = None
-        if isinstance(llm_decision, Skip):
+        if isinstance(before_llm_decision, Skip):
             skip_content = (
-                str(llm_decision.result) if llm_decision.result is not None else ""
+                str(before_llm_decision.result)
+                if before_llm_decision.result is not None
+                else ""
             )
             synthesized_message = {"role": "assistant", "content": skip_content}
-        elif isinstance(llm_decision, Deny):
-            deny_reason = llm_decision.reason or "policy denial"
+        elif isinstance(before_llm_decision, Deny):
+            deny_reason = before_llm_decision.reason or "policy denial"
             synthesized_message = {
                 "role": "assistant",
                 "content": f"LLM call blocked: {deny_reason}",
             }
-        elif isinstance(llm_decision, Modify) and llm_decision.payload is not None:
+        elif (
+            isinstance(before_llm_decision, Mutate)
+            and before_llm_decision.payload is not None
+        ):
             # Shallow-merge so a hook can override just the keys it cares about
             # (e.g. only `messages` for RAG) without dropping `tools`,
             # `response_format`, or `tool_choice` from generate_kwargs.
-            generate_kwargs = {**generate_kwargs, **llm_decision.payload}
+            generate_kwargs = {**generate_kwargs, **before_llm_decision.payload}
 
         if synthesized_message is not None:
             assistant_message = synthesized_message
@@ -1985,25 +1984,19 @@ class DurableAgent(AgentBase):
                 assistant_message = assistant_message.model_dump()
 
         # after_llm_call hook dispatch. Receives a copy of the built
-        # assistant_message and may return Modify(payload=<replacement dict>) to
-        # mutate it before persistence. Skip / Deny / RequireApproval are no-ops
+        # assistant_message and may return Mutate(payload=<replacement dict>) to
+        # replace it before persistence. Skip / Deny / RequireApproval are no-ops
         # on the after-path since the LLM has already produced output. Hooks
-        # receive a shallow copy so in-place mutation cannot bypass the Modify
+        # receive a shallow copy so in-place mutation cannot bypass the Mutate
         # contract.
         if self._hooks and self._hooks.after_llm_call:
             after_payload: Dict[str, Any] = dict(generate_kwargs)
             if "messages" in after_payload:
                 after_payload["messages"] = list(after_payload["messages"])
-            after_ctx = HookContext(
-                step_name="llm",
-                step_kind="llm",
-                source="agent",
-                payload=after_payload,
-                tool_call_id="",
-            )
+            after_ctx = LLMHookContext(payload=after_payload)
             for hook in self._hooks.after_llm_call:
                 result = hook(after_ctx, dict(assistant_message))
-                if isinstance(result, Modify) and result.payload is not None:
+                if isinstance(result, Mutate) and result.payload is not None:
                     assistant_message = result.payload
                     break
 

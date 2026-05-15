@@ -26,7 +26,7 @@ import logging
 import os
 from functools import lru_cache
 
-from dapr_agents import HookContext, HookDecision, Modify, Proceed
+from dapr_agents import HookDecision, LLMHookContext, Mutate, Proceed
 from tavily import TavilyClient
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ def _format_snippets(results: list[dict]) -> str:
     return "\n".join(rendered)
 
 
-def enrich_with_tavily(ctx: HookContext) -> HookDecision:
+def enrich_with_tavily(ctx: LLMHookContext) -> HookDecision:
     """Prepend Tavily search results as a system message before the LLM call."""
     messages = ctx.payload.get("messages", [])
     if not messages or messages[-1].get("role") != "user":
@@ -93,11 +93,11 @@ def enrich_with_tavily(ctx: HookContext) -> HookDecision:
         {
             "role": "system",
             "content": (
-                f"{_UNTRUSTED_GUARD}\n<web_context>\n{snippets}\n</web_context>"
+                f"{_UNTRUSTED_GUARDRAIL}\n<web_context>\n{snippets}\n</web_context>"
             ),
         },
         messages[-1],
     ]
     # before_llm_call shallow-merges payload into the existing generate kwargs,
     # so we only need to return the key we changed.
-    return Modify(payload={"messages": enriched_messages})
+    return Mutate(payload={"messages": enriched_messages})

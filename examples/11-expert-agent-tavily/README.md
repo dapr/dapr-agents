@@ -15,8 +15,6 @@ limitations under the License.
 
 This example demonstrates how to attach a `before_llm_call` hook to a `DurableAgent` to inject fresh web context into every LLM turn — automatically, without the model needing to choose to call a `web_search` tool.
 
-The hook system was introduced in [#571](https://github.com/dapr/dapr-agents/pull/571); the LLM hook slots were wired in [#595](https://github.com/dapr/dapr-agents/pull/595).
-
 ## Why a hook, not a tool?
 
 A `web_search` tool depends on the LLM *deciding* to invoke it. The model often won't, especially for questions it thinks it knows ("What's the latest Dapr release?" → confident, wrong answer from training data).
@@ -30,7 +28,7 @@ A `before_llm_call` hook fires for **every** LLM call. The user's question gets 
 3. Inside the `call_llm` activity, the `before_llm_call` hook fires:
    - The hook reads the last user message from the LLM call's `messages` payload.
    - It calls `tavily.search(...)` for fresh web context.
-   - It returns `Modify(payload=...)` to splice the results into the prompt as a system message just before the user's question.
+   - It returns `Mutate(payload=...)` to splice the results into the prompt as a system message just before the user's question.
 4. The (now-enriched) prompt is sent to the LLM, which answers using the injected context.
 5. The activity's recorded output is what the workflow durably remembers — Tavily is only called once per turn, even on replay.
 

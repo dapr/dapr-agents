@@ -49,7 +49,7 @@ def build_agent() -> DurableAgent:
             store=StateStoreService(store_name="workflowstatestore"),
         ),
         registry=AgentRegistryConfig(
-            store=StateStoreService(store_name="registrystatestore"),
+            store=StateStoreService(store_name="agentregistrystore"),
             team_name="default",
         ),
         execution=AgentExecutionConfig(max_iterations=1),

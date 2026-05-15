@@ -31,7 +31,7 @@ from dapr_agents.hooks import (
     Deny,
     HookContext,
     Hooks,
-    Modify,
+    Mutate,
     Proceed,
     RequireApproval,
     Skip,
@@ -218,8 +218,8 @@ class TestBeforeLLMCallHook:
         assert mock_llm.generate.call_count == 1
         assert result == {"role": "assistant", "content": "from-llm"}
 
-    def test_modify_merges_into_generate_kwargs(self, mock_llm, mock_activity_ctx):
-        """before_llm_call's Modify payload is shallow-merged, so a hook that
+    def test_mutate_merges_into_generate_kwargs(self, mock_llm, mock_activity_ctx):
+        """before_llm_call's Mutate payload is shallow-merged, so a hook that
         returns only `messages` still gets its messages applied without having
         to spread `**ctx.payload` to preserve other kwargs."""
         new_messages = [
@@ -228,7 +228,7 @@ class TestBeforeLLMCallHook:
         ]
 
         def hook(_):
-            return Modify(payload={"messages": new_messages})
+            return Mutate(payload={"messages": new_messages})
 
         agent = _make_agent(mock_llm, Hooks(before_llm_call=[hook]))
         _run_call_llm(agent, mock_activity_ctx)
@@ -237,8 +237,8 @@ class TestBeforeLLMCallHook:
         called_kwargs = mock_llm.generate.call_args.kwargs
         assert called_kwargs["messages"] == new_messages
 
-    def test_modify_preserves_other_kwargs(self, mock_llm, mock_activity_ctx):
-        """A hook that returns Modify with only `messages` must NOT drop
+    def test_mutate_preserves_other_kwargs(self, mock_llm, mock_activity_ctx):
+        """A hook that returns Mutate with only `messages` must NOT drop
         `tools` (or any other generate kwargs originally on the call). This is
         the regression test for the framework-side merge behavior."""
         original_tools = [
@@ -249,7 +249,7 @@ class TestBeforeLLMCallHook:
         ]
 
         def hook(_):
-            return Modify(payload={"messages": [{"role": "user", "content": "x"}]})
+            return Mutate(payload={"messages": [{"role": "user", "content": "x"}]})
 
         agent = _make_agent(mock_llm, Hooks(before_llm_call=[hook]))
         # Reuse the default activity patchers but swap in a non-empty tools list
@@ -277,11 +277,36 @@ class TestBeforeLLMCallHook:
         assert called_kwargs["tools"] == original_tools
         assert called_kwargs["messages"] == [{"role": "user", "content": "x"}]
 
+    def test_mutate_empty_payload_is_noop(self, mock_llm, mock_activity_ctx):
+        """Mutate(payload={}) shallow-merges nothing into generate_kwargs, and
+        Mutate(payload=None) skips the merge branch entirely. Both must leave
+        the LLM call unaffected so a hook can no-op explicitly without breaking
+        downstream dispatch."""
+
+        def empty_payload_hook(_):
+            return Mutate(payload={})
+
+        def none_payload_hook(_):
+            return Mutate(payload=None)
+
+        for hook in (empty_payload_hook, none_payload_hook):
+            mock_llm.generate.reset_mock()
+            agent = _make_agent(mock_llm, Hooks(before_llm_call=[hook]))
+            result = _run_call_llm(agent, mock_activity_ctx)
+            assert mock_llm.generate.call_count == 1
+            # The original messages from _patch_activity_deps survive unchanged.
+            called_messages = mock_llm.generate.call_args.kwargs["messages"]
+            assert called_messages == [
+                {"role": "system", "content": "you are a helpful assistant"},
+                {"role": "user", "content": "what is dapr?"},
+            ]
+            assert result == {"role": "assistant", "content": "from-llm"}
+
     def test_in_place_mutation_does_not_leak_into_llm_call(
         self, mock_llm, mock_activity_ctx
     ):
         """A hook that mutates ctx.payload in-place but returns Proceed must NOT
-        affect the actual LLM call — only Modify(payload=...) is honored."""
+        affect the actual LLM call — only Mutate(payload=...) is honored."""
 
         def sneaky_hook(ctx):
             # Try to mutate the live payload AND the nested messages list
@@ -340,7 +365,7 @@ class TestBeforeLLMCallHook:
 
     def test_first_nonproceed_decision_wins(self, mock_llm, mock_activity_ctx):
         def hook_a(_):
-            return Modify(payload={"messages": [{"role": "user", "content": "from A"}]})
+            return Mutate(payload={"messages": [{"role": "user", "content": "from A"}]})
 
         def hook_b_unreached(_):
             return Skip(result="should not be reached")
@@ -348,12 +373,12 @@ class TestBeforeLLMCallHook:
         agent = _make_agent(mock_llm, Hooks(before_llm_call=[hook_a, hook_b_unreached]))
         _run_call_llm(agent, mock_activity_ctx)
 
-        # Modify won — LLM was called with hook_a's payload, not Skip-ed
+        # Mutate won — LLM was called with hook_a's payload, not Skip-ed
         assert mock_llm.generate.call_count == 1
         called_messages = mock_llm.generate.call_args.kwargs["messages"]
         assert called_messages == [{"role": "user", "content": "from A"}]
 
-    def test_proceed_then_modify_chains(self, mock_llm, mock_activity_ctx):
+    def test_proceed_then_mutate_chains(self, mock_llm, mock_activity_ctx):
         """First hook returns Proceed → second hook still runs."""
         new_messages = [{"role": "user", "content": "from B"}]
 
@@ -361,7 +386,7 @@ class TestBeforeLLMCallHook:
             return Proceed()
 
         def hook_b(_):
-            return Modify(payload={"messages": new_messages})
+            return Mutate(payload={"messages": new_messages})
 
         agent = _make_agent(mock_llm, Hooks(before_llm_call=[hook_a, hook_b]))
         _run_call_llm(agent, mock_activity_ctx)
@@ -371,11 +396,11 @@ class TestBeforeLLMCallHook:
 
 
 class TestAfterLLMCallHook:
-    def test_modify_replaces_assistant_message(self, mock_llm, mock_activity_ctx):
+    def test_mutate_replaces_assistant_message(self, mock_llm, mock_activity_ctx):
         replacement = {"role": "assistant", "content": "rewritten by after-hook"}
 
         def hook(_, _msg):
-            return Modify(payload=replacement)
+            return Mutate(payload=replacement)
 
         agent = _make_agent(mock_llm, Hooks(after_llm_call=[hook]))
         result = _run_call_llm(agent, mock_activity_ctx)
@@ -404,7 +429,7 @@ class TestAfterLLMCallHook:
         self, mock_llm, mock_activity_ctx
     ):
         """A hook that mutates the assistant_message dict in-place but returns
-        Proceed must NOT affect what gets persisted — only Modify is honored."""
+        Proceed must NOT affect what gets persisted — only Mutate is honored."""
 
         def sneaky_hook(_, msg):
             msg["content"] = "secretly rewritten by sneaky hook"
@@ -438,15 +463,15 @@ class TestAfterLLMCallHook:
 
 
 class TestBeforeAfterCombined:
-    def test_modify_kwargs_then_modify_response(self, mock_llm, mock_activity_ctx):
+    def test_mutate_kwargs_then_mutate_response(self, mock_llm, mock_activity_ctx):
         before_messages = [{"role": "user", "content": "BEFORE"}]
         after_message = {"role": "assistant", "content": "AFTER"}
 
         def before_hook(_):
-            return Modify(payload={"messages": before_messages})
+            return Mutate(payload={"messages": before_messages})
 
         def after_hook(_, _msg):
-            return Modify(payload=after_message)
+            return Mutate(payload=after_message)
 
         agent = _make_agent(
             mock_llm,
