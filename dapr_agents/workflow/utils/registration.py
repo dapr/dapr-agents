@@ -39,7 +39,6 @@ from dapr_agents.workflow.utils.routers import parse_http_json
 from dapr_agents.workflow.utils.subscription import (
     DedupeBackend,
     MessageRouteBinding,
-    SchedulerFn,
     subscribe_message_bindings,
 )
 
@@ -388,7 +387,6 @@ def register_message_routes(
     delivery_mode: Literal["sync", "async"] = "sync",
     queue_maxsize: int = 1024,
     deduper: Optional[DedupeBackend] = None,
-    scheduler: Optional[SchedulerFn] = None,
     wf_client: Optional[wf.DaprWorkflowClient] = None,
     await_result: bool = False,
     await_timeout: Optional[int] = None,
@@ -406,7 +404,6 @@ def register_message_routes(
         delivery_mode: `"sync"` blocks the Dapr thread; `"async"` enqueues onto a worker queue.
         queue_maxsize: Max in-flight messages when `delivery_mode="async"`.
         deduper: Optional idempotency backend keyed by CloudEvent id/hash.
-        scheduler: Deprecated/ignored scheduler hook; retained for API compatibility.
         wf_client: Reused `DaprWorkflowClient` for scheduling/waiting.
         await_result: If `True` (sync only), wait for workflow completion and request retry on failure.
         await_timeout: Optional wait timeout in seconds.
@@ -444,7 +441,6 @@ def register_message_routes(
         delivery_mode=delivery_mode,
         queue_maxsize=queue_maxsize,
         deduper=deduper,
-        scheduler=scheduler,
         wf_client=wf_client,
         await_result=await_result,
         await_timeout=await_timeout,
