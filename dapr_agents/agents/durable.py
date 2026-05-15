@@ -261,12 +261,10 @@ class DurableAgent(AgentBase):
             memory: Enable long-term conversation memory storage; defaults to false.
             llm: Chat client; defaults to `get_default_llm()`. Mutually
                 exclusive with ``executor``.
-            executor: Stateful agent runtime (implements
-                :class:`~dapr_agents.agents.executors.AgentExecutorBase`).
-                Mutually exclusive with ``llm``. When provided the workflow
-                dispatches a ``run_executor`` activity that drives the
-                executor's async event stream and persists Dapr state at
-                session granularity instead of message granularity.
+            executor: Stateful agent runtime that is mutually exclusive with ``llm``.
+                When provided the workflow dispatches a ``run_executor`` activity
+                that drives the executor's async event stream,
+                and persists state at session granularity instead of message granularity.
             tools: Optional tool callables or ``AgentTool`` instances.
                 All agents sharing the same registry are auto-discovered as
                 tools at workflow start via ``load_tools``.
