@@ -790,7 +790,7 @@ class TestTTLDedupeBackend:
 def test_message_router_with_payload_filter():
     """payload_filter callable is stored on the decorator metadata."""
 
-    def pf(payload, ctx):
+    def pf(payload, msg_ctx):
         return True
 
     @message_router(pubsub="messagepubsub", topic="orders", payload_filter=pf)
@@ -804,7 +804,7 @@ def test_message_router_with_payload_filter():
 def test_message_router_with_model_filter():
     """model_filter callable is stored on the decorator metadata."""
 
-    def mf(model, ctx):
+    def mf(model, msg_ctx):
         return True
 
     @message_router(pubsub="messagepubsub", topic="orders", model_filter=mf)
@@ -818,7 +818,7 @@ def test_message_router_with_model_filter():
 def test_message_router_rejects_async_payload_filter():
     """Async payload_filter is rejected at decoration time."""
 
-    async def pf(payload, ctx):
+    async def pf(payload, msg_ctx):
         return True
 
     with pytest.raises(TypeError, match="payload_filter.*synchronous"):
@@ -831,7 +831,7 @@ def test_message_router_rejects_async_payload_filter():
 def test_message_router_rejects_async_model_filter():
     """Async model_filter is rejected at decoration time."""
 
-    async def mf(model, ctx):
+    async def mf(model, msg_ctx):
         return True
 
     with pytest.raises(TypeError, match="model_filter.*synchronous"):
@@ -855,10 +855,10 @@ def test_collect_bindings_carries_decorator_filters():
     """_collect_message_bindings propagates filters from decorator metadata."""
     from dapr_agents.workflow.utils.registration import _collect_message_bindings
 
-    def pf(payload, ctx):
+    def pf(payload, msg_ctx):
         return True
 
-    def mf(model, ctx):
+    def mf(model, msg_ctx):
         return True
 
     @message_router(
@@ -881,10 +881,10 @@ def test_pubsub_route_spec_filter_wins_over_decorator():
     from dapr_agents.types.workflow import PubSubRouteSpec
     from dapr_agents.workflow.utils.registration import _collect_message_bindings
 
-    def deco_pf(payload, ctx):
+    def deco_pf(payload, msg_ctx):
         return True
 
-    def spec_pf(payload, ctx):
+    def spec_pf(payload, msg_ctx):
         return False
 
     @message_router(pubsub="messagepubsub", topic="orders", payload_filter=deco_pf)
@@ -906,7 +906,7 @@ def test_pubsub_route_spec_falls_back_to_decorator_filter():
     from dapr_agents.types.workflow import PubSubRouteSpec
     from dapr_agents.workflow.utils.registration import _collect_message_bindings
 
-    def deco_mf(model, ctx):
+    def deco_mf(model, msg_ctx):
         return True
 
     @message_router(pubsub="messagepubsub", topic="orders", model_filter=deco_mf)
@@ -985,7 +985,7 @@ def test_payload_filter_accept_schedules_workflow(filter_env):
     @message_router(
         pubsub="messagepubsub",
         topic="orders",
-        payload_filter=lambda p, ctx: p.get("amount", 0) > 50,
+        payload_filter=lambda p, msg_ctx: p.get("amount", 0) > 50,
     )
     def handler(message: OrderCreated):
         return "ok"
@@ -1002,7 +1002,7 @@ def test_payload_filter_reject_skips_workflow(filter_env):
     @message_router(
         pubsub="messagepubsub",
         topic="orders",
-        payload_filter=lambda p, ctx: p.get("amount", 0) > 50,
+        payload_filter=lambda p, msg_ctx: p.get("amount", 0) > 50,
     )
     def handler(message: OrderCreated):
         return "ok"
@@ -1019,7 +1019,7 @@ def test_model_filter_reject_skips_workflow(filter_env):
     @message_router(
         pubsub="messagepubsub",
         topic="orders",
-        model_filter=lambda m, ctx: m.amount > 50,
+        model_filter=lambda m, msg_ctx: m.amount > 50,
     )
     def handler(message: OrderCreated):
         return "ok"
@@ -1033,7 +1033,7 @@ def test_model_filter_reject_skips_workflow(filter_env):
 def test_filter_exception_skips_binding(filter_env):
     mock_dapr, mock_wf = filter_env
 
-    def buggy(model, ctx):
+    def buggy(model, msg_ctx):
         raise RuntimeError("boom")
 
     @message_router(
@@ -1054,8 +1054,8 @@ def test_message_context_exposes_event_metadata(filter_env):
     mock_dapr, mock_wf = filter_env
     captured: list = []
 
-    def capturing(model, ctx):
-        captured.append(ctx)
+    def capturing(model, msg_ctx):
+        captured.append(msg_ctx)
         return True
 
     @message_router(
@@ -1075,12 +1075,12 @@ def test_message_context_exposes_event_metadata(filter_env):
     _run_one_message(mock_dapr, mock_wf, handler, msg)
 
     assert len(captured) == 1
-    ctx = captured[0]
-    assert ctx.event.id == "evt-42"
-    assert ctx.event.source == "/api/orders"
-    assert ctx.event.topic == "orders"
-    assert ctx.event.type == "OrderCreated"
-    assert ctx.dapr_client is mock_dapr
+    msg_ctx = captured[0]
+    assert msg_ctx.event.id == "evt-42"
+    assert msg_ctx.event.source == "/api/orders"
+    assert msg_ctx.event.topic == "orders"
+    assert msg_ctx.event.type == "OrderCreated"
+    assert msg_ctx.dapr_client is mock_dapr
 
 
 # ============================================================================
@@ -1127,7 +1127,7 @@ def test_dedup_drop_also_marks(filter_env):
     @message_router(
         pubsub="messagepubsub",
         topic="orders",
-        model_filter=lambda m, ctx: False,  # always reject -> DROP
+        model_filter=lambda m, msg_ctx: False,  # always reject -> DROP
     )
     def handler(message: OrderCreated):
         return "ok"

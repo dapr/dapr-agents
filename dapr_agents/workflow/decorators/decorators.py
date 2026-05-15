@@ -68,6 +68,12 @@ def message_router(
     """
     Tag a callable as a **Pub/Sub → Workflow** entry with routing + schema metadata.
 
+    Filters run on the per-topic consumer thread and **block message intake** for
+    that topic while they execute. Keep them cheap (in-memory checks, attribute
+    comparisons, header lookups). For anything I/O-bound, do the check inside the
+    workflow body and short-circuit there; otherwise a single slow filter will
+    block the whole topic.
+
     Args:
         func (Optional[Callable[..., Any]]):
             The function to decorate (if used without parentheses).
@@ -82,21 +88,28 @@ def message_router(
         message_model (Optional[Any]):
             The message model class or Union[...] to use for validation.
         payload_filter (Optional[Callable[[Any, MessageContext], bool]]):
-            Function called with the raw CloudEvent `data` before schema validation.
-            Returning False skips this binding; raising drops the message with a
-            logged traceback. Must be a synchronous callable.
+            Sync function called with the raw CloudEvent `data` (a dict or scalar,
+            depending on what the publisher sent) and a `MessageContext`. Runs
+            *before* schema validation, so it's the right place for cheap
+            metadata/source checks that don't need a parsed model. Returning
+            False skips this binding; the next binding on the topic is tried.
+            Raising drops the message with a logged traceback and skips the
+            binding.
         model_filter (Optional[Callable[[Any, MessageContext], bool]]):
-            Function called with the validated message model after schema validation.
-            Returning False skips this binding; raising drops the message with a
-            logged traceback. Must be a synchronous callable.
+            Sync function called with the validated message model and a
+            `MessageContext`. Runs *after* schema validation, so it can rely
+            on typed attribute access on the parsed instance. Same skip/drop
+            semantics as `payload_filter`.
 
     Returns:
         Callable[[Callable[..., Any]], Callable[..., Any]]:
             The decorated function.
 
     Raises:
-        TypeError: If `message_model` cannot be resolved, or if either filter is an
-            `async def` callable (filters run on the consumer thread and must be sync).
+        TypeError: If `message_model` cannot be resolved, or if either filter is
+            an `async def` callable. Filters must be synchronous because they run
+            on the consumer thread; for async I/O, push the check into the
+            workflow body where the runtime is async-aware.
     """
     for filter_name, filter_fn in (
         ("payload_filter", payload_filter),
