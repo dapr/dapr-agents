@@ -38,7 +38,7 @@ members = [
     "06-agent-mcp-client-stdio",
     "06-agent-mcp-client-streamablehttp",
     "07-data-agent-mcp-chainlit",
-    "10-expert-agent-tavily",
+    "11-expert-agent-tavily",
     "dapr-agents",
     "quickstarts",
 ]
@@ -310,9 +310,9 @@ requires-dist = [
 ]
 
 [[package]]
-name = "10-expert-agent-tavily"
+name = "11-expert-agent-tavily"
 version = "0.1.0"
-source = { virtual = "examples/10-expert-agent-tavily" }
+source = { virtual = "examples/11-expert-agent-tavily" }
 dependencies = [
     { name = "chainlit" },
     { name = "dapr-agents" },
