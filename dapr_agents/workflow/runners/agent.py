@@ -604,7 +604,6 @@ class AgentRunner(WorkflowRunner):
                 entry_path=entry_path,
                 status_path=status_path,
             )
-
         self._mount_hitl_routes(fastapi_app=fastapi_app, agent=agent)
 
         auto_run = app is None
