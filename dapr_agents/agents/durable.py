@@ -93,6 +93,7 @@ from dapr_agents.tool.workflow.agent_tool import (
 )
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 from dapr_agents.workflow.utils.names import sanitize_agent_name
+from dapr_agents.utils.logger import get_context_aware_logger
 from dapr_agents.hooks import (
     Hooks,
     HookContext,
@@ -104,7 +105,7 @@ from dapr_agents.hooks import (
     Deny,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_context_aware_logger(__name__)
 
 
 def _get_framework_from_registry(
@@ -447,8 +448,7 @@ class DurableAgent(AgentBase):
         trigger_instance_id = metadata.get("triggering_workflow_instance_id")
         source = metadata.get("source") or "direct"
 
-        if not ctx.is_replaying:
-            logger.info(f"Initial message from {source} -> {self.name}")
+        logger.info(f"Initial message from {source} -> {self.name}")
 
         # Record initial entry via activity to keep deterministic/replay-friendly I/O.
         yield ctx.call_activity(
@@ -476,12 +476,11 @@ class DurableAgent(AgentBase):
         try:
             # Delegate to orchestration workflow if this agent is an orchestrator
             if self._orchestration_strategy:
-                if not ctx.is_replaying:
-                    logger.info(
-                        "Agent %s delegating to orchestration_workflow (instance=%s)",
-                        self.name,
-                        ctx.instance_id,
-                    )
+                logger.info(
+                    "Agent %s delegating to orchestration_workflow (instance=%s)",
+                    self.name,
+                    ctx.instance_id,
+                )
 
                 final_message = yield ctx.call_child_workflow(
                     workflow=orchestration_workflow_id(self.name, infra=self._infra),
@@ -494,23 +493,21 @@ class DurableAgent(AgentBase):
                     retry_policy=self._retry_policy,
                 )
 
-                if not ctx.is_replaying:
-                    logger.info(
-                        "Orchestration workflow completed (instance=%s)",
-                        ctx.instance_id,
-                    )
+                logger.info(
+                    "Orchestration workflow completed (instance=%s)",
+                    ctx.instance_id,
+                )
 
             # Standard agent execution loop
             else:
                 for turn in range(1, self.execution.max_iterations + 1):
-                    if not ctx.is_replaying:
-                        logger.debug(
-                            "Agent %s turn %d/%d (instance=%s)",
-                            self.name,
-                            turn,
-                            self.execution.max_iterations,
-                            ctx.instance_id,
-                        )
+                    logger.debug(
+                        "Agent %s turn %d/%d (instance=%s)",
+                        self.name,
+                        turn,
+                        self.execution.max_iterations,
+                        ctx.instance_id,
+                    )
 
                     assistant_response: Dict[str, Any] = yield ctx.call_activity(
                         self.call_llm,
@@ -524,13 +521,12 @@ class DurableAgent(AgentBase):
                     )
                     tool_calls = assistant_response.get("tool_calls") or []
                     if tool_calls:
-                        if not ctx.is_replaying:
-                            logger.debug(
-                                "Agent %s executing %d tool call(s) on turn %d",
-                                self.name,
-                                len(tool_calls),
-                                turn,
-                            )
+                        logger.debug(
+                            "Agent %s executing %d tool call(s) on turn %d",
+                            self.name,
+                            len(tool_calls),
+                            turn,
+                        )
 
                         # hook pass: run before_tool_call for every tool in this turn and collect decisions before dispatching anything.
                         hook_decisions: Dict[str, HookDecision] = {}
@@ -578,10 +574,9 @@ class DurableAgent(AgentBase):
                                             reason="approval was not granted or timed out"
                                         )
                                     )
-                                    if not ctx.is_replaying:
-                                        logger.debug(
-                                            f"RequireApproval for tool '{fn_name_check}': {'approved' if approved else 'not approved'} (instance={ctx.instance_id})"
-                                        )
+                                    logger.debug(
+                                        f"RequireApproval for tool '{fn_name_check}': {'approved' if approved else 'not approved'} (instance={ctx.instance_id})"
+                                    )
                                 else:
                                     hook_decisions[tc["id"]] = decision
 
@@ -612,10 +607,9 @@ class DurableAgent(AgentBase):
                                     tool_call_id=tc["id"],
                                 )
                                 ordered[idx] = denial_msg.model_dump()
-                                if not ctx.is_replaying:
-                                    logger.info(
-                                        f"Skipping tool '{fn_name}': {block_reason} (instance={ctx.instance_id})"
-                                    )
+                                logger.info(
+                                    f"Skipping tool '{fn_name}': {block_reason} (instance={ctx.instance_id})"
+                                )
                                 continue
 
                             if isinstance(hook_decision, Skip):
@@ -632,10 +626,9 @@ class DurableAgent(AgentBase):
                                     tool_call_id=tc["id"],
                                 )
                                 ordered[idx] = skip_msg.model_dump()
-                                if not ctx.is_replaying:
-                                    logger.info(
-                                        f"Skipping tool '{fn_name}' with hook-provided result (instance={ctx.instance_id})"
-                                    )
+                                logger.info(
+                                    f"Skipping tool '{fn_name}' with hook-provided result (instance={ctx.instance_id})"
+                                )
                                 continue
 
                             if (
@@ -796,10 +789,9 @@ class DurableAgent(AgentBase):
                         continue
 
                     final_message = assistant_response
-                    if not ctx.is_replaying:
-                        logger.debug(
-                            f"Agent {self.name} produced final response on turn {turn} (instance={ctx.instance_id})",
-                        )
+                    logger.debug(
+                        f"Agent {self.name} produced final response on turn {turn} (instance={ctx.instance_id})",
+                    )
                     break
                 else:
                     # Loop exhausted without a terminating reply → surface a friendly notice.
@@ -811,10 +803,9 @@ class DurableAgent(AgentBase):
                         "Please rephrase or provide more detail so I can try again."
                     )
                     final_message = {"role": "assistant", "content": base}
-                    if not ctx.is_replaying:
-                        logger.warning(
-                            f"Agent {self.name} hit max iterations ({self.execution.max_iterations}) without a final response (instance={ctx.instance_id})",
-                        )
+                    logger.warning(
+                        f"Agent {self.name} hit max iterations ({self.execution.max_iterations}) without a final response (instance={ctx.instance_id})",
+                    )
 
         except Exception as exc:  # noqa: BLE001
             logger.exception(f"Agent {self.name} workflow failed: {exc}")
@@ -849,24 +840,23 @@ class DurableAgent(AgentBase):
             retry_policy=self._retry_policy,
         )
 
-        if not ctx.is_replaying:
-            if _workflow_exc is not None:
-                verdict = DaprWorkflowStatus.FAILED
-            elif turn == self.execution.max_iterations:
-                ctx.set_custom_status("max_iterations_reached")
-                logger.info(
-                    "Workflow reached max iterations without final response (instance=%s)",
-                    ctx.instance_id,
-                )
-                verdict = DaprWorkflowStatus.COMPLETED
-            else:
-                verdict = DaprWorkflowStatus.COMPLETED
+        if _workflow_exc is not None:
+            verdict = DaprWorkflowStatus.FAILED
+        elif turn == self.execution.max_iterations:
+            ctx.set_custom_status("max_iterations_reached")
             logger.info(
-                "Workflow %s finalized for agent %s with verdict=%s",
+                "Workflow reached max iterations without final response (instance=%s)",
                 ctx.instance_id,
-                self.name,
-                verdict,
             )
+            verdict = DaprWorkflowStatus.COMPLETED
+        else:
+            verdict = DaprWorkflowStatus.COMPLETED
+        logger.info(
+            "Workflow %s finalized for agent %s with verdict=%s",
+            ctx.instance_id,
+            self.name,
+            verdict,
+        )
 
         if _workflow_exc is not None:
             raise AgentError(
@@ -935,10 +925,9 @@ class DurableAgent(AgentBase):
             instructions=decision.instructions,
         )
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Requesting approval: tool='{fn_name}' approval_request_id={approval_request_id} instance={instance_id} timeout={timeout_seconds}s"
-            )
+        logger.info(
+            f"Requesting approval: tool='{fn_name}' approval_request_id={approval_request_id} instance={instance_id} timeout={timeout_seconds}s"
+        )
 
         # Always yield this activity unconditionally — DurableTask returns the cached
         # result on replay without re-executing the function
@@ -952,10 +941,9 @@ class DurableAgent(AgentBase):
             retry_policy=self._retry_policy,
         )
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Approval request {approval_request_id} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
-            )
+        logger.info(
+            f"Approval request {approval_request_id} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
+        )
 
         event_name = f"approval_response_{approval_request_id}"
         event_task = ctx.wait_for_external_event(event_name)
@@ -969,10 +957,9 @@ class DurableAgent(AgentBase):
             winner = yield wf.when_any([event_task, timer_task])
 
             if winner is timer_task:
-                if not ctx.is_replaying:
-                    logger.warning(
-                        f"Approval request {approval_request_id} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
-                    )
+                logger.warning(
+                    f"Approval request {approval_request_id} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
+                )
                 return False
 
         # event won the race — read the human decision
@@ -980,16 +967,14 @@ class DurableAgent(AgentBase):
             response_data = event_task.get_result()
             response = ApprovalResponseEvent(**response_data)
         except Exception as exc:
-            if not ctx.is_replaying:
-                logger.warning(
-                    f"Could not parse approval response for request {approval_request_id}: {exc} — auto-denying"
-                )
+            logger.warning(
+                f"Could not parse approval response for request {approval_request_id}: {exc} — auto-denying"
+            )
             return False
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Approval decision for request {approval_request_id}, tool '{fn_name}': {'approved' if response.approved else 'not approved'} (instance={instance_id})"
-            )
+        logger.info(
+            f"Approval decision for request {approval_request_id}, tool '{fn_name}': {'approved' if response.approved else 'not approved'} (instance={instance_id})"
+        )
 
         return response.approved
 
@@ -1008,10 +993,9 @@ class DurableAgent(AgentBase):
         task = message.get("task")
         instance_id = message.get("instance_id")
 
-        if not ctx.is_replaying:
-            logger.info(
-                f"Orchestration workflow started for instance {instance_id} with task: {task}"
-            )
+        logger.info(
+            f"Orchestration workflow started for instance {instance_id} with task: {task}"
+        )
 
         agents_result = yield ctx.call_activity(
             self.get_team_members,
@@ -1042,8 +1026,7 @@ class DurableAgent(AgentBase):
                 logger.error(f"Failed to parse LLM response content: {e}")
                 plan = []
 
-            if not ctx.is_replaying:
-                logger.info(f"Received plan from initialization with {len(plan)} steps")
+            logger.info(f"Received plan from initialization with {len(plan)} steps")
 
             plan_content = json.dumps({"objects": plan}, indent=2)
             plan_message = {
@@ -1085,18 +1068,16 @@ class DurableAgent(AgentBase):
             orch_state["agents_metadata"] = agents_metadata
 
         for turn in range(1, self.execution.max_iterations + 1):
-            if not ctx.is_replaying:
-                logger.debug(
-                    f"Orchestration turn {turn}/{self.execution.max_iterations} (instance={instance_id})"
-                )
+            logger.debug(
+                f"Orchestration turn {turn}/{self.execution.max_iterations} (instance={instance_id})"
+            )
 
             if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
                 plan = orch_state.get("plan", [])
                 agents_formatted = orch_state.get("agents", "")
 
                 if turn > 1:
-                    if not ctx.is_replaying:
-                        logger.info(f"Plan has {len(plan)} steps (turn {turn})")
+                    logger.info(f"Plan has {len(plan)} steps (turn {turn})")
 
                     if len(plan) == 0:
                         raise AgentError(
@@ -1130,11 +1111,10 @@ class DurableAgent(AgentBase):
                     logger.error(f"Failed to parse LLM response content: {e}")
                     raise AgentError(f"Failed to parse next step from LLM: {e}")
 
-                if not ctx.is_replaying:
-                    logger.info(
-                        f"Next step decided: agent={next_agent}, step={step_id}, "
-                        f"substep={substep_id}, instruction={instruction}"
-                    )
+                logger.info(
+                    f"Next step decided: agent={next_agent}, step={step_id}, "
+                    f"substep={substep_id}, instruction={instruction}"
+                )
 
                 is_valid = yield ctx.call_activity(
                     self.validate_step,
@@ -1148,10 +1128,9 @@ class DurableAgent(AgentBase):
                 )
 
                 if not is_valid:
-                    if not ctx.is_replaying:
-                        logger.warning(
-                            f"Step {step_id}, substep {substep_id} not found in plan; skipping turn"
-                        )
+                    logger.warning(
+                        f"Step {step_id}, substep {substep_id} not found in plan; skipping turn"
+                    )
                     orch_state["verdict"] = "continue"
                     continue
 
@@ -1175,10 +1154,9 @@ class DurableAgent(AgentBase):
             next_agent = action["agent"]
             instruction = action["instruction"]
 
-            if not ctx.is_replaying:
-                logger.info(
-                    f"Turn {turn}: Selected agent '{next_agent}' with instruction: {instruction[:100]}..."
-                )
+            logger.info(
+                f"Turn {turn}: Selected agent '{next_agent}' with instruction: {instruction[:100]}..."
+            )
 
             agents_metadata = orch_state.get("agents_metadata") or {}
             agent_entry = agents_metadata.get(next_agent)
@@ -1310,10 +1288,9 @@ class DurableAgent(AgentBase):
             if result_content.startswith("Error:"):
                 raise AgentError(f"Agent '{next_agent}' failed: {result_content}")
 
-            if not ctx.is_replaying:
-                logger.info(
-                    f"Turn {turn}: Agent '{next_agent}' responded: {result_content[:100]}..."
-                )
+            logger.info(
+                f"Turn {turn}: Agent '{next_agent}' responded: {result_content[:100]}..."
+            )
 
             if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
                 plan = orch_state.get("plan", [])
@@ -1406,8 +1383,7 @@ class DurableAgent(AgentBase):
                 )
 
             if not should_continue:
-                if not ctx.is_replaying:
-                    logger.info(f"Orchestration stopping after turn {turn}")
+                logger.info(f"Orchestration stopping after turn {turn}")
                 break
 
         if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
@@ -1477,8 +1453,7 @@ class DurableAgent(AgentBase):
                 retry_policy=self._retry_policy,
             )
 
-        if not ctx.is_replaying:
-            logger.info(f"Orchestration workflow completed for instance {instance_id}")
+        logger.info(f"Orchestration workflow completed for instance {instance_id}")
 
         return final_message
 
