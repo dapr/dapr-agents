@@ -377,9 +377,16 @@ class AgentBase:
             execution is not None
             and execution.max_grpc_inbound_message_size_bytes is not None
         ):
-            self._dapr_client_config = DaprClientConfig(
-                max_grpc_message_length=execution.max_grpc_inbound_message_size_bytes,
-            )
+            try:
+                self._dapr_client_config = DaprClientConfig(
+                    max_grpc_message_length=execution.max_grpc_inbound_message_size_bytes,
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    "Invalid value for "
+                    "'execution.max_grpc_inbound_message_size_bytes': "
+                    f"{exc}"
+                ) from exc
 
         try:
             with DaprClient(
