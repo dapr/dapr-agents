@@ -97,7 +97,7 @@ class TestExtractStructuredResponseErrors:
         with pytest.raises(StructureError) as exc_info:
             StructureHandler.extract_structured_response(msg, "openai", "json")
         text = str(exc_info.value)
-        assert "No content found for JSON mode" in text
+        assert "No content found for structured_mode='json'" in text
         assert "provider='openai'" in text
         assert "tool_calls_present=False" in text
 
@@ -122,7 +122,7 @@ class TestExtractStructuredResponseErrors:
         with pytest.raises(StructureError) as exc_info:
             StructureHandler.extract_structured_response(msg, "openai", "function_call")
         text = str(exc_info.value)
-        assert "No tool_calls found for function_call mode" in text
+        assert "No tool_calls found for structured_mode='function_call'" in text
         assert "provider='openai'" in text
         assert "content_present=False" in text
 

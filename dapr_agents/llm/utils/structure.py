@@ -336,11 +336,12 @@ class StructureHandler:
                         except json.JSONDecodeError:
                             pass
                     raise StructureError(
-                        "No tool_calls found for function_call mode "
+                        f"No tool_calls found for structured_mode={structured_mode!r} "
                         f"(provider={llm_provider!r}). "
                         f"content_present={bool(content)}. "
                         "The model may have emitted plain content instead of a "
-                        "tool call; try structured_mode='json'."
+                        "tool call; try an alternative structured_mode supported "
+                        "by your provider (e.g., 'json')."
                     )
 
                 elif structured_mode == "json":
@@ -356,11 +357,12 @@ class StructureHandler:
 
                     if not content:
                         raise StructureError(
-                            "No content found for JSON mode "
+                            f"No content found for structured_mode={structured_mode!r} "
                             f"(provider={llm_provider!r}). "
                             f"tool_calls_present={bool(tool_calls)}. "
                             "The model may have emitted tool calls instead of "
-                            "structured content; try structured_mode='function_call' "
+                            "structured content; try an alternative structured_mode "
+                            "supported by your provider (e.g., 'function_call'), "
                             "or remove tools from the request."
                         )
 
