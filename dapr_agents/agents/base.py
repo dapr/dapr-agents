@@ -1177,6 +1177,20 @@ class AgentBase:
         ]
         self._text_formatter.print_colored_text(parts)
 
+    @staticmethod
+    def _label_message_with_source(
+        message: Dict[str, Any], source: Optional[str]
+    ) -> Dict[str, Any]:
+        """
+        Return a copy of ``message`` tagged with an ``on-behalf-of`` name
+        when the message was triggered by another agent (``source`` is set
+        and not the sentinel ``"direct"``).
+        """
+        labelled = {str(k): v for k, v in message.items()}
+        if source and source != "direct":
+            labelled["name"] = f"on-behalf-of {source}"
+        return labelled
+
     # ------------------------------------------------------------------
     # Prompting & memory utilities
     # ------------------------------------------------------------------

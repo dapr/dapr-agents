@@ -14,11 +14,10 @@
 """
 Abstractions for stateful agent runtimes.
 
-Where :class:`~dapr_agents.llm.chat.ChatClientBase` models the stateless
-function ``messages -> completion``, :class:`AgentExecutorBase` models
-runtimes that own the full agent loop — session state, tool dispatch,
-multi-turn reasoning — and emit typed :class:`AgentEvent` values as an
-async stream.
+Where ``ChatClientBase`` models the stateless function
+``messages -> completion``, ``AgentExecutorBase`` models runtimes that
+own the full agent loop — session state, tool dispatch, multi-turn
+reasoning — and emit typed ``AgentEvent`` values as an async stream.
 
 Typical integration targets include the Claude Agent SDK, LangGraph,
 AutoGen, and the OpenAI Assistants API.
@@ -40,14 +39,26 @@ AgentEventType = Literal[
     "error",
 ]
 
+# Typed event-name constants for use by executor consumers (e.g. the
+# DurableAgent ``_consume_executor`` dispatch). Match the ``AgentEventType``
+# literal so that ``match``/``case`` blocks can reference them without
+# magic strings.
+EVENT_TEXT_DELTA: AgentEventType = "text_delta"
+EVENT_TOOL_CALL: AgentEventType = "tool_call"
+EVENT_TOOL_RESULT: AgentEventType = "tool_result"
+EVENT_MESSAGE: AgentEventType = "message"
+EVENT_SESSION: AgentEventType = "session"
+EVENT_COMPLETE: AgentEventType = "complete"
+EVENT_ERROR: AgentEventType = "error"
+
 
 @dataclass(frozen=True)
 class AgentEvent:
     """
-    A single event emitted by an :class:`AgentExecutorBase` during a run.
+    A single event emitted by an ``AgentExecutorBase`` during a run.
 
     Attributes:
-        type: Discriminator for the event. See :data:`AgentEventType`.
+        type: Discriminator for the event. See ``AgentEventType``.
         content: Event payload. Shape is defined per ``type``:
 
             * ``text_delta`` — partial assistant text (``str``).
@@ -72,15 +83,15 @@ class AgentExecutorBase(ABC):
     """
     Base class for LLM integrations that manage the full agent loop.
 
-    Unlike :class:`~dapr_agents.llm.chat.ChatClientBase` (stateless
-    completion), an ``AgentExecutorBase`` maintains session state and
-    yields typed events. Implementations are typically thin wrappers
-    around an external runtime (e.g. ``claude_agent_sdk.query``,
-    LangGraph ``astream_events``).
+    Unlike ``ChatClientBase`` (stateless completion), an
+    ``AgentExecutorBase`` maintains session state and yields typed events.
+    Implementations are typically thin wrappers around an external
+    runtime (e.g. ``claude_agent_sdk.query``, LangGraph
+    ``astream_events``).
 
     The contract is intentionally narrow so that consumers such as
-    :class:`~dapr_agents.agents.durable.DurableAgent` can drive any
-    compliant executor without provider-specific branching.
+    ``DurableAgent`` can drive any compliant executor without
+    provider-specific branching.
     """
 
     @abstractmethod
@@ -103,8 +114,8 @@ class AgentExecutorBase(ABC):
                 may ignore unknown keys.
 
         Yields:
-            :class:`AgentEvent` values. The stream MUST end with either
-            a ``complete`` event (success) or an ``error`` event (terminal
+            ``AgentEvent`` values. The stream MUST end with either a
+            ``complete`` event (success) or an ``error`` event (terminal
             failure). Consumers may treat absence of a terminal event as
             an executor bug.
         """
@@ -116,7 +127,7 @@ class AgentExecutorBase(ABC):
         Retrieve the persisted state for ``session_id``.
 
         Args:
-            session_id: Identifier previously emitted by :meth:`run`.
+            session_id: Identifier previously emitted by ``run``.
 
         Returns:
             A provider-defined snapshot of the session

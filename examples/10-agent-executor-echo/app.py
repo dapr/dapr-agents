@@ -40,12 +40,6 @@ async def main() -> None:
         print("\n=== Final Result ===", flush=True)
         print(result, flush=True)
         print("====================\n", flush=True)
-        print(
-            "Inspect state: `redis-cli --scan --pattern 'echo*'` then "
-            "`redis-cli GET <key>` to see the AgentWorkflowEntry with the "
-            "populated session_id and messages.",
-            flush=True,
-        )
     finally:
         runner.shutdown(agent)
 

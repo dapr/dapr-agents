@@ -23,6 +23,7 @@ from dapr_agents.agents.executors import (
     AgentEventType,
     AgentExecutorBase,
 )
+from dapr_agents.agents.executors import base as executors_base
 
 
 class TestAgentEvent:
@@ -70,6 +71,29 @@ class TestAgentEvent:
         assert event.type == "tool_call"
         assert event.session_id == "sess-1"
         assert event.metadata == {"trace_id": "abc"}
+
+
+class TestAgentEventConstants:
+    """Module-level EVENT_* constants are the typed mirror of AgentEventType."""
+
+    def test_constants_cover_every_literal_value(self):
+        """Each AgentEventType literal must have an EVENT_* constant."""
+        literal_values = set(AgentEventType.__args__)  # type: ignore[attr-defined]
+        constants = {
+            name: getattr(executors_base, name)
+            for name in dir(executors_base)
+            if name.startswith("EVENT_")
+        }
+        assert set(constants.values()) == literal_values
+
+    def test_constants_are_string_literals(self):
+        assert executors_base.EVENT_TEXT_DELTA == "text_delta"
+        assert executors_base.EVENT_TOOL_CALL == "tool_call"
+        assert executors_base.EVENT_TOOL_RESULT == "tool_result"
+        assert executors_base.EVENT_MESSAGE == "message"
+        assert executors_base.EVENT_SESSION == "session"
+        assert executors_base.EVENT_COMPLETE == "complete"
+        assert executors_base.EVENT_ERROR == "error"
 
 
 class TestAgentExecutorBase:

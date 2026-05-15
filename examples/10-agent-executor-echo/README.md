@@ -13,27 +13,23 @@ limitations under the License.
 
 # Echo Agent Executor
 
-End-to-end validation for the `AgentExecutorBase` abstraction introduced in
-RFC [dapr/dapr-agents#569](https://github.com/dapr/dapr-agents/issues/569).
-It runs a `DurableAgent` backed by `EchoAgentExecutor` — a trivial,
-zero-dependency executor that echoes the prompt back through the full event
-stream (`text_delta` → `message` → `session` → `complete`).
+A self-contained example showing how to run a `DurableAgent` with a
+stateful agent runtime instead of a chat-completion LLM client. The agent
+is wired up with `EchoAgentExecutor` — a trivial, zero-dependency executor
+that echoes the prompt back over the streaming event protocol — so you can
+see the full executor flow without provisioning an LLM provider or API key.
 
-No LLM provider or API key is required.
+## What you'll see
 
-## What it verifies
-
-* `DurableAgent(executor=...)` constructs without an `llm` and auto-wires
-  Dapr infrastructure (state store, pub/sub, workflow state) through the
-  standard `AgentRunner` path.
-* `agent_workflow` takes the new `elif self.executor is not None:` branch
-  and dispatches the `run_executor` activity.
-* `_consume_executor` drives the executor's async event stream and
-  persists the user + assistant messages into
-  `AgentWorkflowEntry.messages`, with `session_id` populated, via the
-  existing `DaprInfra.save_state` path.
-* `EchoAgentExecutor.get_session(...)` returns the in-memory transcript
-  after the run completes.
+* Build a `DurableAgent` by passing `executor=...` instead of `llm=...`
+  and run it through the standard `AgentRunner` interface — no extra
+  glue code required.
+* Watch the agent receive the user prompt and stream back an echoed
+  assistant response, end-to-end, through Dapr workflows + pub/sub +
+  state store.
+* Inspect persisted Dapr state to see the user and assistant messages
+  recorded against a populated `session_id`, ready to resume a follow-up
+  turn from where the previous one left off.
 
 ## Prerequisites
 
@@ -69,7 +65,6 @@ Expected output (trimmed):
 === Final Result ===
 {'role': 'assistant', 'content': 'echo: hello, agent executor', ...}
 ====================
-Inspect state: `redis-cli --scan --pattern 'echo*'` then `redis-cli GET <key>` …
 ```
 
 ## Inspecting Dapr state
@@ -92,4 +87,3 @@ be empty (the echo executor emits no `tool_call` events).
 ```bash
 dapr stop --app-id echo-executor-app
 ```
-

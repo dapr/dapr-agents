@@ -561,6 +561,146 @@ class TestConsumeExecutor:
 
         assert executor.calls[-1]["context"] == ctx_payload
 
+    def test_tool_result_accepts_tool_use_id_alias(self):
+        """Anthropic-style executors emit ``tool_use_id``; both keys must work."""
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="tool_call",
+                    content={
+                        "id": "t1",
+                        "name": "search",
+                        "arguments": {"q": "x"},
+                    },
+                ),
+                AgentEvent(
+                    type="tool_result",
+                    content={"tool_use_id": "t1", "result": "ok"},
+                ),
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "done"},
+                ),
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+        ):
+            asyncio.run(
+                agent._consume_executor({"task": None, "instance_id": "inst-1"})
+            )
+
+        assert len(entry.tool_history) == 1
+        record = entry.tool_history[0]
+        assert record.tool_call_id == "t1"
+        assert record.status == ToolExecutionStatus.COMPLETED
+        assert record.execution_result == "ok"
+
+    def test_tool_call_without_id_is_skipped(self):
+        """Missing executor-provided id ⇒ warn and skip; do not invent one."""
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="tool_call",
+                    content={"name": "search", "arguments": {"q": "x"}},
+                ),
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "done"},
+                ),
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+        ):
+            asyncio.run(
+                agent._consume_executor({"task": None, "instance_id": "inst-1"})
+            )
+
+        assert entry.tool_history == []
+
+    def test_tool_result_without_id_is_skipped(self):
+        """Missing tool_call_id/tool_use_id ⇒ warn and skip; do not invent one."""
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="tool_result",
+                    content={"name": "search", "result": "ok"},
+                ),
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "done"},
+                ),
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+        ):
+            asyncio.run(
+                agent._consume_executor({"task": None, "instance_id": "inst-1"})
+            )
+
+        assert entry.tool_history == []
+
+    def test_state_persisted_in_finally_on_executor_exception(self):
+        """A generic exception mid-stream must still flush accumulated state once."""
+
+        class _BoomExecutor(AgentExecutorBase):
+            def __init__(self) -> None:
+                self.calls: List[Dict[str, Any]] = []
+
+            async def run(
+                self,
+                prompt: str,
+                *,
+                session_id: Optional[str] = None,
+                context: Optional[Dict[str, Any]] = None,
+            ) -> AsyncIterator[AgentEvent]:
+                self.calls.append({"prompt": prompt})
+                yield AgentEvent(
+                    type="message",
+                    content={"role": "assistant", "content": "partial"},
+                )
+                raise RuntimeError("boom")
+
+            async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+                return None
+
+        executor = _BoomExecutor()
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        with (
+            patch.object(agent, "save_state") as save_state,
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+            pytest.raises(AgentError, match="boom"),
+        ):
+            asyncio.run(
+                agent._consume_executor({"task": "hi", "instance_id": "inst-1"})
+            )
+
+        assert save_state.call_count == 1
+        # The partial assistant message accumulated before the crash should be
+        # in the entry that was flushed.
+        assistant_contents = [
+            getattr(m, "content", None)
+            for m in entry.messages
+            if getattr(m, "role", None) == "assistant"
+        ]
+        assert "partial" in assistant_contents
+
 
 class TestRunExecutorActivity:
     """The public workflow-activity wrapper around _consume_executor."""

@@ -194,7 +194,7 @@ class AgentWorkflowEntry(BaseModel):
     )
     session_id: Optional[str] = Field(
         default=None,
-        description="Session identifier when the run is driven by an AgentExecutorBase.",
+        description="Optional session identifier for resumable, multi-turn runs.",
     )
     approval_requests: Dict[str, Dict[str, Any]] = Field(
         default_factory=dict,

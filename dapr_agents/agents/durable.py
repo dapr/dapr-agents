@@ -1929,10 +1929,9 @@ class DurableAgent(AgentBase):
 
             # Skip printing for orchestrators' internal LLM calls
             if user_copy is not None and not self.orchestrator:
-                print_msg = {str(k): v for k, v in user_copy.items()}
-                if source and source != "direct":
-                    print_msg["name"] = f"on-behalf-of {source}"
-                self.text_formatter.print_message(print_msg)
+                self.text_formatter.print_message(
+                    self._label_message_with_source(user_copy, source)
+                )
 
         tools = self.get_llm_tools()
         generate_kwargs = {
@@ -2016,22 +2015,28 @@ class DurableAgent(AgentBase):
 
     async def _consume_executor(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Async helper for :meth:`run_executor` — iterates the executor's event
-        stream and persists state at session granularity.
+        Drive an ``AgentExecutorBase`` to completion and return the final
+        assistant message.
 
-        Implementation notes:
+        Event handling:
 
         * ``message`` events are appended to ``entry.messages`` for
-          observability (via :meth:`_save_assistant_message`).
-        * ``tool_call`` / ``tool_result`` events append
-          :class:`ToolExecutionRecord` rows to ``entry.tool_history``.
+          observability.
+        * ``tool_call`` / ``tool_result`` events append ``ToolExecutionRecord``
+          rows to ``entry.tool_history``. Tool IDs are taken from the
+          executor (``id`` for calls, ``tool_call_id`` or ``tool_use_id``
+          for results); events without an ID are skipped with a warning.
         * ``session`` events trigger a checkpoint save.
         * ``complete`` captures the final assistant message and terminates
           the loop.
-        * ``error`` raises :class:`AgentError` (the activity retries per
-          the configured retry policy).
+        * ``error`` raises ``AgentError`` (the activity retries per the
+          configured retry policy).
         * ``text_delta`` is currently used only for console streaming and is
           not persisted (avoids per-token state writes).
+
+        State is persisted in a ``finally`` block so every exit path (success,
+        explicit ``error`` event, executor exception, missing ``complete``)
+        flushes the accumulated entry exactly once before returning or raising.
         """
         instance_id: str = payload["instance_id"]
         caller_session_id: Optional[str] = payload.get("session_id")
@@ -2060,155 +2065,178 @@ class DurableAgent(AgentBase):
                 instance_id, task, user_message, entry=entry, skip_save=True
             )
             if not self.orchestrator:
-                print_msg = dict(user_message)
-                if source and source != "direct":
-                    print_msg["name"] = f"on-behalf-of {source}"
-                self.text_formatter.print_message(print_msg)
+                self.text_formatter.print_message(
+                    self._label_message_with_source(user_message, source)
+                )
 
         final_message: Optional[Dict[str, Any]] = None
         tool_records: Dict[str, ToolExecutionRecord] = {}
         prompt = task or ""
 
-        def _record_session(observed: Optional[str]) -> None:
-            """Capture executor-assigned/changed session_id into local + entry state."""
-            nonlocal session_id
-            if not observed or observed == session_id:
-                return
-            session_id = observed
-            if hasattr(entry, "session_id"):
-                entry.session_id = observed
-
         stream = self.executor.run(prompt, session_id=session_id, context=context)
         try:
             async for event in stream:
-                _record_session(event.session_id)
-                if event.type == "text_delta":
-                    # Intentionally not persisted; live-stream in the future.
-                    continue
+                # Capture an executor-assigned/changed session_id inline so
+                # both the local variable and the persisted entry stay in sync.
+                observed_session = event.session_id
+                if observed_session and observed_session != session_id:
+                    session_id = observed_session
+                    if hasattr(entry, "session_id"):
+                        entry.session_id = observed_session
 
-                if event.type == "message":
-                    message_dict = (
-                        event.content
-                        if isinstance(event.content, dict)
-                        else {"role": "assistant", "content": str(event.content)}
-                    )
-                    if message_dict.get("role") == "assistant":
-                        self._save_assistant_message(
-                            instance_id,
-                            dict(message_dict),
-                            entry=entry,
-                            skip_save=True,
+                # Event names are the ``AgentEventType`` literal values; the
+                # ``EVENT_*`` constants in ``executors.base`` mirror these for
+                # callers that want named references.
+                match event.type:
+                    case "text_delta":
+                        # Intentionally not persisted; live-stream in the future.
+                        continue
+
+                    case "message":
+                        message_dict = (
+                            event.content
+                            if isinstance(event.content, dict)
+                            else {"role": "assistant", "content": str(event.content)}
                         )
-                        if not self.orchestrator:
-                            self.text_formatter.print_message(message_dict)
-                    continue
+                        if message_dict.get("role") == "assistant":
+                            self._save_assistant_message(
+                                instance_id,
+                                dict(message_dict),
+                                entry=entry,
+                                skip_save=True,
+                            )
+                            if not self.orchestrator:
+                                self.text_formatter.print_message(message_dict)
 
-                if event.type == "tool_call":
-                    call = event.content if isinstance(event.content, dict) else {}
-                    tc_id = str(call.get("id") or uuid.uuid4())
-                    record = ToolExecutionRecord(
-                        tool_call_id=tc_id,
-                        tool_name=str(call.get("name", "")),
-                        tool_args=dict(call.get("arguments", {}) or {}),
-                        status=ToolExecutionStatus.RUNNING,
-                        is_agent_call=False,
-                        executing_agent=self.name,
-                        agent_workflow_instance_id=instance_id,
-                    )
-                    tool_records[tc_id] = record
-                    entry.tool_history.append(record)
-                    continue
+                    case "tool_call":
+                        call = event.content if isinstance(event.content, dict) else {}
+                        tc_id = str(call.get("id") or "")
+                        if not tc_id:
+                            logger.warning(
+                                "Executor emitted tool_call without an 'id'; "
+                                "skipping record (tool_name=%r).",
+                                call.get("name"),
+                            )
+                            continue
+                        record = ToolExecutionRecord(
+                            tool_call_id=tc_id,
+                            tool_name=str(call.get("name", "")),
+                            tool_args=dict(call.get("arguments", {}) or {}),
+                            status=ToolExecutionStatus.RUNNING,
+                            is_agent_call=False,
+                            executing_agent=self.name,
+                            agent_workflow_instance_id=instance_id,
+                        )
+                        tool_records[tc_id] = record
+                        entry.tool_history.append(record)
 
-                if event.type == "tool_result":
-                    result = event.content if isinstance(event.content, dict) else {}
-                    tc_id = str(result.get("tool_call_id", ""))
-                    record = tool_records.get(tc_id)
-                    payload_result = result.get("result")
-                    completed_at = datetime.now(timezone.utc)
-                    if record is not None:
-                        record.status = ToolExecutionStatus.COMPLETED
-                        record.completed_at = completed_at
-                        record.execution_result = (
+                    case "tool_result":
+                        result = (
+                            event.content if isinstance(event.content, dict) else {}
+                        )
+                        # Support both OpenAI-style (tool_call_id) and
+                        # Anthropic-style (tool_use_id) identifiers.
+                        tc_id = str(
+                            result.get("tool_call_id")
+                            or result.get("tool_use_id")
+                            or ""
+                        )
+                        if not tc_id:
+                            logger.warning(
+                                "Executor emitted tool_result without a "
+                                "tool_call_id/tool_use_id; skipping "
+                                "(tool_name=%r).",
+                                result.get("name"),
+                            )
+                            continue
+                        record = tool_records.get(tc_id)
+                        payload_result = result.get("result")
+                        completed_at = datetime.now(timezone.utc)
+                        execution_result = (
                             payload_result
                             if isinstance(payload_result, str)
                             else json.dumps(payload_result, default=str)
                         )
-                    else:
-                        entry.tool_history.append(
-                            ToolExecutionRecord(
-                                tool_call_id=tc_id or str(uuid.uuid4()),
-                                tool_name=str(result.get("name", "")),
-                                tool_args={},
-                                status=ToolExecutionStatus.COMPLETED,
-                                is_agent_call=False,
-                                executing_agent=self.name,
-                                agent_workflow_instance_id=instance_id,
-                                completed_at=completed_at,
-                                execution_result=(
-                                    payload_result
-                                    if isinstance(payload_result, str)
-                                    else json.dumps(payload_result, default=str)
-                                ),
+                        if record is not None:
+                            record.status = ToolExecutionStatus.COMPLETED
+                            record.completed_at = completed_at
+                            record.execution_result = execution_result
+                        else:
+                            entry.tool_history.append(
+                                ToolExecutionRecord(
+                                    tool_call_id=tc_id,
+                                    tool_name=str(result.get("name", "")),
+                                    tool_args={},
+                                    status=ToolExecutionStatus.COMPLETED,
+                                    is_agent_call=False,
+                                    executing_agent=self.name,
+                                    agent_workflow_instance_id=instance_id,
+                                    completed_at=completed_at,
+                                    execution_result=execution_result,
+                                )
                             )
+
+                    case "session":
+                        # Session-level checkpoint: persist what we've accumulated.
+                        self.save_state(instance_id, entry=entry)
+                        # Refresh the entry so subsequent mutations see the saved
+                        # etag, and rebuild tool_records so later tool_result
+                        # events update the records that will actually be
+                        # persisted with entry.tool_history (get_state validates
+                        # into new objects, so pre-refresh references go stale).
+                        entry = self._infra.get_state(instance_id)
+                        tool_records = {
+                            record.tool_call_id: record
+                            for record in entry.tool_history
+                            if record.tool_call_id
+                        }
+
+                    case "complete":
+                        final_message = (
+                            event.content
+                            if isinstance(event.content, dict)
+                            else {"role": "assistant", "content": str(event.content)}
                         )
-                    continue
+                        break
 
-                if event.type == "session":
-                    # Session-level checkpoint: persist what we've accumulated.
-                    self.save_state(instance_id, entry=entry)
-                    # Refresh the entry so subsequent mutations see the saved
-                    # etag, and rebuild tool_records so later tool_result events
-                    # update the records that will actually be persisted with
-                    # entry.tool_history (get_state validates into new objects,
-                    # so pre-refresh references go stale).
-                    entry = self._infra.get_state(instance_id)
-                    tool_records = {
-                        record.tool_call_id: record
-                        for record in entry.tool_history
-                        if record.tool_call_id
-                    }
-                    continue
-
-                if event.type == "complete":
-                    final_message = (
-                        event.content
-                        if isinstance(event.content, dict)
-                        else {"role": "assistant", "content": str(event.content)}
-                    )
-                    break
-
-                if event.type == "error":
-                    raise AgentError(f"AgentExecutor emitted error: {event.content}")
+                    case "error":
+                        raise AgentError(
+                            f"AgentExecutor emitted error: {event.content}"
+                        )
         except AgentError:
-            # Persist whatever state we accumulated before surfacing.
-            self.save_state(instance_id, entry=entry)
             raise
         except Exception as exc:  # noqa: BLE001
-            self.save_state(instance_id, entry=entry)
             raise AgentError(
                 f"AgentExecutor {type(self.executor).__name__} raised "
                 f"{type(exc).__name__}: {exc}"
             ) from exc
         finally:
-            await stream.aclose()
+            # Single flush point: every exit path (success, AgentError,
+            # generic exception, missing 'complete' below) routes through
+            # here so the accumulated entry is persisted exactly once.
+            try:
+                if final_message is not None:
+                    # Record the terminal assistant message if the executor
+                    # did not already emit it as a 'message' event.
+                    already_persisted = any(
+                        getattr(m, "role", None) == "assistant"
+                        and getattr(m, "content", None) == final_message.get("content")
+                        for m in entry.messages
+                    )
+                    if not already_persisted:
+                        self._save_assistant_message(
+                            instance_id,
+                            dict(final_message),
+                            entry=entry,
+                            skip_save=True,
+                        )
+                self.save_state(instance_id, entry=entry)
+            finally:
+                await stream.aclose()
 
         if final_message is None:
-            self.save_state(instance_id, entry=entry)
             raise AgentError("AgentExecutor stream ended without a 'complete' event.")
 
-        # Record the terminal assistant message if the executor did not already
-        # emit it as a 'message' event.
-        already_persisted = any(
-            getattr(m, "role", None) == "assistant"
-            and getattr(m, "content", None) == final_message.get("content")
-            for m in entry.messages
-        )
-        if not already_persisted:
-            self._save_assistant_message(
-                instance_id, dict(final_message), entry=entry, skip_save=True
-            )
-
-        self.save_state(instance_id, entry=entry)
         return final_message
 
     def run_tool(
