@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from copy import deepcopy
 from typing import Any, Callable, List, Literal, Optional, Type, TypeVar, get_type_hints
@@ -61,6 +62,8 @@ def message_router(
     dead_letter_topic: Optional[str] = None,
     broadcast: bool = False,
     message_model: Optional[Any] = None,
+    payload_filter: Optional[Callable[..., bool]] = None,
+    model_filter: Optional[Callable[..., bool]] = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Tag a callable as a **Pub/Sub → Workflow** entry with routing + schema metadata.
@@ -78,11 +81,37 @@ def message_router(
             Whether to treat this as a broadcast subscription.
         message_model (Optional[Any]):
             The message model class or Union[...] to use for validation.
+        payload_filter (Optional[Callable[[Any, MessageContext], bool]]):
+            Function called with the raw CloudEvent `data` before schema validation.
+            Returning False skips this binding; raising drops the message with a
+            logged traceback. Must be a synchronous callable.
+        model_filter (Optional[Callable[[Any, MessageContext], bool]]):
+            Function called with the validated message model after schema validation.
+            Returning False skips this binding; raising drops the message with a
+            logged traceback. Must be a synchronous callable.
 
     Returns:
         Callable[[Callable[..., Any]], Callable[..., Any]]:
             The decorated function.
+
+    Raises:
+        TypeError: If `message_model` cannot be resolved, or if either filter is an
+            `async def` callable (filters run on the consumer thread and must be sync).
     """
+    for filter_name, filter_fn in (
+        ("payload_filter", payload_filter),
+        ("model_filter", model_filter),
+    ):
+        if filter_fn is None:
+            continue
+        if not callable(filter_fn):
+            raise TypeError(f"`{filter_name}` must be callable, got {type(filter_fn).__name__}.")
+        if asyncio.iscoroutinefunction(filter_fn):
+            raise TypeError(
+                f"`{filter_name}` must be a synchronous callable; "
+                "filters run on the consumer thread and cannot be `async def`. "
+                "For I/O-bound checks, do them in the workflow body."
+            )
 
     def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
         # Resolve message model(s)
@@ -117,18 +146,23 @@ def message_router(
             "is_broadcast": broadcast,
             "message_schemas": models,
             "message_types": [m.__name__ for m in models],
+            "payload_filter": payload_filter,
+            "model_filter": model_filter,
         }
 
         setattr(f, "_is_message_handler", True)
-        setattr(f, "_message_router_data", deepcopy(data))
+        setattr(f, "_message_router_data", data)
 
         logger.debug(
-            "@message_router: '%s' => models %s (topic=%s, pubsub=%s, broadcast=%s)",
+            "@message_router: '%s' => models %s (topic=%s, pubsub=%s, broadcast=%s, "
+            "payload_filter=%s, model_filter=%s)",
             f.__name__,
             [m.__name__ for m in models],
             topic,
             pubsub,
             broadcast,
+            payload_filter is not None,
+            model_filter is not None,
         )
         return f
 

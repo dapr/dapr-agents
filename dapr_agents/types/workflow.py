@@ -41,6 +41,12 @@ class PubSubRouteSpec:
             `handler_fn` is decorated with `@message_router`, the decorator's
             first schema is used; otherwise `dict`.
         dead_letter_topic: Optional DLQ topic name.
+        payload_filter: Optional sync callable `(payload, MessageContext) -> bool`
+            run before schema validation. If omitted, falls back to the value on
+            `handler_fn`'s `@message_router` decorator (if any).
+        model_filter: Optional sync callable `(model, MessageContext) -> bool` run
+            after schema validation. If omitted, falls back to the value on
+            `handler_fn`'s `@message_router` decorator (if any).
     """
 
     pubsub_name: str
@@ -48,6 +54,8 @@ class PubSubRouteSpec:
     handler_fn: Callable[..., Any]
     message_model: Optional[Type[Any]] = None
     dead_letter_topic: Optional[str] = None
+    payload_filter: Optional[Callable[..., bool]] = None
+    model_filter: Optional[Callable[..., bool]] = None
 
 
 @dataclass

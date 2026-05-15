@@ -27,6 +27,7 @@ from dapr.common.pubsub.subscription import SubscriptionMessage
 from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 from cachetools import TTLCache
 
+from dapr_agents.types.message import EventMessageMetadata
 from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
     validate_message_model,
@@ -83,6 +84,26 @@ SchedulerFn = Callable[[Callable[..., Any], dict], Optional[str]]
 TopicKey = Tuple[str, str]
 BindingSchemaPair = Tuple["MessageRouteBinding", Type[Any]]
 
+PayloadFilter = Callable[[Any, "MessageContext"], bool]
+ModelFilter = Callable[[Any, "MessageContext"], bool]
+
+
+@dataclass(frozen=True)
+class MessageContext:
+    """Per-message context handed to ``@message_router`` filters.
+
+    Built once per incoming CloudEvent and passed as the second positional
+    argument to ``payload_filter`` and ``model_filter`` callables.
+
+    Attributes:
+        event: Parsed CloudEvent envelope (id, source, type, topic, headers, ...).
+        dapr_client: The DaprClient backing this subscription, reusable for
+            read-only state lookups inside filters.
+    """
+
+    event: EventMessageMetadata
+    dapr_client: DaprClient
+
 
 @dataclass
 class MessageRouteBinding:
@@ -95,6 +116,12 @@ class MessageRouteBinding:
         topic: The topic to subscribe to.
         dead_letter_topic: Optional topic for failed messages.
         name: Human-readable name for logging (typically the handler function name).
+        payload_filter: Optional predicate on the raw event data + MessageContext.
+            Returning False skips this binding; raising drops with a logged
+            traceback. Runs before schema validation.
+        model_filter: Optional predicate on the validated message model + MessageContext.
+            Returning False skips this binding; raising drops with a logged
+            traceback. Runs after schema validation.
     """
 
     handler: Callable[..., Any]
@@ -103,6 +130,8 @@ class MessageRouteBinding:
     topic: str
     dead_letter_topic: Optional[str]
     name: str
+    payload_filter: Optional[PayloadFilter] = None
+    model_filter: Optional[ModelFilter] = None
 
 
 def _resolve_event_loop(
@@ -473,7 +502,23 @@ def _subscribe_message_bindings(
                         pairs, cloudevent_type
                     )
 
+                    msg_ctx = MessageContext(
+                        event=EventMessageMetadata.model_validate(metadata or {}),
+                        dapr_client=dapr_client,
+                    )
+
                     for binding, schema in ordered_pairs:
+                        if binding.payload_filter is not None:
+                            try:
+                                if not binding.payload_filter(event_data, msg_ctx):
+                                    continue
+                            except Exception:
+                                logger.exception(
+                                    f"payload_filter for binding '{binding.name}' raised; "
+                                    "skipping binding."
+                                )
+                                continue
+
                         try:
                             payload = (
                                 event_data
@@ -482,43 +527,46 @@ def _subscribe_message_bindings(
                             )
                             parsed = validate_message_model(schema, payload)
                             _attach_metadata_to_payload(parsed, metadata)
+                        except (ValueError, TypeError):
+                            # Validation/coercion errors - try next schema
+                            continue
 
-                            if delivery_mode == DELIVERY_MODE_ASYNC:
-                                assert queue is not None
-                                if loop is not None and loop.is_running():
-                                    # Backpressure-aware enqueue: block until the item is queued
-                                    fut = asyncio.run_coroutine_threadsafe(
-                                        queue.put((binding.handler, parsed)),
-                                        loop,
-                                    )
-                                    try:
-                                        fut.result()
-                                    except Exception:
-                                        logger.exception(
-                                            f"Failed to enqueue workflow task for handler {binding.name}; "
-                                            "requesting retry."
-                                        )
-                                        return TopicEventResponse(STATUS_RETRY)
-                                    return TopicEventResponse(STATUS_SUCCESS)
-                                # If the loop is not running, fall through to the sync path below.
+                        if binding.model_filter is not None:
+                            try:
+                                if not binding.model_filter(parsed, msg_ctx):
+                                    continue
+                            except Exception:
+                                logger.exception(
+                                    f"model_filter for binding '{binding.name}' raised; "
+                                    "skipping binding."
+                                )
+                                continue
 
+                        if delivery_mode == DELIVERY_MODE_ASYNC:
+                            assert queue is not None
                             if loop is not None and loop.is_running():
+                                # Backpressure-aware enqueue: block until the item is queued
                                 fut = asyncio.run_coroutine_threadsafe(
-                                    _schedule_workflow(binding.handler, parsed), loop
+                                    queue.put((binding.handler, parsed)),
+                                    loop,
                                 )
                                 try:
-                                    return fut.result()
+                                    fut.result()
                                 except Exception:
                                     logger.exception(
-                                        f"Failed to schedule workflow for handler {binding.name}; "
+                                        f"Failed to enqueue workflow task for handler {binding.name}; "
                                         "requesting retry."
                                     )
                                     return TopicEventResponse(STATUS_RETRY)
+                                return TopicEventResponse(STATUS_SUCCESS)
+                            # If the loop is not running, fall through to the sync path below.
 
+                        if loop is not None and loop.is_running():
+                            fut = asyncio.run_coroutine_threadsafe(
+                                _schedule_workflow(binding.handler, parsed), loop
+                            )
                             try:
-                                return asyncio.run(
-                                    _schedule_workflow(binding.handler, parsed)
-                                )
+                                return fut.result()
                             except Exception:
                                 logger.exception(
                                     f"Failed to schedule workflow for handler {binding.name}; "
@@ -526,12 +574,20 @@ def _subscribe_message_bindings(
                                 )
                                 return TopicEventResponse(STATUS_RETRY)
 
-                        except (ValueError, TypeError):
-                            # Validation/coercion errors - try next schema
-                            continue
+                        try:
+                            return asyncio.run(
+                                _schedule_workflow(binding.handler, parsed)
+                            )
+                        except Exception:
+                            logger.exception(
+                                f"Failed to schedule workflow for handler {binding.name}; "
+                                "requesting retry."
+                            )
+                            return TopicEventResponse(STATUS_RETRY)
 
                     logger.warning(
-                        f"No matching schema for topic={bound_topic_name!r}; dropping. raw={event_data!r}"
+                        f"No binding accepted message on topic={bound_topic_name!r} "
+                        f"(no schema matched or all filters rejected); dropping. raw={event_data!r}"
                     )
                     return TopicEventResponse(STATUS_DROP)
 

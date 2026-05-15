@@ -156,6 +156,8 @@ def _collect_message_bindings(
                         topic=topic,
                         dead_letter_topic=meta.get("dead_letter_topic"),
                         name=getattr(bound, "__name__", str(bound)),
+                        payload_filter=meta.get("payload_filter"),
+                        model_filter=meta.get("model_filter"),
                     )
                 )
 
@@ -169,6 +171,17 @@ def _collect_message_bindings(
                 schemas = list(meta.get("message_schemas"))
             else:
                 schemas = [dict]
+            meta_dict = meta or {}
+            payload_filter = (
+                spec.payload_filter
+                if spec.payload_filter is not None
+                else meta_dict.get("payload_filter")
+            )
+            model_filter = (
+                spec.model_filter
+                if spec.model_filter is not None
+                else meta_dict.get("model_filter")
+            )
             bindings.append(
                 MessageRouteBinding(
                     handler=bound,
@@ -177,6 +190,8 @@ def _collect_message_bindings(
                     topic=spec.topic,
                     dead_letter_topic=spec.dead_letter_topic,
                     name=getattr(bound, "__name__", str(bound)),
+                    payload_filter=payload_filter,
+                    model_filter=model_filter,
                 )
             )
 

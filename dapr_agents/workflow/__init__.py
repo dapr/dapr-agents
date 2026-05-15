@@ -16,9 +16,11 @@ from .decorators import (
     http_router,
     workflow_entry,
 )
+from .utils.subscription import MessageContext
 
 __all__ = [
     "message_router",
     "http_router",
     "workflow_entry",
+    "MessageContext",
 ]

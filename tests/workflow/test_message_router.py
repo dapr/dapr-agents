@@ -780,3 +780,287 @@ class TestTTLDedupeBackend:
         assert backend.seen("event-1")
         time.sleep(0.15)
         assert not backend.seen("event-1")
+
+
+# ============================================================================
+# Filter behavior — payload_filter / model_filter
+# ============================================================================
+
+
+def test_message_router_with_payload_filter():
+    """payload_filter callable is stored on the decorator metadata."""
+
+    def pf(payload, ctx):
+        return True
+
+    @message_router(pubsub="messagepubsub", topic="orders", payload_filter=pf)
+    def handler(message: OrderCreated):
+        pass
+
+    assert handler._message_router_data["payload_filter"] is pf
+    assert handler._message_router_data["model_filter"] is None
+
+
+def test_message_router_with_model_filter():
+    """model_filter callable is stored on the decorator metadata."""
+
+    def mf(model, ctx):
+        return True
+
+    @message_router(pubsub="messagepubsub", topic="orders", model_filter=mf)
+    def handler(message: OrderCreated):
+        pass
+
+    assert handler._message_router_data["model_filter"] is mf
+    assert handler._message_router_data["payload_filter"] is None
+
+
+def test_message_router_rejects_async_payload_filter():
+    """Async payload_filter is rejected at decoration time."""
+
+    async def pf(payload, ctx):
+        return True
+
+    with pytest.raises(TypeError, match="payload_filter.*synchronous"):
+
+        @message_router(pubsub="messagepubsub", topic="orders", payload_filter=pf)
+        def handler(message: OrderCreated):
+            pass
+
+
+def test_message_router_rejects_async_model_filter():
+    """Async model_filter is rejected at decoration time."""
+
+    async def mf(model, ctx):
+        return True
+
+    with pytest.raises(TypeError, match="model_filter.*synchronous"):
+
+        @message_router(pubsub="messagepubsub", topic="orders", model_filter=mf)
+        def handler(message: OrderCreated):
+            pass
+
+
+def test_message_router_rejects_non_callable_filter():
+    """Non-callable filter values are rejected at decoration time."""
+
+    with pytest.raises(TypeError, match="payload_filter.*callable"):
+
+        @message_router(pubsub="messagepubsub", topic="orders", payload_filter=42)
+        def handler(message: OrderCreated):
+            pass
+
+
+def test_collect_bindings_carries_decorator_filters():
+    """_collect_message_bindings propagates filters from decorator metadata."""
+    from dapr_agents.workflow.utils.registration import _collect_message_bindings
+
+    def pf(payload, ctx):
+        return True
+
+    def mf(model, ctx):
+        return True
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        payload_filter=pf,
+        model_filter=mf,
+    )
+    def handler(message: OrderCreated):
+        pass
+
+    bindings = _collect_message_bindings(targets=[handler], routes=None)
+    assert len(bindings) == 1
+    assert bindings[0].payload_filter is pf
+    assert bindings[0].model_filter is mf
+
+
+def test_pubsub_route_spec_filter_wins_over_decorator():
+    """When PubSubRouteSpec carries a filter, it overrides the decorator's."""
+    from dapr_agents.types.workflow import PubSubRouteSpec
+    from dapr_agents.workflow.utils.registration import _collect_message_bindings
+
+    def deco_pf(payload, ctx):
+        return True
+
+    def spec_pf(payload, ctx):
+        return False
+
+    @message_router(pubsub="messagepubsub", topic="orders", payload_filter=deco_pf)
+    def handler(message: OrderCreated):
+        pass
+
+    spec = PubSubRouteSpec(
+        pubsub_name="messagepubsub",
+        topic="orders",
+        handler_fn=handler,
+        payload_filter=spec_pf,
+    )
+    bindings = _collect_message_bindings(targets=None, routes=[spec])
+    assert bindings[0].payload_filter is spec_pf
+
+
+def test_pubsub_route_spec_falls_back_to_decorator_filter():
+    """When PubSubRouteSpec omits a filter, the decorator's is used."""
+    from dapr_agents.types.workflow import PubSubRouteSpec
+    from dapr_agents.workflow.utils.registration import _collect_message_bindings
+
+    def deco_mf(model, ctx):
+        return True
+
+    @message_router(pubsub="messagepubsub", topic="orders", model_filter=deco_mf)
+    def handler(message: OrderCreated):
+        pass
+
+    spec = PubSubRouteSpec(
+        pubsub_name="messagepubsub", topic="orders", handler_fn=handler
+    )
+    bindings = _collect_message_bindings(targets=None, routes=[spec])
+    assert bindings[0].model_filter is deco_mf
+
+
+# Behavioral tests via mock subscription
+
+
+def _make_cloudevent(data: dict, **fields) -> dict:
+    """Build a dict that `extract_cloudevent_data` will treat as a CloudEvent."""
+    base = {
+        "id": "evt-1",
+        "data": data,
+        "datacontenttype": "application/json",
+        "pubsubname": "messagepubsub",
+        "source": "/test",
+        "specversion": "1.0",
+        "topic": "orders",
+        "type": "OrderCreated",
+        "extensions": {},
+    }
+    base.update(fields)
+    return base
+
+
+def _run_one_message(mock_dapr, mock_wf, target, message: dict) -> None:
+    """Feed exactly one message through the subscription thread and join cleanly."""
+    mock_dapr.subscribe.return_value.__iter__.return_value = iter([message])
+    with patch(_PATCH_TARGET, return_value=mock_dapr):
+        closers = register_message_routes(
+            dapr_client=mock_dapr,
+            targets=[target],
+            wf_client=mock_wf,
+        )
+    for closer in closers:
+        closer()  # joins the consumer thread after the iterator is exhausted
+
+
+@pytest.fixture
+def filter_env():
+    """Mock dapr_client + wf_client suitable for exercising the handler path."""
+    mock_dapr = create_mock_dapr_client(["messagepubsub"])
+    mock_wf = MagicMock()
+    mock_wf.schedule_new_workflow.return_value = "instance-1"
+    return mock_dapr, mock_wf
+
+
+def test_payload_filter_accept_schedules_workflow(filter_env):
+    mock_dapr, mock_wf = filter_env
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        payload_filter=lambda p, ctx: p.get("amount", 0) > 50,
+    )
+    def handler(message: OrderCreated):
+        return "ok"
+
+    msg = _make_cloudevent({"order_id": "1", "amount": 100.0, "customer": "Alice"})
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert mock_wf.schedule_new_workflow.called
+
+
+def test_payload_filter_reject_skips_workflow(filter_env):
+    mock_dapr, mock_wf = filter_env
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        payload_filter=lambda p, ctx: p.get("amount", 0) > 50,
+    )
+    def handler(message: OrderCreated):
+        return "ok"
+
+    msg = _make_cloudevent({"order_id": "1", "amount": 10.0, "customer": "Alice"})
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert not mock_wf.schedule_new_workflow.called
+
+
+def test_model_filter_reject_skips_workflow(filter_env):
+    mock_dapr, mock_wf = filter_env
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        model_filter=lambda m, ctx: m.amount > 50,
+    )
+    def handler(message: OrderCreated):
+        return "ok"
+
+    msg = _make_cloudevent({"order_id": "1", "amount": 10.0, "customer": "Alice"})
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert not mock_wf.schedule_new_workflow.called
+
+
+def test_filter_exception_skips_binding(filter_env):
+    mock_dapr, mock_wf = filter_env
+
+    def buggy(model, ctx):
+        raise RuntimeError("boom")
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        model_filter=buggy,
+    )
+    def handler(message: OrderCreated):
+        return "ok"
+
+    msg = _make_cloudevent({"order_id": "1", "amount": 100.0, "customer": "Alice"})
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert not mock_wf.schedule_new_workflow.called
+
+
+def test_message_context_exposes_event_metadata(filter_env):
+    mock_dapr, mock_wf = filter_env
+    captured: list = []
+
+    def capturing(model, ctx):
+        captured.append(ctx)
+        return True
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        model_filter=capturing,
+    )
+    def handler(message: OrderCreated):
+        return "ok"
+
+    msg = _make_cloudevent(
+        {"order_id": "1", "amount": 100.0, "customer": "Alice"},
+        id="evt-42",
+        source="/api/orders",
+        type="OrderCreated",
+    )
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert len(captured) == 1
+    ctx = captured[0]
+    assert ctx.event.id == "evt-42"
+    assert ctx.event.source == "/api/orders"
+    assert ctx.event.topic == "orders"
+    assert ctx.event.type == "OrderCreated"
+    assert ctx.dapr_client is mock_dapr
