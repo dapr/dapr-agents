@@ -513,7 +513,7 @@ class DurableAgent(AgentBase):
             # its async event stream and checkpoint at session granularity.
             elif self.executor is not None:
                 if not ctx.is_replaying:
-                    logger.info(
+                    logger.debug(
                         "Agent %s delegating to executor %s (instance=%s)",
                         self.name,
                         type(self.executor).__name__,
