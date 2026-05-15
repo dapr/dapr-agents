@@ -45,6 +45,49 @@ class MistralClientConfig(BaseModel):
     )
 
 
+class AnthropicClientConfig(BaseModel):
+    base_url: Optional[str] = Field(
+        None, description="Base URL override for the Anthropic API."
+    )
+    api_key: Optional[str] = Field(
+        None, description="API key to authenticate the Anthropic API."
+    )
+
+
+class AnthropicModelConfig(AnthropicClientConfig):
+    type: Literal["anthropic"] = Field(
+        "anthropic", description="Type of the model, must always be 'anthropic'"
+    )
+    name: str = Field(default="", description="Name of the Anthropic model")
+
+
+class AnthropicChatCompletionParams(BaseModel):
+    """
+    Static parameters declarable in a Prompty file for the Anthropic Messages API.
+    """
+
+    model: Optional[str] = Field(None, description="ID of the model to use")
+    max_tokens: Optional[int] = Field(
+        None, description="Maximum number of tokens to generate (required by Anthropic)"
+    )
+    temperature: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Sampling temperature"
+    )
+    top_p: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Nucleus sampling probability mass"
+    )
+    top_k: Optional[int] = Field(None, description="Top-k sampling")
+    stop_sequences: Optional[List[str]] = Field(
+        None, description="Custom stop sequences"
+    )
+    tools: Optional[List[Dict[str, Any]]] = Field(
+        None, description="List of tools the model may call (Anthropic schema)"
+    )
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = Field(
+        None, description="Controls which tool is called"
+    )
+
+
 class MistralModelConfig(MistralClientConfig):
     type: Literal["mistral"] = Field(
         "mistral", description="Type of the model, must always be 'mistral'"
@@ -368,6 +411,7 @@ class PromptyModelConfig(BaseModel):
         HFHubModelConfig,
         NVIDIAModelConfig,
         MistralModelConfig,
+        AnthropicModelConfig,
     ] = Field(..., description="Model configuration settings")
     parameters: Union[
         OpenAITextCompletionParams,
@@ -375,6 +419,7 @@ class PromptyModelConfig(BaseModel):
         HFHubChatCompletionParams,
         NVIDIAChatCompletionParams,
         MistralChatCompletionParams,
+        AnthropicChatCompletionParams,
     ] = Field(..., description="Parameters for the model request")
     response: Literal["first", "full"] = Field(
         "first",
@@ -401,13 +446,16 @@ class PromptyModelConfig(BaseModel):
                 configuration = NVIDIAModelConfig(**configuration)
             elif configuration.get("type") == "mistral":
                 configuration = MistralModelConfig(**configuration)
+            elif configuration.get("type") == "anthropic":
+                configuration = AnthropicModelConfig(**configuration)
 
         configuration = cast(
             OpenAIModelConfig
             | AzureOpenAIModelConfig
             | HFHubModelConfig
             | NVIDIAModelConfig
-            | MistralModelConfig,
+            | MistralModelConfig
+            | AnthropicModelConfig,
             configuration,
         )
 
@@ -423,12 +471,15 @@ class PromptyModelConfig(BaseModel):
                 parameters = NVIDIAChatCompletionParams(**parameters)
             elif configuration and isinstance(configuration, MistralModelConfig):
                 parameters = MistralChatCompletionParams(**parameters)
+            elif configuration and isinstance(configuration, AnthropicModelConfig):
+                parameters = AnthropicChatCompletionParams(**parameters)
 
         parameters = cast(
             OpenAIChatCompletionParams
             | HFHubChatCompletionParams
             | NVIDIAChatCompletionParams
-            | MistralChatCompletionParams,
+            | MistralChatCompletionParams
+            | AnthropicChatCompletionParams,
             parameters,
         )
 
