@@ -35,6 +35,7 @@ from dapr_agents.agents.components import DaprInfra
 from dapr_agents.agents.configs import (
     AGENT_DEFAULT_MAX_ITERATIONS,
     AGENT_DEFAULT_TOOL_CHOICE,
+    AgentApprovalConfig,
     AgentLoggingExporter,
     AgentMemoryConfig,
     AgentMetadata,
@@ -1732,9 +1733,9 @@ class AgentBase:
     def _resolve_execution_config(self) -> AgentExecutionConfig:
         """
         Resolve the execution configuration for the agent in the following order:
-        1. Passed through instantiation (highest priority)
-        2. Environment variables
-        3. Default statestore runtime config (lowest priority)
+        1. Statestore runtime config (highest priority)
+        2. Passed through instantiation
+        3. Environment variables (lowest priority)
 
         Args:
             agent_execution: Optional execution config provided during initialization.
@@ -1742,18 +1743,18 @@ class AgentBase:
             Resolved AgentExecutionConfig instance.
         """
 
-        config = self._load_execution_from_statestore()
-        logger.debug(f"Statestore execution config: {config}")
-
-        env_config = AgentExecutionConfig.from_env()
-        logger.debug(f"Env execution config: {env_config}")
-
-        config = self._merge_execution_configs(config, env_config)
-        logger.debug(f"Merged execution config: {config}")
+        config = AgentExecutionConfig.from_env()
+        logger.debug(f"Env execution config: {config}")
 
         if self.execution:
             config = self._merge_execution_configs(config, self.execution)
-            logger.debug(f"Final execution config with override: {config}")
+            logger.debug(f"Merged execution config: {config}")
+
+        statestore_config = self._load_execution_from_statestore()
+        logger.debug(f"Statestore execution config: {statestore_config}")
+
+        config = self._merge_execution_configs(config, statestore_config)
+        logger.debug(f"Final execution config with statestore override: {config}")
         return config
 
     def _load_execution_from_statestore(self) -> AgentExecutionConfig:
@@ -1781,6 +1782,7 @@ class AgentBase:
 
             tool_execution_mode: Optional[ToolExecutionMode] = None
             orchestration_mode: Optional[OrchestrationMode] = None
+            approval: Optional[AgentApprovalConfig] = None
             app_health_check_enabled: Optional[bool] = None
             app_ready_check_enabled: Optional[bool] = None
 
@@ -1789,6 +1791,7 @@ class AgentBase:
                 tool_choice=tool_choice,
                 tool_execution_mode=tool_execution_mode,
                 orchestration_mode=orchestration_mode,
+                approval=approval,
                 app_health_check_enabled=app_health_check_enabled,
                 app_ready_check_enabled=app_ready_check_enabled,
             )
@@ -1827,7 +1830,7 @@ class AgentBase:
             tool_execution_mode=override.tool_execution_mode
             or base.tool_execution_mode,
             orchestration_mode=override.orchestration_mode or base.orchestration_mode,
-            approval=override.approval if override.approval else base.approval,
+            approval=override.approval or base.approval,
             app_health_check_enabled=app_health_check_enabled,
             app_ready_check_enabled=app_ready_check_enabled,
         )

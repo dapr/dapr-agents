@@ -460,6 +460,7 @@ class AgentExecutionConfig:
         tool_execution_mode: Tool execution mode for the agent.
         orchestration_mode: Orchestration strategy for the agent.
         app_health_check_enabled: Enable/disable Kubernetes liveness probes.
+        approval: Human-in-the-loop configuration for the agent.
         app_ready_check_enabled: Enable/disable Dapr health/Kubernetes readiness probes.
     """
 
