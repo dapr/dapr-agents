@@ -25,10 +25,18 @@ class ToolChoice(StrEnum):
     AUTO: The agent decides when to use tools based on the prompt and context.
         This is the default and recommended choice for most use cases,
         as it allows the agent to leverage tools when beneficial while avoiding unnecessary calls.
+    ANY: The agent must use at least one tool in each response.
+        Support for this choice is provider-dependent and is functionally equivalent to ``REQUIRED``.
+    REQUIRED: The agent must use at least one tool in each response.
+        Support for this choice is provider-dependent and is functionally equivalent to ``ANY``.
+    NONE: The agent ignores tools; tool calling is explicitly disabled.
     """
 
     # TODO: This enum does not support dicts, which some LLM providers allow when forcing a specific tool
     AUTO = "auto"
+    ANY = "any"
+    REQUIRED = "required"
+    NONE = "none"
 
 
 class ToolExecutionMode(StrEnum):
