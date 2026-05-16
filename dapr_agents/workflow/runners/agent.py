@@ -604,6 +604,7 @@ class AgentRunner(WorkflowRunner):
                 entry_path=entry_path,
                 status_path=status_path,
             )
+
         self._mount_hitl_routes(fastapi_app=fastapi_app, agent=agent)
 
         auto_run = app is None
@@ -649,7 +650,9 @@ class AgentRunner(WorkflowRunner):
     ):
         app_health_check_path = "/livez"
         if app_health_check_path in self._default_http_paths:
-            logger.debug(f"Health endpoint already mounted at {app_health_check_path}")
+            logger.warning(
+                f"Health endpoint already mounted at {app_health_check_path}"
+            )
             return
 
         self._default_http_paths.add(app_health_check_path)
@@ -678,7 +681,7 @@ class AgentRunner(WorkflowRunner):
     ):
         app_ready_check_path = "/readyz"
         if app_ready_check_path in self._default_http_paths:
-            logger.debug(
+            logger.warning(
                 f"Readiness endpoint already mounted at {app_ready_check_path}"
             )
             return
