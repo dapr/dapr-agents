@@ -11,7 +11,14 @@
 # limitations under the License.
 #
 
-from .agent import AgentStatus, AgentTaskEntry, AgentTaskStatus
+from .agent import (
+    AgentStatus,
+    AgentTaskEntry,
+    AgentTaskStatus,
+    ToolChoice,
+    ToolExecutionMode,
+    OrchestrationMode,
+)
 from .workflow import DaprWorkflowStatus
 from .exceptions import (
     AgentError,
@@ -52,6 +59,9 @@ __all__ = [
     "AgentStatus",
     "AgentTaskEntry",
     "AgentTaskStatus",
+    "ToolChoice",
+    "ToolExecutionMode",
+    "OrchestrationMode",
     "DaprWorkflowStatus",
     "AgentError",
     "AgentToolExecutorError",

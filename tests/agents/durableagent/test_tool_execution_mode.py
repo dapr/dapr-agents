@@ -7,21 +7,23 @@ from unittest.mock import Mock, MagicMock, AsyncMock
 
 import pytest
 
-from dapr_agents.agents.configs import (
+from dapr_agents.agents.constants import (
     AGENT_DEFAULT_MAX_ITERATIONS,
     AGENT_DEFAULT_TOOL_CHOICE,
+)
+from dapr_agents.agents.configs import (
     AgentExecutionConfig,
     AgentMemoryConfig,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
-    ToolExecutionMode,
 )
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.tool.base import AgentTool
+from dapr_agents.types.agent import ToolExecutionMode
 
 
 # ---------------------------------------------------------------------------

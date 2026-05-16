@@ -50,8 +50,8 @@ from dapr_agents.agents.orchestrators.llm.utils import (
 )
 
 from dapr_agents.agents.base import AgentBase
+from dapr_agents.agents.constants import AGENT_DEFAULT_TOOL_CHOICE
 from dapr_agents.agents.configs import (
-    AGENT_DEFAULT_TOOL_CHOICE,
     OrchestrationMode,
     ToolExecutionMode,
     AgentApprovalConfig,

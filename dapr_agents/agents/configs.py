@@ -32,6 +32,12 @@ from typing import (
 
 from pydantic import BaseModel, Field
 
+from dapr_agents.types.agent import ToolChoice, ToolExecutionMode, OrchestrationMode
+from dapr_agents.agents.constants import (
+    AGENT_DEFAULT_MAX_ITERATIONS,
+    AGENT_DEFAULT_TOOL_CHOICE,
+    AGENT_DEFAULT_TOOL_EXECUTION_MODE,
+)
 from dapr_agents.agents.schemas import (
     AgentWorkflowEntry,
     AgentWorkflowMessage,
@@ -248,11 +254,13 @@ def validate_max_iterations(v: int) -> int:
 
 def validate_tool_choice(v: str) -> str:
     """Warn if tool_choice is non-standard, but allow it."""
-    allowed = {"auto", "none", "required"}
-    if v.lower() not in allowed:
+    try:
+        ToolChoice(v.lower())
+    except (ValueError, KeyError):
         _config_logger.warning(
-            "tool_choice '%s' not in standard set %s; allowing anyway.", v, allowed
+            f"tool_choice {v} not in standard set {set([tc.value for tc in ToolChoice])}; allowing anyway."
         )
+
     return v
 
 
@@ -367,54 +375,6 @@ class AgentProfileConfig:
     template_format: str = "jinja2"
     modules: Sequence[str] = field(default_factory=tuple)
     module_overrides: Dict[str, PromptSection] = field(default_factory=dict)
-
-
-class ToolChoice(StrEnum):
-    """
-    Enumeration of supported tool choice strategies for durable agents.
-
-    AUTO: The agent decides when to use tools based on the prompt and context.
-        This is the default and recommended setting for most use cases,
-        as it allows the agent to leverage tools when beneficial while avoiding unnecessary calls.
-    """
-
-    # TODO: This enum does not supports dicts, which some LLM providers allow when forcing a specific tool
-    AUTO = "auto"
-
-
-class ToolExecutionMode(StrEnum):
-    """
-    Enumeration of supported tool execution modes for durable agents.
-
-    PARALLEL: All tool calls returned by the LLM in a single turn are executed
-        concurrently via ``wf.when_all``. This is the default behaviour and
-        provides the best latency when tools are independent.
-    SEQUENTIAL: Tool calls are executed one after another in the order they
-        were returned by the LLM. Use this when tools have side-effects that
-        depend on the results of earlier calls in the same turn.
-    """
-
-    PARALLEL = "parallel"
-    SEQUENTIAL = "sequential"
-
-
-class OrchestrationMode(StrEnum):
-    """
-    Enumeration of supported orchestration strategies for durable agents.
-
-    AGENT: Orchestration is driven by an LLM-generated plan that determines the next steps and agent interactions.
-    RANDOM: Orchestration randomly selects agents or actions at each decision point, without a predetermined plan.
-    ROUNDROBIN: Orchestration cycles through available agents or actions in a fixed order, ensuring equal opportunity for each participant.
-    """
-
-    AGENT = "agent"
-    RANDOM = "random"
-    ROUNDROBIN = "roundrobin"
-
-
-AGENT_DEFAULT_MAX_ITERATIONS = 10
-AGENT_DEFAULT_TOOL_CHOICE = ToolChoice.AUTO
-AGENT_DEFAULT_TOOL_EXECUTION_MODE = ToolExecutionMode.PARALLEL
 
 
 @dataclass
