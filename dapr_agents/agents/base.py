@@ -1827,6 +1827,7 @@ class AgentBase:
             tool_execution_mode=override.tool_execution_mode
             or base.tool_execution_mode,
             orchestration_mode=override.orchestration_mode or base.orchestration_mode,
+            approval=override.approval if override.approval else base.approval,
             app_health_check_enabled=app_health_check_enabled,
             app_ready_check_enabled=app_ready_check_enabled,
         )
