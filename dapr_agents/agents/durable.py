@@ -96,14 +96,15 @@ from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 from dapr_agents.workflow.utils.names import sanitize_agent_name
 from dapr_agents.utils.logger import get_context_aware_logger
 from dapr_agents.hooks import (
-    Hooks,
-    HookContext,
-    HookDecision,
-    Proceed,
-    Skip,
-    Modify,
-    RequireApproval,
     Deny,
+    HookDecision,
+    Hooks,
+    LLMHookContext,
+    Mutate,
+    Proceed,
+    RequireApproval,
+    Skip,
+    ToolHookContext,
 )
 
 logger = get_context_aware_logger(__name__)
@@ -585,9 +586,8 @@ class DurableAgent(AgentBase):
                                     )
                                 except json.JSONDecodeError:
                                     hook_payload = {}
-                                hook_ctx = HookContext(
+                                hook_ctx = ToolHookContext(
                                     step_name=fn_name_check,
-                                    step_kind="tool",
                                     source=getattr(tool_obj_check, "source", "local"),
                                     payload=hook_payload,
                                     tool_call_id=tc["id"],
@@ -672,7 +672,7 @@ class DurableAgent(AgentBase):
                                 continue
 
                             if (
-                                isinstance(hook_decision, Modify)
+                                isinstance(hook_decision, Mutate)
                                 and hook_decision.payload is not None
                             ):
                                 # hook mutated the arguments — rebuild tc with new payload
@@ -1934,7 +1934,7 @@ class DurableAgent(AgentBase):
                 )
 
         tools = self.get_llm_tools()
-        generate_kwargs = {
+        generate_kwargs: Dict[str, Any] = {
             "messages": messages,
             "tools": tools,
         }
@@ -1943,31 +1943,101 @@ class DurableAgent(AgentBase):
         if tools and self.execution.tool_choice is not None:
             generate_kwargs["tool_choice"] = self.execution.tool_choice
 
-        try:
-            response = self.llm.generate(**generate_kwargs)
-        except Exception as exc:  # noqa: BLE001
-            raise AgentError(str(exc)) from exc
+        # before_llm_call hook dispatch. Hooks fire inside this activity (rather
+        # than in the workflow body) so they can perform non-deterministic work
+        # like web search; the activity boundary records the final assistant
+        # message so replays use the recorded output rather than re-running the
+        # hook. First non-Proceed decision wins, mirroring before_tool_call.
+        before_llm_decision: Optional[HookDecision] = None
+        if self._hooks and self._hooks.before_llm_call:
+            hook_payload: Dict[str, Any] = dict(generate_kwargs)
+            if "messages" in hook_payload:
+                hook_payload["messages"] = list(hook_payload["messages"])
+            before_ctx = LLMHookContext(payload=hook_payload)
+            for hook in self._hooks.before_llm_call:
+                result = hook(before_ctx)
+                if result is not None and not isinstance(result, Proceed):
+                    before_llm_decision = result
+                    break
 
-        # Handle structured output response (Pydantic model) vs regular chat response
-        if response_model is not None:
-            # Structured output: response is the Pydantic model itself
-            if hasattr(response, "model_dump"):
-                # Response is the structured Pydantic object
-                content = json.dumps(response.model_dump())
-            else:
-                # Fallback: try to serialize as-is
-                content = json.dumps(response)
+        if isinstance(before_llm_decision, RequireApproval):
+            raise NotImplementedError(
+                "RequireApproval is not supported on before_llm_call. LLM hooks "
+                "run inside the call_llm activity so they can perform non-"
+                "deterministic work (e.g. web search). Workflow yields for "
+                "external approval require the deterministic workflow body, "
+                "where such hooks would not be replay-safe. Use RequireApproval "
+                "on before_tool_call for HITL on tool dispatch instead."
+            )
 
-            assistant_message = {
+        synthesized_message: Optional[Dict[str, Any]] = None
+        if isinstance(before_llm_decision, Skip):
+            skip_content = (
+                str(before_llm_decision.result)
+                if before_llm_decision.result is not None
+                else ""
+            )
+            synthesized_message = {"role": "assistant", "content": skip_content}
+        elif isinstance(before_llm_decision, Deny):
+            deny_reason = before_llm_decision.reason or "policy denial"
+            synthesized_message = {
                 "role": "assistant",
-                "content": content,
+                "content": f"LLM call blocked: {deny_reason}",
             }
+        elif (
+            isinstance(before_llm_decision, Mutate)
+            and before_llm_decision.payload is not None
+        ):
+            # Shallow-merge so a hook can override just the keys it cares about
+            # (e.g. only `messages` for RAG) without dropping `tools`,
+            # `response_format`, or `tool_choice` from generate_kwargs.
+            generate_kwargs = {**generate_kwargs, **before_llm_decision.payload}
+
+        if synthesized_message is not None:
+            assistant_message = synthesized_message
         else:
-            # Regular chat response
-            assistant_message = response.get_message()
-            if assistant_message is None:
-                raise AgentError("LLM returned no assistant message.")
-            assistant_message = assistant_message.model_dump()
+            try:
+                response = self.llm.generate(**generate_kwargs)
+            except Exception as exc:  # noqa: BLE001
+                raise AgentError(str(exc)) from exc
+
+            # Handle structured output response (Pydantic model) vs regular chat response
+            if response_model is not None:
+                # Structured output: response is the Pydantic model itself
+                if hasattr(response, "model_dump"):
+                    # Response is the structured Pydantic object
+                    content = json.dumps(response.model_dump())
+                else:
+                    # Fallback: try to serialize as-is
+                    content = json.dumps(response)
+
+                assistant_message = {
+                    "role": "assistant",
+                    "content": content,
+                }
+            else:
+                # Regular chat response
+                assistant_message = response.get_message()
+                if assistant_message is None:
+                    raise AgentError("LLM returned no assistant message.")
+                assistant_message = assistant_message.model_dump()
+
+        # after_llm_call hook dispatch. Receives a copy of the built
+        # assistant_message and may return Mutate(payload=<replacement dict>) to
+        # replace it before persistence. Skip / Deny / RequireApproval are no-ops
+        # on the after-path since the LLM has already produced output. Hooks
+        # receive a shallow copy so in-place mutation cannot bypass the Mutate
+        # contract.
+        if self._hooks and self._hooks.after_llm_call:
+            after_payload: Dict[str, Any] = dict(generate_kwargs)
+            if "messages" in after_payload:
+                after_payload["messages"] = list(after_payload["messages"])
+            after_ctx = LLMHookContext(payload=after_payload)
+            for hook in self._hooks.after_llm_call:
+                result = hook(after_ctx, dict(assistant_message))
+                if isinstance(result, Mutate) and result.payload is not None:
+                    assistant_message = result.payload
+                    break
 
         self._save_assistant_message(
             instance_id, assistant_message, entry=entry, skip_save=True

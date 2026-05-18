@@ -175,4 +175,5 @@ members = [
     "examples/07-data-agent-mcp-chainlit",
     "examples/08-agents-as-activities-observability",
     "examples/09-agents-as-tools",
+    "examples/11-expert-agent-tavily",
 ]
