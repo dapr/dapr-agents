@@ -901,6 +901,45 @@ def test_pubsub_route_spec_filter_wins_over_decorator():
     assert bindings[0].payload_filter is spec_pf
 
 
+def test_pubsub_route_spec_rejects_async_filter():
+    """Async filter via PubSubRouteSpec is rejected at binding collection."""
+    from dapr_agents.types.workflow import PubSubRouteSpec
+    from dapr_agents.workflow.utils.registration import _collect_message_bindings
+
+    async def pf(payload, msg_ctx):
+        return True
+
+    def handler(message: OrderCreated):
+        pass
+
+    spec = PubSubRouteSpec(
+        pubsub_name="messagepubsub",
+        topic="orders",
+        handler_fn=handler,
+        payload_filter=pf,
+    )
+    with pytest.raises(TypeError, match="payload_filter.*synchronous"):
+        _collect_message_bindings(targets=None, routes=[spec])
+
+
+def test_pubsub_route_spec_rejects_non_callable_filter():
+    """Non-callable filter via PubSubRouteSpec is rejected at binding collection."""
+    from dapr_agents.types.workflow import PubSubRouteSpec
+    from dapr_agents.workflow.utils.registration import _collect_message_bindings
+
+    def handler(message: OrderCreated):
+        pass
+
+    spec = PubSubRouteSpec(
+        pubsub_name="messagepubsub",
+        topic="orders",
+        handler_fn=handler,
+        model_filter=42,
+    )
+    with pytest.raises(TypeError, match="model_filter.*callable"):
+        _collect_message_bindings(targets=None, routes=[spec])
+
+
 def test_pubsub_route_spec_falls_back_to_decorator_filter():
     """When PubSubRouteSpec omits a filter, the decorator's is used."""
     from dapr_agents.types.workflow import PubSubRouteSpec

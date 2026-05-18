@@ -207,11 +207,9 @@ pins a topic in a retry loop.
 
 > ⚠️ **Filters are on the critical path of message intake.** They run on the
 > per-topic consumer thread and **block further messages from being read**
-> until they return. Keep them in-memory, side-effect-free, and fast (think
-> microseconds, not milliseconds). If you need an external check — database
-> lookup, HTTP call, state-store read — do it inside the workflow body and
-> return early there. A 100 ms filter on a topic that receives 50 msg/s will
-> halve your effective throughput.
+> until they return. Keep them in-memory, side-effect-free, and fast. If you
+> need an external check — database lookup, HTTP call, state-store read —
+> do it inside the workflow body and return early there.
 
 > 🚫 **`async def` filters are rejected at decoration time.** They look like
 > they'd run concurrently, but the consumer thread would still block waiting

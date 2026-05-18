@@ -88,6 +88,24 @@ PayloadFilter = Callable[[Any, "MessageContext"], bool]
 ModelFilter = Callable[[Any, "MessageContext"], bool]
 
 
+def _validate_filter(
+    filter_fn: Optional[Callable[..., bool]], filter_name: str
+) -> None:
+    """Reject async or non-callable filters at registration time"""
+    if filter_fn is None:
+        return
+    if not callable(filter_fn):
+        raise TypeError(
+            f"`{filter_name}` must be callable, got {type(filter_fn).__name__}."
+        )
+    if asyncio.iscoroutinefunction(filter_fn):
+        raise TypeError(
+            f"`{filter_name}` must be a synchronous callable; "
+            "filters run on the consumer thread and cannot be `async def`. "
+            "For I/O-bound checks, do them in the workflow body."
+        )
+
+
 @dataclass(frozen=True)
 class MessageContext:
     """Per-message context handed to ``@message_router`` filters.
@@ -97,8 +115,7 @@ class MessageContext:
 
     Attributes:
         event: Parsed CloudEvent envelope (id, source, type, topic, headers, ...).
-        dapr_client: The DaprClient backing this subscription, reusable for
-            read-only state lookups inside filters.
+        dapr_client: The DaprClient backing this subscription.
     """
 
     event: EventMessageMetadata

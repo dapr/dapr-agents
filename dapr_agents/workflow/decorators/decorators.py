@@ -13,13 +13,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from copy import deepcopy
 from typing import Any, Callable, List, Literal, Optional, Type, TypeVar, get_type_hints
 
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.routers import extract_message_models
+from dapr_agents.workflow.utils.subscription import _validate_filter
 from dapr_agents.utils.logger import with_logger_context
 
 logger = logging.getLogger(__name__)
@@ -111,22 +111,8 @@ def message_router(
             on the consumer thread; for async I/O, push the check into the
             workflow body where the runtime is async-aware.
     """
-    for filter_name, filter_fn in (
-        ("payload_filter", payload_filter),
-        ("model_filter", model_filter),
-    ):
-        if filter_fn is None:
-            continue
-        if not callable(filter_fn):
-            raise TypeError(
-                f"`{filter_name}` must be callable, got {type(filter_fn).__name__}."
-            )
-        if asyncio.iscoroutinefunction(filter_fn):
-            raise TypeError(
-                f"`{filter_name}` must be a synchronous callable; "
-                "filters run on the consumer thread and cannot be `async def`. "
-                "For I/O-bound checks, do them in the workflow body."
-            )
+    _validate_filter(payload_filter, "payload_filter")
+    _validate_filter(model_filter, "model_filter")
 
     def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
         # Resolve message model(s)
