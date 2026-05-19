@@ -105,8 +105,8 @@ def setup_env(monkeypatch):
     mock_client = MockDaprClient()
     monkeypatch.setattr("dapr.clients.DaprClient", lambda *a, **kw: mock_client)
     monkeypatch.setattr(
-        "dapr_agents.storage.daprstores.statestore.DaprClient",
-        lambda *a, **kw: mock_client,
+        "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+        lambda: mock_client,
     )
     yield
     os.environ.pop("OPENAI_API_KEY", None)

@@ -13,7 +13,9 @@
 
 from .dapr_client_factory import (
     INBOUND_MESSAGE_SIZE_ENV,
+    AsyncDaprClientFactory,
     DaprClientConfig,
+    DaprClientFactory,
     dapr_client_kwargs,
     default_async_dapr_client_factory,
     default_dapr_client_factory,
@@ -33,7 +35,9 @@ __all__ = [
     "add_signal_handlers_cross_platform",
     "SignalHandlingMixin",
     "INBOUND_MESSAGE_SIZE_ENV",
+    "AsyncDaprClientFactory",
     "DaprClientConfig",
+    "DaprClientFactory",
     "dapr_client_kwargs",
     "default_async_dapr_client_factory",
     "default_dapr_client_factory",

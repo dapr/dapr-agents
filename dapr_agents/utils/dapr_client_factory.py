@@ -29,10 +29,16 @@ Resolution order (highest precedence first):
     1. Explicit ``max_grpc_message_length`` kwarg passed to
        :func:`dapr_client_kwargs`.
     2. ``config.max_grpc_message_length`` from a :class:`DaprClientConfig`
-       passed by the caller (used by ``AgentBase`` to propagate typed config
-       to all internal Dapr client constructions).
+       passed by the caller (used by ``AgentBase`` to build a single client
+       factory shared by all internal Dapr client constructions).
     3. ``DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES`` environment variable.
     4. SDK / gRPC defaults (4 MiB receive, unlimited send).
+
+Components inside ``dapr-agents`` (storage, memory, LLM, runners) accept a
+``client_factory`` of type :data:`DaprClientFactory` /
+:data:`AsyncDaprClientFactory` and call it whenever they need a fresh client,
+so the agent only carries one factory rather than N copies of a config to keep
+in sync.
 """
 
 from __future__ import annotations
@@ -49,14 +55,17 @@ INBOUND_MESSAGE_SIZE_ENV: str = "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES"
 
 logger = logging.getLogger(__name__)
 
+DaprClientFactory = Callable[[], DaprClient]
+AsyncDaprClientFactory = Callable[[], AsyncDaprClient]
+
 
 @dataclass(frozen=True)
 class DaprClientConfig:
     """Immutable Dapr client configuration carried explicitly between layers.
 
-    Threading this config through internal Dapr client constructions replaces
-    process-wide module state, so two agents in the same process can run with
-    independent limits and tests do not need to reset global state.
+    Threading this config through a single client factory replaces process-wide
+    module state, so two agents in the same process can run with independent
+    limits and tests do not need to reset global state.
 
     Attributes:
         max_grpc_message_length: gRPC inbound message size limit in bytes.
@@ -91,13 +100,29 @@ def dapr_client_kwargs(
         config: Optional typed config carrying ``max_grpc_message_length``.
         **explicit_kwargs: Kwargs to pass through to the SDK constructor
             (``http_timeout_seconds``, ``address``, ``interceptors``, ...).
+            An explicit ``max_grpc_message_length`` of ``None`` is dropped (so
+            callers can pass it unconditionally); a non-positive int raises
+            ``ValueError`` to match :class:`DaprClientConfig` validation.
 
     Returns:
         A new dict suitable for ``DaprClient(**dapr_client_kwargs(...))``.
+
+    Raises:
+        ValueError: If an explicit ``max_grpc_message_length`` is a
+            non-positive integer.
     """
     resolved = dict(explicit_kwargs)
     if "max_grpc_message_length" in resolved:
-        return resolved
+        explicit = resolved["max_grpc_message_length"]
+        if explicit is None:
+            # Drop the unset kwarg so we fall through to config/env resolution.
+            del resolved["max_grpc_message_length"]
+        elif not isinstance(explicit, int) or explicit <= 0:
+            raise ValueError(
+                f"max_grpc_message_length must be a positive integer, got {explicit!r}"
+            )
+        else:
+            return resolved
 
     if config is not None and config.max_grpc_message_length is not None:
         resolved["max_grpc_message_length"] = config.max_grpc_message_length
@@ -139,7 +164,7 @@ def default_async_dapr_client_factory() -> AsyncDaprClient:
 
 def make_dapr_client_factory(
     config: Optional[DaprClientConfig] = None,
-) -> Callable[[], DaprClient]:
+) -> DaprClientFactory:
     """Return a no-arg factory bound to ``config`` for synchronous clients."""
 
     def _factory() -> DaprClient:
@@ -150,7 +175,7 @@ def make_dapr_client_factory(
 
 def make_async_dapr_client_factory(
     config: Optional[DaprClientConfig] = None,
-) -> Callable[[], AsyncDaprClient]:
+) -> AsyncDaprClientFactory:
     """Return a no-arg factory bound to ``config`` for asynchronous clients."""
 
     def _factory() -> AsyncDaprClient:

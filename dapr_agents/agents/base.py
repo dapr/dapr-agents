@@ -23,8 +23,12 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, C
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 from dapr_agents.utils import (
+    AsyncDaprClientFactory,
     DaprClientConfig,
+    DaprClientFactory,
     dapr_client_kwargs,
+    make_async_dapr_client_factory,
+    make_dapr_client_factory,
 )
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
@@ -388,13 +392,25 @@ class AgentBase:
                     f"{exc}"
                 ) from exc
 
+        # Single canonical client factory shared with every collaborator
+        # (memory, state, registry, LLM). Replaces the previous per-component
+        # ``DaprClientConfig`` copies and the propagation/refresh plumbing.
+        self._client_factory: DaprClientFactory = make_dapr_client_factory(
+            self._dapr_client_config
+        )
+        # Async counterpart used by pub/sub publish helpers in DurableAgent.
+        self._async_client_factory: AsyncDaprClientFactory = (
+            make_async_dapr_client_factory(self._dapr_client_config)
+        )
+
         try:
-            with DaprClient(
-                **dapr_client_kwargs(
-                    config=self._dapr_client_config,
-                    http_timeout_seconds=10,
-                )
-            ) as _client:
+            # Bootstrap fetch needs a custom HTTP timeout; construct directly
+            # rather than via the factory so we can pass it through.
+            bootstrap_kwargs = dapr_client_kwargs(
+                config=self._dapr_client_config,
+                http_timeout_seconds=10,
+            )
+            with DaprClient(**bootstrap_kwargs) as _client:
                 resp: GetMetadataResponse = _client.get_metadata()
                 self.appid = resp.application_id
                 components: Sequence[RegisteredComponents] = resp.registered_components
@@ -408,7 +424,7 @@ class AgentBase:
                             store=ConversationDaprStateMemory(
                                 store_name=component.name,
                                 agent_name=self.name,
-                                dapr_client_config=self._dapr_client_config,
+                                client_factory=self._client_factory,
                             )
                         )
                     if "conversation" in component.type and llm is None:
@@ -426,7 +442,7 @@ class AgentBase:
                         state = AgentStateConfig(
                             store=StateStoreService(
                                 store_name=component.name,
-                                dapr_client_config=self._dapr_client_config,
+                                client_factory=self._client_factory,
                             ),
                             state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
                         )
@@ -438,7 +454,7 @@ class AgentBase:
                         registry = AgentRegistryConfig(
                             store=StateStoreService(
                                 store_name=component.name,
-                                dapr_client_config=self._dapr_client_config,
+                                client_factory=self._client_factory,
                             ),
                             team_name="default",
                         )
@@ -525,18 +541,11 @@ class AgentBase:
             self._memory.store = ConversationDaprStateMemory(
                 store_name=state.store.store_name,
                 agent_name=self.name,
-                dapr_client_config=self._dapr_client_config,
+                client_factory=self._client_factory,
             )
         self.memory = self._memory.store or ConversationListMemory()
         if hasattr(self.memory, "agent_name"):
             self.memory.agent_name = self.name
-        # Forward the agent's Dapr client config to any state-store dependent
-        # collaborators that support it.
-        self._propagate_dapr_client_config_to_collaborators(
-            state=state,
-            registry=registry,
-            memory_store=self.memory,
-        )
 
         # -----------------------------
         # Prompting helper
@@ -570,14 +579,15 @@ class AgentBase:
         self.llm: ChatClientBase = llm or get_default_llm()
         if self.llm:
             self.llm.prompt_template = self.prompt_template
-            # Forward Dapr client tuning to LLM clients that talk to the sidecar.
-            if self._dapr_client_config is not None and hasattr(
-                self.llm, "dapr_client_config"
+            # Forward the shared client factory to LLM clients that talk to the
+            # Dapr sidecar. The inference wrapper re-reads this attribute on
+            # every call, so no manual ``refresh_client()`` is required.
+            if (
+                self._dapr_client_config is not None
+                and hasattr(self.llm, "client_factory")
+                and getattr(self.llm, "client_factory", None) is None
             ):
-                self.llm.dapr_client_config = self._dapr_client_config
-                # Recreate the inner inference client so the new config takes effect.
-                if hasattr(self.llm, "refresh_client"):
-                    self.llm.refresh_client()
+                self.llm.client_factory = self._client_factory
 
         # -----------------------------
         # Tools
@@ -1051,49 +1061,22 @@ class AgentBase:
             self._config_client = None
 
     # ------------------------------------------------------------------
-    # Dapr client config propagation
+    # Dapr client tuning accessors
     # ------------------------------------------------------------------
     @property
     def dapr_client_config(self) -> Optional[DaprClientConfig]:
         """Return the resolved Dapr client tuning for this agent, if any."""
         return self._dapr_client_config
 
-    def _propagate_dapr_client_config_to_collaborators(
-        self,
-        *,
-        state: Optional[AgentStateConfig],
-        registry: Optional[AgentRegistryConfig],
-        memory_store: Optional[Any],
-    ) -> None:
-        """Forward the agent's Dapr client config to dependent collaborators.
+    @property
+    def client_factory(self) -> DaprClientFactory:
+        """Return the canonical sync Dapr client factory used by this agent."""
+        return self._client_factory
 
-        Best-effort propagation that only overwrites an unset (``None``)
-        ``dapr_client_config`` on each collaborator, preserving any value a
-        user explicitly supplied. For ``ConversationDaprStateMemory``, the
-        inner ``dapr_store`` is also updated so subsequent state calls see the
-        new config without rebuilding the memory object.
-        """
-        if self._dapr_client_config is None:
-            return
-
-        def _maybe_set(obj: Any) -> None:
-            if obj is None:
-                return
-            if not hasattr(obj, "dapr_client_config"):
-                return
-            if getattr(obj, "dapr_client_config", None) is None:
-                obj.dapr_client_config = self._dapr_client_config
-
-        if state is not None:
-            _maybe_set(state.store)
-        if registry is not None:
-            _maybe_set(registry.store)
-        _maybe_set(memory_store)
-        # ConversationDaprStateMemory creates its inner DaprStateStore eagerly
-        # in model_post_init. Update its inner store as well so reads/writes
-        # pick up the agent's config without rebuilding the memory object.
-        inner_store = getattr(memory_store, "dapr_store", None)
-        _maybe_set(inner_store)
+    @property
+    def async_client_factory(self) -> AsyncDaprClientFactory:
+        """Return the canonical async Dapr client factory used by this agent."""
+        return self._async_client_factory
 
     # ------------------------------------------------------------------
     # DaprInfra delegation properties and methods

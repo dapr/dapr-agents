@@ -36,7 +36,7 @@ from dapr.ext.workflow.workflow_state import WorkflowState
 from fastapi import FastAPI
 
 from dapr_agents.types.workflow import HttpRouteSpec, PubSubRouteSpec
-from dapr_agents.utils import DaprClientConfig, dapr_client_kwargs
+from dapr_agents.utils import DaprClientFactory, default_dapr_client_factory
 from dapr_agents.utils.signal.mixin import SignalMixin
 from dapr_agents.workflow.utils.registration import (
     register_http_routes,
@@ -64,7 +64,7 @@ class WorkflowRunner(SignalMixin):
         timeout_in_seconds: int = 600,
         auto_install_signals: bool = False,
         dapr_client: Optional[DaprClient] = None,
-        dapr_client_config: Optional[DaprClientConfig] = None,
+        client_factory: Optional[DaprClientFactory] = None,
     ) -> None:
         """
         Initialize the runner.
@@ -75,8 +75,10 @@ class WorkflowRunner(SignalMixin):
             timeout_in_seconds: Default timeout when waiting for completion.
             auto_install_signals: Install SIGINT/SIGTERM handlers on context entry.
             dapr_client: Optional ready-to-use DaprClient. If omitted, a default one is created/owned.
-            dapr_client_config: Optional Dapr client tuning applied when this runner
-                constructs its own ``DaprClient``.
+            client_factory: Optional sync Dapr client factory used whenever the
+                runner needs to construct its own ``DaprClient`` (e.g. for the
+                pub/sub subscription path). Falls back to
+                ``default_dapr_client_factory`` when unset.
 
         Returns:
             None
@@ -88,7 +90,9 @@ class WorkflowRunner(SignalMixin):
         self._timeout_in_seconds = timeout_in_seconds
         self._auto_install_signals = auto_install_signals
         self._signals_installed_by_us = False
-        self._dapr_client_config = dapr_client_config
+        self._client_factory: DaprClientFactory = (
+            client_factory or default_dapr_client_factory
+        )
 
         # Router wiring state
         self._dapr_client: Optional[DaprClient] = dapr_client
@@ -204,9 +208,7 @@ class WorkflowRunner(SignalMixin):
             None
         """
         if self._dapr_client is None:
-            self._dapr_client = DaprClient(
-                **dapr_client_kwargs(config=self._dapr_client_config)
-            )
+            self._dapr_client = self._client_factory()
             self._dapr_client_owned = True
 
     def _close_dapr_client(self) -> None:
@@ -308,7 +310,7 @@ class WorkflowRunner(SignalMixin):
                     await_timeout=await_timeout,
                     fetch_payloads=fetch_payloads,
                     log_outcome=log_outcome,
-                    dapr_client_config=self._dapr_client_config,
+                    client_factory=self._client_factory,
                 )
                 self._pubsub_closers.extend(closers)
                 self._wired_pubsub = True
@@ -338,7 +340,7 @@ class WorkflowRunner(SignalMixin):
                 await_timeout=await_timeout,
                 fetch_payloads=fetch_payloads,
                 log_outcome=log_outcome,
-                dapr_client_config=self._dapr_client_config,
+                client_factory=self._client_factory,
             )
             self._pubsub_closers.extend(closers)
             self._wired_pubsub = True

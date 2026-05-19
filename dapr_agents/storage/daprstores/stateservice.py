@@ -29,7 +29,7 @@ from dapr_agents.storage.daprstores.statestore import (
     DaprStateStore,
     _coerce_state_options,
 )
-from dapr_agents.utils import DaprClientConfig
+from dapr_agents.utils import DaprClientFactory
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class StateStoreService:
         retry_initial_backoff: float = 0.1,
         retry_backoff_multiplier: float = 2.0,
         retry_jitter: float = 0.1,
-        dapr_client_config: Optional[DaprClientConfig] = None,
+        client_factory: Optional[DaprClientFactory] = None,
     ) -> None:
         """
         Args:
@@ -75,8 +75,9 @@ class StateStoreService:
             retry_initial_backoff: Initial backoff in seconds.
             retry_backoff_multiplier: Backoff multiplier per attempt (>=1.0).
             retry_jitter: Proportional jitter [0,1] applied to backoff.
-            dapr_client_config: Optional Dapr client tuning forwarded to the
-                underlying ``DaprStateStore`` factory.
+            client_factory: Optional factory used by the default
+                ``DaprStateStore`` to construct fresh Dapr clients. Ignored when
+                ``store_factory`` is supplied.
         """
         if not store_name:
             raise StateStoreError("State store name is required (store_name).")
@@ -86,7 +87,7 @@ class StateStoreService:
         self.model = model
         self.mirror_writes = mirror_writes
         self.local_mirror_path = local_mirror_path
-        self.dapr_client_config = dapr_client_config
+        self.client_factory = client_factory
         self.retry_attempts = max(1, retry_attempts)
         self.retry_initial_backoff = max(0.0, retry_initial_backoff)
         self.retry_backoff_multiplier = max(1.0, retry_backoff_multiplier)
@@ -95,7 +96,7 @@ class StateStoreService:
         self._store_factory = store_factory or (
             lambda: DaprStateStore(
                 store_name=self.store_name,
-                dapr_client_config=self.dapr_client_config,
+                client_factory=self.client_factory,
             )
         )
         self._store_cached: Optional[DaprStateStore] = None

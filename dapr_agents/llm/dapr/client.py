@@ -13,8 +13,7 @@
 
 from dapr_agents.types.llm import DaprInferenceClientConfig
 from dapr_agents.llm.base import LLMClientBase
-from dapr_agents.utils import DaprClientConfig, dapr_client_kwargs
-from dapr.clients import DaprClient
+from dapr_agents.utils import DaprClientFactory, default_dapr_client_factory
 from dapr.clients.grpc import conversation as dapr_conversation
 from typing import Dict, Any, List, Optional
 from pydantic import Field, model_validator
@@ -28,13 +27,17 @@ logger = logging.getLogger(__name__)
 
 
 class DaprInferenceClient:
-    def __init__(self, dapr_client_config: Optional[DaprClientConfig] = None) -> None:
-        # No persistent client - use per-call context manager
-        self.dapr_client_config = dapr_client_config
+    def __init__(self, client_factory: Optional[DaprClientFactory] = None) -> None:
+        # No persistent client - use per-call context manager.
+        self.client_factory = client_factory
+
+    def _build_client(self):
+        factory = self.client_factory or default_dapr_client_factory
+        return factory()
 
     def get_metadata(self):
         """Fetch Dapr sidecar metadata using a fresh per-call client."""
-        with DaprClient(**dapr_client_kwargs(config=self.dapr_client_config)) as client:
+        with self._build_client() as client:
             return client.get_metadata()
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -87,7 +90,7 @@ class DaprInferenceClient:
         if temperature is None:
             temperature = 1
 
-        with DaprClient(**dapr_client_kwargs(config=self.dapr_client_config)) as client:
+        with self._build_client() as client:
             kwargs: Dict[str, Any] = dict(
                 name=llm,
                 inputs=inputs,
@@ -166,9 +169,13 @@ class DaprInferenceClientBase(LLMClientBase):
     Handles client initialization, configuration, and shared logic.
     """
 
-    dapr_client_config: Optional[DaprClientConfig] = Field(
+    client_factory: Optional[DaprClientFactory] = Field(
         default=None,
-        description="Optional Dapr client tuning forwarded to the inference client.",
+        description=(
+            "Factory returning a sync DaprClient. The wrapped inference client "
+            "always reads the current factory, so mutating this attribute takes "
+            "effect on the next call without recreating the inner client."
+        ),
     )
 
     @model_validator(mode="before")
@@ -181,9 +188,10 @@ class DaprInferenceClientBase(LLMClientBase):
         """
         self._provider = "dapr"
 
-        # Set up the private config and client attributes
+        # Set up the private config attribute. The ``client`` property below
+        # constructs a fresh inference wrapper per access, so we deliberately do
+        # not cache one on ``self._client``.
         self._config = self.get_config()
-        self._client = self.get_client()
         return super().model_post_init(__context)
 
     def get_config(self) -> DaprInferenceClientConfig:
@@ -196,7 +204,7 @@ class DaprInferenceClientBase(LLMClientBase):
         """
         Initializes and returns the Dapr Inference client.
         """
-        return DaprInferenceClient(dapr_client_config=self.dapr_client_config)
+        return DaprInferenceClient(client_factory=self.client_factory)
 
     @classmethod
     def from_config(
@@ -220,4 +228,6 @@ class DaprInferenceClientBase(LLMClientBase):
 
     @property
     def client(self) -> DaprInferenceClient:
-        return self._client
+        # Build a fresh wrapper so that updates to ``self.client_factory`` are
+        # observed on the next call without needing a manual refresh.
+        return self.get_client()

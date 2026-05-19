@@ -76,7 +76,8 @@ def patch_dapr_client(monkeypatch):
         registered_components=[], application_id="test-app"
     )
     monkeypatch.setattr(
-        "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
+        "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+        lambda: mock_client,
     )
     monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
 

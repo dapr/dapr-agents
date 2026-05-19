@@ -146,3 +146,30 @@ def test_dapr_client_config_is_immutable() -> None:
     config = DaprClientConfig(max_grpc_message_length=16 * 1024 * 1024)
     with pytest.raises(Exception):
         config.max_grpc_message_length = 32 * 1024 * 1024  # type: ignore[misc]
+
+
+def test_explicit_kwarg_none_is_dropped_and_falls_through_to_env() -> None:
+    """An explicit ``max_grpc_message_length=None`` must not short-circuit resolution."""
+    with mock.patch.dict(os.environ, {INBOUND_MESSAGE_SIZE_ENV: "8388608"}):
+        result = dapr_client_kwargs(max_grpc_message_length=None)
+
+    assert result == {"max_grpc_message_length": 8388608}
+
+
+def test_explicit_kwarg_none_with_config_uses_config() -> None:
+    """When the explicit kwarg is None, the config (if present) wins over env."""
+    config = DaprClientConfig(max_grpc_message_length=32 * 1024 * 1024)
+    with mock.patch.dict(os.environ, {INBOUND_MESSAGE_SIZE_ENV: "8388608"}):
+        result = dapr_client_kwargs(config=config, max_grpc_message_length=None)
+
+    assert result == {"max_grpc_message_length": 32 * 1024 * 1024}
+
+
+def test_explicit_kwarg_none_with_no_other_source_returns_empty() -> None:
+    assert dapr_client_kwargs(max_grpc_message_length=None) == {}
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_explicit_kwarg_rejects_non_positive_int(value: int) -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        dapr_client_kwargs(max_grpc_message_length=value)

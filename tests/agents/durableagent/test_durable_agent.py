@@ -118,7 +118,8 @@ class TestDurableAgent:
         # Patch both the client import locations
         monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
         monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
         )
 
         yield

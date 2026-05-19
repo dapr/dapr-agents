@@ -35,7 +35,7 @@ from fastapi.responses import JSONResponse, Response
 
 from dapr_agents.types.exceptions import PubSubNotAvailableError
 from dapr_agents.types.workflow import HttpRouteSpec, PubSubRouteSpec
-from dapr_agents.utils import DaprClientConfig, dapr_client_kwargs
+from dapr_agents.utils import DaprClientFactory, default_dapr_client_factory
 from dapr_agents.workflow.utils.routers import parse_http_json
 from dapr_agents.workflow.utils.subscription import (
     DedupeBackend,
@@ -75,7 +75,7 @@ def _validate_pubsub_components(
     dapr_client: DaprClient,
     pubsub_names: Set[str],
     topics_by_pubsub: dict[str, Set[str]],
-    dapr_client_config: Optional[DaprClientConfig] = None,
+    client_factory: Optional[DaprClientFactory] = None,
 ) -> None:
     """
     Validate that the required PubSub components are available in Dapr.
@@ -84,8 +84,10 @@ def _validate_pubsub_components(
         dapr_client: Active Dapr client to query metadata.
         pubsub_names: Set of pubsub component names that are required.
         topics_by_pubsub: Mapping of pubsub name to set of topics being subscribed.
-        dapr_client_config: Optional Dapr client tuning forwarded when constructing
-            the transient metadata-query client.
+        client_factory: Factory used to build the transient metadata-query
+            client. Resolves to ``default_dapr_client_factory`` at call time
+            when ``None`` so test monkeypatches of the module-level symbol
+            take effect.
 
     Raises:
         PubSubNotAvailableError: If any required PubSub component is not registered.
@@ -93,8 +95,9 @@ def _validate_pubsub_components(
     if not pubsub_names:
         return
 
+    factory = client_factory or default_dapr_client_factory
     try:
-        with DaprClient(**dapr_client_kwargs(config=dapr_client_config)) as client:
+        with factory() as client:
             metadata = client.get_metadata()
         registered_components = metadata.registered_components or []
 
@@ -383,7 +386,7 @@ def register_message_routes(
     await_timeout: Optional[int] = None,
     fetch_payloads: bool = True,
     log_outcome: bool = True,
-    dapr_client_config: Optional[DaprClientConfig] = None,
+    client_factory: Optional[DaprClientFactory] = None,
 ) -> List[Callable[[], None]]:
     """
     Register workflow-backed pub/sub routes via decorator discovery and/or explicit specs.
@@ -429,7 +432,7 @@ def register_message_routes(
         dapr_client,
         pubsub_names,
         topics_by_pubsub,
-        dapr_client_config=dapr_client_config,
+        client_factory=client_factory,
     )
 
     return subscribe_message_bindings(
