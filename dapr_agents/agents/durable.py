@@ -1934,15 +1934,33 @@ class DurableAgent(AgentBase):
                     self._label_message_with_source(user_copy, source)
                 )
 
+        # Build generate kwargs. When the caller requested structured output
+        # AND the conversation isn't mid-tool-loop (no tool_calls on the last
+        # assistant message), omit tools/tool_choice so the model can't
+        # legitimately respond with a tool call instead of JSON.
+        last_assistant = next(
+            (
+                m
+                for m in reversed(messages)
+                if isinstance(m, dict) and m.get("role") == "assistant"
+            ),
+            None,
+        )
+        last_had_tool_calls = bool(last_assistant and last_assistant.get("tool_calls"))
+
         tools = self.get_llm_tools()
-        generate_kwargs: Dict[str, Any] = {
-            "messages": messages,
-            "tools": tools,
-        }
+        generate_kwargs: Dict[str, Any] = {"messages": messages}
+        fresh_structured_turn: bool = (
+            response_model is not None and not last_had_tool_calls
+        )
+
         if response_model is not None:
             generate_kwargs["response_format"] = response_model
-        if tools and self.execution.tool_choice is not None:
-            generate_kwargs["tool_choice"] = self.execution.tool_choice
+
+        if tools and not fresh_structured_turn:
+            generate_kwargs["tools"] = tools
+            if self.execution.tool_choice is not None:
+                generate_kwargs["tool_choice"] = self.execution.tool_choice
 
         # before_llm_call hook dispatch. Hooks fire inside this activity (rather
         # than in the workflow body) so they can perform non-deterministic work
@@ -2000,6 +2018,20 @@ class DurableAgent(AgentBase):
             try:
                 response = self.llm.generate(**generate_kwargs)
             except Exception as exc:  # noqa: BLE001
+                # When structured output was requested (orchestration plan,
+                # routing, progress check, etc.) a flaky LLM response surfaces a
+                # StructureError deep inside the nested activity / sub-orchestration
+                # chain. Attach enough context so the workflow log shows the
+                # failing schema/provider/model instead of a bare
+                # "Extraction failed: No content found for JSON mode".
+                if response_model is not None:
+                    provider = getattr(self.llm, "provider", "unknown")
+                    model_name = getattr(self.llm, "model", "unknown")
+                    raise AgentError(
+                        f"LLM structured-output call failed (schema="
+                        f"{response_format_name!r}, provider={provider!r}, "
+                        f"model={model_name!r}, agent={self.name!r}): {exc}"
+                    ) from exc
                 raise AgentError(str(exc)) from exc
 
             # Handle structured output response (Pydantic model) vs regular chat response

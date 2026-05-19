@@ -11,6 +11,8 @@
 # limitations under the License.
 #
 
+import logging
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -448,3 +450,94 @@ class TestAgentBaseClass:
 
         # Infra purge still ran
         basic_agent._infra.purge_state.assert_called_once_with("wf-mem-fail")
+
+    # ------------------------------------------------------------------
+    # _summarize_conversation graceful degradation
+    # ------------------------------------------------------------------
+
+    def _stub_messages(self):
+        return [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+        ]
+
+    def test_summarize_returns_degraded_when_llm_raises(self, basic_agent, caplog):
+        """LLM-side failures must not abort the workflow."""
+        from dapr_agents.types.exceptions import StructureError
+
+        basic_agent.llm = Mock()
+        basic_agent.llm.generate.side_effect = StructureError(
+            "Response must be a JSON string or a dictionary."
+        )
+        basic_agent.memory = Mock()
+        basic_agent.text_formatter = None
+
+        with caplog.at_level(logging.ERROR, logger="dapr_agents.agents.base"):
+            result = basic_agent._summarize_conversation(
+                instance_id="wf-1",
+                messages_list=self._stub_messages(),
+                tool_history=[],
+            )
+
+        assert result == {"content": ""}
+        # Memory must NOT be touched if no summary was produced.
+        basic_agent.memory.add_message.assert_not_called()
+        # The failure must be visible in logs, not silently swallowed.
+        assert "LLM summarize failed" in caplog.text
+        assert "wf-1" in caplog.text
+
+    def test_summarize_returns_degraded_when_summary_is_empty(self, basic_agent):
+        """An empty summary string must degrade rather than raise."""
+        summary_obj = Mock()
+        summary_obj.summary = "   "  # whitespace-only counts as empty
+        basic_agent.llm = Mock()
+        basic_agent.llm.generate.return_value = summary_obj
+        basic_agent.memory = Mock()
+        basic_agent.text_formatter = None
+
+        result = basic_agent._summarize_conversation(
+            instance_id="wf-2",
+            messages_list=self._stub_messages(),
+            tool_history=[],
+        )
+
+        assert result == {"content": ""}
+        basic_agent.memory.add_message.assert_not_called()
+
+    def test_summarize_raises_when_memory_store_fails(self, basic_agent):
+        """Memory-store failures are infrastructure issues and must surface."""
+        from dapr_agents.types.exceptions import AgentError
+
+        summary_obj = Mock()
+        summary_obj.summary = "real summary"
+        basic_agent.llm = Mock()
+        basic_agent.llm.generate.return_value = summary_obj
+        basic_agent.memory = Mock()
+        basic_agent.memory.add_message.side_effect = RuntimeError("redis down")
+        basic_agent.text_formatter = None
+
+        with pytest.raises(AgentError) as exc_info:
+            basic_agent._summarize_conversation(
+                instance_id="wf-3",
+                messages_list=self._stub_messages(),
+                tool_history=[],
+            )
+        assert "wf-3" in str(exc_info.value)
+
+    def test_summarize_happy_path_persists_to_memory(self, basic_agent):
+        """When the LLM returns a valid summary, it lands in memory."""
+        summary_obj = Mock()
+        summary_obj.summary = "the conversation was about X"
+        basic_agent.llm = Mock()
+        basic_agent.llm.generate.return_value = summary_obj
+        basic_agent.memory = Mock()
+        basic_agent.text_formatter = None
+
+        result = basic_agent._summarize_conversation(
+            instance_id="wf-4",
+            messages_list=self._stub_messages(),
+            tool_history=[],
+        )
+
+        assert result == {"content": "the conversation was about X"}
+        basic_agent.memory.add_message.assert_called_once()

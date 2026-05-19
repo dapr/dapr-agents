@@ -1431,10 +1431,14 @@ class AgentBase:
             tool_history: Tool call/result history (entry.tool_history or []).
 
         Returns:
-            Dict with "content" key holding the summary text, or {} if nothing to summarize.
+            Dict with "content" key holding the summary text, {} if nothing to
+            summarize, or {"content": ""} if the LLM call/extraction failed
+            (memory summarization is best-effort and does not abort the
+            workflow on LLM-side failures).
 
         Raises:
-            AgentError: If memory disabled, LLM fails, or save fails.
+            AgentError: If memory is disabled or persisting the summary to the
+                memory store fails.
         """
         if not self.memory:
             raise AgentError("Long-term conversation memory is not enabled.")
@@ -1473,17 +1477,30 @@ class AgentBase:
             {"role": "user", "content": task},
         ]
 
+        # Memory summarization is a best-effort side effect: the user's
+        # primary task already completed by the time we get here. If the
+        # LLM call or its structured-output extraction fails (small/flaky
+        # models often emit truncated JSON, refusals, or `[]`), degrade to
+        # an empty summary instead of aborting the whole workflow.
         try:
             summary_model: ConversationSummary = self.llm.generate(
                 messages=llm_messages,
                 response_format=ConversationSummary,
             )
-        except Exception as exc:  # noqa: BLE001
-            raise AgentError(f"LLM summarize failed: {exc}") from exc
+            summary_content = (summary_model.summary or "").strip()
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "LLM summarize failed for instance_id=%s; skipping memory summary.",
+                instance_id,
+            )
+            return {"content": ""}
 
-        summary_content = (summary_model.summary or "").strip()
         if not summary_content:
-            raise AgentError("LLM returned an empty summary.")
+            logger.error(
+                "LLM returned an empty summary for instance_id=%s; skipping memory summary.",
+                instance_id,
+            )
+            return {"content": ""}
 
         summary_message: Dict[str, Any] = {
             "role": "assistant",
@@ -1492,10 +1509,11 @@ class AgentBase:
         }
         try:
             self.memory.add_message(summary_message, workflow_instance_id=instance_id)
-        except Exception:
+        except Exception as exc:
+            # Memory store failures are infrastructure issues — surface them.
             raise AgentError(
                 f"Failed to save summary to memory for instance_id={instance_id}"
-            )
+            ) from exc
         logger.info(f"Saved summary to memory for instance_id={instance_id}")
         if getattr(self, "text_formatter", None):
             self.text_formatter.print_message(
