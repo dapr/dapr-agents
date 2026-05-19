@@ -330,7 +330,7 @@ def _subscribe_message_bindings(
     await_timeout: Optional[int],
     fetch_payloads: bool,
     log_outcome: bool,
-) -> List[Callable[[], None]]:
+) -> tuple[List[Callable[[], None]], List[Callable[[], bool]]]:
     """Internal implementation of streaming subscriptions.
 
     This function sets up streaming subscriptions for all bindings,
@@ -437,6 +437,7 @@ def _subscribe_message_bindings(
 
     bindings_by_topic_key = _group_bindings_by_topic(bindings)
     closers: List[Callable[[], None]] = []
+    consumer_status_functions: List[Callable[[], bool]] = []
 
     for (pubsub_name, topic_name), topic_bindings in bindings_by_topic_key.items():
         binding_schema_pairs = _build_binding_schema_pairs(topic_bindings)
@@ -635,6 +636,39 @@ def _subscribe_message_bindings(
         closers.append(
             _make_closer(subscription, consumer_thread, pubsub_name, topic_name)
         )
+
+        def _make_status_function(
+            subscription: Any,
+            ps_name: str,
+            t_name: str,
+        ) -> Callable[[], bool]:
+            def _is_ready() -> bool:
+                """Check if a stream consumer is able to process messages.
+
+                Returns:
+                    True if a consumer's stream is active.
+                    False if a non-recoverable error or caller-initiated shutdown occurred,
+                    if the stream is currently reconnecting, or if the stream's status cannot be determined.
+                """
+                is_stream_active = getattr(subscription, "_is_stream_active", None)
+
+                if not callable(is_stream_active):
+                    return False
+
+                try:
+                    return bool(is_stream_active())
+                except Exception:
+                    logger.exception(
+                        f"Error checking stream consumer {ps_name}:{t_name} status."
+                    )
+                    return False
+
+            return _is_ready
+
+        consumer_status_functions.append(
+            _make_status_function(subscription, pubsub_name, topic_name)
+        )
+
         logger.debug(
             f"Subscribed streaming to pubsub={pubsub_name} topic={topic_name} "
             f"(delivery={delivery_mode} await={await_result})"
@@ -654,7 +688,7 @@ def _subscribe_message_bindings(
 
         closers.append(_make_cancel_all(worker_tasks))
 
-    return closers
+    return closers, consumer_status_functions
 
 
 def subscribe_message_bindings(
@@ -671,7 +705,7 @@ def subscribe_message_bindings(
     await_timeout: Optional[int],
     fetch_payloads: bool,
     log_outcome: bool,
-) -> List[Callable[[], None]]:
+) -> tuple[List[Callable[[], None]], List[Callable[[], bool]]]:
     """Set up streaming subscriptions for message route bindings.
 
     Args:
@@ -689,14 +723,16 @@ def subscribe_message_bindings(
         log_outcome: Log workflow completion status.
 
     Returns:
-        List of closer functions to unsubscribe and cleanup resources.
+        A tuple of lists:
+            - List of closer functions to unsubscribe and cleanup resources.
+            - List of status functions indicating stream consumer readiness.
 
     Raises:
         ValueError: If delivery_mode is invalid or dead_letter_topics conflict.
         RuntimeError: If async mode is used without a running event loop.
     """
     if not bindings:
-        return []
+        return [], []
 
     _validate_delivery_mode(delivery_mode)
     _validate_dead_letter_topics(bindings)

@@ -257,11 +257,12 @@ def _mount_http_bindings(
     *,
     app: FastAPI,
     loop: Optional[asyncio.AbstractEventLoop],
-) -> List[Callable[[], None]]:
+) -> tuple[List[Callable[[], None]], List[Callable[[], bool]]]:
     if not bindings:
-        return []
+        return [], []
 
     closers: List[Callable[[], None]] = []
+    status_functions: List[Callable[[], bool]] = []
 
     async def _invoke(bound_handler: Callable[..., Any], parsed: Any) -> Any:
         result = bound_handler(parsed)
@@ -301,8 +302,7 @@ def _mount_http_bindings(
                             break
                         except Exception:
                             logger.debug(
-                                "HTTP schema %r did not match; trying next.",
-                                model,
+                                f"HTTP schema {model!r} did not match; trying next.",
                                 exc_info=True,
                             )
 
@@ -316,10 +316,8 @@ def _mount_http_bindings(
 
                     if matched_model is not None:
                         logger.debug(
-                            "Validated HTTP request for %s %s with model=%s",
-                            method_b,
-                            path_b,
-                            getattr(matched_model, "__name__", str(matched_model)),
+                            f"Validated HTTP request for {method_b} {path_b} "
+                            f"with model={getattr(matched_model, '__name__', str(matched_model))}"
                         )
 
                     result = await _invoke(bound_handler, parsed)
@@ -333,7 +331,7 @@ def _mount_http_bindings(
                     return JSONResponse(content=result)
 
                 except Exception:
-                    logger.exception("HTTP handler error for %s %s.", method_b, path_b)
+                    logger.exception(f"HTTP handler error for {method_b} {path_b}.")
                     return JSONResponse(
                         status_code=500, content={"detail": "Internal Server Error"}
                     )
@@ -359,9 +357,11 @@ def _mount_http_bindings(
         )
 
         closers.append(lambda: None)
-        logger.info("Mounted HTTP route %s %s -> %s", _method, _path, _name)
+        status_functions.append(lambda: True)
 
-    return closers
+        logger.info(f"Mounted HTTP route {_method} {_path} -> {_name}")
+
+    return closers, status_functions
 
 
 def register_message_routes(
@@ -379,7 +379,7 @@ def register_message_routes(
     await_timeout: Optional[int] = None,
     fetch_payloads: bool = True,
     log_outcome: bool = True,
-) -> List[Callable[[], None]]:
+) -> tuple[List[Callable[[], None]], List[Callable[[], bool]]]:
     """
     Register workflow-backed pub/sub routes via decorator discovery and/or explicit specs.
 
@@ -397,9 +397,10 @@ def register_message_routes(
         await_timeout: Optional wait timeout in seconds.
         fetch_payloads: Include workflow payloads when waiting for completion.
         log_outcome: Log COMPLETED/FAILED status (either inline or via detached task).
-
     Returns:
-        List of closers that unsubscribe handlers and cancel async workers.
+        A tuple of lists:
+        - List of closers that unsubscribe handlers and cancel async workers.
+        - List of status functions indicating pub/sub consumer readiness.
     """
     if targets is None and routes is None:
         raise ValueError(
@@ -409,7 +410,7 @@ def register_message_routes(
     bindings = _collect_message_bindings(targets=targets, routes=routes)
     if not bindings:
         logger.info("No message routes discovered.")
-        return []
+        return [], []
 
     # Validate that required PubSub components are available before subscribing
     pubsub_names: Set[str] = set()
@@ -444,7 +445,7 @@ def register_http_routes(
     targets: Optional[Iterable[Any]] = None,
     routes: Optional[Iterable[HttpRouteSpec]] = None,
     loop: Optional[asyncio.AbstractEventLoop] = None,
-) -> List[Callable[[], None]]:
+) -> tuple[List[Callable[[], None]], List[Callable[[], bool]]]:
     """
     Mount FastAPI endpoints from `@http_router` targets and/or explicit `HttpRouteSpec` entries.
 
@@ -455,7 +456,9 @@ def register_http_routes(
         loop: Optional loop reference (retained for symmetry/future async needs).
 
     Returns:
-        List of no-op closers (API symmetry with message registrar).
+        A tuple of lists (API symmetry with message registrar):
+        - List of no-op closers.
+        - List of no-op status functions.
     """
     if targets is None and routes is None:
         raise ValueError(
@@ -465,6 +468,6 @@ def register_http_routes(
     bindings = _collect_http_bindings(targets=targets, routes=routes)
     if not bindings:
         logger.info("No HTTP routes discovered.")
-        return []
+        return [], []
 
     return _mount_http_bindings(bindings, app=app, loop=loop)
