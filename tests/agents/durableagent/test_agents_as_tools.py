@@ -212,10 +212,42 @@ class TestRegisterWorkflowsNaming:
     def test_load_tools_activity_registered(self, mock_llm):
         frodo = _make_agent("frodo", mock_llm)
         rt = self._register_and_get_calls(frodo)
-        registered_activities = [
-            call.args[0] for call in rt.register_activity.call_args_list
+        registered_names = [
+            call.args[0].__name__ for call in rt.register_activity.call_args_list
         ]
-        assert frodo.load_tools in registered_activities
+        assert frodo._activity_name("load_tools") in registered_names
+
+    def test_activity_names_are_agent_scoped(self, mock_llm):
+        """All activities register under dapr.agents.<name>.<method>.
+
+        Dapr's WorkflowRuntime.register_activity is last-write-wins by name;
+        unscoped activities (e.g. bare 'run_tool') would collide when two
+        DurableAgents share a runtime, silently routing activity calls to
+        the wrong agent's bound method. The scoped-name pattern mirrors the
+        workflow-registration convention already in place.
+        """
+        frodo = _make_agent("frodo", mock_llm)
+        rt = self._register_and_get_calls(frodo)
+        registered_names = [
+            call.args[0].__name__ for call in rt.register_activity.call_args_list
+        ]
+        for registered in registered_names:
+            assert registered.startswith("dapr.agents.frodo."), registered
+
+    def test_two_agents_have_distinct_activity_names(self, mock_llm):
+        """Two agents' activities must not collide on a shared runtime."""
+        frodo = _make_agent("frodo", mock_llm)
+        sam = _make_agent("sam", mock_llm)
+        rt = MagicMock()
+        frodo.register_workflows(rt)
+        sam.register_workflows(rt)
+
+        registered_activity_names = [
+            call.args[0].__name__ for call in rt.register_activity.call_args_list
+        ]
+        assert frodo._activity_name("run_tool") in registered_activity_names
+        assert sam._activity_name("run_tool") in registered_activity_names
+        assert frodo._activity_name("run_tool") != sam._activity_name("run_tool")
 
     def test_two_agents_have_unique_workflow_names(self, mock_llm):
         """Two agents must register under distinct names even on the same runtime."""

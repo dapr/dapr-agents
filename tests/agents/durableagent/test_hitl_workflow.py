@@ -385,7 +385,7 @@ class TestHookWorkflowDispatch:
             pass
 
         for c in mock_ctx.call_activity.call_args_list:
-            if c[0][0] == agent.save_tool_results:
+            if c[0][0] == agent._activity_name(agent.save_tool_results):
                 return c[1]["input"]
 
         return None
@@ -409,7 +409,7 @@ class TestHookWorkflowDispatch:
         save_input = self._drive_workflow_deny_skip(agent, mock_ctx, hook, [tc])
 
         called_fns = [c[0][0] for c in mock_ctx.call_activity.call_args_list]
-        assert agent.run_tool not in called_fns
+        assert agent._activity_name(agent.run_tool) not in called_fns
 
         assert save_input is not None
         results = save_input["tool_results"]
@@ -451,7 +451,7 @@ class TestHookWorkflowDispatch:
         save_input = self._drive_workflow_deny_skip(agent, mock_ctx, hook, [tc])
 
         called_fns = [c[0][0] for c in mock_ctx.call_activity.call_args_list]
-        assert agent.run_tool not in called_fns
+        assert agent._activity_name(agent.run_tool) not in called_fns
 
         assert save_input is not None
         results = save_input["tool_results"]
@@ -526,7 +526,7 @@ class TestHookWorkflowDispatch:
                 pass
 
         for c in mock_ctx.call_activity.call_args_list:
-            if c[0][0] == agent.save_tool_results:
+            if c[0][0] == agent._activity_name(agent.save_tool_results):
                 save_tool_input = c[1]["input"]
                 break
 
@@ -536,7 +536,7 @@ class TestHookWorkflowDispatch:
         assert results[0]["role"] == "tool"
         assert results[0]["tool_call_id"] == tc["id"]
         called_fns = [c[0][0] for c in mock_ctx.call_activity.call_args_list]
-        assert agent.run_tool not in called_fns
+        assert agent._activity_name(agent.run_tool) not in called_fns
 
     # ------------------------------------------------------------------ #
     # RequireApproval — event wins → tool runs                             #
@@ -608,7 +608,7 @@ class TestHookWorkflowDispatch:
                 pass
 
         called_fns = [c[0][0] for c in mock_ctx.call_activity.call_args_list]
-        assert agent.run_tool in called_fns
+        assert agent._activity_name(agent.run_tool) in called_fns
 
     # ------------------------------------------------------------------ #
     # Mixed: denied + proceed in same turn                                 #
@@ -660,7 +660,7 @@ class TestHookWorkflowDispatch:
             pass
 
         for c in mock_ctx.call_activity.call_args_list:
-            if c[0][0] == agent.save_tool_results:
+            if c[0][0] == agent._activity_name(agent.save_tool_results):
                 save_tool_input = c[1]["input"]
                 break
 
