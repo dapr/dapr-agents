@@ -11,9 +11,14 @@
 # limitations under the License.
 #
 
+from __future__ import annotations
+
 from enum import Enum
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, Type
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Type
+
+if TYPE_CHECKING:
+    from dapr_agents.workflow.utils.subscription import MessageContext
 
 
 class DaprWorkflowStatus(str, Enum):
@@ -52,10 +57,10 @@ class PubSubRouteSpec:
     pubsub_name: str
     topic: str
     handler_fn: Callable[..., Any]
-    message_model: Optional[Type[Any]] = None
-    dead_letter_topic: Optional[str] = None
-    payload_filter: Optional[Callable[..., bool]] = None
-    model_filter: Optional[Callable[..., bool]] = None
+    message_model: type[Any] | None = None
+    dead_letter_topic: str | None = None
+    payload_filter: Callable[[Any, MessageContext], bool] | None = None
+    model_filter: Callable[[Any, MessageContext], bool] | None = None
 
 
 @dataclass

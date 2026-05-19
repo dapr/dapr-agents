@@ -851,6 +851,24 @@ def test_message_router_rejects_non_callable_filter():
             pass
 
 
+def test_message_router_rejects_callable_with_async_dunder_call():
+    """Callable objects whose `__call__` is `async def` are rejected too."""
+
+    class AsyncCallableFilter:
+        async def __call__(self, payload, msg_ctx):
+            return True
+
+    with pytest.raises(TypeError, match="payload_filter.*synchronous"):
+
+        @message_router(
+            pubsub="messagepubsub",
+            topic="orders",
+            payload_filter=AsyncCallableFilter(),
+        )
+        def handler(message: OrderCreated):
+            pass
+
+
 def test_collect_bindings_carries_decorator_filters():
     """_collect_message_bindings propagates filters from decorator metadata."""
     from dapr_agents.workflow.utils.registration import _collect_message_bindings
@@ -1086,6 +1104,33 @@ def test_filter_exception_skips_binding(filter_env):
     msg = _make_cloudevent({"order_id": "1", "amount": 100.0, "customer": "Alice"})
     _run_one_message(mock_dapr, mock_wf, handler, msg)
 
+    assert not mock_wf.schedule_new_workflow.called
+
+
+def test_payload_filter_runs_once_per_binding_for_union(filter_env):
+    """For a binding with multiple schemas, payload_filter is evaluated once."""
+    mock_dapr, mock_wf = filter_env
+    call_count = {"n": 0}
+
+    def counting_filter(payload, msg_ctx):
+        call_count["n"] += 1
+        return False  # reject so we exhaust every schema slot
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=Union[OrderCreated, OrderCancelled],
+        payload_filter=counting_filter,
+    )
+    def handler(message):
+        return "ok"
+
+    msg = _make_cloudevent(
+        {"order_id": "1", "amount": 100.0, "customer": "Alice"}, type="Unknown"
+    )
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert call_count["n"] == 1
     assert not mock_wf.schedule_new_workflow.called
 
 

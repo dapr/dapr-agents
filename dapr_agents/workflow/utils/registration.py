@@ -127,10 +127,10 @@ def _validate_pubsub_components(
 
 def _collect_message_bindings(
     *,
-    targets: Optional[Iterable[Any]],
-    routes: Optional[Iterable[PubSubRouteSpec]],
-) -> List[MessageRouteBinding]:
-    bindings: List[MessageRouteBinding] = []
+    targets: Iterable[Any] | None,
+    routes: Iterable[PubSubRouteSpec] | None,
+) -> list[MessageRouteBinding]:
+    bindings: list[MessageRouteBinding] = []
 
     if targets:
         for target in targets:
@@ -384,18 +384,18 @@ def _mount_http_bindings(
 def register_message_routes(
     *,
     dapr_client: DaprClient,
-    targets: Optional[Iterable[Any]] = None,
-    routes: Optional[Iterable[PubSubRouteSpec]] = None,
-    loop: Optional[asyncio.AbstractEventLoop] = None,
+    targets: Iterable[Any] | None = None,
+    routes: Iterable[PubSubRouteSpec] | None = None,
+    loop: asyncio.AbstractEventLoop | None = None,
     delivery_mode: Literal["sync", "async"] = "sync",
     queue_maxsize: int = 1024,
-    deduper: Optional[DedupeBackend] = None,
-    wf_client: Optional[wf.DaprWorkflowClient] = None,
+    deduper: DedupeBackend | None = None,
+    wf_client: wf.DaprWorkflowClient | None = None,
     await_result: bool = False,
-    await_timeout: Optional[int] = None,
+    await_timeout: int | None = None,
     fetch_payloads: bool = True,
     log_outcome: bool = True,
-) -> List[Callable[[], None]]:
+) -> list[Callable[[], None]]:
     """
     Register workflow-backed pub/sub routes via decorator discovery and/or explicit specs.
 

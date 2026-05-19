@@ -81,15 +81,16 @@ class TTLDedupeBackend:
             self._cache[key] = True
 
 
-TopicKey = Tuple[str, str]
-BindingSchemaPair = Tuple["MessageRouteBinding", Type[Any]]
+TopicKey = tuple[str, str]
+BindingSchemaPair = tuple["MessageRouteBinding", type[Any]]
 
 PayloadFilter = Callable[[Any, "MessageContext"], bool]
 ModelFilter = Callable[[Any, "MessageContext"], bool]
 
 
 def _validate_filter(
-    filter_fn: Optional[Callable[..., bool]], filter_name: str
+    filter_fn: Callable[[Any, "MessageContext"], bool] | None,
+    filter_name: str,
 ) -> None:
     """Reject async or non-callable filters at registration time"""
     if filter_fn is None:
@@ -98,10 +99,15 @@ def _validate_filter(
         raise TypeError(
             f"`{filter_name}` must be callable, got {type(filter_fn).__name__}."
         )
-    if asyncio.iscoroutinefunction(filter_fn):
+    call_attr = getattr(filter_fn, "__call__", None)
+    is_async_callable = asyncio.iscoroutinefunction(
+        filter_fn
+    ) or asyncio.iscoroutinefunction(call_attr)
+    if is_async_callable:
         raise TypeError(
             f"`{filter_name}` must be a synchronous callable; "
-            "filters run on the consumer thread and cannot be `async def`. "
+            "filters run on the consumer thread and cannot be `async def` "
+            "(including callable objects whose `__call__` is async). "
             "For I/O-bound checks, do them in the workflow body."
         )
 
@@ -134,21 +140,21 @@ class MessageRouteBinding:
         dead_letter_topic: Optional topic for failed messages.
         name: Human-readable name for logging (typically the handler function name).
         payload_filter: Optional predicate on the raw event data + MessageContext.
-            Returning False skips this binding; raising drops with a logged
-            traceback. Runs before schema validation.
+            Returning False or raising skips this binding (next is tried).
+            Runs before schema validation. Must not mutate its inputs.
         model_filter: Optional predicate on the validated message model + MessageContext.
-            Returning False skips this binding; raising drops with a logged
-            traceback. Runs after schema validation.
+            Returning False or raising skips this binding (next is tried).
+            Runs after schema validation. Must not mutate the model.
     """
 
     handler: Callable[..., Any]
-    schemas: List[Type[Any]]
+    schemas: list[type[Any]]
     pubsub: str
     topic: str
-    dead_letter_topic: Optional[str]
+    dead_letter_topic: str | None
     name: str
-    payload_filter: Optional[PayloadFilter] = None
-    model_filter: Optional[ModelFilter] = None
+    payload_filter: PayloadFilter | None = None
+    model_filter: ModelFilter | None = None
 
 
 def _resolve_event_loop(
@@ -284,7 +290,7 @@ def _normalize_status(status: Any) -> str | None:
 
 
 def _filter_accepts(
-    filter_fn: Optional[Callable[..., bool]],
+    filter_fn: Callable[[Any, "MessageContext"], bool] | None,
     value: Any,
     msg_ctx: "MessageContext",
     *,
@@ -420,13 +426,13 @@ class _StreamSubscriber:
         self,
         *,
         dapr_client: DaprClient,
-        loop: Optional[asyncio.AbstractEventLoop],
+        loop: asyncio.AbstractEventLoop | None,
         delivery_mode: Literal["sync", "async"],
-        deduper: Optional[DedupeBackend],
+        deduper: DedupeBackend | None,
         wf_client: wf.DaprWorkflowClient,
         queue_maxsize: int,
         await_result: bool,
-        await_timeout: Optional[int],
+        await_timeout: int | None,
         fetch_payloads: bool,
         log_outcome: bool,
     ) -> None:
@@ -439,8 +445,8 @@ class _StreamSubscriber:
         self.await_timeout = await_timeout
         self.fetch_payloads = fetch_payloads
         self.log_outcome = log_outcome
-        self.queue: Optional[asyncio.Queue] = None
-        self._worker_tasks: List[asyncio.Task] = []
+        self.queue: asyncio.Queue | None = None
+        self._worker_tasks: list[asyncio.Task] = []
 
         if delivery_mode == DELIVERY_MODE_ASYNC:
             if loop is None or not loop.is_running():
@@ -451,7 +457,7 @@ class _StreamSubscriber:
 
     # ---- workflow scheduling --------------------------------------------------
 
-    def _wait_for_completion(self, instance_id: str) -> Optional[WorkflowState]:
+    def _wait_for_completion(self, instance_id: str) -> WorkflowState | None:
         try:
             return self.wf_client.wait_for_workflow_completion(
                 instance_id,
@@ -593,8 +599,8 @@ class _StreamSubscriber:
         return self._schedule_standalone(binding, parsed)
 
     def _dedup_id(
-        self, metadata: Optional[dict], event_data: Any, topic_name: str
-    ) -> Optional[str]:
+        self, metadata: dict | None, event_data: Any, topic_name: str
+    ) -> str | None:
         """Compute the dedup key for this message, or None when dedup is disabled."""
         if self.deduper is None:
             return None
@@ -619,10 +625,10 @@ class _StreamSubscriber:
 
     def _route_to_binding(
         self,
-        pairs: List[BindingSchemaPair],
+        pairs: list[BindingSchemaPair],
         topic_name: str,
         event_data: Any,
-        metadata: Optional[dict],
+        metadata: dict | None,
     ) -> TopicEventResponse:
         """Pick the first matching binding and dispatch; DROP when nothing matches."""
         msg_ctx = MessageContext(
@@ -633,14 +639,22 @@ class _StreamSubscriber:
             pairs, (metadata or {}).get("type")
         )
 
+        # payload_filter runs before schema validation, so for a binding with N
+        # schemas we'd otherwise call it N times. Cache by binding id for this
+        # one message so each filter runs at most once.
+        payload_filter_cache: dict[int, bool] = {}
+
         for binding, schema in ordered_pairs:
-            if not _filter_accepts(
-                binding.payload_filter,
-                event_data,
-                msg_ctx,
-                kind="payload_filter",
-                binding_name=binding.name,
-            ):
+            binding_key = id(binding)
+            if binding_key not in payload_filter_cache:
+                payload_filter_cache[binding_key] = _filter_accepts(
+                    binding.payload_filter,
+                    event_data,
+                    msg_ctx,
+                    kind="payload_filter",
+                    binding_name=binding.name,
+                )
+            if not payload_filter_cache[binding_key]:
                 continue
 
             try:
@@ -672,7 +686,7 @@ class _StreamSubscriber:
 
     def _handle_message(
         self,
-        pairs: List[BindingSchemaPair],
+        pairs: list[BindingSchemaPair],
         topic_name: str,
         message: SubscriptionMessage,
     ) -> TopicEventResponse:
@@ -771,9 +785,9 @@ class _StreamSubscriber:
     # ---- public entry ---------------------------------------------------------
 
     def subscribe_all(
-        self, bindings: List[MessageRouteBinding]
-    ) -> List[Callable[[], None]]:
-        closers: List[Callable[[], None]] = []
+        self, bindings: list[MessageRouteBinding]
+    ) -> list[Callable[[], None]]:
+        closers: list[Callable[[], None]] = []
 
         if self.queue is not None:
             assert self.loop is not None
@@ -820,7 +834,7 @@ class _StreamSubscriber:
         return closers
 
 
-def _cancel_tasks(tasks: List[asyncio.Task]) -> None:
+def _cancel_tasks(tasks: list[asyncio.Task]) -> None:
     for task in tasks:
         try:
             task.cancel()
@@ -829,19 +843,19 @@ def _cancel_tasks(tasks: List[asyncio.Task]) -> None:
 
 
 def subscribe_message_bindings(
-    bindings: List[MessageRouteBinding],
+    bindings: list[MessageRouteBinding],
     *,
     dapr_client: DaprClient,
-    loop: Optional[asyncio.AbstractEventLoop],
+    loop: asyncio.AbstractEventLoop | None,
     delivery_mode: Literal["sync", "async"],
     queue_maxsize: int,
-    deduper: Optional[DedupeBackend],
-    wf_client: Optional[wf.DaprWorkflowClient],
+    deduper: DedupeBackend | None,
+    wf_client: wf.DaprWorkflowClient | None,
     await_result: bool,
-    await_timeout: Optional[int],
+    await_timeout: int | None,
     fetch_payloads: bool,
     log_outcome: bool,
-) -> List[Callable[[], None]]:
+) -> list[Callable[[], None]]:
     """Set up streaming subscriptions for message route bindings.
 
     Args:
