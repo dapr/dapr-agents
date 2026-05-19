@@ -22,7 +22,7 @@ import os
 import uuid
 from datetime import timedelta
 from typing import Optional
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from dapr.ext.workflow import DaprWorkflowContext

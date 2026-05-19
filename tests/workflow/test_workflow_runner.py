@@ -19,8 +19,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from dapr_agents.workflow.runners.base import WorkflowRunner
 
 

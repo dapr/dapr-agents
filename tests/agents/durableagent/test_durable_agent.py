@@ -40,7 +40,7 @@ from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.tool.base import AgentTool
-from dapr_agents.types import AgentError, DaprWorkflowStatus
+from dapr_agents.types import AgentError
 
 
 # We need this otherwise these tests all fail since they require Dapr to be available.

@@ -12,7 +12,7 @@
 #
 
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict
 
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.types import ToolError

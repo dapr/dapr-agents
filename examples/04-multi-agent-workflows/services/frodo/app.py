@@ -61,8 +61,6 @@ async def main() -> None:
     # ---------------------------
     # Frodo (journey lead)
     # ---------------------------
-    frodo_name = "frodo"
-
     frodo_pubsub = AgentPubSubConfig(
         pubsub_name="messagepubsub",
         agent_topic="fellowship.frodo.requests",
