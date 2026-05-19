@@ -15,6 +15,8 @@ from dapr.clients import DaprClient
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Any
 
+from dapr_agents.utils import DaprClientFactory, default_dapr_client_factory
+
 
 class DaprStoreBase(BaseModel):
     """
@@ -24,6 +26,13 @@ class DaprStoreBase(BaseModel):
     store_name: str = Field(..., description="The name of the Dapr store.")
     client: Optional[DaprClient] = Field(
         default=None, init=False, description="Dapr client for store operations."
+    )
+    client_factory: Optional[DaprClientFactory] = Field(
+        default=None,
+        description=(
+            "Factory returning a sync DaprClient. Defaults to "
+            "``default_dapr_client_factory`` (env-var driven) when unset."
+        ),
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -35,3 +44,8 @@ class DaprStoreBase(BaseModel):
 
         # Complete post-initialization
         super().model_post_init(__context)
+
+    def _build_client(self) -> DaprClient:
+        """Construct a fresh DaprClient via the configured factory."""
+        factory = self.client_factory or default_dapr_client_factory
+        return factory()

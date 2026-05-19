@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 import functools
 import json
 import uuid
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
@@ -85,6 +85,7 @@ from dapr_agents.workflow.decorators import message_router, workflow_entry
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, publish_message
 from dapr_agents.tool.workflow.agent_tool import (
+    DAPR_AGENTS_NAMESPACE,
     AgentWorkflowTool,
     agent_to_tool,
     agent_workflow_id,
@@ -458,7 +459,7 @@ class DurableAgent(AgentBase):
 
         # Record initial entry via activity to keep deterministic/replay-friendly I/O.
         yield ctx.call_activity(
-            self.record_initial_entry,
+            self._activity_name(self.record_initial_entry),
             input={
                 "instance_id": ctx.instance_id,
                 "source": source,
@@ -471,7 +472,7 @@ class DurableAgent(AgentBase):
         # Discover is_tool=True agents from registry and resolve any string-named tools.
         if self.registry:
             yield ctx.call_activity(
-                self.load_tools,
+                self._activity_name(self.load_tools),
                 retry_policy=self._retry_policy,
             )
 
@@ -548,7 +549,7 @@ class DurableAgent(AgentBase):
                     )
 
                     assistant_response: Dict[str, Any] = yield ctx.call_activity(
-                        self.call_llm,
+                        self._activity_name(self.call_llm),
                         input={
                             "task": task,
                             "instance_id": ctx.instance_id,
@@ -729,7 +730,7 @@ class DurableAgent(AgentBase):
                             else:
                                 activity_tasks.append(
                                     ctx.call_activity(
-                                        self.run_tool,
+                                        self._activity_name(self.run_tool),
                                         input={
                                             "tool_call": tc,
                                             "instance_id": ctx.instance_id,
@@ -814,7 +815,7 @@ class DurableAgent(AgentBase):
                                     "hook_decision": hook_label,
                                 }
                         yield ctx.call_activity(
-                            self.save_tool_results,
+                            self._activity_name(self.save_tool_results),
                             input={
                                 "tool_results": tool_results,
                                 "instance_id": ctx.instance_id,
@@ -853,21 +854,21 @@ class DurableAgent(AgentBase):
         # Non-orchestrators with broadcast_topic_name are subscribers only.
         if self.broadcast_topic_name and self.orchestrator:
             yield ctx.call_activity(
-                self.broadcast_to_team,
+                self._activity_name(self.broadcast_to_team),
                 input={"message": final_message},
                 retry_policy=self._retry_policy,
             )
 
         if self.memory is not None:
             yield ctx.call_activity(
-                self.summarize,
+                self._activity_name(self.summarize),
                 input={},
                 retry_policy=self._retry_policy,
             )
 
         # Finalize the workflow entry in durable state.
         yield ctx.call_activity(
-            self.finalize_workflow,
+            self._activity_name(self.finalize_workflow),
             input={
                 "instance_id": ctx.instance_id,
                 "final_output": final_message.get("content", ""),
@@ -969,7 +970,7 @@ class DurableAgent(AgentBase):
         # Always yield this activity unconditionally — DurableTask returns the cached
         # result on replay without re-executing the function
         yield ctx.call_activity(
-            self.publish_approval_request,
+            self._activity_name(self.publish_approval_request),
             input={
                 "event": approval_event.model_dump(mode="json"),
                 "pubsub_name": approval_config.pubsub_name,
@@ -1035,7 +1036,7 @@ class DurableAgent(AgentBase):
         )
 
         agents_result = yield ctx.call_activity(
-            self.get_team_members,
+            self._activity_name(self.get_team_members),
             retry_policy=self._retry_policy,
         )
 
@@ -1045,7 +1046,7 @@ class DurableAgent(AgentBase):
                 task=task, agents=agents_formatted, plan_schema=schemas.plan
             )
             init_response = yield ctx.call_activity(
-                self.call_llm,
+                self._activity_name(self.call_llm),
                 input={
                     "instance_id": instance_id,
                     "task": plan_prompt,
@@ -1073,7 +1074,7 @@ class DurableAgent(AgentBase):
             }
 
             yield ctx.call_activity(
-                self.save_plan,
+                self._activity_name(self.save_plan),
                 input={
                     "instance_id": instance_id,
                     "plan_message": plan_message,
@@ -1093,7 +1094,7 @@ class DurableAgent(AgentBase):
         else:
             agents_metadata = agents_result["metadata"]
             orch_state = yield ctx.call_activity(
-                self.initialize_orchestration,
+                self._activity_name(self.initialize_orchestration),
                 input={
                     "task": task,
                     "agents": agents_metadata,
@@ -1128,7 +1129,7 @@ class DurableAgent(AgentBase):
                     next_step_schema=schemas.next_step,
                 )
                 next_step_response = yield ctx.call_activity(
-                    self.call_llm,
+                    self._activity_name(self.call_llm),
                     input={
                         "instance_id": instance_id,
                         "task": next_step_prompt,
@@ -1154,7 +1155,7 @@ class DurableAgent(AgentBase):
                 )
 
                 is_valid = yield ctx.call_activity(
-                    self.validate_step,
+                    self._activity_name(self.validate_step),
                     input={
                         "instance_id": instance_id,
                         "plan": self._convert_plan_objects_to_dicts(plan),
@@ -1183,7 +1184,7 @@ class DurableAgent(AgentBase):
 
             else:
                 action = yield ctx.call_activity(
-                    self.select_next_task,
+                    self._activity_name(self.select_next_task),
                     input={"state": orch_state, "turn": turn, "task": task},
                     retry_policy=self._retry_policy,
                 )
@@ -1285,7 +1286,7 @@ class DurableAgent(AgentBase):
             # agent_workflow_instance_id from tool_call_id because is_agent_call=True
             # and no separate child_instance_id is provided.
             yield ctx.call_activity(
-                self.save_tool_results,
+                self._activity_name(self.save_tool_results),
                 input={
                     "instance_id": instance_id,
                     "tool_results": [
@@ -1348,7 +1349,7 @@ class DurableAgent(AgentBase):
                     progress_check_schema=schemas.progress_check,
                 )
                 progress_response = yield ctx.call_activity(
-                    self.call_llm,
+                    self._activity_name(self.call_llm),
                     input={
                         "instance_id": instance_id,
                         "task": progress_prompt,
@@ -1359,7 +1360,7 @@ class DurableAgent(AgentBase):
                 )
 
                 progress = yield ctx.call_activity(
-                    self.evaluate_progress,
+                    self._activity_name(self.evaluate_progress),
                     input={
                         "content": progress_response.get("content", ""),
                         "instance_id": instance_id,
@@ -1378,7 +1379,7 @@ class DurableAgent(AgentBase):
                     "content": plan_content,
                 }
                 yield ctx.call_activity(
-                    self.save_plan,
+                    self._activity_name(self.save_plan),
                     input={
                         "instance_id": instance_id,
                         "plan_message": plan_message,
@@ -1394,7 +1395,7 @@ class DurableAgent(AgentBase):
 
             else:
                 process_result = yield ctx.call_activity(
-                    self.handle_response,
+                    self._activity_name(self.handle_response),
                     input={
                         "state": orch_state,
                         "response": result,
@@ -1414,7 +1415,7 @@ class DurableAgent(AgentBase):
                 )
             else:
                 should_continue = yield ctx.call_activity(
-                    self.check_completion,
+                    self._activity_name(self.check_completion),
                     input={"state": orch_state, "turn": turn},
                     retry_policy=self._retry_policy,
                 )
@@ -1449,7 +1450,7 @@ class DurableAgent(AgentBase):
                 result=last_result,
             )
             summary_response = yield ctx.call_activity(
-                self.call_llm,
+                self._activity_name(self.call_llm),
                 input={
                     "instance_id": instance_id,
                     "task": summary_prompt,
@@ -1466,7 +1467,7 @@ class DurableAgent(AgentBase):
 
         else:
             final_message = yield ctx.call_activity(
-                self.finalize_orchestration,
+                self._activity_name(self.finalize_orchestration),
                 input={"state": orch_state, "task": task, "instance_id": instance_id},
                 retry_policy=self._retry_policy,
             )
@@ -1485,7 +1486,7 @@ class DurableAgent(AgentBase):
             else:
                 broadcast_msg = final_message
             yield ctx.call_activity(
-                self.broadcast_to_team,
+                self._activity_name(self.broadcast_to_team),
                 input={"message": broadcast_msg},
                 retry_policy=self._retry_policy,
             )
@@ -1602,7 +1603,7 @@ class DurableAgent(AgentBase):
 
         logger.info(f"Agent {self.name} received broadcast from {source}")
         yield ctx.call_activity(
-            self.record_broadcast,
+            self._activity_name(self.record_broadcast),
             input=message,
             retry_policy=self._retry_policy,
         )
@@ -1930,15 +1931,33 @@ class DurableAgent(AgentBase):
                     self._label_message_with_source(user_copy, source)
                 )
 
+        # Build generate kwargs. When the caller requested structured output
+        # AND the conversation isn't mid-tool-loop (no tool_calls on the last
+        # assistant message), omit tools/tool_choice so the model can't
+        # legitimately respond with a tool call instead of JSON.
+        last_assistant = next(
+            (
+                m
+                for m in reversed(messages)
+                if isinstance(m, dict) and m.get("role") == "assistant"
+            ),
+            None,
+        )
+        last_had_tool_calls = bool(last_assistant and last_assistant.get("tool_calls"))
+
         tools = self.get_llm_tools()
-        generate_kwargs: Dict[str, Any] = {
-            "messages": messages,
-            "tools": tools,
-        }
+        generate_kwargs: Dict[str, Any] = {"messages": messages}
+        fresh_structured_turn: bool = (
+            response_model is not None and not last_had_tool_calls
+        )
+
         if response_model is not None:
             generate_kwargs["response_format"] = response_model
-        if tools and self.execution.tool_choice is not None:
-            generate_kwargs["tool_choice"] = self.execution.tool_choice
+
+        if tools and not fresh_structured_turn:
+            generate_kwargs["tools"] = tools
+            if self.execution.tool_choice is not None:
+                generate_kwargs["tool_choice"] = self.execution.tool_choice
 
         # before_llm_call hook dispatch. Hooks fire inside this activity (rather
         # than in the workflow body) so they can perform non-deterministic work
@@ -1996,6 +2015,20 @@ class DurableAgent(AgentBase):
             try:
                 response = self.llm.generate(**generate_kwargs)
             except Exception as exc:  # noqa: BLE001
+                # When structured output was requested (orchestration plan,
+                # routing, progress check, etc.) a flaky LLM response surfaces a
+                # StructureError deep inside the nested activity / sub-orchestration
+                # chain. Attach enough context so the workflow log shows the
+                # failing schema/provider/model instead of a bare
+                # "Extraction failed: No content found for JSON mode".
+                if response_model is not None:
+                    provider = getattr(self.llm, "provider", "unknown")
+                    model_name = getattr(self.llm, "model", "unknown")
+                    raise AgentError(
+                        f"LLM structured-output call failed (schema="
+                        f"{response_format_name!r}, provider={provider!r}, "
+                        f"model={model_name!r}, agent={self.name!r}): {exc}"
+                    ) from exc
                 raise AgentError(str(exc)) from exc
 
             # Handle structured output response (Pydantic model) vs regular chat response
@@ -2312,9 +2345,10 @@ class DurableAgent(AgentBase):
         """
         Execute a single tool call.
 
-        Always returns a ToolMessage, even if tool execution fails.
-        This ensures every tool_call_id has a corresponding tool message,
-        maintaining proper conversation history.
+        Once the validation guards below pass, always returns a ToolMessage
+        — even if tool execution itself fails. This ensures every
+        tool_call_id has a corresponding tool message, maintaining proper
+        conversation history.
 
         Args:
             payload: Keys 'tool_call', 'instance_id', 'time', 'order'.
@@ -2323,7 +2357,9 @@ class DurableAgent(AgentBase):
             ToolMessage as a dict. Contains error message if execution failed.
 
         Raises:
-            AgentError: If tool arguments contain invalid JSON.
+            AgentError: If tool arguments contain invalid JSON, or if the
+                resolved tool is a ``WorkflowContextInjectedTool`` (which
+                cannot run inside an activity — see the guard below).
         """
         tool_call = payload.get("tool_call", {})
         fn_name = tool_call["function"]["name"]
@@ -2342,6 +2378,23 @@ class DurableAgent(AgentBase):
             and isinstance(args.get("kwargs"), dict)
         ):
             args = args["kwargs"]
+
+        # Sanity-check: run_tool activities cannot execute
+        # WorkflowContextInjectedTool instances because activities don't have
+        # a workflow context to inject. If a tool that needs ctx somehow
+        # reached this path (e.g. registration drift between workflow replay
+        # and activity execution), fail with an actionable error instead of
+        # the opaque "Missing workflow context" that surfaces two layers up.
+        tool_obj = self.tool_executor.get_tool(fn_name)
+        if isinstance(tool_obj, WorkflowContextInjectedTool):
+            raise AgentError(
+                f"Tool '{fn_name}' ({type(tool_obj).__name__}) requires a "
+                f"DaprWorkflowContext and cannot run inside the run_tool "
+                f"activity. The workflow's dispatch loop should have routed "
+                f"this tool inline. Check for tool-executor state drift "
+                f"between dispatch and activity execution, or for code "
+                f"paths that invoke run_tool directly."
+            )
 
         async def _execute_tool() -> Any:
             return await self.tool_executor.run_tool(fn_name, **args)
@@ -2666,6 +2719,7 @@ class DurableAgent(AgentBase):
                     pubsub_name=pubsub_name,
                     topic_name=topic,
                     message=event_data,
+                    client_factory=self.async_client_factory,
                 )
 
             self._run_asyncio_task(_publish())
@@ -2713,6 +2767,7 @@ class DurableAgent(AgentBase):
                 message_bus=self.message_bus_name,
                 source=self.name,
                 agents_metadata=agents_metadata,
+                client_factory=self.async_client_factory,
             )
 
         try:
@@ -3230,19 +3285,87 @@ class DurableAgent(AgentBase):
         wrapper.__name__ = name
         return wrapper
 
+    def _activity_name(self, method: Union[str, Callable[..., Any]]) -> str:
+        """
+        Return the agent-scoped registered name of an activity.
+
+        Accepts either a method-name string or a bound method reference;
+        bound methods are preferred at call sites because static-analysis
+        renames follow the reference automatically — passing
+        ``self.call_llm`` keeps building ``…<sanitized>.call_llm`` even if
+        the method is renamed.
+
+        Activities are registered under
+        ``{DAPR_AGENTS_NAMESPACE}.<sanitized_agent_name>.<method>`` so that
+        multiple agents sharing a ``WorkflowRuntime`` (e.g. development or
+        test setups where agents are co-located) do not clobber each
+        other's bindings. Dapr's ``register_activity`` is last-write-wins
+        by name: without this scoping, the second agent's ``run_tool``
+        would silently replace the first's, and cross-agent activity
+        calls would execute against the wrong ``self``.
+        """
+        method_name = method if isinstance(method, str) else method.__name__
+        return f"{DAPR_AGENTS_NAMESPACE}.{sanitize_openai_tool_name(self.name)}.{method_name}"
+
+    # The three groupings below identify which methods get registered as
+    # activities for each orchestration shape. Using bound-method references
+    # (rather than name strings) lets renames flow through automatically and
+    # keeps registration / call-site / activity-name builders all reading
+    # from the same source of truth.
+    def _standard_activities(self) -> tuple[Callable[..., Any], ...]:
+        """Activities every DurableAgent registers for the standard loop."""
+        return (
+            self.record_initial_entry,
+            self.record_broadcast,
+            self.call_llm,
+            self.run_executor,
+            self.run_tool,
+            self.save_tool_results,
+            self.publish_approval_request,
+            self.broadcast_to_team,
+            self.summarize,
+            self.finalize_workflow,
+            self.get_team_members,
+            self.load_tools,
+        )
+
+    def _agent_orchestration_activities(self) -> tuple[Callable[..., Any], ...]:
+        """Extra activities for plan-based (LLM-driven) orchestration."""
+        return (self.validate_step, self.evaluate_progress, self.save_plan)
+
+    def _static_orchestration_activities(self) -> tuple[Callable[..., Any], ...]:
+        """Extra activities for round-robin / random orchestration."""
+        return (
+            self.initialize_orchestration,
+            self.select_next_task,
+            self.handle_response,
+            self.check_completion,
+            self.finalize_orchestration,
+        )
+
     def register_workflows(self, runtime: wf.WorkflowRuntime) -> None:
         """
         Register workflows/activities for this agent.
 
-        Each workflow is registered under a unique, agent-scoped name using
-        the ``dapr.agents.<name>.<type>`` format:
-        ``*.workflow``, ``*.broadcast``, and ``*.orchestration``.  This
-        prevents name collisions when multiple agents share the same Dapr app.
+        Every registration is agent-scoped so multiple agents sharing a
+        ``WorkflowRuntime`` don't clobber each other (Dapr's
+        ``register_activity`` is last-write-wins by name; unscoped
+        registration would let a second agent silently replace the first).
+        The exact names come from per-purpose helpers and differ slightly:
+
+        - Workflows (``agent_workflow_name``, ``broadcast_workflow_name``,
+          ``orchestration_workflow_id``) use
+          ``dapr.<framework>.<sanitized_name>.<kind>`` where ``<kind>`` is
+          ``workflow`` / ``broadcast`` / ``orchestration``. ``<framework>``
+          defaults to ``agents`` but can be overridden per agent via the
+          registry.
+        - Activities (``_activity_name``) always use the fixed prefix
+          ``dapr.agents.<sanitized_name>.<method>``.
 
         ``AgentRunner`` discovers the registered names via the
         ``agent_workflow_name`` / ``broadcast_workflow_name`` properties and
         passes them as strings to ``schedule_new_workflow`` — no wrapper
-        bookkeeping is needed here.  The broadcast workflow (``*.broadcast``)
+        bookkeeping is needed here. The broadcast workflow (``*.broadcast``)
         is registered only when a broadcast/pubsub topic is configured
         (i.e., when ``broadcast_topic_name`` is set), so callers should use
         ``broadcast_workflow_name`` only in that case.
@@ -3259,19 +3382,11 @@ class DurableAgent(AgentBase):
                 self._named(self.on_broadcast, self.broadcast_workflow_name)
             )
 
-        # Standard agent activities
-        runtime.register_activity(self.record_initial_entry)
-        runtime.register_activity(self.record_broadcast)
-        runtime.register_activity(self.call_llm)
-        runtime.register_activity(self.run_executor)
-        runtime.register_activity(self.run_tool)
-        runtime.register_activity(self.save_tool_results)
-        runtime.register_activity(self.publish_approval_request)
-        runtime.register_activity(self.broadcast_to_team)
-        runtime.register_activity(self.summarize)
-        runtime.register_activity(self.finalize_workflow)
-        runtime.register_activity(self.get_team_members)
-        runtime.register_activity(self.load_tools)
+        # Standard agent activities, all scoped per agent
+        for activity in self._standard_activities():
+            runtime.register_activity(
+                self._named(activity, self._activity_name(activity))
+            )
 
         # Internal orchestration workflow and activities
         if self._orchestration_strategy:
@@ -3282,15 +3397,12 @@ class DurableAgent(AgentBase):
                 )
             )
 
-            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
-                # Agent-based orchestration activities (plan-based with LLM)
-                runtime.register_activity(self.validate_step)
-                runtime.register_activity(self.evaluate_progress)
-                runtime.register_activity(self.save_plan)
-            else:
-                # RoundRobin and Random orchestration activities
-                runtime.register_activity(self.initialize_orchestration)
-                runtime.register_activity(self.select_next_task)
-                runtime.register_activity(self.handle_response)
-                runtime.register_activity(self.check_completion)
-                runtime.register_activity(self.finalize_orchestration)
+            extras = (
+                self._agent_orchestration_activities()
+                if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy)
+                else self._static_orchestration_activities()
+            )
+            for activity in extras:
+                runtime.register_activity(
+                    self._named(activity, self._activity_name(activity))
+                )

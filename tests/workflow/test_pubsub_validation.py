@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from dapr_agents.types.exceptions import PubSubNotAvailableError
 from dapr_agents.workflow.utils.registration import _validate_pubsub_components
 
-_PATCH_TARGET = "dapr_agents.workflow.utils.registration.DaprClient"
+_PATCH_TARGET = "dapr_agents.workflow.utils.registration.default_dapr_client_factory"
 
 
 class TestPubSubNotAvailableError:

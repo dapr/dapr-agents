@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.types.workflow import PubSubRouteSpec
+from dapr_agents.utils import DaprClientFactory
 from dapr_agents.workflow.runners.base import WorkflowRunner
 from dapr_agents.workflow.utils.core import get_decorated_methods
 from dapr_agents.workflow.utils.registration import (
@@ -54,6 +55,7 @@ class AgentRunner(WorkflowRunner):
         wf_client=None,
         timeout_in_seconds: int = 600,
         auto_install_signals: bool = False,
+        client_factory: Optional[DaprClientFactory] = None,
     ) -> None:
         """
         Initialize an AgentRunner.
@@ -64,12 +66,15 @@ class AgentRunner(WorkflowRunner):
             timeout_in_seconds: Default timeout used when waiting for workflow completion.
             auto_install_signals: If True, installs SIGINT/SIGTERM handlers automatically
                 when used as a context manager (with/async with) and removes them on exit.
+            client_factory: Optional sync Dapr client factory forwarded to the
+                underlying workflow runner. Defaults to the env-driven factory.
         """
         super().__init__(
             name=name,
             wf_client=wf_client,
             timeout_in_seconds=timeout_in_seconds,
             auto_install_signals=auto_install_signals,
+            client_factory=client_factory,
         )
         self._default_http_paths: set[str] = set()
 
@@ -434,6 +439,7 @@ class AgentRunner(WorkflowRunner):
             fetch_payloads=fetch_payloads,
             log_outcome=log_outcome,
             deduper=deduper,
+            client_factory=self._client_factory,
         )
         self._pubsub_closers.extend(closers)
         self._wired_pubsub = True

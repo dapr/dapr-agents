@@ -244,10 +244,14 @@ def patch_openai_client(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def patch_dapr_client(monkeypatch):
-    """Patch DaprClient at the module level where it's actually used."""
+    """Route the default Dapr client factory used by storage to the in-memory mock."""
+
+    def _mock_factory() -> MockDaprClient:
+        return MockDaprClient()
+
     monkeypatch.setattr(
-        "dapr_agents.storage.daprstores.statestore.DaprClient",
-        MockDaprClient,
+        "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+        _mock_factory,
     )
 
 

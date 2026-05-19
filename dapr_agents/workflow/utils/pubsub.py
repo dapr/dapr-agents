@@ -21,6 +21,8 @@ from typing import Any, Callable, Dict, Mapping, MutableMapping, Optional, Union
 from dapr.aio.clients import DaprClient
 from pydantic import BaseModel
 
+from dapr_agents.utils import default_async_dapr_client_factory
+
 logger = logging.getLogger(__name__)
 
 JsonDict = Dict[str, Any]
@@ -54,7 +56,7 @@ async def publish_message(
     message: Any,
     metadata: Optional[JsonDict] = None,
     default_pubsub: Optional[str] = None,
-    client_factory: Callable[[], DaprClient] = DaprClient,
+    client_factory: Callable[[], DaprClient] = default_async_dapr_client_factory,
     logger_: logging.Logger = logger,
 ) -> None:
     """
@@ -112,7 +114,7 @@ async def publish_event_message(
     message_type: Optional[str] = None,
     metadata: Optional[JsonDict] = None,
     default_pubsub: Optional[str] = None,
-    client_factory: Callable[[], DaprClient] = DaprClient,
+    client_factory: Callable[[], DaprClient] = default_async_dapr_client_factory,
     logger_: logging.Logger = logger,
 ) -> None:
     """
@@ -186,7 +188,7 @@ async def broadcast_message(
     agents_metadata: AgentsMetadata,
     exclude_orchestrator: bool = False,
     metadata: Optional[JsonDict] = None,
-    client_factory: Callable[[], DaprClient] = DaprClient,
+    client_factory: Callable[[], DaprClient] = default_async_dapr_client_factory,
     logger_: logging.Logger = logger,
 ) -> None:
     """

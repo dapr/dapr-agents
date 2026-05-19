@@ -50,7 +50,8 @@ class TestObservabilityConfigFromInstantiation:
             "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
         )
         monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
         )
 
         # Mock the observability setup to avoid actual OTel initialization
@@ -196,7 +197,8 @@ class TestObservabilityConfigFromEnvironment:
             "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
         )
         monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
         )
 
         # Mock the observability setup to avoid actual OTel initialization
@@ -382,7 +384,8 @@ class TestObservabilityConfigFromStatestore:
 
         monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
         monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", MockDaprClientClass
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            MockDaprClientClass,
         )
 
     @pytest.fixture
@@ -580,7 +583,8 @@ class TestObservabilityConfigPrecedence:
 
         monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
         monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", MockDaprClientClass
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            MockDaprClientClass,
         )
 
     @pytest.fixture
@@ -861,7 +865,8 @@ class TestObservabilityConfigMergeLogic:
 
         monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
         monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", MockDaprClientClass
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            MockDaprClientClass,
         )
 
     @pytest.fixture
