@@ -311,7 +311,7 @@ def apply_config_update(
         The final applied value.
 
     Raises:
-        ValueError: If no value can be retrieved or coercion/validation fails.
+        ValueError: If no value can be retrieved or coercion/validation/transformation fails.
         RuntimeError: If the value cannot be applied.
     """
 
@@ -346,7 +346,7 @@ def process_config_update(
         The processed value.
 
     Raises:
-        ValueError: If no value can be retrieved or coercion/validation fails.
+        ValueError: If no value can be retrieved or coercion/validation/transformation fails.
     """
 
     if not descriptor:
