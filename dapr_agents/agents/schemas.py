@@ -192,6 +192,10 @@ class AgentWorkflowEntry(BaseModel):
         default=None,
         description="OpenTelemetry trace context for workflow resumption.",
     )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Optional session identifier for resumable, multi-turn runs.",
+    )
     approval_requests: Dict[str, Dict[str, Any]] = Field(
         default_factory=dict,
         description=(
