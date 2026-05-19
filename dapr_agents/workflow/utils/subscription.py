@@ -639,13 +639,17 @@ class _StreamSubscriber:
             pairs, (metadata or {}).get("type")
         )
 
-        # payload_filter runs before schema validation, so for a binding with N
-        # schemas we'd otherwise call it N times. Cache by binding id for this
-        # one message so each filter runs at most once.
+        # Filters are per-binding, not per-schema. We iterate flattened
+        # (binding, schema) pairs, so cache the payload_filter result and
+        # remember model_filter rejections; once a binding rejects, every
+        # remaining pair for that binding is skipped.
         payload_filter_cache: dict[int, bool] = {}
+        model_filter_rejected: set[int] = set()
 
         for binding, schema in ordered_pairs:
             binding_key = id(binding)
+            if binding_key in model_filter_rejected:
+                continue
             if binding_key not in payload_filter_cache:
                 payload_filter_cache[binding_key] = _filter_accepts(
                     binding.payload_filter,
@@ -674,6 +678,7 @@ class _StreamSubscriber:
                 kind="model_filter",
                 binding_name=binding.name,
             ):
+                model_filter_rejected.add(binding_key)
                 continue
 
             return self._dispatch(binding, parsed)

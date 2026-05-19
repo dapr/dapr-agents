@@ -1107,6 +1107,34 @@ def test_filter_exception_skips_binding(filter_env):
     assert not mock_wf.schedule_new_workflow.called
 
 
+def test_model_filter_rejection_skips_remaining_schemas_of_binding(filter_env):
+    """A model_filter rejection on one schema must skip the binding's other schemas."""
+    mock_dapr, mock_wf = filter_env
+    call_count = {"n": 0}
+
+    def rejecting_model_filter(model, msg_ctx):
+        call_count["n"] += 1
+        return False
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=Union[OrderCreated, OrderCancelled],
+        model_filter=rejecting_model_filter,
+    )
+    def handler(message):
+        return "ok"
+
+    # Loose payload that validates against both OrderCreated and OrderCancelled
+    msg = _make_cloudevent(
+        {"order_id": "1", "amount": 100.0, "customer": "Alice"}, type="Unknown"
+    )
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert call_count["n"] == 1
+    assert not mock_wf.schedule_new_workflow.called
+
+
 def test_payload_filter_runs_once_per_binding_for_union(filter_env):
     """For a binding with multiple schemas, payload_filter is evaluated once."""
     mock_dapr, mock_wf = filter_env
