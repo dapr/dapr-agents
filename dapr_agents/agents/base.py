@@ -874,10 +874,14 @@ class AgentBase:
                 value=processed_value,
                 descriptor=descriptor,
             )
-        except Exception as e:
+        except RuntimeError as e:
             # Fall through if the agent could not be updated but the value is otherwise valid
             logger.debug(f"Agent {self.name}: {e}")
             applied_value = None
+        except Exception as e:
+            # Should not get here assuming value is valid
+            logger.warning(f"Agent {self.name}: {e} Skipping update.")
+            return False
 
         resolved_value = applied_value or processed_value
 
