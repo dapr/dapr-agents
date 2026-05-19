@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-04T20:24:20.215794Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
 [manifest]
@@ -513,7 +513,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.98.0"
+version = "0.101.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -525,9 +525,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0e/b9/1702127c175338407033ceb94c61f5eb538adbbf59d5d1baec7ccf8ad502/anthropic-0.98.0.tar.gz", hash = "sha256:b6943df4299dc09d1f1fdcdcae66cd4e9f7a2827d9d1d519ed0a7b0d47e8b787", size = 725023, upload-time = "2026-05-04T17:13:51.473Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b5/cb/9d0123243e749ac3a579972b2c398971bce1dc57bcc4efb08066df610360/anthropic-0.101.0.tar.gz", hash = "sha256:1116a6a87c55757e0fbe3e1ba40804fbd04de7963601a6dd6b539a889f18de3e", size = 758603, upload-time = "2026-05-11T15:46:33.944Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/73/cdc9d5b1c4601cc77a7bb21d54cfc0b86a2372b2e97bc49feeb952eabb57/anthropic-0.98.0-py3-none-any.whl", hash = "sha256:e79f4908a04582186b2f18cee2fff3c068c8d2ee4fe134e9aab423aaf74b7c80", size = 699604, upload-time = "2026-05-04T17:13:49.715Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/b2/74ff06762d005ecf1658929a292df0acb786d025f6a6c54fcb30e2dc7761/anthropic-0.101.0-py3-none-any.whl", hash = "sha256:cc3cc6576989471e2aa9132258034ad0ff0d8fe500b04ac499e4e46ed68c5ed0", size = 753594, upload-time = "2026-05-11T15:46:32.216Z" },
 ]
 
 [[package]]
