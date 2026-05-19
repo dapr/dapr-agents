@@ -25,6 +25,13 @@ logger = logging.getLogger(__name__)
 
 AGENT_WORKFLOW_SUFFIX = "_agent_workflow"  # kept for backward compat
 
+# Shared registration namespace for everything a DurableAgent puts on a
+# WorkflowRuntime — workflows, broadcast handlers, orchestrations, and
+# activities. Centralized so call sites (workflow-name builders, activity-name
+# builders, and tests) read from a single source of truth instead of
+# duplicating the literal "dapr.agents".
+DAPR_AGENTS_NAMESPACE = "dapr.agents"
+
 
 def _is_dapr_agents_framework(framework: str) -> bool:
     """Return True if ``framework`` is any spelling of "Dapr Agents".
@@ -95,7 +102,7 @@ def agent_workflow_id(
         return f"dapr.{normalized_framework}.{sanitized_agent_name}.workflow"
 
     # Priority 4: Default to dapr.agents.* format
-    return f"dapr.agents.{sanitized_agent_name}.workflow"
+    return f"{DAPR_AGENTS_NAMESPACE}.{sanitized_agent_name}.workflow"
 
 
 class AgentTaskArgs(BaseModel):
