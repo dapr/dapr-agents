@@ -407,9 +407,6 @@ class AgentBase:
                     f"{exc}"
                 ) from exc
 
-        # Single canonical client factory shared with every collaborator
-        # (memory, state, registry, LLM). Replaces the previous per-component
-        # ``DaprClientConfig`` copies and the propagation/refresh plumbing.
         self._client_factory: DaprClientFactory = make_dapr_client_factory(
             self._dapr_client_config
         )
