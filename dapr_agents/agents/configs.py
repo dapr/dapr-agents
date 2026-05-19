@@ -299,19 +299,20 @@ def apply_config_update(
 ) -> Any:
     """
     Process and apply a configuration update to an object.
+    This function is guaranteed to be idempotent if the processing logic is idempotent.
 
     Args:
         target_obj: The object to be updated.
         key: The configuration key.
-        value: Optional raw value to coerce/validate/transform and apply.
-            Falls back to the descriptor's getter if not provided.
+        value: Optional value to process and apply.
+            Falls back to the descriptor's getter if not provided (may not be idempotent).
         descriptor: An object describing how to process a value for a particular key.
 
     Returns:
         The final applied value.
 
     Raises:
-        ValueError: If no value can be retrieved or coercion/validation/transformation fails.
+        ValueError: If no value can be retrieved or processing fails.
         RuntimeError: If the value cannot be applied.
     """
 
@@ -334,19 +335,20 @@ def process_config_update(
     descriptor: ConfigFieldDescriptor,
 ) -> Any:
     """
-    Process a configuration update by coercing, validating, and transforming a raw value.
+    Process a configuration update by coercing, validating, and transforming a value.
+    This function is guaranteed to be idempotent if the processing logic is idempotent.
 
     Args:
         key: The configuration key.
-        value: Optional raw value to coerce/validate/transform and apply.
-            Falls back to the descriptor's getter if not provided.
+        value: Optional value to process.
+            Falls back to the descriptor's getter if not provided (may not be idempotent).
         descriptor: An object describing how to process a value for a particular key.
 
     Returns:
         The processed value.
 
     Raises:
-        ValueError: If no value can be retrieved or coercion/validation/transformation fails.
+        ValueError: If no value can be retrieved or processing fails.
     """
 
     if not descriptor:
