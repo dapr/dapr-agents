@@ -13,19 +13,19 @@
 
 """Unit tests for the hook-based human-in-the-loop (HITL) system."""
 
-import pytest
 from datetime import timezone
 
 from dapr_agents.agents.schemas import ApprovalRequiredEvent, ApprovalResponseEvent
 from dapr_agents.agents.configs import AgentApprovalConfig, AgentExecutionConfig
 from dapr_agents.hooks import (
-    Hooks,
-    HookContext,
-    Proceed,
-    Skip,
-    Modify,
-    RequireApproval,
     Deny,
+    HookContext,
+    Hooks,
+    Mutate,
+    Proceed,
+    RequireApproval,
+    Skip,
+    ToolHookContext,
 )
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.tool import tool
@@ -237,8 +237,8 @@ class TestHookDecisions:
         d = Skip()
         assert d.result is None
 
-    def test_modify_carries_payload(self):
-        d = Modify(payload={"new_arg": "value"})
+    def test_mutate_carries_payload(self):
+        d = Mutate(payload={"new_arg": "value"})
         assert d.payload == {"new_arg": "value"}
 
     def test_require_approval_defaults(self):
@@ -299,7 +299,11 @@ class TestHooksContainer:
             return None  # caller coerces this to Proceed
 
         h = Hooks(before_tool_call=[passthrough])
-        result = h.before_tool_call[0](HookContext("tool", "tool", "local", {}, "id"))
+        result = h.before_tool_call[0](
+            ToolHookContext(
+                step_name="tool", source="local", payload={}, tool_call_id="id"
+            )
+        )
         assert result is None  # workflow code handles the None → Proceed coercion
 
 
