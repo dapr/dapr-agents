@@ -59,7 +59,7 @@ from dapr_agents.agents.configs import (
     RuntimeSubscriptionConfig,
     ToolMetadata,
     WorkflowGrpcOptions,
-    DEFAULT_AGENT_WORKFLOW_BUNDLE,
+    AGENT_DEFAULT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
     apply_config_update,
     process_config_update,
@@ -498,7 +498,7 @@ class AgentBase:
             registry=registry,
             base_metadata=base_metadata,
             max_etag_attempts=max_etag_attempts,
-            default_bundle=DEFAULT_AGENT_WORKFLOW_BUNDLE,
+            default_bundle=AGENT_DEFAULT_WORKFLOW_BUNDLE,
             workflow_grpc_options=workflow_grpc,
         )
 

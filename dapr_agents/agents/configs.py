@@ -90,7 +90,7 @@ class StateModelBundle:
     message_coercer: Optional[MessageCoercer] = None
 
 
-DEFAULT_AGENT_WORKFLOW_BUNDLE = StateModelBundle(
+AGENT_DEFAULT_WORKFLOW_BUNDLE = StateModelBundle(
     entry_model_cls=AgentWorkflowEntry,
     message_model_cls=AgentWorkflowMessage,
 )
