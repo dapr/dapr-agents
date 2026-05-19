@@ -40,7 +40,9 @@ def main(packages: list[str]) -> None:
 
     versions_current = {pkg: pins[pkg] for pkg in packages}
     if len(set(versions_current.values())) != 1:
-        print(f"::notice::current pins out of sync in pyproject.toml: {versions_current}")
+        print(
+            f"::notice::current pins out of sync in pyproject.toml: {versions_current}"
+        )
         return
     version_current = next(iter(versions_current.values()))
 
