@@ -69,6 +69,7 @@ from dapr_agents.agents.configs import (
 )
 from dapr_agents.agents.prompting import AgentProfileConfig, PromptingAgentBase
 from dapr_agents.agents.utils.text_printer import ColorTextFormatter
+from dapr_agents.agents.executors import AgentExecutorBase
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.utils.defaults import get_default_llm
 from dapr_agents.memory import ConversationDaprStateMemory, ConversationListMemory
@@ -308,6 +309,7 @@ class AgentBase:
         # Memory / runtime
         memory: Optional[AgentMemoryConfig] = None,
         llm: Optional[ChatClientBase] = None,
+        executor: Optional[AgentExecutorBase] = None,
         tools: Optional[Iterable[Any]] = None,
         # Metadata
         agent_metadata: Optional[Dict[str, Any]] = None,
@@ -340,7 +342,12 @@ class AgentBase:
 
             memory: Memory backend configuration. If omitted and a state store
                 is configured, a Dapr-backed conversation memory is created by default.
-            llm: Chat client. Defaults to `get_default_llm()`.
+            llm: Chat client. Defaults to `get_default_llm()`. Mutually exclusive
+                with `executor`.
+            executor: Stateful agent runtime (e.g. Claude Agent SDK wrapper).
+                Mutually exclusive with `llm`. When provided, the agent's
+                workflow drives the executor's async event stream instead of
+                the chat-completion/tool loop.
             tools: Optional tool callables or `AgentTool` instances.
 
             agent_metadata: Extra metadata to store in the registry.
@@ -349,6 +356,14 @@ class AgentBase:
             agent_observability: Observability configuration for tracing/logging.
             configuration: Optional configuration store settings for hot-reloading.
         """
+        if llm is not None and executor is not None:
+            raise ValueError(
+                "AgentBase accepts either `llm` or `executor`, not both. "
+                "Use `llm` for chat-completion providers (OpenAI, Dapr, etc.) "
+                "and `executor` for stateful agent runtimes "
+                "(e.g. Claude Agent SDK, LangGraph)."
+            )
+
         # Resolve and validate profile (ensures non-empty name).
         resolved_profile = self._build_profile(
             base_profile=profile,
@@ -427,7 +442,11 @@ class AgentBase:
                                 client_factory=self._client_factory,
                             )
                         )
-                    if "conversation" in component.type and llm is None:
+                    if (
+                        "conversation" in component.type
+                        and llm is None
+                        and executor is None
+                    ):
                         # We got a default LLM component registered
                         logger.debug(f"LLM component found: {component.name}")
                         llm = get_default_llm()
@@ -574,20 +593,24 @@ class AgentBase:
         self._text_formatter = self.prompting_helper.text_formatter
 
         # -----------------------------
-        # LLM wiring
+        # LLM / executor wiring
         # -----------------------------
-        self.llm: ChatClientBase = llm or get_default_llm()
-        if self.llm:
-            self.llm.prompt_template = self.prompt_template
-            # Forward the shared client factory to LLM clients that talk to the
-            # Dapr sidecar. The inference wrapper re-reads this attribute on
-            # every call, so no manual ``refresh_client()`` is required.
-            if (
-                self._dapr_client_config is not None
-                and hasattr(self.llm, "client_factory")
-                and getattr(self.llm, "client_factory", None) is None
-            ):
-                self.llm.client_factory = self._client_factory
+        self.executor: Optional[AgentExecutorBase] = executor
+        if executor is not None:
+            self.llm: Optional[ChatClientBase] = None
+        else:
+            self.llm: Optional[ChatClientBase] = llm or get_default_llm()
+            if self.llm:
+                self.llm.prompt_template = self.prompt_template
+                # Forward the shared client factory to LLM clients that talk to the
+                # Dapr sidecar. The inference wrapper re-reads this attribute on
+                # every call, so no manual ``refresh_client()`` is required.
+                if (
+                    self._dapr_client_config is not None
+                    and hasattr(self.llm, "client_factory")
+                    and getattr(self.llm, "client_factory", None) is None
+                ):
+                    self.llm.client_factory = self._client_factory
 
         # -----------------------------
         # Tools
@@ -1236,6 +1259,20 @@ class AgentBase:
         ]
         self._text_formatter.print_colored_text(parts)
 
+    @staticmethod
+    def _label_message_with_source(
+        message: Dict[str, Any], source: Optional[str]
+    ) -> Dict[str, Any]:
+        """
+        Return a copy of ``message`` tagged with an ``on-behalf-of`` name
+        when the message was triggered by another agent (``source`` is set
+        and not the sentinel ``"direct"``).
+        """
+        labelled = {str(k): v for k, v in message.items()}
+        if source and source != "direct":
+            labelled["name"] = f"on-behalf-of {source}"
+        return labelled
+
     # ------------------------------------------------------------------
     # Prompting & memory utilities
     # ------------------------------------------------------------------
@@ -1404,6 +1441,15 @@ class AgentBase:
 
         if not messages_list:
             logger.debug(f"No messages to summarize for instance_id={instance_id}")
+            return {}
+
+        if self.llm is None:
+            logger.debug(
+                "Skipping conversation summary for instance_id=%s: no LLM client "
+                "(agent is driven by an AgentExecutorBase which manages its own "
+                "session state).",
+                instance_id,
+            )
             return {}
 
         lines = []

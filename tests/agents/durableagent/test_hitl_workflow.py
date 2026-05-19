@@ -14,7 +14,7 @@
 """
 Workflow-integration tests for the hook-based human-in-the-loop system.
 
-These tests verify the full dispatch pipeline: hook decision – workflow branch (Deny / Skip / Modify / RequireApproval) – correct tool_results handed to save_tool_results. They reuse the mocking pattern from test_durable_agent.py (patch_dapr_check, mock workflow context).
+These tests verify the full dispatch pipeline: hook decision – workflow branch (Deny / Skip / Mutate / RequireApproval) – correct tool_results handed to save_tool_results. They reuse the mocking pattern from test_durable_agent.py (patch_dapr_check, mock workflow context).
 """
 
 import json
@@ -30,22 +30,19 @@ from dapr.ext.workflow import DaprWorkflowContext
 from dapr_agents.agents.configs import (
     AgentApprovalConfig,
     AgentExecutionConfig,
-    AgentMemoryConfig,
     AgentPubSubConfig,
-    AgentRegistryConfig,
     AgentStateConfig,
     ToolExecutionMode,
 )
 from dapr_agents.agents.durable import DurableAgent
-from dapr_agents.agents.schemas import AgentWorkflowEntry
 from dapr_agents.hooks import (
     Deny,
     HookContext,
     Hooks,
-    Modify,
     Proceed,
     RequireApproval,
     Skip,
+    ToolHookContext,
 )
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
@@ -772,7 +769,9 @@ class TestHookWorkflowDispatch:
         def passthrough(ctx: HookContext):
             return Proceed()
 
-        ctx = HookContext("AnyTool", "tool", "local", {}, "c-1")
+        ctx = ToolHookContext(
+            step_name="AnyTool", source="local", payload={}, tool_call_id="c-1"
+        )
         d1 = passthrough(ctx)
         d2 = passthrough(ctx)
         assert isinstance(d1, Proceed)
