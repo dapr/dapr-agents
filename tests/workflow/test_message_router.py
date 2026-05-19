@@ -30,7 +30,7 @@ from dapr_agents.workflow.utils.registration import register_message_routes
 from dapr_agents.workflow.utils.subscription import TTLDedupeBackend
 
 
-_PATCH_TARGET = "dapr_agents.workflow.utils.registration.DaprClient"
+_PATCH_TARGET = "dapr_agents.workflow.utils.registration.default_dapr_client_factory"
 
 
 def create_mock_dapr_client(pubsub_names: List[str]) -> MagicMock:

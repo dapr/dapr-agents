@@ -11,6 +11,17 @@
 # limitations under the License.
 #
 
+from .dapr_client_factory import (
+    INBOUND_MESSAGE_SIZE_ENV,
+    AsyncDaprClientFactory,
+    DaprClientConfig,
+    DaprClientFactory,
+    dapr_client_kwargs,
+    default_async_dapr_client_factory,
+    default_dapr_client_factory,
+    make_async_dapr_client_factory,
+    make_dapr_client_factory,
+)
 from .logger import (
     WorkflowReplayFilter,
     get_context_aware_logger,
@@ -23,6 +34,15 @@ from .signal_mixin import SignalHandlingMixin
 __all__ = [
     "add_signal_handlers_cross_platform",
     "SignalHandlingMixin",
+    "INBOUND_MESSAGE_SIZE_ENV",
+    "AsyncDaprClientFactory",
+    "DaprClientConfig",
+    "DaprClientFactory",
+    "dapr_client_kwargs",
+    "default_async_dapr_client_factory",
+    "default_dapr_client_factory",
+    "make_async_dapr_client_factory",
+    "make_dapr_client_factory",
     "is_version_supported",  # Internal utility, used by dapr chat client
     "get_context_aware_logger",
     "with_logger_context",

@@ -435,6 +435,14 @@ class AgentApprovalConfig:
 class AgentExecutionConfig:
     """
     Dials to configure the agent execution.
+
+    Attributes:
+        max_grpc_inbound_message_size_bytes: Optional gRPC inbound message size
+            limit in bytes. When set, takes precedence over
+            ``DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES`` for this agent only —
+            two agents in the same process can run with independent limits.
+            The value is plumbed through a per-agent client factory shared by
+            the agent's memory, state, registry, and LLM collaborators.
     """
 
     # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
@@ -444,6 +452,7 @@ class AgentExecutionConfig:
     tool_execution_mode: ToolExecutionMode = ToolExecutionMode.PARALLEL
     orchestration_mode: Optional[OrchestrationMode] = None
     approval: AgentApprovalConfig = field(default_factory=AgentApprovalConfig)
+    max_grpc_inbound_message_size_bytes: Optional[int] = None
 
 
 @dataclass
