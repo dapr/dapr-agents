@@ -29,6 +29,7 @@ from dapr_agents.agents.configs import (
     AgentStateConfig,
 )
 from dapr_agents.agents.durable import DurableAgent
+from tests.agents.durableagent.test_durable_agent import _activity_method_name
 from dapr_agents.agents.executors import (
     AgentEvent,
     AgentExecutorBase,
@@ -774,8 +775,7 @@ class TestAgentWorkflowExecutorBranch:
         def track(activity, **kwargs):
             captured.append(
                 {
-                    "name": getattr(activity, "__name__", None)
-                    or getattr(activity, "__func__", activity).__name__,
+                    "name": _activity_method_name(activity),
                     "input": kwargs.get("input"),
                     "retry_policy": kwargs.get("retry_policy"),
                 }
