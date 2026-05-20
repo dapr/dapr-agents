@@ -860,7 +860,9 @@ class AgentBase:
 
         try:
             processed_value = process_config_update(
-                key=normalized_key, value=value, descriptor=descriptor
+                key=normalized_key,
+                value=value,
+                descriptor=descriptor,
             )
         except Exception as e:
             # Skip update for coercion/validation/transformation/other failures
