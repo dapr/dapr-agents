@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-04T20:24:20.215794Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
 [manifest]
@@ -1728,7 +1728,7 @@ wheels = [
 
 [[package]]
 name = "elevenlabs"
-version = "2.30.0"
+version = "2.47.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1738,9 +1738,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3d/a0/e7761b7a5a73f3933480ff3bdf87fcc9228ab8bf776fc08d1af0e4ff2f89/elevenlabs-2.30.0.tar.gz", hash = "sha256:a6a0474e045b93475fcd5f5829b67438d5a6aef9698b6f8758e7148ac03c2b12", size = 438124, upload-time = "2026-01-13T09:25:21.352Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/59/83/f354abd05bf68238d682c492646a90fd87c8d2cf1cc643b68bb7bf73b164/elevenlabs-2.47.0.tar.gz", hash = "sha256:1e62e0c64d8b78dab27e0076dfff6d498c5c7363c23c545219e70b1602a456d5", size = 596325, upload-time = "2026-05-12T20:23:04.014Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/16/7854a5d114f23fe3e2778b3b7838f4e63973f4ab6f0d71247ce0bcb9038f/elevenlabs-2.30.0-py3-none-any.whl", hash = "sha256:eeee92703a27e7ecd0e8ba4d547f730bcef4ecb02485efa59aeecab3a904d024", size = 1171600, upload-time = "2026-01-13T09:25:19.515Z" },
+    { url = "https://files.pythonhosted.org/packages/64/80/3be940678d0d220fb85fe05662d17e352a24c5b487b6f3ce01b16b840deb/elevenlabs-2.47.0-py3-none-any.whl", hash = "sha256:77f20a9939c0c966cfead0c79d6bab204fb2bc5e41e98e0817a180b316c98cbf", size = 1609805, upload-time = "2026-05-12T20:23:01.725Z" },
 ]
 
 [[package]]
