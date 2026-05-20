@@ -881,7 +881,7 @@ class AgentBase:
             logger.debug(f"Agent {self.name}: {e}")
             applied_value = None
         except Exception as e:
-            # Should not get here assuming value is valid
+            # Defensive check: we shouldn't get here assuming value is valid
             logger.warning(f"Agent {self.name}: {e} Skipping update.")
             return False
 
