@@ -18,7 +18,7 @@ import logging
 import re
 from os import getenv
 from enum import StrEnum
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from typing import (
     Any,
     Callable,
@@ -28,11 +28,17 @@ from typing import (
     Optional,
     Sequence,
     Type,
+    TypeVar,
     Union,
 )
 
 from pydantic import BaseModel, Field
 
+from dapr_agents.agents.utils.models import (
+    get_model_factory,
+    get_model_fields,
+    is_supported_config_model,
+)
 from dapr_agents.types.agent import ToolChoice, ToolExecutionMode, OrchestrationMode
 from dapr_agents.agents.constants import (
     AGENT_DEFAULT_MAX_ITERATIONS,
@@ -67,6 +73,8 @@ def _empty_headers() -> Dict[str, str]:
 EntryFactory = Callable[..., Any]
 MessageCoercer = Callable[[Dict[str, Any]], Any]
 EntryContainerGetter = Callable[[BaseModel], Optional[MutableMapping[str, Any]]]
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -291,6 +299,11 @@ def validate_otel_exporter_logging(v: str) -> str:
     return v
 
 
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
+
+
 def apply_config_update(
     target_obj: Any,
     key: str,
@@ -423,6 +436,63 @@ def coerce_config_value(value: Any, target_type: Type) -> Any:
         raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
 
     raise ValueError(f"Unsupported target type: {target_type}")
+
+
+def merge_configs(base: T, override: T) -> T:
+    """
+    Merge two configuration models of the same type, with override taking precedence.
+    Only override if the override value is not None.
+
+    Args:
+        base: The original configuration model.
+        override: The new configuration model with potential override values.
+
+    Returns:
+        The merged configuration model.
+
+    Raises:
+        TypeError: If models are of incompatible types or unsupported type.
+        ValueError: If merging fails.
+    """
+    # NOTE: this implementation doesn't handle override values that are explicitly None
+
+    if not is_supported_config_model(type(base)):
+        raise TypeError(f"Unsupported model type: {base!r}")
+
+    if not is_supported_config_model(type(override)):
+        raise TypeError(f"Unsupported model type: {override!r}")
+
+    if type(base) != type(override):
+        raise TypeError(
+            f"Cannot merge models of different types: {base!r} and {override!r}"
+        )
+
+    try:
+        # Infer model type from the base
+        model_fields = get_model_fields(base)
+        model_factory = get_model_factory(base)
+
+        if not model_fields or not model_factory:
+            raise TypeError(f"Unsupported model type: {base!r}")
+
+        merged_values: Dict[str, Any] = {}
+
+        for field in model_fields:
+            base_val = getattr(base, field)
+            override_val = getattr(override, field)
+
+            if isinstance(base_val, dict) and isinstance(override_val, dict):
+                # Shallow merge dicts
+                merged_values[field] = {**base_val, **override_val}
+            else:
+                merged_values[field] = (
+                    override_val if override_val is not None else base_val
+                )
+
+        return model_factory(merged_values)  # type: ignore
+
+    except Exception as e:
+        raise ValueError(f"Configuration merge failed: {e}") from e
 
 
 @dataclass

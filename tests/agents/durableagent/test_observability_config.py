@@ -26,6 +26,7 @@ from dapr_agents.agents.configs import (
     AgentObservabilityConfig,
     AgentTracingExporter,
     AgentLoggingExporter,
+    merge_configs,
 )
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
@@ -905,7 +906,7 @@ class TestObservabilityConfigMergeLogic:
             endpoint=None,  # Should not override
         )
 
-        merged = agent._merge_observability_configs(base, override)
+        merged = merge_configs(base, override)
 
         assert merged.enabled is True  # From base
         assert merged.service_name == "override-service"  # From override
@@ -941,7 +942,7 @@ class TestObservabilityConfigMergeLogic:
             tracing_enabled=True,
         )
 
-        merged = agent._merge_observability_configs(base, override)
+        merged = merge_configs(base, override)
 
         assert merged.enabled is False  # Override wins
         assert merged.logging_enabled is True  # Base wins (override is None)
@@ -968,7 +969,7 @@ class TestObservabilityConfigMergeLogic:
         base = AgentObservabilityConfig()
         override = AgentObservabilityConfig()
 
-        merged = agent._merge_observability_configs(base, override)
+        merged = merge_configs(base, override)
 
         assert merged.enabled is None
         assert merged.headers == {}

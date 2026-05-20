@@ -62,6 +62,7 @@ from dapr_agents.agents.configs import (
     AGENT_DEFAULT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
     apply_config_update,
+    merge_configs,
     process_config_update,
     validate_max_iterations,
     validate_non_empty_string,
@@ -1742,13 +1743,13 @@ class AgentBase:
         logger.debug(f"Env execution config: {config}")
 
         if self.execution:
-            config = self._merge_execution_configs(config, self.execution)
+            config = merge_configs(config, self.execution)
             logger.debug(f"Merged execution config: {config}")
 
         statestore_config = self._load_execution_from_statestore()
         logger.debug(f"Statestore execution config: {statestore_config}")
 
-        config = self._merge_execution_configs(config, statestore_config)
+        config = merge_configs(config, statestore_config)
         logger.debug(f"Final execution config with statestore override: {config}")
         return config
 
@@ -1853,13 +1854,11 @@ class AgentBase:
         env_config = AgentObservabilityConfig.from_env()
         logger.debug(f"Env observability config: {env_config}")
 
-        config = self._merge_observability_configs(config, env_config)
+        config = merge_configs(config, env_config)
         logger.debug(f"Merged observability config: {config}")
 
         if self._agent_observability:
-            config = self._merge_observability_configs(
-                config, self._agent_observability
-            )
+            config = merge_configs(config, self._agent_observability)
             logger.debug(f"Final observability config with override: {config}")
         return config
 
