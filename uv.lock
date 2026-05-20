@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-04T20:24:20.215794Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
 [manifest]
@@ -152,7 +152,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "arize-phoenix", specifier = ">=12.16.0" },
-    { name = "arize-phoenix-otel", specifier = ">=0.12.0,<0.13.0" },
+    { name = "arize-phoenix-otel", specifier = ">=0.12.0,<0.17.0" },
     { name = "dapr-agents", editable = "." },
     { name = "python-dotenv", specifier = ">=1.2.1" },
 ]
@@ -641,7 +641,7 @@ wheels = [
 
 [[package]]
 name = "arize-phoenix-otel"
-version = "0.12.1"
+version = "0.16.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "openinference-instrumentation" },
@@ -653,9 +653,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "wrapt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/b2/e990deaad2eba163c2d6f6af967495263efd4cefdf8545f17ddf3846e221/arize_phoenix_otel-0.12.1.tar.gz", hash = "sha256:0150cdc586abbd3cca49168352f94501d59c2690cab5d283a5e0689bb3dc1234", size = 16402, upload-time = "2025-06-24T15:58:34.914Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/97/5aef2776ee17eacb24a82de719312008ca0a16b915415cc9363a9a9b1536/arize_phoenix_otel-0.16.1.tar.gz", hash = "sha256:28ba1d43dcd2dc556f6cac25622c3333e613e2cf1d687832a9ed5ce2c20e17be", size = 20933, upload-time = "2026-05-03T19:07:02.563Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/46/27/be2ead7273ecf3be0c5b3ebf9e4bccedcd49ab45a7909e82588f56189cd2/arize_phoenix_otel-0.12.1-py3-none-any.whl", hash = "sha256:85167dd061d7d4e14c98edd5733afe151da8027d69f2ecfe29a6aa2484906fa3", size = 13871, upload-time = "2025-06-24T15:58:33.702Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/2e/e495446a8a715d9892a4dbc56e11b18fb6f07a634182babc0b0ac6827d9c/arize_phoenix_otel-0.16.1-py3-none-any.whl", hash = "sha256:eb71f7be8d94e68f5cd82b134f7ea1710fa73374bf0d8d663ce6242332871ff9", size = 18033, upload-time = "2026-05-03T19:07:01.395Z" },
 ]
 
 [[package]]
