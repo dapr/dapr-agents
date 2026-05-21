@@ -12,7 +12,7 @@
 #
 
 from dataclasses import is_dataclass
-from typing import Any, Callable, Callable
+from typing import Any, Callable
 
 from pydantic import BaseModel
 
