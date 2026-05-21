@@ -738,7 +738,7 @@ class AgentExecutionConfig:
         except Exception as e:
             return AgentExecutionConfig()
 
-    def resolve_config(self, runtime_config: Dict[str, Any]) -> AgentExecutionConfig:
+    def resolve_config(self, runtime_config: Dict[str, Any]) -> "AgentExecutionConfig":
         """
         Resolve the execution configuration for the agent in the following order:
         1. Statestore runtime config (highest priority)
@@ -746,9 +746,10 @@ class AgentExecutionConfig:
         3. Environment variables (lowest priority)
     
         Args:
-            runtime_conf: Runtime configuration.
+            runtime_config: Runtime configuration.
+
         Returns:
-            Resolved AgentExecutionConfig instance.
+            Resolved AgentExecutionConfig instance for fluent chaining.
         """
 
         config = AgentExecutionConfig.from_env()
@@ -763,7 +764,11 @@ class AgentExecutionConfig:
         config = merge_configs(config, statestore_config)
         logger.debug(f"Final execution config with statestore override: {config}")
 
-        return config
+        for k, v in config.__dict__.items():
+            setattr(self, k, v)
+
+        return self
+
 
 @dataclass
 class WorkflowRetryPolicy:
@@ -1002,9 +1007,9 @@ class AgentObservabilityConfig:
         3. Default statestore runtime config (lowest priority)
 
         Args:
-            runtime_conf: Runtime configuration.
+            runtime_config: Runtime configuration.
         Returns:
-            Resolved AgentObservabilityConfig instance.
+            Resolved AgentObservabilityConfig instance for fluent chaining.
         """
 
         config = AgentObservabilityConfig.from_statestore(runtime_config)
@@ -1019,7 +1024,10 @@ class AgentObservabilityConfig:
         config = merge_configs(config, self)
         logger.debug(f"Final observability config with override: {config}")
 
-        return config
+        for k, v in config.__dict__.items():
+            setattr(self, k, v)
+
+        return self
         
 
 

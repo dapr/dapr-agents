@@ -506,7 +506,7 @@ class AgentBase:
         self.instrumentor: Optional[DaprAgentsInstrumentor] = None
         self._otel_logging_handler = None
         self._agent_observability = agent_observability or AgentObservabilityConfig()
-        self._agent_observability = self._agent_observability.resolve_config(self._runtime_conf)
+        self._agent_observability.resolve_config(self._runtime_conf)
 
         self._setup_agent_observability()
 
@@ -578,7 +578,7 @@ class AgentBase:
         # Execution config
         # -----------------------------
         self.execution = execution or AgentExecutionConfig()
-        self.execution = self.execution.resolve_config(self._runtime_conf)
+        self.execution.resolve_config(self._runtime_conf)
 
         try:
             self.execution.max_iterations = max(1, int(self.execution.max_iterations))
