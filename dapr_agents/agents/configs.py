@@ -752,7 +752,9 @@ class AgentExecutionConfig:
         try:
             config = merge_configs(config, self)
         except Exception as e:
-            logger.warning(f"Failed to merge execution config with env execution config: {e}")
+            logger.warning(
+                f"Failed to merge execution config with env execution config: {e}"
+            )
             config = self
 
         logger.debug(f"Merged execution config: {config}")
@@ -763,7 +765,9 @@ class AgentExecutionConfig:
         try:
             config = merge_configs(config, statestore_config)
         except Exception as e:
-            logger.warning(f"Failed to merge execution config with statestore execution config: {e}")
+            logger.warning(
+                f"Failed to merge execution config with statestore execution config: {e}"
+            )
             config = self
 
         logger.debug(f"Final execution config: {config}")
@@ -1022,7 +1026,9 @@ class AgentObservabilityConfig:
         try:
             config = merge_configs(config, env_config)
         except Exception as e:
-            logger.warning(f"Failed to merge observability config with env observability config: {e}")
+            logger.warning(
+                f"Failed to merge observability config with env observability config: {e}"
+            )
             config = self
 
         logger.debug(f"Merged observability config: {config}")
@@ -1030,7 +1036,9 @@ class AgentObservabilityConfig:
         try:
             config = merge_configs(config, self)
         except Exception as e:
-            logger.warning(f"Failed to merge observability config with statestore observability config: {e}")
+            logger.warning(
+                f"Failed to merge observability config with statestore observability config: {e}"
+            )
             config = self
 
         logger.debug(f"Final observability config: {config}")
