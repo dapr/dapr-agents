@@ -105,7 +105,7 @@ class TestObservabilityConfigFromInstantiation:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = obs_config.resolve_config(agent._runtime_conf)
 
         assert resolved_config.enabled is True
         assert resolved_config.headers == {"Authorization": "Bearer token123"}
@@ -142,7 +142,7 @@ class TestObservabilityConfigFromInstantiation:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = obs_config.resolve_config(agent._runtime_conf)
 
         assert resolved_config.enabled is True
         assert resolved_config.tracing_enabled is True
@@ -174,7 +174,7 @@ class TestObservabilityConfigFromInstantiation:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = obs_config.resolve_config(agent._runtime_conf)
         assert resolved_config.enabled is False
 
 
@@ -249,7 +249,7 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = AgentObservabilityConfig().resolve_config(agent._runtime_conf)
 
         assert resolved_config.enabled is True
         assert resolved_config.headers == {"Authorization": "Bearer env-token"}
@@ -281,7 +281,7 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = AgentObservabilityConfig().resolve_config(agent._runtime_conf)
 
         assert resolved_config.enabled is True
         assert resolved_config.service_name == "partial-service"
@@ -310,7 +310,7 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = AgentObservabilityConfig().resolve_config(agent._runtime_conf)
         assert resolved_config.enabled is False
 
     def test_observability_config_from_env_invalid_exporter(
@@ -336,7 +336,7 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = AgentObservabilityConfig().resolve_config(agent._runtime_conf)
 
         # Should default to CONSOLE for invalid values
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
@@ -431,7 +431,7 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = AgentObservabilityConfig().resolve_config(agent._runtime_conf)
 
         assert resolved_config.enabled is True
         assert resolved_config.auth_token == "statestore-token"
@@ -470,7 +470,7 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = AgentObservabilityConfig().resolve_config(agent._runtime_conf)
 
         assert resolved_config.enabled is True
         assert resolved_config.service_name == "partial-statestore-service"
@@ -502,7 +502,7 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = AgentObservabilityConfig().resolve_config(agent._runtime_conf)
         assert resolved_config.enabled is False
 
     def test_observability_config_statestore_invalid_exporter(
@@ -534,7 +534,7 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = AgentObservabilityConfig().resolve_config(agent._runtime_conf)
 
         # Should default to CONSOLE for invalid values
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
@@ -631,7 +631,7 @@ class TestObservabilityConfigPrecedence:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = obs_config.resolve_config(agent._runtime_conf)
 
         # Instantiation should win
         assert resolved_config.enabled is False
@@ -674,7 +674,7 @@ class TestObservabilityConfigPrecedence:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = AgentObservabilityConfig().resolve_config(agent._runtime_conf)
 
         # Environment should win
         assert resolved_config.enabled is False
@@ -726,7 +726,7 @@ class TestObservabilityConfigPrecedence:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = obs_config.resolve_config(agent._runtime_conf)
 
         # Instantiation wins for service_name and tracing_exporter
         assert resolved_config.service_name == "instantiation-service"
@@ -775,7 +775,7 @@ class TestObservabilityConfigPrecedence:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = obs_config.resolve_config(agent._runtime_conf)
 
         # Headers should be merged with instantiation taking precedence
         assert "X-Custom-Header" in resolved_config.headers
@@ -804,7 +804,7 @@ class TestObservabilityConfigPrecedence:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = AgentObservabilityConfig().resolve_config(agent._runtime_conf)
 
         # Values come from statestore defaults (False for booleans, console for exporters)
         assert resolved_config.enabled is False

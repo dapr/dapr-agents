@@ -382,9 +382,6 @@ class AgentBase:
 
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
-        self._agent_observability = agent_observability or AgentObservabilityConfig()
-        self._otel_logging_handler = None
-        self.instrumentor = None
         self.configuration = configuration
         self._subscription_id: Optional[str] = None
         self.appid = (
@@ -503,8 +500,15 @@ class AgentBase:
             workflow_grpc_options=workflow_grpc,
         )
 
+        # -----------------------------
+        # Observability wiring
+        # -----------------------------
         self.instrumentor: Optional[DaprAgentsInstrumentor] = None
-        self._setup_agent_observability_runtime_configuration()
+        self._otel_logging_handler = None
+        self._agent_observability = agent_observability or AgentObservabilityConfig()
+        self._agent_observability = self._agent_observability.resolve_config(self._runtime_conf)
+
+        self._setup_agent_observability()
 
         # -----------------------------
         # Registry wiring
@@ -574,7 +578,7 @@ class AgentBase:
         # Execution config
         # -----------------------------
         self.execution = execution or AgentExecutionConfig()
-        self._setup_agent_execution_runtime_configuration()
+        self.execution = self.execution.resolve_config(self._runtime_conf)
 
         try:
             self.execution.max_iterations = max(1, int(self.execution.max_iterations))
@@ -1726,7 +1730,7 @@ class AgentBase:
                 pass
         return datetime.now(timezone.utc)
 
-    def _resolve_execution_config(self) -> AgentExecutionConfig:
+    def _resolve_execution_config(self, execution: Optional[AgentExecutionConfig]) -> AgentExecutionConfig:
         """
         Resolve the execution configuration for the agent in the following order:
         1. Statestore runtime config (highest priority)
@@ -1742,15 +1746,16 @@ class AgentBase:
         config = AgentExecutionConfig.from_env()
         logger.debug(f"Env execution config: {config}")
 
-        if self.execution:
-            config = merge_configs(config, self.execution)
+        if execution:
+            config = merge_configs(config, execution)
             logger.debug(f"Merged execution config: {config}")
 
-        statestore_config = self._load_execution_from_statestore()
+        statestore_config = AgentExecutionConfig.from_statestore(self._runtime_conf)
         logger.debug(f"Statestore execution config: {statestore_config}")
 
         config = merge_configs(config, statestore_config)
         logger.debug(f"Final execution config with statestore override: {config}")
+
         return config
 
     def _load_execution_from_statestore(self) -> AgentExecutionConfig:
@@ -1832,10 +1837,7 @@ class AgentBase:
         )
         return merged_config
 
-    def _setup_agent_execution_runtime_configuration(self) -> None:
-        self.execution = self._resolve_execution_config()
-
-    def _resolve_observability_config(self) -> AgentObservabilityConfig:
+    def _resolve_observability_config(self, observability: Optional[AgentObservabilityConfig]) -> AgentObservabilityConfig:
         """
         Resolve the observability configuration for the agent in the following order:
         1. Passed through instantiation (highest priority)
@@ -1843,12 +1845,12 @@ class AgentBase:
         3. Default statestore runtime config (lowest priority)
 
         Args:
-            agent_observability: Optional observability config provided during initialization.
+            observability: Optional observability config provided during initialization.
         Returns:
             Resolved AgentObservabilityConfig instance.
         """
 
-        config = self._load_observability_from_statestore()
+        config = AgentObservabilityConfig.from_statestore(self._runtime_conf)
         logger.debug(f"Statestore observability config: {config}")
 
         env_config = AgentObservabilityConfig.from_env()
@@ -1857,9 +1859,10 @@ class AgentBase:
         config = merge_configs(config, env_config)
         logger.debug(f"Merged observability config: {config}")
 
-        if self._agent_observability:
-            config = merge_configs(config, self._agent_observability)
+        if observability:
+            config = merge_configs(config, observability)
             logger.debug(f"Final observability config with override: {config}")
+
         return config
 
     def _load_observability_from_statestore(self) -> AgentObservabilityConfig:
@@ -1964,12 +1967,9 @@ class AgentBase:
         )
         return merged_config
 
-    def _setup_agent_observability_runtime_configuration(self) -> None:
-        self._agent_observability = self._resolve_observability_config()
-        self._setup_agent_observability(self._agent_observability)
-
-    def _setup_agent_observability(self, config: AgentObservabilityConfig) -> None:
+    def _setup_agent_observability(self) -> None:
         """Setup agent runtime configuration."""
+        config = self._agent_observability
         self._otel_logging_handler = None
 
         if config.enabled:

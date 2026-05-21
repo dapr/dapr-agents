@@ -76,6 +76,7 @@ EntryContainerGetter = Callable[[BaseModel], Optional[MutableMapping[str, Any]]]
 
 T = TypeVar("T")
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class StateModelBundle:
@@ -695,6 +696,74 @@ class AgentExecutionConfig:
             app_ready_check_enabled=app_ready_check_enabled,
         )
 
+    @classmethod
+    def from_statestore(cls, config: Dict[str, Any]) -> "AgentExecutionConfig":
+        """
+        Load execution configuration from the state store.
+
+        Returns:
+            AgentExecutionConfig instance loaded from state store.
+        """
+
+        try:
+            max_iterations: Optional[int] = None
+            if max_iterations_str := config.get("MAX_ITERATIONS"):
+                try:
+                    max_iterations = max(1, int(max_iterations_str))
+                except ValueError:
+                    max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
+
+            tool_choice: Optional[ToolChoice] = None
+            if tool_choice_str := config.get("TOOL_CHOICE"):
+                try:
+                    tool_choice = ToolChoice(tool_choice_str)
+                except (ValueError, KeyError):
+                    tool_choice = AGENT_DEFAULT_TOOL_CHOICE
+
+            tool_execution_mode: Optional[ToolExecutionMode] = None
+            orchestration_mode: Optional[OrchestrationMode] = None
+            approval: Optional[AgentApprovalConfig] = None
+            app_health_check_enabled: Optional[bool] = None
+            app_ready_check_enabled: Optional[bool] = None
+
+            return AgentExecutionConfig(
+                max_iterations=max_iterations,
+                tool_choice=tool_choice,
+                tool_execution_mode=tool_execution_mode,
+                orchestration_mode=orchestration_mode,
+                approval=approval,
+                app_health_check_enabled=app_health_check_enabled,
+                app_ready_check_enabled=app_ready_check_enabled,
+            )
+        except Exception as e:
+            return AgentExecutionConfig()
+
+    def resolve_config(self, runtime_config: Dict[str, Any]) -> AgentExecutionConfig:
+        """
+        Resolve the execution configuration for the agent in the following order:
+        1. Statestore runtime config (highest priority)
+        2. Passed through instantiation
+        3. Environment variables (lowest priority)
+    
+        Args:
+            runtime_conf: Runtime configuration.
+        Returns:
+            Resolved AgentExecutionConfig instance.
+        """
+
+        config = AgentExecutionConfig.from_env()
+        logger.debug(f"Env execution config: {config}")
+
+        config = merge_configs(config, self)
+        logger.debug(f"Merged execution config: {config}")
+
+        statestore_config = AgentExecutionConfig.from_statestore(runtime_config)
+        logger.debug(f"Statestore execution config: {statestore_config}")
+
+        config = merge_configs(config, statestore_config)
+        logger.debug(f"Final execution config with statestore override: {config}")
+
+        return config
 
 @dataclass
 class WorkflowRetryPolicy:
@@ -862,6 +931,96 @@ class AgentObservabilityConfig:
             tracing_enabled=tracing_enabled,
             tracing_exporter=tracing_exporter,
         )
+
+    @classmethod
+    def from_statestore(cls, config: Dict[str, Any]) -> "AgentObservabilityConfig":
+        """
+        Load observability configuration from the state store.
+
+        Returns:
+            AgentObservabilityConfig instance loaded from state store.
+        """
+
+        try:
+            # Use standard OTEL env var names in statestore config
+            sdk_disabled = config.get("OTEL_SDK_DISABLED", "true").lower()
+            enabled = sdk_disabled != "true"
+            auth_token = (
+                config.get("OTEL_EXPORTER_OTLP_HEADERS")
+                or config.get("OTEL_EXPORTER_OTLP_HEADERS")
+                or None
+            )
+            endpoint = config.get("OTEL_EXPORTER_OTLP_ENDPOINT") or None
+            service_name = config.get("OTEL_SERVICE_NAME") or None
+            logging_enabled = (
+                config.get("OTEL_LOGGING_ENABLED", "false").lower()
+                == "true"
+            )
+            tracing_enabled = (
+                config.get("OTEL_TRACING_ENABLED", "false").lower()
+                == "true"
+            )
+
+            logging_exporter: Optional[AgentLoggingExporter] = None
+            logging_exporter_str = config.get(
+                "OTEL_LOGS_EXPORTER", "console"
+            )
+            if logging_exporter_str:
+                try:
+                    logging_exporter = AgentLoggingExporter(logging_exporter_str)
+                except (ValueError, KeyError):
+                    logging_exporter = AgentLoggingExporter.CONSOLE
+
+            tracing_exporter: Optional[AgentTracingExporter] = None
+            tracing_exporter_str = config.get(
+                "OTEL_TRACES_EXPORTER", "console"
+            )
+            if tracing_exporter_str:
+                try:
+                    tracing_exporter = AgentTracingExporter(tracing_exporter_str)
+                except (ValueError, KeyError):
+                    tracing_exporter = AgentTracingExporter.CONSOLE
+
+            return AgentObservabilityConfig(
+                enabled=enabled,
+                auth_token=auth_token,
+                endpoint=endpoint,
+                service_name=service_name,
+                logging_enabled=logging_enabled,
+                logging_exporter=logging_exporter,
+                tracing_enabled=tracing_enabled,
+                tracing_exporter=tracing_exporter,
+            )
+        except Exception as e:
+            return AgentObservabilityConfig()
+        
+    def resolve_config(self, runtime_config: Dict[str, Any]) -> "AgentObservabilityConfig":
+        """
+        Resolve the observability configuration for the agent in the following order:
+        1. Passed through instantiation (highest priority)
+        2. Environment variables
+        3. Default statestore runtime config (lowest priority)
+
+        Args:
+            runtime_conf: Runtime configuration.
+        Returns:
+            Resolved AgentObservabilityConfig instance.
+        """
+
+        config = AgentObservabilityConfig.from_statestore(runtime_config)
+        logger.debug(f"Statestore observability config: {config}")
+
+        env_config = AgentObservabilityConfig.from_env()
+        logger.debug(f"Env observability config: {env_config}")
+
+        config = merge_configs(config, env_config)
+        logger.debug(f"Merged observability config: {config}")
+
+        config = merge_configs(config, self)
+        logger.debug(f"Final observability config with override: {config}")
+
+        return config
+        
 
 
 class AgentMetadata(BaseModel):
