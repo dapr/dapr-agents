@@ -18,7 +18,7 @@ import logging
 import re
 from os import getenv
 from enum import StrEnum
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from typing import (
     Any,
     Callable,
@@ -28,11 +28,17 @@ from typing import (
     Optional,
     Sequence,
     Type,
+    TypeVar,
     Union,
 )
 
 from pydantic import BaseModel, Field
 
+from dapr_agents.agents.utils.models import (
+    get_model_factory,
+    get_model_fields,
+    is_supported_config_model,
+)
 from dapr_agents.types.agent import ToolChoice, ToolExecutionMode, OrchestrationMode
 from dapr_agents.agents.constants import (
     AGENT_DEFAULT_MAX_ITERATIONS,
@@ -68,6 +74,9 @@ EntryFactory = Callable[..., Any]
 MessageCoercer = Callable[[Dict[str, Any]], Any]
 EntryContainerGetter = Callable[[BaseModel], Optional[MutableMapping[str, Any]]]
 
+T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class StateModelBundle:
@@ -90,7 +99,7 @@ class StateModelBundle:
     message_coercer: Optional[MessageCoercer] = None
 
 
-DEFAULT_AGENT_WORKFLOW_BUNDLE = StateModelBundle(
+AGENT_DEFAULT_WORKFLOW_BUNDLE = StateModelBundle(
     entry_model_cls=AgentWorkflowEntry,
     message_model_cls=AgentWorkflowMessage,
 )
@@ -291,6 +300,11 @@ def validate_otel_exporter_logging(v: str) -> str:
     return v
 
 
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
+
+
 def apply_config_update(
     target_obj: Any,
     key: str,
@@ -299,19 +313,20 @@ def apply_config_update(
 ) -> Any:
     """
     Process and apply a configuration update to an object.
+    This function is guaranteed to be idempotent if the processing logic is idempotent.
 
     Args:
         target_obj: The object to be updated.
         key: The configuration key.
-        value: Optional raw value to coerce/validate/transform and apply.
-            Falls back to the descriptor's getter if not provided.
+        value: Optional value to process and apply.
+            Falls back to the descriptor's getter if not provided (may not be idempotent).
         descriptor: An object describing how to process a value for a particular key.
 
     Returns:
         The final applied value.
 
     Raises:
-        ValueError: If no value can be retrieved or coercion/validation fails.
+        ValueError: If no value can be retrieved or processing fails.
         RuntimeError: If the value cannot be applied.
     """
 
@@ -334,19 +349,20 @@ def process_config_update(
     descriptor: ConfigFieldDescriptor,
 ) -> Any:
     """
-    Process a configuration update by coercing, validating, and transforming a raw value.
+    Process a configuration update by coercing, validating, and transforming a value.
+    This function is guaranteed to be idempotent if the processing logic is idempotent.
 
     Args:
         key: The configuration key.
-        value: Optional raw value to coerce/validate/transform and apply.
-            Falls back to the descriptor's getter if not provided.
+        value: Optional value to process.
+            Falls back to the descriptor's getter if not provided (may not be idempotent).
         descriptor: An object describing how to process a value for a particular key.
 
     Returns:
         The processed value.
 
     Raises:
-        ValueError: If no value can be retrieved or coercion/validation fails.
+        ValueError: If no value can be retrieved or processing fails.
     """
 
     if not descriptor:
@@ -421,6 +437,63 @@ def coerce_config_value(value: Any, target_type: Type) -> Any:
         raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
 
     raise ValueError(f"Unsupported target type: {target_type}")
+
+
+def merge_configs(base: T, override: T) -> T:
+    """
+    Merge two configuration models of the same type, with override taking precedence.
+    Only override if the override value is not None.
+
+    Args:
+        base: The original configuration model.
+        override: The new configuration model with potential override values.
+
+    Returns:
+        The merged configuration model.
+
+    Raises:
+        TypeError: If models are of incompatible types or unsupported type.
+        ValueError: If merging fails.
+    """
+    # NOTE: this implementation doesn't handle override values that are explicitly None
+
+    if not is_supported_config_model(type(base)):
+        raise TypeError(f"Unsupported model type: {base!r}")
+
+    if not is_supported_config_model(type(override)):
+        raise TypeError(f"Unsupported model type: {override!r}")
+
+    if type(base) != type(override):
+        raise TypeError(
+            f"Cannot merge models of different types: {base!r} and {override!r}"
+        )
+
+    try:
+        # Infer model type from the base
+        model_fields = get_model_fields(base)
+        model_factory = get_model_factory(base)
+
+        if not model_fields or not model_factory:
+            raise TypeError(f"Unsupported model type: {base!r}")
+
+        merged_values: Dict[str, Any] = {}
+
+        for field in model_fields:
+            base_val = getattr(base, field)
+            override_val = getattr(override, field)
+
+            if isinstance(base_val, dict) and isinstance(override_val, dict):
+                # Shallow merge dicts
+                merged_values[field] = {**base_val, **override_val}
+            else:
+                merged_values[field] = (
+                    override_val if override_val is not None else base_val
+                )
+
+        return model_factory(merged_values)  # type: ignore
+
+    except Exception as e:
+        raise ValueError(f"Configuration merge failed: {e}") from e
 
 
 @dataclass
@@ -747,6 +820,74 @@ class AgentExecutionConfig:
             app_ready_check_enabled=app_ready_check_enabled,
         )
 
+    @classmethod
+    def from_statestore(cls, config: Dict[str, Any]) -> "AgentExecutionConfig":
+        """
+        Load execution configuration from the state store.
+
+        Returns:
+            AgentExecutionConfig instance loaded from state store.
+        """
+
+        try:
+            max_iterations: Optional[int] = None
+            if max_iterations_str := config.get("MAX_ITERATIONS"):
+                try:
+                    max_iterations = max(1, int(max_iterations_str))
+                except ValueError:
+                    max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
+
+            tool_choice: Optional[ToolChoice] = None
+            if tool_choice_str := config.get("TOOL_CHOICE"):
+                try:
+                    tool_choice = ToolChoice(tool_choice_str)
+                except (ValueError, KeyError):
+                    tool_choice = AGENT_DEFAULT_TOOL_CHOICE
+
+            tool_execution_mode: Optional[ToolExecutionMode] = None
+            orchestration_mode: Optional[OrchestrationMode] = None
+            approval: Optional[AgentApprovalConfig] = None
+            app_health_check_enabled: Optional[bool] = None
+            app_ready_check_enabled: Optional[bool] = None
+
+            return AgentExecutionConfig(
+                max_iterations=max_iterations,
+                tool_choice=tool_choice,
+                tool_execution_mode=tool_execution_mode,
+                orchestration_mode=orchestration_mode,
+                approval=approval,
+                app_health_check_enabled=app_health_check_enabled,
+                app_ready_check_enabled=app_ready_check_enabled,
+            )
+        except Exception as e:
+            return AgentExecutionConfig()
+
+    def resolve_config(self, runtime_config: Dict[str, Any]) -> AgentExecutionConfig:
+        """
+        Resolve the execution configuration for the agent in the following order:
+        1. Statestore runtime config (highest priority)
+        2. Passed through instantiation
+        3. Environment variables (lowest priority)
+    
+        Args:
+            runtime_conf: Runtime configuration.
+        Returns:
+            Resolved AgentExecutionConfig instance.
+        """
+
+        config = AgentExecutionConfig.from_env()
+        logger.debug(f"Env execution config: {config}")
+
+        config = merge_configs(config, self)
+        logger.debug(f"Merged execution config: {config}")
+
+        statestore_config = AgentExecutionConfig.from_statestore(runtime_config)
+        logger.debug(f"Statestore execution config: {statestore_config}")
+
+        config = merge_configs(config, statestore_config)
+        logger.debug(f"Final execution config with statestore override: {config}")
+
+        return config
 
 @dataclass
 class WorkflowRetryPolicy:
@@ -914,6 +1055,96 @@ class AgentObservabilityConfig:
             tracing_enabled=tracing_enabled,
             tracing_exporter=tracing_exporter,
         )
+
+    @classmethod
+    def from_statestore(cls, config: Dict[str, Any]) -> "AgentObservabilityConfig":
+        """
+        Load observability configuration from the state store.
+
+        Returns:
+            AgentObservabilityConfig instance loaded from state store.
+        """
+
+        try:
+            # Use standard OTEL env var names in statestore config
+            sdk_disabled = config.get("OTEL_SDK_DISABLED", "true").lower()
+            enabled = sdk_disabled != "true"
+            auth_token = (
+                config.get("OTEL_EXPORTER_OTLP_HEADERS")
+                or config.get("OTEL_EXPORTER_OTLP_HEADERS")
+                or None
+            )
+            endpoint = config.get("OTEL_EXPORTER_OTLP_ENDPOINT") or None
+            service_name = config.get("OTEL_SERVICE_NAME") or None
+            logging_enabled = (
+                config.get("OTEL_LOGGING_ENABLED", "false").lower()
+                == "true"
+            )
+            tracing_enabled = (
+                config.get("OTEL_TRACING_ENABLED", "false").lower()
+                == "true"
+            )
+
+            logging_exporter: Optional[AgentLoggingExporter] = None
+            logging_exporter_str = config.get(
+                "OTEL_LOGS_EXPORTER", "console"
+            )
+            if logging_exporter_str:
+                try:
+                    logging_exporter = AgentLoggingExporter(logging_exporter_str)
+                except (ValueError, KeyError):
+                    logging_exporter = AgentLoggingExporter.CONSOLE
+
+            tracing_exporter: Optional[AgentTracingExporter] = None
+            tracing_exporter_str = config.get(
+                "OTEL_TRACES_EXPORTER", "console"
+            )
+            if tracing_exporter_str:
+                try:
+                    tracing_exporter = AgentTracingExporter(tracing_exporter_str)
+                except (ValueError, KeyError):
+                    tracing_exporter = AgentTracingExporter.CONSOLE
+
+            return AgentObservabilityConfig(
+                enabled=enabled,
+                auth_token=auth_token,
+                endpoint=endpoint,
+                service_name=service_name,
+                logging_enabled=logging_enabled,
+                logging_exporter=logging_exporter,
+                tracing_enabled=tracing_enabled,
+                tracing_exporter=tracing_exporter,
+            )
+        except Exception as e:
+            return AgentObservabilityConfig()
+        
+    def resolve_config(self, runtime_config: Dict[str, Any]) -> "AgentObservabilityConfig":
+        """
+        Resolve the observability configuration for the agent in the following order:
+        1. Passed through instantiation (highest priority)
+        2. Environment variables
+        3. Default statestore runtime config (lowest priority)
+
+        Args:
+            runtime_conf: Runtime configuration.
+        Returns:
+            Resolved AgentObservabilityConfig instance.
+        """
+
+        config = AgentObservabilityConfig.from_statestore(runtime_config)
+        logger.debug(f"Statestore observability config: {config}")
+
+        env_config = AgentObservabilityConfig.from_env()
+        logger.debug(f"Env observability config: {env_config}")
+
+        config = merge_configs(config, env_config)
+        logger.debug(f"Merged observability config: {config}")
+
+        config = merge_configs(config, self)
+        logger.debug(f"Final observability config with override: {config}")
+
+        return config
+        
 
 
 class AgentMetadata(BaseModel):

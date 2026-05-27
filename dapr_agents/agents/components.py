@@ -28,7 +28,7 @@ from dapr_agents.agents.configs import (
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
-    DEFAULT_AGENT_WORKFLOW_BUNDLE,
+    AGENT_DEFAULT_WORKFLOW_BUNDLE,
     WorkflowGrpcOptions,
     StateModelBundle,
 )
@@ -119,7 +119,7 @@ class DaprInfra:
                 "No state bundle for %s; using default agent workflow entry schema",
                 self.name,
             )
-            bundle = DEFAULT_AGENT_WORKFLOW_BUNDLE
+            bundle = AGENT_DEFAULT_WORKFLOW_BUNDLE
 
         self._entry_model_cls = bundle.entry_model_cls
         self._message_model_cls = bundle.message_model_cls
