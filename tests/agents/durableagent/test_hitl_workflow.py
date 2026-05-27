@@ -14,7 +14,7 @@
 """
 Workflow-integration tests for the hook-based human-in-the-loop system.
 
-These tests verify the full dispatch pipeline: hook decision – workflow branch (Deny / Skip / Modify / RequireApproval) – correct tool_results handed to save_tool_results. They reuse the mocking pattern from test_durable_agent.py (patch_dapr_check, mock workflow context).
+These tests verify the full dispatch pipeline: hook decision – workflow branch (Deny / Skip / Mutate / RequireApproval) – correct tool_results handed to save_tool_results. They reuse the mocking pattern from test_durable_agent.py (patch_dapr_check, mock workflow context).
 """
 
 import json
@@ -30,22 +30,19 @@ from dapr.ext.workflow import DaprWorkflowContext
 from dapr_agents.agents.configs import (
     AgentApprovalConfig,
     AgentExecutionConfig,
-    AgentMemoryConfig,
     AgentPubSubConfig,
-    AgentRegistryConfig,
     AgentStateConfig,
     ToolExecutionMode,
 )
 from dapr_agents.agents.durable import DurableAgent
-from dapr_agents.agents.schemas import AgentWorkflowEntry
 from dapr_agents.hooks import (
     Deny,
     HookContext,
     Hooks,
-    Modify,
     Proceed,
     RequireApproval,
     Skip,
+    ToolHookContext,
 )
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
@@ -105,8 +102,8 @@ def setup_env(monkeypatch):
     mock_client = MockDaprClient()
     monkeypatch.setattr("dapr.clients.DaprClient", lambda *a, **kw: mock_client)
     monkeypatch.setattr(
-        "dapr_agents.storage.daprstores.statestore.DaprClient",
-        lambda *a, **kw: mock_client,
+        "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+        lambda: mock_client,
     )
     yield
     os.environ.pop("OPENAI_API_KEY", None)
@@ -388,7 +385,7 @@ class TestHookWorkflowDispatch:
             pass
 
         for c in mock_ctx.call_activity.call_args_list:
-            if c[0][0] == agent.save_tool_results:
+            if c[0][0] == agent._activity_name(agent.save_tool_results):
                 return c[1]["input"]
 
         return None
@@ -412,7 +409,7 @@ class TestHookWorkflowDispatch:
         save_input = self._drive_workflow_deny_skip(agent, mock_ctx, hook, [tc])
 
         called_fns = [c[0][0] for c in mock_ctx.call_activity.call_args_list]
-        assert agent.run_tool not in called_fns
+        assert agent._activity_name(agent.run_tool) not in called_fns
 
         assert save_input is not None
         results = save_input["tool_results"]
@@ -454,7 +451,7 @@ class TestHookWorkflowDispatch:
         save_input = self._drive_workflow_deny_skip(agent, mock_ctx, hook, [tc])
 
         called_fns = [c[0][0] for c in mock_ctx.call_activity.call_args_list]
-        assert agent.run_tool not in called_fns
+        assert agent._activity_name(agent.run_tool) not in called_fns
 
         assert save_input is not None
         results = save_input["tool_results"]
@@ -529,7 +526,7 @@ class TestHookWorkflowDispatch:
                 pass
 
         for c in mock_ctx.call_activity.call_args_list:
-            if c[0][0] == agent.save_tool_results:
+            if c[0][0] == agent._activity_name(agent.save_tool_results):
                 save_tool_input = c[1]["input"]
                 break
 
@@ -539,7 +536,7 @@ class TestHookWorkflowDispatch:
         assert results[0]["role"] == "tool"
         assert results[0]["tool_call_id"] == tc["id"]
         called_fns = [c[0][0] for c in mock_ctx.call_activity.call_args_list]
-        assert agent.run_tool not in called_fns
+        assert agent._activity_name(agent.run_tool) not in called_fns
 
     # ------------------------------------------------------------------ #
     # RequireApproval — event wins → tool runs                             #
@@ -611,7 +608,7 @@ class TestHookWorkflowDispatch:
                 pass
 
         called_fns = [c[0][0] for c in mock_ctx.call_activity.call_args_list]
-        assert agent.run_tool in called_fns
+        assert agent._activity_name(agent.run_tool) in called_fns
 
     # ------------------------------------------------------------------ #
     # Mixed: denied + proceed in same turn                                 #
@@ -663,7 +660,7 @@ class TestHookWorkflowDispatch:
             pass
 
         for c in mock_ctx.call_activity.call_args_list:
-            if c[0][0] == agent.save_tool_results:
+            if c[0][0] == agent._activity_name(agent.save_tool_results):
                 save_tool_input = c[1]["input"]
                 break
 
@@ -772,7 +769,9 @@ class TestHookWorkflowDispatch:
         def passthrough(ctx: HookContext):
             return Proceed()
 
-        ctx = HookContext("AnyTool", "tool", "local", {}, "c-1")
+        ctx = ToolHookContext(
+            step_name="AnyTool", source="local", payload={}, tool_call_id="c-1"
+        )
         d1 = passthrough(ctx)
         d2 = passthrough(ctx)
         assert isinstance(d1, Proceed)

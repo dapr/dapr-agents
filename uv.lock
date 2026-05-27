@@ -39,6 +39,7 @@ members = [
     "06-agent-mcp-client-stdio",
     "06-agent-mcp-client-streamablehttp",
     "07-data-agent-mcp-chainlit",
+    "11-expert-agent-tavily",
     "dapr-agents",
     "quickstarts",
 ]
@@ -322,6 +323,25 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.9" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "websockets", specifier = ">=12.0" },
+]
+
+[[package]]
+name = "11-expert-agent-tavily"
+version = "0.1.0"
+source = { virtual = "examples/11-expert-agent-tavily" }
+dependencies = [
+    { name = "chainlit" },
+    { name = "dapr-agents" },
+    { name = "python-dotenv" },
+    { name = "tavily-python" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chainlit", specifier = "==2.9.4" },
+    { name = "dapr-agents", editable = "." },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "tavily-python", specifier = ">=0.5.0" },
 ]
 
 [[package]]
@@ -6249,6 +6269,20 @@ name = "syncer"
 version = "2.0.3"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/8d/dd/d4dd75843692690d81f0a4b929212a1614b25d4896aa7c72f4c3546c7e3d/syncer-2.0.3.tar.gz", hash = "sha256:4340eb54b54368724a78c5c0763824470201804fe9180129daf3635cb500550f", size = 11512, upload-time = "2023-05-08T07:50:17.963Z" }
+
+[[package]]
+name = "tavily-python"
+version = "0.7.24"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "requests" },
+    { name = "tiktoken" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/92/d3/a6a9c24bfafed30b4ce3c3d685ab00806ad631c9742441f2597ec91f0002/tavily_python-0.7.24.tar.gz", hash = "sha256:6c8954193c6472231e813fe50cbd07806bd86c7228957675eb45875a44d58296", size = 27311, upload-time = "2026-04-27T17:26:50.511Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/ce/37e3aba0f359f540bfc57eb178f73d521161761f21e0aa28749f42750b11/tavily_python-0.7.24-py3-none-any.whl", hash = "sha256:1a750108de42c4b0b46e4c1b7b64aeaf7fad7d7bac9167927edce0081fe166c9", size = 20022, upload-time = "2026-04-27T17:26:48.885Z" },
+]
 
 [[package]]
 name = "tenacity"

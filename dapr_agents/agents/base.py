@@ -22,6 +22,14 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
+from dapr_agents.utils import (
+    AsyncDaprClientFactory,
+    DaprClientConfig,
+    DaprClientFactory,
+    dapr_client_kwargs,
+    make_async_dapr_client_factory,
+    make_dapr_client_factory,
+)
 from dapr.clients import DaprClient
 from dapr.clients.grpc._response import (
     GetMetadataResponse,
@@ -61,6 +69,7 @@ from dapr_agents.agents.configs import (
 )
 from dapr_agents.agents.prompting import AgentProfileConfig, PromptingAgentBase
 from dapr_agents.agents.utils.text_printer import ColorTextFormatter
+from dapr_agents.agents.executors import AgentExecutorBase
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.utils.defaults import get_default_llm
 from dapr_agents.memory import ConversationDaprStateMemory, ConversationListMemory
@@ -300,6 +309,7 @@ class AgentBase:
         # Memory / runtime
         memory: Optional[AgentMemoryConfig] = None,
         llm: Optional[ChatClientBase] = None,
+        executor: Optional[AgentExecutorBase] = None,
         tools: Optional[Iterable[Any]] = None,
         # Metadata
         agent_metadata: Optional[Dict[str, Any]] = None,
@@ -332,7 +342,12 @@ class AgentBase:
 
             memory: Memory backend configuration. If omitted and a state store
                 is configured, a Dapr-backed conversation memory is created by default.
-            llm: Chat client. Defaults to `get_default_llm()`.
+            llm: Chat client. Defaults to `get_default_llm()`. Mutually exclusive
+                with `executor`.
+            executor: Stateful agent runtime (e.g. Claude Agent SDK wrapper).
+                Mutually exclusive with `llm`. When provided, the agent's
+                workflow drives the executor's async event stream instead of
+                the chat-completion/tool loop.
             tools: Optional tool callables or `AgentTool` instances.
 
             agent_metadata: Extra metadata to store in the registry.
@@ -341,6 +356,14 @@ class AgentBase:
             agent_observability: Observability configuration for tracing/logging.
             configuration: Optional configuration store settings for hot-reloading.
         """
+        if llm is not None and executor is not None:
+            raise ValueError(
+                "AgentBase accepts either `llm` or `executor`, not both. "
+                "Use `llm` for chat-completion providers (OpenAI, Dapr, etc.) "
+                "and `executor` for stateful agent runtimes "
+                "(e.g. Claude Agent SDK, LangGraph)."
+            )
+
         # Resolve and validate profile (ensures non-empty name).
         resolved_profile = self._build_profile(
             base_profile=profile,
@@ -366,8 +389,40 @@ class AgentBase:
         )
         self.agent_metadata = agent_metadata or {}
 
+        # Build a Dapr client config from execution settings so every internal
+        # DaprClient construction below honours the requested gRPC limits.
+        self._dapr_client_config: Optional[DaprClientConfig] = None
+        if (
+            execution is not None
+            and execution.max_grpc_inbound_message_size_bytes is not None
+        ):
+            try:
+                self._dapr_client_config = DaprClientConfig(
+                    max_grpc_message_length=execution.max_grpc_inbound_message_size_bytes,
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    "Invalid value for "
+                    "'execution.max_grpc_inbound_message_size_bytes': "
+                    f"{exc}"
+                ) from exc
+
+        self._client_factory: DaprClientFactory = make_dapr_client_factory(
+            self._dapr_client_config
+        )
+        # Async counterpart used by pub/sub publish helpers in DurableAgent.
+        self._async_client_factory: AsyncDaprClientFactory = (
+            make_async_dapr_client_factory(self._dapr_client_config)
+        )
+
         try:
-            with DaprClient(http_timeout_seconds=10) as _client:
+            # Bootstrap fetch needs a custom HTTP timeout; construct directly
+            # rather than via the factory so we can pass it through.
+            bootstrap_kwargs = dapr_client_kwargs(
+                config=self._dapr_client_config,
+                http_timeout_seconds=10,
+            )
+            with DaprClient(**bootstrap_kwargs) as _client:
                 resp: GetMetadataResponse = _client.get_metadata()
                 self.appid = resp.application_id
                 components: Sequence[RegisteredComponents] = resp.registered_components
@@ -381,9 +436,14 @@ class AgentBase:
                             store=ConversationDaprStateMemory(
                                 store_name=component.name,
                                 agent_name=self.name,
+                                client_factory=self._client_factory,
                             )
                         )
-                    if "conversation" in component.type and llm is None:
+                    if (
+                        "conversation" in component.type
+                        and llm is None
+                        and executor is None
+                    ):
                         # We got a default LLM component registered
                         logger.debug(f"LLM component found: {component.name}")
                         llm = get_default_llm()
@@ -396,7 +456,10 @@ class AgentBase:
                         and state is None
                     ):
                         state = AgentStateConfig(
-                            store=StateStoreService(store_name=component.name),
+                            store=StateStoreService(
+                                store_name=component.name,
+                                client_factory=self._client_factory,
+                            ),
                             state_key_prefix=f"{name.replace(' ', '-').lower() if name else 'default'}:_workflow",
                         )
                     if (
@@ -405,7 +468,10 @@ class AgentBase:
                         and registry is None
                     ):
                         registry = AgentRegistryConfig(
-                            store=StateStoreService(store_name=component.name),
+                            store=StateStoreService(
+                                store_name=component.name,
+                                client_factory=self._client_factory,
+                            ),
                             team_name="default",
                         )
                     if "state" in component.type and component.name == "agent-runtime":
@@ -491,6 +557,7 @@ class AgentBase:
             self._memory.store = ConversationDaprStateMemory(
                 store_name=state.store.store_name,
                 agent_name=self.name,
+                client_factory=self._client_factory,
             )
         self.memory = self._memory.store or ConversationListMemory()
         if hasattr(self.memory, "agent_name"):
@@ -523,11 +590,24 @@ class AgentBase:
         self._text_formatter = self.prompting_helper.text_formatter
 
         # -----------------------------
-        # LLM wiring
+        # LLM / executor wiring
         # -----------------------------
-        self.llm: ChatClientBase = llm or get_default_llm()
-        if self.llm:
-            self.llm.prompt_template = self.prompt_template
+        self.executor: Optional[AgentExecutorBase] = executor
+        if executor is not None:
+            self.llm: Optional[ChatClientBase] = None
+        else:
+            self.llm: Optional[ChatClientBase] = llm or get_default_llm()
+            if self.llm:
+                self.llm.prompt_template = self.prompt_template
+                # Forward the shared client factory to LLM clients that talk to the
+                # Dapr sidecar. The inference wrapper re-reads this attribute on
+                # every call, so no manual ``refresh_client()`` is required.
+                if (
+                    self._dapr_client_config is not None
+                    and hasattr(self.llm, "client_factory")
+                    and getattr(self.llm, "client_factory", None) is None
+                ):
+                    self.llm.client_factory = self._client_factory
 
         # -----------------------------
         # Tools
@@ -716,7 +796,9 @@ class AgentBase:
         subscribe_metadata.setdefault("pgNotifyChannel", "config")
 
         try:
-            self._config_client = DaprClient()
+            self._config_client = DaprClient(
+                **dapr_client_kwargs(config=self._dapr_client_config)
+            )
             self._subscription_id = self._config_client.subscribe_configuration(
                 store_name=self.configuration.store_name,
                 keys=keys,
@@ -747,7 +829,9 @@ class AgentBase:
     def _load_initial_configuration(self, keys: List[str]) -> None:
         """Load current configuration values from the store and apply them."""
         try:
-            with DaprClient() as client:
+            with DaprClient(
+                **dapr_client_kwargs(config=self._dapr_client_config)
+            ) as client:
                 response: ConfigurationResponse = client.get_configuration(
                     store_name=self.configuration.store_name,  # type: ignore[union-attr]
                     keys=keys,
@@ -997,6 +1081,24 @@ class AgentBase:
             self._config_client = None
 
     # ------------------------------------------------------------------
+    # Dapr client tuning accessors
+    # ------------------------------------------------------------------
+    @property
+    def dapr_client_config(self) -> Optional[DaprClientConfig]:
+        """Return the resolved Dapr client tuning for this agent, if any."""
+        return self._dapr_client_config
+
+    @property
+    def client_factory(self) -> DaprClientFactory:
+        """Return the canonical sync Dapr client factory used by this agent."""
+        return self._client_factory
+
+    @property
+    def async_client_factory(self) -> AsyncDaprClientFactory:
+        """Return the canonical async Dapr client factory used by this agent."""
+        return self._async_client_factory
+
+    # ------------------------------------------------------------------
     # DaprInfra delegation properties and methods
     # ------------------------------------------------------------------
     @property
@@ -1153,6 +1255,20 @@ class AgentBase:
             (separator + "\n", "dapr_agents_teal"),
         ]
         self._text_formatter.print_colored_text(parts)
+
+    @staticmethod
+    def _label_message_with_source(
+        message: Dict[str, Any], source: Optional[str]
+    ) -> Dict[str, Any]:
+        """
+        Return a copy of ``message`` tagged with an ``on-behalf-of`` name
+        when the message was triggered by another agent (``source`` is set
+        and not the sentinel ``"direct"``).
+        """
+        labelled = {str(k): v for k, v in message.items()}
+        if source and source != "direct":
+            labelled["name"] = f"on-behalf-of {source}"
+        return labelled
 
     # ------------------------------------------------------------------
     # Prompting & memory utilities
@@ -1312,16 +1428,29 @@ class AgentBase:
             tool_history: Tool call/result history (entry.tool_history or []).
 
         Returns:
-            Dict with "content" key holding the summary text, or {} if nothing to summarize.
+            Dict with "content" key holding the summary text, {} if nothing to
+            summarize, or {"content": ""} if the LLM call/extraction failed
+            (memory summarization is best-effort and does not abort the
+            workflow on LLM-side failures).
 
         Raises:
-            AgentError: If memory disabled, LLM fails, or save fails.
+            AgentError: If memory is disabled or persisting the summary to the
+                memory store fails.
         """
         if not self.memory:
             raise AgentError("Long-term conversation memory is not enabled.")
 
         if not messages_list:
             logger.debug(f"No messages to summarize for instance_id={instance_id}")
+            return {}
+
+        if self.llm is None:
+            logger.debug(
+                "Skipping conversation summary for instance_id=%s: no LLM client "
+                "(agent is driven by an AgentExecutorBase which manages its own "
+                "session state).",
+                instance_id,
+            )
             return {}
 
         lines = []
@@ -1345,17 +1474,30 @@ class AgentBase:
             {"role": "user", "content": task},
         ]
 
+        # Memory summarization is a best-effort side effect: the user's
+        # primary task already completed by the time we get here. If the
+        # LLM call or its structured-output extraction fails (small/flaky
+        # models often emit truncated JSON, refusals, or `[]`), degrade to
+        # an empty summary instead of aborting the whole workflow.
         try:
             summary_model: ConversationSummary = self.llm.generate(
                 messages=llm_messages,
                 response_format=ConversationSummary,
             )
-        except Exception as exc:  # noqa: BLE001
-            raise AgentError(f"LLM summarize failed: {exc}") from exc
+            summary_content = (summary_model.summary or "").strip()
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "LLM summarize failed for instance_id=%s; skipping memory summary.",
+                instance_id,
+            )
+            return {"content": ""}
 
-        summary_content = (summary_model.summary or "").strip()
         if not summary_content:
-            raise AgentError("LLM returned an empty summary.")
+            logger.error(
+                "LLM returned an empty summary for instance_id=%s; skipping memory summary.",
+                instance_id,
+            )
+            return {"content": ""}
 
         summary_message: Dict[str, Any] = {
             "role": "assistant",
@@ -1364,10 +1506,11 @@ class AgentBase:
         }
         try:
             self.memory.add_message(summary_message, workflow_instance_id=instance_id)
-        except Exception:
+        except Exception as exc:
+            # Memory store failures are infrastructure issues — surface them.
             raise AgentError(
                 f"Failed to save summary to memory for instance_id={instance_id}"
-            )
+            ) from exc
         logger.info(f"Saved summary to memory for instance_id={instance_id}")
         if getattr(self, "text_formatter", None):
             self.text_formatter.print_message(

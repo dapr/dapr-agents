@@ -138,7 +138,8 @@ class TestDurableAgentToolExecutionMode:
         mock_client.get_state.return_value = Mock(data=None)
         monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
         monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.statestore.DaprClient", lambda: mock_client
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
         )
         yield
         if "OPENAI_API_KEY" in os.environ:

@@ -23,18 +23,30 @@ from dapr_agents.agents.configs import (
     RegistryMetadata,
     LLMMetadata,
 )
+from dapr_agents.agents.executors import (
+    AgentEvent,
+    AgentEventType,
+    AgentExecutorBase,
+    EchoAgentExecutor,
+)
 from dapr_agents.agents.schemas import ApprovalRequiredEvent, ApprovalResponseEvent
 from dapr_agents.hooks import (
-    BeforeHook,
     AfterHook,
-    Hooks,
+    AfterLLMHook,
+    AfterToolHook,
+    BeforeHook,
+    BeforeLLMHook,
+    BeforeToolHook,
+    Deny,
     HookContext,
     HookDecision,
+    Hooks,
+    LLMHookContext,
+    Mutate,
     Proceed,
-    Skip,
-    Modify,
     RequireApproval,
-    Deny,
+    Skip,
+    ToolHookContext,
 )
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
 from dapr_agents.llm.anthropic import AnthropicChatClient
@@ -53,6 +65,10 @@ from dapr_agents.workflow.utils.core import call_agent, trigger_agent
 
 __all__ = [
     "DurableAgent",
+    "AgentEvent",
+    "AgentEventType",
+    "AgentExecutorBase",
+    "EchoAgentExecutor",
     "DockerCodeExecutor",
     "LocalCodeExecutor",
     "AnthropicChatClient",
@@ -75,9 +91,17 @@ __all__ = [
     "Hooks",
     "HookContext",
     "HookDecision",
+    "LLMHookContext",
+    "ToolHookContext",
+    "BeforeHook",
+    "AfterHook",
+    "BeforeLLMHook",
+    "AfterLLMHook",
+    "BeforeToolHook",
+    "AfterToolHook",
     "Proceed",
     "Skip",
-    "Modify",
+    "Mutate",
     "RequireApproval",
     "Deny",
     "AgentMetadataSchema",
