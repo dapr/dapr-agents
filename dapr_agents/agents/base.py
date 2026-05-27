@@ -1974,6 +1974,7 @@ class AgentBase:
             tool_choice=override.tool_choice or base.tool_choice,
             tool_execution_mode=override.tool_execution_mode or base.tool_execution_mode,
             orchestration_mode=orchestration_mode,
+            approval=override.approval if override.approval else base.approval,
             app_health_check_enabled=app_health_check_enabled,
             app_ready_check_enabled=app_ready_check_enabled,
         )
