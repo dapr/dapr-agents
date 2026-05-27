@@ -14,11 +14,54 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 import uuid
 
 
-class AgentStatus(str, Enum):
+class ToolChoice(StrEnum):
+    """
+    Enumeration of supported tool choice strategies for durable agents.
+
+    AUTO: The agent decides when to use tools based on the prompt and context.
+        This is the default and recommended choice for most use cases,
+        as it allows the agent to leverage tools when beneficial while avoiding unnecessary calls.
+    """
+
+    # TODO: This enum does not support dicts, which some LLM providers allow when forcing a specific tool
+    AUTO = "auto"
+
+
+class ToolExecutionMode(StrEnum):
+    """
+    Enumeration of supported tool execution modes for durable agents.
+
+    PARALLEL: All tool calls returned by the LLM in a single turn are executed
+        concurrently via ``wf.when_all``. This is the default behaviour and
+        provides the best latency when tools are independent.
+    SEQUENTIAL: Tool calls are executed one after another in the order they
+        were returned by the LLM. Use this when tools have side-effects that
+        depend on the results of earlier calls in the same turn.
+    """
+
+    PARALLEL = "parallel"
+    SEQUENTIAL = "sequential"
+
+
+class OrchestrationMode(StrEnum):
+    """
+    Enumeration of supported orchestration strategies for durable agents.
+
+    AGENT: Orchestration is driven by an LLM-generated plan that determines the next steps and agent interactions.
+    RANDOM: Orchestration randomly selects agents or actions at each decision point, without a predetermined plan.
+    ROUNDROBIN: Orchestration cycles through available agents or actions in a fixed order, ensuring equal opportunity for each participant.
+    """
+
+    AGENT = "agent"
+    RANDOM = "random"
+    ROUNDROBIN = "roundrobin"
+
+
+class AgentStatus(StrEnum):
     """Enumeration of possible agent statuses for standardized tracking."""
 
     ACTIVE = "active"  # The agent is actively working on tasks
@@ -28,7 +71,7 @@ class AgentStatus(str, Enum):
     ERROR = "error"  # The agent encountered an error and needs attention
 
 
-class AgentTaskStatus(str, Enum):
+class AgentTaskStatus(StrEnum):
     """Enumeration of possible task statuses for standardizing task tracking."""
 
     IN_PROGRESS = "in-progress"  # Task is currently in progress

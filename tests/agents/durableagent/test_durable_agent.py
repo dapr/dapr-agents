@@ -24,8 +24,8 @@ import pytest
 from dapr.ext.workflow import DaprWorkflowContext
 
 from dapr_agents.agents.durable import DurableAgent
+from dapr_agents.agents.constants import AGENT_DEFAULT_MAX_ITERATIONS
 from dapr_agents.agents.configs import (
-    AGENT_DEFAULT_MAX_ITERATIONS,
     AgentPubSubConfig,
     AgentStateConfig,
     AgentRegistryConfig,

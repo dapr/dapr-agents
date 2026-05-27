@@ -17,8 +17,8 @@ import pytest
 from unittest.mock import Mock, patch
 
 from dapr_agents.agents.base import AgentBase
+from dapr_agents.agents.constants import AGENT_DEFAULT_MAX_ITERATIONS
 from dapr_agents.agents.configs import (
-    AGENT_DEFAULT_MAX_ITERATIONS,
     AgentMemoryConfig,
 )
 from dapr_agents.memory import ConversationListMemory

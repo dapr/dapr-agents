@@ -40,9 +40,11 @@ from dapr.clients.grpc._response import (
 )
 
 from dapr_agents.agents.components import DaprInfra
-from dapr_agents.agents.configs import (
+from dapr_agents.agents.constants import (
     AGENT_DEFAULT_MAX_ITERATIONS,
     AGENT_DEFAULT_TOOL_CHOICE,
+)
+from dapr_agents.agents.configs import (
     AgentApprovalConfig,
     AgentLoggingExporter,
     AgentMemoryConfig,

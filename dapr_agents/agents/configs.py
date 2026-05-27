@@ -32,6 +32,12 @@ from typing import (
 
 from pydantic import BaseModel, Field
 
+from dapr_agents.types.agent import ToolChoice, ToolExecutionMode, OrchestrationMode
+from dapr_agents.agents.constants import (
+    AGENT_DEFAULT_MAX_ITERATIONS,
+    AGENT_DEFAULT_TOOL_CHOICE,
+    AGENT_DEFAULT_TOOL_EXECUTION_MODE,
+)
 from dapr_agents.agents.schemas import (
     AgentWorkflowEntry,
     AgentWorkflowMessage,
@@ -248,11 +254,13 @@ def validate_max_iterations(v: int) -> int:
 
 def validate_tool_choice(v: str) -> str:
     """Warn if tool_choice is non-standard, but allow it."""
-    allowed = {"auto", "none", "required"}
-    if v.lower() not in allowed:
+    try:
+        ToolChoice(v.lower())
+    except (ValueError, KeyError):
         _config_logger.warning(
-            "tool_choice '%s' not in standard set %s; allowing anyway.", v, allowed
+            f"tool_choice {v} not in standard set {set([tc.value for tc in ToolChoice])}; allowing anyway."
         )
+
     return v
 
 
@@ -429,6 +437,8 @@ AGENT_DEFAULT_TOOL_CHOICE = ToolChoice.AUTO
 AGENT_DEFAULT_TOOL_EXECUTION_MODE = ToolExecutionMode.PARALLEL
 
 
+=======
+>>>>>>> 3d5fbd1 (refactor: move agent execution enums to types to avoid circular imports)
 @dataclass
 class AgentApprovalConfig:
     """
