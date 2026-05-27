@@ -378,6 +378,7 @@ class ToolChoice(StrEnum):
         as it allows the agent to leverage tools when beneficial while avoiding unnecessary calls.
     """
 
+    # TODO: This enum does not supports dicts, which some LLM providers allow when forcing a specific tool
     AUTO = "auto"
 
 
@@ -421,6 +422,11 @@ class OrchestrationMode(StrEnum):
     AGENT = "agent"
     RANDOM = "random"
     ROUNDROBIN = "roundrobin"
+
+
+AGENT_DEFAULT_MAX_ITERATIONS = 10
+AGENT_DEFAULT_TOOL_CHOICE = ToolChoice.AUTO
+AGENT_DEFAULT_TOOL_EXECUTION_MODE = ToolExecutionMode.PARALLEL
 
 
 @dataclass
@@ -477,9 +483,9 @@ class AgentExecutionConfig:
 
     # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
     # TODO: add stop_at_tokens
-    max_iterations: int = 10
-    tool_choice: Optional[ToolChoice] = ToolChoice.AUTO
-    tool_execution_mode: ToolExecutionMode = ToolExecutionMode.PARALLEL
+    max_iterations: int = AGENT_DEFAULT_MAX_ITERATIONS
+    tool_choice: Optional[ToolChoice] = AGENT_DEFAULT_TOOL_CHOICE
+    tool_execution_mode: ToolExecutionMode = AGENT_DEFAULT_TOOL_EXECUTION_MODE
     orchestration_mode: Optional[OrchestrationMode] = None
     approval: AgentApprovalConfig = field(default_factory=AgentApprovalConfig)
     max_grpc_inbound_message_size_bytes: Optional[int] = None
@@ -547,25 +553,25 @@ class AgentExecutionConfig:
         """Create execution config from environment variables."""
 
         max_iterations: Optional[int] = None
-        if max_iterations := getenv("MAX_ITERATIONS"):
+        if max_iterations_str := getenv("MAX_ITERATIONS"):
             try:
-                max_iterations = max(1, int(max_iterations))
+                max_iterations = max(1, int(max_iterations_str))
             except ValueError:
-                max_iterations = 10
+                max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
 
         tool_choice: Optional[ToolChoice] = None
         if tool_choice_str := getenv("TOOL_CHOICE"):
             try:
                 tool_choice = ToolChoice(tool_choice_str)
             except (ValueError, KeyError):
-                tool_choice = ToolChoice.AUTO
+                tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
         tool_execution_mode: Optional[ToolExecutionMode] = None
         if tool_execution_mode_str := getenv("TOOL_EXECUTION_MODE"):
             try:
                 tool_execution_mode = ToolExecutionMode(tool_execution_mode_str)
             except (ValueError, KeyError):
-                tool_execution_mode = ToolExecutionMode.PARALLEL
+                tool_execution_mode = AGENT_DEFAULT_TOOL_EXECUTION_MODE
 
         orchestration_mode: Optional[OrchestrationMode] = None
         if orchestration_mode_str := getenv("ORCHESTRATION_MODE"):

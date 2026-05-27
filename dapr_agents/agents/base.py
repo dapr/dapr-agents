@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from os import getenv
 import re
 from importlib.metadata import version
 from datetime import datetime, timezone
@@ -42,6 +41,8 @@ from dapr.clients.grpc._response import (
 
 from dapr_agents.agents.components import DaprInfra
 from dapr_agents.agents.configs import (
+    AGENT_DEFAULT_MAX_ITERATIONS,
+    AGENT_DEFAULT_TOOL_CHOICE,
     AgentLoggingExporter,
     AgentMemoryConfig,
     AgentMetadata,
@@ -629,7 +630,7 @@ class AgentBase:
         try:
             self.execution.max_iterations = max(1, int(self.execution.max_iterations))
         except Exception:
-            self.execution.max_iterations = 10
+            self.execution.max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
         if not self.tools:
             if self.execution.tool_choice is not None:
                 logger.debug(
@@ -637,7 +638,7 @@ class AgentBase:
                 )
             self.execution.tool_choice = None
         elif self.execution.tool_choice is None:
-            self.execution.tool_choice = ToolChoice.AUTO
+            self.execution.tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
         # -----------------------------
         # Agent metadata & registry registration
@@ -1908,18 +1909,18 @@ class AgentBase:
 
         try:
             max_iterations: Optional[int] = None
-            if max_iter_str := self._runtime_conf.get("MAX_ITERATIONS"):
+            if max_iterations_str := self._runtime_conf.get("MAX_ITERATIONS"):
                 try:
-                    max_iterations = max(1, int(max_iter_str))
+                    max_iterations = max(1, int(max_iterations_str))
                 except ValueError:
-                    max_iterations = 10
+                    max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
 
             tool_choice: Optional[ToolChoice] = None
             if tool_choice_str := self._runtime_conf.get("TOOL_CHOICE"):
                 try:
                     tool_choice = ToolChoice(tool_choice_str)
                 except (ValueError, KeyError):
-                    tool_choice = ToolChoice.AUTO
+                    tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
             tool_execution_mode: Optional[ToolExecutionMode] = None
             orchestration_mode: Optional[OrchestrationMode] = None

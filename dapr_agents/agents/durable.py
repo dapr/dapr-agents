@@ -51,6 +51,7 @@ from dapr_agents.agents.orchestrators.llm.utils import (
 
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
+    AGENT_DEFAULT_TOOL_CHOICE,
     OrchestrationMode,
     ToolExecutionMode,
     AgentApprovalConfig,
@@ -327,7 +328,7 @@ class DurableAgent(AgentBase):
             # Re-enable tool_choice if AgentBase cleared it due to an empty tools list
             # but we've now registered agent-as-tool entries into the executor.
             if self._agents_as_tools and self.execution.tool_choice is None:
-                self.execution.tool_choice = "auto"
+                self.execution.tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
         grpc_options = getattr(self, "workflow_grpc_options", None)
         apply_grpc_options(grpc_options)
@@ -2927,7 +2928,7 @@ class DurableAgent(AgentBase):
                 registered,
             )
             if self.execution.tool_choice is None:
-                self.execution.tool_choice = "auto"
+                self.execution.tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
         return registered
 
