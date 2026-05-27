@@ -469,32 +469,25 @@ def merge_configs(base: T, override: T) -> T:
             f"Cannot merge models of different types: {base!r} and {override!r}"
         )
 
-    try:
-        # Infer model type from the base
-        model_fields = get_model_fields(base)
-        model_factory = get_model_factory(base)
+    # Infer model type from the base model
+    model_fields = get_model_fields(base)
+    model_factory = get_model_factory(base)
 
-        if not model_fields or not model_factory:
-            raise TypeError(f"Unsupported model type: {base!r}")
+    config: Dict[str, Any] = {}
 
-        merged_values: Dict[str, Any] = {}
+    for model_field in model_fields:
+        base_field = getattr(base, model_field)
+        override_field = getattr(override, model_field)
 
-        for model_field in model_fields:
-            base_val = getattr(base, model_field)
-            override_val = getattr(override, model_field)
+        if isinstance(base_field, dict) and isinstance(override_field, dict):
+            # Shallow merge dicts
+            config[model_field] = {**base_field, **override_field}
+        else:
+            config[model_field] = (
+                override_field if override_field is not None else base_field
+            )
 
-            if isinstance(base_val, dict) and isinstance(override_val, dict):
-                # Shallow merge dicts
-                merged_values[model_field] = {**base_val, **override_val}
-            else:
-                merged_values[model_field] = (
-                    override_val if override_val is not None else base_val
-                )
-
-        return model_factory(merged_values)  # type: ignore
-
-    except Exception as e:
-        raise ValueError(f"Configuration merge failed: {e}") from e
+    return model_factory(config)
 
 
 @dataclass
@@ -880,14 +873,28 @@ class AgentExecutionConfig:
         config = AgentExecutionConfig.from_env()
         logger.debug(f"Env execution config: {config}")
 
-        config = merge_configs(config, self)
+        try:
+            config = merge_configs(config, self)
+        except Exception as e:
+            logger.warning(
+                f"Failed to merge execution config with env execution config: {e}"
+            )
+            config = self
+
         logger.debug(f"Merged execution config: {config}")
 
         statestore_config = AgentExecutionConfig.from_statestore(runtime_config)
         logger.debug(f"Statestore execution config: {statestore_config}")
 
-        config = merge_configs(config, statestore_config)
-        logger.debug(f"Final execution config with statestore override: {config}")
+        try:
+            config = merge_configs(config, statestore_config)
+        except Exception as e:
+            logger.warning(
+                f"Failed to merge execution config with statestore execution config: {e}"
+            )
+            config = self
+
+        logger.debug(f"Final execution config: {config}")
 
         for k, v in config.__dict__.items():
             setattr(self, k, v)
@@ -1129,6 +1136,7 @@ class AgentObservabilityConfig:
 
         Args:
             runtime_config: Runtime configuration.
+
         Returns:
             Resolved AgentObservabilityConfig instance for fluent chaining.
         """
@@ -1139,11 +1147,25 @@ class AgentObservabilityConfig:
         env_config = AgentObservabilityConfig.from_env()
         logger.debug(f"Env observability config: {env_config}")
 
-        config = merge_configs(config, env_config)
+        try:
+            config = merge_configs(config, env_config)
+        except Exception as e:
+            logger.warning(
+                f"Failed to merge observability config with env observability config: {e}"
+            )
+            config = self
+
         logger.debug(f"Merged observability config: {config}")
 
-        config = merge_configs(config, self)
-        logger.debug(f"Final observability config with override: {config}")
+        try:
+            config = merge_configs(config, self)
+        except Exception as e:
+            logger.warning(
+                f"Failed to merge observability config with statestore observability config: {e}"
+            )
+            config = self
+
+        logger.debug(f"Final observability config: {config}")
 
         for k, v in config.__dict__.items():
             setattr(self, k, v)

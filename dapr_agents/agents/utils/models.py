@@ -11,14 +11,14 @@
 # limitations under the License.
 #
 
-from dataclasses import is_dataclass
+from dataclasses import fields, is_dataclass
 from typing import Any, Callable
 
 from pydantic import BaseModel
 
 
 def is_pydantic_model(obj: Any) -> bool:
-    """Check if the given object is a subclass of Pydantic's BaseModel."""
+    """Checks if the given object is a subclass of Pydantic's BaseModel."""
     return isinstance(obj, type) and issubclass(obj, BaseModel)
 
 
@@ -27,20 +27,13 @@ def is_supported_config_model(obj: Any) -> bool:
     return obj is dict or is_dataclass(obj) or is_pydantic_model(obj)
 
 
-def get_model_fields(model: Any) -> Any | None:
-    """
-    Extract field names from a config model.
-
-    Returns:
-        Iterable of field names, or None if unsupported type.
-    """
+def get_model_fields(model: Any) -> Any:
+    """Returns field names for a model."""
     if type(model) is dict:
         return model.keys()
 
     if is_dataclass(model):
-        from dataclasses import fields as dataclass_fields
-
-        return [f.name for f in dataclass_fields(model)]
+        return [f.name for f in fields(model)]
 
     if hasattr(model, "model_validate"):
         # Pydantic v2
@@ -50,18 +43,13 @@ def get_model_fields(model: Any) -> Any | None:
         # Pydantic v1
         return model.__fields__.keys()
 
-    return None
+    raise TypeError(f"Unsupported model type: {model!r}")
 
 
-def get_model_factory(model: Any) -> Callable[..., Any] | None:
-    """
-    Get the factory function for creating instances of a config model.
-
-    Returns:
-        Callable that takes a dict and returns an instance.
-    """
+def get_model_factory(model: Any) -> Callable[..., Any]:
+    """Returns a factory function that takes a dictionary of values and creates a model instance."""
     if type(model) is dict:
-        return dict  # type: ignore
+        return lambda vals: dict(**vals)
 
     if is_dataclass(model):
         return lambda vals: type(model)(**vals)
@@ -74,4 +62,4 @@ def get_model_factory(model: Any) -> Callable[..., Any] | None:
         # Pydantic v1
         return lambda vals: type(model).parse_obj(vals)
 
-    return None
+    raise TypeError(f"Unsupported model type: {model!r}")
