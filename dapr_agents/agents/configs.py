@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from os import getenv
@@ -218,13 +219,15 @@ class ConfigFieldDescriptor:
     Attributes:
         target_type: Expected Python type for the coerced value.
         setter: Callable ``(agent, value) -> None`` that applies the value.
+        getter: Optional callable ``() -> Any`` that retrieves the value.
         sensitive: If ``True``, the value is redacted in log output.
-        validator: Optional callable to validate/transform the coerced value.
+        validator: Optional idempotent callable ``(value) -> Any`` to validate/transform the coerced value.
         rebuilds_prompt: If ``True``, the prompt template is rebuilt after update.
     """
 
     target_type: Type
     setter: Callable[..., None]
+    getter: Optional[Callable[[], Any]] = None
     sensitive: bool = False
     validator: Optional[Callable[..., Any]] = None
     rebuilds_prompt: bool = False
@@ -286,6 +289,138 @@ def validate_otel_exporter_logging(v: str) -> str:
             f"Valid options: {[e.value for e in AgentLoggingExporter]}"
         )
     return v
+
+
+def apply_config_update(
+    target_obj: Any,
+    key: str,
+    value: Any,
+    descriptor: ConfigFieldDescriptor,
+) -> Any:
+    """
+    Process and apply a configuration update to an object.
+
+    Args:
+        target_obj: The object to be updated.
+        key: The configuration key.
+        value: Optional raw value to coerce/validate/transform and apply.
+            Falls back to the descriptor's getter if not provided.
+        descriptor: An object describing how to process a value for a particular key.
+
+    Returns:
+        The final applied value.
+
+    Raises:
+        ValueError: If no value can be retrieved or coercion/validation fails.
+        RuntimeError: If the value cannot be applied.
+    """
+
+    processed_value = process_config_update(key, value, descriptor)
+
+    # Apply via setter callback
+    try:
+        descriptor.setter(target_obj, processed_value)
+    except (AttributeError, TypeError):
+        raise RuntimeError(
+            f"Could not apply setter for key '{key}' (likely read-only)."
+        )
+
+    return processed_value
+
+
+def process_config_update(
+    key: str,
+    value: Any,
+    descriptor: ConfigFieldDescriptor,
+) -> Any:
+    """
+    Process a configuration update by coercing, validating, and transforming a raw value.
+
+    Args:
+        key: The configuration key.
+        value: Optional raw value to coerce/validate/transform and apply.
+            Falls back to the descriptor's getter if not provided.
+        descriptor: An object describing how to process a value for a particular key.
+
+    Returns:
+        The processed value.
+
+    Raises:
+        ValueError: If no value can be retrieved or coercion/validation fails.
+    """
+
+    if not descriptor:
+        raise ValueError(f"Unrecognized config key: {key}.")
+
+    # Retrieve value using getter callback as a fallback
+    if not value and descriptor.getter:
+        try:
+            value = descriptor.getter()
+        except Exception as e:
+            raise ValueError(f"Unable to retrieve value for key '{key}': {e}.")
+
+    # Type coercion
+    try:
+        processed_value = coerce_config_value(value, descriptor.target_type)
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Invalid value for key '{key}': {e}.")
+
+    # Validation/transformation
+    if descriptor.validator is not None:
+        try:
+            processed_value = descriptor.validator(processed_value)
+        except Exception as e:
+            raise ValueError(f"Validation failed for key '{key}': {e}.")
+
+    return processed_value
+
+
+def coerce_config_value(value: Any, target_type: Type) -> Any:
+    """Coerce a configuration value (usually a string) to the target Python type."""
+    if isinstance(value, target_type):
+        return value
+
+    if target_type is str:
+        return str(value)
+
+    if target_type is int:
+        return int(float(value))
+
+    if target_type is float:
+        return float(value)
+
+    if target_type is bool:
+        if isinstance(value, str):
+            if value.lower() in ("true", "1", "yes"):
+                return True
+            if value.lower() in ("false", "0", "no"):
+                return False
+        raise ValueError(f"Cannot coerce {value!r} to bool")
+
+    if target_type is list:
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+            return [value]
+        if isinstance(value, (list, tuple)):
+            return list(value)
+        return [value]
+
+    if target_type is dict:
+        if isinstance(value, str):
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+            raise ValueError(f"JSON parsed to {type(parsed).__name__}, expected dict")
+        if isinstance(value, dict):
+            return value
+        raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
+
+    raise ValueError(f"Unsupported target type: {target_type}")
 
 
 @dataclass

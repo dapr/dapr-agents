@@ -69,6 +69,8 @@ from dapr_agents.agents.configs import (
     WorkflowGrpcOptions,
     DEFAULT_AGENT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
+    apply_config_update,
+    process_config_update,
     validate_max_iterations,
     validate_non_empty_string,
     validate_tool_choice,
@@ -910,108 +912,47 @@ class AgentBase:
         descriptor = self._CONFIG_FIELD_MAP.get(normalized_key)
 
         if descriptor is None:
-            logger.debug(
-                "Agent %s ignoring unrecognized config key: %s", self.name, key
-            )
+            logger.debug(f"Agent {self.name} ignoring unrecognized config key: {key}")
             return False
 
         safe_value = "***" if descriptor.sensitive else value
-        logger.info(
-            'Agent %s applying config update: %s="%s"', self.name, key, safe_value
-        )
 
-        # Type coercion
+        logger.info(f"Agent {self.name} applying config update: {key}={safe_value!r}")
+
         try:
-            coerced_value = self._coerce_config_value(value, descriptor.target_type)
-        except (ValueError, TypeError) as e:
-            logger.warning(
-                "Agent %s: invalid value for key '%s': %s. Skipping update.",
-                self.name,
-                key,
-                e,
+            processed_value = process_config_update(
+                key=normalized_key, value=value, descriptor=descriptor
             )
+        except Exception as e:
+            # Skip update for coercion/validation/transformation/other failures
+            logger.warning(f"Agent {self.name}: {e} Skipping update.")
             return False
 
-        # Validation
-        if descriptor.validator is not None:
-            try:
-                coerced_value = descriptor.validator(coerced_value)
-            except Exception as e:
-                logger.warning(
-                    "Agent %s: validation failed for key '%s': %s. Skipping update.",
-                    self.name,
-                    key,
-                    e,
-                )
-                return False
-
-        # Apply via setter callback
         try:
-            descriptor.setter(self, coerced_value)
-        except (AttributeError, TypeError):
-            logger.debug(f"Could not apply setter for key '{key}' (likely read-only)")
+            applied_value = apply_config_update(
+                target_obj=self,
+                key=normalized_key,
+                value=processed_value,
+                descriptor=descriptor,
+            )
+        except RuntimeError as e:
+            # Fall through if the agent could not be updated but the value is otherwise valid
+            logger.debug(f"Agent {self.name}: {e}")
+            applied_value = None
+
+        resolved_value = applied_value or processed_value
 
         # Rebuild prompt template if a profile key changed
         if descriptor.rebuilds_prompt:
             self._rebuild_prompt_after_config_update()
 
         # Fire user callbacks
-        self._fire_config_change_callbacks(normalized_key, coerced_value)
+        self._fire_config_change_callbacks(normalized_key, resolved_value)
 
         # Re-register metadata
         self._sync_metadata_after_config_update()
 
         return descriptor.triggers_otel_reload
-
-    @staticmethod
-    def _coerce_config_value(value: Any, target_type: Type) -> Any:
-        """Coerce a configuration value (usually a string) to the target Python type."""
-        if isinstance(value, target_type):
-            return value
-
-        if target_type is str:
-            return str(value)
-
-        if target_type is int:
-            return int(float(value))
-
-        if target_type is float:
-            return float(value)
-
-        if target_type is bool:
-            if isinstance(value, str):
-                if value.lower() in ("true", "1", "yes"):
-                    return True
-                if value.lower() in ("false", "0", "no"):
-                    return False
-            raise ValueError(f"Cannot coerce {value!r} to bool")
-
-        if target_type is list:
-            if isinstance(value, str):
-                try:
-                    parsed = json.loads(value)
-                    if isinstance(parsed, list):
-                        return parsed
-                except (json.JSONDecodeError, TypeError):
-                    pass
-                return [value]
-            if isinstance(value, (list, tuple)):
-                return list(value)
-            return [value]
-
-        if target_type is dict:
-            if isinstance(value, str):
-                parsed = json.loads(value)
-                if isinstance(parsed, dict):
-                    return parsed
-                raise ValueError(
-                    f"JSON parsed to {type(parsed).__name__}, expected dict"
-                )
-            if isinstance(value, dict):
-                return value
-            raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
-
-        raise ValueError(f"Unsupported target type: {target_type}")
 
     def _rebuild_prompt_after_config_update(self) -> None:
         """Rebuild the prompt template after a profile field change."""
