@@ -825,86 +825,13 @@ class TestObservabilityConfigPrecedence:
 class TestObservabilityConfigMergeLogic:
     """Test cases for the merge logic specifically."""
 
-    @pytest.fixture(autouse=True)
-    def setup_env(self, monkeypatch):
-        """Set up environment variables and mocks for testing."""
-        # Clear any OTEL environment variables
-        for key in list(os.environ.keys()):
-            if key.startswith("OTEL_"):
-                monkeypatch.delenv(key, raising=False)
-
-        os.environ["OPENAI_API_KEY"] = "test-api-key"
-
-        # Mock DaprClient
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
-        # Mock the observability setup to avoid actual OTel initialization
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.AgentBase._setup_agent_observability", Mock()
-        )
-
-        yield
-        if "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
-
-    def _patch_dapr_client(self, monkeypatch, mock_client):
-        """Helper to patch DaprClient in both locations."""
-        # Create a mock class that returns the mock_client when instantiated
-        # We need to capture mock_client in a closure
-        captured_client = mock_client
-
-        class MockDaprClientClass:
-            def __init__(self, **kwargs):
-                pass
-
-            def __enter__(self):
-                return captured_client
-
-            def __exit__(self, *args):
-                pass
-
-        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-            MockDaprClientClass,
-        )
-
-    @pytest.fixture
-    def mock_llm(self):
-        """Create a mock LLM client."""
-        mock = Mock(spec=OpenAIChatClient)
-        mock.prompt_template = None
-        mock.__class__.__name__ = "MockLLMClient"
-        mock.provider = "MockOpenAIProvider"
-        mock.api = "MockOpenAIAPI"
-        mock.model = "gpt-4o-mock"
-        return mock
-
-    def test_merge_none_values_dont_override(self, mock_llm):
+    def test_merge_none_values_dont_override(self):
         """Test that None values in override don't override base values."""
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
-
         base = AgentObservabilityConfig(
             enabled=True,
             service_name="base-service",
             endpoint="http://base-endpoint:4317",
         )
-
         override = AgentObservabilityConfig(
             enabled=None,  # Should not override
             service_name="override-service",
@@ -917,30 +844,13 @@ class TestObservabilityConfigMergeLogic:
         assert merged.service_name == "override-service"  # From override
         assert merged.endpoint == "http://base-endpoint:4317"  # From base
 
-    def test_merge_boolean_fields_correctly(self, mock_llm):
+    def test_merge_boolean_fields_correctly(self):
         """Test that boolean fields merge correctly with None handling."""
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
-
         base = AgentObservabilityConfig(
             enabled=True,
             logging_enabled=True,
             tracing_enabled=False,
         )
-
         override = AgentObservabilityConfig(
             enabled=False,
             logging_enabled=None,
@@ -953,24 +863,8 @@ class TestObservabilityConfigMergeLogic:
         assert merged.logging_enabled is True  # Base wins (override is None)
         assert merged.tracing_enabled is True  # Override wins
 
-    def test_merge_empty_configs(self, mock_llm):
+    def test_merge_empty_configs(self):
         """Test merging two empty configs."""
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
-
         base = AgentObservabilityConfig()
         override = AgentObservabilityConfig()
 

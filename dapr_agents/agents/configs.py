@@ -78,6 +78,7 @@ T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class StateModelBundle:
     """
@@ -463,7 +464,7 @@ def merge_configs(base: T, override: T) -> T:
     if not is_supported_config_model(type(override)):
         raise TypeError(f"Unsupported model type: {override!r}")
 
-    if type(base) != type(override):
+    if base.__class__ != override.__class__:
         raise TypeError(
             f"Cannot merge models of different types: {base!r} and {override!r}"
         )
@@ -478,15 +479,15 @@ def merge_configs(base: T, override: T) -> T:
 
         merged_values: Dict[str, Any] = {}
 
-        for field in model_fields:
-            base_val = getattr(base, field)
-            override_val = getattr(override, field)
+        for model_field in model_fields:
+            base_val = getattr(base, model_field)
+            override_val = getattr(override, model_field)
 
             if isinstance(base_val, dict) and isinstance(override_val, dict):
                 # Shallow merge dicts
-                merged_values[field] = {**base_val, **override_val}
+                merged_values[model_field] = {**base_val, **override_val}
             else:
-                merged_values[field] = (
+                merged_values[model_field] = (
                     override_val if override_val is not None else base_val
                 )
 
@@ -859,7 +860,7 @@ class AgentExecutionConfig:
                 app_health_check_enabled=app_health_check_enabled,
                 app_ready_check_enabled=app_ready_check_enabled,
             )
-        except Exception as e:
+        except Exception:
             return AgentExecutionConfig()
 
     def resolve_config(self, runtime_config: Dict[str, Any]) -> "AgentExecutionConfig":
@@ -868,7 +869,7 @@ class AgentExecutionConfig:
         1. Statestore runtime config (highest priority)
         2. Passed through instantiation
         3. Environment variables (lowest priority)
-    
+
         Args:
             runtime_config: Runtime configuration.
 
@@ -1082,18 +1083,14 @@ class AgentObservabilityConfig:
             endpoint = config.get("OTEL_EXPORTER_OTLP_ENDPOINT") or None
             service_name = config.get("OTEL_SERVICE_NAME") or None
             logging_enabled = (
-                config.get("OTEL_LOGGING_ENABLED", "false").lower()
-                == "true"
+                config.get("OTEL_LOGGING_ENABLED", "false").lower() == "true"
             )
             tracing_enabled = (
-                config.get("OTEL_TRACING_ENABLED", "false").lower()
-                == "true"
+                config.get("OTEL_TRACING_ENABLED", "false").lower() == "true"
             )
 
             logging_exporter: Optional[AgentLoggingExporter] = None
-            logging_exporter_str = config.get(
-                "OTEL_LOGS_EXPORTER", "console"
-            )
+            logging_exporter_str = config.get("OTEL_LOGS_EXPORTER", "console")
             if logging_exporter_str:
                 try:
                     logging_exporter = AgentLoggingExporter(logging_exporter_str)
@@ -1101,9 +1098,7 @@ class AgentObservabilityConfig:
                     logging_exporter = AgentLoggingExporter.CONSOLE
 
             tracing_exporter: Optional[AgentTracingExporter] = None
-            tracing_exporter_str = config.get(
-                "OTEL_TRACES_EXPORTER", "console"
-            )
+            tracing_exporter_str = config.get("OTEL_TRACES_EXPORTER", "console")
             if tracing_exporter_str:
                 try:
                     tracing_exporter = AgentTracingExporter(tracing_exporter_str)
@@ -1120,10 +1115,12 @@ class AgentObservabilityConfig:
                 tracing_enabled=tracing_enabled,
                 tracing_exporter=tracing_exporter,
             )
-        except Exception as e:
+        except Exception:
             return AgentObservabilityConfig()
-        
-    def resolve_config(self, runtime_config: Dict[str, Any]) -> "AgentObservabilityConfig":
+
+    def resolve_config(
+        self, runtime_config: Dict[str, Any]
+    ) -> "AgentObservabilityConfig":
         """
         Resolve the observability configuration for the agent in the following order:
         1. Passed through instantiation (highest priority)
@@ -1152,7 +1149,6 @@ class AgentObservabilityConfig:
             setattr(self, k, v)
 
         return self
-        
 
 
 class AgentMetadata(BaseModel):
