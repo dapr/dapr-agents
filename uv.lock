@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-04T20:24:20.215794Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
 [manifest]
@@ -5704,7 +5704,7 @@ wheels = [
 
 [[package]]
 name = "redisvl"
-version = "0.17.0"
+version = "0.18.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jsonpath-ng" },
@@ -5716,9 +5716,9 @@ dependencies = [
     { name = "redis" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/56/e6/1f6b49b32aa01cb9cd2a8b79a58f0758713f12be58d51e6d561f74e0a8eb/redisvl-0.17.0.tar.gz", hash = "sha256:ae46babe37a3f627ce67e399666c0f615de958efb801bf9569b713d12031065e", size = 945726, upload-time = "2026-04-10T12:50:21.419Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/50/32/1f8ade47e91c440002a8430abcfdb8a277c24f5eea03fc9f218c0e9cf471/redisvl-0.18.2.tar.gz", hash = "sha256:2323e153012767f8613a89a019dc1ff25f199f42360e350b10a21cb5aaf8c795", size = 887604, upload-time = "2026-05-12T15:40:24.791Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/0d/032c9b7dce673819a7ea0bc8bb0d34f01905548f9316e6a5df7037b4a585/redisvl-0.17.0-py3-none-any.whl", hash = "sha256:92ea223a5bd5a46e4a9763d144f5a3dd71d537a48fbaf4b6d998457e4cba03e6", size = 220469, upload-time = "2026-04-10T12:50:19.825Z" },
+    { url = "https://files.pythonhosted.org/packages/12/c1/f18d49c5f39f3970e221ccb93850485a4d77ad5c7b7abdf84899f9f9f505/redisvl-0.18.2-py3-none-any.whl", hash = "sha256:8bec89de047e5264fae068a13c75f7920e1b0eacd3d8bf0f5862949124132f24", size = 225554, upload-time = "2026-05-12T15:40:22.712Z" },
 ]
 
 [[package]]
