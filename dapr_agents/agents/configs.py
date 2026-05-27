@@ -478,6 +478,7 @@ class AgentExecutionConfig:
             The value is plumbed through a per-agent client factory shared by
             the agent's memory, state, registry, and LLM collaborators.
         app_health_check_enabled: Enable/disable Kubernetes liveness probes.
+        approval: Human-in-the-loop configuration for the agent.
         app_ready_check_enabled: Enable/disable Dapr health/Kubernetes readiness probes.
     """
 
