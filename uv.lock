@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-04T20:24:20.215794Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
 [manifest]
@@ -3686,16 +3686,16 @@ wheels = [
 
 [[package]]
 name = "opentelemetry-exporter-zipkin-json"
-version = "1.40.0"
+version = "1.42.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c6/e5/b3a95c15e7fc8313b949b1fb112c951d93207419100f32b765fb1fc9e5b0/opentelemetry_exporter_zipkin_json-1.40.0.tar.gz", hash = "sha256:eb5692dac701463ac3fb964d57fc02a0717c7bb6c8895904c7e2dd904ba1d943", size = 16568, upload-time = "2026-03-04T14:17:27.443Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/29/8e/b2a68e0577cd48fbb741d32adeca45cc2b0c8a2c58cf4d8fe8ca8f24e734/opentelemetry_exporter_zipkin_json-1.42.0.tar.gz", hash = "sha256:efd40edd1c00a7f94734cbf9ac8d78abef4d487968307ced0b4cd6f92dc6de4a", size = 16372, upload-time = "2026-05-19T09:46:36.777Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/37/0c11b3c28a2ab928b1af28c8b050703e9ad038f48c8b7c8da3cef135c985/opentelemetry_exporter_zipkin_json-1.40.0-py3-none-any.whl", hash = "sha256:21059618dfef57f3acb8e80a761063d9f427aa92afbe6fd6d0848e064e9d172b", size = 16339, upload-time = "2026-03-04T14:17:11.029Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/98/743504fcc4a130c0a3cf620baec808b8d89a6408e60efc7d89c29c958272/opentelemetry_exporter_zipkin_json-1.42.0-py3-none-any.whl", hash = "sha256:69ad12e54439bdb78eb6664562111025d96bee7b0eda4477bfcbab26d644cf1d", size = 14606, upload-time = "2026-05-19T09:46:17.647Z" },
 ]
 
 [[package]]
