@@ -43,6 +43,72 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+def _repair_json_content(text: str) -> str:
+    """Best-effort repair of LLM JSON content with common formatting flaws.
+
+    Handles markdown code fences (```json ... ``` or ``` ... ```) and
+    leading/trailing prose around a JSON object/array. Returns the
+    repaired JSON-like string, or ``""`` if no useful repair could be
+    applied (empty/whitespace input, no JSON brackets present, or the
+    candidate is byte-identical to the input). Repairs are
+    deterministic; callers must still attempt parsing on the result
+    and surface the original failure if it still doesn't parse.
+    """
+    if not text:
+        return ""
+    stripped = text.strip()
+    if not stripped:
+        return ""
+
+    # Strip markdown code fences (``` or ```json prefixes).
+    if stripped.startswith("```"):
+        first_newline = stripped.find("\n")
+        after_open = (
+            stripped[first_newline + 1 :] if first_newline >= 0 else stripped[3:]
+        )
+        end_fence = after_open.rfind("```")
+        stripped = (after_open[:end_fence] if end_fence >= 0 else after_open).strip()
+
+    # Find first { or [ and walk to its balanced closer, ignoring brace
+    # characters inside string literals.
+    first_obj = stripped.find("{")
+    first_arr = stripped.find("[")
+    if first_obj < 0 and first_arr < 0:
+        return ""
+    if first_obj >= 0 and (first_arr < 0 or first_obj < first_arr):
+        open_char, close_char, start = "{", "}", first_obj
+    else:
+        open_char, close_char, start = "[", "]", first_arr
+
+    depth = 0
+    in_string = False
+    escape = False
+    end = -1
+    for i in range(start, len(stripped)):
+        ch = stripped[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == open_char:
+            depth += 1
+        elif ch == close_char:
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+
+    candidate = stripped[start:end] if end >= 0 else stripped[start:]
+    return candidate if candidate != text else ""
+
+
 class StructureHandler:
     @staticmethod
     def is_json_string(input_string: str) -> bool:
@@ -269,11 +335,19 @@ class StructureHandler:
                             return content
                         except json.JSONDecodeError:
                             pass
-                    raise StructureError("No tool_calls found for function_call mode.")
+                    raise StructureError(
+                        f"No tool_calls found for structured_mode={structured_mode!r} "
+                        f"(provider={llm_provider!r}). "
+                        f"content_present={bool(content)}. "
+                        "The model may have emitted plain content instead of a "
+                        "tool call; try an alternative structured_mode supported "
+                        "by your provider (e.g., 'json')."
+                    )
 
                 elif structured_mode == "json":
                     content = getattr(message, "content", None)
                     refusal = getattr(message, "refusal", None)
+                    tool_calls = getattr(message, "tool_calls", None)
 
                     if refusal:
                         logger.warning(
@@ -282,16 +356,37 @@ class StructureHandler:
                         raise StructureError(f"Request refused by the model: {refusal}")
 
                     if not content:
-                        raise StructureError("No content found for JSON mode.")
+                        raise StructureError(
+                            f"No content found for structured_mode={structured_mode!r} "
+                            f"(provider={llm_provider!r}). "
+                            f"tool_calls_present={bool(tool_calls)}. "
+                            "The model may have emitted tool calls instead of "
+                            "structured content; try an alternative structured_mode "
+                            "supported by your provider (e.g., 'function_call'), "
+                            "or remove tools from the request."
+                        )
 
-                    # Try to parse content as JSON first
-                    try:
-                        if isinstance(content, str):
+                    # Try to parse content as JSON first, with a defensive repair
+                    # pass when the model wraps JSON in markdown fences or prose.
+                    if isinstance(content, str):
+                        try:
                             parsed = json.loads(content)
                             logger.debug(f"Successfully parsed JSON content: {parsed}")
                             return parsed
-                    except json.JSONDecodeError:
-                        pass
+                        except json.JSONDecodeError:
+                            repaired = _repair_json_content(content)
+                            if repaired:
+                                try:
+                                    parsed = json.loads(repaired)
+                                    logger.warning(
+                                        "JSON content required repair before parsing "
+                                        "(provider=%r); model emitted fenced or "
+                                        "prose-wrapped JSON.",
+                                        llm_provider,
+                                    )
+                                    return parsed
+                                except json.JSONDecodeError:
+                                    pass
 
                     # If parsing fails or content is not a string, return as is
                     logger.debug(f"Returning raw content: {content}")
@@ -326,14 +421,31 @@ class StructureHandler:
         Raises:
             StructureError: If the validation fails.
         """
+        model_name = getattr(model, "__name__", str(model))
         try:
-            if isinstance(response, str) and StructureHandler.is_json_string(response):
+            if isinstance(response, str):
+                if not StructureHandler.is_json_string(response):
+                    # Try repair (fenced JSON, prose wrap) before failing.
+                    repaired = _repair_json_content(response)
+                    if repaired and StructureHandler.is_json_string(repaired):
+                        logger.warning(
+                            "validate_response: input required JSON repair before "
+                            "validation against %s.",
+                            model_name,
+                        )
+                        response = repaired
+                    else:
+                        raise StructureError(
+                            "Response is a string but not parseable as JSON "
+                            f"for {model_name} (length={len(response)})."
+                        )
                 return model.model_validate_json(response)
-            elif isinstance(response, dict):
-                # If it's a dictionary, use model_validate
+            if isinstance(response, dict):
                 return model.model_validate(response)
-            else:
-                raise ValueError("Response must be a JSON string or a dictionary.")
+            raise StructureError(
+                f"Response must be a JSON string or a dictionary for {model_name}, "
+                f"got {type(response).__name__}."
+            )
         except ValidationError as e:
             logger.error(f"Validation error while parsing structured response: {e}")
             raise StructureError(f"Validation failed for structured response: {e}")
