@@ -121,11 +121,9 @@ class MessageContext:
 
     Attributes:
         event: Parsed CloudEvent envelope (id, source, type, topic, headers, ...).
-        dapr_client: The DaprClient backing this subscription.
     """
 
     event: EventMessageMetadata
-    dapr_client: DaprClient
 
 
 @dataclass
@@ -218,6 +216,34 @@ def _validate_dead_letter_topics(bindings: List[MessageRouteBinding]) -> None:
                 f"Multiple dead_letter_topics configured for {topic_key[0]}:{topic_key[1]}: "
                 f"{dead_letter_topics}. Only one dead_letter_topic is supported per topic."
             )
+
+
+def _warn_unreachable_bindings(bindings: List[MessageRouteBinding]) -> None:
+    """Each message is routed to a single binding. An unconditional binding takes
+    every message for its schema, so warn that later bindings sharing its
+    (pubsub, topic) and schema never run."""
+    grouped = _group_bindings_by_topic(bindings)
+    for (pubsub, topic), topic_bindings in grouped.items():
+        first_match: dict[type[Any], str] = {}
+        for binding in topic_bindings:
+            schemas = binding.schemas or [dict]
+            for schema in schemas:
+                winner = first_match.get(schema)
+                if winner is None:
+                    continue
+                schema_name = getattr(schema, "__name__", schema)
+                logger.warning(
+                    f"{binding.name!r} never runs for {schema_name!r} on {pubsub}:{topic}: "
+                    f"each message is routed to a single binding and {winner!r} is registered "
+                    f"first. If both need to handle it, fan out from one workflow."
+                )
+            has_filter = (
+                binding.payload_filter is not None or binding.model_filter is not None
+            )
+            if has_filter:
+                continue
+            for schema in schemas:
+                first_match.setdefault(schema, binding.name)
 
 
 def _group_bindings_by_topic(
@@ -633,7 +659,6 @@ class _StreamSubscriber:
         """Pick the first matching binding and dispatch; DROP when nothing matches."""
         msg_ctx = MessageContext(
             event=EventMessageMetadata.model_validate(metadata or {}),
-            dapr_client=self.dapr_client,
         )
         ordered_pairs = _order_pairs_by_cloudevent_type(
             pairs, (metadata or {}).get("type")
@@ -888,6 +913,7 @@ def subscribe_message_bindings(
 
     _validate_delivery_mode(delivery_mode)
     _validate_dead_letter_topics(bindings)
+    _warn_unreachable_bindings(bindings)
 
     if delivery_mode == DELIVERY_MODE_ASYNC:
         resolved_loop = _resolve_event_loop(loop)

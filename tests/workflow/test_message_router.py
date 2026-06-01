@@ -12,6 +12,7 @@
 #
 
 import asyncio
+import logging
 import time
 import pytest
 from typing import Union, Optional, List
@@ -27,7 +28,11 @@ from dapr_agents.workflow.utils.routers import (
     parse_cloudevent,
 )
 from dapr_agents.workflow.utils.registration import register_message_routes
-from dapr_agents.workflow.utils.subscription import TTLDedupeBackend
+from dapr_agents.workflow.utils.subscription import (
+    MessageRouteBinding,
+    TTLDedupeBackend,
+    _warn_unreachable_bindings,
+)
 
 
 _PATCH_TARGET = "dapr_agents.workflow.utils.registration.default_dapr_client_factory"
@@ -1192,7 +1197,6 @@ def test_message_context_exposes_event_metadata(filter_env):
     assert msg_ctx.event.source == "/api/orders"
     assert msg_ctx.event.topic == "orders"
     assert msg_ctx.event.type == "OrderCreated"
-    assert msg_ctx.dapr_client is mock_dapr
 
 
 # ============================================================================
@@ -1288,3 +1292,50 @@ def test_dedup_disabled_processes_every_message(filter_env):
     _run_messages(mock_dapr, mock_wf, handler, [msg, msg], deduper=None)
 
     assert mock_wf.schedule_new_workflow.call_count == 2
+
+
+def _binding(name, *, schemas, payload_filter=None, model_filter=None):
+    return MessageRouteBinding(
+        handler=lambda: None,
+        schemas=schemas,
+        pubsub="messagepubsub",
+        topic="orders",
+        dead_letter_topic=None,
+        name=name,
+        payload_filter=payload_filter,
+        model_filter=model_filter,
+    )
+
+
+def test_warn_unreachable_when_unconditional_binding_registered_first(caplog):
+    bindings = [
+        _binding("first", schemas=[OrderCreated]),
+        _binding("second", schemas=[OrderCreated]),
+    ]
+    with caplog.at_level(logging.WARNING):
+        _warn_unreachable_bindings(bindings)
+
+    assert "'second' never runs" in caplog.text
+    assert "'first'" in caplog.text
+
+
+def test_no_warn_when_first_binding_has_filter(caplog):
+    bindings = [
+        _binding("specific", schemas=[OrderCreated], model_filter=lambda m, c: True),
+        _binding("fallback", schemas=[OrderCreated]),
+    ]
+    with caplog.at_level(logging.WARNING):
+        _warn_unreachable_bindings(bindings)
+
+    assert caplog.text == ""
+
+
+def test_no_warn_when_schemas_differ(caplog):
+    bindings = [
+        _binding("a", schemas=[OrderCreated]),
+        _binding("b", schemas=[OrderCancelled]),
+    ]
+    with caplog.at_level(logging.WARNING):
+        _warn_unreachable_bindings(bindings)
+
+    assert caplog.text == ""

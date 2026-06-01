@@ -74,6 +74,9 @@ def message_router(
     workflow body and short-circuit there; otherwise a single slow filter will
     block the whole topic.
 
+    Routing is first-match per topic: if two bindings can both accept a message,
+    only the first registered one runs.
+
     Args:
         func (Callable[..., Any] | None):
             The function to decorate (if used without parentheses).
