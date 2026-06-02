@@ -2608,7 +2608,9 @@ class DurableAgent(AgentBase):
         if ASK_USER_TOOL_NAME in enabled:
             existing = self.tool_executor.get_tool(ASK_USER_TOOL_NAME)
             if existing is None:
-                tool = build_ask_user_tool(self._activity_name(self.publish_stream_event))
+                tool = build_ask_user_tool(
+                    self._activity_name(self.publish_stream_event)
+                )
                 self.tool_executor.register_tool(tool)
 
     # ------------------------------------------------------------------
