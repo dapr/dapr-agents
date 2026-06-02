@@ -27,7 +27,7 @@ def drasi_trigger(
     pubsub: Optional[str] = None,
     topic: Optional[str] = None,
     query_id: Optional[str] = None,
-    operation: Optional[str] = None, 
+    operation: Optional[str] = None,
     event_model: Optional[Type[Any]] = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
