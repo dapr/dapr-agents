@@ -81,12 +81,18 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+# TODO: bump version once Drasi unpacked models are supported
+drasi = [
+    "drasi_reaction_sdk>=0.1.2a0",
+]
 vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<6.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.9.3,<4.0.0",
 ]
+ext = ["dapr_agents[drasi,vectorstore]"]
+all = ["dapr_agents[ext]"]
 
 [dependency-groups]
 dev = [
@@ -107,13 +113,12 @@ test = [
     "docker>=7.0.0,<8.0.0",
     "pytest-rerunfailures>=14.0,<17.0",
 ]
+drasi = ["dapr_agents[drasi]"]
 vectorstore = [
-    "torch>=2.7.0",
-    "sentence-transformers>=4.1.0,<6.0.0",
-    "chromadb>=0.4.22,<2.0.0",
-    "nltk>=3.8.0,<4.0.0",
+    "dapr_agents[vectorstore]",
     "redisvl>=0.4.0,<1.0.0",
 ]
+ext = ["dapr_agents[ext]"]
 
 [tool.uv.dependency-groups]
 vectorstore = {requires-python = ">=3.11,<3.14"}
@@ -142,6 +147,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 markers = [
+    "ext: marks tests as extension (non-core) tests (deselect with '-m \"not ext\"')",
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "schema: marks tests that validate the agent metadata JSON schema golden files",
     "ollama: marks tests compatible with Ollama (local LLM, no API key needed)",
@@ -176,4 +182,5 @@ members = [
     "examples/08-agents-as-activities-observability",
     "examples/09-agents-as-tools",
     "examples/11-expert-agent-tavily",
+    "ext/dapr-agents-ext-drasi",
 ]
