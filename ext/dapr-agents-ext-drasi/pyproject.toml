@@ -74,3 +74,6 @@ fallback_version = "0.0.0.dev0"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }
