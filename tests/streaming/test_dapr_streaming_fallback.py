@@ -68,6 +68,15 @@ def client_and_dapr(monkeypatch):
     from dapr_agents.llm.dapr.chat import DaprChatClient
 
     client, fake_dapr = _make_client()
+    # Keep the inference client mocked for the whole test, not just construction.
+    # ``DaprInferenceClientBase.client`` is a non-caching property that calls
+    # ``get_client()`` on every access, so ``generate()`` re-resolves it. Without a
+    # persistent patch it builds a real ``DaprInferenceClient`` and hits the
+    # suite-wide ``MockDaprClient`` (which has no ``converse_alpha2``).
+    monkeypatch.setattr(
+        "dapr_agents.llm.dapr.client.DaprInferenceClientBase.get_client",
+        lambda self: fake_dapr,
+    )
     monkeypatch.setattr(
         "dapr_agents.llm.dapr.chat.RequestHandler.normalize_chat_messages",
         lambda messages: messages,
