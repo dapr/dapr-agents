@@ -13,4 +13,6 @@ limitations under the License.
 
 ## Security Policy
 
-https://docs.dapr.io/operations/support/support-security-issues/
+To report a vulnerability, [file a private vulnerability report as per the documented process](https://docs.dapr.io/operations/support/support-security-issues/#reporting-process). This report will be privately reviewed by the Dapr security team.
+
+Please do not report security vulnerabilities through public GitHub issues. If you aren't sure if an issue is a security vulnerability, it's best to err on the side of caution and report it privately.
