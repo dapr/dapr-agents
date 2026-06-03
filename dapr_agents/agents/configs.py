@@ -18,7 +18,7 @@ import logging
 import re
 from os import getenv
 from enum import StrEnum
-from dataclasses import dataclass, field, is_dataclass
+from dataclasses import dataclass, field
 from typing import (
     Any,
     Callable,
@@ -579,68 +579,6 @@ class AgentProfileConfig:
     module_overrides: Dict[str, PromptSection] = field(default_factory=dict)
 
 
-class ToolChoice(StrEnum):
-    """
-    Enumeration of supported tool choice strategies for durable agents.
-
-    AUTO: The agent decides when to use tools based on the prompt and context.
-        This is the default and recommended setting for most use cases,
-        as it allows the agent to leverage tools when beneficial while avoiding unnecessary calls.
-    """
-
-    # TODO: This enum does not supports dicts, which some LLM providers allow when forcing a specific tool
-    AUTO = "auto"
-
-
-class ToolChoice(StrEnum):
-    """
-    Enumeration of supported tool choice strategies for durable agents.
-
-    AUTO: The agent decides when to use tools based on the prompt and context.
-        This is the default and recommended setting for most use cases,
-        as it allows the agent to leverage tools when beneficial while avoiding unnecessary calls.
-    """
-
-    AUTO = "auto"
-
-
-class ToolExecutionMode(StrEnum):
-    """
-    Enumeration of supported tool execution modes for durable agents.
-
-    PARALLEL: All tool calls returned by the LLM in a single turn are executed
-        concurrently via ``wf.when_all``. This is the default behaviour and
-        provides the best latency when tools are independent.
-    SEQUENTIAL: Tool calls are executed one after another in the order they
-        were returned by the LLM. Use this when tools have side-effects that
-        depend on the results of earlier calls in the same turn.
-    """
-
-    PARALLEL = "parallel"
-    SEQUENTIAL = "sequential"
-
-
-class OrchestrationMode(StrEnum):
-    """
-    Enumeration of supported orchestration strategies for durable agents.
-
-    AGENT: Orchestration is driven by an LLM-generated plan that determines the next steps and agent interactions.
-    RANDOM: Orchestration randomly selects agents or actions at each decision point, without a predetermined plan.
-    ROUNDROBIN: Orchestration cycles through available agents or actions in a fixed order, ensuring equal opportunity for each participant.
-    """
-
-    AGENT = "agent"
-    RANDOM = "random"
-    ROUNDROBIN = "roundrobin"
-
-
-AGENT_DEFAULT_MAX_ITERATIONS = 10
-AGENT_DEFAULT_TOOL_CHOICE = ToolChoice.AUTO
-AGENT_DEFAULT_TOOL_EXECUTION_MODE = ToolExecutionMode.PARALLEL
-
-
-=======
->>>>>>> 3d5fbd1 (refactor: move agent execution enums to types to avoid circular imports)
 @dataclass
 class AgentApprovalConfig:
     """
@@ -702,62 +640,6 @@ class AgentExecutionConfig:
     orchestration_mode: Optional[OrchestrationMode] = None
     approval: AgentApprovalConfig = field(default_factory=AgentApprovalConfig)
     max_grpc_inbound_message_size_bytes: Optional[int] = None
-    app_health_check_enabled: Optional[bool] = None
-    app_ready_check_enabled: Optional[bool] = None
-
-    @classmethod
-    def from_env(cls) -> "AgentExecutionConfig":
-        """Create execution config from environment variables."""
-
-        max_iterations: Optional[int] = None
-        if max_iterations := getenv("MAX_ITERATIONS"):
-            try:
-                max_iterations = max(1, int(max_iterations))
-            except ValueError:
-                max_iterations = 10
-
-        tool_choice: Optional[ToolChoice] = None
-        if tool_choice_str := getenv("TOOL_CHOICE"):
-            try:
-                tool_choice = ToolChoice(tool_choice_str)
-            except (ValueError, KeyError):
-                tool_choice = ToolChoice.AUTO
-
-        tool_execution_mode: Optional[ToolExecutionMode] = None
-        if tool_execution_mode_str := getenv("TOOL_EXECUTION_MODE"):
-            try:
-                tool_execution_mode = ToolExecutionMode(tool_execution_mode_str)
-            except (ValueError, KeyError):
-                tool_execution_mode = ToolExecutionMode.PARALLEL
-
-        orchestration_mode: Optional[OrchestrationMode] = None
-        if orchestration_mode_str := getenv("ORCHESTRATION_MODE"):
-            try:
-                orchestration_mode = OrchestrationMode(orchestration_mode_str)
-            except (ValueError, KeyError):
-                orchestration_mode = None
-
-        app_health_check_enabled: Optional[bool] = None
-        if getenv("ENABLE_APP_HEALTH_CHECK") is not None:
-            app_health_check_enabled = (
-                getenv("ENABLE_APP_HEALTH_CHECK", "false").lower() == "true"
-            )
-
-        app_ready_check_enabled: Optional[bool] = None
-        if getenv("ENABLE_APP_READY_CHECK") is not None:
-            app_ready_check_enabled = (
-                getenv("ENABLE_APP_READY_CHECK", "false").lower() == "true"
-            )
-
-        return cls(
-            max_iterations=max_iterations,
-            tool_choice=tool_choice,
-            tool_execution_mode=tool_execution_mode,
-            orchestration_mode=orchestration_mode,
-            app_health_check_enabled=app_health_check_enabled,
-            app_ready_check_enabled=app_ready_check_enabled,
-        )
-
     app_health_check_enabled: Optional[bool] = None
     app_ready_check_enabled: Optional[bool] = None
 
