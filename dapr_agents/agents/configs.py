@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import functools
+import itertools
 import json
 import logging
 import re
@@ -440,54 +442,65 @@ def coerce_config_value(value: Any, target_type: Type) -> Any:
     raise ValueError(f"Unsupported target type: {target_type}")
 
 
-def merge_configs(base: T, override: T) -> T:
+def merge_models(base: T, override: T) -> T:
     """
-    Merge two configuration models of the same type, with override taking precedence.
+    Merge two models of the same type, with override taking precedence.
     Only override if the override value is not None.
+    If merging fails, falls back to the base model if it is valid, otherwise falls back to the override model.
 
     Args:
-        base: The original configuration model.
-        override: The new configuration model with potential override values.
+        base: The base model.
+        override: The new model with potential override values.
 
     Returns:
-        The merged configuration model.
-
-    Raises:
-        TypeError: If models are of incompatible types or unsupported type.
-        ValueError: If merging fails.
+        The merged model.
     """
     # NOTE: this implementation doesn't handle override values that are explicitly None
 
     if not is_supported_config_model(type(base)):
-        raise TypeError(f"Unsupported model type: {base!r}")
+        logger.warning(f"Unsupported model type: {base!r}")
+        return override
 
     if not is_supported_config_model(type(override)):
-        raise TypeError(f"Unsupported model type: {override!r}")
+        logger.warning(f"Unsupported model type: {override!r}")
+        return base
 
     if base.__class__ != override.__class__:
-        raise TypeError(
+        logger.warning(
             f"Cannot merge models of different types: {base!r} and {override!r}"
         )
+        return base
 
-    # Infer model type from the base model
-    model_fields = get_model_fields(base)
-    model_factory = get_model_factory(base)
+    try:
+        # Infer model type from the base model
+        model_fields = get_model_fields(base)
+        model_factory = get_model_factory(base)
 
-    config: Dict[str, Any] = {}
+        logger.debug(
+            (f"Merging models:\nBase model: {base!r}\nOverride model: {override!r}")
+        )
 
-    for model_field in model_fields:
-        base_field = getattr(base, model_field)
-        override_field = getattr(override, model_field)
+        merged_fields: Dict[str, Any] = {}
 
-        if isinstance(base_field, dict) and isinstance(override_field, dict):
-            # Shallow merge dicts
-            config[model_field] = {**base_field, **override_field}
-        else:
-            config[model_field] = (
-                override_field if override_field is not None else base_field
-            )
+        for model_field in model_fields:
+            base_field = getattr(base, model_field)
+            override_field = getattr(override, model_field)
 
-    return model_factory(config)
+            if isinstance(base_field, dict) and isinstance(override_field, dict):
+                # Shallow merge dicts
+                merged_fields[model_field] = {**base_field, **override_field}
+            else:
+                merged_fields[model_field] = (
+                    override_field if override_field is not None else base_field
+                )
+
+        model = model_factory(merged_fields)
+        logger.debug(f"Merged model: {model!r}")
+
+        return model
+    except Exception as e:
+        logger.warning(f"Failed to merge models: {e}")
+        return base
 
 
 @dataclass
@@ -738,7 +751,9 @@ class AgentExecutionConfig:
         except Exception:
             return AgentExecutionConfig()
 
-    def resolve_config(self, runtime_config: Dict[str, Any]) -> "AgentExecutionConfig":
+    def resolve_config(
+        cls, config: "AgentExecutionConfig", runtime_config: Dict[str, Any]
+    ) -> "AgentExecutionConfig":
         """
         Resolve the execution configuration for the agent in the following order:
         1. Statestore runtime config (highest priority)
@@ -746,42 +761,28 @@ class AgentExecutionConfig:
         3. Environment variables (lowest priority)
 
         Args:
-            runtime_config: Runtime configuration.
+            config: The instantiated configuration.
+            runtime_config: The runtime configuration.
 
         Returns:
-            Resolved AgentExecutionConfig instance for fluent chaining.
+            Resolved AgentExecutionConfig instance.
         """
 
-        config = AgentExecutionConfig.from_env()
-        logger.debug(f"Env execution config: {config}")
+        env_config = AgentExecutionConfig.from_env()
+        logger.debug(f"Env execution config: {env_config}")
 
-        try:
-            config = merge_configs(config, self)
-        except Exception as e:
-            logger.warning(
-                f"Failed to merge execution config with env execution config: {e}"
-            )
-            config = self
-
-        logger.debug(f"Merged execution config: {config}")
+        logger.debug(f"Instantiated execution config: {config}")
 
         statestore_config = AgentExecutionConfig.from_statestore(runtime_config)
         logger.debug(f"Statestore execution config: {statestore_config}")
 
-        try:
-            config = merge_configs(config, statestore_config)
-        except Exception as e:
-            logger.warning(
-                f"Failed to merge execution config with statestore execution config: {e}"
-            )
-            config = self
+        resolved_config = functools.reduce(
+            merge_models,
+            [env_config, config, statestore_config],
+        )
 
-        logger.debug(f"Final execution config: {config}")
-
-        for k, v in config.__dict__.items():
-            setattr(self, k, v)
-
-        return self
+        logger.debug(f"Final execution config: {resolved_config}")
+        return resolved_config
 
 
 @dataclass
@@ -1008,7 +1009,7 @@ class AgentObservabilityConfig:
             return AgentObservabilityConfig()
 
     def resolve_config(
-        self, runtime_config: Dict[str, Any]
+        cls, config: "AgentObservabilityConfig", runtime_config: Dict[str, Any]
     ) -> "AgentObservabilityConfig":
         """
         Resolve the observability configuration for the agent in the following order:
@@ -1016,43 +1017,31 @@ class AgentObservabilityConfig:
         2. Environment variables
         3. Default statestore runtime config (lowest priority)
 
+        If merging fails, falls back to a default configuration.
+
         Args:
+            config: The instantiated configuration.
             runtime_config: Runtime configuration.
 
         Returns:
-            Resolved AgentObservabilityConfig instance for fluent chaining.
+            Resolved AgentObservabilityConfig instance.
         """
 
-        config = AgentObservabilityConfig.from_statestore(runtime_config)
-        logger.debug(f"Statestore observability config: {config}")
+        statestore_config = AgentObservabilityConfig.from_statestore(runtime_config)
+        logger.debug(f"Statestore observability config: {statestore_config}")
 
         env_config = AgentObservabilityConfig.from_env()
         logger.debug(f"Env observability config: {env_config}")
 
-        try:
-            config = merge_configs(config, env_config)
-        except Exception as e:
-            logger.warning(
-                f"Failed to merge observability config with env observability config: {e}"
-            )
-            config = self
+        logger.debug(f"Instantiated observability config: {config}")
 
-        logger.debug(f"Merged observability config: {config}")
+        resolved_config = functools.reduce(
+            merge_models,
+            [statestore_config, env_config, config],
+        )
 
-        try:
-            config = merge_configs(config, self)
-        except Exception as e:
-            logger.warning(
-                f"Failed to merge observability config with statestore observability config: {e}"
-            )
-            config = self
-
-        logger.debug(f"Final observability config: {config}")
-
-        for k, v in config.__dict__.items():
-            setattr(self, k, v)
-
-        return self
+        logger.debug(f"Final observability config: {resolved_config}")
+        return resolved_config
 
 
 class AgentMetadata(BaseModel):

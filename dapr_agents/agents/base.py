@@ -70,7 +70,6 @@ from dapr_agents.agents.configs import (
     AGENT_DEFAULT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
     apply_config_update,
-    merge_configs,
     process_config_update,
     validate_max_iterations,
     validate_non_empty_string,
@@ -552,8 +551,9 @@ class AgentBase:
         # -----------------------------
         self.instrumentor: Optional[DaprAgentsInstrumentor] = None
         self._otel_logging_handler = None
-        self._agent_observability = agent_observability or AgentObservabilityConfig()
-        self._agent_observability.resolve_config(self._runtime_conf)
+        self._agent_observability = AgentObservabilityConfig.resolve_config(
+            agent_observability or AgentObservabilityConfig(), self._runtime_conf
+        )
 
         self._setup_agent_observability()
 
@@ -634,8 +634,9 @@ class AgentBase:
         # -----------------------------
         # Execution config
         # -----------------------------
-        self.execution = execution or AgentExecutionConfig()
-        self.execution.resolve_config(self._runtime_conf)
+        self.execution = AgentExecutionConfig.resolve_config(
+            execution or AgentExecutionConfig(), self._runtime_conf
+        )
 
         try:
             self.execution.max_iterations = max(1, int(self.execution.max_iterations))
