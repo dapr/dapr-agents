@@ -45,17 +45,17 @@ def blog_workflow(ctx: DaprWorkflowContext, wf_input: dict) -> str:
     return post
 
 
-async def create_outline(ctx, topic: str) -> str:
+def create_outline(ctx, topic: str) -> str:
     return str(
         llm.generate(
-            prompt=f"Create a short outline about {topic}. Output 3-5 bullet points."
+            messages=f"Create a short outline about {topic}. Output 3-5 bullet points."
         )
     )
 
 
-async def write_post(ctx, outline: str) -> str:
+def write_post(ctx, outline: str) -> str:
     return str(
         llm.generate(
-            prompt=f"Write a short blog post following this outline:\n{outline}"
+            messages=f"Write a short blog post following this outline:\n{outline}"
         )
     )
