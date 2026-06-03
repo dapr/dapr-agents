@@ -56,10 +56,7 @@ from dapr_agents.agents.configs import (
     AgentExecutionConfig,
     AgentTracingExporter,
     ConfigFieldDescriptor,
-    OrchestrationMode,
     RuntimeConfigKey,
-    ToolChoice,
-    ToolExecutionMode,
     LLMMetadata,
     MemoryMetadata,
     MemoryStoreMetadata,
@@ -552,9 +549,9 @@ class AgentBase:
         self.instrumentor: Optional[DaprAgentsInstrumentor] = None
         self._otel_logging_handler = None
         self._agent_observability = AgentObservabilityConfig.resolve_config(
-            agent_observability or AgentObservabilityConfig(), self._runtime_conf
+            agent_observability or AgentObservabilityConfig(),
+            self._runtime_conf,
         )
-
         self._setup_agent_observability()
 
         # -----------------------------
@@ -635,7 +632,8 @@ class AgentBase:
         # Execution config
         # -----------------------------
         self.execution = AgentExecutionConfig.resolve_config(
-            execution or AgentExecutionConfig(), self._runtime_conf
+            execution or AgentExecutionConfig(),
+            self._runtime_conf,
         )
 
         try:
