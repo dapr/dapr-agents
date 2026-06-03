@@ -751,6 +751,7 @@ class AgentExecutionConfig:
         except Exception:
             return AgentExecutionConfig()
 
+    @classmethod
     def resolve_config(
         cls, config: "AgentExecutionConfig", runtime_config: Dict[str, Any]
     ) -> "AgentExecutionConfig":
@@ -761,7 +762,7 @@ class AgentExecutionConfig:
         3. Environment variables (lowest priority)
 
         Args:
-            config: The instantiated configuration.
+            config: The user instantiated configuration.
             runtime_config: The runtime configuration.
 
         Returns:
@@ -1008,6 +1009,7 @@ class AgentObservabilityConfig:
         except Exception:
             return AgentObservabilityConfig()
 
+    @classmethod
     def resolve_config(
         cls, config: "AgentObservabilityConfig", runtime_config: Dict[str, Any]
     ) -> "AgentObservabilityConfig":
@@ -1017,11 +1019,9 @@ class AgentObservabilityConfig:
         2. Environment variables
         3. Default statestore runtime config (lowest priority)
 
-        If merging fails, falls back to a default configuration.
-
         Args:
-            config: The instantiated configuration.
-            runtime_config: Runtime configuration.
+            config: The user instantiated configuration.
+            runtime_config: The runtime configuration.
 
         Returns:
             Resolved AgentObservabilityConfig instance.
