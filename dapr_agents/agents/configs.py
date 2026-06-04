@@ -14,16 +14,16 @@
 from __future__ import annotations
 
 import functools
-import itertools
 import json
 import logging
 import re
 from os import getenv
-from enum import StrEnum
+from enum import Enum, StrEnum
 from dataclasses import dataclass, field
 from typing import (
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     MutableMapping,
@@ -32,6 +32,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    get_origin,
 )
 
 from pydantic import BaseModel, Field
@@ -227,15 +228,16 @@ class AgentStateConfig:
 
 @dataclass(frozen=True)
 class ConfigFieldDescriptor:
-    """Describes how a configuration key maps to an agent attribute.
+    """Describes how a configuration key maps to a configuration attribute.
 
     Attributes:
         target_type: Expected Python type for the coerced value.
-        setter: Callable ``(agent, value) -> None`` that applies the value.
-        getter: Optional callable ``() -> Any`` that retrieves the value.
+        setter: Callable ``(obj, value) -> None`` that applies the value after coercion and validation.
+        getter: Optional callable ``() -> Any`` that retrieves the value before coercion.
         sensitive: If ``True``, the value is redacted in log output.
         validator: Optional idempotent callable ``(value) -> Any`` to validate/transform the coerced value.
         rebuilds_prompt: If ``True``, the prompt template is rebuilt after update.
+        triggers_otel_reload: If ``True``, triggers an OpenTelemetry configuration reload after update.
     """
 
     target_type: Type
@@ -248,7 +250,7 @@ class ConfigFieldDescriptor:
 
 
 # ---------------------------------------------------------------------------
-# Built-in validators for ConfigFieldDescriptor
+# Built-in ConfigFieldDescriptor validators for agents
 # ---------------------------------------------------------------------------
 
 _config_logger = logging.getLogger(__name__)
@@ -373,7 +375,7 @@ def process_config_update(
         raise ValueError(f"Unrecognized config key: {key}.")
 
     # Retrieve value using getter callback as a fallback
-    if not value and descriptor.getter:
+    if value is None and descriptor.getter:
         try:
             value = descriptor.getter()
         except Exception as e:
@@ -386,7 +388,7 @@ def process_config_update(
         raise ValueError(f"Invalid value for key '{key}': {e}.")
 
     # Validation/transformation
-    if descriptor.validator is not None:
+    if descriptor.validator:
         try:
             processed_value = descriptor.validator(processed_value)
         except Exception as e:
@@ -439,6 +441,24 @@ def coerce_config_value(value: Any, target_type: Type) -> Any:
         if isinstance(value, dict):
             return value
         raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
+
+    # Support types that are not classes
+    origin = get_origin(target_type)
+    if origin is not None:
+        if origin is Union:
+            for arg in target_type.__args__:
+                try:
+                    return coerce_config_value(value, arg)
+                except ValueError:
+                    continue
+            raise ValueError(f"Cannot coerce {value!r} to any type in {target_type}")
+
+    if issubclass(target_type, Enum):
+        try:
+            return target_type(value)
+        except (ValueError, TypeError):
+            pass
+        raise ValueError(f"Cannot coerce {value!r} to enum {target_type.__name__}")
 
     raise ValueError(f"Unsupported target type: {target_type}")
 
@@ -502,6 +522,22 @@ def merge_models(base: T, override: T) -> T:
     except Exception as e:
         logger.warning(f"Failed to merge models: {e}")
         return base
+
+
+def with_fallback(f: Callable[..., Any], fallback: Any) -> Callable[..., Any]:
+    """Decorator to provide a fallback value if a function raises an exception."""
+
+    @functools.wraps(f)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return f(*args, **kwargs)
+        except Exception as e:
+            logger.warning(
+                f"Function {f.__name__} failed with error: {e}. Using fallback value."
+            )
+            return fallback
+
+    return wrapper
 
 
 @dataclass
@@ -884,6 +920,69 @@ class AgentObservabilityConfig:
         tracing_exporter: Tracing exporter type.
     """
 
+    _config_field_map: ClassVar[Dict[str, ConfigFieldDescriptor]] = {
+        "OTEL_SDK_DISABLED": ConfigFieldDescriptor(
+            target_type=Optional[bool],
+            setter=lambda obj, v: setattr(obj, "enabled", v),
+            getter=lambda: getenv("OTEL_SDK_DISABLED"),
+            validator=lambda v: (
+                with_fallback(lambda v: not v, None)(v) if v is not None else None
+            ),  # Invert the disabled flag to set enabled
+        ),
+        "OTEL_EXPORTER_OTLP_HEADERS": ConfigFieldDescriptor(
+            target_type=Optional[str],
+            setter=lambda obj, v: setattr(obj, "headers", v),
+            getter=lambda: getenv("OTEL_EXPORTER_OTLP_HEADERS"),
+            validator=with_fallback(parse_header_string, {}),
+        ),
+        "OTEL_EXPORTER_OTLP_ENDPOINT": ConfigFieldDescriptor(
+            target_type=Optional[str],
+            setter=lambda obj, v: setattr(obj, "endpoint", v),
+            getter=lambda: getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+            validator=with_fallback(validate_non_empty_string, None),
+        ),
+        "OTEL_SERVICE_NAME": ConfigFieldDescriptor(
+            target_type=Optional[str],
+            setter=lambda obj, v: setattr(obj, "service_name", v),
+            getter=lambda: getenv("OTEL_SERVICE_NAME"),
+            validator=with_fallback(validate_non_empty_string, None),
+        ),
+        "OTEL_LOGGING_ENABLED": ConfigFieldDescriptor(
+            target_type=Optional[bool],
+            setter=lambda obj, v: setattr(obj, "logging_enabled", v),
+            getter=lambda: getenv("OTEL_LOGGING_ENABLED"),
+        ),
+        "OTEL_LOGS_EXPORTER": ConfigFieldDescriptor(
+            target_type=Optional[AgentLoggingExporter],
+            setter=lambda obj, v: setattr(obj, "logging_exporter", v),
+            getter=lambda: getenv("OTEL_LOGS_EXPORTER"),
+            validator=lambda v: (
+                with_fallback(
+                    validate_otel_exporter_logging, AgentLoggingExporter.CONSOLE
+                )(v)
+                if v is not None
+                else v
+            ),
+        ),
+        "OTEL_TRACING_ENABLED": ConfigFieldDescriptor(
+            target_type=Optional[bool],
+            setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
+            getter=lambda: getenv("OTEL_TRACING_ENABLED"),
+        ),
+        "OTEL_TRACES_EXPORTER": ConfigFieldDescriptor(
+            target_type=Optional[AgentTracingExporter],
+            setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
+            getter=lambda: getenv("OTEL_TRACES_EXPORTER"),
+            validator=lambda v: (
+                with_fallback(
+                    validate_otel_exporter_tracing, AgentTracingExporter.CONSOLE
+                )(v)
+                if v is not None
+                else v
+            ),
+        ),
+    }
+
     enabled: Optional[bool] = None
     headers: Dict[str, str] = field(default_factory=_empty_headers)
     auth_token: Optional[str] = None
@@ -900,55 +999,24 @@ class AgentObservabilityConfig:
 
         Uses standard OpenTelemetry env var names where available:
         - OTEL_SDK_DISABLED (inverted: disabled != "true" means enabled)
-        - OTEL_EXPORTER_OTLP_ENDPOINT
         - OTEL_EXPORTER_OTLP_HEADERS (parses "Authorization=<token>" format)
+        - OTEL_EXPORTER_OTLP_ENDPOINT
         - OTEL_SERVICE_NAME
-        - OTEL_TRACES_EXPORTER
+        - OTEL_LOGGING_ENABLED (custom, no standard equivalent)
         - OTEL_LOGS_EXPORTER
         - OTEL_TRACING_ENABLED (custom, no standard equivalent)
-        - OTEL_LOGGING_ENABLED (custom, no standard equivalent)
+        - OTEL_TRACES_EXPORTER
         """
-        headers: dict[str, str] = {}
-        raw_headers = getenv("OTEL_EXPORTER_OTLP_HEADERS")
-        if raw_headers:
-            headers = parse_header_string(raw_headers)
-
-        logging_exporter: Optional[AgentLoggingExporter] = None
-        if logging_exporter_str := getenv("OTEL_LOGS_EXPORTER"):
+        config = cls()
+        for key, descriptor in cls._config_field_map.items():
             try:
-                logging_exporter = AgentLoggingExporter(logging_exporter_str)
-            except (ValueError, KeyError):
-                logging_exporter = AgentLoggingExporter.CONSOLE
+                apply_config_update(config, key, None, descriptor)
+            except (ValueError, RuntimeError) as e:
+                logger.warning(
+                    f"Failed to apply env observability config update for {key}: {e}"
+                )
 
-        tracing_exporter: Optional[AgentTracingExporter] = None
-        if tracing_exporter_str := getenv("OTEL_TRACES_EXPORTER"):
-            try:
-                tracing_exporter = AgentTracingExporter(tracing_exporter_str)
-            except (ValueError, KeyError):
-                tracing_exporter = AgentTracingExporter.CONSOLE
-
-        enabled: Optional[bool] = None
-        if getenv("OTEL_SDK_DISABLED") is not None:
-            enabled = getenv("OTEL_SDK_DISABLED", "false").lower() != "true"
-
-        logging_enabled: Optional[bool] = None
-        if getenv("OTEL_LOGGING_ENABLED") is not None:
-            logging_enabled = getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
-
-        tracing_enabled: Optional[bool] = None
-        if getenv("OTEL_TRACING_ENABLED") is not None:
-            tracing_enabled = getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
-
-        return cls(
-            enabled=enabled,
-            headers=headers,
-            endpoint=getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-            service_name=getenv("OTEL_SERVICE_NAME"),
-            logging_enabled=logging_enabled,
-            logging_exporter=logging_exporter,
-            tracing_enabled=tracing_enabled,
-            tracing_exporter=tracing_exporter,
-        )
+        return config
 
     @classmethod
     def from_statestore(cls, config: Dict[str, Any]) -> "AgentObservabilityConfig":
