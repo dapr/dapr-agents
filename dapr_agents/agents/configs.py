@@ -1082,7 +1082,7 @@ class AgentObservabilityConfig:
                 apply_config_update(config, key, None, descriptor)
             except (ValueError, RuntimeError) as e:
                 logger.debug(
-                    f"Failed to apply env observability config update for {key}: {e}"
+                    f"Failed to apply statestore observability config update for {key}: {e}"
                 )
 
         return config
