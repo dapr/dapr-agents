@@ -78,7 +78,7 @@ class DrasiUnpackedEvent(BaseModel):
             )
 
         return self
-        
+
 
 # TODO: Remove these once activation PR is merged
 @dataclass(frozen=True, kw_only=True)
