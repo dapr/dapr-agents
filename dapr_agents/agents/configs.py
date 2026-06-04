@@ -453,13 +453,6 @@ def coerce_config_value(value: Any, target_type: Type) -> Any:
                     continue
             raise ValueError(f"Cannot coerce {value!r} to any type in {target_type}")
 
-    if issubclass(target_type, Enum):
-        try:
-            return target_type(value)
-        except (ValueError, TypeError):
-            pass
-        raise ValueError(f"Cannot coerce {value!r} to enum {target_type.__name__}")
-
     raise ValueError(f"Unsupported target type: {target_type}")
 
 
@@ -799,8 +792,8 @@ class AgentExecutionConfig:
         3. Environment variables (lowest priority)
 
         Args:
-            config: The user instantiated configuration.
-            runtime_config: The runtime configuration.
+            config: User-instantiated configuration.
+            runtime_config: Runtime configuration.
 
         Returns:
             Resolved AgentExecutionConfig instance.
@@ -920,69 +913,6 @@ class AgentObservabilityConfig:
         tracing_exporter: Tracing exporter type.
     """
 
-    _config_field_map: ClassVar[Dict[str, ConfigFieldDescriptor]] = {
-        "OTEL_SDK_DISABLED": ConfigFieldDescriptor(
-            target_type=Optional[bool],
-            setter=lambda obj, v: setattr(obj, "enabled", v),
-            getter=lambda: getenv("OTEL_SDK_DISABLED"),
-            validator=lambda v: (
-                with_fallback(lambda v: not v, None)(v) if v is not None else None
-            ),  # Invert the disabled flag to set enabled
-        ),
-        "OTEL_EXPORTER_OTLP_HEADERS": ConfigFieldDescriptor(
-            target_type=Optional[str],
-            setter=lambda obj, v: setattr(obj, "headers", v),
-            getter=lambda: getenv("OTEL_EXPORTER_OTLP_HEADERS"),
-            validator=with_fallback(parse_header_string, {}),
-        ),
-        "OTEL_EXPORTER_OTLP_ENDPOINT": ConfigFieldDescriptor(
-            target_type=Optional[str],
-            setter=lambda obj, v: setattr(obj, "endpoint", v),
-            getter=lambda: getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-            validator=with_fallback(validate_non_empty_string, None),
-        ),
-        "OTEL_SERVICE_NAME": ConfigFieldDescriptor(
-            target_type=Optional[str],
-            setter=lambda obj, v: setattr(obj, "service_name", v),
-            getter=lambda: getenv("OTEL_SERVICE_NAME"),
-            validator=with_fallback(validate_non_empty_string, None),
-        ),
-        "OTEL_LOGGING_ENABLED": ConfigFieldDescriptor(
-            target_type=Optional[bool],
-            setter=lambda obj, v: setattr(obj, "logging_enabled", v),
-            getter=lambda: getenv("OTEL_LOGGING_ENABLED"),
-        ),
-        "OTEL_LOGS_EXPORTER": ConfigFieldDescriptor(
-            target_type=Optional[AgentLoggingExporter],
-            setter=lambda obj, v: setattr(obj, "logging_exporter", v),
-            getter=lambda: getenv("OTEL_LOGS_EXPORTER"),
-            validator=lambda v: (
-                with_fallback(
-                    validate_otel_exporter_logging, AgentLoggingExporter.CONSOLE
-                )(v)
-                if v is not None
-                else v
-            ),
-        ),
-        "OTEL_TRACING_ENABLED": ConfigFieldDescriptor(
-            target_type=Optional[bool],
-            setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
-            getter=lambda: getenv("OTEL_TRACING_ENABLED"),
-        ),
-        "OTEL_TRACES_EXPORTER": ConfigFieldDescriptor(
-            target_type=Optional[AgentTracingExporter],
-            setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
-            getter=lambda: getenv("OTEL_TRACES_EXPORTER"),
-            validator=lambda v: (
-                with_fallback(
-                    validate_otel_exporter_tracing, AgentTracingExporter.CONSOLE
-                )(v)
-                if v is not None
-                else v
-            ),
-        ),
-    }
-
     enabled: Optional[bool] = None
     headers: Dict[str, str] = field(default_factory=_empty_headers)
     auth_token: Optional[str] = None
@@ -1008,7 +938,70 @@ class AgentObservabilityConfig:
         - OTEL_TRACES_EXPORTER
         """
         config = cls()
-        for key, descriptor in cls._config_field_map.items():
+        config_field_map = {
+            "OTEL_SDK_DISABLED": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "enabled", v),
+                getter=lambda: getenv("OTEL_SDK_DISABLED"),
+                validator=lambda v: (
+                    with_fallback(lambda v: not v, None)(v) if v is not None else None
+                ),  # Invert the disabled flag to set enabled
+            ),
+            "OTEL_EXPORTER_OTLP_HEADERS": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "headers", v),
+                getter=lambda: getenv("OTEL_EXPORTER_OTLP_HEADERS"),
+                validator=with_fallback(parse_header_string, {}),
+            ),
+            "OTEL_EXPORTER_OTLP_ENDPOINT": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "endpoint", v),
+                getter=lambda: getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+                validator=with_fallback(validate_non_empty_string, None),
+            ),
+            "OTEL_SERVICE_NAME": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "service_name", v),
+                getter=lambda: getenv("OTEL_SERVICE_NAME"),
+                validator=with_fallback(validate_non_empty_string, None),
+            ),
+            "OTEL_LOGGING_ENABLED": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "logging_enabled", v),
+                getter=lambda: getenv("OTEL_LOGGING_ENABLED"),
+            ),
+            "OTEL_LOGS_EXPORTER": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "logging_exporter", v),
+                getter=lambda: getenv("OTEL_LOGS_EXPORTER"),
+                validator=lambda v: (
+                    with_fallback(
+                        validate_otel_exporter_logging, AgentLoggingExporter.CONSOLE
+                    )(v)
+                    if v is not None
+                    else v
+                ),
+            ),
+            "OTEL_TRACING_ENABLED": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
+                getter=lambda: getenv("OTEL_TRACING_ENABLED"),
+            ),
+            "OTEL_TRACES_EXPORTER": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
+                getter=lambda: getenv("OTEL_TRACES_EXPORTER"),
+                validator=lambda v: (
+                    with_fallback(
+                        validate_otel_exporter_tracing, AgentTracingExporter.CONSOLE
+                    )(v)
+                    if v is not None
+                    else v
+                ),
+            ),
+        }
+
+        for key, descriptor in config_field_map.items():
             try:
                 apply_config_update(config, key, None, descriptor)
             except (ValueError, RuntimeError) as e:
@@ -1019,64 +1012,94 @@ class AgentObservabilityConfig:
         return config
 
     @classmethod
-    def from_statestore(cls, config: Dict[str, Any]) -> "AgentObservabilityConfig":
+    def from_statestore(
+        cls, runtime_secrets: Dict[str, Any], runtime_config: Dict[str, Any]
+    ) -> "AgentObservabilityConfig":
         """
         Load observability configuration from the state store.
 
         Returns:
             AgentObservabilityConfig instance loaded from state store.
         """
+        config = cls()
+        config_field_map = {
+            "OTEL_SDK_DISABLED": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "enabled", v),
+                getter=lambda: runtime_config.get("OTEL_SDK_DISABLED", "true"),
+                validator=lambda v: (
+                    with_fallback(lambda v: not v, None)(v) if v is not None else None
+                ),  # Invert the disabled flag to set enabled
+            ),
+            "OTEL_EXPORTER_OTLP_HEADERS": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                # State store may have auth credentials so we target the "auth_token" field
+                setter=lambda obj, v: setattr(obj, "auth_token", v),
+                getter=lambda: (
+                    runtime_secrets.get("OTEL_EXPORTER_OTLP_HEADERS")
+                    or runtime_config.get("OTEL_EXPORTER_OTLP_HEADERS")
+                ),
+            ),
+            "OTEL_EXPORTER_OTLP_ENDPOINT": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "endpoint", v),
+                getter=lambda: runtime_config.get("OTEL_EXPORTER_OTLP_ENDPOINT"),
+                validator=with_fallback(validate_non_empty_string, None),
+            ),
+            "OTEL_SERVICE_NAME": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "service_name", v),
+                getter=lambda: runtime_config.get("OTEL_SERVICE_NAME"),
+                validator=with_fallback(validate_non_empty_string, None),
+            ),
+            "OTEL_LOGGING_ENABLED": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "logging_enabled", v),
+                getter=lambda: runtime_config.get("OTEL_LOGGING_ENABLED", "false"),
+            ),
+            "OTEL_LOGS_EXPORTER": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "logging_exporter", v),
+                getter=lambda: runtime_config.get(
+                    "OTEL_LOGS_EXPORTER", AgentLoggingExporter.CONSOLE
+                ),
+                validator=with_fallback(
+                    validate_otel_exporter_logging, AgentLoggingExporter.CONSOLE
+                ),
+            ),
+            "OTEL_TRACING_ENABLED": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
+                getter=lambda: runtime_config.get("OTEL_TRACING_ENABLED", "false"),
+            ),
+            "OTEL_TRACES_EXPORTER": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
+                getter=lambda: runtime_config.get(
+                    "OTEL_TRACES_EXPORTER", AgentTracingExporter.CONSOLE
+                ),
+                validator=with_fallback(
+                    validate_otel_exporter_tracing, AgentTracingExporter.CONSOLE
+                ),
+            ),
+        }
 
-        try:
-            # Use standard OTEL env var names in statestore config
-            sdk_disabled = config.get("OTEL_SDK_DISABLED", "true").lower()
-            enabled = sdk_disabled != "true"
-            auth_token = (
-                config.get("OTEL_EXPORTER_OTLP_HEADERS")
-                or config.get("OTEL_EXPORTER_OTLP_HEADERS")
-                or None
-            )
-            endpoint = config.get("OTEL_EXPORTER_OTLP_ENDPOINT") or None
-            service_name = config.get("OTEL_SERVICE_NAME") or None
-            logging_enabled = (
-                config.get("OTEL_LOGGING_ENABLED", "false").lower() == "true"
-            )
-            tracing_enabled = (
-                config.get("OTEL_TRACING_ENABLED", "false").lower() == "true"
-            )
+        for key, descriptor in config_field_map.items():
+            try:
+                apply_config_update(config, key, None, descriptor)
+            except (ValueError, RuntimeError) as e:
+                logger.debug(
+                    f"Failed to apply env observability config update for {key}: {e}"
+                )
 
-            logging_exporter: Optional[AgentLoggingExporter] = None
-            logging_exporter_str = config.get("OTEL_LOGS_EXPORTER", "console")
-            if logging_exporter_str:
-                try:
-                    logging_exporter = AgentLoggingExporter(logging_exporter_str)
-                except (ValueError, KeyError):
-                    logging_exporter = AgentLoggingExporter.CONSOLE
-
-            tracing_exporter: Optional[AgentTracingExporter] = None
-            tracing_exporter_str = config.get("OTEL_TRACES_EXPORTER", "console")
-            if tracing_exporter_str:
-                try:
-                    tracing_exporter = AgentTracingExporter(tracing_exporter_str)
-                except (ValueError, KeyError):
-                    tracing_exporter = AgentTracingExporter.CONSOLE
-
-            return AgentObservabilityConfig(
-                enabled=enabled,
-                auth_token=auth_token,
-                endpoint=endpoint,
-                service_name=service_name,
-                logging_enabled=logging_enabled,
-                logging_exporter=logging_exporter,
-                tracing_enabled=tracing_enabled,
-                tracing_exporter=tracing_exporter,
-            )
-        except Exception:
-            return AgentObservabilityConfig()
+        return config
 
     @classmethod
     def resolve_config(
-        cls, config: "AgentObservabilityConfig", runtime_config: Dict[str, Any]
+        cls,
+        config: "AgentObservabilityConfig",
+        runtime_secrets: Dict[str, Any],
+        runtime_config: Dict[str, Any],
     ) -> "AgentObservabilityConfig":
         """
         Resolve the observability configuration for the agent in the following order:
@@ -1085,14 +1108,16 @@ class AgentObservabilityConfig:
         3. Default statestore runtime config (lowest priority)
 
         Args:
-            config: The user instantiated configuration.
-            runtime_config: The runtime configuration.
+            config: User-instantiated configuration.
+            runtime_secrets: Runtime secrets.
+            runtime_config: Runtime configuration.
 
         Returns:
             Resolved AgentObservabilityConfig instance.
         """
-
-        statestore_config = AgentObservabilityConfig.from_statestore(runtime_config)
+        statestore_config = AgentObservabilityConfig.from_statestore(
+            runtime_secrets, runtime_config
+        )
         logger.debug(f"Statestore observability config: {statestore_config}")
 
         env_config = AgentObservabilityConfig.from_env()

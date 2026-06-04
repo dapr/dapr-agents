@@ -550,6 +550,7 @@ class AgentBase:
         self._otel_logging_handler = None
         self._agent_observability = AgentObservabilityConfig.resolve_config(
             agent_observability or AgentObservabilityConfig(),
+            self._runtime_secrets,
             self._runtime_conf,
         )
         self._setup_agent_observability()
