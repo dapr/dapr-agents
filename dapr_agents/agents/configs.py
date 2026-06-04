@@ -314,6 +314,23 @@ def validate_otel_exporter_logging(v: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def apply_config_map(target_obj: Any, config_field_map: Dict[str, Any]) -> None:
+    """
+    Apply a map of configuration field descriptors to a target object.
+    If a field is explicitly unsupported, the corresponding attribute on the target object is set to None.
+    """
+    for key, descriptor in config_field_map.items():
+        if descriptor == _UNSUPPORTED:
+            # TODO: Assumes the attribute name is lowercased version of the config key which is brittle, config key should be the attribute name
+            setattr(target_obj, key.lower(), None)
+            continue
+
+        try:
+            apply_config_update(target_obj, key, None, descriptor)
+        except (ValueError, RuntimeError) as e:
+            logger.debug(f"Failed to apply config update for {key}: {e}")
+
+
 def apply_config_update(
     target_obj: Any,
     key: str,
@@ -476,8 +493,6 @@ def merge_models(base: T, override: T) -> T:
     Returns:
         The merged model.
     """
-    # NOTE: this implementation doesn't handle override values that are explicitly None
-
     if not is_supported_config_model(type(base)):
         logger.warning(f"Unsupported model type: {base!r}")
         return override
@@ -516,8 +531,8 @@ def merge_models(base: T, override: T) -> T:
                 )
 
         model = model_factory(merged_fields)
-        logger.debug(f"Merged model: {model!r}")
 
+        logger.debug(f"Merged model: {model!r}")
         return model
     except Exception as e:
         logger.warning(f"Failed to merge models: {e}")
@@ -525,7 +540,7 @@ def merge_models(base: T, override: T) -> T:
 
 
 def with_fallback(f: Callable[..., Any], fallback: Any) -> Callable[..., Any]:
-    """Decorator to provide a fallback value if a function raises an exception."""
+    """Decorator to provide a fallback return value if a function raises an exception."""
 
     @functools.wraps(f)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -696,7 +711,6 @@ class AgentExecutionConfig:
     @classmethod
     def from_env(cls) -> "AgentExecutionConfig":
         """Create execution config from environment variables."""
-        config = cls()
         config_field_map = {
             "MAX_ITERATIONS": ConfigFieldDescriptor(
                 target_type=Optional[int],
@@ -767,19 +781,7 @@ class AgentExecutionConfig:
             "APPROVAL": _UNSUPPORTED,
         }
 
-        for key, descriptor in config_field_map.items():
-            if descriptor == _UNSUPPORTED:
-                # TODO: fix this
-                setattr(config, key.lower(), None)
-                continue
-            try:
-                apply_config_update(config, key, None, descriptor)
-            except (ValueError, RuntimeError) as e:
-                logger.debug(
-                    f"Failed to apply statestore execution config update for {key}: {e}"
-                )
-
-        return config
+        return apply_config_map(cls(), config_field_map)
 
     @classmethod
     def from_statestore(cls, runtime_config: Dict[str, Any]) -> "AgentExecutionConfig":
@@ -789,7 +791,6 @@ class AgentExecutionConfig:
         Returns:
             AgentExecutionConfig instance loaded from state store.
         """
-        config = cls()
         config_field_map = {
             "MAX_ITERATIONS": ConfigFieldDescriptor(
                 target_type=Optional[int],
@@ -822,19 +823,7 @@ class AgentExecutionConfig:
             "ENABLE_APP_READY_CHECK": _UNSUPPORTED,
         }
 
-        for key, descriptor in config_field_map.items():
-            if descriptor == _UNSUPPORTED:
-                # TODO: fix this
-                setattr(config, key.lower(), None)
-                continue
-            try:
-                apply_config_update(config, key, None, descriptor)
-            except (ValueError, RuntimeError) as e:
-                logger.debug(
-                    f"Failed to apply statestore execution config update for {key}: {e}"
-                )
-
-        return config
+        return apply_config_map(cls(), config_field_map)
 
     @classmethod
     def resolve_config(
@@ -992,7 +981,6 @@ class AgentObservabilityConfig:
         - OTEL_TRACING_ENABLED (custom, no standard equivalent)
         - OTEL_TRACES_EXPORTER
         """
-        config = cls()
         config_field_map = {
             "OTEL_SDK_DISABLED": ConfigFieldDescriptor(
                 target_type=Optional[bool],
@@ -1056,15 +1044,7 @@ class AgentObservabilityConfig:
             ),
         }
 
-        for key, descriptor in config_field_map.items():
-            try:
-                apply_config_update(config, key, None, descriptor)
-            except (ValueError, RuntimeError) as e:
-                logger.warning(
-                    f"Failed to apply env observability config update for {key}: {e}"
-                )
-
-        return config
+        return apply_config_map(cls(), config_field_map)
 
     @classmethod
     def from_statestore(
@@ -1076,7 +1056,6 @@ class AgentObservabilityConfig:
         Returns:
             AgentObservabilityConfig instance loaded from state store.
         """
-        config = cls()
         config_field_map = {
             "OTEL_SDK_DISABLED": ConfigFieldDescriptor(
                 target_type=Optional[bool],
@@ -1132,15 +1111,7 @@ class AgentObservabilityConfig:
             ),
         }
 
-        for key, descriptor in config_field_map.items():
-            try:
-                apply_config_update(config, key, None, descriptor)
-            except (ValueError, RuntimeError) as e:
-                logger.debug(
-                    f"Failed to apply statestore observability config update for {key}: {e}"
-                )
-
-        return config
+        return apply_config_map(cls(), config_field_map)
 
     @classmethod
     def resolve_config(
