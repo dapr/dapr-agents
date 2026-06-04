@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Literal, Optional, Self
+from typing import Any, Callable, Dict, Literal, Optional
 
 from dapr.clients import DaprClient
 from dapr.ext.workflow import DaprWorkflowClient
@@ -35,12 +35,14 @@ _DRASI_OP_TO_DESCRIPTION = {
 
 class DrasiUnpackedSource(BaseModel):
     """Source information for a Drasi event."""
+
     queryId: str = Field(description="The query ID that generated this event")
     ts_ms: int = Field(description="Source timestamp in milliseconds")
 
 
 class DrasiUnpackedPayload(BaseModel):
     """Payload containing the event data."""
+
     source: DrasiUnpackedSource = Field(description="Source information")
     after: Optional[Dict[str, Any]] = Field(
         default=None, description="Record state after the change"
@@ -52,12 +54,15 @@ class DrasiUnpackedPayload(BaseModel):
 
 class DrasiUnpackedEvent(BaseModel):
     """Drasi unpacked event model for CDC (Change Data Capture) events."""
+
     op: Literal["i", "u", "d", "x"] = Field(
         description="Operation type: i (insert), u (update), d (delete), x (control)"
     )
     ts_ms: int = Field(description="Event timestamp in milliseconds")
     seq: int = Field(description="Event sequence number")
-    payload: DrasiUnpackedPayload = Field(description="Event payload containing source and data")
+    payload: DrasiUnpackedPayload = Field(
+        description="Event payload containing source and data"
+    )
 
     # ``task`` is required by the agent workflow, but we set it to optional for validation to work since the in-flight Drasi event doesn't have this field
     task: Optional[str] = Field(
@@ -66,7 +71,7 @@ class DrasiUnpackedEvent(BaseModel):
     )
 
     @model_validator(mode="after")
-    def ensure_task(self) -> Self:
+    def ensure_task(self):
         """Create a ``task`` string from the Drasi change event data."""
 
         if self.task is None:

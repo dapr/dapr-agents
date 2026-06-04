@@ -81,10 +81,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-# TODO: bump version once Drasi unpacked models are supported
-drasi = [
-    "drasi_reaction_sdk>=0.1.2a0",
-]
+drasi = []
 vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<6.0.0",

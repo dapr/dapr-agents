@@ -59,11 +59,10 @@ Documentation = "https://github.com/dapr/docs"
 Source = "https://github.com/dapr/dapr-agents"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["dapr_agents_drasi*"]
+include = ["dapr_agents.ext.drasi"]
 
 [tool.setuptools.package-data]
-dapr_agents_drasi = ["py.typed"]
+dapr-agents.ext.drasi = ["py.typed"]
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
