@@ -401,10 +401,6 @@ def process_config_update(
         except Exception as e:
             raise ValueError(f"Unable to retrieve value for key '{key}': {e}.")
 
-    # Skip processing and return None if key is explicitly unsupported
-    if value == _UNSUPPORTED:
-        return None
-
     # Type coercion
     try:
         processed_value = coerce_config_value(value, descriptor.target_type)
