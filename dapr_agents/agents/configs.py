@@ -543,8 +543,9 @@ def with_fallback(f: Callable[..., Any], fallback: Any) -> Callable[..., Any]:
         try:
             return f(*args, **kwargs)
         except Exception as e:
-            logger.warning(
-                f"Function {f.__name__} failed with error: {e}. Using fallback value."
+            # Avoid noisy logs if exceptions are frequent (e.g. missing/None values during validation)
+            logger.debug(
+                f"Function {f.__name__} failed: {e}. Using fallback value."
             )
             return fallback
 
@@ -781,7 +782,10 @@ class AgentExecutionConfig:
             "approval": _UNSUPPORTED,
         }
 
-        return apply_config_map(cls(), config_field_map)
+        config = cls()
+        apply_config_map(config, config_field_map)
+
+        return config
 
     @classmethod
     def from_statestore(cls, runtime_config: Dict[str, Any]) -> "AgentExecutionConfig":
@@ -823,7 +827,10 @@ class AgentExecutionConfig:
             "app_ready_check_enabled": _UNSUPPORTED,
         }
 
-        return apply_config_map(cls(), config_field_map)
+        config = cls()
+        apply_config_map(config, config_field_map)
+
+        return config
 
     @classmethod
     def resolve_config(
@@ -1044,7 +1051,10 @@ class AgentObservabilityConfig:
             ),
         }
 
-        return apply_config_map(cls(), config_field_map)
+        config = cls()
+        apply_config_map(config, config_field_map)
+
+        return config
 
     @classmethod
     def from_statestore(
@@ -1118,7 +1128,10 @@ class AgentObservabilityConfig:
             ),
         }
 
-        return apply_config_map(cls(), config_field_map)
+        config = cls()
+        apply_config_map(config, config_field_map)
+
+        return config
 
     @classmethod
     def resolve_config(
