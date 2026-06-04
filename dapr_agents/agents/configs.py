@@ -64,6 +64,9 @@ _JSON_SCHEMA_KEY = "$schema"
 _JSON_SCHEMA_DRAFT_URL = "https://json-schema.org/draft/2020-12/schema"
 _JSON_SCHEMA_VERSION_KEY = "version"
 
+# Sentinel value for unsupported config keys
+_UNSUPPORTED = object()
+
 
 def _ensure_jinja_placeholders(text: str) -> str:
     return _JINJA_PLACEHOLDER_PATTERN.sub(r"{{\1}}", text)
@@ -381,6 +384,10 @@ def process_config_update(
         except Exception as e:
             raise ValueError(f"Unable to retrieve value for key '{key}': {e}.")
 
+    # Skip processing and return None if key is explicitly unsupported
+    if value == _UNSUPPORTED:
+        return None
+
     # Type coercion
     try:
         processed_value = coerce_config_value(value, descriptor.target_type)
@@ -677,11 +684,11 @@ class AgentExecutionConfig:
 
     # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
     # TODO: add stop_at_tokens
-    max_iterations: int = AGENT_DEFAULT_MAX_ITERATIONS
+    max_iterations: Optional[int] = AGENT_DEFAULT_MAX_ITERATIONS
     tool_choice: Optional[ToolChoice] = AGENT_DEFAULT_TOOL_CHOICE
-    tool_execution_mode: ToolExecutionMode = AGENT_DEFAULT_TOOL_EXECUTION_MODE
+    tool_execution_mode: Optional[ToolExecutionMode] = AGENT_DEFAULT_TOOL_EXECUTION_MODE
     orchestration_mode: Optional[OrchestrationMode] = None
-    approval: AgentApprovalConfig = field(default_factory=AgentApprovalConfig)
+    approval: Optional[AgentApprovalConfig] = field(default_factory=AgentApprovalConfig)
     max_grpc_inbound_message_size_bytes: Optional[int] = None
     app_health_check_enabled: Optional[bool] = None
     app_ready_check_enabled: Optional[bool] = None
@@ -689,97 +696,145 @@ class AgentExecutionConfig:
     @classmethod
     def from_env(cls) -> "AgentExecutionConfig":
         """Create execution config from environment variables."""
+        config = cls()
+        config_field_map = {
+            "MAX_ITERATIONS": ConfigFieldDescriptor(
+                target_type=Optional[int],
+                setter=lambda obj, v: setattr(obj, "max_iterations", v),
+                getter=lambda k: getenv(k, AGENT_DEFAULT_MAX_ITERATIONS),
+                validator=lambda v: (
+                    with_fallback(
+                        validate_max_iterations, AGENT_DEFAULT_MAX_ITERATIONS
+                    )(v)
+                    if v is not None
+                    else v
+                ),
+            ),
+            "TOOL_CHOICE": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tool_choice", v),
+                getter=lambda k: getenv(k, AGENT_DEFAULT_TOOL_CHOICE),
+                validator=lambda v: (
+                    with_fallback(validate_tool_choice, AGENT_DEFAULT_TOOL_CHOICE)(v)
+                    if v is not None
+                    else v
+                ),
+            ),
+            "TOOL_EXECUTION_MODE": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
+                getter=lambda k: getenv(k, AGENT_DEFAULT_TOOL_EXECUTION_MODE),
+                validator=lambda v: (
+                    with_fallback(
+                        lambda v: ToolExecutionMode(v),
+                        AGENT_DEFAULT_TOOL_EXECUTION_MODE,
+                    )(v)
+                    if v is not None
+                    else v
+                ),
+            ),
+            "ORCHESTRATION_MODE": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
+                getter=lambda k: getenv(k, None),  # No orchestration by default
+                validator=lambda v: (
+                    with_fallback(lambda v: OrchestrationMode(v), None)(v)
+                    if v is not None
+                    else v
+                ),
+            ),
+            "MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES": ConfigFieldDescriptor(
+                target_type=Optional[int],
+                setter=lambda obj, v: setattr(
+                    obj, "max_grpc_inbound_message_size_bytes", v
+                ),
+                getter=lambda k: getenv(k, None),
+                validator=lambda v: (
+                    with_fallback(lambda v: int(v), None)(v) if v is not None else v
+                ),
+            ),
+            "ENABLE_APP_HEALTH_CHECK": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "app_health_check_enabled", v),
+                getter=lambda k: getenv(k, "false"),
+            ),
+            "ENABLE_APP_READY_CHECK": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "app_ready_check_enabled", v),
+                getter=lambda k: getenv(k, "false"),
+            ),
+            # Currently unsupported fields
+            "APPROVAL": _UNSUPPORTED,
+        }
 
-        max_iterations: Optional[int] = None
-        if max_iterations_str := getenv("MAX_ITERATIONS"):
+        for key, descriptor in config_field_map.items():
+            if descriptor == _UNSUPPORTED:
+                # TODO: fix this
+                setattr(config, key.lower(), None)
+                continue
             try:
-                max_iterations = max(1, int(max_iterations_str))
-            except ValueError:
-                max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
+                apply_config_update(config, key, None, descriptor)
+            except (ValueError, RuntimeError) as e:
+                logger.debug(
+                    f"Failed to apply statestore execution config update for {key}: {e}"
+                )
 
-        tool_choice: Optional[ToolChoice] = None
-        if tool_choice_str := getenv("TOOL_CHOICE"):
-            try:
-                tool_choice = ToolChoice(tool_choice_str)
-            except (ValueError, KeyError):
-                tool_choice = AGENT_DEFAULT_TOOL_CHOICE
-
-        tool_execution_mode: Optional[ToolExecutionMode] = None
-        if tool_execution_mode_str := getenv("TOOL_EXECUTION_MODE"):
-            try:
-                tool_execution_mode = ToolExecutionMode(tool_execution_mode_str)
-            except (ValueError, KeyError):
-                tool_execution_mode = AGENT_DEFAULT_TOOL_EXECUTION_MODE
-
-        orchestration_mode: Optional[OrchestrationMode] = None
-        if orchestration_mode_str := getenv("ORCHESTRATION_MODE"):
-            try:
-                orchestration_mode = OrchestrationMode(orchestration_mode_str)
-            except (ValueError, KeyError):
-                orchestration_mode = None
-
-        app_health_check_enabled: Optional[bool] = None
-        if getenv("ENABLE_APP_HEALTH_CHECK") is not None:
-            app_health_check_enabled = (
-                getenv("ENABLE_APP_HEALTH_CHECK", "false").lower() == "true"
-            )
-
-        app_ready_check_enabled: Optional[bool] = None
-        if getenv("ENABLE_APP_READY_CHECK") is not None:
-            app_ready_check_enabled = (
-                getenv("ENABLE_APP_READY_CHECK", "false").lower() == "true"
-            )
-
-        return cls(
-            max_iterations=max_iterations,
-            tool_choice=tool_choice,
-            tool_execution_mode=tool_execution_mode,
-            orchestration_mode=orchestration_mode,
-            app_health_check_enabled=app_health_check_enabled,
-            app_ready_check_enabled=app_ready_check_enabled,
-        )
+        return config
 
     @classmethod
-    def from_statestore(cls, config: Dict[str, Any]) -> "AgentExecutionConfig":
+    def from_statestore(cls, runtime_config: Dict[str, Any]) -> "AgentExecutionConfig":
         """
         Load execution configuration from the state store.
 
         Returns:
             AgentExecutionConfig instance loaded from state store.
         """
+        config = cls()
+        config_field_map = {
+            "MAX_ITERATIONS": ConfigFieldDescriptor(
+                target_type=Optional[int],
+                setter=lambda obj, v: setattr(obj, "max_iterations", v),
+                getter=lambda k: runtime_config.get(k),
+                validator=lambda v: (
+                    with_fallback(
+                        validate_max_iterations, AGENT_DEFAULT_MAX_ITERATIONS
+                    )(v)
+                    if v is not None
+                    else v
+                ),
+            ),
+            "TOOL_CHOICE": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tool_choice", v),
+                getter=lambda k: runtime_config.get(k),
+                validator=lambda v: (
+                    with_fallback(validate_tool_choice, AGENT_DEFAULT_TOOL_CHOICE)(v)
+                    if v is not None
+                    else v
+                ),
+            ),
+            # Currently unsupported fields
+            "TOOL_EXECUTION_MODE": _UNSUPPORTED,
+            "ORCHESTRATION_MODE": _UNSUPPORTED,
+            "APPROVAL": _UNSUPPORTED,
+            "MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES": _UNSUPPORTED,
+            "ENABLE_APP_HEALTH_CHECK": _UNSUPPORTED,
+            "ENABLE_APP_READY_CHECK": _UNSUPPORTED,
+        }
 
-        try:
-            max_iterations: Optional[int] = None
-            if max_iterations_str := config.get("MAX_ITERATIONS"):
-                try:
-                    max_iterations = max(1, int(max_iterations_str))
-                except ValueError:
-                    max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
+        for key, descriptor in config_field_map.items():
+            if descriptor == _UNSUPPORTED:
+                # TODO: fix this
+                setattr(config, key.lower(), None)
+                continue
+            try:
+                apply_config_update(config, key, None, descriptor)
+            except (ValueError, RuntimeError) as e:
+                logger.debug(
+                    f"Failed to apply statestore execution config update for {key}: {e}"
+                )
 
-            tool_choice: Optional[ToolChoice] = None
-            if tool_choice_str := config.get("TOOL_CHOICE"):
-                try:
-                    tool_choice = ToolChoice(tool_choice_str)
-                except (ValueError, KeyError):
-                    tool_choice = AGENT_DEFAULT_TOOL_CHOICE
-
-            tool_execution_mode: Optional[ToolExecutionMode] = None
-            orchestration_mode: Optional[OrchestrationMode] = None
-            approval: Optional[AgentApprovalConfig] = None
-            app_health_check_enabled: Optional[bool] = None
-            app_ready_check_enabled: Optional[bool] = None
-
-            return AgentExecutionConfig(
-                max_iterations=max_iterations,
-                tool_choice=tool_choice,
-                tool_execution_mode=tool_execution_mode,
-                orchestration_mode=orchestration_mode,
-                approval=approval,
-                app_health_check_enabled=app_health_check_enabled,
-                app_ready_check_enabled=app_ready_check_enabled,
-            )
-        except Exception:
-            return AgentExecutionConfig()
+        return config
 
     @classmethod
     def resolve_config(
