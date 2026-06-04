@@ -36,6 +36,7 @@ from typing import (
 
 from pydantic import BaseModel, Field
 
+from dapr_agents.agents.utils.headers import parse_header_string
 from dapr_agents.agents.utils.models import (
     get_model_factory,
     get_model_fields,
@@ -907,14 +908,10 @@ class AgentObservabilityConfig:
         - OTEL_TRACING_ENABLED (custom, no standard equivalent)
         - OTEL_LOGGING_ENABLED (custom, no standard equivalent)
         """
-        headers: Dict[str, str] = {}
+        headers: dict[str, str] = {}
         raw_headers = getenv("OTEL_EXPORTER_OTLP_HEADERS")
         if raw_headers:
-            for pair in raw_headers.split(","):
-                pair = pair.strip()
-                if "=" in pair:
-                    k, v = pair.split("=", 1)
-                    headers[k.strip()] = v.strip()
+            headers = parse_header_string(raw_headers)
 
         logging_exporter: Optional[AgentLoggingExporter] = None
         if logging_exporter_str := getenv("OTEL_LOGS_EXPORTER"):
