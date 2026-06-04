@@ -844,7 +844,7 @@ class AgentRunner(WorkflowRunner):
         with self._lock:
             if id(agent) in self._activated_agent_ids:
                 return
-            callbacks = list(getattr(agent, "activations", []))
+            callbacks = list(agent.activations)
             self._activated_agent_ids.add(id(agent))
             # Close the registration window so a late add_activation() fails loudly.
             try:
@@ -855,41 +855,44 @@ class AgentRunner(WorkflowRunner):
         if not callbacks:
             return
 
-        # Extensions may open a streaming subscription, so guarantee a Dapr client
-        # even under workflow()/run(), which never wire pub/sub themselves.
-        self._ensure_dapr_client()
-        context = ActivationContext(
-            agent=agent,
-            runner=self,
-            dapr_client=self._dapr_client,
-            wf_client=self._wf_client,
-            app=app,
-        )
-
         collected: List[Callable[[], None]] = []
-        for callback in callbacks:
-            label = getattr(callback, "__qualname__", repr(callback))
-            try:
-                closer = callback(context)
-            except Exception as exc:
-                self._rollback_activation_closers(collected)
-                with self._lock:
-                    self._activated_agent_ids.discard(id(agent))
-                raise RuntimeError(
-                    f"activation callback {label!r} for agent "
-                    f"{getattr(agent, 'name', agent)!r} failed during hosting: {exc}"
-                ) from exc
-            if closer is None:
-                continue
-            if not callable(closer):
-                self._rollback_activation_closers(collected)
-                with self._lock:
-                    self._activated_agent_ids.discard(id(agent))
-                raise TypeError(
-                    f"activation callback {label!r} must return a callable closer "
-                    f"or None, got {type(closer).__name__!r}"
-                )
-            collected.append(closer)
+        try:
+            # Extensions may open a streaming subscription, so guarantee a Dapr
+            # client even under workflow()/run(), which never wire pub/sub.
+            self._ensure_dapr_client()
+            assert self._dapr_client is not None  # guaranteed by _ensure_dapr_client
+            context = ActivationContext(
+                agent=agent,
+                runner=self,
+                dapr_client=self._dapr_client,
+                wf_client=self._wf_client,
+                app=app,
+            )
+            for callback in callbacks:
+                label = getattr(callback, "__qualname__", repr(callback))
+                try:
+                    closer = callback(context)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"activation callback {label!r} for agent "
+                        f"{getattr(agent, 'name', agent)!r} failed during hosting: {exc}"
+                    ) from exc
+                if closer is None:
+                    continue
+                if not callable(closer):
+                    raise TypeError(
+                        f"activation callback {label!r} must return a callable "
+                        f"closer or None, got {type(closer).__name__!r}"
+                    )
+                collected.append(closer)
+        except Exception:
+            # Any failure — Dapr client init, context construction, or a callback
+            # — must release the fire-once guard so the agent can be hosted again,
+            # and roll back any closers already collected in this attach.
+            self._rollback_activation_closers(collected)
+            with self._lock:
+                self._activated_agent_ids.discard(id(agent))
+            raise
 
         with self._lock:
             self._activation_closers[id(agent)] = collected

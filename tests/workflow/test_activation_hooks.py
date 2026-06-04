@@ -380,6 +380,29 @@ def test_non_callable_closer_is_rejected():
         runner.subscribe(agent)
 
 
+def test_guard_released_when_dapr_client_init_fails():
+    """If Dapr client init fails after the guard is claimed, the guard must be
+    released so a later hosting attempt re-activates (Copilot PR #638 finding)."""
+    agent = _make_agent("ClientBoom")
+    calls: list = []
+    agent.add_activation(lambda ctx: calls.append(ctx))
+
+    # Client factory fails the first time, then succeeds.
+    factory = MagicMock(side_effect=[RuntimeError("no sidecar"), MockDaprClient()])
+    runner = AgentRunner(wf_client=MagicMock(), client_factory=factory)
+    runner._wire_http_routes = lambda **k: None
+    runner._mount_service_routes = lambda **k: None
+    runner._mount_hitl_routes = lambda **k: None
+
+    with pytest.raises(RuntimeError):
+        runner.subscribe(agent)
+    assert calls == []  # activation never ran (client init failed first)
+    assert id(agent) not in runner._activated_agent_ids  # guard released
+
+    runner.subscribe(agent)  # recovery: hosting again re-activates
+    assert len(calls) == 1
+
+
 # ---------------------------------------------------------------------------
 # Regression: agents without activations are unaffected
 # ---------------------------------------------------------------------------
