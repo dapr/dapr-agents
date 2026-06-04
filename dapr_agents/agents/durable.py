@@ -468,7 +468,7 @@ class DurableAgent(AgentBase):
         if not self._activation_window_open:
             raise RuntimeError(
                 f"cannot add an activation to agent {self.name!r} after it has been "
-                "hosted; register activations before serve()/subscribe()/run()."
+                "hosted; register activations before serve()/subscribe()/register_routes()/workflow()/run()."
             )
         self._activations.append(callback)
 
