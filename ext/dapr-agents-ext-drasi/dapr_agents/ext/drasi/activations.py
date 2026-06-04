@@ -17,26 +17,39 @@ import logging
 from typing import Any, Callable, Optional, Type
 
 from dapr_agents.workflow.decorators import message_router
+from dapr_agents.ext.drasi.utils.types import (
+    ActivationCallback,
+    ActivationContext,
+    DrasiUnpackedEvent,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def drasi_trigger(
-    func: Optional[Callable[..., Any]] = None,
-    *,
     pubsub: Optional[str] = None,
     topic: Optional[str] = None,
-    query_id: Optional[str] = None,
-    operation: Optional[str] = None,
-    event_model: Optional[Type[Any]] = None,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+) -> ActivationCallback:
     """
     TODO: Add docstring
     """
-    # TODO: Implement
-    return message_router(
-        func,
-        pubsub=pubsub,
-        topic=topic,
-        message_model=event_model,
-    )
+
+    def activation_callback(ctx: ActivationContext) -> ActivationCallback:
+        # Fallback to the agent's pubsub/topic if not provided
+        resolved_pubsub = pubsub or ctx.agent.pubsub
+        resolved_topic = topic or ctx.agent.topic
+
+        # Override the agent workflow's pubsub -> workflow routing behaviour
+        message_router(
+            ctx.agent.agent_workflow,
+            pubsub=resolved_pubsub,
+            topic=resolved_topic,
+            dead_letter_topic=ctx.agent.dead_letter_topic,
+            broadcast=ctx.agent.broadcast,
+            message_model=DrasiUnpackedEvent    # NOTE: only unpacked Drasi events are currently supported
+        )
+
+        # No closer needed for now
+        return None
+
+    return activation_callback

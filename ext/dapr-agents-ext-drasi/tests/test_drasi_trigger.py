@@ -11,8 +11,6 @@
 # limitations under the License.
 #
 
-from dapr_agents.ext.drasi.activations import drasi_trigger
+# Test that ``@drasi_trigger`` correctly updates agent workflow routing behaviour
 
-__all__ = [
-    "drasi_trigger",
-]
+# Test that ``@drasi_trigger`` results in workflow being called with correct input
