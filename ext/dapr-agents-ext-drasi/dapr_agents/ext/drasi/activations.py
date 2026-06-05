@@ -52,7 +52,7 @@ def drasi_trigger(
                 logger.warning("No topic could be resolved. Skipping activation.")
                 return None
 
-        # Override the agent workflow's pubsub -> workflow routing behaviour
+        # Override the agent workflow's pubsub -> workflow routing behavior
         message_router(
             ctx.agent.agent_workflow,
             pubsub=resolved_pubsub,
