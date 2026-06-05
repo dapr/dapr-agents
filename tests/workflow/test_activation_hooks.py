@@ -422,14 +422,16 @@ def test_failed_attach_removes_agent_from_managed_agents():
 
 def test_stop_called_on_rollback_when_this_call_started_the_agent(monkeypatch):
     """If THIS call started the agent, a failed attach stops it on rollback."""
+    agent, runner = _make_agent("StopOnRollback"), _make_runner()
     stop_calls: list = []
-    # start succeeds (started_here=True); record stop via instance-spanning spies.
+    # Scope the spy to THIS agent: sibling runners GC'd mid-test also call stop()
+    # (WorkflowRunner.__del__ -> shutdown), which would otherwise pollute the list.
     monkeypatch.setattr(DurableAgent, "start", lambda self, *a, **k: None)
     monkeypatch.setattr(
-        DurableAgent, "stop", lambda self, *a, **k: stop_calls.append(self)
+        DurableAgent,
+        "stop",
+        lambda self, *a, **k: stop_calls.append(self) if self is agent else None,
     )
-
-    agent, runner = _make_agent("StopOnRollback"), _make_runner()
 
     def cb_raises(ctx):
         raise ValueError("fail after start")
@@ -445,17 +447,19 @@ def test_stop_called_on_rollback_when_this_call_started_the_agent(monkeypatch):
 
 def test_stop_not_called_on_rollback_when_agent_was_already_started(monkeypatch):
     """If the agent was already running (start() raised), rollback must NOT stop it."""
+    agent, runner = _make_agent("NoStopOnRollback"), _make_runner()
     stop_calls: list = []
 
     def _already_started(self, *a, **k):
         raise RuntimeError("already started")
 
+    # Scope the spy to THIS agent: sibling runners GC'd mid-test also call stop().
     monkeypatch.setattr(DurableAgent, "start", _already_started)  # started_here=False
     monkeypatch.setattr(
-        DurableAgent, "stop", lambda self, *a, **k: stop_calls.append(self)
+        DurableAgent,
+        "stop",
+        lambda self, *a, **k: stop_calls.append(self) if self is agent else None,
     )
-
-    agent, runner = _make_agent("NoStopOnRollback"), _make_runner()
 
     def cb_raises(ctx):
         raise ValueError("fail")
