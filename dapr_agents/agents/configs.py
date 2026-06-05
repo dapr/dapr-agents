@@ -544,9 +544,7 @@ def with_fallback(f: Callable[..., Any], fallback: Any) -> Callable[..., Any]:
             return f(*args, **kwargs)
         except Exception as e:
             # Avoid noisy logs if exceptions are frequent (e.g. missing/None values during validation)
-            logger.debug(
-                f"Function {f.__name__} failed: {e}. Using fallback value."
-            )
+            logger.debug(f"Function {f.__name__} failed: {e}. Using fallback value.")
             return fallback
 
     return wrapper
