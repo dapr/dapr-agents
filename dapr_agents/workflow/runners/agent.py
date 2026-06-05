@@ -82,7 +82,7 @@ class AgentRunner(WorkflowRunner):
         # In-memory store of managed agents - used for handling shutdown
         self._managed_agents: List[DurableAgent] = []
         self._lock: Lock = Lock()
-        # Activation-hook state (see _ensure_attached / DurableAgent.add_activation):
+        # Activation-hook state (see _ensure_activations_attached / DurableAgent.add_activation):
         #   _activated_agent_ids — fire-once guard keyed by id(agent)
         #   _activation_closers  — teardown closers per agent, drained on shutdown
         self._activated_agent_ids: set[int] = set()
@@ -136,7 +136,7 @@ class AgentRunner(WorkflowRunner):
             if agent not in self._managed_agents:
                 self._managed_agents.append(agent)
 
-        self._ensure_attached(agent)
+        self._ensure_activations_attached(agent)
 
         entry = self.discover_entry(agent)
         logger.debug("[%s] Discovered workflow entry: %s", self._name, entry.__name__)
@@ -218,7 +218,7 @@ class AgentRunner(WorkflowRunner):
             if agent not in self._managed_agents:
                 self._managed_agents.append(agent)
 
-        self._ensure_attached(agent)
+        self._ensure_activations_attached(agent)
 
         return self
 
@@ -337,7 +337,7 @@ class AgentRunner(WorkflowRunner):
             if agent not in self._managed_agents:
                 self._managed_agents.append(agent)
 
-        self._ensure_attached(agent, app=fastapi_app)
+        self._ensure_activations_attached(agent, app=fastapi_app)
 
         self._wire_pubsub_routes(
             agent=agent,
@@ -509,7 +509,7 @@ class AgentRunner(WorkflowRunner):
             if agent not in self._managed_agents:
                 self._managed_agents.append(agent)
 
-        self._ensure_attached(agent)
+        self._ensure_activations_attached(agent)
 
         self._wire_pubsub_routes(
             agent=agent,
@@ -572,7 +572,7 @@ class AgentRunner(WorkflowRunner):
 
         # Fire activations here (before the nested subscribe) so the callback's
         # context carries the FastAPI app; the nested subscribe() is then a no-op.
-        self._ensure_attached(agent, app=fastapi_app)
+        self._ensure_activations_attached(agent, app=fastapi_app)
 
         self.subscribe(
             agent,
@@ -824,7 +824,7 @@ class AgentRunner(WorkflowRunner):
     # ------------------------------------------------------------------
     # Activation hooks (extension seam)
     # ------------------------------------------------------------------
-    def _ensure_attached(
+    def _ensure_activations_attached(
         self, agent: DurableAgent, app: Optional[FastAPI] = None
     ) -> None:
         """Fire an agent's activation callbacks exactly once per (runner, agent).
@@ -874,14 +874,14 @@ class AgentRunner(WorkflowRunner):
                     closer = callback(context)
                 except Exception as exc:
                     raise RuntimeError(
-                        f"activation callback {label!r} for agent "
+                        f"Activation callback {label!r} for agent "
                         f"{getattr(agent, 'name', agent)!r} failed during hosting: {exc}"
                     ) from exc
                 if closer is None:
                     continue
                 if not callable(closer):
                     raise TypeError(
-                        f"activation callback {label!r} must return a callable "
+                        f"Activation callback {label!r} must return a callable "
                         f"closer or None, got {type(closer).__name__!r}"
                     )
                 collected.append(closer)

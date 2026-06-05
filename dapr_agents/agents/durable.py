@@ -463,11 +463,11 @@ class DurableAgent(AgentBase):
         """
         if not callable(callback):
             raise TypeError(
-                f"activation callback must be callable, got {type(callback).__name__!r}"
+                f"Activation callback must be callable, got {type(callback).__name__!r}"
             )
         if not self._activation_window_open:
             raise RuntimeError(
-                f"cannot add an activation to agent {self.name!r} after it has been "
+                f"Cannot add an activation to agent {self.name!r} after it has been "
                 "hosted; register activations before serve()/subscribe()/register_routes()/workflow()/run()."
             )
         self._activations.append(callback)
