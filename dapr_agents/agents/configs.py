@@ -765,9 +765,6 @@ class AgentExecutionConfig:
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
                 getter=lambda: getenv("MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES", None),
-                validator=lambda v: (
-                    with_fallback(lambda v: int(v), None)(v) if v is not None else v
-                ),
             ),
             "app_health_check_enabled": ConfigFieldDescriptor(
                 target_type=Optional[bool],
@@ -1072,9 +1069,7 @@ class AgentObservabilityConfig:
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "enabled", v),
                 getter=lambda: runtime_config.get("OTEL_SDK_DISABLED", "true"),
-                validator=lambda v: (
-                    with_fallback(lambda v: not v, None)(v) if v is not None else None
-                ),  # Invert the disabled flag to set enabled
+                validator=lambda v: not v,  # Invert the disabled flag to set enabled
             ),
             "auth_token": ConfigFieldDescriptor(
                 target_type=Optional[str],
