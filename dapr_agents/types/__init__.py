@@ -11,6 +11,7 @@
 # limitations under the License.
 #
 
+from .activation import ActivationCallback, ActivationContext
 from .agent import AgentStatus, AgentTaskEntry, AgentTaskStatus
 from .workflow import DaprWorkflowStatus
 from .exceptions import (
@@ -49,6 +50,8 @@ from .tools import (
 )
 
 __all__ = [
+    "ActivationCallback",
+    "ActivationContext",
     "AgentStatus",
     "AgentTaskEntry",
     "AgentTaskStatus",
