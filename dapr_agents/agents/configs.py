@@ -20,6 +20,7 @@ import re
 from os import getenv
 from enum import Enum, StrEnum
 from dataclasses import dataclass, field
+from types import UnionType
 from typing import (
     Any,
     Callable,
@@ -32,6 +33,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    get_args,
     get_origin,
 )
 
@@ -462,11 +464,12 @@ def coerce_config_value(value: Any, target_type: Type) -> Any:
             return value
         raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
 
-    # Support types that are not classes
+    # Handle types that are not classes
     origin = get_origin(target_type)
     if origin is not None:
-        if origin is Union:
-            for arg in target_type.__args__:
+        # Support union and bar syntax
+        if origin in (Union, UnionType):
+            for arg in get_args(target_type):
                 try:
                     return coerce_config_value(value, arg)
                 except ValueError:
