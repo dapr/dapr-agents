@@ -403,6 +403,86 @@ def test_guard_released_when_dapr_client_init_fails():
     assert len(calls) == 1
 
 
+def test_failed_attach_removes_agent_from_managed_agents():
+    """A failed activation must roll back the _managed_agents append this call
+    made — the crux of PR #638 review comment #3."""
+    agent, runner = _make_agent("RollbackManaged"), _make_runner()
+
+    def cb_raises(ctx):
+        raise ValueError("deliberate")
+
+    agent.add_activation(cb_raises)
+
+    with pytest.raises(RuntimeError):
+        runner.subscribe(agent)
+
+    assert agent not in runner._managed_agents
+    assert id(agent) not in runner._activated_agent_ids
+
+
+def test_stop_called_on_rollback_when_this_call_started_the_agent(monkeypatch):
+    """If THIS call started the agent, a failed attach stops it on rollback."""
+    stop_calls: list = []
+    # start succeeds (started_here=True); record stop via instance-spanning spies.
+    monkeypatch.setattr(DurableAgent, "start", lambda self, *a, **k: None)
+    monkeypatch.setattr(
+        DurableAgent, "stop", lambda self, *a, **k: stop_calls.append(self)
+    )
+
+    agent, runner = _make_agent("StopOnRollback"), _make_runner()
+
+    def cb_raises(ctx):
+        raise ValueError("fail after start")
+
+    agent.add_activation(cb_raises)
+
+    with pytest.raises(RuntimeError):
+        runner.subscribe(agent)
+
+    assert stop_calls == [agent]
+    assert agent not in runner._managed_agents
+
+
+def test_stop_not_called_on_rollback_when_agent_was_already_started(monkeypatch):
+    """If the agent was already running (start() raised), rollback must NOT stop it."""
+    stop_calls: list = []
+
+    def _already_started(self, *a, **k):
+        raise RuntimeError("already started")
+
+    monkeypatch.setattr(DurableAgent, "start", _already_started)  # started_here=False
+    monkeypatch.setattr(
+        DurableAgent, "stop", lambda self, *a, **k: stop_calls.append(self)
+    )
+
+    agent, runner = _make_agent("NoStopOnRollback"), _make_runner()
+
+    def cb_raises(ctx):
+        raise ValueError("fail")
+
+    agent.add_activation(cb_raises)
+
+    with pytest.raises(RuntimeError):
+        runner.subscribe(agent)
+
+    assert stop_calls == []  # not our start -> not ours to stop
+
+
+def test_abort_attach_leaves_preexisting_host_intact():
+    """_abort_attach must not evict/stop an agent it did not add or start
+    (added_here/started_here both False) — contract check on the rollback scoping."""
+    agent, runner = _make_agent("KeepManaged"), _make_runner()
+    cb, _, closer_calls = _spy()
+    agent.add_activation(cb)
+    runner.subscribe(agent)  # succeeds; agent now managed
+    assert agent in runner._managed_agents
+
+    runner._abort_attach(agent, [], started_here=False, added_here=False)
+
+    assert agent in runner._managed_agents  # not removed (added_here=False)
+    assert closer_calls == []  # nothing torn down
+
+
 # ---------------------------------------------------------------------------
 # Regression: agents without activations are unaffected
 # ---------------------------------------------------------------------------
