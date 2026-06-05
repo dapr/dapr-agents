@@ -316,15 +316,19 @@ def validate_otel_exporter_logging(v: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def normalize_config_key(key: str) -> str:
+    """Default normalization of configuration keys to attribute names."""
+    return key.lower().replace("-", "_")
+
+
 def apply_config_map(target_obj: Any, config_field_map: Dict[str, Any]) -> None:
     """
     Apply a map of configuration field names to field descriptors onto a target object.
-    If a field is explicitly unsupported, the corresponding attribute on the target object is set to None.
+    If a field is explicitly unsupported, its name must be normalizable to the corresponding attribute on the target object, whose value is set to None.
     """
     for key, descriptor in config_field_map.items():
         if descriptor == _UNSUPPORTED:
-            # Assumes the config key is the attribute name
-            setattr(target_obj, key.lower(), None)
+            setattr(target_obj, normalize_config_key(key), None)
             continue
 
         try:
@@ -357,7 +361,6 @@ def apply_config_update(
         ValueError: If no value can be retrieved or processing fails.
         RuntimeError: If the value cannot be applied.
     """
-
     processed_value = process_config_update(key, value, descriptor)
 
     # Apply via setter callback
@@ -392,7 +395,6 @@ def process_config_update(
     Raises:
         ValueError: If no value can be retrieved or processing fails.
     """
-
     if not descriptor:
         raise ValueError(f"Unrecognized config key: {key}.")
 

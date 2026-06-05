@@ -67,6 +67,7 @@ from dapr_agents.agents.configs import (
     AGENT_DEFAULT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
     apply_config_update,
+    normalize_config_key,
     process_config_update,
     validate_max_iterations,
     validate_non_empty_string,
@@ -913,7 +914,7 @@ class AgentBase:
         Returns:
             True if the update triggers an OTel reload, False otherwise.
         """
-        normalized_key = key.lower().replace("-", "_")
+        normalized_key = normalize_config_key(key)
         descriptor = self._CONFIG_FIELD_MAP.get(normalized_key)
 
         if descriptor is None:
