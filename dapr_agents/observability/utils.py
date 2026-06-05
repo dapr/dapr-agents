@@ -295,9 +295,10 @@ def serialize_tools_for_tracing(tools: Any) -> Any:
                 # Use AgentTool's built-in function call format
                 tool_schema = tool.to_function_call(format_type="openai")
                 serialized_tools.append(tool_schema)
-                logger.debug(
-                    f"Extracted schema for tool {i}: {tool_schema.get('name', 'unknown')}"
-                )
+                tool_name = tool_schema.get("function", {}).get(
+                    "name"
+                ) or tool_schema.get("name", "unknown")
+                logger.debug(f"Extracted schema for tool {i}: {tool_name}")
             else:
                 # Fallback to string representation
                 serialized_tools.append(str(tool))
