@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-from .activations import drasi_trigger
+from dapr_agents.ext.drasi.activations import drasi_trigger
 
 __all__ = [
     "drasi_trigger",

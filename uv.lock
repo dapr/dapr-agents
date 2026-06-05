@@ -41,7 +41,6 @@ members = [
     "07-data-agent-mcp-chainlit",
     "11-expert-agent-tavily",
     "dapr-agents",
-    "dapr-agents-ext-drasi",
     "quickstarts",
 ]
 
@@ -1588,42 +1587,6 @@ test = [
 vectorstore = [
     { name = "dapr-agents", extras = ["vectorstore"], marker = "python_full_version >= '3.11' and python_full_version < '3.14'" },
     { name = "redisvl", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=0.4.0,<1.0.0" },
-]
-
-[[package]]
-name = "dapr-agents-ext-drasi"
-source = { editable = "ext/dapr-agents-ext-drasi" }
-dependencies = [
-    { name = "dapr-agents" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "flake8" },
-    { name = "mypy" },
-    { name = "ruff" },
-]
-test = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-mock" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "dapr-agents", editable = "." }]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "flake8", specifier = ">=7.3.0" },
-    { name = "mypy", specifier = ">=1.15.0,<2.0.0" },
-    { name = "ruff", specifier = ">=0.14.11" },
-]
-test = [
-    { name = "pytest", specifier = ">=8.0.0,<10.0.0" },
-    { name = "pytest-asyncio", specifier = ">=0.23.0,<2.0.0" },
-    { name = "pytest-cov", specifier = ">=4.1.0,<8.0.0" },
-    { name = "pytest-mock", specifier = ">=3.12.0,<4.0.0" },
 ]
 
 [[package]]
