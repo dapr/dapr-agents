@@ -279,9 +279,10 @@ def extract_tool_schemas(tools: List[Any]) -> Dict[str, Any]:
                 function_call = tool.to_function_call(format_type="openai")
                 tool_schema = safe_json_dumps(function_call)
                 attributes[f"llm.tools.{i}.tool.json_schema"] = tool_schema
-                logger.debug(
-                    f"Extracted schema for tool {i}: {function_call.get('name', 'unknown')}"
-                )
+                tool_name = function_call.get("function", {}).get(
+                    "name"
+                ) or function_call.get("name", "unknown")
+                logger.debug(f"Extracted schema for tool {i}: {tool_name}")
 
             elif hasattr(tool, "name"):
                 # Fallback: create basic schema from tool attributes
