@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Callable
 
 from dapr_agents.types.activation import ActivationCallback, ActivationContext
 from dapr_agents.workflow.decorators import message_router
@@ -33,7 +34,7 @@ def drasi_trigger() -> ActivationCallback:
         The activation callback to be invoked when the agent is hosted.
     """
 
-    def activation_callback(ctx: ActivationContext) -> None:
+    def activation_callback(ctx: ActivationContext) -> Callable[[], None] | None:
         if ctx.agent.pubsub is None:
             logger.warning("No pubsub config found on agent. Skipping activation.")
             return None
