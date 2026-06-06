@@ -39,7 +39,8 @@ def drasi_trigger() -> ActivationCallback:
             logger.warning("No pubsub config found on agent. Skipping activation.")
             return None
 
-        agent_workflow = ctx.agent.agent_workflow
+        # Get the underlying function object from the bound method
+        agent_workflow = ctx.agent.agent_workflow.__func__
         pubsub = ctx.agent.pubsub.pubsub_name
         topic = ctx.agent.pubsub.agent_topic
 
