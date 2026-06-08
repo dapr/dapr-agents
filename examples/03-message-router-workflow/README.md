@@ -48,7 +48,7 @@ uv sync --active
 
 ## Configuration
 
-The example includes an OpenAI component configuration in the `components` directory. You have two options to configure your API key:
+The example includes an OpenAI component configuration in the `resources` directory. You have two options to configure your API key:
 
 ### Option 1: Using Environment Variables (Recommended)
 
@@ -66,7 +66,7 @@ OPENAI_API_KEY=your_api_key_here
 export $(grep -v '^#' ../../.env | xargs)
 
 # Create a temporary resources folder with resolved environment variables
-temp_resources_folder=$(../resolve_env_templates.py ./components)
+temp_resources_folder=$(../resolve_env_templates.py ./resources)
 
 # Run your dapr command with the temporary resources
 uv run dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python workflow.py
@@ -84,7 +84,7 @@ Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Ob
 }
 
 # Create a temporary resources folder with resolved environment variables
-$temp_resources_folder = python ../resolve_env_templates.py ./components
+$temp_resources_folder = python ../resolve_env_templates.py ./resources
 
 # Run your dapr command with the temporary resources
 uv run dapr run --app-id dapr-agent-wf --resources-path $temp_resources_folder -- python workflow.py
@@ -122,9 +122,9 @@ Make sure Dapr is initialized on your system:
 dapr init
 ```
 
-The example includes other necessary Dapr components in the `components` directory. For example, the workflow state store component:
+The example includes other necessary Dapr components in the `resources` directory. For example, the workflow state store component:
 
-Look at the `workflowstate.yaml` file in the `components` directory:
+Look at the `workflowstate.yaml` file in the `resources` directory:
 
 ```yaml
 apiVersion: dapr.io/v1alpha1

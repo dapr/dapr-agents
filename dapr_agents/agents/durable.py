@@ -76,6 +76,7 @@ from dapr_agents.agents.executors import AgentExecutorBase
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.types import (
+    ActivationCallback,
     AgentError,
     DaprWorkflowStatus,
     UserMessage,
@@ -337,6 +338,12 @@ class DurableAgent(AgentBase):
         self._registered = False
         self._started = False
         self._hooks: Optional[Hooks] = hooks
+        # Activation callbacks registered by extensions via add_activation().
+        # The AgentRunner fires each one exactly once when this agent is first
+        # hosted (serve/subscribe/register_routes/workflow/run). The window is
+        # closed by the runner on first attach so late registrations fail loudly.
+        self._activations: List[ActivationCallback] = []
+        self._activation_window_open: bool = True
         # Tracks active approval requests in memory, keyed by approval_request_id.
         # Persisted to Dapr State Store so requests survive pod restarts.
         # Only populated when HITL (before_tool_call) hooks are configured.
@@ -425,6 +432,45 @@ class DurableAgent(AgentBase):
     def broadcast_workflow_name(self) -> str:
         """Dapr-registered name of this agent's broadcast workflow."""
         return broadcast_workflow_id(self.name, infra=self._infra)
+
+    # ------------------------------------------------------------------
+    # Activation hooks (extension seam)
+    # ------------------------------------------------------------------
+    @property
+    def activations(self) -> List[ActivationCallback]:
+        """Activation callbacks registered on this agent (read-only copy)."""
+        return list(self._activations)
+
+    def add_activation(self, callback: ActivationCallback) -> None:
+        """Register a callback fired once when this agent is first hosted.
+
+        The callback runs exactly once the first time the agent is attached to
+        an ``AgentRunner`` via any host entry point (``serve()``, ``subscribe()``,
+        ``register_routes()``, ``workflow()`` or ``run()``). It receives an
+        :class:`~dapr_agents.types.activation.ActivationContext` and may return a
+        zero-arg closer that the runner invokes on shutdown. Callbacks fire in
+        registration order. This is the supported seam for trigger extensions and
+        never modifies the agent's workflow.
+
+        Args:
+            callback: Callable taking an ``ActivationContext`` and returning an
+                optional teardown closer.
+
+        Raises:
+            TypeError: If ``callback`` is not callable.
+            RuntimeError: If called after the agent has already been hosted (the
+                activation window is closed by the runner on first attach).
+        """
+        if not callable(callback):
+            raise TypeError(
+                f"Activation callback must be callable, got {type(callback).__name__!r}"
+            )
+        if not self._activation_window_open:
+            raise RuntimeError(
+                f"Cannot add an activation to agent {self.name!r} after it has been "
+                "hosted; register activations before serve()/subscribe()/register_routes()/workflow()/run()."
+            )
+        self._activations.append(callback)
 
     # ------------------------------------------------------------------
     # Workflows / Activities
