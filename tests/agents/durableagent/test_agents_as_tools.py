@@ -23,7 +23,7 @@ Covers:
 
 from datetime import timedelta
 from typing import Optional
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

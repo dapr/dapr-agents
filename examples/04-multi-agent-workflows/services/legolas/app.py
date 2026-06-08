@@ -61,8 +61,6 @@ async def main() -> None:
     # ---------------------------
     # Legolas (Elf scout & marksman)
     # ---------------------------
-    legolas_name = "Legolas"
-
     legolas_pubsub = AgentPubSubConfig(
         pubsub_name="messagepubsub",
         agent_topic="fellowship.legolas.requests",

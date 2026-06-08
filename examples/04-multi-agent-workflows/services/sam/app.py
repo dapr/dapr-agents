@@ -66,8 +66,6 @@ async def main() -> None:
     # ---------------------------
     # Sam (logistics & support)
     # ---------------------------
-    sam_name = "sam"
-
     sam_pubsub = AgentPubSubConfig(
         pubsub_name="messagepubsub",
         agent_topic="fellowship.sam.requests",

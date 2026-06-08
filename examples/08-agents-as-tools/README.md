@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# 09 — Agents as Tools
+# 08 — Agents as Tools
 
 This example demonstrates how one `DurableAgent` can call another as a
 **synchronous child workflow tool**.  The calling agent's LLM picks the tool,
@@ -38,7 +38,7 @@ Both agents share one Dapr sidecar.  Sam is passed directly as a `DurableAgent`
 instance in Frodo's `tools` list and is auto-converted to an `AgentWorkflowTool`.
 
 ```bash
-cd examples/09-agents-as-tools
+cd examples/08-agents-as-tools
 dapr run -f dapr-in-process.yaml
 ```
 
@@ -57,7 +57,7 @@ shared registry (`USE_REGISTRY=1`, the default) or you can wire them explicitly
 with `agent_to_tool`.
 
 ```bash
-cd examples/09-agents-as-tools
+cd examples/08-agents-as-tools
 dapr run -f dapr-cross-app.yaml
 ```
 

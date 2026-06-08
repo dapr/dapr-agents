@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from importlib.metadata import version
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine

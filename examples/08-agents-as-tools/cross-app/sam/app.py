@@ -21,7 +21,6 @@ as a callable tool by any other agent on the same registry.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 

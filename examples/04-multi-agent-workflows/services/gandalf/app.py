@@ -61,8 +61,6 @@ async def main() -> None:
     # ---------------------------
     # Gandalf (wizard & loremaster)
     # ---------------------------
-    gandalf_name = "Gandalf"
-
     gandalf_pubsub = AgentPubSubConfig(
         pubsub_name="messagepubsub",
         agent_topic="fellowship.gandalf.requests",

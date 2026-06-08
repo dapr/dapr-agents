@@ -16,8 +16,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import functools
 import json
-import logging
-import re
 import uuid
 from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 from os import getenv
@@ -53,7 +51,6 @@ from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
     OrchestrationMode,
     ToolExecutionMode,
-    AgentApprovalConfig,
     AgentExecutionConfig,
     AgentMemoryConfig,
     AgentPubSubConfig,
