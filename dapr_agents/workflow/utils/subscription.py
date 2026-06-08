@@ -18,12 +18,11 @@ from typing import (
     Optional,
     Protocol,
     Tuple,
-    Type,
 )
 
 import dapr.ext.workflow as wf
 from dapr.clients import DaprClient
-from dapr.clients.grpc._response import TopicEventResponse
+from dapr.clients.grpc._response import TopicEventResponse, TopicEventResponseStatus
 from dapr.common.pubsub.subscription import SubscriptionMessage
 from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 from cachetools import TTLCache
@@ -295,19 +294,13 @@ def _order_pairs_by_cloudevent_type(
     return matching_ce_type_pairs + remaining_pairs
 
 
-def _normalize_status(status: Any) -> str | None:
-    """Coerce a `TopicEventResponse` into a status constant, or `None`
-    when the value does not match any of them.
-
-    Accepts enums, strings, and the various string-like shapes the gRPC SDK has produced
-    over time.
-    """
-    if hasattr(status, "name"):
-        raw = status.name
-    elif hasattr(status, "value"):
-        raw = str(status.value)
-    else:
-        raw = str(status)
+def _normalize_status(status: str | TopicEventResponseStatus) -> str | None:
+    """Coerce a `TopicEventResponse` status into a status constant if possible"""
+    match status:
+        case TopicEventResponseStatus():
+            raw = status.name
+        case str():
+            raw = status
     lowered = raw.lower()
     for known in (STATUS_SUCCESS, STATUS_RETRY, STATUS_DROP):
         if known in lowered:
@@ -402,7 +395,7 @@ def _log_workflow_outcome(
             f"[wf] {instance_id} FAILED type={error_type} message={error_message}\n{stack_trace}"
         )
     else:
-        status_name = status.name if hasattr(status, "name") else str(status)
+        status_name = status.name
         custom_status = getattr(state, "serialized_custom_status", None)
         logger.error(
             f"[wf] {instance_id} finished with status={status_name} custom_status={custom_status}"

@@ -72,17 +72,16 @@ def convert_messages_to_openinference(messages: Any) -> List[Dict[str, Any]]:
     oi_messages = []
 
     try:
-        if isinstance(messages, str):
-            # Single string message - convert to user message
-            oi_messages.append({"role": "user", "content": messages})
-            logger.debug("Converted string message to user message")
-
-        elif isinstance(messages, list):
-            for i, message in enumerate(messages):
-                oi_message = convert_single_message_to_openinference(message, i)
-                if oi_message:
-                    oi_messages.append(oi_message)
-
+        match messages:
+            case str():
+                # Single string message - convert to user message
+                oi_messages.append({"role": "user", "content": messages})
+                logger.debug("Converted string message to user message")
+            case list():
+                for i, message in enumerate(messages):
+                    oi_message = convert_single_message_to_openinference(message, i)
+                    if oi_message:
+                        oi_messages.append(oi_message)
     except Exception as e:
         logger.warning(f"Error converting messages: {e}")
         # Fallback: add a default user message
@@ -496,27 +495,28 @@ def convert_messages_to_genai_format(messages: Any) -> str:
     """
     result = []
     try:
-        if isinstance(messages, str):
-            result.append({"role": "user", "content": messages})
-        elif isinstance(messages, list):
-            for msg in messages:
-                entry: Dict[str, Any] = {}
-                if isinstance(msg, dict):
-                    entry["role"] = msg.get("role", "user")
-                    entry["content"] = msg.get("content", "")
-                    if tc := msg.get("tool_calls"):
-                        entry["tool_calls"] = _tool_calls_to_plain(tc)
-                    if tcid := msg.get("tool_call_id"):
-                        entry["tool_call_id"] = tcid
-                elif hasattr(msg, "role"):
-                    entry["role"] = getattr(msg, "role", "user")
-                    entry["content"] = getattr(msg, "content", "") or ""
-                    if tc := getattr(msg, "tool_calls", None):
-                        entry["tool_calls"] = _tool_calls_to_plain(tc)
-                    if tcid := getattr(msg, "tool_call_id", None):
-                        entry["tool_call_id"] = tcid
-                if entry:
-                    result.append(entry)
+        match messages:
+            case str():
+                result.append({"role": "user", "content": messages})
+            case list():
+                for msg in messages:
+                    entry: Dict[str, Any] = {}
+                    if isinstance(msg, dict):
+                        entry["role"] = msg.get("role", "user")
+                        entry["content"] = msg.get("content", "")
+                        if tc := msg.get("tool_calls"):
+                            entry["tool_calls"] = _tool_calls_to_plain(tc)
+                        if tcid := msg.get("tool_call_id"):
+                            entry["tool_call_id"] = tcid
+                    elif hasattr(msg, "role"):
+                        entry["role"] = getattr(msg, "role", "user")
+                        entry["content"] = getattr(msg, "content", "") or ""
+                        if tc := getattr(msg, "tool_calls", None):
+                            entry["tool_calls"] = _tool_calls_to_plain(tc)
+                        if tcid := getattr(msg, "tool_call_id", None):
+                            entry["tool_call_id"] = tcid
+                    if entry:
+                        result.append(entry)
     except Exception as exc:
         logger.debug("Failed to convert messages to GenAI format: %s", exc)
 
