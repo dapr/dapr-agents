@@ -40,7 +40,7 @@ def drasi_trigger() -> ActivationCallback:
             return None
 
         # Get the underlying function object from the bound method
-        agent_workflow = ctx.agent.agent_workflow.__func__
+        agent_workflow = ctx.agent.agent_workflow.__func__  # type: ignore[attr-defined]
         pubsub = ctx.agent.pubsub.pubsub_name
         topic = ctx.agent.pubsub.agent_topic
 
