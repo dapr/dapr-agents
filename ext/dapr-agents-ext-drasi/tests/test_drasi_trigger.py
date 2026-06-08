@@ -10,7 +10,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
-# Test that ``@drasi_trigger`` correctly updates agent workflow routing behaviour
-
-# Test that ``@drasi_trigger`` results in workflow being called with correct input
