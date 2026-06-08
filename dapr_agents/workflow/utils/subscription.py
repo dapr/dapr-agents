@@ -115,14 +115,17 @@ def _validate_filter(
 class MessageContext:
     """Per-message context handed to ``@message_router`` filters.
 
-    Built once per incoming CloudEvent and passed as the second positional
-    argument to ``payload_filter`` and ``model_filter`` callables.
+    Built per candidate binding and passed as the second positional argument
+    to ``payload_filter`` and ``model_filter`` callables.
 
     Attributes:
         event: Parsed CloudEvent envelope (id, source, type, topic, headers, ...).
+        handler_name: Name of the handler this filter is bound to. For
+            logging only, you should not filter on this.
     """
 
     event: EventMessageMetadata
+    handler_name: str
 
 
 @dataclass
@@ -654,12 +657,10 @@ class _StreamSubscriber:
             pairs, (metadata or {}).get("type")
         )
 
-        # Only built when a binding uses a filter
         any_filter = any(b.payload_filter or b.model_filter for b, _ in ordered_pairs)
-        msg_ctx: MessageContext | None = None
-        if any_filter:
-            event = EventMessageMetadata.model_validate(metadata or {})
-            msg_ctx = MessageContext(event=event)
+        event = (
+            EventMessageMetadata.model_validate(metadata or {}) if any_filter else None
+        )
 
         # Filters are per-binding, not per-schema. We iterate flattened
         # (binding, schema) pairs, so cache the payload_filter result and
@@ -672,6 +673,11 @@ class _StreamSubscriber:
             binding_key = id(binding)
             if binding_key in model_filter_rejected:
                 continue
+            msg_ctx = (
+                MessageContext(event=event, handler_name=binding.name)
+                if event is not None
+                else None
+            )
             if msg_ctx is not None and binding_key not in payload_filter_cache:
                 payload_filter_cache[binding_key] = _filter_accepts(
                     binding.payload_filter,

@@ -1167,7 +1167,7 @@ def test_payload_filter_runs_once_per_binding_for_union(filter_env):
     assert not mock_wf.schedule_new_workflow.called
 
 
-def test_message_context_exposes_event_metadata(filter_env):
+def test_message_context_exposes_event_and_handler_name(filter_env):
     mock_dapr, mock_wf = filter_env
     captured: list = []
 
@@ -1197,6 +1197,7 @@ def test_message_context_exposes_event_metadata(filter_env):
     assert msg_ctx.event.source == "/api/orders"
     assert msg_ctx.event.topic == "orders"
     assert msg_ctx.event.type == "OrderCreated"
+    assert msg_ctx.handler_name == "handler"
 
 
 # ============================================================================
