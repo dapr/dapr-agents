@@ -657,12 +657,16 @@ class _StreamSubscriber:
         metadata: dict | None,
     ) -> TopicEventResponse:
         """Pick the first matching binding and dispatch; DROP when nothing matches."""
-        msg_ctx = MessageContext(
-            event=EventMessageMetadata.model_validate(metadata or {}),
-        )
         ordered_pairs = _order_pairs_by_cloudevent_type(
             pairs, (metadata or {}).get("type")
         )
+
+        # Only built when a binding uses a filter
+        any_filter = any(b.payload_filter or b.model_filter for b, _ in ordered_pairs)
+        msg_ctx: MessageContext | None = None
+        if any_filter:
+            event = EventMessageMetadata.model_validate(metadata or {})
+            msg_ctx = MessageContext(event=event)
 
         # Filters are per-binding, not per-schema. We iterate flattened
         # (binding, schema) pairs, so cache the payload_filter result and
@@ -675,7 +679,7 @@ class _StreamSubscriber:
             binding_key = id(binding)
             if binding_key in model_filter_rejected:
                 continue
-            if binding_key not in payload_filter_cache:
+            if msg_ctx is not None and binding_key not in payload_filter_cache:
                 payload_filter_cache[binding_key] = _filter_accepts(
                     binding.payload_filter,
                     event_data,
@@ -683,7 +687,7 @@ class _StreamSubscriber:
                     kind="payload_filter",
                     binding_name=binding.name,
                 )
-            if not payload_filter_cache[binding_key]:
+            if not payload_filter_cache.get(binding_key, True):
                 continue
 
             try:
@@ -696,7 +700,7 @@ class _StreamSubscriber:
                 # Validation/coercion errors, try next schema
                 continue
 
-            if not _filter_accepts(
+            if msg_ctx is not None and not _filter_accepts(
                 binding.model_filter,
                 parsed,
                 msg_ctx,
@@ -828,7 +832,10 @@ class _StreamSubscriber:
             bindings
         ).items():
             pairs = _build_binding_schema_pairs(topic_bindings)
-            dead_letter_topic = topic_bindings[0].dead_letter_topic
+            dead_letter_topic = next(
+                (b.dead_letter_topic for b in topic_bindings if b.dead_letter_topic),
+                None,
+            )
             handler_fn = partial(self._handle_message, pairs, topic_name)
 
             subscription = self.dapr_client.subscribe(
