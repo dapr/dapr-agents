@@ -181,9 +181,16 @@ def process_hf_stream(
             # Set first_chunk_flag to False after processing the first choice
             first_chunk_flag = False
         else:
-            logger.warning(f" Yielding packet without 'choices': {pkt}")
-            # Initialize default LLMChatResponseChunk
-            final_response_chunk = LLMChatResponseChunk(metadata=overall_meta)
+            logger.debug(
+                "Yielding final packet without 'choices' (usage-only): %s", pkt
+            )
+            # Final usage-only packet (empty ``choices``). ``result`` is required
+            # on LLMChatResponseChunk, so carry an empty candidate; usage data
+            # rides along in ``metadata`` and is folded into TURN_COMPLETE.
+            final_response_chunk = LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(),
+                metadata=overall_meta,
+            )
             yield final_response_chunk
 
 
