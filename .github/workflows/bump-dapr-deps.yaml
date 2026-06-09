@@ -19,17 +19,33 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   bump-python-sdk:
     name: Bump dapr python-sdk
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.BUMP_DEPS_APP_ID }}
+          private-key: ${{ secrets.BUMP_DEPS_APP_PRIVATE_KEY }}
+
+      - name: Resolve app committer identity
+        id: committer
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          echo "name=${APP_SLUG}[bot]" >> "$GITHUB_OUTPUT"
+          echo "email=${user_id}+${APP_SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v6
         with:
-          ssh-key: ${{ secrets.BUMP_DEPS_SSH_KEY }}
+          token: ${{ steps.app-token.outputs.token }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -51,7 +67,9 @@ jobs:
         if: steps.check.outputs.should_bump == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
-          ssh-key: ${{ secrets.BUMP_DEPS_SSH_KEY }}
+          token: ${{ steps.app-token.outputs.token }}
+          committer: "${{ steps.committer.outputs.name }} <${{ steps.committer.outputs.email }}>"
+          author: "${{ steps.committer.outputs.name }} <${{ steps.committer.outputs.email }}>"
           branch: auto/bump-python-sdk-${{ steps.check.outputs.latest }}
           delete-branch: true
           commit-message: "chore(deps): bump dapr python-sdk to ${{ steps.check.outputs.latest }}"
@@ -66,9 +84,26 @@ jobs:
     name: Bump durabletask-dapr
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.BUMP_DEPS_APP_ID }}
+          private-key: ${{ secrets.BUMP_DEPS_APP_PRIVATE_KEY }}
+
+      - name: Set PR committer identity
+        id: committer
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          echo "name=${APP_SLUG}[bot]" >> "$GITHUB_OUTPUT"
+          echo "email=${user_id}+${APP_SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v6
         with:
-          ssh-key: ${{ secrets.BUMP_DEPS_SSH_KEY }}
+          token: ${{ steps.app-token.outputs.token }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -90,7 +125,9 @@ jobs:
         if: steps.check.outputs.should_bump == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
-          ssh-key: ${{ secrets.BUMP_DEPS_SSH_KEY }}
+          token: ${{ steps.app-token.outputs.token }}
+          committer: "${{ steps.committer.outputs.name }} <${{ steps.committer.outputs.email }}>"
+          author: "${{ steps.committer.outputs.name }} <${{ steps.committer.outputs.email }}>"
           branch: auto/bump-durabletask-${{ steps.check.outputs.latest }}
           delete-branch: true
           commit-message: "chore(deps): bump durabletask-dapr to ${{ steps.check.outputs.latest }}"
