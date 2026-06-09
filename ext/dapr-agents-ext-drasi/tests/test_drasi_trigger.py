@@ -10,3 +10,325 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+"""Test suite for the Drasi pub/sub trigger extension."""
+
+from __future__ import annotations
+
+import os
+from datetime import timedelta
+from typing import Any, Optional
+from unittest import runner
+from unittest.mock import AsyncMock, MagicMock, Mock
+
+import pytest
+from pytest_mock import mocker
+
+from dapr_agents import DurableAgent
+from dapr_agents.agents.configs import (
+    AgentExecutionConfig,
+    AgentPubSubConfig,
+    AgentRegistryConfig,
+    AgentStateConfig,
+)
+from dapr_agents.llm import OpenAIChatClient
+from dapr_agents.storage.daprstores.stateservice import StateStoreService
+from dapr_agents.types.activation import ActivationCallback, ActivationContext
+from dapr_agents.workflow.runners.agent import AgentRunner
+
+from dapr_agents.ext.drasi import drasi_trigger
+
+
+# ---------------------------------------------------------------------------
+# Fixtures and helpers (mirror tests/workflow/test_activation_hooks.py)
+# ---------------------------------------------------------------------------
+
+
+def _create_mock_dapr_client(
+    pubsub_names: list[str] = [],
+    event_stream: list[Any] = [],
+) -> MagicMock:
+    """
+    Create a mock DaprClient with specified pubsub components registered and a fixed event stream for subscriptions to consume.
+
+    Args:
+        pubsub_names: List of pubsub component names to register in the mock.
+        event_stream: A list of events that a mock subscription will consume.
+
+    Returns:
+        A MagicMock configured to return the pubsub components in get_metadata and subscriptions that consume the given event stream.
+    """
+    mock_client = MagicMock()
+    mock_sub = MagicMock()
+    mock_sub.__iter__.return_value = iter(event_stream)
+    mock_client.subscribe.return_value = mock_sub
+
+    # Support ``subscribe_with_handler`` which returns a no-op closer and immediately consumes a fixed event stream when the agent is hosted
+    # TODO: maybe return handle to control event consumption
+    def mock_sub_with_handler_fn(*args, **kwargs):
+        for message in event_stream:
+            # TODO: ideally want to avoid hardcoding here
+            handler_fn = args[2] or kwargs.get("handler_fn")
+            if handler_fn:
+                handler_fn(message)
+        
+        return lambda: None
+
+    mock_sub_with_handler = MagicMock()
+    mock_sub_with_handler.side_effect = mock_sub_with_handler_fn
+    mock_client.subscribe_with_handler = mock_sub_with_handler
+
+    # Set up get_metadata to return the pubsub components
+    mock_metadata = MagicMock()
+    components = []
+    for name in pubsub_names:
+        component = MagicMock()
+        component.type = "pubsub.redis"
+        component.name = name
+        components.append(component)
+    mock_metadata.registered_components = components
+    mock_client.get_metadata.return_value = mock_metadata
+
+    # Support context manager usage (with DaprClient() as client:)
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+
+    return mock_client
+
+
+@pytest.fixture(autouse=True)
+def patch_dapr_check(monkeypatch):
+    """Mock the workflow runtime so no live Dapr instance is required."""
+    import dapr.ext.workflow as wf
+
+    mock_runtime = Mock(spec=wf.WorkflowRuntime)
+    monkeypatch.setattr(wf, "WorkflowRuntime", lambda: mock_runtime)
+
+    class MockRetryPolicy:
+        def __init__(
+            self,
+            max_number_of_attempts=1,
+            first_retry_interval=timedelta(seconds=1),
+            max_retry_interval=timedelta(seconds=60),
+            backoff_coefficient=2.0,
+            retry_timeout: Optional[timedelta] = None,
+        ):
+            self.max_number_of_attempts = max_number_of_attempts
+
+    monkeypatch.setattr(wf, "RetryPolicy", MockRetryPolicy)
+    yield mock_runtime
+
+
+@pytest.fixture(autouse=True)
+def setup_env(monkeypatch):
+    """Provide an API key and a mock Dapr client factory."""
+    os.environ["OPENAI_API_KEY"] = "test-api-key"
+    monkeypatch.setattr(
+        "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+        lambda: _create_mock_dapr_client(),
+    )
+    yield
+    os.environ.pop("OPENAI_API_KEY", None)
+
+
+@pytest.fixture(autouse=True)
+def stub_agent_lifecycle(monkeypatch):
+    """Stub agent start/stop (they touch Dapr) so tests isolate activation."""
+    monkeypatch.setattr(DurableAgent, "start", lambda self, *a, **k: None)
+    monkeypatch.setattr(DurableAgent, "stop", lambda self, *a, **k: None)
+
+
+@pytest.fixture(autouse=True)
+def stub_route_wiring(monkeypatch):
+    """Stub pub/sub + HTTP route wiring so host methods isolate activation."""
+    monkeypatch.setattr(
+        "dapr_agents.workflow.runners.agent.register_message_routes",
+        MagicMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "dapr_agents.workflow.runners.agent.register_http_routes",
+        MagicMock(return_value=[]),
+    )
+
+
+def _make_agent(
+    name: str = "TestAgent",
+    pubsub_name: str = "testpubsub",
+    topic: str = "testtopic",
+) -> DurableAgent:
+    llm = Mock(spec=OpenAIChatClient)
+    llm.prompt_template = None
+    llm.__class__.__name__ = "MockLLMClient"
+    llm.provider = "MockOpenAIProvider"
+    llm.api = "MockOpenAIAPI"
+    llm.model = "gpt-4o-mock"
+    return DurableAgent(
+        name=name,
+        role="Test Assistant",
+        goal="Help with testing",
+        llm=llm,
+        pubsub=AgentPubSubConfig(
+            pubsub_name=pubsub_name,
+            agent_topic=topic,
+            broadcast_topic=f"{topic}.broadcast",
+        ),
+        state=AgentStateConfig(store=StateStoreService(store_name="teststatestore")),
+        registry=AgentRegistryConfig(
+            store=StateStoreService(store_name="testregistry")
+        ),
+        execution=AgentExecutionConfig(max_iterations=5),
+    )
+
+
+def _make_runner(
+    pubsub_names: list[str] = [],
+    event_stream: list[Any] = [],
+) -> AgentRunner:
+    runner = AgentRunner(wf_client=MagicMock(), client_factory=lambda: _create_mock_dapr_client(pubsub_names, event_stream))
+
+    # serve()-only mounts are irrelevant to activation; stub to keep tests focused.
+    runner._wire_http_routes = lambda **k: None
+    runner._mount_service_routes = lambda **k: None
+    runner._mount_hitl_routes = lambda **k: None
+
+    # we only care whether run() is called and with what arguments; stub to keep tests focused.
+    runner.run = AsyncMock(return_value="instance-1")
+    return runner
+
+
+# ---------------------------------------------------------------------------
+# Agent workflow trigger behavior
+# ---------------------------------------------------------------------------
+
+
+def test_drasi_trigger_uses_pubsub():
+    """Test that the given pub/sub configuration is used to trigger workflow execution on Drasi events."""
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "orderspubsub"
+    drasi_topic = "orders"
+    events = [
+        {
+            "topic": drasi_topic,
+            "pubsubname": drasi_pubsub_name,
+            "data": {
+                "op": "i",
+                "ts_ms": 111,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "low-stock-orders-query",
+                        "ts_ms": 111,
+                    },
+                    "after": { 
+                        "orderId": "1",
+                    }
+                }
+            },
+            "id": "1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "stock-notifications-publisher",
+            "type": "com.dapr.event.sent",
+        },
+        {
+            "topic": drasi_topic,
+            "pubsubname": drasi_pubsub_name,
+            "data": {
+                "op": "i",
+                "ts_ms": 123,
+                "seq": 1,
+                "payload": {
+                    "source": {
+                        "queryId": "low-stock-orders-query",
+                        "ts_ms": 123,
+                    },
+                    "after": { 
+                        "orderId": "2",
+                    }
+                }
+            },
+            "id": "2",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "stock-notifications-publisher",
+            "type": "com.dapr.event.sent",
+        },
+    ]
+    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events)
+
+    drasi_trigger(agent, pubsub_name=drasi_pubsub_name, topic=drasi_topic)
+    runner.subscribe(agent)
+
+    assert runner.run.call_count == 2
+    # TODO: assert args
+
+
+def test_drasi_trigger_defaults_to_agent_pubsub():
+    """Test that the agent's pub/sub configuration is used as a fallback to trigger workflow execution on Drasi events."""
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    events = [
+        {
+            "topic": agent_topic,
+            "pubsubname": agent_pubsub_name,
+            "data": {
+                "op": "i",
+                "ts_ms": 111,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "low-stock-orders-query",
+                        "ts_ms": 111,
+                    },
+                    "after": { 
+                        "orderId": "1",
+                    }
+                }
+            },
+            "id": "1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "stock-notifications-publisher",
+            "type": "com.dapr.event.sent",
+        },
+        {
+            "topic": agent_topic,
+            "pubsubname": agent_pubsub_name,
+            "data": {
+                "op": "i",
+                "ts_ms": 123,
+                "seq": 1,
+                "payload": {
+                    "source": {
+                        "queryId": "low-stock-orders-query",
+                        "ts_ms": 123,
+                    },
+                    "after": { 
+                        "orderId": "2",
+                    }
+                }
+            },
+            "id": "2",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "stock-notifications-publisher",
+            "type": "com.dapr.event.sent",
+        },
+    ]
+
+    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
+
+    drasi_trigger(agent)
+    runner.subscribe(agent)
+
+    assert runner.run.call_count == 2
+    # TODO: assert args
+
+
+# ---------------------------------------------------------------------------
+# Filtering behavior
+# ---------------------------------------------------------------------------
+# TODO: add tests for filtering once supported
