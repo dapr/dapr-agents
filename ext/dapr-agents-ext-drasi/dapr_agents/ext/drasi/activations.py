@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
+from dapr_agents import DurableAgent
 from dapr_agents.types.activation import ActivationCallback, ActivationContext
 from dapr_agents.workflow.decorators import message_router
 from dapr_agents.ext.drasi.utils.types import (
@@ -25,15 +26,21 @@ from dapr_agents.ext.drasi.utils.types import (
 logger = logging.getLogger(__name__)
 
 
-def drasi_trigger() -> ActivationCallback:
+def drasi_trigger(agent: DurableAgent, pubsub_name: str | None = None, topic: str | None = None) -> None:
     """
-    Overrides the agent workflow's pub/sub -> workflow routing behavior to accept Drasi events.
+    Augments the given agent workflow's pub/sub -> workflow routing behavior to accept Drasi events when the agent is hosted.
     The agent MUST be initialized with a pub/sub config, otherwise the activation is skipped.
 
+    Args:
+        agent: The target agent.
+        pubsub_name: The name of the pub/sub component.
+        topic: The topic to subscribe to.
+
     Returns:
-        The activation callback to be invoked when the agent is hosted.
+        None
     """
 
+    # TODO: support custom pub/sub config
     def activation_callback(ctx: ActivationContext) -> Callable[[], None] | None:
         if ctx.agent.pubsub is None:
             logger.warning("No pubsub config found on agent. Skipping activation.")
@@ -53,5 +60,5 @@ def drasi_trigger() -> ActivationCallback:
 
         # No closer needed for now
         return None
-
-    return activation_callback
+    
+    agent.add_activation(activation_callback)
