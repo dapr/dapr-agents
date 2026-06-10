@@ -15,15 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
-
-
-_DRASI_OP_TO_DESCRIPTION = {
-    "i": "insert",
-    "u": "update",
-    "d": "delete",
-    "x": "control",
-}
+from pydantic import BaseModel, Field
 
 
 class DrasiUnpackedSource(BaseModel):
@@ -56,23 +48,3 @@ class DrasiUnpackedEvent(BaseModel):
     payload: DrasiUnpackedPayload = Field(
         description="Event payload containing source and data"
     )
-
-    # ``task`` is required by the agent workflow, but we set it to optional for validation to work since the in-flight Drasi event doesn't have this field
-    task: Optional[str] = Field(
-        default=None,
-        description="Task string for the agent workflow",
-    )
-
-    @model_validator(mode="after")
-    def ensure_task(self):
-        """Create a ``task`` string from the Drasi change event data."""
-
-        if self.task is None:
-            # Hardcode task for now
-            self.task = (
-                f"Create a summary of the changes in this {_DRASI_OP_TO_DESCRIPTION[self.op]} event for the '{self.payload.source.queryId}' query.\n"
-                f"This is the state before the change: {self.payload.before}.\n"
-                f"This is the state after the change: {self.payload.after}.\n"
-            )
-
-        return self

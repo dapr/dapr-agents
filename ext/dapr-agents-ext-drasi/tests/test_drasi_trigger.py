@@ -18,11 +18,10 @@ from __future__ import annotations
 import os
 from datetime import timedelta
 from typing import Any, Optional
-from unittest import runner
 from unittest.mock import AsyncMock, MagicMock, Mock
 
+from numpy.ma import ids
 import pytest
-from pytest_mock import mocker
 
 from dapr_agents import DurableAgent
 from dapr_agents.agents.configs import (
@@ -33,10 +32,9 @@ from dapr_agents.agents.configs import (
 )
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
-from dapr_agents.types.activation import ActivationCallback, ActivationContext
 from dapr_agents.workflow.runners.agent import AgentRunner
 
-from dapr_agents.ext.drasi import drasi_trigger
+from dapr_agents.ext.drasi import drasi_trigger  # type: ignore[import-not-found]
 
 
 # ---------------------------------------------------------------------------
@@ -45,8 +43,8 @@ from dapr_agents.ext.drasi import drasi_trigger
 
 
 def _create_mock_dapr_client(
-    pubsub_names: list[str] = [],
-    event_stream: list[Any] = [],
+    pubsub_names: list[str] | None = None,
+    event_stream: list[Any] | None = None,
 ) -> MagicMock:
     """
     Create a mock DaprClient with specified pubsub components registered and a fixed event stream for subscriptions to consume.
@@ -58,6 +56,9 @@ def _create_mock_dapr_client(
     Returns:
         A MagicMock configured to return the pubsub components in get_metadata and subscriptions that consume the given event stream.
     """
+    pubsub_names = pubsub_names or []
+    event_stream = event_stream or []
+
     mock_client = MagicMock()
     mock_sub = MagicMock()
     mock_sub.__iter__.return_value = iter(event_stream)
@@ -67,11 +68,11 @@ def _create_mock_dapr_client(
     # TODO: maybe return handle to control event consumption
     def mock_sub_with_handler_fn(*args, **kwargs):
         for message in event_stream:
-            # TODO: ideally want to avoid hardcoding here
-            handler_fn = args[2] or kwargs.get("handler_fn")
+            # TODO: ideally want to avoid hardcoding here, support positional args too?
+            handler_fn = kwargs.get("handler_fn")
             if handler_fn:
                 handler_fn(message)
-        
+
         return lambda: None
 
     mock_sub_with_handler = MagicMock()
@@ -125,7 +126,7 @@ def setup_env(monkeypatch):
     os.environ["OPENAI_API_KEY"] = "test-api-key"
     monkeypatch.setattr(
         "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-        lambda: _create_mock_dapr_client(),
+        Mock(side_effect=lambda: _create_mock_dapr_client()),
     )
     yield
     os.environ.pop("OPENAI_API_KEY", None)
@@ -134,8 +135,8 @@ def setup_env(monkeypatch):
 @pytest.fixture(autouse=True)
 def stub_agent_lifecycle(monkeypatch):
     """Stub agent start/stop (they touch Dapr) so tests isolate activation."""
-    monkeypatch.setattr(DurableAgent, "start", lambda self, *a, **k: None)
-    monkeypatch.setattr(DurableAgent, "stop", lambda self, *a, **k: None)
+    monkeypatch.setattr(DurableAgent, "start", Mock())
+    monkeypatch.setattr(DurableAgent, "stop", Mock())
 
 
 @pytest.fixture(autouse=True)
@@ -143,11 +144,11 @@ def stub_route_wiring(monkeypatch):
     """Stub pub/sub + HTTP route wiring so host methods isolate activation."""
     monkeypatch.setattr(
         "dapr_agents.workflow.runners.agent.register_message_routes",
-        MagicMock(return_value=[]),
+        Mock(return_value=[]),
     )
     monkeypatch.setattr(
         "dapr_agents.workflow.runners.agent.register_http_routes",
-        MagicMock(return_value=[]),
+        Mock(return_value=[]),
     )
 
 
@@ -173,26 +174,29 @@ def _make_agent(
             broadcast_topic=f"{topic}.broadcast",
         ),
         state=AgentStateConfig(store=StateStoreService(store_name="teststatestore")),
-        registry=AgentRegistryConfig(
-            store=StateStoreService(store_name="testregistry")
-        ),
         execution=AgentExecutionConfig(max_iterations=5),
     )
 
 
 def _make_runner(
-    pubsub_names: list[str] = [],
-    event_stream: list[Any] = [],
+    pubsub_names: list[str],
+    event_stream: list[Any],
 ) -> AgentRunner:
-    runner = AgentRunner(wf_client=MagicMock(), client_factory=lambda: _create_mock_dapr_client(pubsub_names, event_stream))
+    runner = AgentRunner(
+        wf_client=MagicMock(),
+        client_factory=Mock(
+            side_effect=lambda: _create_mock_dapr_client(pubsub_names, event_stream)
+        ),
+    )
 
-    # serve()-only mounts are irrelevant to activation; stub to keep tests focused.
-    runner._wire_http_routes = lambda **k: None
-    runner._mount_service_routes = lambda **k: None
-    runner._mount_hitl_routes = lambda **k: None
+    # Stub serve() mounts
+    runner._wire_http_routes = Mock()  # type: ignore[method-assign]
+    runner._mount_service_routes = Mock()  # type: ignore[method-assign]
+    runner._mount_hitl_routes = Mock()  # type: ignore[method-assign]
 
-    # we only care whether run() is called and with what arguments; stub to keep tests focused.
-    runner.run = AsyncMock(return_value="instance-1")
+    # Stub workflow scheduling since we only care about the calls themselves
+    runner.run = AsyncMock(return_value="instance-1")  # type: ignore[method-assign]
+
     return runner
 
 
@@ -201,7 +205,9 @@ def _make_runner(
 # ---------------------------------------------------------------------------
 
 
-def test_drasi_trigger_uses_pubsub():
+@pytest.mark.asyncio
+@pytest.mark.ext
+async def test_drasi_trigger_uses_pubsub():
     """Test that the given pub/sub configuration is used to trigger workflow execution on Drasi events."""
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -220,10 +226,10 @@ def test_drasi_trigger_uses_pubsub():
                         "queryId": "low-stock-orders-query",
                         "ts_ms": 111,
                     },
-                    "after": { 
+                    "after": {
                         "orderId": "1",
-                    }
-                }
+                    },
+                },
             },
             "id": "1",
             "specversion": "1.0",
@@ -240,13 +246,13 @@ def test_drasi_trigger_uses_pubsub():
                 "seq": 1,
                 "payload": {
                     "source": {
-                        "queryId": "low-stock-orders-query",
+                        "queryId": "critical-stock-orders-query",
                         "ts_ms": 123,
                     },
-                    "after": { 
+                    "after": {
                         "orderId": "2",
-                    }
-                }
+                    },
+                },
             },
             "id": "2",
             "specversion": "1.0",
@@ -255,17 +261,29 @@ def test_drasi_trigger_uses_pubsub():
             "type": "com.dapr.event.sent",
         },
     ]
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events)
 
-    drasi_trigger(agent, pubsub_name=drasi_pubsub_name, topic=drasi_topic)
+    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = _make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
+
+    # TODO: update with custom pub/sub config once supported
+    drasi_trigger(agent)
     runner.subscribe(agent)
 
-    assert runner.run.call_count == 2
-    # TODO: assert args
+    assert runner.run.call_count == 2  # type: ignore[attr-defined]
+
+    # TODO: forced to use keyword args in implementation for id assertions
+    cloudevent_ids = [
+        c.kwargs["payload"]["_message_metadata"]["id"]
+        for c in runner.run.call_args_list  # type: ignore[attr-defined]
+    ]
+    assert cloudevent_ids == ["1", "2"]
 
 
-def test_drasi_trigger_defaults_to_agent_pubsub():
+@pytest.mark.asyncio
+@pytest.mark.ext
+async def test_drasi_trigger_defaults_to_agent_pubsub():
     """Test that the agent's pub/sub configuration is used as a fallback to trigger workflow execution on Drasi events."""
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -282,10 +300,10 @@ def test_drasi_trigger_defaults_to_agent_pubsub():
                         "queryId": "low-stock-orders-query",
                         "ts_ms": 111,
                     },
-                    "after": { 
+                    "after": {
                         "orderId": "1",
-                    }
-                }
+                    },
+                },
             },
             "id": "1",
             "specversion": "1.0",
@@ -302,13 +320,13 @@ def test_drasi_trigger_defaults_to_agent_pubsub():
                 "seq": 1,
                 "payload": {
                     "source": {
-                        "queryId": "low-stock-orders-query",
+                        "queryId": "critical-stock-orders-query",
                         "ts_ms": 123,
                     },
-                    "after": { 
+                    "after": {
                         "orderId": "2",
-                    }
-                }
+                    },
+                },
             },
             "id": "2",
             "specversion": "1.0",
@@ -324,8 +342,13 @@ def test_drasi_trigger_defaults_to_agent_pubsub():
     drasi_trigger(agent)
     runner.subscribe(agent)
 
-    assert runner.run.call_count == 2
-    # TODO: assert args
+    assert runner.run.call_count == 2  # type: ignore[attr-defined]
+
+    cloudevent_ids = [
+        c.kwargs["payload"]["_message_metadata"]["id"]
+        for c in runner.run.call_args_list  # type: ignore[attr-defined]
+    ]
+    assert cloudevent_ids == ["1", "2"]
 
 
 # ---------------------------------------------------------------------------
