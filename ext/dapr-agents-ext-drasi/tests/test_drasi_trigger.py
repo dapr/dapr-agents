@@ -193,7 +193,7 @@ def _make_runner(
     runner._mount_hitl_routes = Mock()  # type: ignore[method-assign]
 
     # Stub workflow scheduling since we only care about the calls themselves
-    runner.run = AsyncMock(return_value="instance-1")  # type: ignore[method-assign]
+    runner.run_sync = AsyncMock(return_value="instance-1")  # type: ignore[method-assign]
 
     return runner
 
@@ -269,17 +269,22 @@ async def test_drasi_trigger_uses_pubsub():
     drasi_trigger(agent)
     runner.subscribe(agent)
 
-    assert runner.run.call_count == 2  # type: ignore[attr-defined]
+    # Get a handle on the workflow scheduler method
+    scheduler_method = runner.run_sync
+    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     # Ensure order is preserved
     cloudevent_ids = [
         c.kwargs["payload"]["_message_metadata"]["id"]
-        for c in runner.run.call_args_list  # type: ignore[attr-defined]
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == ["1", "2"]
 
     # Ensure default tasks are serialized event data
-    tasks = [json.loads(c.kwargs["payload"]["task"]) for c in runner.run.call_args_list]  # type: ignore[attr-defined]
+    tasks = [
+        json.loads(c.kwargs["payload"]["task"])
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
     event_data = [e["data"] for e in events]
     assert tasks == event_data
 
@@ -345,17 +350,22 @@ async def test_drasi_trigger_defaults_to_agent_pubsub():
     drasi_trigger(agent)
     runner.subscribe(agent)
 
-    assert runner.run.call_count == 2  # type: ignore[attr-defined]
+    # Get a handle on the workflow scheduler method
+    scheduler_method = runner.run_sync
+    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     # Ensure order is preserved
     cloudevent_ids = [
         c.kwargs["payload"]["_message_metadata"]["id"]
-        for c in runner.run.call_args_list  # type: ignore[attr-defined]
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == ["1", "2"]
 
     # Ensure default tasks are serialized event data
-    tasks = [json.loads(c.kwargs["payload"]["task"]) for c in runner.run.call_args_list]  # type: ignore[attr-defined]
+    tasks = [
+        json.loads(c.kwargs["payload"]["task"])
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
     event_data = [e["data"] for e in events]
     assert tasks == event_data
 

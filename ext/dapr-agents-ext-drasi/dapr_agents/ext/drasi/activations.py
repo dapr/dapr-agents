@@ -21,15 +21,10 @@ from dapr.common.pubsub.subscription import SubscriptionMessage
 from dapr_agents import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.types.activation import ActivationContext
-from dapr_agents.ext.drasi.utils.types import (  # type: ignore[import-not-found]
-    DrasiUnpackedEvent,
-)
-from dapr_agents.workflow.runners.agent import AgentRunner
+from dapr_agents.ext.drasi.utils.types import DrasiUnpackedEvent  # type: ignore[import-not-found]
 from dapr_agents.workflow.utils.routers import parse_cloudevent
-from dapr_agents.workflow.utils.subscription import (
-    _attach_metadata_to_payload,
-    _resolve_event_loop,
-)
+from dapr_agents.workflow.utils.subscription import _attach_metadata_to_payload
+
 
 logger = logging.getLogger(__name__)
 
@@ -101,17 +96,12 @@ def drasi_trigger(
             agent_task = task.model_dump(exclude_unset=True)
             _attach_metadata_to_payload(agent_task, metadata)
 
-            # Ensure that event loop exists (we should be in the subscription thread so this is just for added safety)
-            _resolve_event_loop(None)
+            logger.info(f"Scheduling workflow with task: {agent_task}")
 
-            logger.info(f"Scheduling workflow with task {agent_task}")
+            # TODO: this does not scale well
+            result = ctx.runner.run_sync(ctx.agent, payload=agent_task)
 
-            # TODO: this is inefficient due to overhead of starting/stopping threads and event loops
-            instance_id: str = AgentRunner._run_coro_in_new_loop_thread(
-                ctx.runner.run(ctx.agent, payload=agent_task, wait=False)
-            )
-
-            logger.info(f"Scheduled workflow {instance_id} with task {agent_task}")
+            logger.info(f"Completed workflow with result: {result}")
 
             return TopicEventResponse(TopicEventResponseStatus.success)
         except Exception:
