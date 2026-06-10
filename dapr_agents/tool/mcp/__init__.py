@@ -12,8 +12,8 @@
 #
 
 from .client import MCPClient
+from .dapr_workflow_client import mcp_tool_def_to_workflow_tool
 from .prompt import convert_prompt_message
-from .schema import create_pydantic_model_from_schema
 from .transport import (
     start_sse_session,
     start_stdio_session,
@@ -22,13 +22,25 @@ from .transport import (
     start_websocket_session,
 )
 
+
+def __getattr__(name):
+    # Lazy re-export so the DeprecationWarning in .schema only fires when the
+    # deprecated symbol is actually accessed, not on every package import.
+    if name == "create_pydantic_model_from_schema":
+        from .schema import create_pydantic_model_from_schema
+
+        return create_pydantic_model_from_schema
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     "MCPClient",
+    "mcp_tool_def_to_workflow_tool",
     "start_stdio_session",
     "start_sse_session",
     "start_streamable_http_session",
     "start_websocket_session",
     "start_transport_session",
-    "create_pydantic_model_from_schema",
     "convert_prompt_message",
+    "create_pydantic_model_from_schema",
 ]
