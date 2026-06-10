@@ -15,25 +15,23 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import timedelta
 from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, Mock
 
-from numpy.ma import ids
 import pytest
 
 from dapr_agents import DurableAgent
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
     AgentPubSubConfig,
-    AgentRegistryConfig,
     AgentStateConfig,
 )
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.workflow.runners.agent import AgentRunner
-
 from dapr_agents.ext.drasi import drasi_trigger  # type: ignore[import-not-found]
 
 
@@ -273,12 +271,17 @@ async def test_drasi_trigger_uses_pubsub():
 
     assert runner.run.call_count == 2  # type: ignore[attr-defined]
 
-    # TODO: forced to use keyword args in implementation for id assertions
+    # Ensure order is preserved
     cloudevent_ids = [
         c.kwargs["payload"]["_message_metadata"]["id"]
         for c in runner.run.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == ["1", "2"]
+
+    # Ensure default tasks are serialized event data
+    tasks = [json.loads(c.kwargs["payload"]["task"]) for c in runner.run.call_args_list]  # type: ignore[attr-defined]
+    event_data = [e["data"] for e in events]
+    assert tasks == event_data
 
 
 @pytest.mark.asyncio
@@ -344,11 +347,17 @@ async def test_drasi_trigger_defaults_to_agent_pubsub():
 
     assert runner.run.call_count == 2  # type: ignore[attr-defined]
 
+    # Ensure order is preserved
     cloudevent_ids = [
         c.kwargs["payload"]["_message_metadata"]["id"]
         for c in runner.run.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == ["1", "2"]
+
+    # Ensure default tasks are serialized event data
+    tasks = [json.loads(c.kwargs["payload"]["task"]) for c in runner.run.call_args_list]  # type: ignore[attr-defined]
+    event_data = [e["data"] for e in events]
+    assert tasks == event_data
 
 
 # ---------------------------------------------------------------------------

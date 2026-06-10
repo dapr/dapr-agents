@@ -45,13 +45,15 @@ def drasi_trigger(
 
     Args:
         agent: The target agent.
-        mapper: A function to map Drasi events to agent task messages. If not provided, the Drasi event will be passed as-is to the agent.
+        mapper: A function to map Drasi events to agent task messages. If not provided, the serialized event is used as the task message.
 
     Returns:
         None
     """
     # TODO: support custom pub/sub config
-    mapper = mapper or (lambda event: TriggerAction(task=str(event)))
+    mapper = mapper or (
+        lambda event: TriggerAction(task=event.model_dump_json(exclude_unset=True))
+    )
 
     def _activate(ctx: ActivationContext) -> Callable[[], None] | None:
         if ctx.agent.pubsub is None:
@@ -95,7 +97,8 @@ def drasi_trigger(
                 # Can't process this message due to erroneous user logic
                 return TopicEventResponse(TopicEventResponseStatus.drop)
 
-            agent_task = task.model_dump()
+            # Strip optional missing fields
+            agent_task = task.model_dump(exclude_unset=True)
             _attach_metadata_to_payload(agent_task, metadata)
 
             # Ensure that event loop exists (we should be in the subscription thread so this is just for added safety)
