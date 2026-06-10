@@ -423,6 +423,64 @@ The agent starts with its initial role (`Original Role`) and subscribes to the D
 
 ---
 
+# 9. MCPServer Auto-Discovery
+
+This example shows a `DurableAgent` that automatically discovers and uses MCP server tools through the Dapr sidecar — no manual `DaprMCPClient` setup required.
+
+First, start the weather MCP server in a separate terminal. It listens at `http://localhost:8081/mcp` and exposes `get_weather` and `get_forecast` tools:
+
+```bash
+python weather_mcp_server.py
+```
+
+A Dapr `MCPServer` resource named `weather` is provided at `resources/weather-mcp.yaml` and is loaded automatically when you pass `--resources-path ./resources`:
+
+```bash
+dapr run --app-id mcp-agent --resources-path ./resources -- python mcp_dapr_workflow.py
+```
+
+## Multiple MCP Servers
+
+`mcp_dapr_workflow_multi.py` runs one agent against two MCPServers, each exposing distinct tools. Start each server in its own terminal:
+
+```bash
+python weather_mcp_server.py --port 8081     # MCPServer "weather":  get_weather, get_forecast
+python weather_mcp_server_2.py --port 8082   # MCPServer "weather2": get_humidity, get_wind
+```
+
+Resources are at `resources/weather-mcp.yaml` (`weather` → `:8081`) and `resources/weather-mcp-2.yaml` (`weather2` → `:8082`).
+
+```bash
+dapr run --app-id mcp-agent-multi --resources-path ./resources -- python mcp_dapr_workflow_multi.py
+```
+
+## Expected Behavior
+
+The agent answers a weather question by invoking the right tool for each sub-question. In the multi-server case the LLM picks `get_weather`/`get_forecast` from the `weather` server and `get_humidity`/`get_wind` from the `weather2` server — tool names are unique across servers, so there's no ambiguity to disambiguate.
+
+## How This Works
+
+1. At startup, the agent queries the Dapr sidecar metadata API and discovers all loaded `MCPServer` resources.
+2. For each MCPServer, the agent calls the built-in `dapr.internal.mcp.<server>.ListTools` workflow and caches the tool schemas.
+3. Each tool is a `WorkflowContextInjectedTool` that schedules `dapr.internal.mcp.<server>.CallTool.<tool>` as a child workflow when invoked.
+4. The Dapr sidecar handles transport, retries, timeouts, and auth.
+
+## How to Extend This Example
+
+To bypass auto-discovery and choose tools manually, drive `DaprMCPClient` yourself:
+
+```python
+from dapr.ext.workflow import DaprMCPClient
+from dapr_agents.tool.mcp import mcp_tool_def_to_workflow_tool
+
+client = DaprMCPClient(timeout_in_seconds=30)
+client.connect("weather")
+tools = [mcp_tool_def_to_workflow_tool(t) for t in client.get_all_tools()]
+agent = DurableAgent(name="WeatherAgent", tools=tools, ...)
+```
+
+---
+
 # Other Dapr Agent Examples
 
 If you want to coordinate multiple agents that run in separate applications or communicate through Pub/Sub, check out the [multi-agent workflows example](../examples/04-multi-agent-workflows/README.md).
