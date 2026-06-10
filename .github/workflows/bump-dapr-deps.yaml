@@ -15,7 +15,7 @@ name: Auto-bump dapr deps
 
 on:
   schedule:
-    - cron: "0 9,21 * * *"
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -55,13 +55,17 @@ jobs:
 
       - name: Detect available version
         id: check
-        run: uv run --script .github/scripts/check_pypi_bump.py dapr dapr-ext-fastapi dapr-ext-workflow
+        run: uv run --script .github/scripts/python_bump.py dapr dapr-ext-fastapi dapr-ext-grpc dapr-ext-langgraph dapr-ext-strands dapr-ext-workflow flask-dapr
 
       - name: Bump pins
         if: steps.check.outputs.should_bump == 'true'
         env:
           NEW: ${{ steps.check.outputs.latest }}
-        run: uv add "dapr==${NEW}" "dapr-ext-fastapi==${NEW}" "dapr-ext-workflow==${NEW}"
+          PACKAGES: ${{ steps.check.outputs.packages }}
+        run: |
+          specs=()
+          for pkg in ${PACKAGES}; do specs+=("${pkg}==${NEW}"); done
+          uv add "${specs[@]}"
 
       - name: Open PR
         if: steps.check.outputs.should_bump == 'true'
@@ -75,7 +79,7 @@ jobs:
           commit-message: "chore(deps): bump dapr python-sdk to ${{ steps.check.outputs.latest }}"
           title: "chore(deps): bump dapr python-sdk to ${{ steps.check.outputs.latest }}"
           body: |
-            Automated bump of `dapr`, `dapr-ext-fastapi`, and `dapr-ext-workflow`
+            Automated bump of the dapr python-sdk packages (`${{ steps.check.outputs.packages }}`)
             from `${{ steps.check.outputs.current }}` to `${{ steps.check.outputs.latest }}`.
 
             Release notes: https://github.com/dapr/python-sdk/releases/tag/v${{ steps.check.outputs.latest }}
@@ -113,7 +117,7 @@ jobs:
 
       - name: Detect available version
         id: check
-        run: uv run --script .github/scripts/check_pypi_bump.py durabletask-dapr
+        run: uv run --script .github/scripts/python_bump.py durabletask-dapr
 
       - name: Bump pins
         if: steps.check.outputs.should_bump == 'true'

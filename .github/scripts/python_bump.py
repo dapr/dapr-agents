@@ -1,3 +1,16 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["packaging"]
@@ -33,12 +46,15 @@ def main(packages: list[str]) -> None:
     deps = tomllib.loads(pyproject_text)["project"]["dependencies"]
     pins = dict(spec.split("==", 1) for spec in deps if "==" in spec)
 
-    missing = [pkg for pkg in packages if pkg not in pins]
-    if missing:
-        print(f"::error::missing '==' pins in pyproject.toml for: {missing}")
-        sys.exit(1)
+    tracked = [pkg for pkg in packages if pkg in pins]
+    skipped = [pkg for pkg in packages if pkg not in pins]
+    if skipped:
+        print(f"::notice::not pinned in pyproject.toml, skipping: {skipped}")
+    if not tracked:
+        print("::notice::none of the requested packages are pinned")
+        return
 
-    versions_current = {pkg: pins[pkg] for pkg in packages}
+    versions_current = {pkg: pins[pkg] for pkg in tracked}
     if len({Version(v) for v in versions_current.values()}) != 1:
         print(
             f"::notice::current pins out of sync in pyproject.toml: {versions_current}"
@@ -46,7 +62,7 @@ def main(packages: list[str]) -> None:
         return
     version_current = next(iter(versions_current.values()))
 
-    versions_pypi = {pkg: fetch_latest(pkg) for pkg in packages}
+    versions_pypi = {pkg: fetch_latest(pkg) for pkg in tracked}
     if len({Version(v) for v in versions_pypi.values()}) != 1:
         print(f"::notice::packages out of sync on PyPI: {versions_pypi}")
         return
@@ -60,6 +76,7 @@ def main(packages: list[str]) -> None:
     with output_path.open("a") as output:
         output.write(
             f"should_bump=true\ncurrent={version_current}\nlatest={version_latest}\n"
+            f"packages={' '.join(tracked)}\n"
         )
 
 
