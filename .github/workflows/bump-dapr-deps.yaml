@@ -55,7 +55,7 @@ jobs:
 
       - name: Detect available version
         id: check
-        run: python .github/scripts/check_pypi_bump.py dapr dapr-ext-fastapi dapr-ext-workflow
+        run: uv run --script .github/scripts/check_pypi_bump.py dapr dapr-ext-fastapi dapr-ext-workflow
 
       - name: Bump pins
         if: steps.check.outputs.should_bump == 'true'
@@ -113,7 +113,7 @@ jobs:
 
       - name: Detect available version
         id: check
-        run: python .github/scripts/check_pypi_bump.py durabletask-dapr
+        run: uv run --script .github/scripts/check_pypi_bump.py durabletask-dapr
 
       - name: Bump pins
         if: steps.check.outputs.should_bump == 'true'
