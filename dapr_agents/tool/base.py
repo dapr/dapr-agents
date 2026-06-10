@@ -33,6 +33,7 @@ from dapr_agents.tool.utils.function_calling import (
     to_function_call_definition,
 )
 from dapr_agents.types import ToolError
+from dapr.ext.workflow.mcp_schema import create_pydantic_model_from_schema
 
 if TYPE_CHECKING:
     from mcp.types import Tool as MCPTool
@@ -170,10 +171,6 @@ class AgentTool(BaseModel):
         tool_args_model = None
         if getattr(mcp_tool, "inputSchema", None):
             try:
-                from dapr_agents.tool.mcp.schema import (
-                    create_pydantic_model_from_schema,
-                )
-
                 tool_args_model = create_pydantic_model_from_schema(
                     mcp_tool.inputSchema, f"{tool_name}Args"
                 )

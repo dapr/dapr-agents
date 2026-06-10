@@ -1,0 +1,12 @@
+# MCPServer resource for the weather quickstart.
+# Tells the Dapr sidecar how to reach the weather MCP server started by
+# weather_mcp_server.py.  The sidecar dials this URL directly; the agent
+# process never opens a socket to the MCP server itself.
+apiVersion: dapr.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: weather
+spec:
+  endpoint:
+    streamableHTTP:
+      url: http://localhost:8081/mcp

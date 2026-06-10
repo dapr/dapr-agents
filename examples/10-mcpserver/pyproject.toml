@@ -11,19 +11,19 @@
 # limitations under the License.
 #
 
-apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: agent-runtime
-spec:
-  type: state.redis
-  version: v1
-  metadata:
-  - name: redisHost
-    value: localhost:6379
-  - name: redisPassword
-    value: ""
-  - name: enableTLS
-    value: "false"
-  - name: keyPrefix
-    value: none
+[project]
+name = "10-mcpserver"
+version = "0.1.0"
+requires-python = ">=3.11, <3.14"
+dependencies = [
+    "dapr-agents",
+    "python-dotenv>=1.2.1",
+    "starlette>=0.49.1",
+    "websockets>=12.0",
+    "fastmcp>=2.0.0",
+    "uvicorn>=0.34.0",
+    "mcp>=1.26.0,<2.0.0",
+]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }

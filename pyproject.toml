@@ -27,9 +27,9 @@ authors = [
     {name = "Dapr Authors", email = "dapr@dapr.io"}
 ]
 dependencies = [
-    "dapr==1.17.3",
-    "dapr-ext-fastapi==1.17.3",
-    "dapr-ext-workflow==1.17.3",
+    "dapr>=1.18.0rc0,<1.19.0",
+    "dapr-ext-fastapi>=1.18.0rc0,<1.19.0",
+    "dapr-ext-workflow>=1.18.0rc0,<1.19.0",
     "durabletask-dapr==0.17.4",
     "pydantic>=2.11.3,<3.0.0",
     "jinja2>=3.1.0,<4.0.0",
@@ -121,6 +121,14 @@ vectorstore = {requires-python = ">=3.11,<3.14"}
 [tool.uv]
 exclude-newer = "7 days"
 
+[tool.uv.exclude-newer-package]
+# Explicit UTC timestamps — bare dates would otherwise be evaluated in the
+# local timezone, producing different timestamps on developer machines vs. CI.
+dapr = "2026-05-21T00:00:00Z"
+dapr-ext-fastapi = "2026-05-21T00:00:00Z"
+dapr-ext-workflow = "2026-05-21T00:00:00Z"
+durabletask-dapr = "2026-05-21T00:00:00Z"
+
 [project.urls]
 Documentation = "https://github.com/dapr/docs"
 Source = "https://github.com/dapr/python-sdk"
@@ -175,5 +183,6 @@ members = [
     "examples/07-data-agent-mcp-chainlit",
     "examples/08-agents-as-activities-observability",
     "examples/09-agents-as-tools",
+    "examples/10-mcpserver",
     "examples/11-expert-agent-tavily",
 ]
