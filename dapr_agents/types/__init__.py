@@ -11,6 +11,7 @@
 # limitations under the License.
 #
 
+from .activation import ActivationCallback, ActivationContext
 from .agent import (
     AgentStatus,
     AgentTaskEntry,
@@ -56,6 +57,8 @@ from .tools import (
 )
 
 __all__ = [
+    "ActivationCallback",
+    "ActivationContext",
     "AgentStatus",
     "AgentTaskEntry",
     "AgentTaskStatus",

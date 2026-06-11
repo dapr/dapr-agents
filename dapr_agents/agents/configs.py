@@ -606,6 +606,28 @@ class AgentPubSubConfig:
 
 
 @dataclass
+class AgentMCPConfig:
+    """Configuration for MCPServer auto-discovery and tool loading.
+
+    When a ``DurableAgent`` is created, the framework queries the Dapr sidecar
+    metadata API for loaded ``MCPServer`` resources and automatically connects
+    to each one via the built-in ``dapr.internal.mcp.<server>.ListTools``
+    workflow.
+
+    Attributes:
+        timeout_in_seconds: Per-server timeout when waiting for the
+            ``ListTools`` workflow to complete.
+        allowed_tools: Optional allow-list of tool names.  Only tools whose
+            name appears in this set are loaded.  ``None`` loads all tools.
+        enabled: Set to ``False`` to disable MCP auto-discovery entirely.
+    """
+
+    timeout_in_seconds: int = 30
+    allowed_tools: Optional[set] = None
+    enabled: bool = True
+
+
+@dataclass
 class PromptSection:
     """Reusable block for composing a structured system prompt."""
 
