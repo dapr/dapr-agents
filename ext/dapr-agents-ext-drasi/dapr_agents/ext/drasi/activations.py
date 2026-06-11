@@ -32,40 +32,48 @@ logger = logging.getLogger(__name__)
 def drasi_trigger(
     agent: DurableAgent,
     *,
+    topic: str,
     mapper: Callable[[DrasiUnpackedEvent], TriggerAction] | None = None,
 ) -> None:
     """
     Augments the given agent workflow's pub/sub -> workflow routing behavior to accept Drasi events when the agent is hosted.
-    Currently uses the agent's pub/sub config — the agent MUST be initialized with a pub/sub config, otherwise the activation is skipped.
+    Currently depends on the agent's pub/sub component name — the agent MUST be initialized with a pub/sub configuration, otherwise the activation will fail.
 
     Args:
         agent: The target agent.
+        topic: The topic to subscribe to. This MUST be different from the agent's topic.
         mapper: A function to map Drasi events to agent task messages. If not provided, the serialized event is used as the task message.
 
     Returns:
         None
+
+    Raises:
+        RuntimeError: If the agent does not have a pub/sub configuration or if the topic is the same as the agent's topic.
     """
-    # TODO: support custom pub/sub config
     mapper = mapper or (
         lambda event: TriggerAction(task=event.model_dump_json(exclude_unset=True))
     )
 
     def _activate(ctx: ActivationContext) -> Callable[[], None] | None:
+        # TODO: error messages could probably have more context
         if ctx.agent.pubsub is None:
-            logger.warning("No pubsub config found on agent. Skipping activation.")
-            return None
+            raise RuntimeError("No pub/sub config found on agent.")
+
+        if ctx.agent.topic_name == topic:
+            raise RuntimeError(
+                "Pub/sub topic must be different from the agent's topic."
+            )
 
         if ctx.app is not None:
-            logger.warning(
-                "HTTP routes are not supported by this extension. Skipping activation."
+            logger.info(
+                "HTTP routes are not supported by this extension. Only pub/sub routes will be wired."
             )
-            return None
-        else:
-            closer = _open_stream(ctx)
 
-        closed = False
+        closer = _open_stream(ctx)
 
         # Return an idempotent closer to the runner
+        closed = False
+
         def _close():
             nonlocal closed
             if closed:
@@ -79,7 +87,7 @@ def drasi_trigger(
         ctx: ActivationContext, event: SubscriptionMessage
     ) -> TopicEventResponse:
         # TODO: make this more robust and separate subscription logic from validate/transform logic by extracting it out
-        logger.info(f"Received Drasi event: {event}")
+        logger.info(f"Received Drasi event: {event!r}")
 
         try:
             # TODO: add deduplication for exactly-once processing
@@ -109,9 +117,13 @@ def drasi_trigger(
             return TopicEventResponse(TopicEventResponseStatus.retry)
 
     def _open_stream(ctx: ActivationContext) -> Callable[[], None]:
+        # Use the agent pub/sub component
+        pubsub_name = ctx.agent.pubsub.pubsub_name
+        resolved_topic = topic or ctx.agent.pubsub.agent_topic
+
         return ctx.dapr_client.subscribe_with_handler(
-            pubsub_name=ctx.agent.pubsub.pubsub_name,
-            topic=ctx.agent.pubsub.agent_topic,
+            pubsub_name=pubsub_name,
+            topic=resolved_topic,
             handler_fn=lambda event: _on_event(ctx, event),
         )
 

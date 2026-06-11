@@ -21,6 +21,7 @@ from datetime import timedelta
 from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, Mock
 
+from fastapi import FastAPI
 import pytest
 
 from dapr_agents import DurableAgent
@@ -151,9 +152,9 @@ def stub_route_wiring(monkeypatch):
 
 
 def _make_agent(
+    pubsub_name: str | None = None,
+    topic: str | None = None,
     name: str = "TestAgent",
-    pubsub_name: str = "testpubsub",
-    topic: str = "testtopic",
 ) -> DurableAgent:
     llm = Mock(spec=OpenAIChatClient)
     llm.prompt_template = None
@@ -161,16 +162,25 @@ def _make_agent(
     llm.provider = "MockOpenAIProvider"
     llm.api = "MockOpenAIAPI"
     llm.model = "gpt-4o-mock"
+
+    # Allow pubsub config to be omitted in tests
+    if not pubsub_name and not topic:
+        pubsub = None
+    else:
+        pubsub = AgentPubSubConfig(
+            pubsub_name=pubsub_name or "testpubsub",
+            agent_topic=topic or "testtopic",
+            broadcast_topic=f"{topic}.broadcast"
+            if topic is not None
+            else "testtopic.broadcast",
+        )
+
     return DurableAgent(
         name=name,
         role="Test Assistant",
         goal="Help with testing",
         llm=llm,
-        pubsub=AgentPubSubConfig(
-            pubsub_name=pubsub_name,
-            agent_topic=topic,
-            broadcast_topic=f"{topic}.broadcast",
-        ),
+        pubsub=pubsub,
         state=AgentStateConfig(store=StateStoreService(store_name="teststatestore")),
         execution=AgentExecutionConfig(max_iterations=5),
     )
@@ -206,22 +216,21 @@ def _make_runner(
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub():
-    """Test that the given pub/sub configuration is used to trigger workflow execution on Drasi events."""
-    agent_pubsub_name = "testpubsub"
+    """Test that the Drasi activation wires pub/sub routes correctly."""
+    pubsub_name = "testpubsub"
     agent_topic = "testtopic"
-    drasi_pubsub_name = "orderspubsub"
     drasi_topic = "orders"
     events = [
         {
             "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
+            "pubsubname": pubsub_name,
             "data": {
                 "op": "i",
                 "ts_ms": 111,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "low-stock-orders-query",
+                        "queryId": "orders-query",
                         "ts_ms": 111,
                     },
                     "after": {
@@ -237,14 +246,14 @@ async def test_drasi_trigger_uses_pubsub():
         },
         {
             "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
+            "pubsubname": pubsub_name,
             "data": {
                 "op": "i",
                 "ts_ms": 123,
                 "seq": 1,
                 "payload": {
                     "source": {
-                        "queryId": "critical-stock-orders-query",
+                        "queryId": "orders-query",
                         "ts_ms": 123,
                     },
                     "after": {
@@ -260,13 +269,10 @@ async def test_drasi_trigger_uses_pubsub():
         },
     ]
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(
-        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
-    )
+    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
 
-    # TODO: update with custom pub/sub config once supported
-    drasi_trigger(agent)
+    drasi_trigger(agent, topic=drasi_topic)
     runner.subscribe(agent)
 
     # Get a handle on the workflow scheduler method
@@ -291,64 +297,69 @@ async def test_drasi_trigger_uses_pubsub():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_defaults_to_agent_pubsub():
-    """Test that the agent's pub/sub configuration is used as a fallback to trigger workflow execution on Drasi events."""
-    agent_pubsub_name = "testpubsub"
-    agent_topic = "testtopic"
+async def test_drasi_trigger_uses_pubsub_when_agent_is_hosted_as_a_service():
+    """Test that the Drasi activation wires pub/sub routes correctly when the agent is hosted as a service (HTTP and pub/sub)."""
+    pubsub_name = "notifications"
+    agent_topic = "agent-inbox"
+    drasi_topic = "important"
     events = [
         {
-            "topic": agent_topic,
-            "pubsubname": agent_pubsub_name,
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
             "data": {
-                "op": "i",
-                "ts_ms": 111,
-                "seq": 0,
+                "op": "u",
+                "ts_ms": 67,
+                "seq": 22,
                 "payload": {
                     "source": {
-                        "queryId": "low-stock-orders-query",
-                        "ts_ms": 111,
+                        "queryId": "potential-fraud-query",
+                        "ts_ms": 67,
+                    },
+                    "before": {
+                        "name": "your_name_here",
                     },
                     "after": {
-                        "orderId": "1",
+                        "name": "YOUR_NAME_HERE",
                     },
                 },
             },
-            "id": "1",
+            "id": "22",
             "specversion": "1.0",
             "datacontenttype": "application/json; charset=utf-8",
-            "source": "stock-notifications-publisher",
+            "source": "truth-nuke-publisher",
             "type": "com.dapr.event.sent",
         },
         {
-            "topic": agent_topic,
-            "pubsubname": agent_pubsub_name,
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
             "data": {
-                "op": "i",
-                "ts_ms": 123,
-                "seq": 1,
+                "op": "d",
+                "ts_ms": 223,
+                "seq": 33,
                 "payload": {
                     "source": {
-                        "queryId": "critical-stock-orders-query",
-                        "ts_ms": 123,
+                        "queryId": "account-deletion-query",
+                        "ts_ms": 223,
                     },
-                    "after": {
-                        "orderId": "2",
+                    "before": {
+                        "userId": "1",
+                        "password": "password",
                     },
                 },
             },
-            "id": "2",
+            "id": "33",
             "specversion": "1.0",
             "datacontenttype": "application/json; charset=utf-8",
-            "source": "stock-notifications-publisher",
+            "source": "truth-nuke-publisher",
             "type": "com.dapr.event.sent",
         },
     ]
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
+    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
 
-    drasi_trigger(agent)
-    runner.subscribe(agent)
+    drasi_trigger(agent, topic=drasi_topic)
+    runner.serve(agent, app=FastAPI())
 
     # Get a handle on the workflow scheduler method
     scheduler_method = runner.run_sync
@@ -359,7 +370,7 @@ async def test_drasi_trigger_defaults_to_agent_pubsub():
         c.kwargs["payload"]["_message_metadata"]["id"]
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert cloudevent_ids == ["1", "2"]
+    assert cloudevent_ids == ["22", "33"]
 
     # Ensure default tasks are serialized event data
     tasks = [
@@ -368,6 +379,96 @@ async def test_drasi_trigger_defaults_to_agent_pubsub():
     ]
     event_data = [e["data"] for e in events]
     assert tasks == event_data
+
+
+@pytest.mark.asyncio
+@pytest.mark.ext
+async def test_drasi_trigger_raises_when_pubsub_config_is_missing():
+    """Test that the Drasi activation fails when the agent pub/sub config is missing."""
+    pubsub_name = "testpubsub"
+    drasi_topic = "testtopic"
+    events = [
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "u",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "test-query",
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "count": "0",
+                    },
+                    "after": {
+                        "count": "1",
+                    },
+                },
+            },
+            "id": "1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+    ]
+
+    # Omit pub/sub config on agent
+    agent = _make_agent()
+    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+
+    drasi_trigger(agent, topic=drasi_topic)
+
+    with pytest.raises(RuntimeError):
+        runner.subscribe(agent)
+
+
+@pytest.mark.asyncio
+@pytest.mark.ext
+async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
+    """Test that the Drasi activation fails when the pub/sub topic matches the agent's pub/sub topic."""
+    pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_topic = "testtopic"
+    events = [
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "u",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "test-query",
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "count": "0",
+                    },
+                    "after": {
+                        "count": "1",
+                    },
+                },
+            },
+            "id": "1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+    ]
+
+    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+
+    drasi_trigger(agent, topic=drasi_topic)
+
+    with pytest.raises(RuntimeError):
+        runner.subscribe(agent)
 
 
 # ---------------------------------------------------------------------------
