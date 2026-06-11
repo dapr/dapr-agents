@@ -29,10 +29,34 @@ from dapr_agents.workflow.utils.routers import (
 )
 from dapr_agents.workflow.utils.registration import register_message_routes
 from dapr_agents.workflow.utils.subscription import (
+    DELIVERY_MODE_ASYNC,
+    DELIVERY_MODE_SYNC,
+    METADATA_KEY,
+    STATUS_DROP,
+    STATUS_RETRY,
+    STATUS_SUCCESS,
+    MessageContext,
     MessageRouteBinding,
     TTLDedupeBackend,
+    WorkflowStatus,
+    _attach_metadata_to_payload,
+    _build_binding_schema_pairs,
+    _cancel_tasks,
+    _filter_accepts,
+    _group_bindings_by_topic,
+    _log_workflow_outcome,
+    _normalize_status,
+    _order_pairs_by_cloudevent_type,
+    _resolve_event_loop,
+    _serialize_workflow_input,
+    _shutdown_thread,
+    _validate_dead_letter_topics,
+    _validate_delivery_mode,
+    _validate_filter,
     _warn_unreachable_bindings,
 )
+from dapr.clients.grpc._response import TopicEventResponseStatus
+from dapr_agents.types.message import EventMessageMetadata
 
 
 _PATCH_TARGET = "dapr_agents.workflow.utils.registration.default_dapr_client_factory"
@@ -1340,3 +1364,460 @@ def test_no_warn_when_schemas_differ(caplog):
         _warn_unreachable_bindings(bindings)
 
     assert caplog.text == ""
+
+
+# ============================================================================
+# Helper unit tests — subscription.py module-level functions
+# ============================================================================
+
+
+def _mk_binding(
+    name,
+    *,
+    topic="orders",
+    pubsub="messagepubsub",
+    schemas=None,
+    dead_letter_topic=None,
+):
+    return MessageRouteBinding(
+        handler=lambda: None,
+        schemas=schemas if schemas is not None else [OrderCreated],
+        pubsub=pubsub,
+        topic=topic,
+        dead_letter_topic=dead_letter_topic,
+        name=name,
+    )
+
+
+def _raise_runtime(*args, **kwargs):
+    raise RuntimeError("no loop")
+
+
+def _msg_ctx(handler_name: str = "handler") -> MessageContext:
+    event = EventMessageMetadata(
+        id="evt-1",
+        datacontenttype="application/json",
+        pubsubname="messagepubsub",
+        source="/test",
+        specversion="1.0",
+        time=None,
+        topic="orders",
+        traceid=None,
+        traceparent=None,
+        type="OrderCreated",
+        tracestate=None,
+        headers={},
+    )
+    return MessageContext(event=event, handler_name=handler_name)
+
+
+# ---- _validate_delivery_mode ----------------------------------------------
+
+
+def test_validate_delivery_mode_accepts_known_modes():
+    _validate_delivery_mode(DELIVERY_MODE_SYNC)
+    _validate_delivery_mode(DELIVERY_MODE_ASYNC)
+
+
+def test_validate_delivery_mode_rejects_unknown():
+    with pytest.raises(ValueError, match="delivery_mode must be"):
+        _validate_delivery_mode("turbo")
+
+
+# ---- _validate_filter ------------------------------------------------------
+
+
+def test_validate_filter_none_and_sync_are_ok():
+    _validate_filter(None, "payload_filter")
+    _validate_filter(lambda v, c: True, "payload_filter")
+
+
+def test_validate_filter_rejects_non_callable():
+    with pytest.raises(TypeError, match="payload_filter.*callable"):
+        _validate_filter(42, "payload_filter")
+
+
+def test_validate_filter_rejects_async_function():
+    async def f(v, c):
+        return True
+
+    with pytest.raises(TypeError, match="model_filter.*synchronous"):
+        _validate_filter(f, "model_filter")
+
+
+def test_validate_filter_rejects_async_dunder_call():
+    class AsyncCallable:
+        async def __call__(self, v, c):
+            return True
+
+    with pytest.raises(TypeError, match="payload_filter.*synchronous"):
+        _validate_filter(AsyncCallable(), "payload_filter")
+
+
+# ---- _validate_dead_letter_topics -----------------------------------------
+
+
+def test_validate_dlq_conflict_raises():
+    bindings = [
+        _mk_binding("a", dead_letter_topic="dlq-1"),
+        _mk_binding("b", dead_letter_topic="dlq-2"),
+    ]
+    with pytest.raises(ValueError, match="Multiple dead_letter_topics"):
+        _validate_dead_letter_topics(bindings)
+
+
+def test_validate_dlq_same_value_is_ok():
+    bindings = [
+        _mk_binding("a", dead_letter_topic="dlq-1"),
+        _mk_binding("b", dead_letter_topic="dlq-1"),
+    ]
+    _validate_dead_letter_topics(bindings)
+
+
+def test_validate_dlq_none_does_not_conflict():
+    bindings = [
+        _mk_binding("a", dead_letter_topic="dlq-1"),
+        _mk_binding("b", dead_letter_topic=None),
+    ]
+    _validate_dead_letter_topics(bindings)
+
+
+def test_validate_dlq_different_topics_are_independent():
+    bindings = [
+        _mk_binding("a", topic="orders", dead_letter_topic="dlq-1"),
+        _mk_binding("b", topic="shipments", dead_letter_topic="dlq-2"),
+    ]
+    _validate_dead_letter_topics(bindings)
+
+
+# ---- _group_bindings_by_topic ---------------------------------------------
+
+
+def test_group_bindings_by_topic_groups_shared_keys():
+    a = _mk_binding("a", topic="orders")
+    b = _mk_binding("b", topic="orders")
+    c = _mk_binding("c", topic="shipments")
+
+    grouped = _group_bindings_by_topic([a, b, c])
+
+    assert set(grouped) == {
+        ("messagepubsub", "orders"),
+        ("messagepubsub", "shipments"),
+    }
+    assert grouped[("messagepubsub", "orders")] == [a, b]
+    assert grouped[("messagepubsub", "shipments")] == [c]
+
+
+# ---- _build_binding_schema_pairs ------------------------------------------
+
+
+def test_build_binding_schema_pairs_flattens_schemas():
+    binding = _mk_binding("b", schemas=[OrderCreated, OrderCancelled])
+    pairs = _build_binding_schema_pairs([binding])
+    assert pairs == [(binding, OrderCreated), (binding, OrderCancelled)]
+
+
+def test_build_binding_schema_pairs_defaults_to_dict_when_empty():
+    binding = _mk_binding("b", schemas=[])
+    pairs = _build_binding_schema_pairs([binding])
+    assert pairs == [(binding, dict)]
+
+
+# ---- _order_pairs_by_cloudevent_type --------------------------------------
+
+
+def test_order_pairs_no_type_returns_input_unchanged():
+    binding = _mk_binding("b")
+    pairs = [(binding, OrderCreated), (binding, OrderCancelled)]
+    assert _order_pairs_by_cloudevent_type(pairs, None) == pairs
+
+
+def test_order_pairs_prioritizes_matching_type():
+    binding = _mk_binding("b")
+    pairs = [(binding, OrderCreated), (binding, OrderCancelled)]
+    ordered = _order_pairs_by_cloudevent_type(pairs, "OrderCancelled")
+    assert ordered == [(binding, OrderCancelled), (binding, OrderCreated)]
+
+
+def test_order_pairs_unmatched_type_returns_input_unchanged():
+    binding = _mk_binding("b")
+    pairs = [(binding, OrderCreated), (binding, OrderCancelled)]
+    assert _order_pairs_by_cloudevent_type(pairs, "Unknown") == pairs
+
+
+# ---- _normalize_status -----------------------------------------------------
+
+
+def test_normalize_status_from_string():
+    assert _normalize_status("SUCCESS") == STATUS_SUCCESS
+    assert _normalize_status("retry") == STATUS_RETRY
+    assert _normalize_status("DROP") == STATUS_DROP
+
+
+def test_normalize_status_from_enum():
+    assert _normalize_status(TopicEventResponseStatus.success) == STATUS_SUCCESS
+    assert _normalize_status(TopicEventResponseStatus.retry) == STATUS_RETRY
+    assert _normalize_status(TopicEventResponseStatus.drop) == STATUS_DROP
+
+
+def test_normalize_status_unknown_returns_none():
+    assert _normalize_status("teapot") is None
+
+
+# ---- _filter_accepts -------------------------------------------------------
+
+
+def test_filter_accepts_none_filter_returns_true():
+    result = _filter_accepts(
+        None, {"a": 1}, _msg_ctx(), kind="payload_filter", binding_name="b"
+    )
+    assert result is True
+
+
+def test_filter_accepts_forwards_value_and_context():
+    seen = {}
+
+    def capture(value, ctx):
+        seen["value"] = value
+        seen["ctx"] = ctx
+        return True
+
+    value = {"a": 1}
+    ctx = _msg_ctx()
+    result = _filter_accepts(
+        capture, value, ctx, kind="payload_filter", binding_name="b"
+    )
+    assert result is True
+    assert seen["value"] is value
+    assert seen["ctx"] is ctx
+
+
+def test_filter_accepts_false_rejects():
+    result = _filter_accepts(
+        lambda v, c: False, {}, _msg_ctx(), kind="model_filter", binding_name="b"
+    )
+    assert result is False
+
+
+def test_filter_accepts_coerces_truthy_result_to_bool():
+    result = _filter_accepts(
+        lambda v, c: "yes", {}, _msg_ctx(), kind="model_filter", binding_name="b"
+    )
+    assert result is True
+
+
+def test_filter_accepts_swallows_exception_as_rejection(caplog):
+    def boom(value, ctx):
+        raise RuntimeError("boom")
+
+    with caplog.at_level(logging.ERROR):
+        result = _filter_accepts(
+            boom, {}, _msg_ctx(), kind="payload_filter", binding_name="bind-x"
+        )
+    assert result is False
+    assert "bind-x" in caplog.text
+
+
+# ---- _attach_metadata_to_payload ------------------------------------------
+
+
+def test_attach_metadata_to_dict():
+    payload = {"order_id": "1"}
+    _attach_metadata_to_payload(payload, {"id": "evt-1"})
+    assert payload[METADATA_KEY] == {"id": "evt-1"}
+
+
+def test_attach_metadata_none_is_noop():
+    payload = {"order_id": "1"}
+    _attach_metadata_to_payload(payload, None)
+    assert METADATA_KEY not in payload
+
+
+def test_attach_metadata_to_plain_object():
+    class Obj:
+        pass
+
+    obj = Obj()
+    _attach_metadata_to_payload(obj, {"id": "evt-1"})
+    assert getattr(obj, METADATA_KEY) == {"id": "evt-1"}
+
+
+def test_attach_metadata_swallows_setattr_error():
+    model = OrderCreated(order_id="1", amount=1.0, customer="Alice")
+    _attach_metadata_to_payload(model, {"id": "evt-1"})  # must not raise
+
+
+# ---- _serialize_workflow_input --------------------------------------------
+
+
+def test_serialize_workflow_input_dict_without_metadata():
+    wf_input, metadata = _serialize_workflow_input({"a": 1})
+    assert wf_input == {"a": 1}
+    assert metadata is None
+
+
+def test_serialize_workflow_input_dict_with_metadata_copies():
+    src = {"a": 1, METADATA_KEY: {"id": "evt-1"}}
+    wf_input, metadata = _serialize_workflow_input(src)
+
+    assert metadata == {"id": "evt-1"}
+    assert wf_input[METADATA_KEY] == {"id": "evt-1"}
+    # the metadata dict is copied into the workflow input, not aliased
+    assert wf_input[METADATA_KEY] is not src[METADATA_KEY]
+    # the source payload is not mutated
+    wf_input["a"] = 999
+    assert src["a"] == 1
+
+
+def test_serialize_workflow_input_pydantic_model():
+    model = OrderCreated(order_id="1", amount=2.0, customer="Alice")
+    wf_input, metadata = _serialize_workflow_input(model)
+    assert wf_input == {"order_id": "1", "amount": 2.0, "customer": "Alice"}
+    assert metadata is None
+
+
+def test_serialize_workflow_input_dataclass():
+    shipment = ShipmentCreated(shipment_id="s1", order_id="o1", carrier="UPS")
+    wf_input, metadata = _serialize_workflow_input(shipment)
+    assert wf_input == {"shipment_id": "s1", "order_id": "o1", "carrier": "UPS"}
+    assert metadata is None
+
+
+def test_serialize_workflow_input_other_wraps_in_data():
+    wf_input, metadata = _serialize_workflow_input(42)
+    assert wf_input == {"data": 42}
+    assert metadata is None
+
+
+# ---- _resolve_event_loop ---------------------------------------------------
+
+
+def test_resolve_event_loop_returns_provided_loop():
+    loop = asyncio.new_event_loop()
+    try:
+        assert _resolve_event_loop(loop) is loop
+    finally:
+        loop.close()
+
+
+def test_resolve_event_loop_uses_running_loop(monkeypatch):
+    sentinel = asyncio.new_event_loop()
+    try:
+        monkeypatch.setattr(asyncio, "get_running_loop", lambda: sentinel)
+        assert _resolve_event_loop(None) is sentinel
+    finally:
+        sentinel.close()
+
+
+def test_resolve_event_loop_raises_without_any_loop(monkeypatch):
+    monkeypatch.setattr(asyncio, "get_running_loop", _raise_runtime)
+    monkeypatch.setattr(asyncio, "get_event_loop", _raise_runtime)
+    with pytest.raises(RuntimeError, match="No running event loop available"):
+        _resolve_event_loop(None)
+
+
+def test_resolve_event_loop_raises_on_closed_loop(monkeypatch):
+    closed = asyncio.new_event_loop()
+    closed.close()
+    monkeypatch.setattr(asyncio, "get_running_loop", _raise_runtime)
+    monkeypatch.setattr(asyncio, "get_event_loop", lambda: closed)
+    with pytest.raises(RuntimeError, match="No running event loop available") as exc:
+        _resolve_event_loop(None)
+    assert "Event loop is closed" in str(exc.value.__cause__)
+
+
+# ---- _cancel_tasks ---------------------------------------------------------
+
+
+def test_cancel_tasks_cancels_each_task():
+    task_a, task_b = MagicMock(), MagicMock()
+    _cancel_tasks([task_a, task_b])
+    task_a.cancel.assert_called_once()
+    task_b.cancel.assert_called_once()
+
+
+def test_cancel_tasks_swallows_errors_and_continues():
+    failing = MagicMock()
+    failing.cancel.side_effect = RuntimeError("nope")
+    healthy = MagicMock()
+    _cancel_tasks([failing, healthy])  # must not raise
+    healthy.cancel.assert_called_once()
+
+
+# ---- _shutdown_thread ------------------------------------------------------
+
+
+def test_shutdown_thread_closes_subscription_and_joins():
+    thread = MagicMock()
+    thread.is_alive.return_value = False
+    subscription = MagicMock()
+    _shutdown_thread(thread, subscription, "messagepubsub", "orders")
+    subscription.close.assert_called_once()
+    thread.join.assert_called_once()
+
+
+def test_shutdown_thread_zombie_non_daemon_raises():
+    thread = MagicMock()
+    thread.is_alive.return_value = True
+    thread.daemon = False
+    with pytest.raises(RuntimeError, match="did not stop"):
+        _shutdown_thread(thread, MagicMock(), "messagepubsub", "orders")
+
+
+def test_shutdown_thread_zombie_daemon_warns(caplog):
+    thread = MagicMock()
+    thread.is_alive.return_value = True
+    thread.daemon = True
+    with caplog.at_level(logging.WARNING):
+        _shutdown_thread(thread, MagicMock(), "messagepubsub", "orders")
+    assert "daemon thread" in caplog.text
+
+
+def test_shutdown_thread_swallows_close_error():
+    thread = MagicMock()
+    thread.is_alive.return_value = False
+    subscription = MagicMock()
+    subscription.close.side_effect = RuntimeError("boom")
+    _shutdown_thread(thread, subscription, "messagepubsub", "orders")  # must not raise
+    thread.join.assert_called_once()
+
+
+# ---- _log_workflow_outcome -------------------------------------------------
+
+
+def test_log_workflow_outcome_no_state_warns(caplog):
+    with caplog.at_level(logging.WARNING):
+        _log_workflow_outcome("inst-1", None, log_outcome=True)
+    assert "no state" in caplog.text
+
+
+def test_log_workflow_outcome_completed_logs_when_enabled(caplog):
+    state = MagicMock()
+    state.runtime_status = WorkflowStatus.COMPLETED
+    state.serialized_output = "out"
+    with caplog.at_level(logging.DEBUG):
+        _log_workflow_outcome("inst-1", state, log_outcome=True)
+    assert "COMPLETED" in caplog.text
+
+
+def test_log_workflow_outcome_failure_logs_error(caplog):
+    state = MagicMock()
+    state.runtime_status = MagicMock()  # not COMPLETED
+    failure = MagicMock()
+    failure.error_type = "ValueError"
+    failure.message = "bad input"
+    failure.stack_trace = "trace"
+    state.failure_details = failure
+    with caplog.at_level(logging.ERROR):
+        _log_workflow_outcome("inst-1", state, log_outcome=True)
+    assert "FAILED" in caplog.text
+    assert "ValueError" in caplog.text
+
+
+def test_log_workflow_outcome_non_completed_without_failure(caplog):
+    state = MagicMock()
+    state.runtime_status = MagicMock()  # not COMPLETED
+    state.failure_details = None
+    with caplog.at_level(logging.ERROR):
+        _log_workflow_outcome("inst-1", state, log_outcome=True)
+    assert "finished with status" in caplog.text
