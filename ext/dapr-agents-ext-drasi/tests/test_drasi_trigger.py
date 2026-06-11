@@ -216,7 +216,7 @@ def _make_runner(
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub():
-    """Test that the Drasi activation wires pub/sub routes correctly."""
+    """Test that the Drasi extension wires pub/sub routes correctly."""
     pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_topic = "orders"
@@ -275,7 +275,6 @@ async def test_drasi_trigger_uses_pubsub():
     drasi_trigger(agent, topic=drasi_topic)
     runner.subscribe(agent)
 
-    # Get a handle on the workflow scheduler method
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
@@ -298,7 +297,7 @@ async def test_drasi_trigger_uses_pubsub():
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_when_agent_is_hosted_as_a_service():
-    """Test that the Drasi activation wires pub/sub routes correctly when the agent is hosted as a service (HTTP and pub/sub)."""
+    """Test that the Drasi extension wires pub/sub routes correctly when the agent is hosted as a service (HTTP and pub/sub)."""
     pubsub_name = "notifications"
     agent_topic = "agent-inbox"
     drasi_topic = "important"
@@ -361,7 +360,6 @@ async def test_drasi_trigger_uses_pubsub_when_agent_is_hosted_as_a_service():
     drasi_trigger(agent, topic=drasi_topic)
     runner.serve(agent, app=FastAPI())
 
-    # Get a handle on the workflow scheduler method
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
@@ -383,8 +381,54 @@ async def test_drasi_trigger_uses_pubsub_when_agent_is_hosted_as_a_service():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
+async def test_drasi_trigger_ignores_malformed_events():
+    """Test that the Drasi extension ignores events that do not conform to the expected format."""
+    pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_topic = "differenttopic"
+    events = [
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "foo": "bar",
+            },
+            "id": "1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "i",
+                "ts_ms": 123,
+                "seq": 1,
+                "payload": "abc",
+            },
+            "id": "2",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+    ]
+
+    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+
+    drasi_trigger(agent, topic=drasi_topic)
+
+    scheduler_method = runner.run_sync
+    assert scheduler_method.call_count == 0  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+@pytest.mark.ext
 async def test_drasi_trigger_raises_when_pubsub_config_is_missing():
-    """Test that the Drasi activation fails when the agent pub/sub config is missing."""
+    """Test that the Drasi extension fails when the agent pub/sub config is missing."""
     pubsub_name = "testpubsub"
     drasi_topic = "testtopic"
     events = [
@@ -429,7 +473,7 @@ async def test_drasi_trigger_raises_when_pubsub_config_is_missing():
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
-    """Test that the Drasi activation fails when the pub/sub topic matches the agent's pub/sub topic."""
+    """Test that the Drasi extension fails when the pub/sub topic matches the agent's pub/sub topic."""
     pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_topic = "testtopic"

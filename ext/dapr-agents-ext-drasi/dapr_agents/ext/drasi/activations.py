@@ -89,17 +89,21 @@ def drasi_trigger(
         # TODO: make this more robust and separate subscription logic from validate/transform logic by extracting it out
         logger.info(f"Received Drasi event: {event!r}")
 
+        # TODO: add deduplication for exactly-once processing
         try:
-            # TODO: add deduplication for exactly-once processing
             parsed_event, metadata = parse_cloudevent(event, DrasiUnpackedEvent)
+        except Exception:
+            logger.exception("Cannot parse Drasi event; dropping.")
+            return TopicEventResponse(TopicEventResponseStatus.drop)
 
-            try:
-                task = mapper(parsed_event)
-            except Exception:
-                logger.exception("Cannot map Drasi event to agent task; dropping.")
-                # Can't process this message due to erroneous user logic
-                return TopicEventResponse(TopicEventResponseStatus.drop)
+        try:
+            task = mapper(parsed_event)
+        except Exception:
+            logger.exception("Cannot map Drasi event to agent task; dropping.")
+            # Can't process this message due to erroneous user logic
+            return TopicEventResponse(TopicEventResponseStatus.drop)
 
+        try:
             # Strip optional missing fields
             agent_task = task.model_dump(exclude_unset=True)
             _attach_metadata_to_payload(agent_task, metadata)
