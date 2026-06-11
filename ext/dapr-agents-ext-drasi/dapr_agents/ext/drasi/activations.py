@@ -36,7 +36,7 @@ def drasi_trigger(
     mapper: Callable[[DrasiUnpackedEvent], TriggerAction] | None = None,
 ) -> None:
     """
-    Augments the given agent workflow's pub/sub -> workflow routing behavior to accept Drasi events when the agent is hosted.
+    Wires pub/sub routes so that the given agent's workflow can be triggered by Drasi events.
     Currently depends on the agent's pub/sub component name — the agent MUST be initialized with a pub/sub configuration, otherwise the activation will fail.
 
     Args:
