@@ -22,6 +22,7 @@ from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 from fastapi import FastAPI
+from pydantic import BaseModel
 import pytest
 
 from dapr_agents import DurableAgent
@@ -203,7 +204,7 @@ def _make_runner(
     runner._mount_hitl_routes = Mock()  # type: ignore[method-assign]
 
     # Stub workflow scheduling since we only care about the calls themselves
-    runner.run_sync = AsyncMock(return_value="instance-1")  # type: ignore[method-assign]
+    runner.run_sync = Mock(return_value="instance-1")  # type: ignore[method-assign]
 
     return runner
 
@@ -420,9 +421,288 @@ async def test_drasi_trigger_ignores_malformed_events():
     runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
 
     drasi_trigger(agent, topic=drasi_topic)
+    runner.subscribe(agent)
 
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 0  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+@pytest.mark.ext
+async def test_drasi_trigger_filters_by_query_id():
+    """Test that the Drasi extension correctly filters events by Drasi query ID."""
+    pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_topic = "differenttopic"
+    events = [
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "u",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "query1",
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "count": 0,
+                    },
+                    "after": {
+                        "count": 1,
+                    },
+                },
+            },
+            "id": "1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "u",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "query2",
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "sum": 0,
+                    },
+                    "after": {
+                        "sum": 1,
+                    },
+                },
+            },
+            "id": "2",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+    ]
+
+    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+
+    drasi_trigger(agent, topic=drasi_topic, query_id="query1")
+    runner.subscribe(agent)
+
+    scheduler_method = runner.run_sync
+    assert scheduler_method.call_count == 1  # type: ignore[attr-defined]
+
+    cloudevent_ids = [
+        c.kwargs["payload"]["_message_metadata"]["id"]
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    assert cloudevent_ids == ["1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.ext
+async def test_drasi_trigger_filters_by_operation():
+    """Test that the Drasi extension correctly filters events by Drasi operation."""
+    pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_topic = "differenttopic"
+    events = [
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "i",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "query1",
+                        "ts_ms": 0,
+                    },
+                    "after": {
+                        "count": 1,
+                    },
+                },
+            },
+            "id": "1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "d",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "query2",
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "sum": 0,
+                    },
+                },
+            },
+            "id": "2",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+    ]
+
+    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+
+    drasi_trigger(agent, topic=drasi_topic, operation="d")
+    runner.subscribe(agent)
+
+    scheduler_method = runner.run_sync
+    assert scheduler_method.call_count == 1  # type: ignore[attr-defined]
+
+    cloudevent_ids = [
+        c.kwargs["payload"]["_message_metadata"]["id"]
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    assert cloudevent_ids == ["2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.ext
+async def test_drasi_trigger_filters_by_event_model():
+    """Test that the Drasi extension correctly filters events by Drasi change event payloads."""
+
+    class Counter(BaseModel):
+        count: int
+
+    pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_topic = "differenttopic"
+    events = [
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "u",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "query1",
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "count": 0,
+                    },
+                    "after": {
+                        "count": 1,
+                    },
+                },
+            },
+            "id": "1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "d",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "query1",
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "count": 1,
+                    },
+                },
+            },
+            "id": "2",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "u",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "query2",
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "sum": 0,
+                    },
+                    "after": {
+                        "sum": 1,
+                    },
+                },
+            },
+            "id": "3",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "i",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "query1",
+                        "ts_ms": 0,
+                    },
+                    "after": {
+                        "count": 0,
+                    },
+                },
+            },
+            "id": "4",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+    ]
+
+    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+
+    drasi_trigger(agent, topic=drasi_topic, event_model=Counter)
+    runner.subscribe(agent)
+
+    scheduler_method = runner.run_sync
+    assert scheduler_method.call_count == 3  # type: ignore[attr-defined]
+
+    cloudevent_ids = [
+        c.kwargs["payload"]["_message_metadata"]["id"]
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    assert cloudevent_ids == ["1", "2", "4"]
 
 
 @pytest.mark.asyncio
@@ -445,10 +725,10 @@ async def test_drasi_trigger_raises_when_pubsub_config_is_missing():
                         "ts_ms": 0,
                     },
                     "before": {
-                        "count": "0",
+                        "id": 0,
                     },
                     "after": {
-                        "count": "1",
+                        "id": 1,
                     },
                 },
             },
@@ -491,10 +771,10 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
                         "ts_ms": 0,
                     },
                     "before": {
-                        "count": "0",
+                        "id": 0,
                     },
                     "after": {
-                        "count": "1",
+                        "id": 1,
                     },
                 },
             },
@@ -513,9 +793,3 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
 
     with pytest.raises(RuntimeError):
         runner.subscribe(agent)
-
-
-# ---------------------------------------------------------------------------
-# Filtering behavior
-# ---------------------------------------------------------------------------
-# TODO: add tests for filtering once supported
