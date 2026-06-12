@@ -1,0 +1,143 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: Auto-bump dapr deps
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bump-python-sdk:
+    name: Bump dapr python-sdk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.BUMP_DEPS_APP_ID }}
+          private-key: ${{ secrets.BUMP_DEPS_APP_PRIVATE_KEY }}
+
+      - name: Resolve app committer identity
+        id: committer
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          echo "name=${APP_SLUG}[bot]" >> "$GITHUB_OUTPUT"
+          echo "email=${user_id}+${APP_SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Detect available version
+        id: check
+        run: uv run --script .github/scripts/python_bump.py dapr dapr-ext-fastapi dapr-ext-grpc dapr-ext-langgraph dapr-ext-strands dapr-ext-workflow flask-dapr
+
+      - name: Bump pins
+        if: steps.check.outputs.should_bump == 'true'
+        env:
+          NEW: ${{ steps.check.outputs.latest }}
+          PACKAGES: ${{ steps.check.outputs.packages }}
+        run: |
+          specs=()
+          for pkg in ${PACKAGES}; do specs+=("${pkg}==${NEW}"); done
+          uv add "${specs[@]}"
+
+      - name: Open PR
+        if: steps.check.outputs.should_bump == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          committer: "${{ steps.committer.outputs.name }} <${{ steps.committer.outputs.email }}>"
+          author: "${{ steps.committer.outputs.name }} <${{ steps.committer.outputs.email }}>"
+          branch: auto/bump-python-sdk-${{ steps.check.outputs.latest }}
+          delete-branch: true
+          commit-message: "chore(deps): bump dapr python-sdk to ${{ steps.check.outputs.latest }}"
+          title: "chore(deps): bump dapr python-sdk to ${{ steps.check.outputs.latest }}"
+          body: |
+            Automated bump of the dapr python-sdk packages (`${{ steps.check.outputs.packages }}`)
+            from `${{ steps.check.outputs.current }}` to `${{ steps.check.outputs.latest }}`.
+
+            Release notes: https://github.com/dapr/python-sdk/releases/tag/v${{ steps.check.outputs.latest }}
+
+  bump-durabletask:
+    name: Bump durabletask-dapr
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.BUMP_DEPS_APP_ID }}
+          private-key: ${{ secrets.BUMP_DEPS_APP_PRIVATE_KEY }}
+
+      - name: Set PR committer identity
+        id: committer
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          echo "name=${APP_SLUG}[bot]" >> "$GITHUB_OUTPUT"
+          echo "email=${user_id}+${APP_SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Detect available version
+        id: check
+        run: uv run --script .github/scripts/python_bump.py durabletask-dapr
+
+      - name: Bump pins
+        if: steps.check.outputs.should_bump == 'true'
+        env:
+          NEW: ${{ steps.check.outputs.latest }}
+        run: uv add "durabletask-dapr==${NEW}"
+
+      - name: Open PR
+        if: steps.check.outputs.should_bump == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          committer: "${{ steps.committer.outputs.name }} <${{ steps.committer.outputs.email }}>"
+          author: "${{ steps.committer.outputs.name }} <${{ steps.committer.outputs.email }}>"
+          branch: auto/bump-durabletask-${{ steps.check.outputs.latest }}
+          delete-branch: true
+          commit-message: "chore(deps): bump durabletask-dapr to ${{ steps.check.outputs.latest }}"
+          title: "chore(deps): bump durabletask-dapr to ${{ steps.check.outputs.latest }}"
+          body: |
+            Automated bump of `durabletask-dapr`
+            from `${{ steps.check.outputs.current }}` to `${{ steps.check.outputs.latest }}`.
+
+            Release notes: https://github.com/dapr/durabletask-python/releases/tag/v${{ steps.check.outputs.latest }}
