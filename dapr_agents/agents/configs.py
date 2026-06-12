@@ -66,6 +66,9 @@ _JSON_SCHEMA_KEY = "$schema"
 _JSON_SCHEMA_DRAFT_URL = "https://json-schema.org/draft/2020-12/schema"
 _JSON_SCHEMA_VERSION_KEY = "version"
 
+# Sentinel value for unset values (instead of None)
+UNSET = object()
+
 # Sentinel value for unsupported config keys
 _UNSUPPORTED = object()
 
@@ -239,8 +242,10 @@ class ConfigFieldDescriptor:
         target_type: Expected Python type for the coerced value.
         setter: Callable ``(obj, value) -> None`` that applies the value after coercion and validation.
         getter: Optional callable ``() -> Any`` that retrieves the value before coercion.
-        sensitive: If ``True``, the value is redacted in log output.
         validator: Optional idempotent callable ``(value) -> Any`` to validate/transform the coerced value.
+        allow_unset: If ``True``, coercion will pass through ``UNSET`` values (to disambiguate between an explicitly set ``None`` and an unset value that defaults to ``None``).
+            If enabled and a validator is provided, it must be able to handle ``UNSET`` values.
+        sensitive: If ``True``, the value is redacted in log output.
         rebuilds_prompt: If ``True``, the prompt template is rebuilt after update.
         triggers_otel_reload: If ``True``, triggers an OpenTelemetry configuration reload after update.
     """
@@ -248,8 +253,9 @@ class ConfigFieldDescriptor:
     target_type: Type
     setter: Callable[..., None]
     getter: Optional[Callable[[], Any]] = None
-    sensitive: bool = False
     validator: Optional[Callable[..., Any]] = None
+    allow_unset: bool = False
+    sensitive: bool = False
     rebuilds_prompt: bool = False
     triggers_otel_reload: bool = False
 
@@ -282,6 +288,32 @@ def validate_tool_choice(v: str) -> str:
     except (ValueError, KeyError):
         _config_logger.warning(
             f"tool_choice {v} not in standard set {set([tc.value for tc in ToolChoice])}; allowing anyway."
+        )
+
+    return v
+
+
+def validate_tool_execution_mode(v: str) -> str:
+    """Validate that the tool execution mode is a known ToolExecutionMode value."""
+    try:
+        ToolExecutionMode(v.lower())
+    except (ValueError, KeyError):
+        raise ValueError(
+            f"Unknown tool execution mode '{v}'. "
+            f"Valid options: {[e.value for e in ToolExecutionMode]}"
+        )
+
+    return v
+
+
+def validate_orchestration_mode(v: str) -> str:
+    """Validate that the orchestration mode is a known OrchestrationMode value."""
+    try:
+        OrchestrationMode(v.lower())
+    except (ValueError, KeyError):
+        raise ValueError(
+            f"Unknown orchestration mode '{v}'. "
+            f"Valid options: {[e.value for e in OrchestrationMode]}"
         )
 
     return v
@@ -324,7 +356,7 @@ def normalize_config_key(key: str) -> str:
 def apply_config_map(target_obj: Any, config_field_map: Dict[str, Any]) -> None:
     """
     Apply a map of configuration field names to field descriptors onto a target object.
-    If a field is explicitly unsupported, its name must be normalizable to the corresponding attribute on the target object, whose value is set to None.
+    If a field is ``UNSUPPORTED``, its name must be normalizable to the corresponding attribute on the target object, whose value is set to None.
     """
     for key, descriptor in config_field_map.items():
         if descriptor == _UNSUPPORTED:
@@ -332,16 +364,17 @@ def apply_config_map(target_obj: Any, config_field_map: Dict[str, Any]) -> None:
             continue
 
         try:
-            apply_config_update(target_obj, key, None, descriptor)
+            apply_config_update(target_obj=target_obj, key=key, descriptor=descriptor)
         except (ValueError, RuntimeError) as e:
             logger.debug(f"Failed to apply config update for {key}: {e}")
 
 
 def apply_config_update(
     target_obj: Any,
+    *,
     key: str,
-    value: Any,
     descriptor: ConfigFieldDescriptor,
+    value: Any = None,
 ) -> Any:
     """
     Process and apply a configuration update to an object.
@@ -361,7 +394,7 @@ def apply_config_update(
         ValueError: If no value can be retrieved or processing fails.
         RuntimeError: If the value cannot be applied.
     """
-    processed_value = process_config_update(key, value, descriptor)
+    processed_value = process_config_update(key=key, value=value, descriptor=descriptor)
 
     # Apply via setter callback
     try:
@@ -376,8 +409,8 @@ def apply_config_update(
 
 def process_config_update(
     key: str,
-    value: Any,
     descriptor: ConfigFieldDescriptor,
+    value: Any = None,
 ) -> Any:
     """
     Process a configuration update by coercing, validating, and transforming a value.
@@ -407,7 +440,13 @@ def process_config_update(
 
     # Type coercion
     try:
-        processed_value = coerce_config_value(value, descriptor.target_type)
+        if descriptor.allow_unset and value is UNSET:
+            # Pass through `UNSET` unless we do not have a validator, in which case we coerce to `None` and return immediately
+            if not descriptor.validator:
+                return None
+            processed_value = UNSET
+        else:
+            processed_value = coerce_config_value(value, descriptor.target_type)
     except (ValueError, TypeError) as e:
         raise ValueError(f"Invalid value for key '{key}': {e}.")
 
@@ -540,19 +579,25 @@ def merge_models(base: T, override: T) -> T:
         return base
 
 
-def with_fallback(f: Callable[..., Any], fallback: Any) -> Callable[..., Any]:
-    """Decorator to provide a fallback return value if a function raises an exception."""
-
-    @functools.wraps(f)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return f(*args, **kwargs)
-        except Exception as e:
-            # Avoid noisy logs if exceptions are frequent (e.g. missing/None values during validation)
-            logger.debug(f"Function {f.__name__} failed: {e}. Using fallback value.")
-            return fallback
-
-    return wrapper
+def _validate_with_fallback(
+    f: Callable[..., Any], value: Any, fallback: Any = UNSET
+) -> Callable[..., Any]:
+    """
+    Calls a validation function with a fallback return value if the function raises an exception.
+    If the value or fallback is `UNSET`, returns `None` so that merging works properly.
+    """
+    if value is UNSET:
+        return None
+    try:
+        return f(value)
+    except Exception as e:
+        if fallback is UNSET:
+            fallback = None
+        # Avoid noisy logs if validation errors are frequent
+        logger.debug(
+            f"Validation with function {f.__name__} failed: {e}. Using fallback value {fallback!r}."
+        )
+        return fallback
 
 
 @dataclass
@@ -738,22 +783,16 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: getenv("MAX_ITERATIONS", AGENT_DEFAULT_MAX_ITERATIONS),
-                validator=lambda v: (
-                    with_fallback(
-                        validate_max_iterations, AGENT_DEFAULT_MAX_ITERATIONS
-                    )(v)
-                    if v is not None
-                    else v
+                validator=lambda v: _validate_with_fallback(
+                    validate_max_iterations, v, AGENT_DEFAULT_MAX_ITERATIONS
                 ),
             ),
             "tool_choice": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
                 getter=lambda: getenv("TOOL_CHOICE", AGENT_DEFAULT_TOOL_CHOICE),
-                validator=lambda v: (
-                    with_fallback(validate_tool_choice, AGENT_DEFAULT_TOOL_CHOICE)(v)
-                    if v is not None
-                    else v
+                validator=lambda v: _validate_with_fallback(
+                    validate_tool_choice, v, AGENT_DEFAULT_TOOL_CHOICE
                 ),
             ),
             "tool_execution_mode": ConfigFieldDescriptor(
@@ -762,25 +801,16 @@ class AgentExecutionConfig:
                 getter=lambda: getenv(
                     "TOOL_EXECUTION_MODE", AGENT_DEFAULT_TOOL_EXECUTION_MODE
                 ),
-                validator=lambda v: (
-                    with_fallback(
-                        lambda v: ToolExecutionMode(v),
-                        AGENT_DEFAULT_TOOL_EXECUTION_MODE,
-                    )(v)
-                    if v is not None
-                    else v
+                validator=lambda v: _validate_with_fallback(
+                    validate_tool_execution_mode, v, AGENT_DEFAULT_TOOL_EXECUTION_MODE
                 ),
             ),
             "orchestration_mode": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
-                getter=lambda: getenv(
-                    "ORCHESTRATION_MODE", None
-                ),  # No orchestration by default
-                validator=lambda v: (
-                    with_fallback(lambda v: OrchestrationMode(v), None)(v)
-                    if v is not None
-                    else v
+                getter=lambda: getenv("ORCHESTRATION_MODE", None),
+                validator=lambda v: _validate_with_fallback(
+                    validate_orchestration_mode, v, None
                 ),
             ),
             "max_grpc_inbound_message_size_bytes": ConfigFieldDescriptor(
@@ -788,7 +818,8 @@ class AgentExecutionConfig:
                 setter=lambda obj, v: setattr(
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
-                getter=lambda: getenv("MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES", None),
+                getter=lambda: getenv("MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES", UNSET),
+                allow_unset=True,
             ),
             "app_health_check_enabled": ConfigFieldDescriptor(
                 target_type=Optional[bool],
@@ -800,7 +831,6 @@ class AgentExecutionConfig:
                 setter=lambda obj, v: setattr(obj, "app_ready_check_enabled", v),
                 getter=lambda: getenv("ENABLE_APP_READY_CHECK", "false"),
             ),
-            # Currently unsupported fields
             "approval": _UNSUPPORTED,
         }
 
@@ -821,26 +851,21 @@ class AgentExecutionConfig:
             "max_iterations": ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
-                getter=lambda: runtime_config.get("MAX_ITERATIONS"),
-                validator=lambda v: (
-                    with_fallback(
-                        validate_max_iterations, AGENT_DEFAULT_MAX_ITERATIONS
-                    )(v)
-                    if v is not None
-                    else v
+                getter=lambda: runtime_config.get("MAX_ITERATIONS", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_max_iterations, v, AGENT_DEFAULT_MAX_ITERATIONS
                 ),
+                allow_unset=True,
             ),
             "tool_choice": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
-                getter=lambda: runtime_config.get("TOOL_CHOICE"),
-                validator=lambda v: (
-                    with_fallback(validate_tool_choice, AGENT_DEFAULT_TOOL_CHOICE)(v)
-                    if v is not None
-                    else v
+                getter=lambda: runtime_config.get("TOOL_CHOICE", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_tool_choice, v, AGENT_DEFAULT_TOOL_CHOICE
                 ),
+                allow_unset=True,
             ),
-            # Currently unsupported fields
             "tool_execution_mode": _UNSUPPORTED,
             "orchestration_mode": _UNSUPPORTED,
             "approval": _UNSUPPORTED,
@@ -1014,62 +1039,66 @@ class AgentObservabilityConfig:
             "enabled": ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "enabled", v),
-                getter=lambda: getenv("OTEL_SDK_DISABLED"),
-                validator=lambda v: (
-                    with_fallback(lambda v: not v, None)(v) if v is not None else None
+                getter=lambda: getenv("OTEL_SDK_DISABLED", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    lambda v: not v, v, UNSET
                 ),  # Invert the disabled flag to set enabled
+                allow_unset=True,
             ),
             "headers": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "headers", v),
-                getter=lambda: getenv("OTEL_EXPORTER_OTLP_HEADERS"),
-                validator=with_fallback(parse_header_string, {}),
+                getter=lambda: getenv("OTEL_EXPORTER_OTLP_HEADERS", UNSET),
+                validator=lambda v: _validate_with_fallback(parse_header_string, v, {}),
+                allow_unset=True,
             ),
             "endpoint": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
-                getter=lambda: getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-                validator=with_fallback(validate_non_empty_string, None),
+                getter=lambda: getenv("OTEL_EXPORTER_OTLP_ENDPOINT", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_non_empty_string, v, UNSET
+                ),
+                allow_unset=True,
             ),
             "service_name": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
-                getter=lambda: getenv("OTEL_SERVICE_NAME"),
-                validator=with_fallback(validate_non_empty_string, None),
+                getter=lambda: getenv("OTEL_SERVICE_NAME", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_non_empty_string, v, UNSET
+                ),
+                allow_unset=True,
             ),
             "logging_enabled": ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "logging_enabled", v),
-                getter=lambda: getenv("OTEL_LOGGING_ENABLED"),
+                getter=lambda: getenv("OTEL_LOGGING_ENABLED", UNSET),
+                allow_unset=True,
             ),
             "logging_exporter": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
-                getter=lambda: getenv("OTEL_LOGS_EXPORTER"),
-                validator=lambda v: (
-                    with_fallback(
-                        validate_otel_exporter_logging, AgentLoggingExporter.CONSOLE
-                    )(v)
-                    if v is not None
-                    else v
+                getter=lambda: getenv("OTEL_LOGS_EXPORTER", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_otel_exporter_logging, v, AgentLoggingExporter.CONSOLE
                 ),
+                allow_unset=True,
             ),
             "tracing_enabled": ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
-                getter=lambda: getenv("OTEL_TRACING_ENABLED"),
+                getter=lambda: getenv("OTEL_TRACING_ENABLED", UNSET),
+                allow_unset=True,
             ),
             "tracing_exporter": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
-                getter=lambda: getenv("OTEL_TRACES_EXPORTER"),
-                validator=lambda v: (
-                    with_fallback(
-                        validate_otel_exporter_tracing, AgentTracingExporter.CONSOLE
-                    )(v)
-                    if v is not None
-                    else v
+                getter=lambda: getenv("OTEL_TRACES_EXPORTER", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_otel_exporter_tracing, v, AgentTracingExporter.CONSOLE
                 ),
+                allow_unset=True,
             ),
         }
 
@@ -1093,7 +1122,9 @@ class AgentObservabilityConfig:
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "enabled", v),
                 getter=lambda: runtime_config.get("OTEL_SDK_DISABLED", "true"),
-                validator=lambda v: not v,  # Invert the disabled flag to set enabled
+                validator=lambda v: _validate_with_fallback(
+                    lambda v: not v, v, UNSET
+                ),  # Invert the disabled flag to set enabled
             ),
             "auth_token": ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -1102,19 +1133,27 @@ class AgentObservabilityConfig:
                 getter=lambda: (
                     runtime_secrets.get("OTEL_EXPORTER_OTLP_HEADERS")
                     or runtime_config.get("OTEL_EXPORTER_OTLP_HEADERS")
+                    or UNSET
                 ),
+                allow_unset=True,
             ),
             "endpoint": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
-                getter=lambda: runtime_config.get("OTEL_EXPORTER_OTLP_ENDPOINT"),
-                validator=with_fallback(validate_non_empty_string, None),
+                getter=lambda: runtime_config.get("OTEL_EXPORTER_OTLP_ENDPOINT", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_non_empty_string, v, UNSET
+                ),
+                allow_unset=True,
             ),
             "service_name": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
-                getter=lambda: runtime_config.get("OTEL_SERVICE_NAME"),
-                validator=with_fallback(validate_non_empty_string, None),
+                getter=lambda: runtime_config.get("OTEL_SERVICE_NAME", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_non_empty_string, v, UNSET
+                ),
+                allow_unset=True,
             ),
             "logging_enabled": ConfigFieldDescriptor(
                 target_type=Optional[bool],
@@ -1127,8 +1166,8 @@ class AgentObservabilityConfig:
                 getter=lambda: runtime_config.get(
                     "OTEL_LOGS_EXPORTER", AgentLoggingExporter.CONSOLE
                 ),
-                validator=with_fallback(
-                    validate_otel_exporter_logging, AgentLoggingExporter.CONSOLE
+                validator=lambda v: _validate_with_fallback(
+                    validate_otel_exporter_logging, v, AgentLoggingExporter.CONSOLE
                 ),
             ),
             "tracing_enabled": ConfigFieldDescriptor(
@@ -1142,8 +1181,8 @@ class AgentObservabilityConfig:
                 getter=lambda: runtime_config.get(
                     "OTEL_TRACES_EXPORTER", AgentTracingExporter.CONSOLE
                 ),
-                validator=with_fallback(
-                    validate_otel_exporter_tracing, AgentTracingExporter.CONSOLE
+                validator=lambda v: _validate_with_fallback(
+                    validate_otel_exporter_tracing, v, AgentTracingExporter.CONSOLE
                 ),
             ),
         }
