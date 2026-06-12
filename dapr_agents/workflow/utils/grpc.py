@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Optional, Sequence, Tuple
-
+import grpc
+from dapr.ext.workflow._durabletask.internal import shared
 from dapr_agents.agents.configs import WorkflowGrpcOptions
 
 logger = logging.getLogger(__name__)
@@ -29,8 +30,9 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
     Patch Durable Task's gRPC channel factory with custom message size limits.
 
     Durable Task (and therefore Dapr Workflows) creates its gRPC channels via
-    ``durabletask.internal.shared.get_grpc_channel``.  This helper monkey patches
-    that factory so that subsequent runtime/client instances honour the provided
+    ``dapr.ext.workflow._durabletask.internal.shared.get_grpc_channel``.  This
+    helper monkey patches that factory so that subsequent runtime/client
+    instances honour the provided
     ``grpc.max_send_message_length`` / ``grpc.max_receive_message_length`` values.
 
     Users can set either or both options; any non-None value will be applied.
@@ -45,15 +47,6 @@ def apply_grpc_options(options: Optional[WorkflowGrpcOptions]) -> None:
         and options.keepalive_timeout_ms is None
     ):
         return
-
-    try:
-        import grpc
-        from durabletask.internal import shared
-    except ImportError as exc:
-        logger.error(
-            "Failed to import grpc/durabletask for channel configuration: %s", exc
-        )
-        raise
 
     grpc_options: list[Tuple[str, Any]] = []
     if options.max_send_message_length:

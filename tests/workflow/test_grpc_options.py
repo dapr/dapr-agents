@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import types
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,35 +21,27 @@ from dapr_agents.agents.configs import WorkflowGrpcOptions
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 
 
-def create_durabletask_module(shared_module: MagicMock) -> None:
-    durabletask_module = types.ModuleType("durabletask")
-    internal_module = types.ModuleType("durabletask.internal")
-    setattr(durabletask_module, "internal", internal_module)
-    setattr(internal_module, "shared", shared_module)
-    import sys
+def patch_grpc_internals(shared: MagicMock, grpc_mock: MagicMock):
+    """Patch the ``shared`` and ``grpc`` names bound in ``grpc.py``.
 
-    sys.modules["durabletask"] = durabletask_module
-    sys.modules["durabletask.internal"] = internal_module
-    sys.modules["durabletask.internal.shared"] = shared_module
-
-
-@pytest.fixture(autouse=True)
-def cleanup_modules():
-    import sys
-
-    snapshot = sys.modules.copy()
-    yield
-    for key in list(sys.modules.keys()):
-        if key not in snapshot:
-            del sys.modules[key]
+    ``apply_grpc_options`` imports both at module top level
+    (``from dapr.ext.workflow._durabletask.internal import shared`` and
+    ``import grpc``), so the names are resolved at import time. Tests must
+    patch them where they are looked up — in ``dapr_agents.workflow.utils.grpc``
+    — rather than injecting fakes into ``sys.modules``.
+    """
+    return patch.multiple(
+        "dapr_agents.workflow.utils.grpc",
+        shared=shared,
+        grpc=grpc_mock,
+    )
 
 
 def test_apply_grpc_options_no_options():
     shared = MagicMock()
     original = MagicMock()
     shared.get_grpc_channel = original
-    create_durabletask_module(shared)
-    with patch.dict("sys.modules", {"grpc": MagicMock()}):
+    with patch_grpc_internals(shared, MagicMock()):
         apply_grpc_options(None)
         assert shared.get_grpc_channel is original
 
@@ -59,8 +50,7 @@ def test_apply_grpc_options_only_send():
     grpc_mock = MagicMock()
     shared = MagicMock()
     shared.get_grpc_channel = MagicMock()
-    create_durabletask_module(shared)
-    with patch.dict("sys.modules", {"grpc": grpc_mock}):
+    with patch_grpc_internals(shared, grpc_mock):
         opts = WorkflowGrpcOptions(max_send_message_length=16 * 1024 * 1024)
         apply_grpc_options(opts)
 
@@ -78,8 +68,7 @@ def test_apply_grpc_options_only_receive():
     grpc_mock = MagicMock()
     shared = MagicMock()
     shared.get_grpc_channel = MagicMock()
-    create_durabletask_module(shared)
-    with patch.dict("sys.modules", {"grpc": grpc_mock}):
+    with patch_grpc_internals(shared, grpc_mock):
         opts = WorkflowGrpcOptions(max_receive_message_length=24 * 1024 * 1024)
         apply_grpc_options(opts)
 
@@ -97,9 +86,8 @@ def test_apply_grpc_options_patch_occurs():
     shared = MagicMock()
     original = MagicMock()
     shared.get_grpc_channel = original
-    create_durabletask_module(shared)
 
-    with patch.dict("sys.modules", {"grpc": grpc_mock}):
+    with patch_grpc_internals(shared, grpc_mock):
         opts = WorkflowGrpcOptions(
             max_send_message_length=8 * 1024 * 1024,
             max_receive_message_length=12 * 1024 * 1024,
@@ -127,9 +115,8 @@ def test_options_param_no_user_options_uses_configured():
     grpc_mock = MagicMock()
     shared = MagicMock()
     shared.get_grpc_channel = MagicMock()
-    create_durabletask_module(shared)
 
-    with patch.dict("sys.modules", {"grpc": grpc_mock}):
+    with patch_grpc_internals(shared, grpc_mock):
         opts = WorkflowGrpcOptions(max_send_message_length=4 * 1024 * 1024)
         apply_grpc_options(opts)
 
@@ -144,9 +131,8 @@ def test_options_param_user_options_merged():
     grpc_mock = MagicMock()
     shared = MagicMock()
     shared.get_grpc_channel = MagicMock()
-    create_durabletask_module(shared)
 
-    with patch.dict("sys.modules", {"grpc": grpc_mock}):
+    with patch_grpc_internals(shared, grpc_mock):
         opts = WorkflowGrpcOptions(max_send_message_length=4 * 1024 * 1024)
         apply_grpc_options(opts)
 
@@ -163,9 +149,8 @@ def test_options_param_user_options_override_configured():
     grpc_mock = MagicMock()
     shared = MagicMock()
     shared.get_grpc_channel = MagicMock()
-    create_durabletask_module(shared)
 
-    with patch.dict("sys.modules", {"grpc": grpc_mock}):
+    with patch_grpc_internals(shared, grpc_mock):
         opts = WorkflowGrpcOptions(max_send_message_length=4 * 1024 * 1024)
         apply_grpc_options(opts)
 
@@ -220,9 +205,8 @@ def test_apply_grpc_options_keepalive_only():
     shared = MagicMock()
     original = MagicMock()
     shared.get_grpc_channel = original
-    create_durabletask_module(shared)
 
-    with patch.dict("sys.modules", {"grpc": grpc_mock}):
+    with patch_grpc_internals(shared, grpc_mock):
         opts = WorkflowGrpcOptions(keepalive_time_ms=30000, keepalive_timeout_ms=5000)
         apply_grpc_options(opts)
 
@@ -241,9 +225,8 @@ def test_apply_grpc_options_all_fields():
     grpc_mock = MagicMock()
     shared = MagicMock()
     shared.get_grpc_channel = MagicMock()
-    create_durabletask_module(shared)
 
-    with patch.dict("sys.modules", {"grpc": grpc_mock}):
+    with patch_grpc_internals(shared, grpc_mock):
         opts = WorkflowGrpcOptions(
             max_send_message_length=8 * 1024 * 1024,
             max_receive_message_length=12 * 1024 * 1024,
@@ -266,9 +249,8 @@ def test_apply_grpc_options_no_patch_when_all_none():
     shared = MagicMock()
     original = MagicMock()
     shared.get_grpc_channel = original
-    create_durabletask_module(shared)
 
-    with patch.dict("sys.modules", {"grpc": MagicMock()}):
+    with patch_grpc_internals(shared, MagicMock()):
         opts = WorkflowGrpcOptions()
         apply_grpc_options(opts)
         assert shared.get_grpc_channel is original

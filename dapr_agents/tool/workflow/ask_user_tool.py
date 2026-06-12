@@ -25,7 +25,7 @@ import logging
 from datetime import timedelta
 from typing import Any, Generator, Optional
 
-from durabletask.task import TaskFailedError  # type: ignore[import-untyped]
+from dapr.ext.workflow import TaskFailedError
 from pydantic import BaseModel, Field
 
 from dapr_agents.streaming.keys import USER_INPUT_EVENT_PREFIX
