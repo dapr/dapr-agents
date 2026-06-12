@@ -38,7 +38,7 @@ def drasi_trigger(
     pubsub: str | None = None,
     dead_letter_topic: str | None = None,
     mapper: Callable[[DrasiUnpackedEvent], TriggerAction] | None = None,
-    query_id: str | Sequence[str] | None = None,
+    query_id: str | None = None,
     operation: Literal["i", "u", "d"] | Sequence[Literal["i", "u", "d"]] | None = None,
     event_model: type[Any] | None = None,
 ) -> None:
@@ -52,7 +52,7 @@ def drasi_trigger(
         pubsub: The name of the Dapr pub/sub component. If `None`, the agent's pub/sub component is used.
         dead_letter_topic: The dead-letter topic to published failed messages to. Defaults to `None`.
         mapper: A function to map Drasi events to agent task messages. If `None`, the serialized event is used as the task message.
-        query_id: The Drasi query ID(s) to filter events by. Defaults to `None` (no filtering).
+        query_id: The Drasi query ID to filter events by. Defaults to `None` (no filtering).
         operation: The Drasi operation(s) to filter events by (`"i"` for insert, `"u"` for update, `"d"` for delete). Defaults to `None` (no filtering).
         event_model: The model to use to filter and validate Drasi change event payloads. Defaults to `None` (no filtering/validation).
 
@@ -65,12 +65,11 @@ def drasi_trigger(
     mapper = mapper or (
         lambda event: TriggerAction(task=event.model_dump_json(exclude_unset=True))
     )
-    query_ids = set(normalize_to_list(query_id))
     operations = set(normalize_to_list(operation))
 
     filters = {
         "query_id": lambda event: (
-            query_id is None or event.payload.source.queryId in query_ids
+            query_id is None or event.payload.source.queryId == query_id
         ),
         "operation": lambda event: operation is None or event.op in operations,
         # Validate both before and after states if they exist
