@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Literal, Type
+from typing import Any, Callable, Literal, Sequence
 
 from dapr.clients.grpc._response import TopicEventResponse, TopicEventResponseStatus
 from dapr.common.pubsub.subscription import SubscriptionMessage
@@ -22,6 +22,8 @@ from dapr_agents import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.types.activation import ActivationContext
 from dapr_agents.ext.drasi.utils.types import DrasiUnpackedEvent  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.utils.filters import normalize_to_list  # type: ignore[import-not-found]
+from dapr_agents.workflow.utils.registration import _validate_pubsub_components
 from dapr_agents.workflow.utils.routers import parse_cloudevent, validate_message_model
 from dapr_agents.workflow.utils.subscription import _attach_metadata_to_payload
 
@@ -33,23 +35,25 @@ def drasi_trigger(
     agent: DurableAgent,
     *,
     topic: str,
+    pubsub: str | None = None,
     dead_letter_topic: str | None = None,
     mapper: Callable[[DrasiUnpackedEvent], TriggerAction] | None = None,
-    query_id: str | None = None,
-    operation: Literal["i", "u", "d"] | None = None,
+    query_id: str | Sequence[str] | None = None,
+    operation: Literal["i", "u", "d"] | Sequence[Literal["i", "u", "d"]] | None = None,
     event_model: type[Any] | None = None,
 ) -> None:
     """
     Wires pub/sub routes so that the given agent's workflow can be triggered by Drasi events.
-    Currently depends on the agent's pub/sub component name — the agent MUST be initialized with a pub/sub configuration, otherwise the activation will fail.
+    If the agent's pub/sub component is used, the topic MUST be different from the agent's topic, otherwise the activation will fail to avoid indeterministic behavior.
 
     Args:
         agent: The target agent.
         topic: The topic to subscribe to. This MUST be different from the agent's topic.
+        pubsub: The name of the Dapr pub/sub component. If `None`, the agent's pub/sub component is used.
         dead_letter_topic: The dead-letter topic to published failed messages to. Defaults to `None`.
         mapper: A function to map Drasi events to agent task messages. If `None`, the serialized event is used as the task message.
-        query_id: The Drasi query ID to filter events by. Defaults to `None` (no filtering).
-        operation: The Drasi operation to filter events by (`"i"` for insert, `"u"` for update, `"d"` for delete). Defaults to `None` (no filtering).
+        query_id: The Drasi query ID(s) to filter events by. Defaults to `None` (no filtering).
+        operation: The Drasi operation(s) to filter events by (`"i"` for insert, `"u"` for update, `"d"` for delete). Defaults to `None` (no filtering).
         event_model: The model to use to filter and validate Drasi change event payloads. Defaults to `None` (no filtering/validation).
 
     Returns:
@@ -61,11 +65,14 @@ def drasi_trigger(
     mapper = mapper or (
         lambda event: TriggerAction(task=event.model_dump_json(exclude_unset=True))
     )
+    query_ids = set(normalize_to_list(query_id))
+    operations = set(normalize_to_list(operation))
+
     filters = {
         "query_id": lambda event: (
-            query_id is None or event.payload.source.queryId == query_id
+            query_id is None or event.payload.source.queryId in query_ids
         ),
-        "operation": lambda event: operation is None or event.op == operation,
+        "operation": lambda event: operation is None or event.op in operations,
         # Validate both before and after states if they exist
         "event_model": lambda event: (
             event_model is None
@@ -85,12 +92,13 @@ def drasi_trigger(
     }
 
     def _activate(ctx: ActivationContext) -> Callable[[], None] | None:
-        if ctx.agent.pubsub is None:
-            raise RuntimeError("No pub/sub config found on agent.")
-
-        if ctx.agent.topic_name == topic:
+        if (
+            ctx.agent.pubsub
+            and (pubsub is None or ctx.agent.message_bus_name == pubsub)
+            and ctx.agent.topic_name == topic
+        ):
             raise RuntimeError(
-                "Pub/sub topic must be different from the agent's topic."
+                "Pub/sub (component, topic) must be different from the agent's (component, topic)."
             )
 
         if ctx.app is not None:
@@ -138,7 +146,7 @@ def drasi_trigger(
 
         for filter_name, filter_fn in filters.items():
             if not _passes_filter(parsed_event, filter_fn):
-                # TODO: this short-circuits on the first failing filter, may mask others
+                # TODO: this short-circuits on the first failing filter, may mask others; also needs more context
                 logger.info(
                     f"Drasi event {event!r} does not match filter '{filter_name}'; dropping."
                 )
@@ -156,6 +164,7 @@ def drasi_trigger(
         try:
             # Strip optional missing fields
             agent_task = task.model_dump(exclude_unset=True)
+            # TODO: move this method to shared utils
             _attach_metadata_to_payload(agent_task, metadata)
 
             logger.info(f"Scheduling workflow with task: {agent_task}")
@@ -171,8 +180,17 @@ def drasi_trigger(
             return TopicEventResponse(TopicEventResponseStatus.retry)
 
     def _open_stream(ctx: ActivationContext) -> Callable[[], None]:
-        # Use the agent pub/sub component
-        pubsub_name = ctx.agent.pubsub.pubsub_name
+        # Fall back to the agent's pub/sub component
+        pubsub_name = pubsub or ctx.agent.pubsub.pubsub_name
+
+        # Ensure pub/sub components are registered
+        # TODO: should this be the runner's responsibility?
+        _validate_pubsub_components(
+            ctx.dapr_client,
+            {pubsub_name},
+            {pubsub_name: {topic}},
+            ctx.runner._client_factory,
+        )
 
         return ctx.dapr_client.subscribe_with_handler(
             pubsub_name=pubsub_name,
