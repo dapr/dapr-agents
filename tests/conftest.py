@@ -32,6 +32,21 @@ def create_mock_module(name: str) -> MagicMock:
     return mock
 
 
+# Import the real MCP helpers from the SDK before the blanket dapr mock below.
+# `dapr_agents.tool.base` does `from dapr.ext.workflow.mcp_schema import ...` at
+# module load time; the MagicMock that replaces `dapr` in sys.modules would
+# otherwise hide these real submodules.
+try:
+    import dapr.ext.workflow.mcp as _real_mcp_module
+    import dapr.ext.workflow.mcp_schema as _real_mcp_schema_module
+
+    _HAVE_REAL_MCP = True
+except ImportError:
+    _real_mcp_module = None
+    _real_mcp_schema_module = None
+    _HAVE_REAL_MCP = False
+
+
 # Create mock modules for Dapr
 mock_dapr = MagicMock()
 mock_dapr.common = MagicMock()
@@ -212,6 +227,17 @@ mock_modules = {
 
 for name, mock in mock_modules.items():
     sys.modules[name] = mock
+
+# Restore the real MCP submodules so `from dapr.ext.workflow.mcp_schema import ...`
+# resolves to the real implementation (used by dapr_agents.tool.base at import
+# time). The blanket dapr mock above would otherwise hide them.
+if _HAVE_REAL_MCP:
+    sys.modules["dapr.ext.workflow.mcp"] = _real_mcp_module
+    sys.modules["dapr.ext.workflow.mcp_schema"] = _real_mcp_schema_module
+    mock_dapr.ext.workflow.mcp = _real_mcp_module
+    mock_dapr.ext.workflow.mcp_schema = _real_mcp_schema_module
+    mock_dapr.ext.workflow.MCPToolDef = _real_mcp_module.MCPToolDef
+    mock_dapr.ext.workflow.MCP_WORKFLOW_PREFIX = _real_mcp_module.MCP_WORKFLOW_PREFIX
 
 # This file is used by pytest to configure the test environment
 # and provide shared fixtures across all tests.

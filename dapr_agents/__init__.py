@@ -30,6 +30,7 @@ from dapr_agents.agents.executors import (
     EchoAgentExecutor,
 )
 from dapr_agents.agents.schemas import ApprovalRequiredEvent, ApprovalResponseEvent
+from dapr_agents.types import ActivationCallback, ActivationContext
 from dapr_agents.hooks import (
     AfterHook,
     AfterLLMHook,
@@ -83,6 +84,8 @@ __all__ = [
     "AgentTool",
     "tool",
     "AgentRunner",
+    "ActivationCallback",
+    "ActivationContext",
     "call_agent",
     "trigger_agent",
     "AgentApprovalConfig",

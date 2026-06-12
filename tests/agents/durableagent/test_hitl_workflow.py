@@ -239,7 +239,7 @@ class TestRequestApprovalGenerator:
             mock_ctx, mock_ctx.instance_id, tool_call, decision
         )
 
-        with patch("durabletask.task.when_any") as mock_when_any:
+        with patch("dapr.ext.workflow.when_any") as mock_when_any:
             when_any_future = Mock()
             mock_when_any.return_value = when_any_future
 
@@ -281,7 +281,7 @@ class TestRequestApprovalGenerator:
             mock_ctx, mock_ctx.instance_id, tool_call, decision
         )
 
-        with patch("durabletask.task.when_any", return_value=Mock()):
+        with patch("dapr.ext.workflow.when_any", return_value=Mock()):
             next(gen)
             gen.send(None)
             try:
@@ -303,7 +303,7 @@ class TestRequestApprovalGenerator:
         ids = []
         for _ in range(2):
             gen = agent._request_approval(mock_ctx, "fixed-instance", tc, decision)
-            with patch("durabletask.task.when_any", return_value=Mock()):
+            with patch("dapr.ext.workflow.when_any", return_value=Mock()):
                 next(gen)
             # read the input that was passed to publish_approval_request
             publish_input = mock_ctx.call_activity.call_args[1]["input"]
@@ -322,7 +322,7 @@ class TestRequestApprovalGenerator:
         )
         gen = agent._request_approval(mock_ctx, mock_ctx.instance_id, tc, decision)
 
-        with patch("durabletask.task.when_any", return_value=Mock()):
+        with patch("dapr.ext.workflow.when_any", return_value=Mock()):
             next(gen)
 
         publish_input = mock_ctx.call_activity.call_args[1]["input"]
@@ -512,7 +512,7 @@ class TestHookWorkflowDispatch:
         gen = agent.agent_workflow(mock_ctx, message)
         save_tool_input = None
 
-        with patch("durabletask.task.when_any", return_value=Mock()):
+        with patch("dapr.ext.workflow.when_any", return_value=Mock()):
             next(gen)  # Y0: record_initial_entry
             gen.send(None)  # Y1: call_llm
             gen.send({"tool_calls": [tc]})  # Y2: publish_approval_request
@@ -593,7 +593,7 @@ class TestHookWorkflowDispatch:
 
         gen = agent.agent_workflow(mock_ctx, message)
 
-        with patch("durabletask.task.when_any", return_value=Mock()):
+        with patch("dapr.ext.workflow.when_any", return_value=Mock()):
             next(gen)  # Y0: record_initial_entry
             gen.send(None)  # Y1: call_llm
             gen.send({"tool_calls": [tc]})  # Y2: publish_approval_request
