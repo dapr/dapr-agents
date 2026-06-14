@@ -11,8 +11,9 @@
 # limitations under the License.
 #
 
-from .activations import drasi_trigger
+from .activations import DRASI_TRIGGER_DEFAULT_TASK, drasi_trigger
 
 __all__ = [
+    "DRASI_TRIGGER_DEFAULT_TASK",
     "drasi_trigger",
 ]

@@ -27,8 +27,9 @@ from dapr_agents.workflow.utils.registration import _validate_pubsub_components
 from dapr_agents.workflow.utils.routers import parse_cloudevent, validate_message_model
 from dapr_agents.workflow.utils.subscription import _attach_metadata_to_payload
 
-
 logger = logging.getLogger(__name__)
+
+DRASI_TRIGGER_DEFAULT_TASK = "Return the following payload exactly as-is"
 
 
 def drasi_trigger(
@@ -51,7 +52,7 @@ def drasi_trigger(
         topic: The topic to subscribe to. This MUST be different from the agent's topic.
         pubsub: The name of the Dapr pub/sub component. If `None`, the agent's pub/sub component is used.
         dead_letter_topic: The dead-letter topic to published failed messages to. Defaults to `None`.
-        mapper: A function to map Drasi events to agent task messages. If `None`, the serialized event is used as the task message.
+        mapper: A function to map Drasi events to agent task messages. If `None`, the task message will instruct the agent to return the serialized Drasi event as-is.
         query_id: The Drasi query ID to filter events by. Defaults to `None` (no filtering).
         operation: The Drasi operation(s) to filter events by (`"i"` for insert, `"u"` for update, `"d"` for delete). Defaults to `None` (no filtering).
         event_model: The model to use to filter and validate Drasi change event payloads. Defaults to `None` (no filtering/validation).
@@ -63,7 +64,9 @@ def drasi_trigger(
         RuntimeError: If the agent does not have a pub/sub configuration or if the topic is the same as the agent's topic.
     """
     mapper = mapper or (
-        lambda event: TriggerAction(task=event.model_dump_json(exclude_unset=True))
+        lambda event: TriggerAction(
+            task=f"{DRASI_TRIGGER_DEFAULT_TASK}: {event.model_dump_json(exclude_unset=True)}"
+        )
     )
     operations = set(normalize_to_list(operation))
 
@@ -100,9 +103,14 @@ def drasi_trigger(
                 "Pub/sub (component, topic) must be different from the agent's (component, topic)."
             )
 
+        if mapper is None:
+            logger.warning(
+                "No mapper function provided; the agent will be instructed to return the serialized Drasi event as-is."
+            )
+
         if ctx.app is not None:
             logger.info(
-                "HTTP routes are not supported by this extension. Only pub/sub routes will be wired."
+                "HTTP routes are not supported by this extension; only pub/sub routes will be wired."
             )
 
         closer = _open_stream(ctx)
