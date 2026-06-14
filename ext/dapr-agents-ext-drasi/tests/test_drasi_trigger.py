@@ -19,7 +19,7 @@ import json
 import os
 from datetime import timedelta
 from typing import Any, Optional
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -31,15 +31,23 @@ from dapr_agents.agents.configs import (
     AgentPubSubConfig,
     AgentStateConfig,
 )
+from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.workflow.runners.agent import AgentRunner
-from dapr_agents.ext.drasi import drasi_trigger  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi import DRASI_TRIGGER_DEFAULT_TASK, drasi_trigger  # type: ignore[import-not-found]
 
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers (mirror tests/workflow/test_activation_hooks.py)
 # ---------------------------------------------------------------------------
+
+
+def _safe_json_loads(data: Any) -> Any:
+    """Safely parses a JSON-serializable value, returning the parsed data."""
+    if isinstance(data, (dict, list)):
+        return data
+    return json.loads(data)
 
 
 def _create_mock_dapr_client(
@@ -272,13 +280,19 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "orders"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    drasi_trigger(agent, pubsub=drasi_pubsub_name, topic=drasi_topic)
+    drasi_trigger(
+        agent,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        mapper=lambda _: TriggerAction(task=task_str),
+    )
     runner.subscribe(agent)
 
     scheduler_method = runner.run_sync
@@ -286,18 +300,20 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
 
     # Ensure order is preserved
     cloudevent_ids = [
-        c.kwargs["payload"]["_message_metadata"]["id"]
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert cloudevent_ids == ["1", "2"]
+    assert cloudevent_ids == [e.get("id") for e in events]
 
-    # Ensure default tasks are serialized event data
-    tasks = [
-        json.loads(c.kwargs["payload"]["task"])
+    # Ensure task strings are correctly generated
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    event_data = [e["data"] for e in events]
-    assert tasks == event_data
+    expected_tasks = [task_str for _ in events]
+    assert payload_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -358,30 +374,38 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "incidents"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    drasi_trigger(agent, pubsub=drasi_pubsub_name, topic=drasi_topic)
+    drasi_trigger(
+        agent,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        mapper=lambda _: TriggerAction(task=task_str),
+    )
     runner.register_routes(agent, fastapi_app=FastAPI())
 
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
-        c.kwargs["payload"]["_message_metadata"]["id"]
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert cloudevent_ids == ["1", "2"]
+    assert cloudevent_ids == [e.get("id") for e in events]
 
-    tasks = [
-        json.loads(c.kwargs["payload"]["task"])
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    event_data = [e["data"] for e in events]
-    assert tasks == event_data
+    expected_tasks = [task_str for _ in events]
+    assert payload_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -448,36 +472,44 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "truth"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    drasi_trigger(agent, pubsub=drasi_pubsub_name, topic=drasi_topic)
+    drasi_trigger(
+        agent,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        mapper=lambda _: TriggerAction(task=task_str),
+    )
     runner.serve(agent, app=FastAPI())
 
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
-        c.kwargs["payload"]["_message_metadata"]["id"]
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert cloudevent_ids == ["22", "33"]
+    assert cloudevent_ids == [e.get("id") for e in events]
 
-    tasks = [
-        json.loads(c.kwargs["payload"]["task"])
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    event_data = [e["data"] for e in events]
-    assert tasks == event_data
+    expected_tasks = [task_str for _ in events]
+    assert payload_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
-    """Test that the Drasi extension wires pub/sub routes correctly if the agent pub/sub is missing."""
+    """Test that the Drasi extension wires pub/sub routes correctly when the agent's pub/sub configuration is missing."""
     drasi_pubsub_name = "gamepubsub"
     drasi_topic = "gamestate"
     events = [
@@ -546,34 +578,42 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "gamestate"
 
     agent = _make_agent()
     runner = _make_runner(pubsub_names=[drasi_pubsub_name], event_stream=events)
 
-    drasi_trigger(agent, pubsub=drasi_pubsub_name, topic=drasi_topic)
+    drasi_trigger(
+        agent,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        mapper=lambda _: TriggerAction(task=task_str),
+    )
     runner.subscribe(agent)
 
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
-        c.kwargs["payload"]["_message_metadata"]["id"]
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert cloudevent_ids == ["1", "2"]
+    assert cloudevent_ids == [e.get("id") for e in events]
 
-    tasks = [
-        json.loads(c.kwargs["payload"]["task"])
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    event_data = [e["data"] for e in events]
-    assert tasks == event_data
+    expected_tasks = [task_str for _ in events]
+    assert payload_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_defaults_to_agent_pubsub_component():
-    """Test that the Drasi extension uses the agent's pub/sub component when no pub/sub component is specified."""
+    """Test that the Drasi extension uses the agent's pub/sub component when no pub/sub component is provided."""
     pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_topic = "searches"
@@ -625,6 +665,96 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "summarize"
+
+    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+
+    drasi_trigger(
+        agent, topic=drasi_topic, mapper=lambda _: TriggerAction(task=task_str)
+    )
+    runner.subscribe(agent)
+
+    scheduler_method = runner.run_sync
+    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
+
+    cloudevent_ids = [
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    assert cloudevent_ids == [e.get("id") for e in events]
+
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    expected_tasks = [task_str for _ in events]
+    assert payload_tasks == expected_tasks
+
+
+@pytest.mark.asyncio
+@pytest.mark.ext
+async def test_drasi_trigger_defaults_to_default_task():
+    """Test that the Drasi extension uses the default task when no custom task mapping is provided."""
+    pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_topic = "differenttopic"
+    events = [
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "u",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "query1",
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "a": 0,
+                    },
+                    "after": {
+                        "a": 1,
+                    },
+                },
+            },
+            "id": "1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+        {
+            "topic": drasi_topic,
+            "pubsubname": pubsub_name,
+            "data": {
+                "op": "u",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": "query2",
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "b": 0,
+                    },
+                    "after": {
+                        "b": 1,
+                    },
+                },
+            },
+            "id": "2",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "test-publisher",
+            "type": "com.dapr.event.sent",
+        },
+    ]
 
     agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
     runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
@@ -636,17 +766,18 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
-        c.kwargs["payload"]["_message_metadata"]["id"]
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert cloudevent_ids == ["1", "2"]
+    assert cloudevent_ids == [e.get("id") for e in events]
 
-    tasks = [
-        json.loads(c.kwargs["payload"]["task"])
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    event_data = [e["data"] for e in events]
-    assert tasks == event_data
+    assert all(DRASI_TRIGGER_DEFAULT_TASK in task for task in payload_tasks)
 
 
 @pytest.mark.asyncio
@@ -685,11 +816,14 @@ async def test_drasi_trigger_ignores_malformed_events():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "ignored"
 
     agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
     runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
 
-    drasi_trigger(agent, topic=drasi_topic)
+    drasi_trigger(
+        agent, topic=drasi_topic, mapper=lambda _: TriggerAction(task=task_str)
+    )
     runner.subscribe(agent)
 
     scheduler_method = runner.run_sync
@@ -757,21 +891,37 @@ async def test_drasi_trigger_filters_by_single_query_id():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "test"
 
     agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
     runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
 
-    drasi_trigger(agent, topic=drasi_topic, query_id="query1")
+    drasi_trigger(
+        agent,
+        topic=drasi_topic,
+        query_id="query1",
+        mapper=lambda _: TriggerAction(task=task_str),
+    )
     runner.subscribe(agent)
 
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 1  # type: ignore[attr-defined]
 
+    expected_events = [events[0]]
     cloudevent_ids = [
-        c.kwargs["payload"]["_message_metadata"]["id"]
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert cloudevent_ids == ["1"]
+    assert cloudevent_ids == [e.get("id") for e in expected_events]
+
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    expected_tasks = [task_str for _ in expected_events]
+    assert payload_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -829,21 +979,37 @@ async def test_drasi_trigger_filters_by_single_operation():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "test"
 
     agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
     runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
 
-    drasi_trigger(agent, topic=drasi_topic, operation="d")
+    drasi_trigger(
+        agent,
+        topic=drasi_topic,
+        operation="d",
+        mapper=lambda _: TriggerAction(task=task_str),
+    )
     runner.subscribe(agent)
 
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 1  # type: ignore[attr-defined]
 
+    expected_events = [events[1]]
     cloudevent_ids = [
-        c.kwargs["payload"]["_message_metadata"]["id"]
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert cloudevent_ids == ["2"]
+    assert cloudevent_ids == [e.get("id") for e in expected_events]
+
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    expected_tasks = [task_str for _ in expected_events]
+    assert payload_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -924,21 +1090,37 @@ async def test_drasi_trigger_filters_by_multiple_operations():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "test"
 
     agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
     runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
 
-    drasi_trigger(agent, topic=drasi_topic, operation=["i", "u"])
+    drasi_trigger(
+        agent,
+        topic=drasi_topic,
+        operation=["i", "u"],
+        mapper=lambda _: TriggerAction(task=task_str),
+    )
     runner.subscribe(agent)
 
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
+    expected_events = [events[0], events[2]]
     cloudevent_ids = [
-        c.kwargs["payload"]["_message_metadata"]["id"]
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert cloudevent_ids == ["1", "3"]
+    assert cloudevent_ids == [e.get("id") for e in expected_events]
+
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    expected_tasks = [task_str for _ in expected_events]
+    assert payload_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -1052,21 +1234,37 @@ async def test_drasi_trigger_filters_by_event_model():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "test"
 
     agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
     runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
 
-    drasi_trigger(agent, topic=drasi_topic, event_model=Counter)
+    drasi_trigger(
+        agent,
+        topic=drasi_topic,
+        mapper=lambda _: TriggerAction(task=task_str),
+        event_model=Counter,
+    )
     runner.subscribe(agent)
 
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 3  # type: ignore[attr-defined]
 
+    expected_events = [events[0], events[1], events[3]]
     cloudevent_ids = [
-        c.kwargs["payload"]["_message_metadata"]["id"]
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert cloudevent_ids == ["1", "2", "4"]
+    assert cloudevent_ids == [e.get("id") for e in expected_events]
+
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    expected_tasks = [task_str for _ in expected_events]
+    assert payload_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -1105,11 +1303,17 @@ async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "test"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    drasi_trigger(agent, pubsub=drasi_pubsub_name, topic=drasi_topic)
+    drasi_trigger(
+        agent,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        mapper=lambda _: TriggerAction(task=task_str),
+    )
 
     # Ensure that the activation doesn't try to fall back to the agent's pub/sub component
     with pytest.raises(RuntimeError):
@@ -1151,11 +1355,14 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "test"
 
     agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
     runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
 
-    drasi_trigger(agent, topic=drasi_topic)
+    drasi_trigger(
+        agent, topic=drasi_topic, mapper=lambda _: TriggerAction(task=task_str)
+    )
 
     with pytest.raises(RuntimeError):
         runner.subscribe(agent)
@@ -1197,11 +1404,17 @@ async def test_drasi_trigger_raises_when_given_pubsub_matches_agent_pubsub():
             "type": "com.dapr.event.sent",
         },
     ]
+    task_str = "test"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    drasi_trigger(agent, pubsub=drasi_pubsub_name, topic=drasi_topic)
+    drasi_trigger(
+        agent,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        mapper=lambda _: TriggerAction(task=task_str),
+    )
 
     with pytest.raises(RuntimeError):
         runner.subscribe(agent)
