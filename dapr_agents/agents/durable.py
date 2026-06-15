@@ -2697,9 +2697,9 @@ class DurableAgent(AgentBase):
         if not self.state_store:
             return
         try:
-            self.state_store.save_state(
+            self.state_store.save(
                 key=self._pending_approvals_key(),
-                value=json.dumps(self._pending_approvals),
+                value=self._pending_approvals,
             )
         except Exception:
             logger.exception("Failed to persist pending approvals to state store")
@@ -2717,10 +2717,8 @@ class DurableAgent(AgentBase):
         if not self.state_store:
             return
         try:
-            exists, data = self.state_store.try_get_state(
-                key=self._pending_approvals_key()
-            )
-            if not exists or not data:
+            data = self.state_store.load(key=self._pending_approvals_key(), default={})
+            if not data:
                 return
             wf_client = self._wf_client
             _ACTIVE = {wf.WorkflowStatus.RUNNING, wf.WorkflowStatus.SUSPENDED}
