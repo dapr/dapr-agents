@@ -19,6 +19,7 @@ import os
 import json
 import tempfile
 import shutil
+from enum import Enum
 from unittest.mock import MagicMock
 
 # Add the project root to the Python path for imports
@@ -195,6 +196,13 @@ class StreamInactiveError(Exception):
     pass
 
 
+# Copy of the real enum. The mocked SDK would import this as a MagicMock, which can't be a `match` class pattern.
+class TopicEventResponseStatus(Enum):
+    success = 0
+    retry = 1
+    drop = 2
+
+
 mock_dapr.ext.workflow.WorkflowRuntime = MockWorkflowRuntime
 mock_dapr.ext.workflow.DaprWorkflowClient = MockDaprWorkflowClient
 mock_dapr.ext.workflow.DaprWorkflowContext = MockDaprWorkflowContext
@@ -203,6 +211,7 @@ mock_dapr.ext.workflow.workflow_state.WorkflowState = MockWorkflowState
 mock_dapr.clients.DaprClient = MockDaprClient
 mock_dapr.clients.grpc._request.ConversationInput = MockConversationInput
 mock_dapr.clients.grpc._response.ConversationResponse = MockConversationResponse
+mock_dapr.clients.grpc._response.TopicEventResponseStatus = TopicEventResponseStatus
 mock_dapr.clients.grpc._state.StateItem = MockStateItem
 mock_dapr.clients.grpc.subscription.StreamInactiveError = StreamInactiveError
 mock_dapr.aio.clients.grpc.subscription.Subscription = MockSubscription
