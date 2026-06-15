@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import functools
+import inspect
 import json
 import threading
 import uuid
@@ -735,6 +736,8 @@ class DurableAgent(AgentBase):
                         workflow_meta: List[Dict[str, Any]] = []
                         activity_tasks: List[Any] = []
                         activity_meta: List[Dict[str, Any]] = []
+                        generator_tools: List[Any] = []
+                        generator_meta: List[Dict[str, Any]] = []
 
                         for idx, tc in enumerate(tool_calls):
                             fn_name = tc["function"]["name"]
@@ -840,15 +843,34 @@ class DurableAgent(AgentBase):
                                             "dispatch_time": ctx.current_utc_datetime.isoformat(),
                                         }
                                     )
+                                    workflow_tasks.append(tool_obj(**call_kwargs))
                                 else:
-                                    workflow_meta.append(
-                                        {
-                                            "order": idx,
-                                            "tool_call": tc,
-                                            "dispatch_time": ctx.current_utc_datetime.isoformat(),
-                                        }
-                                    )
-                                workflow_tasks.append(tool_obj(**call_kwargs))
+                                    # Non-agent context-injected tool. Calling it
+                                    # returns either a Dapr workflow Task or a
+                                    # generator (e.g. the built-in ask_user, whose
+                                    # body yields workflow operations). A generator
+                                    # must be driven inline with `yield from` and
+                                    # cannot be scheduled into when_all, so route it
+                                    # to a separate bucket.
+                                    produced = tool_obj(**call_kwargs)
+                                    if inspect.isgenerator(produced):
+                                        generator_meta.append(
+                                            {
+                                                "order": idx,
+                                                "tool_call": tc,
+                                                "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                            }
+                                        )
+                                        generator_tools.append(produced)
+                                    else:
+                                        workflow_meta.append(
+                                            {
+                                                "order": idx,
+                                                "tool_call": tc,
+                                                "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                            }
+                                        )
+                                        workflow_tasks.append(produced)
                             # Invoke and execute regular tools.
                             else:
                                 activity_tasks.append(
@@ -907,7 +929,9 @@ class DurableAgent(AgentBase):
                                 retry_policy=self._retry_policy,
                             )
 
-                        if (
+                        if not all_tasks:
+                            results: List[Any] = []
+                        elif (
                             self.execution.tool_execution_mode
                             == ToolExecutionMode.SEQUENTIAL
                         ):
@@ -960,6 +984,20 @@ class DurableAgent(AgentBase):
                         ):
                             ordered[meta["order"]] = res
 
+                        # Drive generator-bodied workflow tools (e.g. ask_user)
+                        # inline. They yield workflow operations and return a
+                        # result; they must be advanced with `yield from`, not
+                        # scheduled into when_all.
+                        for gmeta, gen in zip(generator_meta, generator_tools):
+                            gen_result = yield from gen
+                            tc_g = gmeta["tool_call"]
+                            ordered[gmeta["order"]] = ToolMessage(
+                                content=serialize_tool_result(gen_result),
+                                role="tool",
+                                name=tc_g["function"]["name"],
+                                tool_call_id=tc_g["id"],
+                            ).model_dump()
+
                         tool_results = [tr for tr in ordered if tr is not None]
                         tool_calls_by_id = {
                             meta["tool_call"]["id"]: {
@@ -978,6 +1016,16 @@ class DurableAgent(AgentBase):
                                     "dispatch_time": meta.get("dispatch_time"),
                                 }
                                 for meta in activity_meta
+                            }
+                        )
+                        tool_calls_by_id.update(
+                            {
+                                meta["tool_call"]["id"]: {
+                                    "tool_call": meta["tool_call"],
+                                    "is_agent_call": False,
+                                    "dispatch_time": meta.get("dispatch_time"),
+                                }
+                                for meta in generator_meta
                             }
                         )
                         # include hook-blocked/skipped tool calls so save_tool_results

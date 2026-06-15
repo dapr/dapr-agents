@@ -79,10 +79,22 @@ def _make_ask_user_impl(publish_stream_event: Any):
         new_uuid = getattr(ctx, "new_uuid", None)
         if callable(new_uuid):
             request_id = str(new_uuid())
-        else:  # pragma: no cover - defensive fallback
+        else:
+            # No deterministic new_uuid() on this workflow context. We must NOT
+            # use uuid.uuid4() here: the orchestrator replays on every external
+            # event, and a fresh random id on each replay changes the event name
+            # we wait on — so the response event (raised against the *original*
+            # id) is buffered forever and the workflow hangs. Derive a
+            # replay-stable id from deterministic context fields instead, mirroring
+            # the approval path's uuid5(instance_id, ...) approach.
             import uuid
 
-            request_id = uuid.uuid4().hex
+            seed = "{}:{}:{}".format(
+                getattr(ctx, "instance_id", ""),
+                getattr(ctx, "current_utc_datetime", ""),
+                question,
+            )
+            request_id = uuid.uuid5(uuid.NAMESPACE_DNS, seed).hex
 
         instance_id = getattr(ctx, "instance_id", None)
 
