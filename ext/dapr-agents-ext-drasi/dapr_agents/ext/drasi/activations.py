@@ -54,7 +54,7 @@ def drasi_trigger(
         pubsub: Optional name of the Dapr pub/sub component to use. If `None`, the agent's pub/sub component is used.
         topic: Optional topic to subscribe to. If `None`, the topic is derived from the query ID as `"drasi-events-<query_id>"`.
         dead_letter_topic: Optional dead-letter topic to publish failed messages to. Defaults to `None`.
-        mapper: Optional function to map Drasi events to agent task messages. If `None`, the task message will instruct the agent to return the serialized Drasi event as-is (no-op).
+        mapper: Optional function to map Drasi events to agent task messages. If `None`, the task message will instruct the agent to return the serialized Drasi event as-is (pass-through).
         operation: Optional Drasi operation(s) to filter events by (`"i"` for insert, `"u"` for update, `"d"` for delete). Defaults to `None` (no filtering).
         result_model: Optional model to use to validate the individual changes within Drasi change events. Defaults to `None` (no validation).
 

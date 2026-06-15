@@ -810,8 +810,8 @@ async def test_drasi_trigger_defaults_to_derived_topic():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_defaults_to_noop_task():
-    """Test that the Drasi extension uses the default no-op task when no custom task mapping is provided."""
+async def test_drasi_trigger_defaults_to_passthrough_task():
+    """Test that the Drasi extension uses the default pass-through task when no custom task mapping is provided."""
     query_id = "password-update-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
