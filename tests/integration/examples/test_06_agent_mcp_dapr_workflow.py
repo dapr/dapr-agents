@@ -38,6 +38,12 @@ WEATHER_SERVER_PORT = 8081
 WEATHER_SERVER_PORT_2 = 8082
 
 
+@pytest.fixture(scope="module")
+def mcp_example_dir(examples_dir):
+    """Directory of the MCP + Dapr workflow example (moved here from quickstarts)."""
+    return examples_dir / "06-agent-mcp-dapr-workflow"
+
+
 def _wait_for_port(port: int, timeout: float = 10.0) -> bool:
     """Return True once something is listening on *port*, False on timeout."""
     deadline = time.monotonic() + timeout
@@ -51,12 +57,12 @@ def _wait_for_port(port: int, timeout: float = 10.0) -> bool:
 
 
 @pytest.fixture(scope="module")
-def weather_mcp_server(quickstarts_dir):
+def weather_mcp_server(mcp_example_dir):
     """Start the weather MCP server subprocess and wait until it is ready."""
     proc = subprocess.Popen(
         [
             sys.executable,
-            str(quickstarts_dir / "weather_mcp_server.py"),
+            str(mcp_example_dir / "weather_mcp_server.py"),
             "--port",
             str(WEATHER_SERVER_PORT),
         ],
@@ -80,8 +86,8 @@ class TestMCPQuickstartE2E:
     """End-to-end tests for the mcp_dapr_workflow quickstart."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
-        self.quickstart_dir = quickstarts_dir
+    def setup(self, mcp_example_dir, openai_api_key):
+        self.example_dir = mcp_example_dir
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_list_tools_succeeds_and_returns_expected_tools(
@@ -91,13 +97,13 @@ class TestMCPQuickstartE2E:
     ):
         """Quickstart must discover both weather tools from the sidecar."""
         result = run_quickstart_or_examples_script(
-            self.quickstart_dir / "mcp_dapr_workflow.py",
-            cwd=self.quickstart_dir,
+            self.example_dir / "mcp_dapr_workflow.py",
+            cwd=self.example_dir,
             env=self.env,
             timeout=120,
             use_dapr=True,
             app_id="mcp-agent-test",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.example_dir / "resources",
         )
 
         combined = (result.stdout or "") + (result.stderr or "")
@@ -118,13 +124,13 @@ class TestMCPQuickstartE2E:
     ):
         """Quickstart must exit with return code 0."""
         result = run_quickstart_or_examples_script(
-            self.quickstart_dir / "mcp_dapr_workflow.py",
-            cwd=self.quickstart_dir,
+            self.example_dir / "mcp_dapr_workflow.py",
+            cwd=self.example_dir,
             env=self.env,
             timeout=120,
             use_dapr=True,
             app_id="mcp-agent-test-exit",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.example_dir / "resources",
         )
 
         assert result.returncode == 0, (
@@ -139,13 +145,13 @@ class TestMCPQuickstartE2E:
     ):
         """The agent must invoke at least one weather tool and return a response."""
         result = run_quickstart_or_examples_script(
-            self.quickstart_dir / "mcp_dapr_workflow.py",
-            cwd=self.quickstart_dir,
+            self.example_dir / "mcp_dapr_workflow.py",
+            cwd=self.example_dir,
             env=self.env,
             timeout=180,
             use_dapr=True,
             app_id="mcp-agent-tool-call",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.example_dir / "resources",
         )
 
         combined = (result.stdout or "") + (result.stderr or "")
@@ -164,8 +170,8 @@ class TestMCPIntegrationFailures:
     """Integration failure scenarios for MCP + Dapr workflow."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
-        self.quickstart_dir = quickstarts_dir
+    def setup(self, mcp_example_dir, openai_api_key):
+        self.example_dir = mcp_example_dir
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_list_tools_fails_when_mcp_server_unreachable(self, dapr_runtime):  # noqa: ARG002
@@ -179,13 +185,13 @@ class TestMCPIntegrationFailures:
             socket.create_connection(("127.0.0.1", WEATHER_SERVER_PORT), timeout=0.3)
 
         result = run_quickstart_or_examples_script(
-            self.quickstart_dir / "mcp_dapr_workflow.py",
-            cwd=self.quickstart_dir,
+            self.example_dir / "mcp_dapr_workflow.py",
+            cwd=self.example_dir,
             env=self.env,
             timeout=60,
             use_dapr=True,
             app_id="mcp-agent-fail-unreachable",
-            resources_path=self.quickstart_dir / "resources",
+            resources_path=self.example_dir / "resources",
         )
 
         combined = (result.stdout or "") + (result.stderr or "")
@@ -206,14 +212,14 @@ class TestMCPIntegrationFailures:
             # Copy only the non-MCPServer component YAMLs so Dapr itself starts
             import shutil
 
-            resources = Path(self.quickstart_dir) / "resources"
+            resources = Path(self.example_dir) / "resources"
             for yaml_file in resources.glob("*.yaml"):
                 if yaml_file.name != "weather-mcp.yaml":
                     shutil.copy(yaml_file, empty_resources)
 
             result = run_quickstart_or_examples_script(
-                self.quickstart_dir / "mcp_dapr_workflow.py",
-                cwd=self.quickstart_dir,
+                self.example_dir / "mcp_dapr_workflow.py",
+                cwd=self.example_dir,
                 env=self.env,
                 timeout=60,
                 use_dapr=True,
@@ -227,12 +233,12 @@ class TestMCPIntegrationFailures:
 
 
 @pytest.fixture(scope="module")
-def weather_mcp_server_2(quickstarts_dir):
+def weather_mcp_server_2(mcp_example_dir):
     """Start the second weather MCP server (humidity + wind) on WEATHER_SERVER_PORT_2."""
     proc = subprocess.Popen(
         [
             sys.executable,
-            str(quickstarts_dir / "weather_mcp_server_2.py"),
+            str(mcp_example_dir / "weather_mcp_server_2.py"),
             "--port",
             str(WEATHER_SERVER_PORT_2),
         ],
@@ -252,9 +258,9 @@ def weather_mcp_server_2(quickstarts_dir):
 
 
 @pytest.fixture(scope="module")
-def multi_server_resources_dir(quickstarts_dir):
+def multi_server_resources_dir(mcp_example_dir):
     """Temp resources dir containing both MCPServer YAMLs + all standard agent YAMLs."""
-    base = Path(quickstarts_dir) / "resources"
+    base = Path(mcp_example_dir) / "resources"
     tmp = Path(tempfile.mkdtemp(prefix="mcp_multi_resources_"))
     try:
         shutil.copytree(base, tmp, dirs_exist_ok=True)
@@ -268,8 +274,8 @@ class TestMCPServerConfigVariants:
     """Tests for different MCPServer resource configurations."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, quickstarts_dir, openai_api_key):
-        self.quickstart_dir = quickstarts_dir
+    def setup(self, mcp_example_dir, openai_api_key):
+        self.example_dir = mcp_example_dir
         self.env = {"OPENAI_API_KEY": openai_api_key}
 
     def test_multiple_servers_both_tool_sets_discovered(
@@ -288,8 +294,8 @@ class TestMCPServerConfigVariants:
         dedup; all four tools should register cleanly.
         """
         result = run_quickstart_or_examples_script(
-            self.quickstart_dir / "mcp_dapr_workflow_multi.py",
-            cwd=self.quickstart_dir,
+            self.example_dir / "mcp_dapr_workflow_multi.py",
+            cwd=self.example_dir,
             env=self.env,
             timeout=180,
             use_dapr=True,
@@ -352,12 +358,12 @@ class TestMCPServerConfigVariants:
         try:
             result = run_quickstart_or_examples_script(
                 script_path,
-                cwd=self.quickstart_dir,
+                cwd=self.example_dir,
                 env=self.env,
                 timeout=60,
                 use_dapr=True,
                 app_id="mcp-agent-allowed-tools",
-                resources_path=self.quickstart_dir / "resources",
+                resources_path=self.example_dir / "resources",
             )
         finally:
             script_path.unlink(missing_ok=True)
