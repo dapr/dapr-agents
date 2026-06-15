@@ -132,12 +132,11 @@ def drasi_trigger(
         event: DrasiUnpackedEvent, filter_fn: Callable[[DrasiUnpackedEvent], bool]
     ) -> bool:
         try:
-            if not filter_fn(event):
-                return False
+            return filter_fn(event)
         except Exception:
             # Filters can throw so swallow errors here
-            return False
-        return True
+            pass
+        return False
 
     def _on_event(
         ctx: ActivationContext, event: SubscriptionMessage
