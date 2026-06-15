@@ -30,38 +30,39 @@ from dapr_agents.workflow.utils.subscription import _attach_metadata_to_payload
 logger = logging.getLogger(__name__)
 
 DRASI_TRIGGER_DEFAULT_TASK = "Return the following payload exactly as-is"
+DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX = "drasi-events"
 
 
 def drasi_trigger(
     agent: DurableAgent,
     *,
-    topic: str,
+    query_id: str,
     pubsub: str | None = None,
+    topic: str | None = None,
     dead_letter_topic: str | None = None,
     mapper: Callable[[DrasiUnpackedEvent], TriggerAction] | None = None,
-    query_id: str | None = None,
     operation: Literal["i", "u", "d"] | Sequence[Literal["i", "u", "d"]] | None = None,
-    event_model: type[Any] | None = None,
+    result_model: type[Any] | None = None,
 ) -> None:
     """
-    Wires pub/sub routes so that the given agent's workflow can be triggered by Drasi events.
-    If the agent's pub/sub component is used, the topic MUST be different from the agent's topic, otherwise the activation will fail to avoid indeterministic behavior.
+    Wires pub/sub routes so that the target agent's workflow can be triggered by Drasi change events.
+    If the agent's pub/sub component is used and a topic is provided, the topic MUST be different from the agent's topic, otherwise the activation will fail to avoid indeterministic behavior.
 
     Args:
-        agent: The target agent.
-        topic: The topic to subscribe to. This MUST be different from the agent's topic.
-        pubsub: The name of the Dapr pub/sub component. If `None`, the agent's pub/sub component is used.
-        dead_letter_topic: The dead-letter topic to published failed messages to. Defaults to `None`.
-        mapper: A function to map Drasi events to agent task messages. If `None`, the task message will instruct the agent to return the serialized Drasi event as-is.
-        query_id: The Drasi query ID to filter events by. Defaults to `None` (no filtering).
-        operation: The Drasi operation(s) to filter events by (`"i"` for insert, `"u"` for update, `"d"` for delete). Defaults to `None` (no filtering).
-        event_model: The model to use to filter and validate Drasi change event payloads. Defaults to `None` (no filtering/validation).
+        agent: The agent to target.
+        query_id: The Drasi query ID whose events should trigger the agent.
+        pubsub: Optional name of the Dapr pub/sub component to use. If `None`, the agent's pub/sub component is used.
+        topic: Optional topic to subscribe to. If `None`, the topic is derived from the query ID as `"drasi-events-<query_id>"`.
+        dead_letter_topic: Optional dead-letter topic to publish failed messages to. Defaults to `None`.
+        mapper: Optional function to map Drasi events to agent task messages. If `None`, the task message will instruct the agent to return the serialized Drasi event as-is (no-op).
+        operation: Optional Drasi operation(s) to filter events by (`"i"` for insert, `"u"` for update, `"d"` for delete). Defaults to `None` (no filtering).
+        result_model: Optional model to use to validate the individual changes within Drasi change events. Defaults to `None` (no validation).
 
     Returns:
         `None`
 
     Raises:
-        RuntimeError: If the agent does not have a pub/sub configuration or if the topic is the same as the agent's topic.
+        RuntimeError: If the agent's pub/sub component is used and the provided topic is the same as the agent's topic.
     """
     mapper = mapper or (
         lambda event: TriggerAction(
@@ -76,17 +77,17 @@ def drasi_trigger(
         ),
         "operation": lambda event: operation is None or event.op in operations,
         # Validate both before and after states if they exist
-        "event_model": lambda event: (
-            event_model is None
+        "result_model": lambda event: (
+            result_model is None
             or (
                 (
                     event.payload.before is None
-                    or validate_message_model(event_model, event.payload.before)
+                    or validate_message_model(result_model, event.payload.before)
                     is not None
                 )
                 and (
                     event.payload.after is None
-                    or validate_message_model(event_model, event.payload.after)
+                    or validate_message_model(result_model, event.payload.after)
                     is not None
                 )
             )
@@ -148,12 +149,13 @@ def drasi_trigger(
         try:
             parsed_event, metadata = parse_cloudevent(event, DrasiUnpackedEvent)
         except Exception:
-            logger.exception("Cannot parse Drasi event {event!r}; dropping.")
+            logger.warning("Cannot parse Drasi event {event!r}; dropping.")
             return TopicEventResponse(TopicEventResponseStatus.drop)
 
         for filter_name, filter_fn in filters.items():
             if not _passes_filter(parsed_event, filter_fn):
-                # TODO: this short-circuits on the first failing filter, may mask others; also needs more context
+                # TODO: this short-circuits on the first failing filter
+                # should have different log levels for expected (different op) and unexpected filter (different query ID) failures
                 logger.info(
                     f"Drasi event {event!r} does not match filter '{filter_name}'; dropping."
                 )
@@ -162,9 +164,7 @@ def drasi_trigger(
         try:
             task = mapper(parsed_event)
         except Exception:
-            logger.exception(
-                "Cannot map Drasi event {event!r} to agent task; dropping."
-            )
+            logger.warning("Cannot map Drasi event {event!r} to agent task; dropping.")
             # Can't process this message due to erroneous user logic
             return TopicEventResponse(TopicEventResponseStatus.drop)
 
@@ -187,21 +187,27 @@ def drasi_trigger(
             return TopicEventResponse(TopicEventResponseStatus.retry)
 
     def _open_stream(ctx: ActivationContext) -> Callable[[], None]:
-        # Fall back to the agent's pub/sub component
-        pubsub_name = pubsub or ctx.agent.pubsub.pubsub_name
+        # Fall back to the agent's pub/sub component if necessary
+        resolved_pubsub = pubsub or ctx.agent.pubsub.pubsub_name
+        # Fall back to a derived topic name if necessary
+        resolved_topic = topic or f"{DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{query_id}"
 
         # Ensure pub/sub components are registered
         # TODO: should this be the runner's responsibility?
         _validate_pubsub_components(
             ctx.dapr_client,
-            {pubsub_name},
-            {pubsub_name: {topic}},
+            {resolved_pubsub},
+            {resolved_pubsub: {resolved_topic}},
             ctx.runner._client_factory,
         )
 
+        logger.info(
+            f"Using pub/sub component '{resolved_pubsub}' and topic '{resolved_topic}'"
+        )
+
         return ctx.dapr_client.subscribe_with_handler(
-            pubsub_name=pubsub_name,
-            topic=topic,
+            pubsub_name=resolved_pubsub,
+            topic=resolved_topic,
             handler_fn=lambda event: _on_event(ctx, event),
             dead_letter_topic=dead_letter_topic,
         )

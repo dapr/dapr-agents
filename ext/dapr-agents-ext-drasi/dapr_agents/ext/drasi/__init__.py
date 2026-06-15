@@ -11,9 +11,14 @@
 # limitations under the License.
 #
 
-from .activations import DRASI_TRIGGER_DEFAULT_TASK, drasi_trigger
+from .activations import (
+    DRASI_TRIGGER_DEFAULT_TASK,
+    DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX,
+    drasi_trigger,
+)
 
 __all__ = [
     "DRASI_TRIGGER_DEFAULT_TASK",
+    "DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX",
     "drasi_trigger",
 ]

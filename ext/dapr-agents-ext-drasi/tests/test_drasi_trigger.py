@@ -35,7 +35,11 @@ from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.workflow.runners.agent import AgentRunner
-from dapr_agents.ext.drasi import DRASI_TRIGGER_DEFAULT_TASK, drasi_trigger  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi import (  # type: ignore[import-not-found]
+    DRASI_TRIGGER_DEFAULT_TASK,
+    DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX,
+    drasi_trigger,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -89,11 +93,13 @@ def _create_mock_dapr_client(
     # Set up get_metadata to return the pubsub components
     mock_metadata = MagicMock()
     components = []
+
     for name in pubsub_names:
         component = MagicMock()
         component.type = "pubsub.redis"
         component.name = name
         components.append(component)
+
     mock_metadata.registered_components = components
     mock_client.get_metadata.return_value = mock_metadata
 
@@ -228,6 +234,7 @@ def _make_runner(
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_under_subscribe():
     """Test that the Drasi extension wires pub/sub routes correctly using the `subscribe()` method."""
+    query_id = "orders-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_pubsub_name = "orderspubsub"
@@ -242,7 +249,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "orders-query",
+                        "queryId": query_id,
                         "ts_ms": 111,
                     },
                     "after": {
@@ -265,7 +272,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
                 "seq": 1,
                 "payload": {
                     "source": {
-                        "queryId": "orders-query",
+                        "queryId": query_id,
                         "ts_ms": 123,
                     },
                     "after": {
@@ -289,6 +296,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
 
     drasi_trigger(
         agent,
+        query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         mapper=lambda _: TriggerAction(task=task_str),
@@ -320,6 +328,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_under_register_routes():
     """Test that the Drasi extension wires pub/sub routes correctly using the `register_routes()` method."""
+    query_id = "incidents-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_pubsub_name = "incidentspubsub"
@@ -334,7 +343,7 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "incidents-query",
+                        "queryId": query_id,
                         "ts_ms": 456,
                     },
                     "after": {
@@ -358,7 +367,7 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
                 "seq": 1,
                 "payload": {
                     "source": {
-                        "queryId": "incidents-query",
+                        "queryId": query_id,
                         "ts_ms": 789,
                     },
                     "after": {
@@ -383,6 +392,7 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
 
     drasi_trigger(
         agent,
+        query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         mapper=lambda _: TriggerAction(task=task_str),
@@ -412,28 +422,26 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_under_serve():
     """Test that the Drasi extension wires pub/sub routes correctly using the `serve()` method."""
-    agent_pubsub_name = "agent-notifications"
-    agent_topic = "agent-inbox"
-    drasi_pubsub_name = "alerts"
+    query_id = "potential-fraud-query"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "alertspubsub"
     drasi_topic = "important"
     events = [
         {
             "topic": drasi_topic,
             "pubsubname": drasi_pubsub_name,
             "data": {
-                "op": "u",
+                "op": "i",
                 "ts_ms": 67,
                 "seq": 22,
                 "payload": {
                     "source": {
-                        "queryId": "potential-fraud-query",
+                        "queryId": query_id,
                         "ts_ms": 67,
                     },
-                    "before": {
-                        "name": "your_name_here",
-                    },
                     "after": {
-                        "name": "YOUR_NAME_HERE",
+                        "name": "your_name_here",
                     },
                 },
             },
@@ -452,16 +460,14 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
                 "seq": 33,
                 "payload": {
                     "source": {
-                        "queryId": "password-update-query",
+                        "queryId": query_id,
                         "ts_ms": 223,
                     },
                     "before": {
-                        "userId": "1",
-                        "password": "password",
+                        "name": "your_name_here",
                     },
                     "after": {
-                        "userId": "1",
-                        "password": "password1",
+                        "name": "YOUR_NAME_HERE",
                     },
                 },
             },
@@ -481,6 +487,7 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
 
     drasi_trigger(
         agent,
+        query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         mapper=lambda _: TriggerAction(task=task_str),
@@ -510,7 +517,8 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
     """Test that the Drasi extension wires pub/sub routes correctly when the agent's pub/sub configuration is missing."""
-    drasi_pubsub_name = "gamepubsub"
+    query_id = "game-state-query"
+    drasi_pubsub_name = "gamestatepubsub"
     drasi_topic = "gamestate"
     events = [
         {
@@ -522,7 +530,7 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "game-state-query",
+                        "queryId": query_id,
                         "ts_ms": 404,
                     },
                     "after": {
@@ -554,7 +562,7 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
                 "seq": 1,
                 "payload": {
                     "source": {
-                        "queryId": "game-state-query",
+                        "queryId": query_id,
                         "ts_ms": 404,
                     },
                     "after": {
@@ -585,6 +593,7 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
 
     drasi_trigger(
         agent,
+        query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         mapper=lambda _: TriggerAction(task=task_str),
@@ -614,24 +623,25 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
 @pytest.mark.ext
 async def test_drasi_trigger_defaults_to_agent_pubsub_component():
     """Test that the Drasi extension uses the agent's pub/sub component when no pub/sub component is provided."""
-    pubsub_name = "testpubsub"
+    query_id = "searches-query"
+    agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_topic = "searches"
     events = [
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": agent_pubsub_name,
             "data": {
                 "op": "i",
                 "ts_ms": 911,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "searches-query",
+                        "queryId": query_id,
                         "ts_ms": 911,
                     },
                     "after": {
-                        "searchText": "questionable search text",
+                        "searchText": "what is bozosort",
                     },
                 },
             },
@@ -643,18 +653,18 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
         },
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": agent_pubsub_name,
             "data": {
                 "op": "i",
                 "ts_ms": 999,
                 "seq": 1,
                 "payload": {
                     "source": {
-                        "queryId": "searches-query",
+                        "queryId": query_id,
                         "ts_ms": 999,
                     },
                     "after": {
-                        "searchText": "incomprehensible search text",
+                        "searchText": "how to delete search history",
                     },
                 },
             },
@@ -667,11 +677,14 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
     ]
     task_str = "summarize"
 
-    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
     drasi_trigger(
-        agent, topic=drasi_topic, mapper=lambda _: TriggerAction(task=task_str)
+        agent,
+        query_id=query_id,
+        topic=drasi_topic,
+        mapper=lambda _: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
 
@@ -696,29 +709,134 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_defaults_to_default_task():
-    """Test that the Drasi extension uses the default task when no custom task mapping is provided."""
-    pubsub_name = "testpubsub"
+async def test_drasi_trigger_defaults_to_derived_topic():
+    """Test that the Drasi extension uses the query ID to derive the pub/sub topic when no topic is provided."""
+    query_id = "goals-query"
+    agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
-    drasi_topic = "differenttopic"
+    drasi_pubsub_name = "goalspubsub"
+    drasi_topic = f"{DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{query_id}"
     events = [
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
+            "data": {
+                "op": "u",
+                "ts_ms": 1260000,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 1260000,
+                    },
+                    "before": {
+                        "countryCode": "BA",
+                        "goals": 0,
+                    },
+                    "after": {
+                        "countryCode": "BA",
+                        "goals": 1,
+                    },
+                },
+            },
+            "id": "1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "searches-publisher",
+            "type": "com.dapr.event.sent",
+        },
+        {
+            "topic": drasi_topic,
+            "pubsubname": drasi_pubsub_name,
+            "data": {
+                "op": "i",
+                "ts_ms": 4680000,
+                "seq": 1,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 4680000,
+                    },
+                    "before": {
+                        "countryCode": "CA",
+                        "goals": 0,
+                    },
+                    "after": {
+                        "countryCode": "CA",
+                        "goals": 1,
+                    },
+                },
+            },
+            "id": "2",
+            "specversion": "1.0",
+            "datacontenttype": "application/json; charset=utf-8",
+            "source": "searches-publisher",
+            "type": "com.dapr.event.sent",
+        },
+    ]
+    task_str = "goals"
+
+    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = _make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        mapper=lambda _: TriggerAction(task=task_str),
+    )
+    runner.subscribe(agent)
+
+    scheduler_method = runner.run_sync
+    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
+
+    cloudevent_ids = [
+        _safe_json_loads(c.kwargs.get("payload", {}))
+        .get("_message_metadata", {})
+        .get("id")
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    assert cloudevent_ids == [e.get("id") for e in events]
+
+    payload_tasks = [
+        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    expected_tasks = [task_str for _ in events]
+    assert payload_tasks == expected_tasks
+
+
+@pytest.mark.asyncio
+@pytest.mark.ext
+async def test_drasi_trigger_defaults_to_noop_task():
+    """Test that the Drasi extension uses the default no-op task when no custom task mapping is provided."""
+    query_id = "password-update-query"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "passwordpubsub"
+    drasi_topic = "passwordtopic"
+    events = [
+        {
+            "topic": drasi_topic,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query1",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "before": {
-                        "a": 0,
+                        "id": 1,
+                        "password": "password",
                     },
                     "after": {
-                        "a": 1,
+                        "id": 1,
+                        "password": "password123",
                     },
                 },
             },
@@ -730,21 +848,23 @@ async def test_drasi_trigger_defaults_to_default_task():
         },
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query2",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "before": {
-                        "b": 0,
+                        "id": 2,
+                        "password": "password",
                     },
                     "after": {
-                        "b": 1,
+                        "id": 2,
+                        "password": "password123",
                     },
                 },
             },
@@ -756,10 +876,12 @@ async def test_drasi_trigger_defaults_to_default_task():
         },
     ]
 
-    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = _make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
 
-    drasi_trigger(agent, topic=drasi_topic)
+    drasi_trigger(agent, query_id=query_id, pubsub=drasi_pubsub_name, topic=drasi_topic)
     runner.subscribe(agent)
 
     scheduler_method = runner.run_sync
@@ -784,13 +906,15 @@ async def test_drasi_trigger_defaults_to_default_task():
 @pytest.mark.ext
 async def test_drasi_trigger_ignores_malformed_events():
     """Test that the Drasi extension ignores events that do not conform to the expected format."""
-    pubsub_name = "testpubsub"
+    query_id = "testquery"
+    agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
     drasi_topic = "differenttopic"
     events = [
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "foo": "bar",
             },
@@ -802,7 +926,7 @@ async def test_drasi_trigger_ignores_malformed_events():
         },
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "i",
                 "ts_ms": 123,
@@ -818,130 +942,45 @@ async def test_drasi_trigger_ignores_malformed_events():
     ]
     task_str = "ignored"
 
-    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = _make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
 
     drasi_trigger(
-        agent, topic=drasi_topic, mapper=lambda _: TriggerAction(task=task_str)
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        mapper=lambda _: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
 
+    # Should gracefully handle malformed events
     scheduler_method = runner.run_sync
     assert scheduler_method.call_count == 0  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_filters_by_single_query_id():
-    """Test that the Drasi extension correctly filters events for a single Drasi query ID."""
-    pubsub_name = "testpubsub"
-    agent_topic = "testtopic"
-    drasi_topic = "differenttopic"
-    events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": pubsub_name,
-            "data": {
-                "op": "u",
-                "ts_ms": 0,
-                "seq": 0,
-                "payload": {
-                    "source": {
-                        "queryId": "query1",
-                        "ts_ms": 0,
-                    },
-                    "before": {
-                        "count": 0,
-                    },
-                    "after": {
-                        "count": 1,
-                    },
-                },
-            },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": pubsub_name,
-            "data": {
-                "op": "u",
-                "ts_ms": 0,
-                "seq": 0,
-                "payload": {
-                    "source": {
-                        "queryId": "query2",
-                        "ts_ms": 0,
-                    },
-                    "before": {
-                        "sum": 0,
-                    },
-                    "after": {
-                        "sum": 1,
-                    },
-                },
-            },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-    ]
-    task_str = "test"
-
-    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
-
-    drasi_trigger(
-        agent,
-        topic=drasi_topic,
-        query_id="query1",
-        mapper=lambda _: TriggerAction(task=task_str),
-    )
-    runner.subscribe(agent)
-
-    scheduler_method = runner.run_sync
-    assert scheduler_method.call_count == 1  # type: ignore[attr-defined]
-
-    expected_events = [events[0]]
-    cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
-        .get("_message_metadata", {})
-        .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
-    ]
-    assert cloudevent_ids == [e.get("id") for e in expected_events]
-
-    payload_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
-    ]
-    expected_tasks = [task_str for _ in expected_events]
-    assert payload_tasks == expected_tasks
-
-
-@pytest.mark.asyncio
-@pytest.mark.ext
 async def test_drasi_trigger_filters_by_single_operation():
     """Test that the Drasi extension correctly filters events for a single Drasi operation."""
-    pubsub_name = "testpubsub"
+    query_id = "testquery"
+    agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
     drasi_topic = "differenttopic"
     events = [
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "i",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query1",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "after": {
@@ -957,14 +996,14 @@ async def test_drasi_trigger_filters_by_single_operation():
         },
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "d",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query2",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "before": {
@@ -981,11 +1020,15 @@ async def test_drasi_trigger_filters_by_single_operation():
     ]
     task_str = "test"
 
-    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = _make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
 
     drasi_trigger(
         agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         operation="d",
         mapper=lambda _: TriggerAction(task=task_str),
@@ -1016,20 +1059,22 @@ async def test_drasi_trigger_filters_by_single_operation():
 @pytest.mark.ext
 async def test_drasi_trigger_filters_by_multiple_operations():
     """Test that the Drasi extension correctly filters events for multiple Drasi operations."""
-    pubsub_name = "testpubsub"
+    query_id = "testquery"
+    agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
     drasi_topic = "differenttopic"
     events = [
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "i",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query1",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "after": {
@@ -1045,14 +1090,14 @@ async def test_drasi_trigger_filters_by_multiple_operations():
         },
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "d",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query2",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "before": {
@@ -1068,14 +1113,14 @@ async def test_drasi_trigger_filters_by_multiple_operations():
         },
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query3",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "after": {
@@ -1092,11 +1137,15 @@ async def test_drasi_trigger_filters_by_multiple_operations():
     ]
     task_str = "test"
 
-    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = _make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
 
     drasi_trigger(
         agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         operation=["i", "u"],
         mapper=lambda _: TriggerAction(task=task_str),
@@ -1125,26 +1174,28 @@ async def test_drasi_trigger_filters_by_multiple_operations():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_filters_by_event_model():
-    """Test that the Drasi extension correctly filters events by Drasi change event payloads."""
+async def test_drasi_trigger_filters_by_result_model():
+    """Test that the Drasi extension correctly validates the individual changes within Drasi change events."""
 
     class Counter(BaseModel):
         count: int
 
-    pubsub_name = "testpubsub"
+    query_id = "testquery"
+    agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
     drasi_topic = "differenttopic"
     events = [
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query1",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "before": {
@@ -1163,14 +1214,14 @@ async def test_drasi_trigger_filters_by_event_model():
         },
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "d",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query1",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "before": {
@@ -1186,14 +1237,14 @@ async def test_drasi_trigger_filters_by_event_model():
         },
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query2",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "before": {
@@ -1212,14 +1263,14 @@ async def test_drasi_trigger_filters_by_event_model():
         },
         {
             "topic": drasi_topic,
-            "pubsubname": pubsub_name,
+            "pubsubname": drasi_pubsub_name,
             "data": {
                 "op": "i",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "query1",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "after": {
@@ -1236,14 +1287,18 @@ async def test_drasi_trigger_filters_by_event_model():
     ]
     task_str = "test"
 
-    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
+    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = _make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
 
     drasi_trigger(
         agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         mapper=lambda _: TriggerAction(task=task_str),
-        event_model=Counter,
+        result_model=Counter,
     )
     runner.subscribe(agent)
 
@@ -1271,6 +1326,7 @@ async def test_drasi_trigger_filters_by_event_model():
 @pytest.mark.ext
 async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
     """Test that the Drasi extension fails when the given pub/sub component is not registered."""
+    query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_pubsub_name = "missingpubsub"
@@ -1285,7 +1341,7 @@ async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "test-query",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "before": {
@@ -1310,6 +1366,7 @@ async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
 
     drasi_trigger(
         agent,
+        query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         mapper=lambda _: TriggerAction(task=task_str),
@@ -1324,54 +1381,7 @@ async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
 @pytest.mark.ext
 async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
     """Test that the Drasi extension fails when the agent pub/sub component is used and pub/sub topic matches the agent's pub/sub topic."""
-    pubsub_name = "testpubsub"
-    agent_topic = "testtopic"
-    drasi_topic = agent_topic
-    events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": pubsub_name,
-            "data": {
-                "op": "u",
-                "ts_ms": 0,
-                "seq": 0,
-                "payload": {
-                    "source": {
-                        "queryId": "test-query",
-                        "ts_ms": 0,
-                    },
-                    "before": {
-                        "id": 0,
-                    },
-                    "after": {
-                        "id": 1,
-                    },
-                },
-            },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-    ]
-    task_str = "test"
-
-    agent = _make_agent(pubsub_name=pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[pubsub_name], event_stream=events)
-
-    drasi_trigger(
-        agent, topic=drasi_topic, mapper=lambda _: TriggerAction(task=task_str)
-    )
-
-    with pytest.raises(RuntimeError):
-        runner.subscribe(agent)
-
-
-@pytest.mark.asyncio
-@pytest.mark.ext
-async def test_drasi_trigger_raises_when_given_pubsub_matches_agent_pubsub():
-    """Test that the Drasi extension fails when the given pub/sub (component, topic) matches the agent's pub/sub (component, topic)."""
+    query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_pubsub_name = agent_pubsub_name
@@ -1386,7 +1396,7 @@ async def test_drasi_trigger_raises_when_given_pubsub_matches_agent_pubsub():
                 "seq": 0,
                 "payload": {
                     "source": {
-                        "queryId": "test-query",
+                        "queryId": query_id,
                         "ts_ms": 0,
                     },
                     "before": {
@@ -1411,6 +1421,7 @@ async def test_drasi_trigger_raises_when_given_pubsub_matches_agent_pubsub():
 
     drasi_trigger(
         agent,
+        query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         mapper=lambda _: TriggerAction(task=task_str),
