@@ -316,12 +316,12 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
     assert cloudevent_ids == [e.get("id") for e in events]
 
     # Ensure task strings are correctly generated
-    payload_tasks = [
+    actual_tasks = [
         _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
-    assert payload_tasks == expected_tasks
+    assert actual_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -410,12 +410,12 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
-    payload_tasks = [
+    actual_tasks = [
         _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
-    assert payload_tasks == expected_tasks
+    assert actual_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -505,12 +505,12 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
-    payload_tasks = [
+    actual_tasks = [
         _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
-    assert payload_tasks == expected_tasks
+    assert actual_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -611,12 +611,12 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
-    payload_tasks = [
+    actual_tasks = [
         _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
-    assert payload_tasks == expected_tasks
+    assert actual_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -699,12 +699,12 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
-    payload_tasks = [
+    actual_tasks = [
         _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
-    assert payload_tasks == expected_tasks
+    assert actual_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -800,12 +800,12 @@ async def test_drasi_trigger_defaults_to_derived_topic():
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
-    payload_tasks = [
+    actual_tasks = [
         _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
-    assert payload_tasks == expected_tasks
+    assert actual_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -895,11 +895,11 @@ async def test_drasi_trigger_defaults_to_passthrough_task():
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
-    payload_tasks = [
+    actual_tasks = [
         _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
-    assert all(DRASI_TRIGGER_DEFAULT_TASK in task for task in payload_tasks)
+    assert all(DRASI_TRIGGER_DEFAULT_TASK in task for task in actual_tasks)
 
 
 @pytest.mark.asyncio
@@ -1047,12 +1047,12 @@ async def test_drasi_trigger_filters_by_single_operation():
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
-    payload_tasks = [
+    actual_tasks = [
         _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in expected_events]
-    assert payload_tasks == expected_tasks
+    assert actual_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -1164,12 +1164,12 @@ async def test_drasi_trigger_filters_by_multiple_operations():
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
-    payload_tasks = [
+    actual_tasks = [
         _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in expected_events]
-    assert payload_tasks == expected_tasks
+    assert actual_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
@@ -1314,12 +1314,12 @@ async def test_drasi_trigger_filters_by_result_model():
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
-    payload_tasks = [
+    actual_tasks = [
         _safe_json_loads(c.kwargs.get("payload", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in expected_events]
-    assert payload_tasks == expected_tasks
+    assert actual_tasks == expected_tasks
 
 
 @pytest.mark.asyncio
