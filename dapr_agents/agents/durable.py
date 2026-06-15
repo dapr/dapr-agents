@@ -2717,9 +2717,7 @@ class DurableAgent(AgentBase):
         if not self.state_store:
             return
         try:
-            data = self.state_store.load(
-                key=self._pending_approvals_key(), default={}
-            )
+            data = self.state_store.load(key=self._pending_approvals_key(), default={})
             if not data:
                 return
             wf_client = self._wf_client
