@@ -165,6 +165,7 @@ def _collect_message_bindings(
                         name=getattr(bound, "__name__", str(bound)),
                         payload_filter=meta.get("payload_filter"),
                         model_filter=meta.get("model_filter"),
+                        mapper=meta.get("mapper"),
                     )
                 )
 
