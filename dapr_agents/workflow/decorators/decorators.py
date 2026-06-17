@@ -112,8 +112,8 @@ def message_router(
             `MessageContext`, returning a JSON-serializable output model.
             Runs as the last step *after* schema validation and `model_filter`,
             so it can rely on typed attribute access on the parsed instance.
-            Returning a non-JSON-serializable output model skips the binding, trying the next.
-            Raising is logged and treated the same as returning a non-JSON-serializable output model`.
+            Returning a non-JSON-serializable output model logs an error and skips the binding, trying the next.
+            Raising logs an error and is treated the same as returning a non-JSON-serializable output model.
             Mutating the input message model is acceptable,
             the output model becomes the workflow input on success.
 
