@@ -39,6 +39,7 @@ from dapr_agents.workflow.utils.subscription import (
     MessageRouteBinding,
     TTLDedupeBackend,
     WorkflowStatus,
+    _safe_map,
     validate_hooks,
     _attach_metadata_to_payload,
     _build_binding_schema_pairs,
@@ -1617,6 +1618,95 @@ def test_filter_accepts_swallows_exception_as_rejection(caplog):
         )
     assert result is False
     assert "bind-x" in caplog.text
+
+
+# ---- _safe_map ------------------------------------------
+
+
+def test_safe_map_passes_through_value_when_no_mapper():
+    value = {"messi": 10}
+    result = _safe_map(None, value, _msg_ctx(), binding_name="pr")
+    assert result is value
+
+
+def test_safe_map_forwards_value_and_context():
+    seen = {}
+
+    def mapper(value, ctx):
+        seen["value"] = value
+        seen["ctx"] = ctx
+        return {"lamont yall": 10}
+
+    value = {"lamont yall": 10}
+    ctx = _msg_ctx()
+    result = _safe_map(mapper, value, ctx, binding_name="jamal")
+    assert result == value
+    assert seen["value"] is value
+    assert seen["ctx"] is ctx
+
+
+def test_safe_map_allows_mutation():
+    def mapper(value, ctx):
+        value["endo"] = 3
+        return value
+
+    value = {"mitoma": 9}
+    result = _safe_map(mapper, value, _msg_ctx(), binding_name="jpn")
+    assert result is value
+
+
+def test_safe_map_returns_dict():
+    def mapper(value, ctx):
+        return {"mbappe": 10}
+
+    result = _safe_map(mapper, {}, _msg_ctx(), binding_name="offside")
+    assert result == {"mbappe": 10}
+
+
+def test_safe_map_returns_pydantic_model():
+    def mapper(value, ctx):
+        return OrderCreated(
+            order_id="therapy-sessions-1",
+            amount=50000000,
+            customer="italian sports fans",
+        )
+
+    result = _safe_map(mapper, {}, _msg_ctx(), binding_name="therapy")
+    assert result == OrderCreated(
+        order_id="therapy-sessions-1", amount=50000000, customer="italian sports fans"
+    )
+
+
+def test_safe_map_returns_dataclass():
+    def mapper(value, ctx):
+        return ShipmentCreated(
+            shipment_id="s1",
+            order_id="therapy-sessions-1",
+            carrier="italian therapists",
+        )
+
+    result = _safe_map(mapper, {}, _msg_ctx(), binding_name="therapy")
+    assert result == ShipmentCreated(
+        shipment_id="s1", order_id="therapy-sessions-1", carrier="italian therapists"
+    )
+
+
+def test_safe_map_non_json_serializable_model_returns_none():
+    def mapper(value, ctx):
+        return "handball"
+
+    result = _safe_map(mapper, {}, _msg_ctx(), binding_name="var")
+    assert result is None
+
+
+def test_safe_map_swallows_exception_and_returns_none(caplog):
+    def mapper(value, ctx):
+        raise RuntimeError("red card")
+
+    with caplog.at_level(logging.ERROR):
+        result = _safe_map(mapper, {}, _msg_ctx(), binding_name="ref")
+    assert result is None
+    assert "ref" in caplog.text
 
 
 # ---- _attach_metadata_to_payload ------------------------------------------
