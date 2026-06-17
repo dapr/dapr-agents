@@ -191,6 +191,8 @@ def _collect_message_bindings(
                 if spec.model_filter is not None
                 else meta_dict.get("model_filter")
             )
+            # TODO: validate mapper is sync and callable
+            mapper = spec.mapper if spec.mapper is not None else meta_dict.get("mapper")
             bindings.append(
                 MessageRouteBinding(
                     handler=bound,
@@ -201,6 +203,7 @@ def _collect_message_bindings(
                     name=getattr(bound, "__name__", str(bound)),
                     payload_filter=payload_filter,
                     model_filter=model_filter,
+                    mapper=mapper,
                 )
             )
 

@@ -85,6 +85,7 @@ BindingSchemaPair = tuple["MessageRouteBinding", type[Any]]
 
 PayloadFilter = Callable[[Any, "MessageContext"], bool]
 ModelFilter = Callable[[Any, "MessageContext"], bool]
+Mapper = Callable[[Any, "MessageContext"], Any]
 
 
 def _validate_filter(
@@ -145,6 +146,9 @@ class MessageRouteBinding:
         model_filter: Optional predicate on the validated message model + MessageContext.
             Returning False or raising skips this binding (next is tried).
             Runs after schema validation. Must not mutate the model.
+        mapper: Optional predicate on the validated message model + MessageContext.
+            Transforms the input message model to an arbitrary output model.
+            Runs last after schema validation and filters.
     """
 
     handler: Callable[..., Any]
@@ -155,6 +159,7 @@ class MessageRouteBinding:
     name: str
     payload_filter: PayloadFilter | None = None
     model_filter: ModelFilter | None = None
+    mapper: Mapper | None = None
 
 
 def _resolve_event_loop(
@@ -334,6 +339,29 @@ def _filter_accepts(
             f"{kind} for binding '{binding_name}' raised; skipping binding."
         )
         return False
+
+
+def _safe_map(
+    mapper: Callable[[Any, "MessageContext"], Any] | None,
+    value: Any,
+    msg_ctx: "MessageContext",
+    *,
+    binding_name: str,
+) -> Any | None:
+    """Safely apply an optional mapping function.
+
+    If no mapping function is provided, returns the original value.
+    Otherwise, returns the mapped value or `None` if the binding should be skipped.
+    """
+    if mapper is None:
+        return value
+    try:
+        return mapper(value, msg_ctx)
+    except Exception:
+        logger.exception(
+            f"mapper for binding '{binding_name}' raised; skipping binding."
+        )
+        return None
 
 
 def _attach_metadata_to_payload(parsed: Any, metadata: Optional[dict]) -> None:
@@ -669,15 +697,24 @@ class _StreamSubscriber:
         payload_filter_cache: dict[int, bool] = {}
         model_filter_rejected: set[int] = set()
 
+        # Mappers are also per-binding; once a binding fails during mapping,
+        # every remaining pair for that binding is skipped.
+        mapper_failed: set[int] = set()
+
         for binding, schema in ordered_pairs:
             binding_key = id(binding)
+
             if binding_key in model_filter_rejected:
                 continue
+            if binding_key in mapper_failed:
+                continue
+
             msg_ctx = (
                 MessageContext(event=event, handler_name=binding.name)
                 if event is not None
                 else None
             )
+
             if msg_ctx is not None and binding_key not in payload_filter_cache:
                 payload_filter_cache[binding_key] = _filter_accepts(
                     binding.payload_filter,
@@ -694,6 +731,7 @@ class _StreamSubscriber:
                     event_data if isinstance(event_data, dict) else {"data": event_data}
                 )
                 parsed = validate_message_model(schema, payload)
+                logger.debug("Validated model: %r", parsed)
                 _attach_metadata_to_payload(parsed, metadata)
             except (ValueError, TypeError):
                 # Validation/coercion errors, try next schema
@@ -709,11 +747,24 @@ class _StreamSubscriber:
                 model_filter_rejected.add(binding_key)
                 continue
 
+            if msg_ctx is not None:
+                parsed = _safe_map(
+                    binding.mapper,
+                    parsed,
+                    msg_ctx,
+                    binding_name=binding.name,
+                )
+                if parsed is None:
+                    mapper_failed.add(binding_key)
+                    continue
+                # Reattach metadata in case a new model was created
+                _attach_metadata_to_payload(parsed, metadata)
+
             return self._dispatch(binding, parsed)
 
         logger.warning(
             f"No binding accepted message on topic={topic_name!r} "
-            f"(no schema matched or all filters rejected); dropping. raw={event_data!r}"
+            f"(no schema matched, all filters rejected, or all mappers failed); dropping. raw={event_data!r}"
         )
         return TopicEventResponse(STATUS_DROP)
 
@@ -732,6 +783,9 @@ class _StreamSubscriber:
         """
         try:
             event_data, metadata = extract_cloudevent_data(message)
+
+            logger.debug("Data: %r", event_data)
+            logger.debug("Metadata: %r", metadata)
 
             dedup_id = self._dedup_id(metadata, event_data, topic_name)
             if dedup_id is not None and self._is_seen(dedup_id):
