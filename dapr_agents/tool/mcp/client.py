@@ -16,9 +16,10 @@ from typing import Dict, List, Optional, Set, Any, Type, AsyncIterator
 from types import TracebackType
 import asyncio
 import logging
+import warnings
 
 from anyio import BrokenResourceError
-
+from dapr.ext.workflow.mcp_schema import create_pydantic_model_from_schema
 from pydantic import BaseModel, ValidationError, Field, PrivateAttr
 from mcp import ClientSession
 from mcp.types import CallToolResult, TextContent
@@ -68,8 +69,12 @@ class MCPClient(BaseModel):
     """
     Client for connecting to MCP servers and integrating their tools with the Dapr agent framework.
 
-    This client manages connections to one or more MCP servers, retrieves their tools,
-    and converts them to native AgentTool objects that can be used in the agent framework.
+    .. deprecated::
+        ``MCPClient`` opens a direct transport connection (stdio / SSE / HTTP) to the
+        MCP server from inside the agent process.  Prefer
+        :class:`~dapr.ext.workflow.mcp.DaprMCPClient` from the Dapr Python SDK,
+        which routes all MCP calls through Dapr's built-in workflow
+        orchestrations so that the sidecar handles retries, timeouts, and auth.
 
     Attributes:
         allowed_tools: Optional set of tool names to include (when None, all tools are included)
@@ -77,6 +82,17 @@ class MCPClient(BaseModel):
         sse_read_timeout: Read timeout for SSE connections in seconds
         persistent_connections: If True, keep persistent connections to all MCP servers for both tool calls and metadata. This is the recommended and robust mode for all transports except stateless HTTP. If False, ephemeral (per-call) sessions are used. Ephemeral is only safe for stateless HTTP.
     """
+
+    def model_post_init(self, __context: Any) -> None:
+        warnings.warn(
+            "MCPClient is deprecated. "
+            "Use DaprMCPClient from dapr.ext.workflow (or its async counterpart "
+            "in dapr.ext.workflow.aio) together with "
+            "dapr_agents.tool.mcp.mcp_tool_def_to_workflow_tool to discover MCP "
+            "tools via Dapr's built-in workflow orchestrations.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     allowed_tools: Optional[Set[str]] = Field(
         default=None,
@@ -537,10 +553,6 @@ class MCPClient(BaseModel):
         args_model = None
         if getattr(mcp_tool, "inputSchema", None):
             try:
-                from dapr_agents.tool.mcp.schema import (
-                    create_pydantic_model_from_schema,
-                )
-
                 args_model = create_pydantic_model_from_schema(
                     mcp_tool.inputSchema, f"{tool_name}Args"
                 )

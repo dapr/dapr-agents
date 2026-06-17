@@ -62,7 +62,7 @@ Dapr Agents provides a set of AI features that give developers a complete API su
 - Contextual memory
 - Flexible prompting
 - Intelligent tool selection
-- [MCP integration](https://docs.anthropic.com/en/docs/agents-and-tools/mcp).
+- Zero-config [MCP integration](https://docs.anthropic.com/en/docs/agents-and-tools/mcp) — agents auto-discover MCPServer tools from the Dapr sidecar (see [MCPServer auto-discovery](#mcpserver-auto-discovery) below).
 
 ### Integrated Security and Reliability
 
@@ -96,6 +96,39 @@ For a complete list of issue (including bug fixes) please check out our [GitHub 
 ## Documentation
 
 - [Documentation](https://docs.dapr.io/developing-ai/dapr-agents/)
+
+## MCPServer auto-discovery
+
+If your Dapr sidecar has any [`MCPServer`](https://docs.dapr.io/developing-ai/mcp/mcp-server-resource/) resources loaded, Dapr Agents picks up their tools automatically — no `tools=` argument on the agent, no manual `DaprMCPClient.connect(...)` calls.
+
+```python
+from dapr_agents import DurableAgent
+
+agent = DurableAgent(
+    name="my-agent",
+    role="Multi-tool assistant",
+    runtime=workflow_runtime,
+)
+# MCPServer tools just work — no tools= configuration needed.
+```
+
+How it works:
+
+1. On agent init, Dapr Agents queries the Dapr sidecar's metadata API for the list of loaded `MCPServer` resources.
+2. Before the agent's first turn, it uses the SDK's `DaprMCPClient` to call `dapr.internal.mcp.<server>.ListTools` on each one.
+3. Each discovered tool is wrapped as a workflow tool that schedules `dapr.internal.mcp.<server>.CallTool.<tool>` as a child workflow when invoked.
+
+You can fine-tune behavior with `AgentMCPConfig`:
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `True` | Set to `False` to opt out of auto-discovery entirely. |
+| `allowed_tools` | `None` | Optional set of tool names; only matching tools register. `None` registers all. |
+| `timeout_in_seconds` | `30` | Per-server `ListTools` discovery deadline. |
+
+**Manual mode** is still available — instantiate `DaprMCPClient` yourself, connect to specific servers, and pass converted tools via `tools=...` on the agent. The auto-discovery path simply removes the boilerplate when you want every loaded MCPServer wired in.
+
+See the MCPServer example under `examples/` for an end-to-end demo across all three transports.
 
 ## Community
 
