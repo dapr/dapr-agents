@@ -207,8 +207,12 @@ def _make_runner(
     pubsub_names: list[str],
     event_stream: list[Any],
 ) -> AgentRunner:
+    # Stub workflow scheduling; we only care about the calls and inputs
+    wf_client = MagicMock()
+    wf_client.schedule_new_workflow = Mock(return_value="instance-1")  # type: ignore[method-assign]
+
     runner = AgentRunner(
-        wf_client=MagicMock(),
+        wf_client=wf_client,
         client_factory=Mock(
             side_effect=lambda: _create_mock_dapr_client(pubsub_names, event_stream)
         ),
@@ -218,9 +222,6 @@ def _make_runner(
     runner._wire_http_routes = Mock()  # type: ignore[method-assign]
     runner._mount_service_routes = Mock()  # type: ignore[method-assign]
     runner._mount_hitl_routes = Mock()  # type: ignore[method-assign]
-
-    # Stub workflow scheduling since we only care about the calls themselves
-    runner.run_sync = Mock(return_value="instance-1")  # type: ignore[method-assign]
 
     return runner
 
@@ -299,16 +300,16 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        mapper=lambda _: TriggerAction(task=task_str),
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     # Ensure order is preserved
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
+        _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -317,7 +318,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
 
     # Ensure task strings are correctly generated
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
@@ -395,15 +396,15 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        mapper=lambda _: TriggerAction(task=task_str),
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.register_routes(agent, fastapi_app=FastAPI())
 
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
+        _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -411,7 +412,7 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
@@ -490,15 +491,15 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        mapper=lambda _: TriggerAction(task=task_str),
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.serve(agent, app=FastAPI())
 
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
+        _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -506,7 +507,7 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
@@ -596,15 +597,15 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        mapper=lambda _: TriggerAction(task=task_str),
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
+        _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -612,7 +613,7 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
@@ -684,15 +685,15 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
         agent,
         query_id=query_id,
         topic=drasi_topic,
-        mapper=lambda _: TriggerAction(task=task_str),
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
+        _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -700,7 +701,7 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
@@ -785,15 +786,15 @@ async def test_drasi_trigger_defaults_to_derived_topic():
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
-        mapper=lambda _: TriggerAction(task=task_str),
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
+        _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -801,7 +802,7 @@ async def test_drasi_trigger_defaults_to_derived_topic():
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
@@ -884,11 +885,11 @@ async def test_drasi_trigger_defaults_to_passthrough_task():
     drasi_trigger(agent, query_id=query_id, pubsub=drasi_pubsub_name, topic=drasi_topic)
     runner.subscribe(agent)
 
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
+        _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -896,7 +897,7 @@ async def test_drasi_trigger_defaults_to_passthrough_task():
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert all(DRASI_TRIGGER_DEFAULT_TASK in task for task in actual_tasks)
@@ -952,12 +953,12 @@ async def test_drasi_trigger_ignores_malformed_events():
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        mapper=lambda _: TriggerAction(task=task_str),
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
 
     # Should gracefully handle malformed events
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 0  # type: ignore[attr-defined]
 
 
@@ -1030,17 +1031,17 @@ async def test_drasi_trigger_filters_by_single_operation():
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        operation="d",
-        mapper=lambda _: TriggerAction(task=task_str),
+        operations="d",
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 1  # type: ignore[attr-defined]
 
     expected_events = [events[1]]
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
+        _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -1048,7 +1049,7 @@ async def test_drasi_trigger_filters_by_single_operation():
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in expected_events]
@@ -1147,17 +1148,17 @@ async def test_drasi_trigger_filters_by_multiple_operations():
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        operation=["i", "u"],
-        mapper=lambda _: TriggerAction(task=task_str),
+        operations=["i", "u"],
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     expected_events = [events[0], events[2]]
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
+        _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -1165,7 +1166,7 @@ async def test_drasi_trigger_filters_by_multiple_operations():
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in expected_events]
@@ -1297,17 +1298,17 @@ async def test_drasi_trigger_filters_by_result_model():
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        mapper=lambda _: TriggerAction(task=task_str),
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
         result_model=Counter,
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.run_sync
+    scheduler_method = runner.workflow_client().schedule_new_workflow
     assert scheduler_method.call_count == 3  # type: ignore[attr-defined]
 
     expected_events = [events[0], events[1], events[3]]
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("payload", {}))
+        _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -1315,7 +1316,7 @@ async def test_drasi_trigger_filters_by_result_model():
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("payload", {})).get("task")
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in expected_events]
@@ -1369,7 +1370,7 @@ async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        mapper=lambda _: TriggerAction(task=task_str),
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
 
     # Ensure that the activation doesn't try to fall back to the agent's pub/sub component
@@ -1424,7 +1425,7 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        mapper=lambda _: TriggerAction(task=task_str),
+        mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
 
     with pytest.raises(RuntimeError):
