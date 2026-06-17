@@ -19,6 +19,7 @@ from typing import Any, Callable, List, Literal, Optional, Type, TypeVar, get_ty
 
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.routers import extract_message_models
+from dapr_agents.workflow.utils.subscription import MessageContext, _validate_filter
 from dapr_agents.utils.logger import with_logger_context
 
 logger = logging.getLogger(__name__)
@@ -54,35 +55,71 @@ def workflow_entry(func: Callable[..., R]) -> Callable[..., R]:
 
 
 def message_router(
-    func: Optional[Callable[..., Any]] = None,
+    func: Callable[..., Any] | None = None,
     *,
-    pubsub: Optional[str] = None,
-    topic: Optional[str] = None,
-    dead_letter_topic: Optional[str] = None,
+    pubsub: str | None = None,
+    topic: str | None = None,
+    dead_letter_topic: str | None = None,
     broadcast: bool = False,
-    message_model: Optional[Any] = None,
+    message_model: Any | None = None,
+    payload_filter: Callable[[Any, MessageContext], bool] | None = None,
+    model_filter: Callable[[Any, MessageContext], bool] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Tag a callable as a **Pub/Sub → Workflow** entry with routing + schema metadata.
 
+    Filters run on the per-topic consumer thread and **block message intake** for
+    that topic while they execute. Keep them cheap (in-memory checks, attribute
+    comparisons, header lookups). For anything I/O-bound, do the check inside the
+    workflow body and short-circuit there; otherwise a single slow filter will
+    block the whole topic.
+
+    Routing is first-match per topic: if two bindings can both accept a message,
+    only the first registered one runs.
+
     Args:
-        func (Optional[Callable[..., Any]]):
+        func (Callable[..., Any] | None):
             The function to decorate (if used without parentheses).
-        pubsub (Optional[str]):
+        pubsub (str | None):
             The name of the Dapr pub/sub component. Optional when wiring via `PubSubRouteSpec`.
-        topic (Optional[str]):
+        topic (str | None):
             The pub/sub topic to subscribe to. Optional when wiring via `PubSubRouteSpec`.
-        dead_letter_topic (Optional[str]):
+        dead_letter_topic (str | None):
             The dead-letter topic to publish failed messages to.
         broadcast (bool):
             Whether to treat this as a broadcast subscription.
-        message_model (Optional[Any]):
+        message_model (Any | None):
             The message model class or Union[...] to use for validation.
+        payload_filter (Callable[[Any, MessageContext], bool] | None):
+            Sync function called with the raw CloudEvent `data` (a dict or scalar,
+            depending on what the publisher sent) and a `MessageContext`. Runs
+            *before* schema validation, so it's the right place for cheap
+            metadata/source checks that don't need a parsed model. Returning
+            False skips this binding; the next binding on the topic is tried.
+            Raising is logged and treated the same as returning False (skip
+            this binding, try the next).
+            Must not mutate the inputs, the same payload object is passed
+            to all bindings.
+        model_filter (Callable[[Any, MessageContext], bool] | None):
+            Sync function called with the validated message model and a
+            `MessageContext`. Runs *after* schema validation, so it can rely
+            on typed attribute access on the parsed instance. Same skip/raise
+            semantics as `payload_filter`.
+            Must not mutate the model, it becomes the workflow input on
+            accept.
 
     Returns:
         Callable[[Callable[..., Any]], Callable[..., Any]]:
             The decorated function.
+
+    Raises:
+        TypeError: If `message_model` cannot be resolved, or if either filter is
+            an `async def` callable. Filters must be synchronous because they run
+            on the consumer thread; for async I/O, push the check into the
+            workflow body where the runtime is async-aware.
     """
+    _validate_filter(payload_filter, "payload_filter")
+    _validate_filter(model_filter, "model_filter")
 
     def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
         # Resolve message model(s)
@@ -117,18 +154,23 @@ def message_router(
             "is_broadcast": broadcast,
             "message_schemas": models,
             "message_types": [m.__name__ for m in models],
+            "payload_filter": payload_filter,
+            "model_filter": model_filter,
         }
 
         setattr(f, "_is_message_handler", True)
-        setattr(f, "_message_router_data", deepcopy(data))
+        setattr(f, "_message_router_data", data)
 
         logger.debug(
-            "@message_router: '%s' => models %s (topic=%s, pubsub=%s, broadcast=%s)",
+            "@message_router: '%s' => models %s (topic=%s, pubsub=%s, broadcast=%s, "
+            "payload_filter=%s, model_filter=%s)",
             f.__name__,
             [m.__name__ for m in models],
             topic,
             pubsub,
             broadcast,
+            payload_filter is not None,
+            model_filter is not None,
         )
         return f
 

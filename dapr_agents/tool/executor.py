@@ -58,9 +58,10 @@ class AgentToolExecutor(BaseModel):
             tool (Union[AgentTool, Callable]): The tool to register.
 
         Raises:
-            AgentToolExecutorError: If the tool name is already registered.
+            AgentToolExecutorError: If the tool name is already registered,
+                or if converting a callable to an `AgentTool` fails.
+            TypeError: If ``tool`` is neither a callable nor an `AgentTool`.
         """
-        # Convert callable to AgentTool if needed since we support both Callable and AgentTool instances.
         if callable(tool) and not isinstance(tool, AgentTool):
             try:
                 tool = AgentTool.from_func(tool)
