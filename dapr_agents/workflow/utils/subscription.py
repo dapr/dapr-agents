@@ -351,7 +351,7 @@ def _safe_map(
 
     Returns the mapped value or `None` if the binding should be skipped.
     If the mapping function is `None`, the value is passed through unchanged.
-    Exceptions are logged and treated as a mapping failure to avoid an infinite retry loop.
+    Exceptions are logged and result in the binding being skipped to avoid an infinite retry loop.
     """
     if mapper is None:
         return value
@@ -359,7 +359,7 @@ def _safe_map(
         result = mapper(value, msg_ctx)
         if not is_supported_model(result):
             logger.exception(
-                f"mapper for binding '{binding_name}' raised; skipping binding."
+                f"mapper for binding '{binding_name}' returned non-JSON-serializable model; skipping binding."
             )
             return None
         return result
