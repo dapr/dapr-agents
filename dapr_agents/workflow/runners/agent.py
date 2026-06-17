@@ -88,6 +88,29 @@ class AgentRunner(WorkflowRunner):
         self._activated_agent_ids: set[int] = set()
         self._activation_closers: Dict[int, List[Callable[[], None]]] = {}
 
+    @staticmethod
+    async def _ensure_mcp_connected(agent: DurableAgent) -> None:
+        """Connect MCPServer tools if the agent supports auto-discovery."""
+        connect_fn = getattr(agent, "connect_mcpservers", None)
+        if connect_fn and not getattr(agent, "_mcp_tools_connected", True):
+            await connect_fn()
+
+    def _ensure_mcp_connected_sync(self, agent: DurableAgent) -> None:
+        """Sync wrapper for MCP auto-discovery (for non-async entry points)."""
+        if getattr(agent, "_mcp_tools_connected", True):
+            return
+        try:
+            asyncio.get_running_loop()
+            is_in_event_loop = True
+        except RuntimeError:
+            is_in_event_loop = False
+
+        coroutine = self._ensure_mcp_connected(agent)
+        if is_in_event_loop:
+            self._run_coro_in_new_loop_thread(coroutine)
+        else:
+            asyncio.run(coroutine)
+
     async def run(
         self,
         agent: DurableAgent,
@@ -127,6 +150,7 @@ class AgentRunner(WorkflowRunner):
             wait,
             timeout_in_seconds,
         )
+        await self._ensure_mcp_connected(agent)
         self._attach_agent(agent)
 
         entry = self.discover_entry(agent)
@@ -199,6 +223,7 @@ class AgentRunner(WorkflowRunner):
         Returns:
             The runner (to allow fluent chaining).
         """
+        self._ensure_mcp_connected_sync(agent)
         self._attach_agent(agent)
 
         return self
@@ -308,7 +333,7 @@ class AgentRunner(WorkflowRunner):
             fetch_payloads: Whether to fetch input/output payloads for awaited workflows.
             log_outcome: Whether to log the final outcome of awaited workflows.
         """
-
+        self._ensure_mcp_connected_sync(agent)
         self._attach_agent(agent, app=fastapi_app)
 
         self._wire_pubsub_routes(
@@ -470,7 +495,7 @@ class AgentRunner(WorkflowRunner):
         Returns:
             The runner (to allow fluent chaining).
         """
-
+        self._ensure_mcp_connected_sync(agent)
         self._attach_agent(agent)
 
         self._wire_pubsub_routes(
@@ -522,6 +547,7 @@ class AgentRunner(WorkflowRunner):
 
         fastapi_app = app or FastAPI(title="Dapr Agent Service", version="1.0.0")
 
+        self._ensure_mcp_connected_sync(agent)
         # Attach here (before the nested subscribe) so the activation context
         # carries the FastAPI app; the nested subscribe() then no-ops.
         self._attach_agent(agent, app=fastapi_app)
