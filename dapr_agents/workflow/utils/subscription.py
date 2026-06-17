@@ -88,25 +88,23 @@ ModelFilter = Callable[[Any, "MessageContext"], bool]
 Mapper = Callable[[Any, "MessageContext"], Any]
 
 
-def _validate_filter(
-    filter_fn: Callable[[Any, "MessageContext"], bool] | None,
-    filter_name: str,
+def validate_hooks(
+    fn: Callable[[Any, "MessageContext"], Any] | None,
+    name: str,
 ) -> None:
-    """Reject async or non-callable filters at registration time"""
-    if filter_fn is None:
+    """Reject async or non-callable hooks at registration time"""
+    if fn is None:
         return
-    if not callable(filter_fn):
-        raise TypeError(
-            f"`{filter_name}` must be callable, got {type(filter_fn).__name__}."
-        )
-    call_attr = getattr(filter_fn, "__call__", None)
-    is_async_callable = asyncio.iscoroutinefunction(
-        filter_fn
-    ) or asyncio.iscoroutinefunction(call_attr)
+    if not callable(fn):
+        raise TypeError(f"`{name}` must be callable, got {type(fn).__name__}.")
+    call_attr = getattr(fn, "__call__", None)
+    is_async_callable = asyncio.iscoroutinefunction(fn) or asyncio.iscoroutinefunction(
+        call_attr
+    )
     if is_async_callable:
         raise TypeError(
-            f"`{filter_name}` must be a synchronous callable; "
-            "filters run on the consumer thread and cannot be `async def` "
+            f"`{name}` must be a synchronous callable; "
+            "hooks run on the consumer thread and cannot be `async def` "
             "(including callable objects whose `__call__` is async). "
             "For I/O-bound checks, do them in the workflow body."
         )

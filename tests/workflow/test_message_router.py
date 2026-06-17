@@ -39,6 +39,7 @@ from dapr_agents.workflow.utils.subscription import (
     MessageRouteBinding,
     TTLDedupeBackend,
     WorkflowStatus,
+    validate_hooks,
     _attach_metadata_to_payload,
     _build_binding_schema_pairs,
     _cancel_tasks,
@@ -52,7 +53,6 @@ from dapr_agents.workflow.utils.subscription import (
     _shutdown_thread,
     _validate_dead_letter_topics,
     _validate_delivery_mode,
-    _validate_filter,
     _warn_unreachable_bindings,
 )
 from dapr.clients.grpc._response import TopicEventResponseStatus
@@ -1411,6 +1411,37 @@ def _msg_ctx(handler_name: str = "handler") -> MessageContext:
     return MessageContext(event=event, handler_name=handler_name)
 
 
+# ---- validate_hooks ------------------------------------------------------
+
+
+def test_validate_hooks_none_and_sync_are_ok():
+    validate_hooks(None, "payload_filter")
+    validate_hooks(lambda v, c: True, "model_filter")
+    validate_hooks(lambda v, c: False, "mapper")
+
+
+def test_validate_hooks_rejects_non_callable():
+    with pytest.raises(TypeError, match="payload_filter.*callable"):
+        validate_hooks(42, "payload_filter")
+
+
+def test_validate_hooks_rejects_async_function():
+    async def f(v, c):
+        return True
+
+    with pytest.raises(TypeError, match="model_filter.*synchronous"):
+        validate_hooks(f, "model_filter")
+
+
+def test_validate_hooks_rejects_async_dunder_call():
+    class AsyncCallable:
+        async def __call__(self, v, c):
+            return True
+
+    with pytest.raises(TypeError, match="mapper.*synchronous"):
+        validate_hooks(AsyncCallable(), "mapper")
+
+
 # ---- _validate_delivery_mode ----------------------------------------------
 
 
@@ -1422,36 +1453,6 @@ def test_validate_delivery_mode_accepts_known_modes():
 def test_validate_delivery_mode_rejects_unknown():
     with pytest.raises(ValueError, match="delivery_mode must be"):
         _validate_delivery_mode("turbo")
-
-
-# ---- _validate_filter ------------------------------------------------------
-
-
-def test_validate_filter_none_and_sync_are_ok():
-    _validate_filter(None, "payload_filter")
-    _validate_filter(lambda v, c: True, "payload_filter")
-
-
-def test_validate_filter_rejects_non_callable():
-    with pytest.raises(TypeError, match="payload_filter.*callable"):
-        _validate_filter(42, "payload_filter")
-
-
-def test_validate_filter_rejects_async_function():
-    async def f(v, c):
-        return True
-
-    with pytest.raises(TypeError, match="model_filter.*synchronous"):
-        _validate_filter(f, "model_filter")
-
-
-def test_validate_filter_rejects_async_dunder_call():
-    class AsyncCallable:
-        async def __call__(self, v, c):
-            return True
-
-    with pytest.raises(TypeError, match="payload_filter.*synchronous"):
-        _validate_filter(AsyncCallable(), "payload_filter")
 
 
 # ---- _validate_dead_letter_topics -----------------------------------------
