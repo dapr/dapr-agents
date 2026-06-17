@@ -28,6 +28,7 @@ from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 from cachetools import TTLCache
 
 from dapr_agents.types.message import EventMessageMetadata
+from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
     validate_message_model,
@@ -348,13 +349,19 @@ def _safe_map(
 ) -> Any | None:
     """Safely apply an optional mapping function.
 
-    If no mapping function is provided, returns the original value.
-    Otherwise, returns the mapped value or `None` if the binding should be skipped.
+    Returns the mapped value or `None` if the binding should be skipped.
+    Exceptions are logged and treated as a mapping failure to avoid an infinite retry loop.
     """
     if mapper is None:
         return value
     try:
-        return mapper(value, msg_ctx)
+        result = mapper(value, msg_ctx)
+        if not is_supported_model(result):
+            logger.exception(
+                f"mapper for binding '{binding_name}' raised; skipping binding."
+            )
+            return None
+        return result
     except Exception:
         logger.exception(
             f"mapper for binding '{binding_name}' raised; skipping binding."
@@ -755,7 +762,7 @@ class _StreamSubscriber:
                 if parsed is None:
                     mapper_failed.add(binding_key)
                     continue
-                # Reattach metadata in case a new model was created
+                # Reattach metadata in case a new model instance was created
                 _attach_metadata_to_payload(parsed, metadata)
 
             return self._dispatch(binding, parsed)
