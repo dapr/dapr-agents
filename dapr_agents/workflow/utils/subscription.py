@@ -350,6 +350,7 @@ def _safe_map(
     """Safely apply an optional mapping function.
 
     Returns the mapped value or `None` if the binding should be skipped.
+    If the mapping function is `None`, the value is passed through unchanged.
     Exceptions are logged and treated as a mapping failure to avoid an infinite retry loop.
     """
     if mapper is None:
