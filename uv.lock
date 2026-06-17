@@ -1220,15 +1220,15 @@ wheels = [
 
 [[package]]
 name = "cloudevents"
-version = "2.0.0"
+version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "deprecation" },
     { name = "python-dateutil" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/71/ee/22614a29a1754e6abd979eebfb5f5ecc8ffb6e4e267f3879f017bc5d5531/cloudevents-2.0.0.tar.gz", hash = "sha256:3224851b2ac902b868ed4bc1aa10772ada8cdf85f180322b12968d90a1dceef2", size = 46940, upload-time = "2026-03-24T16:22:20.214Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/12/44/072fdbbdab9e79d91c0d8bc6196a749779b4769e8f0bbba98993aadcdef1/cloudevents-2.1.0.tar.gz", hash = "sha256:df0a105c10d74d0da667013c42931b883cf37af1c639a0cbe1aa32c3761de830", size = 48005, upload-time = "2026-05-26T17:46:39.754Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/3a/4df9a7de0bbb30dc6c0f9f707602160ff269dd01a11127f237ef01232b13/cloudevents-2.0.0-py3-none-any.whl", hash = "sha256:babb257989a933b18312897c3bf3a7cc65e270831227822f2db10b50d1278546", size = 94592, upload-time = "2026-03-24T16:22:19.094Z" },
+    { url = "https://files.pythonhosted.org/packages/44/23/6f3d09073edabfa21f34e8dcd1069278ebe20bba6c4c7f713f33a4b95689/cloudevents-2.1.0-py3-none-any.whl", hash = "sha256:43ecec250ce05b8f80105e9959b082ef3f603bf090cef235de9b4819d4387492", size = 97914, upload-time = "2026-05-26T17:46:38.319Z" },
 ]
 
 [[package]]
