@@ -15,7 +15,7 @@ import pytest
 from pydantic import ValidationError
 from unittest.mock import AsyncMock, Mock, patch
 from mcp.types import CallToolResult
-from dapr_agents.tool.mcp.schema import create_pydantic_model_from_schema
+from dapr.ext.workflow.mcp_schema import create_pydantic_model_from_schema
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import AgentWorkflowEntry
 from dapr_agents.tool.base import AgentTool

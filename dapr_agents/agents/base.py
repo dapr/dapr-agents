@@ -388,6 +388,7 @@ class AgentBase:
             None  # We set the appid to None as standalone agents may not have one
         )
         self.agent_metadata = agent_metadata or {}
+        self._discovered_mcpserver_names: List[str] = []
 
         # Build a Dapr client config from execution settings so every internal
         # DaprClient construction below honours the requested gRPC limits.
@@ -522,10 +523,31 @@ class AgentBase:
                                 "Failed to retrieve agent secrets. Skipping..."
                             )
 
-        except TimeoutError:
-            logger.warning(
-                "Dapr sidecar not responding; proceeding without auto-configuration."
-            )
+                # Discover MCPServer resources from the metadata API.
+                # The Python SDK exposes these via resp.mcp_servers when the
+                # proto has been updated; fall back gracefully otherwise.
+                _has_mcp = hasattr(resp, "mcp_servers")
+                _mcp_val = getattr(resp, "mcp_servers", None) if _has_mcp else None
+                if _has_mcp and _mcp_val:
+                    self._discovered_mcpserver_names = [
+                        s.name if hasattr(s, "name") else str(s) for s in _mcp_val
+                    ]
+                    logger.debug(
+                        "Discovered %d MCPServer resource(s) from sidecar: %s",
+                        len(self._discovered_mcpserver_names),
+                        self._discovered_mcpserver_names,
+                    )
+                else:
+                    logger.debug(
+                        "No MCPServer resources in sidecar metadata (has_attr=%s, value=%s).",
+                        _has_mcp,
+                        _mcp_val,
+                    )
+
+        except Exception as exc:
+            raise AgentError(
+                f"Failed to bootstrap agent from Dapr sidecar metadata: {exc}"
+            ) from exc
 
         # Wire infrastructure via DaprInfra (composition).
         self._infra = DaprInfra(

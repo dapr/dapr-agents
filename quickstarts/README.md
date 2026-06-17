@@ -423,6 +423,14 @@ The agent starts with its initial role (`Original Role`) and subscribes to the D
 
 ---
 
+# 9. MCPServer Auto-Discovery
+
+The MCPServer auto-discovery walkthrough — a `DurableAgent` that discovers MCP
+tools through the Dapr sidecar, plus the multi-server variant — has moved to
+[examples/06-agent-mcp-dapr-workflow](../examples/06-agent-mcp-dapr-workflow/README.md).
+
+---
+
 # Other Dapr Agent Examples
 
 If you want to coordinate multiple agents that run in separate applications or communicate through Pub/Sub, check out the [multi-agent workflows example](../examples/04-multi-agent-workflows/README.md).
