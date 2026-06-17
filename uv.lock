@@ -6068,7 +6068,7 @@ wheels = [
 
 [[package]]
 name = "redisvl"
-version = "0.17.0"
+version = "0.19.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jsonpath-ng" },
@@ -6080,9 +6080,9 @@ dependencies = [
     { name = "redis" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/56/e6/1f6b49b32aa01cb9cd2a8b79a58f0758713f12be58d51e6d561f74e0a8eb/redisvl-0.17.0.tar.gz", hash = "sha256:ae46babe37a3f627ce67e399666c0f615de958efb801bf9569b713d12031065e", size = 945726, upload-time = "2026-04-10T12:50:21.419Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8a/38/e95019ad396f3e49e520f3bd6cc707fb0fe6e0f8fb0d37d9d689afc43502/redisvl-0.19.0.tar.gz", hash = "sha256:7841354ceb77a564fd3ff1a1e02427a04f7032b461044d04addadfe3feff928f", size = 946516, upload-time = "2026-05-27T21:03:06.375Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/0d/032c9b7dce673819a7ea0bc8bb0d34f01905548f9316e6a5df7037b4a585/redisvl-0.17.0-py3-none-any.whl", hash = "sha256:92ea223a5bd5a46e4a9763d144f5a3dd71d537a48fbaf4b6d998457e4cba03e6", size = 220469, upload-time = "2026-04-10T12:50:19.825Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/32/13830a05313f891bd0b2c96b56393f87e566169248e4f35db31002cc70d6/redisvl-0.19.0-py3-none-any.whl", hash = "sha256:19b27ad993f51566edc7df35ee6ff31e862a7ad15769c0c17c62aa0db55db4cb", size = 228607, upload-time = "2026-05-27T21:03:04.981Z" },
 ]
 
 [[package]]
