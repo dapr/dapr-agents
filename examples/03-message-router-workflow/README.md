@@ -193,7 +193,7 @@ def is_high_priority(model: StartBlogMessage, msg_ctx: MessageContext) -> bool:
     return model.topic.startswith("URGENT:")
 
 def make_blog_outline(model: StartBlogMessage, msg_ctx: MessageContext) -> dict:
-    return {"title": model.topic, "author": "your name", "content": "lorem ipsum"}
+    return {"title": model.topic.removeprefix("URGENT:"), "author": "your name", "content": "lorem ipsum"}
 
 @message_router(
     pubsub="messagepubsub",
@@ -212,9 +212,9 @@ also drops the binding (but logs the traceback), so a bug in a filter never
 pins a topic in a retry loop.
 
 For mappers, return values must be JSON-serializable model instances (e.g. dict, Pydantic, dataclass).
-Returning anything other than a JSON-serializable model instance skips the binding (the next binding on the same topic is
-tried, or the message is DROP-ack'd if nothing matches). Raising an exception
-has the same semantics as filters.
+A non-JSON-serializable model instance logs the traceback and skips the binding
+(the next binding on the same topic is tried, or the message is DROP-ack'd if nothing matches).
+Raising an exception has the exact same semantics.
 
 > **Hooks are on the critical path of message intake.** They run on the
 > per-topic consumer thread and **block further messages from being read**
