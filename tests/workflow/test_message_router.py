@@ -2120,12 +2120,12 @@ def test_safe_map_non_json_serializable_model_returns_none():
 
 def test_safe_map_swallows_exception_and_returns_none(caplog):
     def mapper(value, ctx):
-        raise RuntimeError("red card")
+        raise RuntimeError("yellow")
 
     with caplog.at_level(logging.ERROR):
-        result = _safe_map(mapper, {}, _msg_ctx(), binding_name="ref")
+        result = _safe_map(mapper, {}, _msg_ctx(), binding_name="flop")
     assert result is None
-    assert "ref" in caplog.text
+    assert "flop" in caplog.text
 
 
 # ---- _attach_metadata_to_payload ------------------------------------------
