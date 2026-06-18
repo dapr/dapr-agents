@@ -691,9 +691,9 @@ class _StreamSubscriber:
             pairs, (metadata or {}).get("type")
         )
 
-        any_filter = any(b.payload_filter or b.model_filter for b, _ in ordered_pairs)
+        any_hook = any(b.payload_filter or b.model_filter or b.mapper for b, _ in ordered_pairs)
         event = (
-            EventMessageMetadata.model_validate(metadata or {}) if any_filter else None
+            EventMessageMetadata.model_validate(metadata or {}) if any_hook else None
         )
 
         # Filters are per-binding, not per-schema. We iterate flattened
@@ -703,16 +703,14 @@ class _StreamSubscriber:
         payload_filter_cache: dict[int, bool] = {}
         model_filter_rejected: set[int] = set()
 
-        # Mappers are also per-binding; once a binding fails during mapping,
+        # Mappers are also per-binding; once a mapper fails for a binding,
         # every remaining pair for that binding is skipped.
         mapper_failed: set[int] = set()
 
         for binding, schema in ordered_pairs:
             binding_key = id(binding)
 
-            if binding_key in model_filter_rejected:
-                continue
-            if binding_key in mapper_failed:
+            if binding_key in (model_filter_rejected | mapper_failed):
                 continue
 
             msg_ctx = (
@@ -737,12 +735,12 @@ class _StreamSubscriber:
                     event_data if isinstance(event_data, dict) else {"data": event_data}
                 )
                 parsed = validate_message_model(schema, payload)
-                logger.debug("Validated model: %r", parsed)
+                logger.debug(f"Validated model: {parsed!r}")
                 _attach_metadata_to_payload(parsed, metadata)
             except (ValueError, TypeError):
                 # Validation/coercion errors, try next schema
                 continue
-
+            
             if msg_ctx is not None and not _filter_accepts(
                 binding.model_filter,
                 parsed,
@@ -752,7 +750,7 @@ class _StreamSubscriber:
             ):
                 model_filter_rejected.add(binding_key)
                 continue
-
+            
             if msg_ctx is not None:
                 parsed = _safe_map(
                     binding.mapper,
@@ -763,9 +761,10 @@ class _StreamSubscriber:
                 if parsed is None:
                     mapper_failed.add(binding_key)
                     continue
-                # Reattach metadata in case a new model instance was created
+                # Ensure metadata is attached in case a new model instance was created
                 _attach_metadata_to_payload(parsed, metadata)
 
+            logger.debug(f"Final model: {parsed!r}")
             return self._dispatch(binding, parsed)
 
         logger.warning(
@@ -790,8 +789,8 @@ class _StreamSubscriber:
         try:
             event_data, metadata = extract_cloudevent_data(message)
 
-            logger.debug("Data: %r", event_data)
-            logger.debug("Metadata: %r", metadata)
+            logger.debug(f"Data: {event_data!r}")
+            logger.debug(f"Metadata: {metadata!r}")
 
             dedup_id = self._dedup_id(metadata, event_data, topic_name)
             if dedup_id is not None and self._is_seen(dedup_id):
