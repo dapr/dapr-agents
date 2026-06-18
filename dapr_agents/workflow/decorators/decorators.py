@@ -69,10 +69,10 @@ def message_router(
     """
     Tag a callable as a **Pub/Sub → Workflow** entry with routing + schema metadata.
 
-    Filters run on the per-topic consumer thread and **block message intake** for
+    Hooks run on the per-topic consumer thread and **block message intake** for
     that topic while they execute. Keep them cheap (in-memory checks, attribute
     comparisons, header lookups). For anything I/O-bound, do the check inside the
-    workflow body and short-circuit there; otherwise a single slow filter will
+    workflow body and short-circuit there; otherwise a single slow hook will
     block the whole topic.
 
     Routing is first-match per topic: if two bindings can both accept a message,
@@ -112,8 +112,8 @@ def message_router(
             `MessageContext`, returning a JSON-serializable output model.
             Runs as the last step *after* schema validation and `model_filter`,
             so it can rely on typed attribute access on the parsed instance.
-            Returning a non-JSON-serializable output model logs an error and skips the binding, trying the next.
-            Raising logs an error and is treated the same as returning a non-JSON-serializable output model.
+            If the hook returns a non-JSON-serializable output model or raises,
+            the binding is skipped and the next binding is tried.
             Mutating the input message model is acceptable,
             the output model becomes the workflow input on success.
 
