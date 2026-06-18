@@ -71,7 +71,7 @@ def drasi_trigger(
             "query_id": lambda event: event.payload.source.queryId == query_id
         }
 
-        if accepted_operations is not None:
+        if operations is not None:
             filters["operations"] = lambda event: event.op in accepted_operations
         if result_model is not None:
             filters["result_model"] = lambda event: (
@@ -80,9 +80,11 @@ def drasi_trigger(
             )
 
         def _model_filter(event: DrasiUnpackedEvent, ctx: MessageContext) -> bool:
+            passes_filter = True
             for filter_name, filter_fn in filters.items():
                 logger.info(f"[drasi_trigger]: Applying filter '{filter_name}' for handler '{ctx.handler_name}'")
-                return filter_fn(event)
+                passes_filter = passes_filter and filter_fn(event)
+            return passes_filter
 
         return _model_filter
     
@@ -144,7 +146,7 @@ def drasi_trigger(
             and ctx.agent.topic_name == topic
         ):
             raise RuntimeError(
-                "Pub/sub (component, topic) must be different from the agent's pub/sub (component, topic)."
+                f"drasi_trigger cannot use pubsub component {pubsub} and topic {topic} since it is identical to the agent's pubsub component and topic."
             )
 
         if mapper is None:
@@ -156,6 +158,8 @@ def drasi_trigger(
             logger.info(
                 "[drasi_trigger]: HTTP routes are not supported by this extension; only pub/sub routes will be wired."
             )
+
+        # TODO: validate mapper is callable, operations, result model
 
         closers = _open_stream(ctx)
 
