@@ -691,7 +691,9 @@ class _StreamSubscriber:
             pairs, (metadata or {}).get("type")
         )
 
-        any_hook = any(b.payload_filter or b.model_filter or b.mapper for b, _ in ordered_pairs)
+        any_hook = any(
+            b.payload_filter or b.model_filter or b.mapper for b, _ in ordered_pairs
+        )
         event = (
             EventMessageMetadata.model_validate(metadata or {}) if any_hook else None
         )
@@ -740,7 +742,7 @@ class _StreamSubscriber:
             except (ValueError, TypeError):
                 # Validation/coercion errors, try next schema
                 continue
-            
+
             if msg_ctx is not None and not _filter_accepts(
                 binding.model_filter,
                 parsed,
@@ -750,7 +752,7 @@ class _StreamSubscriber:
             ):
                 model_filter_rejected.add(binding_key)
                 continue
-            
+
             if msg_ctx is not None:
                 parsed = _safe_map(
                     binding.mapper,

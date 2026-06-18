@@ -1249,7 +1249,12 @@ def test_message_router_with_mapper():
     def mapper(model, msg_ctx):
         return model
 
-    @message_router(pubsub="messagepubsub", topic="orders", message_model=OrderCreated, mapper=mapper)
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=mapper,
+    )
     def handler(message):
         pass
 
@@ -1264,7 +1269,12 @@ def test_message_router_rejects_async_mapper():
 
     with pytest.raises(TypeError, match="mapper.*synchronous"):
 
-        @message_router(pubsub="messagepubsub", topic="orders", message_model=OrderCreated, mapper=mapper)
+        @message_router(
+            pubsub="messagepubsub",
+            topic="orders",
+            message_model=OrderCreated,
+            mapper=mapper,
+        )
         def handler(message):
             pass
 
@@ -1274,7 +1284,12 @@ def test_message_router_rejects_non_callable_mapper():
 
     with pytest.raises(TypeError, match="mapper.*callable"):
 
-        @message_router(pubsub="messagepubsub", topic="orders", message_model=OrderCreated, mapper=False)
+        @message_router(
+            pubsub="messagepubsub",
+            topic="orders",
+            message_model=OrderCreated,
+            mapper=False,
+        )
         def handler(message):
             pass
 
@@ -1330,7 +1345,12 @@ def test_pubsub_route_spec_mapper_wins_over_decorator():
     def spec_mapper(payload, msg_ctx):
         return {}
 
-    @message_router(pubsub="messagepubsub", topic="orders", message_model=OrderCreated, mapper=deco_mapper)
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=deco_mapper,
+    )
     def handler(message):
         pass
 
@@ -1394,7 +1414,12 @@ def test_pubsub_route_spec_falls_back_to_decorator_mapper():
     def deco_mapper(payload, msg_ctx):
         return {}
 
-    @message_router(pubsub="messagepubsub", topic="orders", message_model=OrderCreated, mapper=deco_mapper)
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=deco_mapper,
+    )
     def handler(message):
         pass
 
@@ -1440,13 +1465,16 @@ def test_mapper_pydantic_model_schedules_workflow(filter_env):
     )
     def handler(message):
         return "ok"
-    
+
     msg = _make_cloudevent({"order_id": "1", "amount": 1000.0, "customer": "Bob"})
     _run_one_message(mock_dapr, mock_wf, handler, msg)
 
     assert mock_wf.schedule_new_workflow.called
     assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["order_id"] == "1"
-    assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["reason"] == "Buyers remorse"
+    assert (
+        mock_wf.schedule_new_workflow.call_args.kwargs["input"]["reason"]
+        == "Buyers remorse"
+    )
 
 
 def test_mapper_dataclass_model_schedules_workflow(filter_env):
@@ -1467,7 +1495,9 @@ def test_mapper_dataclass_model_schedules_workflow(filter_env):
     _run_one_message(mock_dapr, mock_wf, handler, msg)
 
     assert mock_wf.schedule_new_workflow.called
-    assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["shipment_id"] == "s1"
+    assert (
+        mock_wf.schedule_new_workflow.call_args.kwargs["input"]["shipment_id"] == "s1"
+    )
     assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["order_id"] == "1"
     assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["carrier"] == "UPS"
 
