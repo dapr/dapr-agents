@@ -11,16 +11,15 @@
 # limitations under the License.
 #
 
-from .decorators import (
-    message_router,
-    http_router,
-    workflow_entry,
-)
-from .utils.subscription import MessageContext
-
-__all__ = [
-    "message_router",
-    "http_router",
-    "workflow_entry",
-    "MessageContext",
-]
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: agent-memory
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: localhost:6379
+    - name: redisPassword
+      value: ""

@@ -11,16 +11,17 @@
 # limitations under the License.
 #
 
-from .decorators import (
-    message_router,
-    http_router,
-    workflow_entry,
-)
-from .utils.subscription import MessageContext
-
-__all__ = [
-    "message_router",
-    "http_router",
-    "workflow_entry",
-    "MessageContext",
+[project]
+name = "06-agent-mcp-dapr-workflow"
+version = "0.1.0"
+requires-python = ">=3.11, <3.14"
+dependencies = [
+    "dapr-agents",
+    "python-dotenv>=1.2.1",
+    "mcp>=1.26.0,<2.0.0",
+    "uvicorn>=0.34.0",
+    "starlette>=0.49.1",
 ]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }
