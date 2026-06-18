@@ -47,6 +47,80 @@ from dapr_agents.ext.drasi import (  # type: ignore[import-not-found]
 # ---------------------------------------------------------------------------
 
 
+class MockTopicEventResponse():
+    """Mock response class replacing `dapr.clients.grpc._response.TopicEventResponse`.
+    
+    `conftest.py` mocks the `dapr.clients.grpc._response` module;
+    patching `TopicEventResponse` prevents `_normalize_status` in `subscription.py`
+    from receiving a mock status object it can't coerce, which would lead to an infinite retry loop."""
+
+    def __init__(self, status: str):
+        self.status = status
+
+
+@pytest.fixture(autouse=True)
+def patch_subscription(monkeypatch):
+    """Mock the subscription topic response to prevent issues with `_normalize_status` coercion."""
+    monkeypatch.setattr(
+        "dapr_agents.workflow.utils.subscription.TopicEventResponse",
+        MockTopicEventResponse,
+    )
+
+
+@pytest.fixture(autouse=True)
+def patch_dapr_workflow_runtime(monkeypatch):
+    """Mock the workflow runtime so no live Dapr instance is required."""
+    import dapr.ext.workflow as wf
+
+    mock_runtime = Mock(spec=wf.WorkflowRuntime)
+    monkeypatch.setattr(wf, "WorkflowRuntime", lambda: mock_runtime)
+
+    class MockRetryPolicy:
+        def __init__(
+            self,
+            max_number_of_attempts=1,
+            first_retry_interval=timedelta(seconds=1),
+            max_retry_interval=timedelta(seconds=60),
+            backoff_coefficient=2.0,
+            retry_timeout: Optional[timedelta] = None,
+        ):
+            self.max_number_of_attempts = max_number_of_attempts
+
+    monkeypatch.setattr(wf, "RetryPolicy", MockRetryPolicy)
+
+
+@pytest.fixture(autouse=True)
+def setup_env(monkeypatch):
+    """Provide an API key and a mock Dapr client factory."""
+    os.environ["OPENAI_API_KEY"] = "test-api-key"
+    monkeypatch.setattr(
+        "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+        Mock(side_effect=lambda: _create_mock_dapr_client()),
+    )
+    yield
+    os.environ.pop("OPENAI_API_KEY", None)
+
+
+@pytest.fixture(autouse=True)
+def stub_agent_lifecycle(monkeypatch):
+    """Stub agent start/stop (they touch Dapr) so tests isolate activation."""
+    monkeypatch.setattr(DurableAgent, "start", Mock())
+    monkeypatch.setattr(DurableAgent, "stop", Mock())
+
+
+@pytest.fixture(autouse=True)
+def stub_route_wiring(monkeypatch):
+    """Stub pub/sub + HTTP route wiring so host methods isolate activation."""
+    monkeypatch.setattr(
+        "dapr_agents.workflow.runners.agent.register_message_routes",
+        Mock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "dapr_agents.workflow.runners.agent.register_http_routes",
+        Mock(return_value=[]),
+    )
+
+
 def _safe_json_loads(data: Any) -> Any:
     """Safely parses a JSON-serializable value, returning the parsed data."""
     if isinstance(data, (dict, list)):
@@ -113,61 +187,6 @@ def _create_mock_dapr_client(
     return mock_client
 
 
-@pytest.fixture(autouse=True)
-def patch_dapr_check(monkeypatch):
-    """Mock the workflow runtime so no live Dapr instance is required."""
-    import dapr.ext.workflow as wf
-
-    mock_runtime = Mock(spec=wf.WorkflowRuntime)
-    monkeypatch.setattr(wf, "WorkflowRuntime", lambda: mock_runtime)
-
-    class MockRetryPolicy:
-        def __init__(
-            self,
-            max_number_of_attempts=1,
-            first_retry_interval=timedelta(seconds=1),
-            max_retry_interval=timedelta(seconds=60),
-            backoff_coefficient=2.0,
-            retry_timeout: Optional[timedelta] = None,
-        ):
-            self.max_number_of_attempts = max_number_of_attempts
-
-    monkeypatch.setattr(wf, "RetryPolicy", MockRetryPolicy)
-    yield mock_runtime
-
-
-@pytest.fixture(autouse=True)
-def setup_env(monkeypatch):
-    """Provide an API key and a mock Dapr client factory."""
-    os.environ["OPENAI_API_KEY"] = "test-api-key"
-    monkeypatch.setattr(
-        "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-        Mock(side_effect=lambda: _create_mock_dapr_client()),
-    )
-    yield
-    os.environ.pop("OPENAI_API_KEY", None)
-
-
-@pytest.fixture(autouse=True)
-def stub_agent_lifecycle(monkeypatch):
-    """Stub agent start/stop (they touch Dapr) so tests isolate activation."""
-    monkeypatch.setattr(DurableAgent, "start", Mock())
-    monkeypatch.setattr(DurableAgent, "stop", Mock())
-
-
-@pytest.fixture(autouse=True)
-def stub_route_wiring(monkeypatch):
-    """Stub pub/sub + HTTP route wiring so host methods isolate activation."""
-    monkeypatch.setattr(
-        "dapr_agents.workflow.runners.agent.register_message_routes",
-        Mock(return_value=[]),
-    )
-    monkeypatch.setattr(
-        "dapr_agents.workflow.runners.agent.register_http_routes",
-        Mock(return_value=[]),
-    )
-
-
 def _make_agent(
     pubsub_name: str | None = None,
     topic: str | None = None,
@@ -206,7 +225,7 @@ def _make_agent(
 def _make_runner(
     pubsub_names: list[str],
     event_stream: list[Any],
-) -> AgentRunner:
+) -> tuple[AgentRunner, MagicMock]:
     # Stub workflow scheduling; we only care about the calls and inputs
     wf_client = MagicMock()
     wf_client.schedule_new_workflow = Mock(return_value="instance-1")  # type: ignore[method-assign]
@@ -222,8 +241,25 @@ def _make_runner(
     runner._wire_http_routes = Mock()  # type: ignore[method-assign]
     runner._mount_service_routes = Mock()  # type: ignore[method-assign]
     runner._mount_hitl_routes = Mock()  # type: ignore[method-assign]
+    
+    # Return the runner and a handle to the scheduler method
+    return runner, wf_client.schedule_new_workflow
 
-    return runner
+
+def _make_cloudevent(data: dict, **fields) -> dict:
+    """Build a dict that `extract_cloudevent_data` will treat as a CloudEvent."""
+    base = {
+        "id": "1",
+        "data": data,
+        "datacontenttype": "application/json",
+        "pubsubname": "testpubsub",
+        "source": "testpublisher",
+        "specversion": "1.0",
+        "topic": "testtopic",
+        "type": "com.dapr.event.sent",
+    }
+    base.update(fields)
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -241,10 +277,8 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
     drasi_pubsub_name = "orderspubsub"
     drasi_topic = "orders"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "i",
                 "ts_ms": 111,
                 "seq": 0,
@@ -258,16 +292,12 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "stock-notifications-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "i",
                 "ts_ms": 123,
                 "seq": 1,
@@ -281,17 +311,15 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
                     },
                 },
             },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "stock-notifications-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
-    task_str = "orders"
+    task_str = "process order"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(
+    runner, wf_scheduler_method = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -304,22 +332,21 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     # Ensure order is preserved
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     # Ensure task strings are correctly generated
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -335,10 +362,8 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
     drasi_pubsub_name = "incidentspubsub"
     drasi_topic = "incidents"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "d",
                 "ts_ms": 456,
                 "seq": 0,
@@ -353,16 +378,12 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "stock-notifications-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "d",
                 "ts_ms": 789,
                 "seq": 1,
@@ -377,17 +398,15 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
                     },
                 },
             },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "incidents-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
-    task_str = "incidents"
+    task_str = "triage incidents"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(
+    runner, wf_scheduler_method = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -400,20 +419,19 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
     )
     runner.register_routes(agent, fastapi_app=FastAPI())
 
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -429,10 +447,8 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
     drasi_pubsub_name = "alertspubsub"
     drasi_topic = "important"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "i",
                 "ts_ms": 67,
                 "seq": 22,
@@ -442,20 +458,16 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
                         "ts_ms": 67,
                     },
                     "after": {
-                        "name": "your_name_here",
+                        "name": "your_name",
                     },
                 },
             },
-            "id": "22",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "truth-nuke-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="22",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 223,
                 "seq": 33,
@@ -465,24 +477,22 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
                         "ts_ms": 223,
                     },
                     "before": {
-                        "name": "your_name_here",
+                        "name": "your_name",
                     },
                     "after": {
-                        "name": "YOUR_NAME_HERE",
+                        "name": "YOUR_NAME",
                     },
                 },
             },
-            "id": "33",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "truth-nuke-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="33",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
-    task_str = "truth"
+    task_str = "determine if potential fraud"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(
+    runner, wf_scheduler_method = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -495,20 +505,19 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
     )
     runner.serve(agent, app=FastAPI())
 
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -522,10 +531,8 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
     drasi_pubsub_name = "gamestatepubsub"
     drasi_topic = "gamestate"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 404,
                 "seq": 0,
@@ -548,16 +555,12 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "game-state-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 404,
                 "seq": 1,
@@ -580,17 +583,15 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
                     },
                 },
             },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "game-state-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
-    task_str = "gamestate"
+    task_str = "predict next move"
 
     agent = _make_agent()
-    runner = _make_runner(pubsub_names=[drasi_pubsub_name], event_stream=events)
+    runner, wf_scheduler_method = _make_runner(pubsub_names=[drasi_pubsub_name], event_stream=events)
 
     drasi_trigger(
         agent,
@@ -601,20 +602,19 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -629,10 +629,8 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
     agent_topic = "testtopic"
     drasi_topic = "searches"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": agent_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "i",
                 "ts_ms": 911,
                 "seq": 0,
@@ -646,16 +644,12 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "searches-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": agent_pubsub_name,
-            "data": {
+            id="1",
+            pubsubname=agent_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "i",
                 "ts_ms": 999,
                 "seq": 1,
@@ -669,17 +663,15 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
                     },
                 },
             },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "searches-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="2",
+            pubsubname=agent_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
-    task_str = "summarize"
+    task_str = "flag questionable searches"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
+    runner, wf_scheduler_method = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
     drasi_trigger(
         agent,
@@ -689,20 +681,19 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -718,10 +709,8 @@ async def test_drasi_trigger_defaults_to_derived_topic():
     drasi_pubsub_name = "goalspubsub"
     drasi_topic = f"{DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{query_id}"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 1260000,
                 "seq": 0,
@@ -740,16 +729,12 @@ async def test_drasi_trigger_defaults_to_derived_topic():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "searches-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "i",
                 "ts_ms": 4680000,
                 "seq": 1,
@@ -768,17 +753,15 @@ async def test_drasi_trigger_defaults_to_derived_topic():
                     },
                 },
             },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "searches-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
-    task_str = "goals"
+    task_str = "summarize scoring"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(
+    runner, wf_scheduler_method = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -790,20 +773,19 @@ async def test_drasi_trigger_defaults_to_derived_topic():
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -819,10 +801,8 @@ async def test_drasi_trigger_defaults_to_passthrough_task():
     drasi_pubsub_name = "passwordpubsub"
     drasi_topic = "passwordtopic"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
@@ -841,16 +821,12 @@ async def test_drasi_trigger_defaults_to_passthrough_task():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
@@ -869,36 +845,33 @@ async def test_drasi_trigger_defaults_to_passthrough_task():
                     },
                 },
             },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(
+    runner, wf_scheduler_method = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
     drasi_trigger(agent, query_id=query_id, pubsub=drasi_pubsub_name, topic=drasi_topic)
     runner.subscribe(agent)
 
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert all(DRASI_TRIGGER_DEFAULT_TASK in task for task in actual_tasks)
 
@@ -913,38 +886,30 @@ async def test_drasi_trigger_ignores_malformed_events():
     drasi_pubsub_name = "differentpubsub"
     drasi_topic = "differenttopic"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "foo": "bar",
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "i",
                 "ts_ms": 123,
                 "seq": 1,
-                "payload": "abc",
+                "payload": {},
             },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
     task_str = "ignored"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(
+    runner, wf_scheduler_method = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -958,8 +923,7 @@ async def test_drasi_trigger_ignores_malformed_events():
     runner.subscribe(agent)
 
     # Should gracefully handle malformed events
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 0  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 0  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -972,10 +936,8 @@ async def test_drasi_trigger_filters_by_single_operation():
     drasi_pubsub_name = "differentpubsub"
     drasi_topic = "differenttopic"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "i",
                 "ts_ms": 0,
                 "seq": 0,
@@ -989,16 +951,12 @@ async def test_drasi_trigger_filters_by_single_operation():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "d",
                 "ts_ms": 0,
                 "seq": 0,
@@ -1012,17 +970,15 @@ async def test_drasi_trigger_filters_by_single_operation():
                     },
                 },
             },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
     task_str = "test"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(
+    runner, wf_scheduler_method = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -1036,21 +992,20 @@ async def test_drasi_trigger_filters_by_single_operation():
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 1  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 1  # type: ignore[attr-defined]
 
     expected_events = [events[1]]
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in expected_events]
     assert actual_tasks == expected_tasks
@@ -1066,10 +1021,8 @@ async def test_drasi_trigger_filters_by_multiple_operations():
     drasi_pubsub_name = "differentpubsub"
     drasi_topic = "differenttopic"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "i",
                 "ts_ms": 0,
                 "seq": 0,
@@ -1083,16 +1036,12 @@ async def test_drasi_trigger_filters_by_multiple_operations():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "d",
                 "ts_ms": 0,
                 "seq": 0,
@@ -1106,16 +1055,12 @@ async def test_drasi_trigger_filters_by_multiple_operations():
                     },
                 },
             },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
@@ -1129,17 +1074,15 @@ async def test_drasi_trigger_filters_by_multiple_operations():
                     },
                 },
             },
-            "id": "3",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="3",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
     task_str = "test"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(
+    runner, wf_scheduler_method = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -1153,21 +1096,20 @@ async def test_drasi_trigger_filters_by_multiple_operations():
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     expected_events = [events[0], events[2]]
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in expected_events]
     assert actual_tasks == expected_tasks
@@ -1187,10 +1129,8 @@ async def test_drasi_trigger_filters_by_result_model():
     drasi_pubsub_name = "differentpubsub"
     drasi_topic = "differenttopic"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
@@ -1207,16 +1147,12 @@ async def test_drasi_trigger_filters_by_result_model():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "d",
                 "ts_ms": 0,
                 "seq": 0,
@@ -1230,16 +1166,31 @@ async def test_drasi_trigger_filters_by_result_model():
                     },
                 },
             },
-            "id": "2",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "i",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 0,
+                    },
+                    "after": {
+                        "count": 0,
+                    },
+                },
+            },
+            id="3",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
@@ -1256,40 +1207,15 @@ async def test_drasi_trigger_filters_by_result_model():
                     },
                 },
             },
-            "id": "3",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
-                "op": "i",
-                "ts_ms": 0,
-                "seq": 0,
-                "payload": {
-                    "source": {
-                        "queryId": query_id,
-                        "ts_ms": 0,
-                    },
-                    "after": {
-                        "count": 0,
-                    },
-                },
-            },
-            "id": "4",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="4",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
     task_str = "test"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(
+    runner, wf_scheduler_method = _make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -1303,21 +1229,20 @@ async def test_drasi_trigger_filters_by_result_model():
     )
     runner.subscribe(agent)
 
-    scheduler_method = runner.workflow_client().schedule_new_workflow
-    assert scheduler_method.call_count == 3  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 3  # type: ignore[attr-defined]
 
-    expected_events = [events[0], events[1], events[3]]
+    expected_events = [events[0], events[1], events[2]]
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
     ]
     expected_tasks = [task_str for _ in expected_events]
     assert actual_tasks == expected_tasks
@@ -1333,10 +1258,8 @@ async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
     drasi_pubsub_name = "missingpubsub"
     drasi_topic = "testtopic"
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
@@ -1353,17 +1276,15 @@ async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
     task_str = "test"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
+    runner, _ = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
     drasi_trigger(
         agent,
@@ -1374,7 +1295,7 @@ async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
     )
 
     # Ensure that the activation doesn't try to fall back to the agent's pub/sub component
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match=f".*component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"):
         runner.subscribe(agent)
 
 
@@ -1388,10 +1309,8 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
     drasi_pubsub_name = agent_pubsub_name
     drasi_topic = agent_topic
     events = [
-        {
-            "topic": drasi_topic,
-            "pubsubname": drasi_pubsub_name,
-            "data": {
+        _make_cloudevent(
+            data={
                 "op": "u",
                 "ts_ms": 0,
                 "seq": 0,
@@ -1408,17 +1327,15 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
                     },
                 },
             },
-            "id": "1",
-            "specversion": "1.0",
-            "datacontenttype": "application/json; charset=utf-8",
-            "source": "test-publisher",
-            "type": "com.dapr.event.sent",
-        },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
     ]
     task_str = "test"
 
     agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
+    runner, _ = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
     drasi_trigger(
         agent,
@@ -1428,5 +1345,5 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
         mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match=f".*drasi_trigger.*component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"):
         runner.subscribe(agent)
