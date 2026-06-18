@@ -81,6 +81,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+litellm = [
+    "litellm>=1.80,<1.87",
+]
 vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<6.0.0",
