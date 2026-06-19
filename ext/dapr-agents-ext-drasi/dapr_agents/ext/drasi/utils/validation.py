@@ -13,21 +13,34 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import TypeVar
-
-T = TypeVar("T")
+from enum import StrEnum
+from typing import Any
 
 
-def normalize_to_list(value: T | Sequence[T] | None) -> list[T]:
+# Internal operation enum for validation
+class _DrasiOperation(StrEnum):
+    INSERT = "i"
+    UPDATE = "u"
+    DELETE = "d"
+    CONTROL = "x"
+
+
+def is_supported_operation(value: Any) -> bool:
+    """Validate that the value is a supported Drasi operation."""
+    try:
+        _DrasiOperation(value)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def normalize_to_list(value: Any) -> list[Any]:
+    """Convert a scalar, list, or tuple to a list. If the value is `None`, returns an empty list."""
     if value is None:
         return []
 
-    # Treat strings as scalar values
-    if isinstance(value, str):
-        return [value]
-
-    if isinstance(value, Sequence):
+    if isinstance(value, (list, tuple)):
         return list(value)
 
+    # Treat strings as scalar values
     return [value]

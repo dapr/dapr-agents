@@ -14,17 +14,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Literal, Sequence
+from typing import Any, Callable
 
 from dapr_agents import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.types.activation import ActivationContext
-from dapr_agents.ext.drasi.utils.types import DrasiUnpackedEvent  # type: ignore[import-not-found]
-from dapr_agents.ext.drasi.utils.filters import normalize_to_list  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.utils.types import DrasiOperation, DrasiUnpackedEvent  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.utils.validation import is_supported_operation, normalize_to_list  # type: ignore[import-not-found]
 from dapr_agents.types.workflow import PubSubRouteSpec
+from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.registration import register_message_routes
 from dapr_agents.workflow.utils.routers import validate_message_model
-from dapr_agents.workflow.utils.subscription import MessageContext
+from dapr_agents.workflow.utils.subscription import MessageContext, validate_hook
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,8 @@ def drasi_trigger(
     pubsub: str | None = None,
     topic: str | None = None,
     dead_letter_topic: str | None = None,
-    mapper: Callable[[DrasiUnpackedEvent, MessageContext], TriggerAction] | None = None,
-    operations: Literal["i", "u", "d"] | Sequence[Literal["i", "u", "d"]] | None = None,
+    task_mapper: Callable[[DrasiUnpackedEvent, MessageContext], TriggerAction] | None = None,
+    operations: DrasiOperation | list[DrasiOperation] | tuple[DrasiOperation] | None = None,
     result_model: type[Any] | None = None,
 ) -> None:
     """
@@ -53,8 +54,10 @@ def drasi_trigger(
         pubsub: Optional name of the Dapr pub/sub component to use. If `None`, the agent's pub/sub component is used.
         topic: Optional topic to subscribe to. If `None`, the topic is derived from the query ID as `"drasi-events-<query_id>"`.
         dead_letter_topic: Optional dead-letter topic to publish failed messages to. Defaults to `None`.
-        mapper: Optional callable `(DrasiUnpackedEvent, MessageContext) -> TriggerAction` to map Drasi events to agent task messages. If `None`, the task message will instruct the agent to return the serialized Drasi event as-is (pass-through).
-        operations: Optional Drasi operation(s) to filter events by (`"i"` for insert, `"u"` for update, `"d"` for delete). Defaults to `None` (no filtering).
+        task_mapper: Optional callable `(DrasiUnpackedEvent, MessageContext) -> TriggerAction` to map Drasi events to agent task messages.
+            If `None`, the task message will instruct the agent to return the serialized Drasi event as-is (pass-through).
+        operations: Optional Drasi operation(s) to filter events by (`"i"` for insert, `"u"` for update, `"d"` for delete, `"x"` for control).
+            Control events are supported but are currently silently dropped (no-op). Defaults to `None` (no filtering).
         result_model: Optional model to use to validate the individual changes within Drasi change events. Defaults to `None` (no validation).
 
     Returns:
@@ -63,15 +66,48 @@ def drasi_trigger(
     Raises:
         RuntimeError: If the agent's pub/sub component is used and the provided topic is the same as the agent's topic.
     """
-    
+
+    def _validate(ctx: ActivationContext) -> None:
+        """Semantically validate configuration."""
+        try:
+            # Ensure pub/sub doesn't overlap with the agent's pub/sub
+            if (
+                ctx.agent.pubsub
+                and (pubsub is None or ctx.agent.message_bus_name == pubsub)
+                and ctx.agent.topic_name == topic
+            ):
+                raise RuntimeError(
+                    f"Unable to use pubsub component '{pubsub}' and topic '{topic}' since they are identical to the agent's pubsub component and topic."
+                )
+
+            # Ensure task mapper is sync and callable if not omitted
+            if task_mapper is not None:
+                validate_hook(fn=task_mapper, name="task_mapper")
+            else:
+                logger.warning(
+                    "[drasi-trigger]: No task mapper function provided; the agent will be instructed to return the serialized Drasi event as-is."
+                )
+
+            if operations is not None:
+                ops = normalize_to_list(operations)
+                for op in ops:
+                    if not is_supported_operation(op):
+                        raise TypeError(f"Unsupported operation type: '{op}'")
+
+            if result_model is not None and not is_supported_model(result_model):
+                raise TypeError(f"Unsupported result model type: '{result_model}'")
+        except Exception as e:
+            logger.exception(f"[drasi-trigger]: Activation failed during validation: {e}")
+            raise
+
     def _make_model_filter() -> bool:
         """Build a filter mapping conditionally and return the post-schema validation filter for Drasi pub/sub bindings via closure."""
-        accepted_operations = set(normalize_to_list(operations))
         filters: dict[str, Callable[[DrasiUnpackedEvent], bool]] = {
             "query_id": lambda event: event.payload.source.queryId == query_id
         }
 
         if operations is not None:
+            accepted_operations: set[DrasiOperation] = set(normalize_to_list(operations))
             filters["operations"] = lambda event: event.op in accepted_operations
         if result_model is not None:
             filters["result_model"] = lambda event: (
@@ -80,10 +116,15 @@ def drasi_trigger(
             )
 
         def _model_filter(event: DrasiUnpackedEvent, ctx: MessageContext) -> bool:
+            # Silently drop control events
+            if event.op == "x":
+                return False
+
             passes_filter = True
             for filter_name, filter_fn in filters.items():
                 logger.info(f"[drasi-trigger]: Applying filter '{filter_name}' for handler '{ctx.handler_name}'")
                 passes_filter = passes_filter and filter_fn(event)
+
             return passes_filter
 
         return _model_filter
@@ -105,7 +146,7 @@ def drasi_trigger(
         message_model = DrasiUnpackedEvent
 
         filter_fn = _make_model_filter()
-        resolved_mapper = mapper or (
+        resolved_task_mapper = task_mapper or (
             lambda event, _: TriggerAction(
                 task=f"{DRASI_TRIGGER_DEFAULT_TASK}: {event.model_dump_json()}"
             )
@@ -119,7 +160,7 @@ def drasi_trigger(
                 message_model=message_model,
                 dead_letter_topic=dead_letter_topic,
                 model_filter=filter_fn,
-                mapper=resolved_mapper,
+                mapper=resolved_task_mapper,
             )
         ]
 
@@ -137,30 +178,15 @@ def drasi_trigger(
         )
 
         return closers
-    
+
     def _activate(ctx: ActivationContext) -> Callable[[], None] | None:
-        """Activation callback that semantically validates user configuration, wires pub/sub routes, and returns an idempotent closer to the runner."""
-        if (
-            ctx.agent.pubsub
-            and (pubsub is None or ctx.agent.message_bus_name == pubsub)
-            and ctx.agent.topic_name == topic
-        ):
-            raise RuntimeError(
-                f"drasi_trigger cannot use pubsub component {pubsub} and topic {topic} since it is identical to the agent's pubsub component and topic."
-            )
-
-        if mapper is None:
-            logger.warning(
-                "[drasi-trigger]: No mapper function provided; the agent will be instructed to return the serialized Drasi event as-is."
-            )
-
+        """Activation callback that semantically validates configuration, wires pub/sub routes, and returns an idempotent closer to the runner."""
         if ctx.app is not None:
             logger.info(
                 "[drasi-trigger]: HTTP routes are not supported by this extension; only pub/sub routes will be wired."
             )
 
-        # TODO: validate mapper is callable, operations, result model
-
+        _validate(ctx)
         closers = _open_stream(ctx)
 
         closed = False

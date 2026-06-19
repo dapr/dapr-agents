@@ -18,6 +18,11 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+# Public-facing operation type
+DrasiOperation = Literal["i", "u", "d", "x"]
+
+
+# TODO: replace these with exported Drasi models from the reaction SDK
 class DrasiUnpackedSource(BaseModel):
     """Source information for a Drasi event."""
 
@@ -40,7 +45,7 @@ class DrasiUnpackedPayload(BaseModel):
 class DrasiUnpackedEvent(BaseModel):
     """Drasi unpacked event model for CDC (Change Data Capture) events."""
 
-    op: Literal["i", "u", "d", "x"] = Field(
+    op: DrasiOperation = Field(
         description="Operation type: i (insert), u (update), d (delete), x (control)"
     )
     ts_ms: int = Field(description="Event timestamp in milliseconds")
