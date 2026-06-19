@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from unittest.mock import MagicMock, Mock
 
 from fastapi import FastAPI
@@ -43,8 +43,76 @@ from dapr_agents.ext.drasi import (  # type: ignore[import-not-found]
 
 
 # ---------------------------------------------------------------------------
-# Fixtures and helpers (mirror tests/workflow/test_activation_hooks.py)
+# Fixtures and helpers
 # ---------------------------------------------------------------------------
+
+
+def _create_mock_dapr_client(
+    pubsub_names: list[str] | None = None,
+    event_stream: list[Any] | None = None,
+) -> MagicMock:
+    """
+    Create a mock DaprClient with specified pubsub components registered and a fixed event stream for subscriptions to consume.
+
+    Args:
+        pubsub_names: List of pubsub component names to register in the mock.
+        event_stream: A list of events that a mock subscription will consume.
+
+    Returns:
+        A MagicMock configured to return the pubsub components in get_metadata and subscriptions that consume the given event stream.
+    """
+    pubsub_names = pubsub_names or []
+    event_stream = event_stream or []
+
+    mock_client = MagicMock()
+    mock_sub = MagicMock()
+    mock_sub.__iter__.return_value = iter(event_stream)
+    mock_client.subscribe.return_value = mock_sub
+
+    # Set up get_metadata to return the pubsub components
+    mock_metadata = MagicMock()
+    components = []
+
+    for name in pubsub_names:
+        component = MagicMock()
+        component.type = "pubsub.redis"
+        component.name = name
+        components.append(component)
+
+    mock_metadata.registered_components = components
+    mock_client.get_metadata.return_value = mock_metadata
+
+    # Support context manager usage (with DaprClient() as client:)
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+
+    # Support constructor usage (client = DaprClient())
+    mock_client.return_value = mock_client
+
+    return mock_client
+
+
+def _make_cloudevent(data: dict, **fields) -> dict:
+    """Build a dict that `extract_cloudevent_data` will treat as a CloudEvent."""
+    base = {
+        "id": "1",
+        "data": data,
+        "datacontenttype": "application/json",
+        "pubsubname": "testpubsub",
+        "source": "testpublisher",
+        "specversion": "1.0",
+        "topic": "testtopic",
+        "type": "com.dapr.event.sent",
+    }
+    base.update(fields)
+    return base
+
+
+def _safe_json_loads(data: Any) -> Any:
+    """Safely parses a JSON-serializable value, returning the parsed data."""
+    if isinstance(data, (dict, list)):
+        return data
+    return json.loads(data)
 
 
 class MockTopicEventResponse():
@@ -103,14 +171,14 @@ def setup_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def stub_agent_lifecycle(monkeypatch):
-    """Stub agent start/stop (they touch Dapr) so tests isolate activation."""
+    """Stub agent start/stop methods to isolate the extension."""
     monkeypatch.setattr(DurableAgent, "start", Mock())
     monkeypatch.setattr(DurableAgent, "stop", Mock())
 
 
 @pytest.fixture(autouse=True)
-def stub_route_wiring(monkeypatch):
-    """Stub pub/sub + HTTP route wiring so host methods isolate activation."""
+def stub_agent_route_wiring(monkeypatch):
+    """Stub pub/sub + HTTP route wiring to ensure only extension routes are active."""
     monkeypatch.setattr(
         "dapr_agents.workflow.runners.agent.register_message_routes",
         Mock(return_value=[]),
@@ -121,145 +189,82 @@ def stub_route_wiring(monkeypatch):
     )
 
 
-def _safe_json_loads(data: Any) -> Any:
-    """Safely parses a JSON-serializable value, returning the parsed data."""
-    if isinstance(data, (dict, list)):
-        return data
-    return json.loads(data)
+@pytest.fixture
+def setup_deps():
+    """Return a factory function to create a `DurableAgent` instance, an `AgentRunner` instance,
+    and a handle to the workflow schedule method. Idempotent as multiple calls to `_make_agent`
+    and `_make_runner` return the same `DurableAgent` and `AgentRunner`, respectively."""
 
+    agent: DurableAgent | None = None
+    runner: AgentRunner | None = None
 
-def _create_mock_dapr_client(
-    pubsub_names: list[str] | None = None,
-    event_stream: list[Any] | None = None,
-) -> MagicMock:
-    """
-    Create a mock DaprClient with specified pubsub components registered and a fixed event stream for subscriptions to consume.
-
-    Args:
-        pubsub_names: List of pubsub component names to register in the mock.
-        event_stream: A list of events that a mock subscription will consume.
-
-    Returns:
-        A MagicMock configured to return the pubsub components in get_metadata and subscriptions that consume the given event stream.
-    """
-    pubsub_names = pubsub_names or []
-    event_stream = event_stream or []
-
-    mock_client = MagicMock()
-    mock_sub = MagicMock()
-    mock_sub.__iter__.return_value = iter(event_stream)
-    mock_client.subscribe.return_value = mock_sub
-
-    # Support ``subscribe_with_handler`` which returns a no-op closer and immediately consumes a fixed event stream when the agent is hosted
-    def mock_sub_with_handler_fn(*args, **kwargs):
-        for message in event_stream:
-            # TODO: ideally want to avoid hardcoding here, support positional args too?
-            handler_fn = kwargs.get("handler_fn")
-            if handler_fn:
-                handler_fn(message)
-
-        return lambda: None
-
-    mock_sub_with_handler = MagicMock()
-    mock_sub_with_handler.side_effect = mock_sub_with_handler_fn
-    mock_client.subscribe_with_handler = mock_sub_with_handler
-
-    # Set up get_metadata to return the pubsub components
-    mock_metadata = MagicMock()
-    components = []
-
-    for name in pubsub_names:
-        component = MagicMock()
-        component.type = "pubsub.redis"
-        component.name = name
-        components.append(component)
-
-    mock_metadata.registered_components = components
-    mock_client.get_metadata.return_value = mock_metadata
-
-    # Support context manager usage (with DaprClient() as client:)
-    mock_client.__enter__ = MagicMock(return_value=mock_client)
-    mock_client.__exit__ = MagicMock(return_value=False)
-
-    # Support constructor usage (client = DaprClient())
-    mock_client.return_value = mock_client
-
-    return mock_client
-
-
-def _make_agent(
-    pubsub_name: str | None = None,
-    topic: str | None = None,
-    name: str = "TestAgent",
-) -> DurableAgent:
-    llm = Mock(spec=OpenAIChatClient)
-    llm.prompt_template = None
-    llm.__class__.__name__ = "MockLLMClient"
-    llm.provider = "MockOpenAIProvider"
-    llm.api = "MockOpenAIAPI"
-    llm.model = "gpt-4o-mock"
-
-    # Allow pubsub config to be omitted in tests
-    if not pubsub_name and not topic:
-        pubsub = None
-    else:
-        pubsub = AgentPubSubConfig(
-            pubsub_name=pubsub_name or "testpubsub",
-            agent_topic=topic or "testtopic",
-            broadcast_topic=f"{topic}.broadcast"
-            if topic is not None
-            else "testtopic.broadcast",
-        )
-
-    return DurableAgent(
-        name=name,
-        role="Test Assistant",
-        goal="Help with testing",
-        llm=llm,
-        pubsub=pubsub,
-        state=AgentStateConfig(store=StateStoreService(store_name="teststatestore")),
-        execution=AgentExecutionConfig(max_iterations=5),
-    )
-
-
-def _make_runner(
-    pubsub_names: list[str],
-    event_stream: list[Any],
-) -> tuple[AgentRunner, MagicMock]:
     # Stub workflow scheduling; we only care about the calls and inputs
     wf_client = MagicMock()
     wf_client.schedule_new_workflow = Mock(return_value="instance-1")  # type: ignore[method-assign]
 
-    runner = AgentRunner(
-        wf_client=wf_client,
-        client_factory=Mock(
-            side_effect=lambda: _create_mock_dapr_client(pubsub_names, event_stream)
-        ),
-    )
+    def make_agent(
+        pubsub_name: str | None = None,
+        topic: str | None = None,
+        name: str = "TestAgent",
+    ) -> DurableAgent:
+        nonlocal agent
 
-    # Stub serve() mounts
-    runner._wire_http_routes = Mock()  # type: ignore[method-assign]
-    runner._mount_service_routes = Mock()  # type: ignore[method-assign]
-    runner._mount_hitl_routes = Mock()  # type: ignore[method-assign]
+        if agent is not None:
+            return agent
+
+        llm = Mock(spec=OpenAIChatClient)
+        llm.prompt_template = None
+        llm.__class__.__name__ = "MockLLMClient"
+        llm.provider = "MockOpenAIProvider"
+        llm.api = "MockOpenAIAPI"
+        llm.model = "gpt-4o-mock"
+
+        # Allow pubsub config to be omitted in tests
+        if not pubsub_name and not topic:
+            pubsub = None
+        else:
+            pubsub = AgentPubSubConfig(
+                pubsub_name=pubsub_name or "testpubsub",
+                agent_topic=topic or "testtopic",
+                broadcast_topic=f"{topic}.broadcast"
+                if topic is not None
+                else "testtopic.broadcast",
+            )
+
+        return DurableAgent(
+            name=name,
+            role="Test Assistant",
+            goal="Help with testing",
+            llm=llm,
+            pubsub=pubsub,
+            state=AgentStateConfig(store=StateStoreService(store_name="teststatestore")),
+            execution=AgentExecutionConfig(max_iterations=5),
+        )
+
+    def make_runner(pubsub_names: list[str], event_stream: list[Any]) -> AgentRunner:
+        nonlocal runner
+
+        if runner is not None:
+            return runner
+        
+        runner = AgentRunner(
+            wf_client=wf_client,
+            client_factory=Mock(
+                side_effect=lambda: _create_mock_dapr_client(pubsub_names, event_stream)
+            ),
+        )
+
+        # Stub serve() mounts
+        runner._wire_http_routes = Mock()  # type: ignore[method-assign]
+        runner._mount_service_routes = Mock()  # type: ignore[method-assign]
+        runner._mount_hitl_routes = Mock()  # type: ignore[method-assign]
+
+        return runner
     
-    # Return the runner and a handle to the scheduler method
-    return runner, wf_client.schedule_new_workflow
+    yield make_agent, make_runner, wf_client.schedule_new_workflow
 
-
-def _make_cloudevent(data: dict, **fields) -> dict:
-    """Build a dict that `extract_cloudevent_data` will treat as a CloudEvent."""
-    base = {
-        "id": "1",
-        "data": data,
-        "datacontenttype": "application/json",
-        "pubsubname": "testpubsub",
-        "source": "testpublisher",
-        "specversion": "1.0",
-        "topic": "testtopic",
-        "type": "com.dapr.event.sent",
-    }
-    base.update(fields)
-    return base
+    if runner is not None:
+        runner.shutdown(agent)
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +274,7 @@ def _make_cloudevent(data: dict, **fields) -> dict:
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_uses_pubsub_under_subscribe():
+async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
     """Test that the Drasi extension wires pub/sub routes correctly using the `subscribe()` method."""
     query_id = "orders-query"
     agent_pubsub_name = "testpubsub"
@@ -318,8 +323,9 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
     ]
     task_str = "process order"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, wf_scheduler_method = _make_runner(
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -354,7 +360,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_uses_pubsub_under_register_routes():
+async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
     """Test that the Drasi extension wires pub/sub routes correctly using the `register_routes()` method."""
     query_id = "incidents-query"
     agent_pubsub_name = "testpubsub"
@@ -405,8 +411,9 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
     ]
     task_str = "triage incidents"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, wf_scheduler_method = _make_runner(
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -439,7 +446,7 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_uses_pubsub_under_serve():
+async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
     """Test that the Drasi extension wires pub/sub routes correctly using the `serve()` method."""
     query_id = "potential-fraud-query"
     agent_pubsub_name = "testpubsub"
@@ -491,8 +498,9 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
     ]
     task_str = "determine if potential fraud"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, wf_scheduler_method = _make_runner(
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -525,7 +533,7 @@ async def test_drasi_trigger_uses_pubsub_under_serve():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
+async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps):
     """Test that the Drasi extension wires pub/sub routes correctly when the agent's pub/sub configuration is missing."""
     query_id = "game-state-query"
     drasi_pubsub_name = "gamestatepubsub"
@@ -590,8 +598,9 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
     ]
     task_str = "predict next move"
 
-    agent = _make_agent()
-    runner, wf_scheduler_method = _make_runner(pubsub_names=[drasi_pubsub_name], event_stream=events)
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent()
+    runner = make_runner(pubsub_names=[drasi_pubsub_name], event_stream=events)
 
     drasi_trigger(
         agent,
@@ -622,8 +631,8 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_defaults_to_agent_pubsub_component():
-    """Test that the Drasi extension uses the agent's pub/sub component when no pub/sub component is provided."""
+async def test_drasi_trigger_defaults_to_agent_pubsub_component(setup_deps):
+    """Test that the Drasi extension uses the agent's pub/sub component when the pub/sub component is omitted."""
     query_id = "searches-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -670,8 +679,9 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
     ]
     task_str = "flag questionable searches"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, wf_scheduler_method = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
     drasi_trigger(
         agent,
@@ -701,8 +711,8 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_defaults_to_derived_topic():
-    """Test that the Drasi extension uses the query ID to derive the pub/sub topic when no topic is provided."""
+async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
+    """Test that the Drasi extension uses the query ID to derive the pub/sub topic when the topic is omitted."""
     query_id = "goals-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -735,7 +745,7 @@ async def test_drasi_trigger_defaults_to_derived_topic():
         ),
         _make_cloudevent(
             data={
-                "op": "i",
+                "op": "u",
                 "ts_ms": 4680000,
                 "seq": 1,
                 "payload": {
@@ -760,8 +770,9 @@ async def test_drasi_trigger_defaults_to_derived_topic():
     ]
     task_str = "summarize scoring"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, wf_scheduler_method = _make_runner(
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -793,8 +804,8 @@ async def test_drasi_trigger_defaults_to_derived_topic():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_defaults_to_passthrough_task():
-    """Test that the Drasi extension uses the default pass-through task when no custom task mapping is provided."""
+async def test_drasi_trigger_defaults_to_passthrough_task(setup_deps):
+    """Test that the Drasi extension uses the default pass-through task when the custom task mapping is omitted."""
     query_id = "password-update-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -851,8 +862,9 @@ async def test_drasi_trigger_defaults_to_passthrough_task():
         ),
     ]
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, wf_scheduler_method = _make_runner(
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -878,7 +890,7 @@ async def test_drasi_trigger_defaults_to_passthrough_task():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_ignores_malformed_events():
+async def test_drasi_trigger_ignores_malformed_events(setup_deps):
     """Test that the Drasi extension ignores events that do not conform to the expected format."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
@@ -908,8 +920,9 @@ async def test_drasi_trigger_ignores_malformed_events():
     ]
     task_str = "ignored"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, wf_scheduler_method = _make_runner(
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -928,7 +941,7 @@ async def test_drasi_trigger_ignores_malformed_events():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_filters_by_single_operation():
+async def test_drasi_trigger_filters_by_single_operation(setup_deps):
     """Test that the Drasi extension correctly filters events for a single Drasi operation."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
@@ -977,8 +990,9 @@ async def test_drasi_trigger_filters_by_single_operation():
     ]
     task_str = "test"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, wf_scheduler_method = _make_runner(
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -1013,7 +1027,7 @@ async def test_drasi_trigger_filters_by_single_operation():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_filters_by_multiple_operations():
+async def test_drasi_trigger_filters_by_multiple_operations(setup_deps):
     """Test that the Drasi extension correctly filters events for multiple Drasi operations."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
@@ -1081,8 +1095,9 @@ async def test_drasi_trigger_filters_by_multiple_operations():
     ]
     task_str = "test"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, wf_scheduler_method = _make_runner(
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -1117,7 +1132,7 @@ async def test_drasi_trigger_filters_by_multiple_operations():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_filters_by_result_model():
+async def test_drasi_trigger_filters_by_result_model(setup_deps):
     """Test that the Drasi extension correctly validates the individual changes within Drasi change events."""
 
     class Counter(BaseModel):
@@ -1214,8 +1229,9 @@ async def test_drasi_trigger_filters_by_result_model():
     ]
     task_str = "test"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, wf_scheduler_method = _make_runner(
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
@@ -1250,7 +1266,7 @@ async def test_drasi_trigger_filters_by_result_model():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
+async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered(setup_deps):
     """Test that the Drasi extension fails when the given pub/sub component is not registered."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
@@ -1283,8 +1299,9 @@ async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
     ]
     task_str = "test"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, _ = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
+    make_agent, make_runner, _ = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
     drasi_trigger(
         agent,
@@ -1301,7 +1318,7 @@ async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered():
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
+async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps):
     """Test that the Drasi extension fails when the agent pub/sub component is used and pub/sub topic matches the agent's pub/sub topic."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
@@ -1334,8 +1351,9 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub():
     ]
     task_str = "test"
 
-    agent = _make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner, _ = _make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
+    make_agent, make_runner, _ = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
     drasi_trigger(
         agent,
