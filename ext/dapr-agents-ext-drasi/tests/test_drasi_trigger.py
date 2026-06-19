@@ -15,10 +15,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import timedelta
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 from unittest.mock import MagicMock, Mock
 
 from fastapi import FastAPI
@@ -115,6 +116,13 @@ def _safe_json_loads(data: Any) -> Any:
     return json.loads(data)
 
 
+# TODO: this is very hacky and will need to be replaced
+async def _wait_for_completion():
+    """Short sleep to allow background workflow scheduling to complete.
+    Call this after runner entrypoint methods (`subscribe()`/`register_routes()`/`serve()`) and before assertions."""
+    await asyncio.sleep(0.2)
+
+
 class MockTopicEventResponse():
     """Mock response class replacing `dapr.clients.grpc._response.TopicEventResponse`.
     
@@ -191,8 +199,8 @@ def stub_agent_route_wiring(monkeypatch):
 
 @pytest.fixture
 def setup_deps():
-    """Return a factory function to create a `DurableAgent` instance, an `AgentRunner` instance,
-    and a handle to the workflow schedule method. Idempotent as multiple calls to `_make_agent`
+    """Return factory functions to create `DurableAgent` and `AgentRunner` instances,
+    and a handle to the workflow scheduler method. Idempotent as multiple calls to `_make_agent`
     and `_make_runner` return the same `DurableAgent` and `AgentRunner`, respectively."""
 
     agent: DurableAgent | None = None
@@ -200,7 +208,7 @@ def setup_deps():
 
     # Stub workflow scheduling; we only care about the calls and inputs
     wf_client = MagicMock()
-    wf_client.schedule_new_workflow = Mock(return_value="instance-1")  # type: ignore[method-assign]
+    wf_client.schedule_new_workflow.return_value = "instance-1"
 
     def make_agent(
         pubsub_name: str | None = None,
@@ -275,7 +283,7 @@ def setup_deps():
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes correctly using the `subscribe()` method."""
+    """Test that the Drasi extension wires pub/sub routes correctly using the runner's `subscribe()` entrypoint."""
     query_id = "orders-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -338,6 +346,8 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
     )
     runner.subscribe(agent)
 
+    await _wait_for_completion()
+    
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     # Ensure order is preserved
@@ -361,7 +371,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes correctly using the `register_routes()` method."""
+    """Test that the Drasi extension wires pub/sub routes correctly using the runner's `register_routes()` entrypoint."""
     query_id = "incidents-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -426,6 +436,8 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
     )
     runner.register_routes(agent, fastapi_app=FastAPI())
 
+    await _wait_for_completion()
+
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
@@ -447,7 +459,7 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes correctly using the `serve()` method."""
+    """Test that the Drasi extension wires pub/sub routes correctly using the runner's `serve()` entrypoint."""
     query_id = "potential-fraud-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -512,6 +524,8 @@ async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
         mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.serve(agent, app=FastAPI())
+
+    await _wait_for_completion()
 
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
@@ -611,6 +625,8 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps)
     )
     runner.subscribe(agent)
 
+    await _wait_for_completion()
+
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
@@ -690,6 +706,8 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component(setup_deps):
         mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
+
+    await _wait_for_completion()
 
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
@@ -784,6 +802,8 @@ async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
     )
     runner.subscribe(agent)
 
+    await _wait_for_completion()
+
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
@@ -871,6 +891,8 @@ async def test_drasi_trigger_defaults_to_passthrough_task(setup_deps):
     drasi_trigger(agent, query_id=query_id, pubsub=drasi_pubsub_name, topic=drasi_topic)
     runner.subscribe(agent)
 
+    await _wait_for_completion()
+
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     cloudevent_ids = [
@@ -934,6 +956,8 @@ async def test_drasi_trigger_ignores_malformed_events(setup_deps):
         mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
+
+    await _wait_for_completion()
 
     # Should gracefully handle malformed events
     assert wf_scheduler_method.call_count == 0  # type: ignore[attr-defined]
@@ -1005,6 +1029,8 @@ async def test_drasi_trigger_filters_by_single_operation(setup_deps):
         mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
+
+    await _wait_for_completion()
 
     assert wf_scheduler_method.call_count == 1  # type: ignore[attr-defined]
 
@@ -1110,6 +1136,8 @@ async def test_drasi_trigger_filters_by_multiple_operations(setup_deps):
         mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
     runner.subscribe(agent)
+
+    await _wait_for_completion()
 
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
@@ -1245,6 +1273,8 @@ async def test_drasi_trigger_filters_by_result_model(setup_deps):
     )
     runner.subscribe(agent)
 
+    await _wait_for_completion()
+
     assert wf_scheduler_method.call_count == 3  # type: ignore[attr-defined]
 
     expected_events = [events[0], events[1], events[2]]
@@ -1363,5 +1393,6 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps)
         mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
 
-    with pytest.raises(RuntimeError, match=f".*drasi_trigger.*component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"):
+    # The originating module should be the trigger itself
+    with pytest.raises(RuntimeError, match=f".*drasi-trigger.*component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"):
         runner.subscribe(agent)
