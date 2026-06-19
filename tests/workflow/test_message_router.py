@@ -950,7 +950,7 @@ def test_message_router_rejects_non_callable_filter():
             pass
 
 
-def test_message_router_rejects_callable_with_async_dunder_call():
+def test_message_router_rejects_callable_filter_with_async_dunder_call():
     """Callable objects whose `__call__` is `async def` are rejected too."""
 
     class AsyncCallableFilter:
@@ -1205,7 +1205,7 @@ def test_payload_filter_runs_once_per_binding_for_union(filter_env):
     assert not mock_wf.schedule_new_workflow.called
 
 
-def test_message_context_exposes_event_and_handler_name(filter_env):
+def test_filter_message_context_exposes_event_and_handler_name(filter_env):
     mock_dapr, mock_wf = filter_env
     captured: list = []
 
@@ -1294,7 +1294,7 @@ def test_message_router_rejects_non_callable_mapper():
             pass
 
 
-def test_message_router_rejects_callable_with_async_dunder_call():
+def test_message_router_rejects_callable_mapper_with_async_dunder_call():
     """Callable mapper objects whose `__call__` is `async def` are rejected too."""
 
     class AsyncCallableMapper:
@@ -1460,7 +1460,7 @@ def test_mapper_pydantic_model_schedules_workflow(filter_env):
         topic="orders",
         message_model=OrderCreated,
         mapper=lambda m, msg_ctx: OrderCancelled(
-            order_id=m.order_id, reason=f"Buyers remorse"
+            order_id=m.order_id, reason="Buyers remorse"
         ),
     )
     def handler(message):
@@ -1624,7 +1624,7 @@ def test_mapper_runs_once_per_binding_for_union(filter_env):
     assert not mock_wf.schedule_new_workflow.called
 
 
-def test_message_context_exposes_event_and_handler_name(filter_env):
+def test_mapper_message_context_exposes_event_and_handler_name(filter_env):
     mock_dapr, mock_wf = filter_env
     captured: list = []
 
