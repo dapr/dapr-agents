@@ -19,7 +19,7 @@ from typing import Any, Callable, List, Literal, Optional, Type, TypeVar, get_ty
 
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.routers import extract_message_models
-from dapr_agents.workflow.utils.subscription import MessageContext, validate_hooks
+from dapr_agents.workflow.utils.subscription import MessageContext, validate_hook
 from dapr_agents.utils.logger import with_logger_context
 
 logger = logging.getLogger(__name__)
@@ -128,9 +128,9 @@ def message_router(
             on the consumer thread; for async I/O, push the check into the
             workflow body where the runtime is async-aware.
     """
-    validate_hooks(payload_filter, "payload_filter")
-    validate_hooks(model_filter, "model_filter")
-    validate_hooks(mapper, "mapper")
+    validate_hook(payload_filter, "payload_filter")
+    validate_hook(model_filter, "model_filter")
+    validate_hook(mapper, "mapper")
 
     def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
         # Resolve message model(s)

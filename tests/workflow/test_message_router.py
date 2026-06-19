@@ -40,7 +40,7 @@ from dapr_agents.workflow.utils.subscription import (
     TTLDedupeBackend,
     WorkflowStatus,
     _safe_map,
-    validate_hooks,
+    validate_hook,
     _attach_metadata_to_payload,
     _build_binding_schema_pairs,
     _cancel_tasks,
@@ -1835,14 +1835,14 @@ def _msg_ctx(handler_name: str = "handler") -> MessageContext:
 
 
 def test_validate_hooks_none_and_sync_are_ok():
-    validate_hooks(None, "payload_filter")
-    validate_hooks(lambda v, c: True, "model_filter")
-    validate_hooks(lambda v, c: False, "mapper")
+    validate_hook(None, "payload_filter")
+    validate_hook(lambda v, c: True, "model_filter")
+    validate_hook(lambda v, c: False, "mapper")
 
 
 def test_validate_hooks_rejects_non_callable():
     with pytest.raises(TypeError, match="payload_filter.*callable"):
-        validate_hooks(42, "payload_filter")
+        validate_hook(42, "payload_filter")
 
 
 def test_validate_hooks_rejects_async_function():
@@ -1850,7 +1850,7 @@ def test_validate_hooks_rejects_async_function():
         return True
 
     with pytest.raises(TypeError, match="model_filter.*synchronous"):
-        validate_hooks(f, "model_filter")
+        validate_hook(f, "model_filter")
 
 
 def test_validate_hooks_rejects_async_dunder_call():
@@ -1859,7 +1859,7 @@ def test_validate_hooks_rejects_async_dunder_call():
             return True
 
     with pytest.raises(TypeError, match="mapper.*synchronous"):
-        validate_hooks(AsyncCallable(), "mapper")
+        validate_hook(AsyncCallable(), "mapper")
 
 
 # ---- _validate_delivery_mode ----------------------------------------------

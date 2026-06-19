@@ -89,7 +89,7 @@ ModelFilter = Callable[[Any, "MessageContext"], bool]
 Mapper = Callable[[Any, "MessageContext"], Any]
 
 
-def validate_hooks(
+def validate_hook(
     fn: Callable[[Any, "MessageContext"], Any] | None,
     name: str,
 ) -> None:
