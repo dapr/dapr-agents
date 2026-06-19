@@ -82,7 +82,7 @@ def drasi_trigger(
         def _model_filter(event: DrasiUnpackedEvent, ctx: MessageContext) -> bool:
             passes_filter = True
             for filter_name, filter_fn in filters.items():
-                logger.info(f"[drasi_trigger]: Applying filter '{filter_name}' for handler '{ctx.handler_name}'")
+                logger.info(f"[drasi-trigger]: Applying filter '{filter_name}' for handler '{ctx.handler_name}'")
                 passes_filter = passes_filter and filter_fn(event)
             return passes_filter
 
@@ -151,12 +151,12 @@ def drasi_trigger(
 
         if mapper is None:
             logger.warning(
-                "[drasi_trigger]: No mapper function provided; the agent will be instructed to return the serialized Drasi event as-is."
+                "[drasi-trigger]: No mapper function provided; the agent will be instructed to return the serialized Drasi event as-is."
             )
 
         if ctx.app is not None:
             logger.info(
-                "[drasi_trigger]: HTTP routes are not supported by this extension; only pub/sub routes will be wired."
+                "[drasi-trigger]: HTTP routes are not supported by this extension; only pub/sub routes will be wired."
             )
 
         # TODO: validate mapper is callable, operations, result model
