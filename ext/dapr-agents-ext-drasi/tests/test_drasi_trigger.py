@@ -1015,8 +1015,8 @@ async def test_drasi_trigger_ignores_control_events(setup_deps):
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        operations="x",
         task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        operations="x",
     )
     runner.subscribe(agent)
 
@@ -1088,8 +1088,8 @@ async def test_drasi_trigger_filters_by_single_operation(setup_deps):
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        operations="d",
         task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        operations="d",
     )
     runner.subscribe(agent)
 
@@ -1196,8 +1196,8 @@ async def test_drasi_trigger_filters_by_multiple_operations(setup_deps):
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        operations=["i", "u"],
         task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        operations=["i", "u"],
     )
     runner.subscribe(agent)
 
@@ -1359,7 +1359,7 @@ async def test_drasi_trigger_filters_by_result_model(setup_deps):
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_raises_when_given_pubsub_is_not_registered(setup_deps):
+async def test_drasi_trigger_raises_when_pubsub_is_not_registered(setup_deps):
     """Test that the Drasi extension fails when the given pub/sub component is not registered."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
@@ -1563,7 +1563,7 @@ async def test_drasi_trigger_raises_with_invalid_result_model(setup_deps):
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
-        result_model=result_model
+        result_model=result_model,
     )
 
     with pytest.raises(RuntimeError, match=f".*model.*{result_model}"):
@@ -1670,7 +1670,7 @@ async def test_drasi_trigger_raises_with_non_callable_task_mapper(setup_deps):
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=task_mapper
+        task_mapper=task_mapper,
     )
 
     with pytest.raises(RuntimeError, match=f"task_mapper.*callable"):
@@ -1725,7 +1725,7 @@ async def test_drasi_trigger_raises_with_async_callable_task_mapper(setup_deps):
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=AsyncCallableFilter()
+        task_mapper=AsyncCallableFilter(),
     )
 
     with pytest.raises(RuntimeError, match=f"task_mapper.*synchronous"):
