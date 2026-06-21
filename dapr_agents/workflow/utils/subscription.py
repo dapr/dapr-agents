@@ -308,6 +308,8 @@ def _normalize_status(status: str | TopicEventResponseStatus) -> str | None:
             raw = status.name
         case str():
             raw = status
+        case _:
+            return None
     lowered = raw.lower()
     for known in (STATUS_SUCCESS, STATUS_RETRY, STATUS_DROP):
         if known in lowered:
