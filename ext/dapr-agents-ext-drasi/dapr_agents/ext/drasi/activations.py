@@ -25,7 +25,7 @@ from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.registration import register_message_routes
 from dapr_agents.workflow.utils.routers import validate_message_model
-from dapr_agents.workflow.utils.subscription import MessageContext, validate_hook
+from dapr_agents.workflow.utils.subscription import MessageContext, ModelFilter, validate_hook
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,8 @@ def drasi_trigger(
 ) -> None:
     """
     Wires pub/sub routes so that the target agent's workflow can be triggered by Drasi change events.
-    If the agent's pub/sub component is used and a topic is provided, the topic MUST be different from the agent's topic, otherwise the activation will fail to avoid indeterministic behavior.
+    If the agent's pub/sub component is used and a topic is provided, the topic **MUST** be different from the agent's topic,
+    otherwise the activation will fail to avoid indeterministic behavior.
 
     Args:
         agent: The agent to target.
@@ -57,7 +58,7 @@ def drasi_trigger(
         task_mapper: Optional callable `(DrasiUnpackedEvent, MessageContext) -> TriggerAction` to map Drasi events to agent task messages.
             If `None`, the task message will instruct the agent to return the serialized Drasi event as-is (pass-through).
         operations: Optional Drasi operation(s) to filter events by (`"i"` for insert, `"u"` for update, `"d"` for delete, `"x"` for control).
-            Control events are supported but are currently silently dropped (no-op). Defaults to `None` (no filtering).
+            Control operations are accepted but are **currently ignored** (no-op). Defaults to `None` (no filtering).
         result_model: Optional model to use to validate the individual changes within Drasi change events. Defaults to `None` (no validation).
 
     Returns:
@@ -100,7 +101,7 @@ def drasi_trigger(
             logger.exception(f"[drasi-trigger]: Activation failed during validation: {e}")
             raise
 
-    def _make_model_filter() -> bool:
+    def _make_model_filter() -> ModelFilter:
         """Build a filter mapping conditionally and return the post-schema validation filter for Drasi pub/sub bindings via closure."""
         filters: dict[str, Callable[[DrasiUnpackedEvent], bool]] = {
             "query_id": lambda event: event.payload.source.queryId == query_id
@@ -108,6 +109,8 @@ def drasi_trigger(
 
         if operations is not None:
             accepted_operations: set[DrasiOperation] = set(normalize_to_list(operations))
+            # Control events are always excluded
+            accepted_operations.discard("x")
             filters["operations"] = lambda event: event.op in accepted_operations
         if result_model is not None:
             filters["result_model"] = lambda event: (
@@ -116,10 +119,6 @@ def drasi_trigger(
             )
 
         def _model_filter(event: DrasiUnpackedEvent, ctx: MessageContext) -> bool:
-            # Silently drop control events
-            if event.op == "x":
-                return False
-
             passes_filter = True
             for filter_name, filter_fn in filters.items():
                 logger.info(f"[drasi-trigger]: Applying filter '{filter_name}' for handler '{ctx.handler_name}'")

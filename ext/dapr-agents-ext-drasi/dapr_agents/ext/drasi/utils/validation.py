@@ -14,8 +14,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Any, TypeVar
 
+T = TypeVar("T")
 
 # Internal operation enum for validation
 class _DrasiOperation(StrEnum):
@@ -34,7 +35,7 @@ def is_supported_operation(value: Any) -> bool:
         return False
 
 
-def normalize_to_list(value: Any) -> list[Any]:
+def normalize_to_list(value: T | list[T] | tuple[T, ...] | None) -> list[T]:
     """Convert a scalar, list, or tuple to a list. If the value is `None`, returns an empty list."""
     if value is None:
         return []
