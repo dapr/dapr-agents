@@ -2114,7 +2114,7 @@ def test_apply_mapper_returns_dataclass():
     )
 
 
-def test_apply_mapper_mapper_exception_raises():
+def test_apply_mapper_mapper_exception_propagates():
     def mapper(value, ctx):
         raise RuntimeError("yellow")
 
