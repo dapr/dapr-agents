@@ -1564,6 +1564,10 @@ def test_normalize_status_unknown_returns_none():
     assert _normalize_status("teapot") is None
 
 
+def test_normalize_status_non_str_non_enum_returns_none():
+    assert _normalize_status(None) is None
+
+
 # ---- _filter_accepts -------------------------------------------------------
 
 
