@@ -1,0 +1,8 @@
+apiVersion: dapr.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: weather2
+spec:
+  endpoint:
+    streamableHTTP:
+      url: http://localhost:8082/mcp

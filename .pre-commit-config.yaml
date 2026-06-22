@@ -12,8 +12,10 @@
 #
 
 # See https://pre-commit.com for more information
-default_install_hook_types: [pre-push]
-default_stages: [pre-push]
+# Fast checks (formatting, linting, type checking) run on every commit.
+# Slow checks (full test suite) stay on push so commits remain quick.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
 
 repos:
   # Basic file hygiene
@@ -22,21 +24,31 @@ repos:
     hooks:
       - id: trailing-whitespace
         name: Trim trailing whitespace
-        stages: [pre-push]
+        stages: [pre-commit]
       - id: end-of-file-fixer
         name: Fix end of files
-        stages: [pre-push]
+        stages: [pre-commit]
       - id: check-yaml
         name: Check YAML files
-        stages: [pre-push]
+        stages: [pre-commit]
         exclude: ^(examples|quickstarts)/
 
-  # Code formatting with Ruff
+  # Code formatting with Ruff — auto-format on commit
   - repo: local
     hooks:
       - id: ruff-format
         name: Ruff format
         entry: uv run ruff format dapr_agents tests
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      # Mirror CI: refuse the push if anything still needs formatting.
+      # Catches the case where pre-commit auto-formatted but the user
+      # didn't re-stage the changes before pushing.
+      - id: ruff-format-check
+        name: Ruff format (check only)
+        entry: uv run ruff format --check dapr_agents tests
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -50,7 +62,7 @@ repos:
         args: ['--ignore=E501,F401,W503,E203,E704']
         language: system
         pass_filenames: false
-        stages: [pre-push]
+        stages: [pre-commit]
 
   # Type checking with MyPy
   - repo: local
@@ -61,9 +73,9 @@ repos:
         args: [--config-file=mypy.ini]
         language: system
         pass_filenames: false
-        stages: [pre-push]
+        stages: [pre-commit]
 
-  # Unit tests
+  # Unit tests — kept on push (slower) so commits stay snappy.
   - repo: local
     hooks:
       - id: pytest
