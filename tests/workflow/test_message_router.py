@@ -39,8 +39,8 @@ from dapr_agents.workflow.utils.subscription import (
     MessageRouteBinding,
     TTLDedupeBackend,
     WorkflowStatus,
-    _safe_map,
     validate_hook,
+    _apply_mapper,
     _attach_metadata_to_payload,
     _build_binding_schema_pairs,
     _cancel_tasks,
@@ -1831,21 +1831,21 @@ def _msg_ctx(handler_name: str = "handler") -> MessageContext:
     return MessageContext(event=event, handler_name=handler_name)
 
 
-# ---- validate_hooks ------------------------------------------------------
+# ---- validate_hook ------------------------------------------------------
 
 
-def test_validate_hooks_none_and_sync_are_ok():
+def test_validate_hook_none_and_sync_are_ok():
     validate_hook(None, "payload_filter")
     validate_hook(lambda v, c: True, "model_filter")
     validate_hook(lambda v, c: False, "mapper")
 
 
-def test_validate_hooks_rejects_non_callable():
+def test_validate_hook_rejects_non_callable():
     with pytest.raises(TypeError, match="payload_filter.*callable"):
         validate_hook(42, "payload_filter")
 
 
-def test_validate_hooks_rejects_async_function():
+def test_validate_hook_rejects_async_function():
     async def f(v, c):
         return True
 
@@ -1853,7 +1853,7 @@ def test_validate_hooks_rejects_async_function():
         validate_hook(f, "model_filter")
 
 
-def test_validate_hooks_rejects_async_dunder_call():
+def test_validate_hook_rejects_async_dunder_call():
     class AsyncCallable:
         async def __call__(self, v, c):
             return True
@@ -2043,16 +2043,16 @@ def test_filter_accepts_swallows_exception_as_rejection(caplog):
     assert "bind-x" in caplog.text
 
 
-# ---- _safe_map ------------------------------------------
+# ---- _apply_mapper ------------------------------------------
 
 
-def test_safe_map_passes_through_value_when_no_mapper():
+def test_apply_mapper_passes_through_value_when_no_mapper():
     value = {"messi": 10}
-    result = _safe_map(None, value, _msg_ctx(), binding_name="pr")
+    result = _apply_mapper(None, value, _msg_ctx(), binding_name="pr")
     assert result is value
 
 
-def test_safe_map_forwards_value_and_context():
+def test_apply_mapper_forwards_value_and_context():
     seen = {}
 
     def mapper(value, ctx):
@@ -2062,31 +2062,31 @@ def test_safe_map_forwards_value_and_context():
 
     value = {"lamont yall": 10}
     ctx = _msg_ctx()
-    result = _safe_map(mapper, value, ctx, binding_name="jamal")
+    result = _apply_mapper(mapper, value, ctx, binding_name="jamal")
     assert result == value
     assert seen["value"] is value
     assert seen["ctx"] is ctx
 
 
-def test_safe_map_allows_mutation():
+def test_apply_mapper_allows_mutation():
     def mapper(value, ctx):
         value["endo"] = 3
         return value
 
     value = {"mitoma": 9}
-    result = _safe_map(mapper, value, _msg_ctx(), binding_name="jpn")
+    result = _apply_mapper(mapper, value, _msg_ctx(), binding_name="jpn")
     assert result is value
 
 
-def test_safe_map_returns_dict():
+def test_apply_mapper_returns_dict():
     def mapper(value, ctx):
         return {"mbappe": 10}
 
-    result = _safe_map(mapper, {}, _msg_ctx(), binding_name="offside")
+    result = _apply_mapper(mapper, {}, _msg_ctx(), binding_name="offside")
     assert result == {"mbappe": 10}
 
 
-def test_safe_map_returns_pydantic_model():
+def test_apply_mapper_returns_pydantic_model():
     def mapper(value, ctx):
         return OrderCreated(
             order_id="therapy-sessions-1",
@@ -2094,13 +2094,13 @@ def test_safe_map_returns_pydantic_model():
             customer="italian sports fans",
         )
 
-    result = _safe_map(mapper, {}, _msg_ctx(), binding_name="therapy")
+    result = _apply_mapper(mapper, {}, _msg_ctx(), binding_name="therapy")
     assert result == OrderCreated(
         order_id="therapy-sessions-1", amount=50000000.0, customer="italian sports fans"
     )
 
 
-def test_safe_map_returns_dataclass():
+def test_apply_mapper_returns_dataclass():
     def mapper(value, ctx):
         return ShipmentCreated(
             shipment_id="s1",
@@ -2108,28 +2108,26 @@ def test_safe_map_returns_dataclass():
             carrier="italian therapists",
         )
 
-    result = _safe_map(mapper, {}, _msg_ctx(), binding_name="therapy")
+    result = _apply_mapper(mapper, {}, _msg_ctx(), binding_name="therapy")
     assert result == ShipmentCreated(
         shipment_id="s1", order_id="therapy-sessions-1", carrier="italian therapists"
     )
 
 
-def test_safe_map_non_json_serializable_model_returns_none():
-    def mapper(value, ctx):
-        return "handball"
-
-    result = _safe_map(mapper, {}, _msg_ctx(), binding_name="var")
-    assert result is None
-
-
-def test_safe_map_swallows_exception_and_returns_none(caplog):
+def test_apply_mapper_mapper_exception_raises():
     def mapper(value, ctx):
         raise RuntimeError("yellow")
 
-    with caplog.at_level(logging.ERROR):
-        result = _safe_map(mapper, {}, _msg_ctx(), binding_name="flop")
-    assert result is None
-    assert "flop" in caplog.text
+    with pytest.raises(RuntimeError, match="yellow"):
+        _apply_mapper(mapper, {}, _msg_ctx(), binding_name="flop")
+
+
+def test_apply_mapper_non_json_serializable_model_raises():
+    def mapper(value, ctx):
+        return "handball"
+
+    with pytest.raises(TypeError, match="returned unsupported model type"):
+        _apply_mapper(mapper, {}, _msg_ctx(), binding_name="var")
 
 
 # ---- _attach_metadata_to_payload ------------------------------------------

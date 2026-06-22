@@ -99,10 +99,7 @@ def validate_hook(
     if not callable(fn):
         raise TypeError(f"`{name}` must be callable, got {type(fn).__name__}.")
     call_attr = getattr(fn, "__call__", None)
-    is_async_callable = asyncio.iscoroutinefunction(fn) or asyncio.iscoroutinefunction(
-        call_attr
-    )
-    if is_async_callable:
+    if asyncio.iscoroutinefunction(fn) or asyncio.iscoroutinefunction(call_attr):
         raise TypeError(
             f"`{name}` must be a synchronous callable; "
             "hooks run on the consumer thread and cannot be `async def` "
@@ -342,34 +339,32 @@ def _filter_accepts(
         return False
 
 
-def _safe_map(
+def _apply_mapper(
     mapper: Callable[[Any, "MessageContext"], Any] | None,
     value: Any,
     msg_ctx: "MessageContext",
     *,
     binding_name: str,
-) -> Any | None:
-    """Safely apply an optional mapping function.
+) -> Any:
+    """Apply an optional mapper function to a value.
 
-    Returns the mapped value or `None` if the binding should be skipped.
-    If the mapping function is `None`, the value is passed through unchanged.
-    Exceptions are logged and result in the binding being skipped to avoid an infinite retry loop.
+    Returns the mapped value, or raises an exception to indicate that the mapping failed
+    and the binding should be skipped.
+    If the mapper function is `None`, the value is passed through unchanged.
+    If the mapper function does not return a JSON-serializable model instance,
+    this is considered an error in user code, and an exception is raised.
     """
     if mapper is None:
         return value
-    try:
-        result = mapper(value, msg_ctx)
-        if not is_supported_model_instance(result):
-            logger.exception(
-                f"mapper for binding '{binding_name}' returned non-JSON-serializable model; skipping binding."
-            )
-            return None
-        return result
-    except Exception:
-        logger.exception(
-            f"mapper for binding '{binding_name}' raised; skipping binding."
+
+    result = mapper(value, msg_ctx)
+
+    if not is_supported_model_instance(result):
+        raise TypeError(
+            f"Mapper for '{binding_name}' returned unsupported model type: {type(result).__name__}"
         )
-        return None
+
+    return result
 
 
 def _attach_metadata_to_payload(parsed: Any, metadata: Optional[dict]) -> None:
@@ -756,13 +751,17 @@ class _StreamSubscriber:
                 continue
 
             if msg_ctx is not None:
-                parsed = _safe_map(
-                    binding.mapper,
-                    parsed,
-                    msg_ctx,
-                    binding_name=binding.name,
-                )
-                if parsed is None:
+                try:
+                    parsed = _apply_mapper(
+                        binding.mapper,
+                        parsed,
+                        msg_ctx,
+                        binding_name=binding.name,
+                    )
+                except Exception:
+                    logger.exception(
+                        f"Mapper for binding '{binding.name}' failed; skipping binding."
+                    )
                     mapper_failed.add(binding_key)
                     continue
                 # Ensure metadata is attached in case a new model instance was created
