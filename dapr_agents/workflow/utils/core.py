@@ -243,6 +243,11 @@ def is_supported_model(cls: Any) -> bool:
     return cls is dict or is_dataclass(cls) or is_pydantic_model(cls)
 
 
+def is_supported_model_instance(obj: Any) -> bool:
+    """Checks if an object is an instance of a supported message schema (Pydantic, dataclass, or dict)."""
+    return isinstance(obj, dict) or is_dataclass(obj) or isinstance(obj, BaseModel)
+
+
 def is_valid_routable_model(cls: Any) -> bool:
     return is_dataclass(cls) or is_pydantic_model(cls)
 
