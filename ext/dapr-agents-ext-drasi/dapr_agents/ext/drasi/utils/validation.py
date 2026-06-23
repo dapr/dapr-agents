@@ -33,6 +33,15 @@ def is_supported_operation(value: Any) -> bool:
         return True
     except (ValueError, TypeError):
         return False
+    
+
+def is_change_operation(value: Any) -> bool:
+    """Validate that the value is a Drasi change operation (non-control)."""
+    try:
+        op = _DrasiOperation(value)
+        return op != _DrasiOperation.CONTROL
+    except (ValueError, TypeError):
+        return False
 
 
 def normalize_to_list(value: T | list[T] | tuple[T, ...] | None) -> list[T]:
