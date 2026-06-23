@@ -108,29 +108,6 @@ def validate_hook(
         )
 
 
-# NOTE: this will replace `_validate_filter` in the mapper PR
-def validate_hook(
-    fn: Callable[[Any, "MessageContext"], Any] | None,
-    name: str,
-) -> None:
-    """Reject async or non-callable hooks at registration time"""
-    if fn is None:
-        return
-    if not callable(fn):
-        raise TypeError(f"`{name}` must be callable, got {type(fn).__name__}.")
-    call_attr = getattr(fn, "__call__", None)
-    is_async_callable = asyncio.iscoroutinefunction(fn) or asyncio.iscoroutinefunction(
-        call_attr
-    )
-    if is_async_callable:
-        raise TypeError(
-            f"`{name}` must be a synchronous callable; "
-            "hooks run on the consumer thread and cannot be `async def` "
-            "(including callable objects whose `__call__` is async). "
-            "For I/O-bound checks, do them in the workflow body."
-        )
-
-
 @dataclass(frozen=True)
 class MessageContext:
     """Per-message context handed to ``@message_router`` filters.
