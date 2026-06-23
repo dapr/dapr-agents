@@ -124,7 +124,7 @@ def message_router(
     Raises:
         TypeError:
             If `message_model` cannot be resolved, or if any hook is
-            an `async def` callable. Hook must be synchronous because they run
+            an `async def` callable. Hooks must be synchronous because they run
             on the consumer thread; for async I/O, push the check into the
             workflow body where the runtime is async-aware.
     """
