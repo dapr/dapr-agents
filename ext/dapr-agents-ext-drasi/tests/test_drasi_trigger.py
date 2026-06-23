@@ -54,14 +54,16 @@ def _create_mock_dapr_client(
     event_stream: list[Any] | None = None,
 ) -> MagicMock:
     """
-    Create a mock DaprClient with specified pubsub components registered and a fixed event stream for subscriptions to consume.
+    Create a mock DaprClient with specified pubsub components registered
+    and a fixed event stream for subscriptions to consume.
 
     Args:
         pubsub_names: List of pubsub component names to register in the mock.
         event_stream: A list of events that a mock subscription will consume.
 
     Returns:
-        A MagicMock configured to return the pubsub components in get_metadata and subscriptions that consume the given event stream.
+        A MagicMock configured to return the pubsub components in get_metadata
+        and subscriptions that consume the given event stream.
     """
     pubsub_names = pubsub_names or []
     event_stream = event_stream or []
@@ -119,17 +121,21 @@ def _safe_json_loads(data: Any) -> Any:
 
 # TODO: this is very hacky and will need to be replaced
 async def _wait_for_completion():
-    """Short sleep to allow background workflow scheduling to complete.
-    Call this after runner entrypoint methods (`subscribe()`/`register_routes()`/`serve()`) and before assertions."""
+    """
+    Short sleep to allow background workflow scheduling to complete.
+    Call this after runner entrypoint methods (`subscribe()`/`register_routes()`/`serve()`) and before assertions.
+    """
     await asyncio.sleep(0.2)
 
 
 class MockTopicEventResponse:
-    """Mock response class replacing `dapr.clients.grpc._response.TopicEventResponse`.
+    """
+    Mock response class replacing `dapr.clients.grpc._response.TopicEventResponse`.
 
     `conftest.py` mocks the `dapr.clients.grpc._response` module;
     patching `TopicEventResponse` prevents `_normalize_status` in `subscription.py`
-    from receiving a mock status object it can't coerce, which would lead to an infinite retry loop."""
+    from receiving a mock status object it can't coerce, which would lead to an infinite retry loop.
+    """
 
     def __init__(self, status: str):
         self.status = status
@@ -286,7 +292,7 @@ def setup_deps():
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes correctly using the runner's `subscribe()` entrypoint."""
+    """Test that the Drasi extension wires pub/sub routes using the runner's `subscribe()` entrypoint."""
     query_id = "orders-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -375,7 +381,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes correctly using the runner's `register_routes()` entrypoint."""
+    """Test that the Drasi extension wires pub/sub routes using the runner's `register_routes()` entrypoint."""
     query_id = "incidents-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -464,7 +470,7 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes correctly using the runner's `serve()` entrypoint."""
+    """Test that the Drasi extension wires pub/sub routes using the runner's `serve()` entrypoint."""
     query_id = "potential-fraud-query"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -554,7 +560,7 @@ async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes correctly when the agent's pub/sub configuration is missing."""
+    """Test that the Drasi extension wires pub/sub routes when the agent's pub/sub configuration is missing."""
     query_id = "game-state-query"
     drasi_pubsub_name = "gamestatepubsub"
     drasi_topic = "gamestate"
@@ -1690,7 +1696,10 @@ async def test_drasi_trigger_raises_with_non_callable_task_mapper(setup_deps):
 @pytest.mark.asyncio
 @pytest.mark.ext
 async def test_drasi_trigger_raises_with_async_callable_task_mapper(setup_deps):
-    """Test that the Drasi extension fails when the given task mapper is a callable object with an `async def` `__call__` method."""
+    """
+    Test that the Drasi extension fails when the given task mapper is a callable object
+    with an `async def` `__call__` method.
+    """
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1725,7 +1734,7 @@ async def test_drasi_trigger_raises_with_async_callable_task_mapper(setup_deps):
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    task_str = "nobody will ever get this far into the test suite, if you're reading this you gotta ask yourself some questions"
+    task_str = "nobody will ever get this far into the test suite to read this"
 
     class AsyncCallableFilter:
         async def __call__(self, payload, msg_ctx):
