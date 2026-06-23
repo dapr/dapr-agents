@@ -308,8 +308,6 @@ def drasi_trigger(
             result_model=result_model,
         )
 
-        logger.debug(f"[drasi-trigger]: Config: {config!r}")
-
         _validate(ctx, config)
         specs = _build_pubsub_specs(ctx, config)
         closers = _subscribe(ctx, specs)
