@@ -25,7 +25,7 @@ from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.registration import register_message_routes
 from dapr_agents.workflow.utils.routers import validate_message_model
-from dapr_agents.workflow.utils.subscription import MessageContext, ModelFilter, validate_hook
+from dapr_agents.workflow.utils.subscription import MessageContext, ModelFilter
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +81,7 @@ def drasi_trigger(
                     f"Unable to use pubsub component '{pubsub}' and topic '{topic}' since they are identical to the agent's pubsub component and topic."
                 )
 
-            # Ensure task mapper is sync and callable if not omitted
-            if task_mapper is not None:
-                validate_hook(fn=task_mapper, name="task_mapper")
-            else:
+            if task_mapper is None:
                 logger.warning(
                     "[drasi-trigger]: No task mapper function provided; the agent will be instructed to return the serialized Drasi event as-is."
                 )

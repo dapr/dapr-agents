@@ -1621,7 +1621,7 @@ async def test_drasi_trigger_raises_with_async_task_mapper(setup_deps):
         task_mapper=async_task_mapper,
     )
 
-    with pytest.raises(RuntimeError, match=f"task_mapper.*synchronous"):
+    with pytest.raises(RuntimeError, match=f"mapper.*synchronous"):
         runner.subscribe(agent)
 
 
@@ -1673,7 +1673,7 @@ async def test_drasi_trigger_raises_with_non_callable_task_mapper(setup_deps):
         task_mapper=task_mapper,
     )
 
-    with pytest.raises(RuntimeError, match=f"task_mapper.*callable"):
+    with pytest.raises(RuntimeError, match=f"mapper.*callable"):
         runner.subscribe(agent)
 
 
@@ -1728,5 +1728,5 @@ async def test_drasi_trigger_raises_with_async_callable_task_mapper(setup_deps):
         task_mapper=AsyncCallableFilter(),
     )
 
-    with pytest.raises(RuntimeError, match=f"task_mapper.*synchronous"):
+    with pytest.raises(RuntimeError, match=f"mapper.*synchronous"):
         runner.subscribe(agent)
