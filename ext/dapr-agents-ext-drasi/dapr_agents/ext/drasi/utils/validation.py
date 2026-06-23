@@ -13,13 +13,14 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum
 from typing import Any, TypeVar
 
 T = TypeVar("T")
 
+
 # Internal operation enum for validation
-class _DrasiOperation(StrEnum):
+class _DrasiOperation(str, Enum):
     INSERT = "i"
     UPDATE = "u"
     DELETE = "d"
@@ -33,7 +34,7 @@ def is_supported_operation(value: Any) -> bool:
         return True
     except (ValueError, TypeError):
         return False
-    
+
 
 def is_change_operation(value: Any) -> bool:
     """Validate that the value is a Drasi change operation (non-control)."""

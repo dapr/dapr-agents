@@ -124,9 +124,9 @@ async def _wait_for_completion():
     await asyncio.sleep(0.2)
 
 
-class MockTopicEventResponse():
+class MockTopicEventResponse:
     """Mock response class replacing `dapr.clients.grpc._response.TopicEventResponse`.
-    
+
     `conftest.py` mocks the `dapr.clients.grpc._response` module;
     patching `TopicEventResponse` prevents `_normalize_status` in `subscription.py`
     from receiving a mock status object it can't coerce, which would lead to an infinite retry loop."""
@@ -246,7 +246,9 @@ def setup_deps():
             goal="Help with testing",
             llm=llm,
             pubsub=pubsub,
-            state=AgentStateConfig(store=StateStoreService(store_name="teststatestore")),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
             execution=AgentExecutionConfig(max_iterations=5),
         )
 
@@ -255,7 +257,7 @@ def setup_deps():
 
         if runner is not None:
             return runner
-        
+
         runner = AgentRunner(
             wf_client=wf_client,
             client_factory=Mock(
@@ -269,7 +271,7 @@ def setup_deps():
         runner._mount_hitl_routes = Mock()  # type: ignore[method-assign]
 
         return runner
-    
+
     yield make_agent, make_runner, wf_client.schedule_new_workflow
 
     if runner is not None:
@@ -349,7 +351,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
     runner.subscribe(agent)
 
     await _wait_for_completion()
-    
+
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
     # Ensure that order is preserved
@@ -996,10 +998,7 @@ async def test_drasi_trigger_ignores_control_events(setup_deps):
                         "queryId": query_id,
                         "ts_ms": 0,
                     },
-                    "signal": {
-                        "type": "RELOAD_REQUESTED",
-                        "reason": "Manual trigger"
-                    },
+                    "signal": {"type": "RELOAD_REQUESTED", "reason": "Manual trigger"},
                 },
             },
             id="1",
@@ -1329,6 +1328,7 @@ async def test_drasi_trigger_filters_by_result_model(setup_deps):
     )
 
     task_str = "test"
+
     class Counter(BaseModel):
         count: int
 
@@ -1412,7 +1412,9 @@ async def test_drasi_trigger_raises_when_pubsub_is_not_registered(setup_deps):
     )
 
     # Ensure that the activation doesn't try to fall back to the agent's pub/sub component
-    with pytest.raises(RuntimeError, match=f".*component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"):
+    with pytest.raises(
+        RuntimeError, match=f".*component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"
+    ):
         runner.subscribe(agent)
 
 
@@ -1464,7 +1466,9 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps)
         task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
     )
 
-    with pytest.raises(RuntimeError, match=f".*component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"):
+    with pytest.raises(
+        RuntimeError, match=f".*component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"
+    ):
         runner.subscribe(agent)
 
 
@@ -1555,7 +1559,7 @@ async def test_drasi_trigger_raises_with_invalid_result_model(setup_deps):
             topic=drasi_topic,
         ),
     ]
-    
+
     make_agent, make_runner, _ = setup_deps
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
@@ -1664,7 +1668,7 @@ async def test_drasi_trigger_raises_with_non_callable_task_mapper(setup_deps):
             topic=drasi_topic,
         ),
     ]
-    
+
     make_agent, make_runner, _ = setup_deps
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
@@ -1716,12 +1720,13 @@ async def test_drasi_trigger_raises_with_async_callable_task_mapper(setup_deps):
             topic=drasi_topic,
         ),
     ]
-    
+
     make_agent, make_runner, _ = setup_deps
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
     task_str = "nobody will ever get this far into the test suite, if you're reading this you gotta ask yourself some questions"
+
     class AsyncCallableFilter:
         async def __call__(self, payload, msg_ctx):
             return TriggerAction(task=task_str)

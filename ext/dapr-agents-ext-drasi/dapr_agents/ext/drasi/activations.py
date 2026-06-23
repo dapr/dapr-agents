@@ -21,7 +21,11 @@ from dapr_agents import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.types.activation import ActivationContext
 from dapr_agents.ext.drasi.utils.types import DrasiOperation, DrasiUnpackedEvent  # type: ignore[import-not-found]
-from dapr_agents.ext.drasi.utils.validation import is_change_operation, is_supported_operation, normalize_to_list  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.utils.validation import ( # type: ignore[import-not-found]
+    is_change_operation,
+    is_supported_operation,
+    normalize_to_list,
+)
 from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.registration import register_message_routes
@@ -29,11 +33,13 @@ from dapr_agents.workflow.utils.routers import validate_message_model
 from dapr_agents.workflow.utils.subscription import MessageContext, ModelFilter
 
 
+logger = logging.getLogger(__name__)
+
+
 DRASI_TRIGGER_DEFAULT_TASK = "Return the following payload exactly as-is"
 DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX = "drasi-events"
 
-
-logger = logging.getLogger(__name__)
+DrasiTaskMapper = Callable[[DrasiUnpackedEvent, MessageContext], TriggerAction]
 
 
 @dataclass(frozen=True)
@@ -47,22 +53,31 @@ class _DrasiTriggerConfig:
     pubsub: str | None
     topic: str | None
     dead_letter_topic: str | None
-    task_mapper: Callable[[DrasiUnpackedEvent], Any] | None
-    operations: list[DrasiOperation]
+    task_mapper: DrasiTaskMapper | None
+    operations: DrasiOperation | list[DrasiOperation] | tuple[DrasiOperation] | None
     result_model: type[Any] | None
 
 
-def _apply_filter(filter_fn: Callable[[DrasiUnpackedEvent], bool], event: DrasiUnpackedEvent, ctx: MessageContext) -> bool:
+def _apply_filter(
+    filter_fn: Callable[[DrasiUnpackedEvent], bool],
+    event: DrasiUnpackedEvent,
+    ctx: MessageContext,
+) -> bool:
     """
     Call the provided filter function with the validated Drasi model instance.
     Return `True` if the event passes the filter, `False` otherwise.
     """
-    logger.debug(f"[drasi-trigger]: Applying filter '{filter_fn.__name__}' for handler '{ctx.handler_name}'")
+    logger.debug(
+        f"[drasi-trigger]: Applying filter '{filter_fn.__name__}' for handler '{ctx.handler_name}'"
+    )
     return filter_fn(event)
 
 
 def _validate_model_field(target_model: type[Any], model: Any, field_name: str) -> bool:
-    """Return `True` if the provided model instance can be validated/coerced to the target model type, `False` otherwise."""
+    """
+    Return `True` if the provided model instance can be validated/coerced to the target model type,
+    `False` otherwise.
+    """
     if model is None:
         return True
     try:
@@ -71,7 +86,9 @@ def _validate_model_field(target_model: type[Any], model: Any, field_name: str) 
         # Filters are independently applied. Drasi events may omit certain fields depending on the operation type,
         # so validation failures can be frequent;
         # we swallow exceptions here and log them under log level DEBUG to avoid noisy logs.
-        logger.debug(f"[drasi-trigger]: Failed to validate '{field_name}'", exc_info=True)
+        logger.debug(
+            f"[drasi-trigger]: Failed to validate '{field_name}'", exc_info=True
+        )
         return False
 
 
@@ -83,7 +100,9 @@ def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
     filter_fns: list[Callable[[DrasiUnpackedEvent], bool]] = []
 
     # Deduplicate operations (preserving order) and normalize to a list for easier filtering
-    normalized_operations: list[DrasiOperation] = list(dict.fromkeys(normalize_to_list(config.operations)))
+    normalized_operations: list[DrasiOperation] = list(
+        dict.fromkeys(normalize_to_list(config.operations))
+    )
 
     def query_id_filter(event: DrasiUnpackedEvent) -> bool:
         return event.payload.source.queryId == config.query_id
@@ -101,9 +120,10 @@ def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
     if config.result_model is not None:
 
         def result_model_filter(event: DrasiUnpackedEvent) -> bool:
-            return (
-                _validate_model_field(config.result_model, event.payload.before, "before")
-                and _validate_model_field(config.result_model, event.payload.after, "after")
+            return _validate_model_field(
+                config.result_model, event.payload.before, "before"  # type: ignore[arg-type]
+            ) and _validate_model_field(
+                config.result_model, event.payload.after, "after"  # type: ignore[arg-type]
             )
 
         filter_fns.append(result_model_filter)
@@ -141,24 +161,32 @@ def _validate(ctx: ActivationContext, config: _DrasiTriggerConfig) -> None:
                 "the agent will be instructed to return the serialized Drasi event as-is."
             )
 
-        normalized_operations = list(dict.fromkeys(normalize_to_list(config.operations)))
+        normalized_operations = list(
+            dict.fromkeys(normalize_to_list(config.operations))
+        )
         for op in normalized_operations:
             if not is_supported_operation(op):
                 raise TypeError(f"Unsupported operation type: '{op}'")
-        
-        if config.result_model is not None and not is_supported_model(config.result_model):
+
+        if config.result_model is not None and not is_supported_model(
+            config.result_model
+        ):
             raise TypeError(f"Unsupported result model type: '{config.result_model}'")
     except Exception:
         logger.exception(f"[drasi-trigger]: Activation failed during validation")
         raise
 
 
-def _build_pubsub_specs(ctx: ActivationContext, config: _DrasiTriggerConfig) -> PubSubRouteSpec:
+def _build_pubsub_specs(
+    ctx: ActivationContext, config: _DrasiTriggerConfig
+) -> list[PubSubRouteSpec]:
     """Resolve user configuration with fallback values and return pub/sub routes."""
     resolved_pubsub = config.pubsub or ctx.agent.pubsub.pubsub_name
-    resolved_topic = config.topic or f"{DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{config.query_id}"
+    resolved_topic = (
+        config.topic or f"{DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{config.query_id}"
+    )
     filter_fn = _make_model_filter(config)
-    resolved_task_mapper = config.task_mapper or (
+    resolved_task_mapper: DrasiTaskMapper = config.task_mapper or (
         lambda event, _: TriggerAction(
             task=f"{DRASI_TRIGGER_DEFAULT_TASK}: {event.model_dump_json()}"
         )
@@ -168,6 +196,7 @@ def _build_pubsub_specs(ctx: ActivationContext, config: _DrasiTriggerConfig) -> 
     # so the workflow client can target the actual agent workflow
     def _stub(*_) -> None:
         pass
+
     _stub.__name__ = ctx.agent.agent_workflow_name
 
     handler_fn = _stub
@@ -186,7 +215,9 @@ def _build_pubsub_specs(ctx: ActivationContext, config: _DrasiTriggerConfig) -> 
     ]
 
 
-def _subscribe(ctx: ActivationContext, specs: list[PubSubRouteSpec]) -> list[Callable[[], None]]:
+def _subscribe(
+    ctx: ActivationContext, specs: list[PubSubRouteSpec]
+) -> list[Callable[[], None]]:
     """Wire pub/sub routes and return closers."""
     # TODO: does this need to be publically accessible or is this even necessary
     client_factory = getattr(ctx.runner, "_client_factory", None)
@@ -209,8 +240,11 @@ def drasi_trigger(
     pubsub: str | None = None,
     topic: str | None = None,
     dead_letter_topic: str | None = None,
-    task_mapper: Callable[[DrasiUnpackedEvent, MessageContext], TriggerAction] | None = None,
-    operations: DrasiOperation | list[DrasiOperation] | tuple[DrasiOperation] | None = None,
+    task_mapper: DrasiTaskMapper | None = None,
+    operations: DrasiOperation
+    | list[DrasiOperation]
+    | tuple[DrasiOperation]
+    | None = None,
     result_model: type[Any] | None = None,
 ) -> None:
     """
@@ -243,7 +277,7 @@ def drasi_trigger(
     Raises:
         RuntimeError: If the agent's pub/sub component is used and the provided topic is the same as the agent's topic.
     """
-    
+
     def _activate(ctx: ActivationContext) -> Callable[[], None] | None:
         """
         Activation callback that semantically validates configuration,
