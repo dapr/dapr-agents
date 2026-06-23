@@ -29,6 +29,7 @@ from cachetools import TTLCache
 
 from dapr_agents.streaming.keys import MESSAGE_METADATA as METADATA_KEY
 from dapr_agents.types.message import EventMessageMetadata
+from dapr_agents.workflow.utils.core import is_supported_model_instance
 from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
     validate_message_model,
@@ -83,27 +84,23 @@ BindingSchemaPair = tuple["MessageRouteBinding", type[Any]]
 
 PayloadFilter = Callable[[Any, "MessageContext"], bool]
 ModelFilter = Callable[[Any, "MessageContext"], bool]
+Mapper = Callable[[Any, "MessageContext"], Any]
 
 
-def _validate_filter(
-    filter_fn: Callable[[Any, "MessageContext"], bool] | None,
-    filter_name: str,
+def validate_hook(
+    fn: Callable[[Any, "MessageContext"], Any] | None,
+    name: str,
 ) -> None:
-    """Reject async or non-callable filters at registration time"""
-    if filter_fn is None:
+    """Reject async or non-callable hooks at registration time"""
+    if fn is None:
         return
-    if not callable(filter_fn):
+    if not callable(fn):
+        raise TypeError(f"`{name}` must be callable, got {type(fn).__name__}.")
+    call_attr = getattr(fn, "__call__", None)
+    if asyncio.iscoroutinefunction(fn) or asyncio.iscoroutinefunction(call_attr):
         raise TypeError(
-            f"`{filter_name}` must be callable, got {type(filter_fn).__name__}."
-        )
-    call_attr = getattr(filter_fn, "__call__", None)
-    is_async_callable = asyncio.iscoroutinefunction(
-        filter_fn
-    ) or asyncio.iscoroutinefunction(call_attr)
-    if is_async_callable:
-        raise TypeError(
-            f"`{filter_name}` must be a synchronous callable; "
-            "filters run on the consumer thread and cannot be `async def` "
+            f"`{name}` must be a synchronous callable; "
+            "hooks run on the consumer thread and cannot be `async def` "
             "(including callable objects whose `__call__` is async). "
             "For I/O-bound checks, do them in the workflow body."
         )
@@ -143,6 +140,9 @@ class MessageRouteBinding:
         model_filter: Optional predicate on the validated message model + MessageContext.
             Returning False or raising skips this binding (next is tried).
             Runs after schema validation. Must not mutate the model.
+        mapper: Optional predicate on the validated message model + MessageContext.
+            Transforms the input message model to an arbitrary output model.
+            Runs last after schema validation and filters.
     """
 
     handler: Callable[..., Any]
@@ -153,6 +153,7 @@ class MessageRouteBinding:
     name: str
     payload_filter: PayloadFilter | None = None
     model_filter: ModelFilter | None = None
+    mapper: Mapper | None = None
 
 
 def _resolve_event_loop(
@@ -302,6 +303,8 @@ def _normalize_status(status: str | TopicEventResponseStatus) -> str | None:
             raw = status.name
         case str():
             raw = status
+        case _:
+            return None
     lowered = raw.lower()
     for known in (STATUS_SUCCESS, STATUS_RETRY, STATUS_DROP):
         if known in lowered:
@@ -332,6 +335,34 @@ def _filter_accepts(
             f"{kind} for binding '{binding_name}' raised; skipping binding."
         )
         return False
+
+
+def _apply_mapper(
+    mapper: Callable[[Any, "MessageContext"], Any] | None,
+    value: Any,
+    msg_ctx: "MessageContext",
+    *,
+    binding_name: str,
+) -> Any:
+    """Apply an optional mapper function to a value.
+
+    Returns the mapped value, or raises an exception to indicate that the mapping failed
+    and the binding should be skipped.
+    If the mapper function is `None`, the value is passed through unchanged.
+    If the mapper function does not return a JSON-serializable model instance,
+    this is considered an error in user code, and an exception is raised.
+    """
+    if mapper is None:
+        return value
+
+    result = mapper(value, msg_ctx)
+
+    if not is_supported_model_instance(result):
+        raise TypeError(
+            f"Mapper for '{binding_name}' returned unsupported model type: {type(result).__name__}"
+        )
+
+    return result
 
 
 def _attach_metadata_to_payload(parsed: Any, metadata: Optional[dict]) -> None:
@@ -655,9 +686,11 @@ class _StreamSubscriber:
             pairs, (metadata or {}).get("type")
         )
 
-        any_filter = any(b.payload_filter or b.model_filter for b, _ in ordered_pairs)
+        any_hook = any(
+            b.payload_filter or b.model_filter or b.mapper for b, _ in ordered_pairs
+        )
         event = (
-            EventMessageMetadata.model_validate(metadata or {}) if any_filter else None
+            EventMessageMetadata.model_validate(metadata or {}) if any_hook else None
         )
 
         # Filters are per-binding, not per-schema. We iterate flattened
@@ -667,15 +700,22 @@ class _StreamSubscriber:
         payload_filter_cache: dict[int, bool] = {}
         model_filter_rejected: set[int] = set()
 
+        # Mappers are also per-binding; once a mapper fails for a binding,
+        # every remaining pair for that binding is skipped.
+        mapper_failed: set[int] = set()
+
         for binding, schema in ordered_pairs:
             binding_key = id(binding)
-            if binding_key in model_filter_rejected:
+
+            if binding_key in (model_filter_rejected | mapper_failed):
                 continue
+
             msg_ctx = (
                 MessageContext(event=event, handler_name=binding.name)
                 if event is not None
                 else None
             )
+
             if msg_ctx is not None and binding_key not in payload_filter_cache:
                 payload_filter_cache[binding_key] = _filter_accepts(
                     binding.payload_filter,
@@ -692,6 +732,7 @@ class _StreamSubscriber:
                     event_data if isinstance(event_data, dict) else {"data": event_data}
                 )
                 parsed = validate_message_model(schema, payload)
+                logger.debug(f"Validated model: {parsed!r}")
                 _attach_metadata_to_payload(parsed, metadata)
             except (ValueError, TypeError):
                 # Validation/coercion errors, try next schema
@@ -707,11 +748,29 @@ class _StreamSubscriber:
                 model_filter_rejected.add(binding_key)
                 continue
 
+            if msg_ctx is not None:
+                try:
+                    parsed = _apply_mapper(
+                        binding.mapper,
+                        parsed,
+                        msg_ctx,
+                        binding_name=binding.name,
+                    )
+                except Exception:
+                    logger.exception(
+                        f"Mapper for binding '{binding.name}' failed; skipping binding."
+                    )
+                    mapper_failed.add(binding_key)
+                    continue
+                # Ensure metadata is attached in case a new model instance was created
+                _attach_metadata_to_payload(parsed, metadata)
+
+            logger.debug(f"Final model: {parsed!r}")
             return self._dispatch(binding, parsed)
 
         logger.warning(
             f"No binding accepted message on topic={topic_name!r} "
-            f"(no schema matched or all filters rejected); dropping. raw={event_data!r}"
+            f"(no schema matched, all filters rejected, or all mappers failed); dropping. raw={event_data!r}"
         )
         return TopicEventResponse(STATUS_DROP)
 
@@ -730,6 +789,9 @@ class _StreamSubscriber:
         """
         try:
             event_data, metadata = extract_cloudevent_data(message)
+
+            logger.debug(f"Data: {event_data!r}")
+            logger.debug(f"Metadata: {metadata!r}")
 
             dedup_id = self._dedup_id(metadata, event_data, topic_name)
             if dedup_id is not None and self._is_seen(dedup_id):
