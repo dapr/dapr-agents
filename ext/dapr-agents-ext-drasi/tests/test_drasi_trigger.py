@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from datetime import timedelta
 from typing import Any, Optional
@@ -351,7 +352,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
     
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
-    # Ensure order is preserved
+    # Ensure that order is preserved
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
@@ -360,7 +361,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
-    # Ensure task strings are correctly generated
+    # Ensure that task strings are correctly generated
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
@@ -830,7 +831,7 @@ async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_defaults_to_passthrough_task(setup_deps):
+async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
     """Test that the Drasi extension uses the default pass-through task when the custom task mapping is omitted."""
     query_id = "password-update-query"
     agent_pubsub_name = "testpubsub"
@@ -895,9 +896,14 @@ async def test_drasi_trigger_defaults_to_passthrough_task(setup_deps):
     )
 
     drasi_trigger(agent, query_id=query_id, pubsub=drasi_pubsub_name, topic=drasi_topic)
-    runner.subscribe(agent)
+
+    with caplog.at_level(logging.WARNING):
+        runner.subscribe(agent)
 
     await _wait_for_completion()
+
+    # Ensure that a human-readable warning is emitted
+    assert "task mapper" in caplog.text
 
     assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
 
