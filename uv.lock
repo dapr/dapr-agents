@@ -1584,18 +1584,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-all = [
-    { name = "chromadb" },
-    { name = "nltk" },
-    { name = "sentence-transformers" },
-    { name = "torch" },
-]
-ext = [
-    { name = "chromadb" },
-    { name = "nltk" },
-    { name = "sentence-transformers" },
-    { name = "torch" },
-]
 vectorstore = [
     { name = "chromadb" },
     { name = "nltk" },
@@ -1613,9 +1601,6 @@ dev = [
 ]
 drasi = [
     { name = "dapr-agents" },
-]
-ext = [
-    { name = "dapr-agents", extra = ["ext"] },
 ]
 test = [
     { name = "docker" },
@@ -1643,8 +1628,6 @@ requires-dist = [
     { name = "cloudevents", specifier = ">=1.11.0,<3.0.0" },
     { name = "colorama", specifier = ">=0.4.6,<1.0.0" },
     { name = "dapr", specifier = ">=1.18.0rc0,<1.19.0" },
-    { name = "dapr-agents", extras = ["drasi", "vectorstore"], marker = "extra == 'ext'" },
-    { name = "dapr-agents", extras = ["ext"], marker = "extra == 'all'" },
     { name = "dapr-ext-fastapi", specifier = ">=1.18.0rc0,<1.19.0" },
     { name = "dapr-ext-workflow", specifier = ">=1.18.0rc0,<1.19.0" },
     { name = "docker", specifier = ">=7.1.0" },
@@ -1682,7 +1665,7 @@ requires-dist = [
     { name = "websockets", specifier = ">=15.0.0,<17.0.0" },
     { name = "wrapt", specifier = ">=1.14.0,<2.0.0" },
 ]
-provides-extras = ["drasi", "vectorstore", "ext", "all"]
+provides-extras = ["drasi", "vectorstore"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1693,7 +1676,6 @@ dev = [
     { name = "ruff", specifier = ">=0.14.11" },
 ]
 drasi = [{ name = "dapr-agents", extras = ["drasi"] }]
-ext = [{ name = "dapr-agents", extras = ["ext"] }]
 test = [
     { name = "docker", specifier = ">=7.0.0,<8.0.0" },
     { name = "httpx", specifier = ">=0.27.0,<1.0.0" },

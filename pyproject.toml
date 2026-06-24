@@ -88,8 +88,6 @@ vectorstore = [
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.9.3,<4.0.0",
 ]
-ext = ["dapr_agents[drasi,vectorstore]"]
-all = ["dapr_agents[ext]"]
 
 [dependency-groups]
 dev = [
@@ -115,7 +113,6 @@ vectorstore = [
     "dapr_agents[vectorstore]",
     "redisvl>=0.4.0,<1.0.0",
 ]
-ext = ["dapr_agents[ext]"]
 
 [tool.uv.dependency-groups]
 vectorstore = {requires-python = ">=3.11,<3.14"}
