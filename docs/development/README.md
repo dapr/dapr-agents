@@ -50,7 +50,10 @@ uv lock
 uv sync --group test
 
 # Install main package with all optional dependencies
-uv sync --group ext
+uv sync --group vectorstore
+
+# Install main package with extension dependencies
+uv sync --group <extension group name>
 
 # Install in editable mode
 uv sync --editable
