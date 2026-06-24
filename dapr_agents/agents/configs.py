@@ -13,25 +13,44 @@
 
 from __future__ import annotations
 
+import functools
+import json
 import logging
 import re
 from os import getenv
-from enum import StrEnum
+from enum import Enum, StrEnum
 from dataclasses import dataclass, field
+from types import UnionType
 from typing import (
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     MutableMapping,
     Optional,
     Sequence,
     Type,
+    TypeVar,
     Union,
+    get_args,
+    get_origin,
 )
 
 from pydantic import BaseModel, Field
 
+from dapr_agents.agents.utils.headers import parse_header_string
+from dapr_agents.agents.utils.models import (
+    get_model_factory,
+    get_model_fields,
+    is_supported_config_model,
+)
+from dapr_agents.types.agent import ToolChoice, ToolExecutionMode, OrchestrationMode
+from dapr_agents.agents.constants import (
+    AGENT_DEFAULT_MAX_ITERATIONS,
+    AGENT_DEFAULT_TOOL_CHOICE,
+    AGENT_DEFAULT_TOOL_EXECUTION_MODE,
+)
 from dapr_agents.agents.schemas import (
     AgentWorkflowEntry,
     AgentWorkflowMessage,
@@ -47,6 +66,12 @@ _JSON_SCHEMA_KEY = "$schema"
 _JSON_SCHEMA_DRAFT_URL = "https://json-schema.org/draft/2020-12/schema"
 _JSON_SCHEMA_VERSION_KEY = "version"
 
+# Sentinel value for unset values (instead of None)
+UNSET = object()
+
+# Sentinel value for unsupported config keys
+_UNSUPPORTED = object()
+
 
 def _ensure_jinja_placeholders(text: str) -> str:
     return _JINJA_PLACEHOLDER_PATTERN.sub(r"{{\1}}", text)
@@ -60,6 +85,10 @@ def _empty_headers() -> Dict[str, str]:
 EntryFactory = Callable[..., Any]
 MessageCoercer = Callable[[Dict[str, Any]], Any]
 EntryContainerGetter = Callable[[BaseModel], Optional[MutableMapping[str, Any]]]
+
+T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -83,7 +112,7 @@ class StateModelBundle:
     message_coercer: Optional[MessageCoercer] = None
 
 
-DEFAULT_AGENT_WORKFLOW_BUNDLE = StateModelBundle(
+AGENT_DEFAULT_WORKFLOW_BUNDLE = StateModelBundle(
     entry_model_cls=AgentWorkflowEntry,
     message_model_cls=AgentWorkflowMessage,
 )
@@ -207,26 +236,32 @@ class AgentStateConfig:
 
 @dataclass(frozen=True)
 class ConfigFieldDescriptor:
-    """Describes how a configuration key maps to an agent attribute.
+    """Describes how a configuration key maps to a configuration attribute.
 
     Attributes:
         target_type: Expected Python type for the coerced value.
-        setter: Callable ``(agent, value) -> None`` that applies the value.
+        setter: Callable ``(obj, value) -> None`` that applies the value after coercion and validation.
+        getter: Optional callable ``() -> Any`` that retrieves the value before coercion.
+        validator: Optional idempotent callable ``(value) -> Any`` to validate/transform the coerced value.
+        allow_unset: If ``True``, coercion will pass through ``UNSET`` values (to disambiguate between an explicitly set ``None`` and an unset value that defaults to ``None``).
+            If enabled and a validator is provided, it must be able to handle ``UNSET`` values.
         sensitive: If ``True``, the value is redacted in log output.
-        validator: Optional callable to validate/transform the coerced value.
         rebuilds_prompt: If ``True``, the prompt template is rebuilt after update.
+        triggers_otel_reload: If ``True``, triggers an OpenTelemetry configuration reload after update.
     """
 
     target_type: Type
     setter: Callable[..., None]
-    sensitive: bool = False
+    getter: Optional[Callable[[], Any]] = None
     validator: Optional[Callable[..., Any]] = None
+    allow_unset: bool = False
+    sensitive: bool = False
     rebuilds_prompt: bool = False
     triggers_otel_reload: bool = False
 
 
 # ---------------------------------------------------------------------------
-# Built-in validators for ConfigFieldDescriptor
+# Built-in ConfigFieldDescriptor validators for agents
 # ---------------------------------------------------------------------------
 
 _config_logger = logging.getLogger(__name__)
@@ -248,11 +283,39 @@ def validate_max_iterations(v: int) -> int:
 
 def validate_tool_choice(v: str) -> str:
     """Warn if tool_choice is non-standard, but allow it."""
-    allowed = {"auto", "none", "required"}
-    if v.lower() not in allowed:
+    try:
+        ToolChoice(v.lower())
+    except (ValueError, KeyError):
         _config_logger.warning(
-            "tool_choice '%s' not in standard set %s; allowing anyway.", v, allowed
+            f"tool_choice {v} not in standard set {set([tc.value for tc in ToolChoice])}; allowing anyway."
         )
+
+    return v
+
+
+def validate_tool_execution_mode(v: str) -> str:
+    """Validate that the tool execution mode is a known ToolExecutionMode value."""
+    try:
+        ToolExecutionMode(v.lower())
+    except (ValueError, KeyError):
+        raise ValueError(
+            f"Unknown tool execution mode '{v}'. "
+            f"Valid options: {[e.value for e in ToolExecutionMode]}"
+        )
+
+    return v
+
+
+def validate_orchestration_mode(v: str) -> str:
+    """Validate that the orchestration mode is a known OrchestrationMode value."""
+    try:
+        OrchestrationMode(v.lower())
+    except (ValueError, KeyError):
+        raise ValueError(
+            f"Unknown orchestration mode '{v}'. "
+            f"Valid options: {[e.value for e in OrchestrationMode]}"
+        )
+
     return v
 
 
@@ -278,6 +341,263 @@ def validate_otel_exporter_logging(v: str) -> str:
             f"Valid options: {[e.value for e in AgentLoggingExporter]}"
         )
     return v
+
+
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
+
+
+def normalize_config_key(key: str) -> str:
+    """Default normalization of configuration keys to attribute names."""
+    return key.lower().replace("-", "_")
+
+
+def apply_config_map(target_obj: Any, config_field_map: Dict[str, Any]) -> None:
+    """
+    Apply a map of configuration field names to field descriptors onto a target object.
+    If a field is ``UNSUPPORTED``, its name must be normalizable to the corresponding attribute on the target object, whose value is set to None.
+    """
+    for key, descriptor in config_field_map.items():
+        if descriptor == _UNSUPPORTED:
+            setattr(target_obj, normalize_config_key(key), None)
+            continue
+
+        try:
+            apply_config_update(target_obj=target_obj, key=key, descriptor=descriptor)
+        except (ValueError, RuntimeError) as e:
+            logger.debug(f"Failed to apply config update for {key}: {e}")
+
+
+def apply_config_update(
+    target_obj: Any,
+    *,
+    key: str,
+    descriptor: ConfigFieldDescriptor,
+    value: Any = None,
+) -> Any:
+    """
+    Process and apply a configuration update to an object.
+    This function is guaranteed to be idempotent if the processing logic is idempotent.
+
+    Args:
+        target_obj: The object to be updated.
+        key: The configuration key.
+        value: Optional value to process and apply.
+            Falls back to the descriptor's getter if not provided (may not be idempotent).
+        descriptor: An object describing how to process a value for a particular key.
+
+    Returns:
+        The final applied value.
+
+    Raises:
+        ValueError: If no value can be retrieved or processing fails.
+        RuntimeError: If the value cannot be applied.
+    """
+    processed_value = process_config_update(key=key, value=value, descriptor=descriptor)
+
+    # Apply via setter callback
+    try:
+        descriptor.setter(target_obj, processed_value)
+    except (AttributeError, TypeError):
+        raise RuntimeError(
+            f"Could not apply setter for key '{key}' (likely read-only)."
+        )
+
+    return processed_value
+
+
+def process_config_update(
+    key: str,
+    descriptor: ConfigFieldDescriptor,
+    value: Any = None,
+) -> Any:
+    """
+    Process a configuration update by coercing, validating, and transforming a value.
+    This function is guaranteed to be idempotent if the processing logic is idempotent.
+
+    Args:
+        key: The configuration key.
+        value: Optional value to process.
+            Falls back to the descriptor's getter if not provided (may not be idempotent).
+        descriptor: An object describing how to process a value for a particular key.
+
+    Returns:
+        The processed value.
+
+    Raises:
+        ValueError: If no value can be retrieved or processing fails.
+    """
+    if not descriptor:
+        raise ValueError(f"Unrecognized config key: {key}.")
+
+    # Retrieve value using getter callback as a fallback
+    if value is None and descriptor.getter:
+        try:
+            value = descriptor.getter()
+        except Exception as e:
+            raise ValueError(f"Unable to retrieve value for key '{key}': {e}.")
+
+    # Type coercion
+    try:
+        if descriptor.allow_unset and value is UNSET:
+            # Pass through `UNSET` unless we do not have a validator, in which case we coerce to `None` and return immediately
+            if not descriptor.validator:
+                return None
+            processed_value = UNSET
+        else:
+            processed_value = coerce_config_value(value, descriptor.target_type)
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Invalid value for key '{key}': {e}.")
+
+    # Validation/transformation
+    if descriptor.validator:
+        try:
+            processed_value = descriptor.validator(processed_value)
+        except Exception as e:
+            raise ValueError(f"Validation failed for key '{key}': {e}.")
+
+    return processed_value
+
+
+def coerce_config_value(value: Any, target_type: Type) -> Any:
+    """Coerce a configuration value (usually a string) to the target Python type."""
+    if isinstance(value, target_type):
+        return value
+
+    if target_type is str:
+        return str(value)
+
+    if target_type is int:
+        return int(float(value))
+
+    if target_type is float:
+        return float(value)
+
+    if target_type is bool:
+        if isinstance(value, str):
+            if value.lower() in ("true", "1", "yes"):
+                return True
+            if value.lower() in ("false", "0", "no"):
+                return False
+        raise ValueError(f"Cannot coerce {value!r} to bool")
+
+    if target_type is list:
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+            return [value]
+        if isinstance(value, (list, tuple)):
+            return list(value)
+        return [value]
+
+    if target_type is dict:
+        if isinstance(value, str):
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+            raise ValueError(f"JSON parsed to {type(parsed).__name__}, expected dict")
+        if isinstance(value, dict):
+            return value
+        raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
+
+    # Handle types that are not classes
+    origin = get_origin(target_type)
+    if origin is not None:
+        # Support union and bar syntax
+        if origin in (Union, UnionType):
+            for arg in get_args(target_type):
+                try:
+                    return coerce_config_value(value, arg)
+                except ValueError:
+                    continue
+            raise ValueError(f"Cannot coerce {value!r} to any type in {target_type}")
+
+    raise ValueError(f"Unsupported target type: {target_type}")
+
+
+def merge_models(base: T, override: T) -> T:
+    """
+    Merge two models of the same type, with override taking precedence.
+    Only override if the override value is not None.
+    If merging fails, falls back to the base model if it is valid, otherwise falls back to the override model.
+
+    Args:
+        base: The base model.
+        override: The new model with potential override values.
+
+    Returns:
+        The merged model.
+    """
+    if not is_supported_config_model(type(base)):
+        logger.warning(f"Unsupported model type: {base!r}")
+        return override
+
+    if not is_supported_config_model(type(override)):
+        logger.warning(f"Unsupported model type: {override!r}")
+        return base
+
+    if base.__class__ != override.__class__:
+        logger.warning(
+            f"Cannot merge models of different types: {base!r} and {override!r}"
+        )
+        return base
+
+    try:
+        # Infer model type from the base model
+        model_fields = get_model_fields(base)
+        model_factory = get_model_factory(base)
+
+        logger.debug(
+            (f"Merging models:\nBase model: {base!r}\nOverride model: {override!r}")
+        )
+
+        merged_fields: Dict[str, Any] = {}
+
+        for model_field in model_fields:
+            base_field = getattr(base, model_field)
+            override_field = getattr(override, model_field)
+
+            if isinstance(base_field, dict) and isinstance(override_field, dict):
+                # Shallow merge dicts
+                merged_fields[model_field] = {**base_field, **override_field}
+            else:
+                merged_fields[model_field] = (
+                    override_field if override_field is not None else base_field
+                )
+
+        model = model_factory(merged_fields)
+
+        logger.debug(f"Merged model: {model!r}")
+        return model
+    except Exception as e:
+        logger.warning(f"Failed to merge models: {e}")
+        return base
+
+
+def _validate_with_fallback(
+    f: Callable[..., Any], value: Any, fallback: Any = UNSET
+) -> Callable[..., Any]:
+    """
+    Calls a validation function with a fallback return value if the function raises an exception.
+    If the value or fallback is `UNSET`, returns `None` so that merging works properly.
+    """
+    if value is UNSET:
+        return None
+    try:
+        return f(value)
+    except Exception as e:
+        if fallback is UNSET:
+            fallback = None
+        # Avoid noisy logs if validation errors are frequent
+        logger.debug(
+            f"Validation with function {f.__name__} failed: {e}. Using fallback value {fallback!r}."
+        )
+        return fallback
 
 
 @dataclass
@@ -391,36 +711,6 @@ class AgentProfileConfig:
     module_overrides: Dict[str, PromptSection] = field(default_factory=dict)
 
 
-class ToolExecutionMode(StrEnum):
-    """
-    Enumeration of supported tool execution modes for durable agents.
-
-    PARALLEL: All tool calls returned by the LLM in a single turn are executed
-        concurrently via ``wf.when_all``. This is the default behaviour and
-        provides the best latency when tools are independent.
-    SEQUENTIAL: Tool calls are executed one after another in the order they
-        were returned by the LLM. Use this when tools have side-effects that
-        depend on the results of earlier calls in the same turn.
-    """
-
-    PARALLEL = "parallel"
-    SEQUENTIAL = "sequential"
-
-
-class OrchestrationMode(StrEnum):
-    """
-    Enumeration of supported orchestration strategies for durable agents.
-
-    AGENT: Orchestration is driven by an LLM-generated plan that determines the next steps and agent interactions.
-    RANDOM: Orchestration randomly selects agents or actions at each decision point, without a predetermined plan.
-    ROUNDROBIN: Orchestration cycles through available agents or actions in a fixed order, ensuring equal opportunity for each participant.
-    """
-
-    AGENT = "agent"
-    RANDOM = "random"
-    ROUNDROBIN = "roundrobin"
-
-
 @dataclass
 class AgentApprovalConfig:
     """
@@ -459,22 +749,169 @@ class AgentExecutionConfig:
     Dials to configure the agent execution.
 
     Attributes:
+        max_iterations: Maximum number of turns allowed for the agent to produce a final response.
+        tool_choice: Tool choice strategy for the agent.
+        tool_execution_mode: Tool execution mode for the agent.
+        orchestration_mode: Orchestration strategy for the agent.
         max_grpc_inbound_message_size_bytes: Optional gRPC inbound message size
             limit in bytes. When set, takes precedence over
             ``DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES`` for this agent only —
             two agents in the same process can run with independent limits.
             The value is plumbed through a per-agent client factory shared by
             the agent's memory, state, registry, and LLM collaborators.
+        app_health_check_enabled: Enable/disable Kubernetes liveness probes.
+        approval: Human-in-the-loop configuration for the agent.
+        app_ready_check_enabled: Enable/disable Dapr health/Kubernetes readiness probes.
     """
 
     # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
     # TODO: add stop_at_tokens
-    max_iterations: int = 10
-    tool_choice: Optional[str] = "auto"
-    tool_execution_mode: ToolExecutionMode = ToolExecutionMode.PARALLEL
+    max_iterations: Optional[int] = AGENT_DEFAULT_MAX_ITERATIONS
+    tool_choice: Optional[ToolChoice] = AGENT_DEFAULT_TOOL_CHOICE
+    tool_execution_mode: Optional[ToolExecutionMode] = AGENT_DEFAULT_TOOL_EXECUTION_MODE
     orchestration_mode: Optional[OrchestrationMode] = None
-    approval: AgentApprovalConfig = field(default_factory=AgentApprovalConfig)
+    approval: Optional[AgentApprovalConfig] = field(default_factory=AgentApprovalConfig)
     max_grpc_inbound_message_size_bytes: Optional[int] = None
+    app_health_check_enabled: Optional[bool] = None
+    app_ready_check_enabled: Optional[bool] = None
+
+    @classmethod
+    def from_env(cls) -> "AgentExecutionConfig":
+        """Create execution config from environment variables."""
+        config_field_map = {
+            "max_iterations": ConfigFieldDescriptor(
+                target_type=Optional[int],
+                setter=lambda obj, v: setattr(obj, "max_iterations", v),
+                getter=lambda: getenv("MAX_ITERATIONS", AGENT_DEFAULT_MAX_ITERATIONS),
+                validator=lambda v: _validate_with_fallback(
+                    validate_max_iterations, v, AGENT_DEFAULT_MAX_ITERATIONS
+                ),
+            ),
+            "tool_choice": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tool_choice", v),
+                getter=lambda: getenv("TOOL_CHOICE", AGENT_DEFAULT_TOOL_CHOICE),
+                validator=lambda v: _validate_with_fallback(
+                    validate_tool_choice, v, AGENT_DEFAULT_TOOL_CHOICE
+                ),
+            ),
+            "tool_execution_mode": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
+                getter=lambda: getenv(
+                    "TOOL_EXECUTION_MODE", AGENT_DEFAULT_TOOL_EXECUTION_MODE
+                ),
+                validator=lambda v: _validate_with_fallback(
+                    validate_tool_execution_mode, v, AGENT_DEFAULT_TOOL_EXECUTION_MODE
+                ),
+            ),
+            "orchestration_mode": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
+                getter=lambda: getenv("ORCHESTRATION_MODE", None),
+                validator=lambda v: _validate_with_fallback(
+                    validate_orchestration_mode, v, None
+                ),
+            ),
+            "max_grpc_inbound_message_size_bytes": ConfigFieldDescriptor(
+                target_type=Optional[int],
+                setter=lambda obj, v: setattr(
+                    obj, "max_grpc_inbound_message_size_bytes", v
+                ),
+                getter=lambda: getenv("MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES", UNSET),
+                allow_unset=True,
+            ),
+            "app_health_check_enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "app_health_check_enabled", v),
+                getter=lambda: getenv("ENABLE_APP_HEALTH_CHECK", "false"),
+            ),
+            "app_ready_check_enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "app_ready_check_enabled", v),
+                getter=lambda: getenv("ENABLE_APP_READY_CHECK", "false"),
+            ),
+            "approval": _UNSUPPORTED,
+        }
+
+        config = cls()
+        apply_config_map(config, config_field_map)
+
+        return config
+
+    @classmethod
+    def from_statestore(cls, runtime_config: Dict[str, Any]) -> "AgentExecutionConfig":
+        """
+        Load execution configuration from the state store.
+
+        Returns:
+            AgentExecutionConfig instance loaded from state store.
+        """
+        config_field_map = {
+            "max_iterations": ConfigFieldDescriptor(
+                target_type=Optional[int],
+                setter=lambda obj, v: setattr(obj, "max_iterations", v),
+                getter=lambda: runtime_config.get("MAX_ITERATIONS", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_max_iterations, v, AGENT_DEFAULT_MAX_ITERATIONS
+                ),
+                allow_unset=True,
+            ),
+            "tool_choice": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tool_choice", v),
+                getter=lambda: runtime_config.get("TOOL_CHOICE", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_tool_choice, v, AGENT_DEFAULT_TOOL_CHOICE
+                ),
+                allow_unset=True,
+            ),
+            "tool_execution_mode": _UNSUPPORTED,
+            "orchestration_mode": _UNSUPPORTED,
+            "approval": _UNSUPPORTED,
+            "max_grpc_inbound_message_size_bytes": _UNSUPPORTED,
+            "app_health_check_enabled": _UNSUPPORTED,
+            "app_ready_check_enabled": _UNSUPPORTED,
+        }
+
+        config = cls()
+        apply_config_map(config, config_field_map)
+
+        return config
+
+    @classmethod
+    def resolve_config(
+        cls, config: "AgentExecutionConfig", runtime_config: Dict[str, Any]
+    ) -> "AgentExecutionConfig":
+        """
+        Resolve the execution configuration for the agent in the following order:
+        1. Statestore runtime config (highest priority)
+        2. Passed through instantiation
+        3. Environment variables (lowest priority)
+
+        Args:
+            config: User-instantiated configuration.
+            runtime_config: Runtime configuration.
+
+        Returns:
+            Resolved AgentExecutionConfig instance.
+        """
+
+        env_config = AgentExecutionConfig.from_env()
+        logger.debug(f"Env execution config: {env_config}")
+
+        logger.debug(f"Instantiated execution config: {config}")
+
+        statestore_config = AgentExecutionConfig.from_statestore(runtime_config)
+        logger.debug(f"Statestore execution config: {statestore_config}")
+
+        resolved_config = functools.reduce(
+            merge_models,
+            [env_config, config, statestore_config],
+        )
+
+        logger.debug(f"Final execution config: {resolved_config}")
+        return resolved_config
 
 
 @dataclass
@@ -590,59 +1027,209 @@ class AgentObservabilityConfig:
 
         Uses standard OpenTelemetry env var names where available:
         - OTEL_SDK_DISABLED (inverted: disabled != "true" means enabled)
-        - OTEL_EXPORTER_OTLP_ENDPOINT
         - OTEL_EXPORTER_OTLP_HEADERS (parses "Authorization=<token>" format)
+        - OTEL_EXPORTER_OTLP_ENDPOINT
         - OTEL_SERVICE_NAME
-        - OTEL_TRACES_EXPORTER
+        - OTEL_LOGGING_ENABLED (custom, no standard equivalent)
         - OTEL_LOGS_EXPORTER
         - OTEL_TRACING_ENABLED (custom, no standard equivalent)
-        - OTEL_LOGGING_ENABLED (custom, no standard equivalent)
+        - OTEL_TRACES_EXPORTER
         """
-        headers: Dict[str, str] = {}
-        raw_headers = getenv("OTEL_EXPORTER_OTLP_HEADERS")
-        if raw_headers:
-            for pair in raw_headers.split(","):
-                pair = pair.strip()
-                if "=" in pair:
-                    k, v = pair.split("=", 1)
-                    headers[k.strip()] = v.strip()
+        config_field_map = {
+            "enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "enabled", v),
+                getter=lambda: getenv("OTEL_SDK_DISABLED", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    lambda v: not v, v, UNSET
+                ),  # Invert the disabled flag to set enabled
+                allow_unset=True,
+            ),
+            "headers": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "headers", v),
+                getter=lambda: getenv("OTEL_EXPORTER_OTLP_HEADERS", UNSET),
+                validator=lambda v: _validate_with_fallback(parse_header_string, v, {}),
+                allow_unset=True,
+            ),
+            "endpoint": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "endpoint", v),
+                getter=lambda: getenv("OTEL_EXPORTER_OTLP_ENDPOINT", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_non_empty_string, v, UNSET
+                ),
+                allow_unset=True,
+            ),
+            "service_name": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "service_name", v),
+                getter=lambda: getenv("OTEL_SERVICE_NAME", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_non_empty_string, v, UNSET
+                ),
+                allow_unset=True,
+            ),
+            "logging_enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "logging_enabled", v),
+                getter=lambda: getenv("OTEL_LOGGING_ENABLED", UNSET),
+                allow_unset=True,
+            ),
+            "logging_exporter": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "logging_exporter", v),
+                getter=lambda: getenv("OTEL_LOGS_EXPORTER", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_otel_exporter_logging, v, AgentLoggingExporter.CONSOLE
+                ),
+                allow_unset=True,
+            ),
+            "tracing_enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
+                getter=lambda: getenv("OTEL_TRACING_ENABLED", UNSET),
+                allow_unset=True,
+            ),
+            "tracing_exporter": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
+                getter=lambda: getenv("OTEL_TRACES_EXPORTER", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_otel_exporter_tracing, v, AgentTracingExporter.CONSOLE
+                ),
+                allow_unset=True,
+            ),
+        }
 
-        logging_exporter: Optional[AgentLoggingExporter] = None
-        if logging_exporter_str := getenv("OTEL_LOGS_EXPORTER"):
-            try:
-                logging_exporter = AgentLoggingExporter(logging_exporter_str)
-            except (ValueError, KeyError):
-                logging_exporter = AgentLoggingExporter.CONSOLE
+        config = cls()
+        apply_config_map(config, config_field_map)
 
-        tracing_exporter: Optional[AgentTracingExporter] = None
-        if tracing_exporter_str := getenv("OTEL_TRACES_EXPORTER"):
-            try:
-                tracing_exporter = AgentTracingExporter(tracing_exporter_str)
-            except (ValueError, KeyError):
-                tracing_exporter = AgentTracingExporter.CONSOLE
+        return config
 
-        enabled: Optional[bool] = None
-        if getenv("OTEL_SDK_DISABLED") is not None:
-            enabled = getenv("OTEL_SDK_DISABLED", "false").lower() != "true"
+    @classmethod
+    def from_statestore(
+        cls, runtime_secrets: Dict[str, Any], runtime_config: Dict[str, Any]
+    ) -> "AgentObservabilityConfig":
+        """
+        Load observability configuration from the state store.
 
-        logging_enabled: Optional[bool] = None
-        if getenv("OTEL_LOGGING_ENABLED") is not None:
-            logging_enabled = getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
+        Returns:
+            AgentObservabilityConfig instance loaded from state store.
+        """
+        config_field_map = {
+            "enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "enabled", v),
+                getter=lambda: runtime_config.get("OTEL_SDK_DISABLED", "true"),
+                validator=lambda v: _validate_with_fallback(
+                    lambda v: not v, v, UNSET
+                ),  # Invert the disabled flag to set enabled
+            ),
+            "auth_token": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                # State store may have auth credentials so we target the "auth_token" field
+                setter=lambda obj, v: setattr(obj, "auth_token", v),
+                getter=lambda: (
+                    runtime_secrets.get("OTEL_EXPORTER_OTLP_HEADERS")
+                    or runtime_config.get("OTEL_EXPORTER_OTLP_HEADERS")
+                    or UNSET
+                ),
+                allow_unset=True,
+            ),
+            "endpoint": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "endpoint", v),
+                getter=lambda: runtime_config.get("OTEL_EXPORTER_OTLP_ENDPOINT", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_non_empty_string, v, UNSET
+                ),
+                allow_unset=True,
+            ),
+            "service_name": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "service_name", v),
+                getter=lambda: runtime_config.get("OTEL_SERVICE_NAME", UNSET),
+                validator=lambda v: _validate_with_fallback(
+                    validate_non_empty_string, v, UNSET
+                ),
+                allow_unset=True,
+            ),
+            "logging_enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "logging_enabled", v),
+                getter=lambda: runtime_config.get("OTEL_LOGGING_ENABLED", "false"),
+            ),
+            "logging_exporter": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "logging_exporter", v),
+                getter=lambda: runtime_config.get(
+                    "OTEL_LOGS_EXPORTER", AgentLoggingExporter.CONSOLE
+                ),
+                validator=lambda v: _validate_with_fallback(
+                    validate_otel_exporter_logging, v, AgentLoggingExporter.CONSOLE
+                ),
+            ),
+            "tracing_enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
+                getter=lambda: runtime_config.get("OTEL_TRACING_ENABLED", "false"),
+            ),
+            "tracing_exporter": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
+                getter=lambda: runtime_config.get(
+                    "OTEL_TRACES_EXPORTER", AgentTracingExporter.CONSOLE
+                ),
+                validator=lambda v: _validate_with_fallback(
+                    validate_otel_exporter_tracing, v, AgentTracingExporter.CONSOLE
+                ),
+            ),
+        }
 
-        tracing_enabled: Optional[bool] = None
-        if getenv("OTEL_TRACING_ENABLED") is not None:
-            tracing_enabled = getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
+        config = cls()
+        apply_config_map(config, config_field_map)
 
-        return cls(
-            enabled=enabled,
-            headers=headers,
-            endpoint=getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-            service_name=getenv("OTEL_SERVICE_NAME"),
-            logging_enabled=logging_enabled,
-            logging_exporter=logging_exporter,
-            tracing_enabled=tracing_enabled,
-            tracing_exporter=tracing_exporter,
+        return config
+
+    @classmethod
+    def resolve_config(
+        cls,
+        config: "AgentObservabilityConfig",
+        runtime_secrets: Dict[str, Any],
+        runtime_config: Dict[str, Any],
+    ) -> "AgentObservabilityConfig":
+        """
+        Resolve the observability configuration for the agent in the following order:
+        1. Passed through instantiation (highest priority)
+        2. Environment variables
+        3. Default statestore runtime config (lowest priority)
+
+        Args:
+            config: User-instantiated configuration.
+            runtime_secrets: Runtime secrets.
+            runtime_config: Runtime configuration.
+
+        Returns:
+            Resolved AgentObservabilityConfig instance.
+        """
+        statestore_config = AgentObservabilityConfig.from_statestore(
+            runtime_secrets, runtime_config
         )
+        logger.debug(f"Statestore observability config: {statestore_config}")
+
+        env_config = AgentObservabilityConfig.from_env()
+        logger.debug(f"Env observability config: {env_config}")
+
+        logger.debug(f"Instantiated observability config: {config}")
+
+        resolved_config = functools.reduce(
+            merge_models,
+            [statestore_config, env_config, config],
+        )
+
+        logger.debug(f"Final observability config: {resolved_config}")
+        return resolved_config
 
 
 class AgentMetadata(BaseModel):

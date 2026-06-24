@@ -40,7 +40,12 @@ from dapr.clients.grpc._response import (
 )
 
 from dapr_agents.agents.components import DaprInfra
+from dapr_agents.agents.constants import (
+    AGENT_DEFAULT_MAX_ITERATIONS,
+    AGENT_DEFAULT_TOOL_CHOICE,
+)
 from dapr_agents.agents.configs import (
+    AgentApprovalConfig,
     AgentLoggingExporter,
     AgentMemoryConfig,
     AgentMetadata,
@@ -59,8 +64,11 @@ from dapr_agents.agents.configs import (
     RuntimeSubscriptionConfig,
     ToolMetadata,
     WorkflowGrpcOptions,
-    DEFAULT_AGENT_WORKFLOW_BUNDLE,
+    AGENT_DEFAULT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
+    apply_config_update,
+    normalize_config_key,
+    process_config_update,
     validate_max_iterations,
     validate_non_empty_string,
     validate_tool_choice,
@@ -379,9 +387,6 @@ class AgentBase:
 
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
-        self._agent_observability = agent_observability or AgentObservabilityConfig()
-        self._otel_logging_handler = None
-        self.instrumentor = None
         self.configuration = configuration
         self._subscription_id: Optional[str] = None
         self.appid = (
@@ -557,12 +562,21 @@ class AgentBase:
             registry=registry,
             base_metadata=base_metadata,
             max_etag_attempts=max_etag_attempts,
-            default_bundle=DEFAULT_AGENT_WORKFLOW_BUNDLE,
+            default_bundle=AGENT_DEFAULT_WORKFLOW_BUNDLE,
             workflow_grpc_options=workflow_grpc,
         )
 
+        # -----------------------------
+        # Observability wiring
+        # -----------------------------
         self.instrumentor: Optional[DaprAgentsInstrumentor] = None
-        self._setup_agent_runtime_configuration()
+        self._otel_logging_handler = None
+        self._agent_observability = AgentObservabilityConfig.resolve_config(
+            agent_observability or AgentObservabilityConfig(),
+            self._runtime_secrets,
+            self._runtime_conf,
+        )
+        self._setup_agent_observability()
 
         # -----------------------------
         # Registry wiring
@@ -641,21 +655,23 @@ class AgentBase:
         # -----------------------------
         # Execution config
         # -----------------------------
-        self.execution = execution or AgentExecutionConfig()
+        self.execution = AgentExecutionConfig.resolve_config(
+            execution or AgentExecutionConfig(),
+            self._runtime_conf,
+        )
+
         try:
             self.execution.max_iterations = max(1, int(self.execution.max_iterations))
         except Exception:
-            self.execution.max_iterations = 10
+            self.execution.max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
         if not self.tools:
             if self.execution.tool_choice is not None:
                 logger.debug(
-                    "No tools configured for agent '%s'; ignoring tool_choice=%r.",
-                    self.name,
-                    self.execution.tool_choice,
+                    f"No tools configured for agent '{self.name}'; ignoring tool_choice={self.execution.tool_choice!r}."
                 )
             self.execution.tool_choice = None
         elif self.execution.tool_choice is None:
-            self.execution.tool_choice = "auto"
+            self.execution.tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
         # -----------------------------
         # Agent metadata & registry registration
@@ -920,112 +936,57 @@ class AgentBase:
         Returns:
             True if the update triggers an OTel reload, False otherwise.
         """
-        normalized_key = key.lower().replace("-", "_")
+        normalized_key = normalize_config_key(key)
         descriptor = self._CONFIG_FIELD_MAP.get(normalized_key)
 
         if descriptor is None:
-            logger.debug(
-                "Agent %s ignoring unrecognized config key: %s", self.name, key
-            )
+            logger.debug(f"Agent {self.name} ignoring unrecognized config key: {key}")
             return False
 
         safe_value = "***" if descriptor.sensitive else value
-        logger.info(
-            'Agent %s applying config update: %s="%s"', self.name, key, safe_value
-        )
 
-        # Type coercion
+        logger.info(f"Agent {self.name} applying config update: {key}={safe_value!r}")
+
         try:
-            coerced_value = self._coerce_config_value(value, descriptor.target_type)
-        except (ValueError, TypeError) as e:
-            logger.warning(
-                "Agent %s: invalid value for key '%s': %s. Skipping update.",
-                self.name,
-                key,
-                e,
+            processed_value = process_config_update(
+                key=normalized_key,
+                value=value,
+                descriptor=descriptor,
             )
+        except Exception as e:
+            # Skip update for coercion/validation/transformation/other failures
+            logger.warning(f"Agent {self.name}: {e} Skipping update.")
             return False
 
-        # Validation
-        if descriptor.validator is not None:
-            try:
-                coerced_value = descriptor.validator(coerced_value)
-            except Exception as e:
-                logger.warning(
-                    "Agent %s: validation failed for key '%s': %s. Skipping update.",
-                    self.name,
-                    key,
-                    e,
-                )
-                return False
-
-        # Apply via setter callback
         try:
-            descriptor.setter(self, coerced_value)
-        except (AttributeError, TypeError):
-            logger.debug(f"Could not apply setter for key '{key}' (likely read-only)")
+            applied_value = apply_config_update(
+                target_obj=self,
+                key=normalized_key,
+                value=processed_value,
+                descriptor=descriptor,
+            )
+        except RuntimeError as e:
+            # Fall through if the agent could not be updated but the value is otherwise valid
+            logger.debug(f"Agent {self.name}: {e}")
+            applied_value = None
+        except Exception as e:
+            # Defensive check: we shouldn't get here assuming value is valid
+            logger.warning(f"Agent {self.name}: {e} Skipping update.")
+            return False
+
+        resolved_value = applied_value or processed_value
 
         # Rebuild prompt template if a profile key changed
         if descriptor.rebuilds_prompt:
             self._rebuild_prompt_after_config_update()
 
         # Fire user callbacks
-        self._fire_config_change_callbacks(normalized_key, coerced_value)
+        self._fire_config_change_callbacks(normalized_key, resolved_value)
 
         # Re-register metadata
         self._sync_metadata_after_config_update()
 
         return descriptor.triggers_otel_reload
-
-    @staticmethod
-    def _coerce_config_value(value: Any, target_type: Type) -> Any:
-        """Coerce a configuration value (usually a string) to the target Python type."""
-        if isinstance(value, target_type):
-            return value
-
-        if target_type is str:
-            return str(value)
-
-        if target_type is int:
-            return int(float(value))
-
-        if target_type is float:
-            return float(value)
-
-        if target_type is bool:
-            if isinstance(value, str):
-                if value.lower() in ("true", "1", "yes"):
-                    return True
-                if value.lower() in ("false", "0", "no"):
-                    return False
-            raise ValueError(f"Cannot coerce {value!r} to bool")
-
-        if target_type is list:
-            if isinstance(value, str):
-                try:
-                    parsed = json.loads(value)
-                    if isinstance(parsed, list):
-                        return parsed
-                except (json.JSONDecodeError, TypeError):
-                    pass
-                return [value]
-            if isinstance(value, (list, tuple)):
-                return list(value)
-            return [value]
-
-        if target_type is dict:
-            if isinstance(value, str):
-                parsed = json.loads(value)
-                if isinstance(parsed, dict):
-                    return parsed
-                raise ValueError(
-                    f"JSON parsed to {type(parsed).__name__}, expected dict"
-                )
-            if isinstance(value, dict):
-                return value
-            raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
-
-        raise ValueError(f"Unsupported target type: {target_type}")
 
     def _rebuild_prompt_after_config_update(self) -> None:
         """Rebuild the prompt template after a profile field change."""
@@ -1889,143 +1850,9 @@ class AgentBase:
                 pass
         return datetime.now(timezone.utc)
 
-    def _resolve_observability_config(self) -> AgentObservabilityConfig:
-        """
-        Resolve the observability configuration for the agent in the following order:
-        1. Passed through instantiation (highest priority)
-        2. Environment variables
-        3. Default statestore runtime config (lowest priority)
-
-        Args:
-            agent_observability: Optional observability config provided during initialization.
-        Returns:
-            Resolved AgentObservabilityConfig instance.
-        """
-
-        config = self._load_observability_from_statestore()
-        logger.debug(f"Statestore observability config: {config}")
-
-        env_config = AgentObservabilityConfig.from_env()
-        logger.debug(f"Env observability config: {env_config}")
-
-        config = self._merge_observability_configs(config, env_config)
-        logger.debug(f"Merged observability config: {config}")
-
-        if self._agent_observability:
-            config = self._merge_observability_configs(
-                config, self._agent_observability
-            )
-            logger.debug(f"Final observability config with override: {config}")
-        return config
-
-    def _load_observability_from_statestore(self) -> AgentObservabilityConfig:
-        """
-        Load observability configuration from the state store.
-
-        Returns:
-            AgentObservabilityConfig instance loaded from state store.
-        """
-
-        try:
-            # Use standard OTEL env var names in statestore config
-            sdk_disabled = self._runtime_conf.get("OTEL_SDK_DISABLED", "true").lower()
-            enabled = sdk_disabled != "true"
-            auth_token = (
-                self._runtime_secrets.get("OTEL_EXPORTER_OTLP_HEADERS")
-                or self._runtime_conf.get("OTEL_EXPORTER_OTLP_HEADERS")
-                or None
-            )
-            endpoint = self._runtime_conf.get("OTEL_EXPORTER_OTLP_ENDPOINT") or None
-            service_name = self._runtime_conf.get("OTEL_SERVICE_NAME") or None
-            logging_enabled = (
-                self._runtime_conf.get("OTEL_LOGGING_ENABLED", "false").lower()
-                == "true"
-            )
-            tracing_enabled = (
-                self._runtime_conf.get("OTEL_TRACING_ENABLED", "false").lower()
-                == "true"
-            )
-
-            logging_exporter: Optional[AgentLoggingExporter] = None
-            logging_exporter_str = self._runtime_conf.get(
-                "OTEL_LOGS_EXPORTER", "console"
-            )
-            if logging_exporter_str:
-                try:
-                    logging_exporter = AgentLoggingExporter(logging_exporter_str)
-                except (ValueError, KeyError):
-                    logging_exporter = AgentLoggingExporter.CONSOLE
-
-            tracing_exporter: Optional[AgentTracingExporter] = None
-            tracing_exporter_str = self._runtime_conf.get(
-                "OTEL_TRACES_EXPORTER", "console"
-            )
-            if tracing_exporter_str:
-                try:
-                    tracing_exporter = AgentTracingExporter(tracing_exporter_str)
-                except (ValueError, KeyError):
-                    tracing_exporter = AgentTracingExporter.CONSOLE
-
-            return AgentObservabilityConfig(
-                enabled=enabled,
-                auth_token=auth_token,
-                endpoint=endpoint,
-                service_name=service_name,
-                logging_enabled=logging_enabled,
-                logging_exporter=logging_exporter,
-                tracing_enabled=tracing_enabled,
-                tracing_exporter=tracing_exporter,
-            )
-        except Exception as e:
-            logger.debug(f"Could not load observability config from statestore: {e}")
-            return AgentObservabilityConfig()
-
-    def _merge_observability_configs(
-        self, base: AgentObservabilityConfig, override: AgentObservabilityConfig
-    ) -> AgentObservabilityConfig:
-        """
-        Merge two observability configurations, with the override taking precedence.
-        Only override if the override value is not None.
-
-        Args:
-            base: Base observability configuration.
-            override: Override observability configuration.
-        Returns:
-            Merged AgentObservabilityConfig instance.
-        """
-        merged_headers = {**base.headers, **override.headers}
-
-        enabled = override.enabled if override.enabled is not None else base.enabled
-        logging_enabled = (
-            override.logging_enabled
-            if override.logging_enabled is not None
-            else base.logging_enabled
-        )
-        tracing_enabled = (
-            override.tracing_enabled
-            if override.tracing_enabled is not None
-            else base.tracing_enabled
-        )
-
-        merged_config = AgentObservabilityConfig(
-            enabled=enabled,
-            headers=merged_headers,
-            auth_token=override.auth_token or base.auth_token,
-            endpoint=override.endpoint or base.endpoint,
-            service_name=override.service_name or base.service_name,
-            logging_enabled=logging_enabled,
-            logging_exporter=override.logging_exporter or base.logging_exporter,
-            tracing_enabled=tracing_enabled,
-            tracing_exporter=override.tracing_exporter or base.tracing_exporter,
-        )
-        return merged_config
-
-    def _setup_agent_runtime_configuration(self) -> None:
-        self._agent_observability = self._resolve_observability_config()
-        self._setup_agent_observability(self._agent_observability)
-
-    def _setup_agent_observability(self, config: AgentObservabilityConfig) -> None:
+    def _setup_agent_observability(self) -> None:
         """Setup agent runtime configuration."""
+        config = self._agent_observability
         self._otel_logging_handler = None
 
         if config.enabled:

@@ -24,6 +24,7 @@ import pytest
 from dapr.ext.workflow import DaprWorkflowContext
 
 from dapr_agents.agents.durable import DurableAgent
+from dapr_agents.agents.constants import AGENT_DEFAULT_MAX_ITERATIONS
 from dapr_agents.agents.configs import (
     AgentPubSubConfig,
     AgentStateConfig,
@@ -262,7 +263,7 @@ class TestDurableAgent:
         assert agent.prompting_helper.role == "Test Durable Assistant"
         assert agent.prompting_helper.goal == "Help with testing"
         assert agent.prompting_helper.instructions == ["Be helpful"]
-        assert agent.execution.max_iterations == 10  # default value
+        assert agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
         assert agent.tool_history == []
         assert agent.pubsub.pubsub_name == "testpubsub"
         assert agent.pubsub.agent_topic == "TestDurableAgent"

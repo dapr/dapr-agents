@@ -26,6 +26,7 @@ from dapr_agents.agents.configs import (
     AgentObservabilityConfig,
     AgentTracingExporter,
     AgentLoggingExporter,
+    merge_models,
 )
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
@@ -105,7 +106,7 @@ class TestObservabilityConfigFromInstantiation:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.headers == {"Authorization": "Bearer token123"}
@@ -142,7 +143,7 @@ class TestObservabilityConfigFromInstantiation:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.tracing_enabled is True
@@ -174,7 +175,8 @@ class TestObservabilityConfigFromInstantiation:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
+
         assert resolved_config.enabled is False
 
 
@@ -250,7 +252,7 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.headers == {"Authorization": "Bearer env-token"}
@@ -282,7 +284,7 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.service_name == "partial-service"
@@ -311,7 +313,8 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
+
         assert resolved_config.enabled is False
 
     def test_observability_config_from_env_invalid_exporter(
@@ -337,7 +340,7 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Should default to CONSOLE for invalid values
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
@@ -433,7 +436,7 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.auth_token == "statestore-token"
@@ -472,7 +475,7 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.service_name == "partial-statestore-service"
@@ -504,7 +507,8 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
+
         assert resolved_config.enabled is False
 
     def test_observability_config_statestore_invalid_exporter(
@@ -536,7 +540,7 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Should default to CONSOLE for invalid values
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
@@ -634,7 +638,7 @@ class TestObservabilityConfigPrecedence:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Instantiation should win
         assert resolved_config.enabled is False
@@ -677,7 +681,7 @@ class TestObservabilityConfigPrecedence:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Environment should win
         assert resolved_config.enabled is False
@@ -729,7 +733,7 @@ class TestObservabilityConfigPrecedence:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Instantiation wins for service_name and tracing_exporter
         assert resolved_config.service_name == "instantiation-service"
@@ -778,7 +782,7 @@ class TestObservabilityConfigPrecedence:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Headers should be merged with instantiation taking precedence
         assert "X-Custom-Header" in resolved_config.headers
@@ -807,7 +811,7 @@ class TestObservabilityConfigPrecedence:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Values come from statestore defaults (False for booleans, console for exporters)
         assert resolved_config.enabled is False
@@ -821,159 +825,54 @@ class TestObservabilityConfigPrecedence:
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
 
+# TODO: remove this in favour of config tests
 class TestObservabilityConfigMergeLogic:
     """Test cases for the merge logic specifically."""
 
-    @pytest.fixture(autouse=True)
-    def setup_env(self, monkeypatch):
-        """Set up environment variables and mocks for testing."""
-        # Clear any OTEL environment variables
-        for key in list(os.environ.keys()):
-            if key.startswith("OTEL_"):
-                monkeypatch.delenv(key, raising=False)
-
-        os.environ["OPENAI_API_KEY"] = "test-api-key"
-
-        # Mock DaprClient
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
-        # Mock the observability setup to avoid actual OTel initialization
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.AgentBase._setup_agent_observability", Mock()
-        )
-
-        yield
-        if "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
-
-    def _patch_dapr_client(self, monkeypatch, mock_client):
-        """Helper to patch DaprClient in both locations."""
-        # Create a mock class that returns the mock_client when instantiated
-        # We need to capture mock_client in a closure
-        captured_client = mock_client
-
-        class MockDaprClientClass:
-            def __init__(self, **kwargs):
-                pass
-
-            def __enter__(self):
-                return captured_client
-
-            def __exit__(self, *args):
-                pass
-
-        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-            MockDaprClientClass,
-        )
-
-    @pytest.fixture
-    def mock_llm(self):
-        """Create a mock LLM client."""
-        mock = Mock(spec=OpenAIChatClient)
-        mock.prompt_template = None
-        mock.__class__.__name__ = "MockLLMClient"
-        mock.provider = "MockOpenAIProvider"
-        mock.api = "MockOpenAIAPI"
-        mock.model = "gpt-4o-mock"
-        return mock
-
-    def test_merge_none_values_dont_override(self, mock_llm):
+    def test_merge_none_values_dont_override(self):
         """Test that None values in override don't override base values."""
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
-
         base = AgentObservabilityConfig(
             enabled=True,
             service_name="base-service",
             endpoint="http://base-endpoint:4317",
         )
-
         override = AgentObservabilityConfig(
             enabled=None,  # Should not override
             service_name="override-service",
             endpoint=None,  # Should not override
         )
 
-        merged = agent._merge_observability_configs(base, override)
+        merged = merge_models(base, override)
 
         assert merged.enabled is True  # From base
         assert merged.service_name == "override-service"  # From override
         assert merged.endpoint == "http://base-endpoint:4317"  # From base
 
-    def test_merge_boolean_fields_correctly(self, mock_llm):
+    def test_merge_boolean_fields_correctly(self):
         """Test that boolean fields merge correctly with None handling."""
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
-
         base = AgentObservabilityConfig(
             enabled=True,
             logging_enabled=True,
             tracing_enabled=False,
         )
-
         override = AgentObservabilityConfig(
             enabled=False,
             logging_enabled=None,
             tracing_enabled=True,
         )
 
-        merged = agent._merge_observability_configs(base, override)
+        merged = merge_models(base, override)
 
         assert merged.enabled is False  # Override wins
         assert merged.logging_enabled is True  # Base wins (override is None)
         assert merged.tracing_enabled is True  # Override wins
 
-    def test_merge_empty_configs(self, mock_llm):
+    def test_merge_empty_configs(self):
         """Test merging two empty configs."""
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
-
         base = AgentObservabilityConfig()
         override = AgentObservabilityConfig()
 
-        merged = agent._merge_observability_configs(base, override)
+        merged = merge_models(base, override)
 
         assert merged.enabled is None
         assert merged.headers == {}
