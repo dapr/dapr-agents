@@ -26,9 +26,8 @@ import threading
 
 import pytest
 
-import dapr_agents.agents.components as components
 from dapr_agents.agents.components import DaprInfra, _REGISTRY_AGENTS_KEY
-from dapr_agents.agents.configs import AgentRegistryConfig
+from dapr_agents.agents.configs import AgentRegistryConfig, RegistryIndexRetryConfig
 from dapr_agents.storage.daprstores.stateservice import StateStoreError
 
 
@@ -81,18 +80,22 @@ class FakeEtagStore:
             self._etags.pop(key, None)
 
 
-def _make_infra(name, store):
+def _fast_retry(**overrides):
+    """A retry policy with shrunk backoff so contention tests run quickly."""
+    params = dict(backoff_base_seconds=0.001, backoff_cap_seconds=0.03)
+    params.update(overrides)
+    return RegistryIndexRetryConfig(**params)
+
+
+def _make_infra(name, store, retry=None):
     return DaprInfra(
         name=name,
-        registry=AgentRegistryConfig(store=store, team_name="default"),
+        registry=AgentRegistryConfig(
+            store=store,
+            team_name="default",
+            index_retry=retry or _fast_retry(),
+        ),
     )
-
-
-@pytest.fixture
-def fast_backoff(monkeypatch):
-    """Shrink backoff so contention tests run quickly while still de-correlating."""
-    monkeypatch.setattr(components, "_INDEX_BACKOFF_BASE_SECONDS", 0.001)
-    monkeypatch.setattr(components, "_INDEX_BACKOFF_CAP_SECONDS", 0.03)
 
 
 def _run_concurrently(targets):
@@ -117,7 +120,7 @@ def _run_concurrently(targets):
 
 
 @pytest.mark.parametrize("num_agents", [8])
-def test_concurrent_deregister_all_converge(fast_backoff, num_agents):
+def test_concurrent_deregister_all_converge(num_agents):
     """Every agent deregisters concurrently and the index ends empty."""
     store = FakeEtagStore()
     names = [f"agent-{i}" for i in range(num_agents)]
@@ -139,7 +142,7 @@ def test_concurrent_deregister_all_converge(fast_backoff, num_agents):
 
 
 @pytest.mark.parametrize("num_agents", [8])
-def test_concurrent_index_add_all_converge(fast_backoff, num_agents):
+def test_concurrent_index_add_all_converge(num_agents):
     """Every agent adds itself to the index concurrently; none is lost."""
     store = FakeEtagStore()
     names = [f"agent-{i}" for i in range(num_agents)]
@@ -172,13 +175,8 @@ def test_concurrent_index_add_all_converge(fast_backoff, num_agents):
     )
 
 
-def test_mutate_team_index_gives_up_when_always_conflicting(monkeypatch):
+def test_mutate_team_index_gives_up_when_always_conflicting():
     """A permanently-conflicting store fails bounded — it must not hang."""
-    monkeypatch.setattr(components, "_INDEX_MUTATION_MAX_ATTEMPTS", 4)
-    monkeypatch.setattr(components, "_INDEX_MUTATION_BUDGET_SECONDS", 5.0)
-    monkeypatch.setattr(components, "_INDEX_BACKOFF_BASE_SECONDS", 0.001)
-    monkeypatch.setattr(components, "_INDEX_BACKOFF_CAP_SECONDS", 0.005)
-
     store = FakeEtagStore()
     index_key = "agents:default:_index"
     store.seed(index_key, {_REGISTRY_AGENTS_KEY: ["agent-0"]})
@@ -197,7 +195,16 @@ def test_mutate_team_index_gives_up_when_always_conflicting(monkeypatch):
     store.load_with_etag = flaky_load
     store.save = always_conflict
 
-    infra = _make_infra("agent-0", store)
+    infra = _make_infra(
+        "agent-0",
+        store,
+        retry=_fast_retry(
+            max_attempts=4,
+            budget_seconds=5.0,
+            backoff_base_seconds=0.001,
+            backoff_cap_seconds=0.005,
+        ),
+    )
 
     def _remove(agents_list):
         if "agent-0" not in agents_list:
@@ -215,11 +222,8 @@ def test_mutate_team_index_gives_up_when_always_conflicting(monkeypatch):
     assert load_calls["n"] == 4, "should retry up to the attempt bound, then give up"
 
 
-def test_mutate_team_index_retries_then_succeeds(monkeypatch):
+def test_mutate_team_index_retries_then_succeeds():
     """A few transient conflicts are absorbed; the write eventually lands."""
-    monkeypatch.setattr(components, "_INDEX_BACKOFF_BASE_SECONDS", 0.001)
-    monkeypatch.setattr(components, "_INDEX_BACKOFF_CAP_SECONDS", 0.005)
-
     store = FakeEtagStore()
     index_key = "agents:default:_index"
     store.seed(index_key, {_REGISTRY_AGENTS_KEY: ["agent-0"]})
@@ -234,7 +238,11 @@ def test_mutate_team_index_retries_then_succeeds(monkeypatch):
         return real_save(**kw)
 
     store.save = flaky_save
-    infra = _make_infra("agent-0", store)
+    infra = _make_infra(
+        "agent-0",
+        store,
+        retry=_fast_retry(backoff_base_seconds=0.001, backoff_cap_seconds=0.005),
+    )
 
     def _remove(agents_list):
         if "agent-0" not in agents_list:

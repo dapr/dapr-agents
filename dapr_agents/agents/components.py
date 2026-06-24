@@ -29,6 +29,7 @@ from dapr_agents.agents.configs import (
     AgentRegistryConfig,
     AgentStateConfig,
     DEFAULT_AGENT_WORKFLOW_BUNDLE,
+    RegistryIndexRetryConfig,
     WorkflowGrpcOptions,
     StateModelBundle,
 )
@@ -38,12 +39,6 @@ logger = logging.getLogger(__name__)
 
 # Registry index key for the list of registered agent names
 _REGISTRY_AGENTS_KEY = "agents"
-
-# Registry index concurrency
-_INDEX_MUTATION_MAX_ATTEMPTS = 50
-_INDEX_MUTATION_BUDGET_SECONDS = 10.0
-_INDEX_BACKOFF_BASE_SECONDS = 0.05
-_INDEX_BACKOFF_CAP_SECONDS = 1.0
 
 
 class DaprInfra:
@@ -79,7 +74,9 @@ class DaprInfra:
             state: Durable state (Dapr state store, key overrides, defaults, hooks).
             registry: Agent registry backing store and team settings.
             base_metadata: Base metadata for Dapr state operations.
-            max_etag_attempts: Max optimistic-concurrency retries on registry mutations.
+            max_etag_attempts: Max optimistic-concurrency retries on per-key
+                workflow-state saves. Registry-index contention is governed
+                separately by ``registry.index_retry``.
             default_bundle: Default state schema bundle (injected by agent/orchestrator class).
         """
         self.name = name
@@ -145,6 +142,9 @@ class DaprInfra:
         # -----------------------------
         self._registry = registry
         self.registry_state = registry.store if registry else None
+        self._registry_index_retry = (
+            registry.index_retry if registry else RegistryIndexRetryConfig()
+        )
         self._registry_prefix = "agents:"
         self._registry_team_override = (
             registry.team_name if registry and registry.team_name else "default"
@@ -761,11 +761,16 @@ class DaprInfra:
             agents_list.remove(agent_name)
             return True
 
-        self._mutate_team_index(
+        if not self._mutate_team_index(
             index_key=index_key,
             partition_meta=partition_meta,
             mutate=_remove,
-        )
+        ):
+            # _mutate_team_index already logged the failure (with traceback). The
+            # per-agent key is already gone, so a leftover index entry is stale and
+            # self-heals on read (get_agents_metadata skips missing per-agent keys);
+            # don't claim a successful deregistration here.
+            return
 
         logger.info(
             "Deregistered agent '%s' from team '%s' registry",
@@ -801,9 +806,10 @@ class DaprInfra:
             True if the index reached the desired state (written or already
             correct); False if every attempt failed.
         """
-        deadline = time.monotonic() + _INDEX_MUTATION_BUDGET_SECONDS
+        cfg = self._registry_index_retry
+        deadline = time.monotonic() + cfg.budget_seconds
         last_exc: Optional[Exception] = None
-        for attempt in range(1, _INDEX_MUTATION_MAX_ATTEMPTS + 1):
+        for attempt in range(1, cfg.max_attempts + 1):
             try:
                 current_index, etag = self.registry_state.load_with_etag(
                     key=index_key,
@@ -823,16 +829,13 @@ class DaprInfra:
                 return True
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
-                if (
-                    attempt >= _INDEX_MUTATION_MAX_ATTEMPTS
-                    or time.monotonic() >= deadline
-                ):
+                if attempt >= cfg.max_attempts or time.monotonic() >= deadline:
                     break
                 logger.warning(
                     "Conflict updating registry index '%s' (attempt %d/%d): %s",
                     index_key,
                     attempt,
-                    _INDEX_MUTATION_MAX_ATTEMPTS,
+                    cfg.max_attempts,
                     exc,
                 )
                 self._sleep_index_backoff(attempt, deadline)
@@ -842,11 +845,11 @@ class DaprInfra:
             index_key,
             attempt,
             last_exc,
+            exc_info=last_exc,
         )
         return False
 
-    @staticmethod
-    def _sleep_index_backoff(attempt: int, deadline: float) -> None:
+    def _sleep_index_backoff(self, attempt: int, deadline: float) -> None:
         """
         Sleep with full-jitter exponential backoff, never past ``deadline``.
 
@@ -854,9 +857,10 @@ class DaprInfra:
         concurrent writers far better than a fixed or linear delay — that is what
         lets a whole team converge instead of repeatedly colliding in lock-step.
         """
+        cfg = self._registry_index_retry
         ceiling = min(
-            _INDEX_BACKOFF_CAP_SECONDS,
-            _INDEX_BACKOFF_BASE_SECONDS * (2 ** min(attempt - 1, 20)),
+            cfg.backoff_cap_seconds,
+            cfg.backoff_base_seconds * (2 ** min(attempt - 1, 20)),
         )
         remaining = deadline - time.monotonic()
         if remaining <= 0:
