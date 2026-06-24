@@ -17,7 +17,7 @@ import logging
 import random
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from dapr.clients.grpc._state import Concurrency, Consistency, StateOptions
 
@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 
 # Registry index key for the list of registered agent names
 _REGISTRY_AGENTS_KEY = "agents"
+
+# Registry index concurrency
+_INDEX_MUTATION_MAX_ATTEMPTS = 50
+_INDEX_MUTATION_BUDGET_SECONDS = 10.0
+_INDEX_BACKOFF_BASE_SECONDS = 0.05
+_INDEX_BACKOFF_CAP_SECONDS = 1.0
 
 
 class DaprInfra:
@@ -605,39 +611,18 @@ class DaprInfra:
         # (etag!=None) cases atomically, so no separate initialization step is needed.
         index_key = self._team_registry_index_key(team)
 
-        attempts = max(1, min(self._max_etag_attempts, 10))
-        for attempt in range(1, attempts + 1):
-            try:
-                current_index, etag = self.registry_state.load_with_etag(
-                    key=index_key,
-                    default={_REGISTRY_AGENTS_KEY: []},
-                    state_metadata=partition_meta,
-                )
-                agents_list = current_index.get(_REGISTRY_AGENTS_KEY, [])
-                if self.name not in agents_list:
-                    agents_list.append(self.name)
-                    self.registry_state.save(
-                        key=index_key,
-                        value={_REGISTRY_AGENTS_KEY: agents_list},
-                        etag=etag,
-                        state_metadata=partition_meta,
-                        state_options=self._save_options,
-                    )
-                break
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Conflict updating registry index (attempt %d/%d) for '%s': %s",
-                    attempt,
-                    attempts,
-                    index_key,
-                    exc,
-                )
-                if attempt == attempts:
-                    logger.exception(
-                        "Failed to update registry index after %d attempts.", attempts
-                    )
-                    return
-                time.sleep(min(0.25 * attempt, 1.0) * (1 + random.uniform(0, 0.25)))
+        def _add(agents_list: list) -> bool:
+            if self.name in agents_list:
+                return False
+            agents_list.append(self.name)
+            return True
+
+        if not self._mutate_team_index(
+            index_key=index_key,
+            partition_meta=partition_meta,
+            mutate=_add,
+        ):
+            return
 
         logger.info(
             "Registered agent '%s' in team '%s' registry",
@@ -769,18 +754,65 @@ class DaprInfra:
 
         # Step 2: Remove agent name from index (ETag-protected)
         index_key = self._team_registry_index_key(team)
-        attempts = max(1, min(self._max_etag_attempts, 10))
-        for attempt in range(1, attempts + 1):
+
+        def _remove(agents_list: list) -> bool:
+            if agent_name not in agents_list:
+                return False
+            agents_list.remove(agent_name)
+            return True
+
+        self._mutate_team_index(
+            index_key=index_key,
+            partition_meta=partition_meta,
+            mutate=_remove,
+        )
+
+        logger.info(
+            "Deregistered agent '%s' from team '%s' registry",
+            agent_name,
+            self._effective_team(team),
+        )
+
+    def _mutate_team_index(
+        self,
+        *,
+        index_key: str,
+        partition_meta: Dict[str, str],
+        mutate: Callable[[list], bool],
+    ) -> bool:
+        """
+        Apply ``mutate`` to the team index's agent-name list under optimistic concurrency.
+
+        Re-reads the index and its ETag on every attempt, lets ``mutate`` edit the
+        list in place (returning True when a write is needed), then saves with the
+        ETag. On a conflict it retries with full-jitter exponential backoff to
+        de-synchronize concurrent writers — essential when an entire team registers
+        or deregisters at once and every agent contends on this single shared
+        document. Bounded by both an attempt count and a wall-clock budget so a
+        mutation never overruns the caller's shutdown grace period.
+
+        Args:
+            index_key: Team index document key.
+            partition_meta: Dapr partition/metadata for the index key.
+            mutate: Callback that edits the agent-name list in place and returns
+                True if the change needs to be written, False if already satisfied.
+
+        Returns:
+            True if the index reached the desired state (written or already
+            correct); False if every attempt failed.
+        """
+        deadline = time.monotonic() + _INDEX_MUTATION_BUDGET_SECONDS
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, _INDEX_MUTATION_MAX_ATTEMPTS + 1):
             try:
                 current_index, etag = self.registry_state.load_with_etag(
                     key=index_key,
                     default={_REGISTRY_AGENTS_KEY: []},
                     state_metadata=partition_meta,
                 )
-                agents_list = current_index.get(_REGISTRY_AGENTS_KEY, [])
-                if agent_name not in agents_list:
-                    break
-                agents_list.remove(agent_name)
+                agents_list = list(current_index.get(_REGISTRY_AGENTS_KEY, []))
+                if not mutate(agents_list):
+                    return True  # already in the desired state; nothing to write
                 self.registry_state.save(
                     key=index_key,
                     value={_REGISTRY_AGENTS_KEY: agents_list},
@@ -788,27 +820,48 @@ class DaprInfra:
                     state_metadata=partition_meta,
                     state_options=self._save_options,
                 )
-                break
+                return True
             except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                if (
+                    attempt >= _INDEX_MUTATION_MAX_ATTEMPTS
+                    or time.monotonic() >= deadline
+                ):
+                    break
                 logger.warning(
-                    "Conflict updating registry index (attempt %d/%d) for '%s': %s",
-                    attempt,
-                    attempts,
+                    "Conflict updating registry index '%s' (attempt %d/%d): %s",
                     index_key,
+                    attempt,
+                    _INDEX_MUTATION_MAX_ATTEMPTS,
                     exc,
                 )
-                if attempt == attempts:
-                    logger.exception(
-                        "Failed to update registry index after %d attempts.", attempts
-                    )
-                    return
-                time.sleep(min(0.25 * attempt, 1.0) * (1 + random.uniform(0, 0.25)))
+                self._sleep_index_backoff(attempt, deadline)
 
-        logger.info(
-            "Deregistered agent '%s' from team '%s' registry",
-            agent_name,
-            self._effective_team(team),
+        logger.error(
+            "Failed to update registry index '%s' after %d attempt(s): %s",
+            index_key,
+            attempt,
+            last_exc,
         )
+        return False
+
+    @staticmethod
+    def _sleep_index_backoff(attempt: int, deadline: float) -> None:
+        """
+        Sleep with full-jitter exponential backoff, never past ``deadline``.
+
+        Full jitter (a uniform random delay in ``[0, ceiling]``) de-correlates
+        concurrent writers far better than a fixed or linear delay — that is what
+        lets a whole team converge instead of repeatedly colliding in lock-step.
+        """
+        ceiling = min(
+            _INDEX_BACKOFF_CAP_SECONDS,
+            _INDEX_BACKOFF_BASE_SECONDS * (2 ** min(attempt - 1, 20)),
+        )
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(random.uniform(0, ceiling), remaining))
 
     # ------------------------------------------------------------------
     # Internal helpers
