@@ -100,6 +100,7 @@ from dapr_agents.types import (
     AssistantMessage,
 )
 from dapr_agents.types.streaming import (
+    STREAM_SCHEMA_VERSION,
     AssistantMessageAccumulator,
     StreamChunkType,
 )
@@ -222,6 +223,36 @@ def orchestration_workflow_id(
     sanitized_framework = sanitize_agent_name(framework.lower())
 
     return f"dapr.{sanitized_framework}.{sanitized_agent_name}.orchestration"
+
+
+# Registry of built-in tool factories, keyed by the name users list in
+# ``AgentExecutionConfig.builtin_tools``. Each factory receives the agent and
+# returns a ready tool. The indirection is required because built-ins late-bind
+# to agent-scoped activity names (e.g. ``ask_user`` -> the agent's
+# ``publish_stream_event`` activity), which don't exist until the agent is
+# constructed — so there's nothing to import-and-pass as a config-time instance.
+# Extend by adding an entry here (mirrors ``register_stream_listener``).
+BUILTIN_TOOL_FACTORIES: Dict[str, Callable[[Any], Any]] = {
+    ASK_USER_TOOL_NAME: lambda agent: build_ask_user_tool(
+        agent._activity_name(agent.publish_stream_event)
+    ),
+}
+
+_STREAMING_ALPHA_WARNED = False
+
+
+def _warn_streaming_alpha() -> None:
+    """Emit a one-time process warning that streaming is an alpha feature."""
+    global _STREAMING_ALPHA_WARNED
+    if _STREAMING_ALPHA_WARNED:
+        return
+    _STREAMING_ALPHA_WARNED = True
+    logger.warning(
+        "DurableAgent streaming is ALPHA (chunk schema %s): the AgentStreamChunk "
+        "shape and streaming semantics may change in future 1.x releases. Branch "
+        "on AgentStreamChunk.schema_version for stability.",
+        STREAM_SCHEMA_VERSION,
+    )
 
 
 class DurableAgent(AgentBase):
@@ -795,6 +826,32 @@ class DurableAgent(AgentBase):
                                 }
 
                             tool_obj = self.tool_executor.get_tool(fn_name)
+
+                            # ask_user only works when the session has a live stream
+                            # channel: it emits USER_INPUT_REQUESTED on the stream and
+                            # then suspends on an external event. With no stream_ctx
+                            # (e.g. a non-streaming pub/sub session) the prompt reaches
+                            # no UI and the workflow would hang until the timeout
+                            # sentinel (~600s). Short-circuit at call time with a clear
+                            # result instead of dispatching into that dead end.
+                            if fn_name == ASK_USER_TOOL_NAME and not stream_ctx:
+                                ordered[idx] = ToolMessage(
+                                    content=(
+                                        "ask_user is unavailable for this run: there is no "
+                                        "interactive input channel (this session is not "
+                                        "streaming). Continue without user input."
+                                    ),
+                                    role="tool",
+                                    name=fn_name,
+                                    tool_call_id=tc["id"],
+                                ).model_dump()
+                                logger.info(
+                                    "Skipping ask_user for '%s': session has no stream "
+                                    "channel (instance=%s)",
+                                    fn_name,
+                                    ctx.instance_id,
+                                )
+                                continue
 
                             # WorkflowContextInjectedTool instances get executed inline as workflow tasks so they can receive the workflow context.
                             # They must be executed in the workflow to have access to the ctx to call ctx.call_child_workflow,
@@ -2254,9 +2311,13 @@ class DurableAgent(AgentBase):
         # NOTE: the actual ``self.llm.generate(...)`` call happens below, after
         # before_llm_call hook dispatch (HEAD moved generation past the hooks).
         stream_ctx = getattr(entry, "stream_context", None)
-        streaming_requested = bool(
-            self.execution.streaming and stream_ctx and response_model is None
-        )
+        # stream_ctx is the frozen per-session decision ("this session streams"),
+        # set once in _resolve_stream_context and never re-derived from the live
+        # self.execution.streaming flag. Gate streaming on stream_ctx alone here,
+        # consistent with publish_stream_event / finalize_workflow — re-reading the
+        # live flag mid-session let content deltas stop while control + terminal
+        # chunks kept flowing (a partial, confusing stream).
+        streaming_requested = bool(stream_ctx and response_model is None)
         if streaming_requested:
             generate_kwargs["stream"] = True
 
@@ -2348,7 +2409,7 @@ class DurableAgent(AgentBase):
                 }
                 # Structured-output path still honours streaming: emit a uniform
                 # START+TURN_COMPLETE so consumers see the final payload.
-                if stream_ctx and self.execution.streaming:
+                if stream_ctx:
                     self._emit_non_streaming_stream(
                         stream_ctx=stream_ctx,
                         instance_id=instance_id,
@@ -2371,7 +2432,9 @@ class DurableAgent(AgentBase):
                 if isinstance(response, LLMChatResponse):
                     assistant_message = response.get_message()
                     fallback = bool(
-                        (response.metadata or {}).get("dapr_streaming_fallback")
+                        (response.metadata or {}).get(
+                            "dapr_conversation_streaming_unsupported"
+                        )
                     )
                 else:
                     assistant_message = response.get_message()
@@ -2382,14 +2445,16 @@ class DurableAgent(AgentBase):
                 if streaming_requested or fallback:
                     # Preserve the uniform stream shape when a streaming request
                     # ended up non-streaming (Dapr fallback, future providers).
-                    if stream_ctx and self.execution.streaming:
+                    if stream_ctx:
                         self._emit_non_streaming_stream(
                             stream_ctx=stream_ctx,
                             instance_id=instance_id,
                             turn=int(payload.get("turn", 0)),
                             phase=payload.get(STREAM_PHASE),
                             assistant_message=assistant_message,
-                            metadata={"dapr_streaming_fallback": fallback}
+                            metadata={
+                                "dapr_conversation_streaming_unsupported": fallback
+                            }
                             if fallback
                             else None,
                         )
@@ -2701,18 +2766,25 @@ class DurableAgent(AgentBase):
           ``AgentExecutionConfig.builtin_tools`` (default is an empty list).
         """
 
+        if self.execution.streaming:
+            _warn_streaming_alpha()
         if self.execution.orchestration_mode:
             return
         if not self.execution.streaming:
             return
-        enabled = set(self.execution.builtin_tools or [])
-        if ASK_USER_TOOL_NAME in enabled:
-            existing = self.tool_executor.get_tool(ASK_USER_TOOL_NAME)
-            if existing is None:
-                tool = build_ask_user_tool(
-                    self._activity_name(self.publish_stream_event)
+        for name in self.execution.builtin_tools or []:
+            factory = BUILTIN_TOOL_FACTORIES.get(name)
+            if factory is None:
+                logger.warning(
+                    "Unknown builtin tool %r requested for agent '%s'; known "
+                    "built-ins: %s. Skipping.",
+                    name,
+                    self.name,
+                    sorted(BUILTIN_TOOL_FACTORIES),
                 )
-                self.tool_executor.register_tool(tool)
+                continue
+            if self.tool_executor.get_tool(name) is None:
+                self.tool_executor.register_tool(factory(self))
 
     # ------------------------------------------------------------------
     # Streaming helpers
@@ -3551,6 +3623,26 @@ class DurableAgent(AgentBase):
         stream_ctx = getattr(entry, "stream_context", None) if entry else None
         if not stream_ctx:
             return
+
+        # Persist/clear outstanding ask_user prompts in durable state so a client
+        # reconnecting after a restart can recover them: the USER_INPUT_REQUESTED
+        # chunk is a cached activity that won't re-fire on replay, and pub/sub
+        # doesn't retain. Keyed by request_id; cleared on answer or timeout (both
+        # of which ask_user routes back through this same activity).
+        if entry is not None and hasattr(entry, "pending_inputs"):
+            data = event_data or {}
+            req_id = data.get("request_id")
+            if req_id:
+                if event_type_raw == "user_input_requested":
+                    entry.pending_inputs[req_id] = dict(data)
+                    self.save_state(instance_id, entry=entry)
+                elif event_type_raw in (
+                    "user_input_received",
+                    "user_input_timed_out",
+                ):
+                    if entry.pending_inputs.pop(req_id, None) is not None:
+                        self.save_state(instance_id, entry=entry)
+
         emitter = self._build_stream_emitter(
             stream_ctx=stream_ctx,
             instance_id=instance_id,

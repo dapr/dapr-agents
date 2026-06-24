@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 from datetime import timedelta
 from typing import Iterable, List, Optional
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -99,7 +99,7 @@ def patch_dapr_check(monkeypatch):
     mock_client = _MockDaprClient()
     monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
     monkeypatch.setattr(
-        "dapr_agents.storage.daprstores.statestore.DaprClient",
+        "dapr_agents.storage.daprstores.base.DaprClient",
         lambda: mock_client,
     )
 
@@ -293,7 +293,7 @@ class TestEmitNonStreamingStream:
             turn=1,
             phase=None,
             assistant_message={"role": "assistant", "content": "final"},
-            metadata={"dapr_streaming_fallback": True},
+            metadata={"dapr_conversation_streaming_unsupported": True},
         )
         assert len(registered_capturing_listener) == 1
         listener = registered_capturing_listener[0]
@@ -301,7 +301,9 @@ class TestEmitNonStreamingStream:
         assert types == [StreamChunkType.START, StreamChunkType.TURN_COMPLETE]
         assert listener.chunks[-1].complete_message is None
         # Metadata still propagates so consumers see the fallback tag.
-        assert listener.chunks[-1].metadata == {"dapr_streaming_fallback": True}
+        assert listener.chunks[-1].metadata == {
+            "dapr_conversation_streaming_unsupported": True
+        }
         assert listener.closed is True
 
     def test_uniform_start_complete_opt_in_carries_body(

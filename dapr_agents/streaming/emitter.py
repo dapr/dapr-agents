@@ -22,6 +22,7 @@ that the activity returns (and that gets persisted to durable state).
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Dict, Iterable, List, Optional
 
 from dapr_agents.streaming.listeners import StreamListener
@@ -239,6 +240,14 @@ class StreamEmitter:
         self._sequence += 1
         envelope = AgentStreamChunk(
             sequence=self._sequence,
+            # Deterministic per (instance, turn, sequence) so a turn that
+            # re-executes on restart re-emits identical chunk_ids — consumers
+            # dedupe on chunk_id (the documented retry-dedup key) instead of
+            # seeing a fresh random id for each replayed chunk.
+            chunk_id=uuid.uuid5(
+                uuid.NAMESPACE_DNS,
+                f"{self._wf_id}:{self._turn}:{self._sequence}",
+            ).hex,
             type=chunk_type,
             agent=self._agent,
             workflow_instance_id=self._wf_id,

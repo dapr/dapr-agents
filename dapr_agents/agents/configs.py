@@ -511,6 +511,9 @@ class AgentExecutionConfig:
     orchestration_mode: Optional[OrchestrationMode] = None
     approval: AgentApprovalConfig = field(default_factory=AgentApprovalConfig)
     max_grpc_inbound_message_size_bytes: Optional[int] = None
+    # ALPHA: streaming emits AgentStreamChunk (schema "1-alpha") and may change
+    # in shape/semantics in future 1.x releases. Enabling it logs a one-time
+    # alpha warning; consumers should branch on AgentStreamChunk.schema_version.
     streaming: bool = False
     stream_listener: Optional[Dict[str, Any]] = None
     # Built-in tools are opt-in. Default is an empty list to preserve strict

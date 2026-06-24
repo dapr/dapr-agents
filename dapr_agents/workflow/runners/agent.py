@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
+import os
 import uuid
 from threading import Lock, Thread
 from typing import (
@@ -64,6 +65,10 @@ from dapr_agents.workflow.utils.registration import (
 from dapr_agents.workflow.utils.subscription import TTLDedupeBackend
 
 logger = logging.getLogger(__name__)
+
+# Agent names we've already warned about the unsafe in_process streaming default
+# — warn once per agent (not per session) to avoid log spam.
+_WARNED_IN_PROCESS_DEFAULT: set = set()
 
 R = TypeVar("R")
 
@@ -380,14 +385,29 @@ class AgentRunner(WorkflowRunner):
                 agent_name=agent.name,
             )
 
-        # Fall-through default: use pubsub when available + any cross-app peer
-        # exists; else in-process.
-        if self._agent_has_cross_app_peers(agent):
+        # Fall-through default. Prefer pubsub when the agent has cross-app peers
+        # OR the deployment is horizontally scaled: the in-process listener is
+        # bound to one process's registry, so after a rolling restart rehydrates
+        # the workflow on a different replica, emits would land nowhere.
+        if self._agent_has_cross_app_peers(agent) or self._is_multi_replica():
             return self._materialize_listener_config(
                 {"type": "pubsub"},
                 root_instance_id,
                 infra=agent._infra,
                 agent_name=agent.name,
+            )
+        # in_process is safe only for single-replica / direct-run. Warn once per
+        # agent so horizontally-scaled deployments know to switch to pubsub.
+        if agent.name not in _WARNED_IN_PROCESS_DEFAULT:
+            _WARNED_IN_PROCESS_DEFAULT.add(agent.name)
+            logger.warning(
+                "Agent '%s' is streaming over the default 'in_process' listener. "
+                "This is unsafe across multi-replica handoff: a workflow rehydrated "
+                "on another replica after a restart emits to a dead in-process "
+                "queue. For horizontally-scaled deployments set "
+                "stream_listener={'type': 'pubsub'} or export "
+                "DAPR_AGENTS_MULTI_REPLICA=1.",
+                agent.name,
             )
         return self._materialize_listener_config(
             {"type": "in_process"}, root_instance_id, agent_name=agent.name
@@ -401,6 +421,25 @@ class AgentRunner(WorkflowRunner):
         tools = getattr(executor, "tools", None) or []
         for tool in tools:
             if isinstance(tool, AgentWorkflowTool) and tool.target_app_id:
+                return True
+        return False
+
+    @staticmethod
+    def _is_multi_replica() -> bool:
+        """Best-effort detection that this app runs more than one replica.
+
+        In-process stream listeners are bound to a single process, so a
+        horizontally-scaled agent must use pubsub to survive replica handoff.
+        There is no universal runtime signal for replica count, so honor an
+        explicit operator-set env: ``DAPR_AGENTS_MULTI_REPLICA`` (truthy) or a
+        replica-count env (``DAPR_AGENTS_REPLICA_COUNT`` / ``REPLICA_COUNT``) > 1.
+        """
+        flag = os.getenv("DAPR_AGENTS_MULTI_REPLICA", "").strip().lower()
+        if flag in ("1", "true", "yes", "on"):
+            return True
+        for var in ("DAPR_AGENTS_REPLICA_COUNT", "REPLICA_COUNT"):
+            raw = os.getenv(var)
+            if raw and raw.strip().isdigit() and int(raw) > 1:
                 return True
         return False
 
@@ -1161,6 +1200,16 @@ class AgentRunner(WorkflowRunner):
                 ts = payload.get(field)
                 if ts:
                     payload[field] = ts.isoformat()
+            # Surface outstanding ask_user prompts so a client that lost the
+            # original USER_INPUT_REQUESTED chunk (e.g. after a restart) can
+            # recover request_id + target_instance_id and answer via /input.
+            try:
+                entry = await asyncio.to_thread(agent._infra.get_state, instance_id)
+                payload["pending_inputs"] = list(
+                    (getattr(entry, "pending_inputs", None) or {}).values()
+                )
+            except Exception:  # noqa: BLE001
+                payload["pending_inputs"] = []
             return payload
 
         fastapi_app.add_api_route(
@@ -1253,6 +1302,34 @@ class AgentRunner(WorkflowRunner):
 
                 async def event_source():
                     last_seq = 0
+                    # Replay any outstanding ask_user prompts first: a client
+                    # reconnecting after a restart never saw the original
+                    # USER_INPUT_REQUESTED chunk (it was a cached activity and
+                    # pub/sub doesn't retain it), so recover request_id +
+                    # target_instance_id from durable state before tailing live.
+                    try:
+                        _entry = await asyncio.to_thread(
+                            agent._infra.get_state, instance_id
+                        )
+                        _pending = getattr(_entry, "pending_inputs", None) or {}
+                    except Exception:  # noqa: BLE001
+                        _pending = {}
+                    for _req_id, _data in _pending.items():
+                        yield formatter(
+                            AgentStreamChunk(
+                                sequence=0,
+                                chunk_id=uuid.uuid5(
+                                    uuid.NAMESPACE_DNS, f"replay:{_req_id}"
+                                ).hex,
+                                type=StreamChunkType.USER_INPUT_REQUESTED,
+                                agent=agent.name,
+                                workflow_instance_id=instance_id,
+                                turn=int(_data.get("turn", 0) or 0),
+                                root_instance_id=instance_id,
+                                event_data=dict(_data),
+                                metadata={"replayed": True},
+                            )
+                        )
                     try:
                         async for chunk in consumer:
                             last_seq = chunk.sequence

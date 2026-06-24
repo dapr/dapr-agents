@@ -291,7 +291,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         - **Streaming is opportunistic**: if ``stream=True`` and the Dapr runtime
           supports streaming conversations, real deltas are returned. Otherwise
           the call silently falls back to non-streaming and tags the response
-          metadata with ``dapr_streaming_fallback=True`` so callers can emit a
+          metadata with ``dapr_conversation_streaming_unsupported=True`` so callers can emit a
           uniform (``START`` + ``TURN_COMPLETE``) stream shape.
         - Returns a unified `LLMChatResponse` (if no `response_format`), or
           validated Pydantic model(s) when `response_format` is provided.
@@ -442,7 +442,7 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         # that it fell back and emit START+TURN_COMPLETE instead of deltas.
         if streaming_requested and hasattr(result, "metadata"):
             metadata = dict(result.metadata or {})
-            metadata["dapr_streaming_fallback"] = True
+            metadata["dapr_conversation_streaming_unsupported"] = True
             try:
                 result.metadata = metadata
             except Exception:  # noqa: BLE001 - immutable in some Pydantic setups

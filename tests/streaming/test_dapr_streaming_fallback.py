@@ -115,7 +115,7 @@ def test_stream_request_does_not_raise(client_and_dapr) -> None:
     # The stream kwarg was consumed inside `generate`; the response handler
     # is still driven synchronously.
     assert mock_kwargs["stream"] is False
-    assert result.metadata.get("dapr_streaming_fallback") is True
+    assert result.metadata.get("dapr_conversation_streaming_unsupported") is True
 
 
 def test_non_stream_request_not_tagged(client_and_dapr) -> None:
@@ -123,4 +123,4 @@ def test_non_stream_request_not_tagged(client_and_dapr) -> None:
     with patch("dapr_agents.llm.dapr.chat.ResponseHandler.process_response") as mock_rp:
         mock_rp.return_value = _fake_response()
         result = client.generate(messages=[{"role": "user", "content": "hi"}])
-    assert "dapr_streaming_fallback" not in (result.metadata or {})
+    assert "dapr_conversation_streaming_unsupported" not in (result.metadata or {})

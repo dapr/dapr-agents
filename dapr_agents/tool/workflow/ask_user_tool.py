@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import Any, Generator, Optional
+from typing import Any, Generator
 
 from dapr.ext.workflow import TaskFailedError
 from pydantic import BaseModel, Field

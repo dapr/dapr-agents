@@ -33,7 +33,10 @@ from dapr_agents.types.message import (
     ToolCallChunk,
 )
 
-STREAM_SCHEMA_VERSION = "1"
+# Pre-release ("-alpha") signals that the streaming chunk schema is still alpha
+# and may change in future 1.x releases. Consumers branch on
+# AgentStreamChunk.schema_version for stability.
+STREAM_SCHEMA_VERSION = "1-alpha"
 
 
 class StreamChunkType(str, Enum):

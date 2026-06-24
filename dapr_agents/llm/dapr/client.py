@@ -44,9 +44,8 @@ class DaprInferenceClient:
         # falls back to the process-default factory).
         self.client_factory = client_factory
         # Cached sidecar metadata (timestamp, value). Guarded by a lock so
-        # concurrent ``generate()`` calls race safely. Invalidatable via
-        # :meth:`invalidate_metadata_cache` — exposed primarily for tests
-        # and for rare hot-component-reload flows.
+        # concurrent ``generate()`` calls race safely; the TTL
+        # (``metadata_cache_ttl``) bounds staleness.
         self._metadata_cache_ttl = metadata_cache_ttl
         self._metadata_cache: Optional[Tuple[float, Any]] = None
         self._metadata_cache_lock = threading.Lock()
@@ -62,6 +61,11 @@ class DaprInferenceClient:
         ``client_factory``). Previously every call opened a fresh client + gRPC
         channel, costing 10-30 ms per ``generate()``; with the cache, the
         second-and-later calls within the TTL window return immediately.
+
+        Note: this caches the sidecar's *metadata introspection* (which
+        conversation/state components are registered), not LLM I/O — it is
+        unrelated to Dapr's conversation prompt/response caching, which caches
+        the request/response of the inference call itself.
         """
         now = time.monotonic()
         with self._metadata_cache_lock:
@@ -73,15 +77,6 @@ class DaprInferenceClient:
         with self._metadata_cache_lock:
             self._metadata_cache = (time.monotonic(), value)
         return value
-
-    def invalidate_metadata_cache(self) -> None:
-        """Drop the cached sidecar metadata.
-
-        Useful in tests and when a Dapr component is known to have
-        hot-reloaded faster than the TTL window.
-        """
-        with self._metadata_cache_lock:
-            self._metadata_cache = None
 
     # ──────────────────────────────────────────────────────────────────────────
     # Alpha2 (Tool Calling) support
