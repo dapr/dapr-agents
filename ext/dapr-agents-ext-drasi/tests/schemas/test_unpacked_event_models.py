@@ -24,14 +24,16 @@ from dapr_agents.ext.drasi.schemas.unpacked.ChangeNotification import ChangeNoti
 from dapr_agents.ext.drasi.schemas.unpacked.ControlSignalNotification import (  # type: ignore[import-not-found]
     ControlSignalNotification,
 )
+from dapr_agents.ext.drasi.schemas.unpacked.ReloadHeader import ReloadHeader  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.schemas.unpacked.ReloadItem import ReloadItem  # type: ignore[import-not-found]
 
 
 def test_change_notification_parses():
     msg = {
         "op": "i",
-        "ts_ms": 1,
-        "seq": 1,
-        "payload": {"source": {"queryId": "q1", "ts_ms": 1}, "after": {"x": 1}},
+        "ts_ms": 0,
+        "seq": 0,
+        "payload": {"source": {"queryId": "q0", "ts_ms": 0}, "before": {"a": 1}, "after": {"a": 2}},
     }
     event = ChangeNotification.model_validate(msg)
     assert event.op.value == "i"
@@ -46,3 +48,24 @@ def test_control_signal_parses():
     }
     event = ControlSignalNotification.model_validate(msg)
     assert event.op == "x"
+
+
+def test_reload_header_parses():
+    msg = {
+        "op": "h",
+        "ts_ms": 2,
+        "seq": 2,
+    }
+    event = ReloadHeader.model_validate(msg)
+    assert event.op == "h"
+
+
+def test_reload_item_parses():
+    msg = {
+        "op": "r",
+        "ts_ms": 3,
+        "seq": 3,
+        "payload": {"source": {"queryId": "q3", "ts_ms": 3}, "before": {"b": 3}, "after": {"b": 4}},
+    }
+    event = ReloadItem.model_validate(msg)
+    assert event.op == "r"
