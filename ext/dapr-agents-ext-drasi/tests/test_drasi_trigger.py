@@ -1529,7 +1529,7 @@ async def test_drasi_trigger_validates_with_result_model(setup_deps):
                         "away": "BUF",
                         "awayScore": 0,
                         "worldExists": False,
-                        "reason": "divine intervention"
+                        "reason": "divine intervention",
                     },
                 },
             },

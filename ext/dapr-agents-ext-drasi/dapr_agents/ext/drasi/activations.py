@@ -280,12 +280,14 @@ def drasi_trigger(
             to map Drasi events to agent task messages.
             If `None`, the task message will instruct the agent to return the serialized Drasi event as-is.
         operations: Optional Drasi operation(s) to filter events by:
+
             * `"i"` - Insert
             * `"u"` - Update
             * `"d"` - Delete
             * `"x"` - Control (lifecycle)
             * `"h"` - Reload header (snapshot begin)
-            * `"r"` - Reload item (snapshot item)  
+            * `"r"` - Reload item (snapshot item)
+
             Control and reload operations are accepted but currently have no effect (no-op).
             Defaults to `None` (no filtering).
         result_model: Optional model to use to validate the individual changes within Drasi change events.

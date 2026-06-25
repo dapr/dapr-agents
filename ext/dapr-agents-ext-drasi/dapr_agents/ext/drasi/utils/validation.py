@@ -39,7 +39,6 @@ def is_valid_operation(value: Any) -> bool:
         return False
 
 
-
 def normalize_to_list(value: T | list[T] | tuple[T, ...] | None) -> list[T]:
     """Convert a scalar, list, or tuple to a list. If the value is `None`, returns an empty list."""
     if value is None:

@@ -33,7 +33,11 @@ def test_change_notification_parses():
         "op": "i",
         "ts_ms": 0,
         "seq": 0,
-        "payload": {"source": {"queryId": "q0", "ts_ms": 0}, "before": {"a": 1}, "after": {"a": 2}},
+        "payload": {
+            "source": {"queryId": "q0", "ts_ms": 0},
+            "before": {"a": 1},
+            "after": {"a": 2},
+        },
     }
     event = ChangeNotification.model_validate(msg)
     assert event.op.value == "i"
@@ -65,7 +69,11 @@ def test_reload_item_parses():
         "op": "r",
         "ts_ms": 3,
         "seq": 3,
-        "payload": {"source": {"queryId": "q3", "ts_ms": 3}, "before": {"b": 3}, "after": {"b": 4}},
+        "payload": {
+            "source": {"queryId": "q3", "ts_ms": 3},
+            "before": {"b": 3},
+            "after": {"b": 4},
+        },
     }
     event = ReloadItem.model_validate(msg)
     assert event.op == "r"
