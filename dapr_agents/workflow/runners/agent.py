@@ -599,9 +599,7 @@ class AgentRunner(WorkflowRunner):
                     try:
                         self.shutdown(agent)
                     except Exception:
-                        logger.exception(
-                            "Error during AgentRunner shutdown hook"
-                        )
+                        logger.exception("Error during AgentRunner shutdown hook")
 
         fastapi_app.router.lifespan_context = _shutdown_aware_lifespan
 
