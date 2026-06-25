@@ -1129,8 +1129,8 @@ async def test_drasi_trigger_filters_by_single_operation(setup_deps):
 
 @pytest.mark.asyncio
 @pytest.mark.ext
-async def test_drasi_trigger_filters_by_multiple_operations(setup_deps):
-    """Test that the Drasi extension correctly filters events for multiple Drasi operations."""
+async def test_drasi_trigger_filters_by_multiple_list_operations(setup_deps):
+    """Test that the Drasi extension correctly filters events for a Drasi operation list."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1211,6 +1211,114 @@ async def test_drasi_trigger_filters_by_multiple_operations(setup_deps):
         topic=drasi_topic,
         task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
         operations=["i", "u"],
+    )
+    runner.subscribe(agent)
+
+    await _wait_for_completion()
+
+    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
+
+    expected_events = [events[0], events[2]]
+    cloudevent_ids = [
+        _safe_json_loads(c.kwargs.get("input", {}))
+        .get("_message_metadata", {})
+        .get("id")
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    assert cloudevent_ids == [e.get("id") for e in expected_events]
+
+    actual_tasks = [
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    expected_tasks = [task_str for _ in expected_events]
+    assert actual_tasks == expected_tasks
+
+
+@pytest.mark.asyncio
+@pytest.mark.ext
+async def test_drasi_trigger_filters_by_multiple_tuple_operations(setup_deps):
+    """Test that the Drasi extension correctly filters events for a Drasi operation tuple."""
+    query_id = "testquery"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
+    drasi_topic = "differenttopic"
+    events = [
+        _make_cloudevent(
+            data={
+                "op": "i",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 0,
+                    },
+                    "after": {
+                        "count": 1,
+                    },
+                },
+            },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "d",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "sum": 0,
+                    },
+                },
+            },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "u",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 0,
+                    },
+                    "after": {
+                        "difference": 2,
+                    },
+                },
+            },
+            id="3",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+    ]
+
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
+
+    task_str = "test"
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        operations=("i", "u"),
     )
     runner.subscribe(agent)
 
