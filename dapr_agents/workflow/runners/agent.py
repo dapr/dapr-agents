@@ -592,9 +592,9 @@ class AgentRunner(WorkflowRunner):
 
         @asynccontextmanager
         async def _shutdown_aware_lifespan(_app: FastAPI):
-            async with original_lifespan(_app):
+            async with original_lifespan(_app) as state:
                 try:
-                    yield
+                    yield state
                 finally:
                     try:
                         self.shutdown(agent)
