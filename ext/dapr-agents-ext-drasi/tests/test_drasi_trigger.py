@@ -1050,8 +1050,98 @@ async def test_drasi_trigger_ignores_control_events(setup_deps):
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
-async def test_drasi_trigger_filters_by_single_operation(setup_deps):
-    """Test that the Drasi extension correctly filters events for a single Drasi operation."""
+async def test_drasi_trigger_filters_by_query_id(setup_deps):
+    """Test that the Drasi extension implicitly filters events by query ID."""
+    query_id = "testquery"
+    different_query_id = "differentquery"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
+    drasi_topic = "differenttopic"
+    events = [
+        _make_cloudevent(
+            data={
+                "op": "i",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 0,
+                    },
+                    "after": {
+                        "count": 1,
+                    },
+                },
+            },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "d",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": different_query_id,
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "sum": 0,
+                    },
+                },
+            },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+    ]
+
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
+
+    task_str = "test"
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+    )
+    runner.subscribe(agent)
+
+    await _wait_for_completion()
+
+    assert wf_scheduler_method.call_count == 1  # type: ignore[attr-defined]
+
+    expected_events = [events[0]]
+    cloudevent_ids = [
+        _safe_json_loads(c.kwargs.get("input", {}))
+        .get("_message_metadata", {})
+        .get("id")
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    assert cloudevent_ids == [e.get("id") for e in expected_events]
+
+    actual_tasks = [
+        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+    ]
+    expected_tasks = [task_str for _ in expected_events]
+    assert actual_tasks == expected_tasks
+
+
+@pytest.mark.ext
+@pytest.mark.drasi
+@pytest.mark.asyncio
+async def test_drasi_trigger_filters_with_operation(setup_deps):
+    """Test that the Drasi extension filters for events that match a single Drasi operation."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1140,8 +1230,8 @@ async def test_drasi_trigger_filters_by_single_operation(setup_deps):
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
-async def test_drasi_trigger_filters_by_multiple_list_operations(setup_deps):
-    """Test that the Drasi extension correctly filters events for a Drasi operation list."""
+async def test_drasi_trigger_filters_with_operations_list(setup_deps):
+    """Test that the Drasi extension filters for events that match a list of Drasi operations."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1249,8 +1339,8 @@ async def test_drasi_trigger_filters_by_multiple_list_operations(setup_deps):
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
-async def test_drasi_trigger_filters_by_multiple_tuple_operations(setup_deps):
-    """Test that the Drasi extension correctly filters events for a Drasi operation tuple."""
+async def test_drasi_trigger_filters_with_operations_tuple(setup_deps):
+    """Test that the Drasi extension filters for events that match a tuple of Drasi operations."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1358,8 +1448,8 @@ async def test_drasi_trigger_filters_by_multiple_tuple_operations(setup_deps):
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
-async def test_drasi_trigger_filters_by_result_model(setup_deps):
-    """Test that the Drasi extension correctly validates the individual changes within Drasi change events."""
+async def test_drasi_trigger_validates_with_result_model(setup_deps):
+    """Test that the Drasi extension validates the individual changes in events (and implicitly filters)."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
