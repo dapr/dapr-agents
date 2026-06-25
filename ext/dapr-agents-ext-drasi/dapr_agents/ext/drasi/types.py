@@ -13,8 +13,9 @@
 
 """Public-facing types for the Drasi extension.
 
-Exposes the types exported by `dapr_agents.ext.drasi.schemas` (owned by Drasi) under Drasi-specific names;
-this avoids naming conflicts and provides a stable API for both external and internal consumers.
+Public types are sourced from `dapr_agents.ext.drasi.schemas` (owned by Drasi)
+and re-exported under Drasi-prefixed names; this avoids naming conflicts
+and provides a stable API for external consumers.
 """
 
 from __future__ import annotations
@@ -28,6 +29,6 @@ DrasiOperation = Literal["i", "u", "d"]
 
 
 class DrasiChangeEvent(ChangeNotification):
-    """A Drasi event that represents a single change emitted by a Drasi query."""
+    """A Drasi event that represents a change emitted by a Drasi query."""
 
     pass
