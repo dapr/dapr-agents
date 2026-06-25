@@ -40,7 +40,7 @@ from dapr_agents.workflow.utils.routers import parse_http_json
 from dapr_agents.workflow.utils.subscription import (
     DedupeBackend,
     MessageRouteBinding,
-    SchedulerFn,
+    validate_hook,
     subscribe_message_bindings,
 )
 
@@ -134,10 +134,10 @@ def _validate_pubsub_components(
 
 def _collect_message_bindings(
     *,
-    targets: Optional[Iterable[Any]],
-    routes: Optional[Iterable[PubSubRouteSpec]],
-) -> List[MessageRouteBinding]:
-    bindings: List[MessageRouteBinding] = []
+    targets: Iterable[Any] | None,
+    routes: Iterable[PubSubRouteSpec] | None,
+) -> list[MessageRouteBinding]:
+    bindings: list[MessageRouteBinding] = []
 
     if targets:
         for target in targets:
@@ -163,6 +163,9 @@ def _collect_message_bindings(
                         topic=topic,
                         dead_letter_topic=meta.get("dead_letter_topic"),
                         name=getattr(bound, "__name__", str(bound)),
+                        payload_filter=meta.get("payload_filter"),
+                        model_filter=meta.get("model_filter"),
+                        mapper=meta.get("mapper"),
                     )
                 )
 
@@ -176,6 +179,21 @@ def _collect_message_bindings(
                 schemas = list(meta.get("message_schemas"))
             else:
                 schemas = [dict]
+            validate_hook(spec.payload_filter, "payload_filter")
+            validate_hook(spec.model_filter, "model_filter")
+            validate_hook(spec.mapper, "mapper")
+            meta_dict = meta or {}
+            payload_filter = (
+                spec.payload_filter
+                if spec.payload_filter is not None
+                else meta_dict.get("payload_filter")
+            )
+            model_filter = (
+                spec.model_filter
+                if spec.model_filter is not None
+                else meta_dict.get("model_filter")
+            )
+            mapper = spec.mapper if spec.mapper is not None else meta_dict.get("mapper")
             bindings.append(
                 MessageRouteBinding(
                     handler=bound,
@@ -184,6 +202,9 @@ def _collect_message_bindings(
                     topic=spec.topic,
                     dead_letter_topic=spec.dead_letter_topic,
                     name=getattr(bound, "__name__", str(bound)),
+                    payload_filter=payload_filter,
+                    model_filter=model_filter,
+                    mapper=mapper,
                 )
             )
 
@@ -374,16 +395,15 @@ def _mount_http_bindings(
 def register_message_routes(
     *,
     dapr_client: DaprClient,
-    targets: Optional[Iterable[Any]] = None,
-    routes: Optional[Iterable[PubSubRouteSpec]] = None,
-    loop: Optional[asyncio.AbstractEventLoop] = None,
+    targets: Iterable[Any] | None = None,
+    routes: Iterable[PubSubRouteSpec] | None = None,
+    loop: asyncio.AbstractEventLoop | None = None,
     delivery_mode: Literal["sync", "async"] = "sync",
     queue_maxsize: int = 1024,
-    deduper: Optional[DedupeBackend] = None,
-    scheduler: Optional[SchedulerFn] = None,
-    wf_client: Optional[wf.DaprWorkflowClient] = None,
+    deduper: DedupeBackend | None = None,
+    wf_client: wf.DaprWorkflowClient | None = None,
     await_result: bool = False,
-    await_timeout: Optional[int] = None,
+    await_timeout: int | None = None,
     fetch_payloads: bool = True,
     log_outcome: bool = True,
     client_factory: Optional[DaprClientFactory] = None,
@@ -399,7 +419,6 @@ def register_message_routes(
         delivery_mode: `"sync"` blocks the Dapr thread; `"async"` enqueues onto a worker queue.
         queue_maxsize: Max in-flight messages when `delivery_mode="async"`.
         deduper: Optional idempotency backend keyed by CloudEvent id/hash.
-        scheduler: Deprecated/ignored scheduler hook; retained for API compatibility.
         wf_client: Reused `DaprWorkflowClient` for scheduling/waiting.
         await_result: If `True` (sync only), wait for workflow completion and request retry on failure.
         await_timeout: Optional wait timeout in seconds.
@@ -442,7 +461,6 @@ def register_message_routes(
         delivery_mode=delivery_mode,
         queue_maxsize=queue_maxsize,
         deduper=deduper,
-        scheduler=scheduler,
         wf_client=wf_client,
         await_result=await_result,
         await_timeout=await_timeout,

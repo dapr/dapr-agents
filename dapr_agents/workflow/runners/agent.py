@@ -24,6 +24,7 @@ from fastapi import Body, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from dapr_agents.agents.durable import DurableAgent
+from dapr_agents.types.activation import ActivationContext
 from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.utils import DaprClientFactory
 from dapr_agents.workflow.runners.base import WorkflowRunner
@@ -82,6 +83,34 @@ class AgentRunner(WorkflowRunner):
         # In-memory store of managed agents - used for handling shutdown
         self._managed_agents: List[DurableAgent] = []
         self._lock: Lock = Lock()
+        # Activation-hook state (see _attach_agent / DurableAgent.add_activation):
+        #   _activated_agent_ids — fire-once guard keyed by id(agent)
+        #   _activation_closers  — teardown closers per agent, drained on shutdown
+        self._activated_agent_ids: set[int] = set()
+        self._activation_closers: Dict[int, List[Callable[[], None]]] = {}
+
+    @staticmethod
+    async def _ensure_mcp_connected(agent: DurableAgent) -> None:
+        """Connect MCPServer tools if the agent supports auto-discovery."""
+        connect_fn = getattr(agent, "connect_mcpservers", None)
+        if connect_fn and not getattr(agent, "_mcp_tools_connected", True):
+            await connect_fn()
+
+    def _ensure_mcp_connected_sync(self, agent: DurableAgent) -> None:
+        """Sync wrapper for MCP auto-discovery (for non-async entry points)."""
+        if getattr(agent, "_mcp_tools_connected", True):
+            return
+        try:
+            asyncio.get_running_loop()
+            is_in_event_loop = True
+        except RuntimeError:
+            is_in_event_loop = False
+
+        coroutine = self._ensure_mcp_connected(agent)
+        if is_in_event_loop:
+            self._run_coro_in_new_loop_thread(coroutine)
+        else:
+            asyncio.run(coroutine)
 
     async def run(
         self,
@@ -122,14 +151,8 @@ class AgentRunner(WorkflowRunner):
             wait,
             timeout_in_seconds,
         )
-        try:
-            agent.start()
-        except RuntimeError:
-            # The agent is already started
-            pass
-        with self._lock:
-            if agent not in self._managed_agents:
-                self._managed_agents.append(agent)
+        await self._ensure_mcp_connected(agent)
+        self._attach_agent(agent)
 
         entry = self.discover_entry(agent)
         logger.debug("[%s] Discovered workflow entry: %s", self._name, entry.__name__)
@@ -201,15 +224,8 @@ class AgentRunner(WorkflowRunner):
         Returns:
             The runner (to allow fluent chaining).
         """
-        try:
-            agent.start()
-        except RuntimeError:
-            # The agent is already started
-            pass
-
-        with self._lock:
-            if agent not in self._managed_agents:
-                self._managed_agents.append(agent)
+        self._ensure_mcp_connected_sync(agent)
+        self._attach_agent(agent)
 
         return self
 
@@ -318,15 +334,8 @@ class AgentRunner(WorkflowRunner):
             fetch_payloads: Whether to fetch input/output payloads for awaited workflows.
             log_outcome: Whether to log the final outcome of awaited workflows.
         """
-
-        try:
-            agent.start()
-        except RuntimeError:
-            # The agent is already started
-            pass
-        with self._lock:
-            if agent not in self._managed_agents:
-                self._managed_agents.append(agent)
+        self._ensure_mcp_connected_sync(agent)
+        self._attach_agent(agent, app=fastapi_app)
 
         self._wire_pubsub_routes(
             agent=agent,
@@ -487,16 +496,8 @@ class AgentRunner(WorkflowRunner):
         Returns:
             The runner (to allow fluent chaining).
         """
-
-        try:
-            agent.start()
-        except RuntimeError:
-            # The agent is already started
-            pass
-
-        with self._lock:
-            if agent not in self._managed_agents:
-                self._managed_agents.append(agent)
+        self._ensure_mcp_connected_sync(agent)
+        self._attach_agent(agent)
 
         self._wire_pubsub_routes(
             agent=agent,
@@ -553,15 +554,10 @@ class AgentRunner(WorkflowRunner):
 
         fastapi_app = app or FastAPI(title="Dapr Agent Service", version="1.0.0")
 
-        try:
-            agent.start()
-        except RuntimeError:
-            # The agent is already started
-            pass
-
-        with self._lock:
-            if agent not in self._managed_agents:
-                self._managed_agents.append(agent)
+        self._ensure_mcp_connected_sync(agent)
+        # Attach here (before the nested subscribe) so the activation context
+        # carries the FastAPI app; the nested subscribe() then no-ops.
+        self._attach_agent(agent, app=fastapi_app)
 
         self.subscribe(
             agent,
@@ -854,6 +850,148 @@ class AgentRunner(WorkflowRunner):
         )
         logger.info("Mounted HITL endpoints at /hitl/approvals")
 
+    # ------------------------------------------------------------------
+    # Activation hooks (extension seam)
+    # ------------------------------------------------------------------
+    def _attach_agent(self, agent: DurableAgent, app: Optional[FastAPI] = None) -> None:
+        """Start, register, and activate an agent for hosting — once per agent.
+
+        Shared by every host entry point (run/workflow/register_routes/subscribe/
+        serve). It starts the agent's runtime, records it in ``_managed_agents``,
+        and fires its activation callbacks exactly once. Re-hosting the same agent
+        (e.g. the nested ``serve() -> subscribe()`` path, or a retry) is a no-op
+        for the already-started/managed/activated agent.
+
+        Callbacks run OUTSIDE ``self._lock`` so a callback may safely re-enter the
+        runner; returned closers are tracked for teardown by ``shutdown()``. If
+        activation fails, only what THIS call created is unwound (a pre-existing
+        host or shared runtime is left intact) before the error is re-raised.
+
+        Args:
+            agent: The agent being hosted.
+            app: FastAPI app exposed on the context, only under serve()/
+                register_routes(); ``None`` otherwise.
+        """
+        started_here = False
+        try:
+            agent.start()
+            started_here = True
+        except RuntimeError:
+            # Already started — idempotent; not ours to stop on rollback.
+            pass
+
+        with self._lock:
+            if id(agent) in self._activated_agent_ids:
+                return  # already attached; re-host (e.g. serve()->subscribe()) no-ops
+            added_here = agent not in self._managed_agents
+            if added_here:
+                self._managed_agents.append(agent)
+            callbacks = list(agent.activations)
+            self._activated_agent_ids.add(id(agent))
+            # Close the registration window so a late add_activation() fails loudly.
+            agent._activation_window_open = False
+
+        if not callbacks:
+            return
+
+        collected: List[Callable[[], None]] = []
+        try:
+            # Extensions may open a streaming subscription, so guarantee a Dapr
+            # client even under workflow()/run(), which never wire pub/sub.
+            self._ensure_dapr_client()
+            if self._dapr_client is None:
+                # Unreachable: _ensure_dapr_client() always sets the client or raises.
+                raise RuntimeError(
+                    "Dapr client unavailable after _ensure_dapr_client(); bug in AgentRunner."
+                )
+            context = ActivationContext(
+                agent=agent,
+                runner=self,
+                dapr_client=self._dapr_client,
+                wf_client=self._wf_client,
+                app=app,
+            )
+            for callback in callbacks:
+                label = getattr(callback, "__qualname__", repr(callback))
+                try:
+                    closer = callback(context)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Activation callback {label!r} for agent "
+                        f"{getattr(agent, 'name', agent)!r} failed during hosting: {exc}"
+                    ) from exc
+                if closer is None:
+                    continue
+                if not callable(closer):
+                    raise TypeError(
+                        f"Activation callback {label!r} must return a callable "
+                        f"closer or None, got {type(closer).__name__!r}"
+                    )
+                collected.append(closer)
+        except Exception:
+            # Unwind only what this call created, then re-raise.
+            self._abort_attach(
+                agent, collected, started_here=started_here, added_here=added_here
+            )
+            raise
+
+        with self._lock:
+            self._activation_closers[id(agent)] = collected
+
+    def _abort_attach(
+        self,
+        agent: DurableAgent,
+        collected: List[Callable[[], None]],
+        *,
+        started_here: bool,
+        added_here: bool,
+    ) -> None:
+        """Roll back a failed attach: close collected closers, release the
+        activation guard, and undo the managed/started state only if THIS call
+        created it — so a pre-existing host or shared runtime is left intact."""
+        self._rollback_activation_closers(collected)
+        with self._lock:
+            self._activated_agent_ids.discard(id(agent))
+            if added_here and agent in self._managed_agents:
+                self._managed_agents.remove(agent)
+        if started_here:
+            try:
+                agent.stop()
+            except Exception:
+                logger.exception("Error stopping agent during attach rollback")
+
+    def _rollback_activation_closers(self, closers: List[Callable[[], None]]) -> None:
+        """Best-effort close (reverse order) of closers from a failed attach."""
+        for close in reversed(closers):
+            try:
+                close()
+            except Exception:
+                logger.exception(
+                    "Error while rolling back activation closer after failure"
+                )
+
+    def _close_activations(self, agent: Optional[DurableAgent] = None) -> None:
+        """Invoke and clear activation teardown closers, resetting the guard.
+
+        With no ``agent`` every tracked closer runs and the guard is cleared (full
+        shutdown). With an ``agent`` only that agent's closers run and its guard
+        entry is dropped, so it re-activates if hosted again.
+        """
+        with self._lock:
+            if agent is None:
+                groups = list(self._activation_closers.values())
+                self._activation_closers.clear()
+                self._activated_agent_ids.clear()
+            else:
+                groups = [self._activation_closers.pop(id(agent), [])]
+                self._activated_agent_ids.discard(id(agent))
+        for closers in groups:
+            for close in reversed(closers):
+                try:
+                    close()
+                except Exception:
+                    logger.exception("Error while closing activation")
+
     def shutdown(self, agent: Optional[DurableAgent] = None) -> None:
         """
         Unwire subscriptions and close owned clients.
@@ -866,27 +1004,34 @@ class AgentRunner(WorkflowRunner):
         """
 
         if agent:
-            # We need to shutdown a single agent
-            # First verify we're managing it
+            # Shut down a single managed agent. Mutate shared state under the
+            # lock, then run teardown (instrument/stop/closers) unlocked so a
+            # self-locking _close_activations cannot deadlock.
             with self._lock:
-                if agent in self._managed_agents:
-                    try:
-                        if agent.instrumentor is not None:
-                            agent.instrumentor.uninstrument()
-                    except AttributeError:
-                        # this happens if the agent has no instrumentor
-                        pass
-                    agent.stop()  # This is safe as they'll return None if not started
+                managed = agent in self._managed_agents
+                if managed:
                     self._managed_agents.remove(agent)
-                if len(self._managed_agents) == 0:
-                    try:
-                        self.unwire_pubsub()
-                    finally:
-                        self._close_wf_client()
-                        self._close_dapr_client()
+                last = len(self._managed_agents) == 0
+            if managed:
+                try:
+                    if agent.instrumentor is not None:
+                        agent.instrumentor.uninstrument()
+                except AttributeError:
+                    # this happens if the agent has no instrumentor
+                    pass
+                agent.stop()  # This is safe as they'll return None if not started
+                self._close_activations(agent)
+            if last:
+                try:
+                    self.unwire_pubsub()
+                    self._close_activations()
+                finally:
+                    self._close_wf_client()
+                    self._close_dapr_client()
             return
         try:
             self.unwire_pubsub()
+            self._close_activations()
         finally:
             with self._lock:
                 agents = list(self._managed_agents)
