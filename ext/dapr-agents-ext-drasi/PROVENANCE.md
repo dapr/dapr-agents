@@ -3,10 +3,10 @@
 The files under `./dapr_agents/ext/drasi/schemas/unpacked/` are generated, do not edit them by hand.
 They are derived from Drasi's `output-unpacked` TypeSpec contract (`Drasi.Unpacked`, v1).
 
-Upstream source: https://github.com/drasi-project/drasi-platform  
-Contract path:   `typespec/output-unpacked/main.tsp`  
-Vendored from commit: `3edd930`  
-Vendored on:          `2026-06-24`  
+Upstream source:        https://github.com/drasi-project/drasi-platform  
+Contract path:          `typespec/output-unpacked/main.tsp`  
+Vendored from commit:   `3edd930`  
+Vendored on:            `2026-06-24`  
 
 ## How the vendored schema was produced
 ```bash
