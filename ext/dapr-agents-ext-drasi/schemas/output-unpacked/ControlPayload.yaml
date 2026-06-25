@@ -1,0 +1,12 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: ControlPayload.yaml
+type: object
+properties:
+  source:
+    $ref: ChangeSource.yaml
+  kind:
+    type: string
+required:
+  - source
+  - kind
+title: ControlPayload

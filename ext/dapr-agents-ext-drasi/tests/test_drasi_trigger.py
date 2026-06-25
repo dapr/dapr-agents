@@ -23,9 +23,9 @@ from datetime import timedelta
 from typing import Any, Optional
 from unittest.mock import MagicMock, Mock
 
+import pytest
 from fastapi import FastAPI
 from pydantic import BaseModel
-import pytest
 
 from dapr_agents import DurableAgent
 from dapr_agents.agents.configs import (
@@ -246,7 +246,7 @@ def setup_deps():
                 else "testtopic.broadcast",
             )
 
-        return DurableAgent(
+        agent = DurableAgent(
             name=name,
             role="Test Assistant",
             goal="Help with testing",
@@ -257,6 +257,8 @@ def setup_deps():
             ),
             execution=AgentExecutionConfig(max_iterations=5),
         )
+
+        return agent
 
     def make_runner(pubsub_names: list[str], event_stream: list[Any]) -> AgentRunner:
         nonlocal runner
@@ -1419,7 +1421,7 @@ async def test_drasi_trigger_raises_when_pubsub_is_not_registered(setup_deps):
 
     # Ensure that the activation doesn't try to fall back to the agent's pub/sub component
     with pytest.raises(
-        RuntimeError, match=f".*component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"
+        RuntimeError, match=f"component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"
     ):
         runner.subscribe(agent)
 
@@ -1473,7 +1475,7 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps)
     )
 
     with pytest.raises(
-        RuntimeError, match=f".*component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"
+        RuntimeError, match=f"component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"
     ):
         runner.subscribe(agent)
 
@@ -1528,7 +1530,7 @@ async def test_drasi_trigger_raises_with_invalid_operation(setup_deps):
         operations=operation,
     )
 
-    with pytest.raises(RuntimeError, match=f".*operation.*{operation}"):
+    with pytest.raises(RuntimeError, match=f"operation.*{operation}"):
         runner.subscribe(agent)
 
 
@@ -1582,7 +1584,7 @@ async def test_drasi_trigger_raises_with_invalid_result_model(setup_deps):
         result_model=result_model,
     )
 
-    with pytest.raises(RuntimeError, match=f".*model.*{result_model}"):
+    with pytest.raises(RuntimeError, match=f"model.*{result_model}"):
         runner.subscribe(agent)
 
 
@@ -1637,7 +1639,7 @@ async def test_drasi_trigger_raises_with_async_task_mapper(setup_deps):
         task_mapper=async_task_mapper,
     )
 
-    with pytest.raises(RuntimeError, match=f"mapper.*synchronous"):
+    with pytest.raises(RuntimeError, match="mapper.*synchronous"):
         runner.subscribe(agent)
 
 
@@ -1689,7 +1691,7 @@ async def test_drasi_trigger_raises_with_non_callable_task_mapper(setup_deps):
         task_mapper=task_mapper,
     )
 
-    with pytest.raises(RuntimeError, match=f"mapper.*callable"):
+    with pytest.raises(RuntimeError, match="mapper.*callable"):
         runner.subscribe(agent)
 
 
@@ -1748,5 +1750,5 @@ async def test_drasi_trigger_raises_with_async_callable_task_mapper(setup_deps):
         task_mapper=AsyncCallableFilter(),
     )
 
-    with pytest.raises(RuntimeError, match=f"mapper.*synchronous"):
+    with pytest.raises(RuntimeError, match="mapper.*synchronous"):
         runner.subscribe(agent)

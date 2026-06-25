@@ -1,0 +1,13 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: ChangeSource.yaml
+type: object
+properties:
+  queryId:
+    type: string
+    description: The ID of the query that the change originated from
+  ts_ms:
+    type: integer
+required:
+  - queryId
+  - ts_ms
+title: ChangeSource

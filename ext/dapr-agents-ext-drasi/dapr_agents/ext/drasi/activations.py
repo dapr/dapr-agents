@@ -13,15 +13,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from dapr_agents import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.types.activation import ActivationContext
-from dapr_agents.ext.drasi.utils.types import DrasiOperation, DrasiUnpackedEvent  # type: ignore[import-not-found]
-from dapr_agents.ext.drasi.utils.validation import ( # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.types import DrasiOperation, DrasiChangeEvent  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.utils.validation import (  # type: ignore[import-not-found]
     is_change_operation,
     is_supported_operation,
     normalize_to_list,
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 DRASI_TRIGGER_DEFAULT_TASK = "Return the following payload exactly as-is"
 DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX = "drasi-events"
 
-DrasiTaskMapper = Callable[[DrasiUnpackedEvent, MessageContext], TriggerAction]
+DrasiTaskMapper = Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
 
 
 @dataclass(frozen=True)
@@ -59,8 +59,8 @@ class _DrasiTriggerConfig:
 
 
 def _apply_filter(
-    filter_fn: Callable[[DrasiUnpackedEvent], bool],
-    event: DrasiUnpackedEvent,
+    filter_fn: Callable[[DrasiChangeEvent], bool],
+    event: DrasiChangeEvent,
     ctx: MessageContext,
 ) -> bool:
     """
@@ -77,9 +77,8 @@ def _validate_model_field(target_model: type[Any], model: Any, field_name: str) 
     """
     Return `True` if the provided model instance can be validated/coerced to the target model type,
     `False` otherwise.
+
     """
-    if model is None:
-        return True
     try:
         return validate_message_model(target_model, model)
     except Exception:
@@ -97,38 +96,53 @@ def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
     Build a filter list conditionally using the provided configuration and
     return the post-schema validation filter for Drasi pub/sub bindings via closure.
     """
-    filter_fns: list[Callable[[DrasiUnpackedEvent], bool]] = []
+    filter_fns: list[Callable[[DrasiChangeEvent], bool]] = []
 
     # Deduplicate operations (preserving order) and normalize to a list for easier filtering
     normalized_operations: list[DrasiOperation] = list(
         dict.fromkeys(normalize_to_list(config.operations))
     )
 
-    def query_id_filter(event: DrasiUnpackedEvent) -> bool:
+    def query_id_filter(event: DrasiChangeEvent) -> bool:
         return event.payload.source.queryId == config.query_id
 
     filter_fns.append(query_id_filter)
 
     if normalized_operations:
 
-        def operations_filter(event: DrasiUnpackedEvent) -> bool:
-            # Ignore control events
-            return is_change_operation(event.op) and event.op in normalized_operations
+        def operations_filter(event: DrasiChangeEvent) -> bool:
+            # Ignore non-change events
+            # We pass the enum value into `is_change_operation`
+            # since validated events may not share the exact same operation enum type
+            return (
+                is_change_operation(event.op.value)
+                and event.op.value in normalized_operations
+            )
 
         filter_fns.append(operations_filter)
 
     if config.result_model is not None:
 
-        def result_model_filter(event: DrasiUnpackedEvent) -> bool:
-            return _validate_model_field(
-                config.result_model, event.payload.before, "before"  # type: ignore[arg-type]
-            ) and _validate_model_field(
-                config.result_model, event.payload.after, "after"  # type: ignore[arg-type]
+        def result_model_filter(event: DrasiChangeEvent) -> bool:
+            return (
+                event.payload.before is None
+                or _validate_model_field(
+                    config.result_model,
+                    event.payload.before.root,
+                    "before",
+                )
+            ) and (
+                event.payload.after is None
+                or _validate_model_field(
+                    config.result_model,
+                    event.payload.after.root,
+                    "after",
+                )
             )
 
         filter_fns.append(result_model_filter)
 
-    def _model_filter(event: DrasiUnpackedEvent, ctx: MessageContext) -> bool:
+    def _model_filter(event: DrasiChangeEvent, ctx: MessageContext) -> bool:
         return all(_apply_filter(fn, event, ctx) for fn in filter_fns)
 
     return _model_filter
@@ -173,7 +187,7 @@ def _validate(ctx: ActivationContext, config: _DrasiTriggerConfig) -> None:
         ):
             raise TypeError(f"Unsupported result model type: '{config.result_model}'")
     except Exception:
-        logger.exception(f"[drasi-trigger]: Activation failed during validation")
+        logger.exception("[drasi-trigger]: Activation failed during validation")
         raise
 
 
@@ -206,8 +220,7 @@ def _build_pubsub_specs(
             pubsub_name=resolved_pubsub,
             topic=resolved_topic,
             handler_fn=handler_fn,
-            # TODO: only unpacked events are currently accepted
-            message_model=DrasiUnpackedEvent,
+            message_model=DrasiChangeEvent,
             dead_letter_topic=config.dead_letter_topic,
             model_filter=filter_fn,
             mapper=resolved_task_mapper,
@@ -249,6 +262,7 @@ def drasi_trigger(
 ) -> None:
     """
     Wires pub/sub routes so that the target agent's workflow can be triggered by Drasi change events.
+
     If the agent's pub/sub component is used and a topic is provided,
     the topic **MUST** be different from the agent's topic,
     otherwise the activation will fail to avoid indeterministic behavior.
@@ -262,12 +276,12 @@ def drasi_trigger(
             If `None`, the topic is derived from the query ID as `"drasi-events-<query_id>"`.
         dead_letter_topic: Optional dead-letter topic to publish failed messages to.
             Defaults to `None`.
-        task_mapper: Optional callable `(DrasiUnpackedEvent, MessageContext) -> TriggerAction`
+        task_mapper: Optional callable `(DrasiChangeEvent, MessageContext) -> TriggerAction`
             to map Drasi events to agent task messages.
             If `None`, the task message will instruct the agent to return the serialized Drasi event as-is.
         operations: Optional Drasi operation(s) to filter events by
-            (`"i"` for insert, `"u"` for update, `"d"` for delete, `"x"` for control).
-            Control operations are accepted but are **currently ignored** (no-op). Defaults to `None` (no filtering).
+            (`"i"` for insert, `"u"` for update, `"d"` for delete).
+            Defaults to `None` (no filtering).
         result_model: Optional model to use to validate the individual changes within Drasi change events.
             Defaults to `None` (no validation).
 

@@ -13,34 +13,28 @@
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import Any, TypeVar
+
+from dapr_agents.ext.drasi.schemas import Op  # type: ignore[import-not-found]
+
 
 T = TypeVar("T")
 
 
-# Internal operation enum for validation
-class _DrasiOperation(str, Enum):
-    INSERT = "i"
-    UPDATE = "u"
-    DELETE = "d"
-    CONTROL = "x"
-
-
 def is_supported_operation(value: Any) -> bool:
-    """Validate that the value is a supported Drasi operation."""
+    """Return `True` if the value is a supported Drasi operation, otherwise `False`."""
     try:
-        _DrasiOperation(value)
+        Op(value)
         return True
     except (ValueError, TypeError):
         return False
 
 
 def is_change_operation(value: Any) -> bool:
-    """Validate that the value is a Drasi change operation (non-control)."""
+    """Return `True` if the value is a Drasi change operation (insert, update, delete), otherwise `False`."""
     try:
-        op = _DrasiOperation(value)
-        return op != _DrasiOperation.CONTROL
+        op = Op(value)
+        return op in {Op.i, Op.u, Op.d}
     except (ValueError, TypeError):
         return False
 
