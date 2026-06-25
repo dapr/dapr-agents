@@ -20,12 +20,12 @@ and that they validate messages with the expected shape.
 
 from __future__ import annotations
 
-from dapr_agents.ext.drasi.schemas.unpacked.ChangeNotification import ChangeNotification  # type: ignore[import-not-found]
-from dapr_agents.ext.drasi.schemas.unpacked.ControlSignalNotification import (  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.schemas.unpacked.ChangeNotification import ChangeNotification
+from dapr_agents.ext.drasi.schemas.unpacked.ControlSignalNotification import (
     ControlSignalNotification,
 )
-from dapr_agents.ext.drasi.schemas.unpacked.ReloadHeader import ReloadHeader  # type: ignore[import-not-found]
-from dapr_agents.ext.drasi.schemas.unpacked.ReloadItem import ReloadItem  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.schemas.unpacked.ReloadHeader import ReloadHeader
+from dapr_agents.ext.drasi.schemas.unpacked.ReloadItem import ReloadItem
 
 
 def test_change_notification_parses():

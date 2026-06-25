@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, TypeVar
 
-from dapr_agents.ext.drasi.schemas import Op  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.schemas import Op
 
 
 T = TypeVar("T")

@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dapr_agents.ext.drasi.utils.validation import (  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.utils.validation import (
     is_change_operation,
     is_valid_operation,
     normalize_to_list,

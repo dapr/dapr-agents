@@ -11,24 +11,4 @@
 # limitations under the License.
 #
 
-"""Public-facing types for the Drasi extension.
-
-Public types are sourced from `dapr_agents.ext.drasi.schemas` (owned by Drasi)
-and re-exported under Drasi-prefixed names; this avoids naming conflicts
-and provides a stable API for external consumers.
-"""
-
-from __future__ import annotations
-
-from typing import Literal
-
-from dapr_agents.ext.drasi.schemas import ChangeNotification
-
-
-DrasiOperation = Literal["i", "u", "d", "x", "h", "r"]
-
-
-class DrasiChangeEvent(ChangeNotification):
-    """A Drasi event that represents a change emitted by a Drasi query."""
-
-    pass
+"""Test package for dapr-agents-ext-drasi."""

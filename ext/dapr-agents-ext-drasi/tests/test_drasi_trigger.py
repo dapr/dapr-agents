@@ -37,7 +37,7 @@ from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.workflow.runners.agent import AgentRunner
-from dapr_agents.ext.drasi import (  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi import (
     DRASI_TRIGGER_DEFAULT_TASK,
     DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX,
     drasi_trigger,
@@ -274,9 +274,9 @@ def setup_deps():
         )
 
         # Stub serve() mounts
-        runner._wire_http_routes = Mock()  # type: ignore[method-assign]
-        runner._mount_service_routes = Mock()  # type: ignore[method-assign]
-        runner._mount_hitl_routes = Mock()  # type: ignore[method-assign]
+        runner._wire_http_routes = Mock()
+        runner._mount_service_routes = Mock()
+        runner._mount_hitl_routes = Mock()
 
         return runner
 
@@ -361,21 +361,21 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2
 
     # Ensure that order is preserved
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     # Ensure that task strings are correctly generated
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -453,19 +453,19 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -544,19 +544,19 @@ async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -646,19 +646,19 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps)
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -730,19 +730,19 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -827,19 +827,19 @@ async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in events]
     assert actual_tasks == expected_tasks
@@ -922,19 +922,19 @@ async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
     # Ensure that a human-readable warning is emitted
     assert "task mapper" in caplog.text
 
-    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert all(DRASI_TRIGGER_DEFAULT_TASK in task for task in actual_tasks)
 
@@ -1010,20 +1010,20 @@ async def test_drasi_trigger_filters_by_query_id(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 1  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 1
 
     expected_events = [events[0]]
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in expected_events]
     assert actual_tasks == expected_tasks
@@ -1100,20 +1100,20 @@ async def test_drasi_trigger_filters_by_operation(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 1  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 1
 
     expected_events = [events[1]]
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in expected_events]
     assert actual_tasks == expected_tasks
@@ -1212,20 +1212,20 @@ async def test_drasi_trigger_filters_by_operations_list(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2
 
     expected_events = [events[0], events[2]]
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in expected_events]
     assert actual_tasks == expected_tasks
@@ -1324,20 +1324,20 @@ async def test_drasi_trigger_filters_by_operations_tuple(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 2  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 2
 
     expected_events = [events[0], events[2]]
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in expected_events]
     assert actual_tasks == expected_tasks
@@ -1423,7 +1423,7 @@ async def test_drasi_trigger_ignores_non_change_events(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 0  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 0
 
 
 @pytest.mark.ext
@@ -1562,20 +1562,20 @@ async def test_drasi_trigger_validates_with_result_model(setup_deps):
 
     await _wait_for_completion()
 
-    assert wf_scheduler_method.call_count == 3  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 3
 
     expected_events = [events[0], events[1], events[2]]
     cloudevent_ids = [
         _safe_json_loads(c.kwargs.get("input", {}))
         .get("_message_metadata", {})
         .get("id")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
-        for c in wf_scheduler_method.call_args_list  # type: ignore[attr-defined]
+        for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [task_str for _ in expected_events]
     assert actual_tasks == expected_tasks
@@ -1633,7 +1633,7 @@ async def test_drasi_trigger_ignores_malformed_events(setup_deps):
     await _wait_for_completion()
 
     # Should gracefully handle malformed events
-    assert wf_scheduler_method.call_count == 0  # type: ignore[attr-defined]
+    assert wf_scheduler_method.call_count == 0
 
 
 @pytest.mark.ext

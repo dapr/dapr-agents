@@ -20,8 +20,8 @@ from typing import Any, Callable
 from dapr_agents import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.types.activation import ActivationContext
-from dapr_agents.ext.drasi.types import DrasiOperation, DrasiChangeEvent  # type: ignore[import-not-found]
-from dapr_agents.ext.drasi.utils.validation import (  # type: ignore[import-not-found]
+from dapr_agents.ext.drasi.types import DrasiOperation, DrasiChangeEvent
+from dapr_agents.ext.drasi.utils.validation import (
     is_change_operation,
     is_valid_operation,
     normalize_to_list,
@@ -194,7 +194,7 @@ def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> Non
 def _build_pubsub_specs(
     ctx: ActivationContext, config: _DrasiTriggerConfig
 ) -> list[PubSubRouteSpec]:
-    """Resolve user configuration with fallback values and return pub/sub routes."""
+    """Resolve user-supplied configuration with fallback values and return pub/sub routes."""
     resolved_pubsub = config.pubsub or ctx.agent.pubsub.pubsub_name
     resolved_topic = (
         config.topic or f"{DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{config.query_id}"
@@ -265,7 +265,7 @@ def drasi_trigger(
 
     If the agent's pub/sub component is used and a topic is provided,
     the topic **MUST** be different from the agent's topic,
-    otherwise the activation will fail to avoid indeterministic behavior.
+    otherwise the activation will fail to prevent indeterministic behavior.
 
     Args:
         agent: The agent to target.
@@ -298,6 +298,7 @@ def drasi_trigger(
 
     Raises:
         RuntimeError: If the agent's pub/sub component is used and the provided topic is the same as the agent's topic.
+        TypeError: If an unsupported operation type or result model is provided.
     """
 
     def _activate(ctx: ActivationContext) -> Callable[[], None] | None:
