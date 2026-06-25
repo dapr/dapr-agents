@@ -45,7 +45,7 @@ DrasiTaskMapper = Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
 @dataclass(frozen=True)
 class _DrasiTriggerConfig:
     """
-    Immutable container to hold the `drasi_trigger` user configuration instead of threading arguments through multiple call sites.
+    Immutable container to hold the user-supplied `drasi_trigger` configuration instead of threading arguments through multiple call sites.
     One instance is created per `drasi_trigger` invocation; must not be shared.
     """
 
@@ -93,7 +93,7 @@ def _validate_model_field(target_model: type[Any], model: Any, field_name: str) 
 
 def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
     """
-    Build a filter list conditionally using the provided configuration and
+    Build a filter list conditionally using the **validated** configuration and
     return the post-schema validation filter for Drasi pub/sub bindings via closure.
     """
     filter_fns: list[Callable[[DrasiChangeEvent], bool]] = []
@@ -148,9 +148,9 @@ def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
     return _model_filter
 
 
-def _validate(ctx: ActivationContext, config: _DrasiTriggerConfig) -> None:
+def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> None:
     """
-    Semantically validate user configuration, logging before re-raising exceptions
+    Semantically validate user-supplied configuration, logging before re-raising any exceptions
     so the agent runner can rollback the activation.
     Warn if no task mapper is provided, but otherwise accept it.
 
@@ -294,7 +294,7 @@ def drasi_trigger(
 
     def _activate(ctx: ActivationContext) -> Callable[[], None] | None:
         """
-        Activation callback that semantically validates configuration,
+        Activation callback that semantically validates user-supplied configuration,
         wires pub/sub routes, and returns an idempotent closer to the runner.
         """
         if ctx.app is not None:
@@ -322,7 +322,7 @@ def drasi_trigger(
             result_model=result_model,
         )
 
-        _validate(ctx, config)
+        _validate_config(ctx, config)
         specs = _build_pubsub_specs(ctx, config)
         closers = _subscribe(ctx, specs)
 
