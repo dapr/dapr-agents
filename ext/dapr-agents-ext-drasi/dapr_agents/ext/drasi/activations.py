@@ -23,7 +23,7 @@ from dapr_agents.types.activation import ActivationContext
 from dapr_agents.ext.drasi.types import DrasiOperation, DrasiChangeEvent  # type: ignore[import-not-found]
 from dapr_agents.ext.drasi.utils.validation import (  # type: ignore[import-not-found]
     is_change_operation,
-    is_supported_operation,
+    is_valid_operation,
     normalize_to_list,
 )
 from dapr_agents.types.workflow import PubSubRouteSpec
@@ -179,7 +179,7 @@ def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> Non
             dict.fromkeys(normalize_to_list(config.operations))
         )
         for op in normalized_operations:
-            if not is_supported_operation(op):
+            if not is_valid_operation(op):
                 raise TypeError(f"Unsupported operation type: '{op}'")
 
         if config.result_model is not None and not is_supported_model(
@@ -279,8 +279,14 @@ def drasi_trigger(
         task_mapper: Optional callable `(DrasiChangeEvent, MessageContext) -> TriggerAction`
             to map Drasi events to agent task messages.
             If `None`, the task message will instruct the agent to return the serialized Drasi event as-is.
-        operations: Optional Drasi operation(s) to filter events by
-            (`"i"` for insert, `"u"` for update, `"d"` for delete).
+        operations: Optional Drasi operation(s) to filter events by:
+            * `"i"` - Insert
+            * `"u"` - Update
+            * `"d"` - Delete
+            * `"x"` - Control (lifecycle)
+            * `"h"` - Reload header (snapshot begin)
+            * `"r"` - Reload item (snapshot item)  
+            Control and reload operations are accepted but currently have no effect (no-op).
             Defaults to `None` (no filtering).
         result_model: Optional model to use to validate the individual changes within Drasi change events.
             Defaults to `None` (no validation).

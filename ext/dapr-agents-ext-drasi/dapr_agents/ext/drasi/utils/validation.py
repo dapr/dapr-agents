@@ -21,8 +21,8 @@ from dapr_agents.ext.drasi.schemas import Op  # type: ignore[import-not-found]
 T = TypeVar("T")
 
 
-def is_supported_operation(value: Any) -> bool:
-    """Return `True` if the value is a supported Drasi operation, otherwise `False`."""
+def is_valid_operation(value: Any) -> bool:
+    """Return `True` if the value is a valid Drasi operation, otherwise `False`."""
     try:
         Op(value)
         return True
@@ -31,7 +31,7 @@ def is_supported_operation(value: Any) -> bool:
 
 
 def is_change_operation(value: Any) -> bool:
-    """Return `True` if the value is a Drasi change operation (insert, update, delete), otherwise `False`."""
+    """Return `True` if the value is a Drasi change operation, otherwise `False`."""
     try:
         op = Op(value)
         return op in {Op.i, Op.u, Op.d}

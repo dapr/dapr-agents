@@ -942,114 +942,6 @@ async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
-async def test_drasi_trigger_ignores_malformed_events(setup_deps):
-    """Test that the Drasi extension ignores events that do not conform to the expected format."""
-    query_id = "testquery"
-    agent_pubsub_name = "testpubsub"
-    agent_topic = "testtopic"
-    drasi_pubsub_name = "differentpubsub"
-    drasi_topic = "differenttopic"
-    events = [
-        _make_cloudevent(
-            data={
-                "foo": "bar",
-            },
-            id="1",
-            pubsubname=drasi_pubsub_name,
-            topic=drasi_topic,
-        ),
-        _make_cloudevent(
-            data={
-                "op": "i",
-                "ts_ms": 123,
-                "seq": 1,
-                "payload": {},
-            },
-            id="2",
-            pubsubname=drasi_pubsub_name,
-            topic=drasi_topic,
-        ),
-    ]
-
-    make_agent, make_runner, wf_scheduler_method = setup_deps
-    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = make_runner(
-        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
-    )
-
-    task_str = "ignored"
-
-    drasi_trigger(
-        agent,
-        query_id=query_id,
-        pubsub=drasi_pubsub_name,
-        topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
-    )
-    runner.subscribe(agent)
-
-    await _wait_for_completion()
-
-    # Should gracefully handle malformed events
-    assert wf_scheduler_method.call_count == 0  # type: ignore[attr-defined]
-
-
-@pytest.mark.ext
-@pytest.mark.drasi
-@pytest.mark.asyncio
-async def test_drasi_trigger_ignores_control_events(setup_deps):
-    """Test that the Drasi extension ignores Drasi control events even if explicitly included."""
-    query_id = "testquery"
-    agent_pubsub_name = "testpubsub"
-    agent_topic = "testtopic"
-    drasi_pubsub_name = "differentpubsub"
-    drasi_topic = "differenttopic"
-    events = [
-        _make_cloudevent(
-            data={
-                "op": "x",
-                "ts_ms": 0,
-                "seq": 0,
-                "payload": {
-                    "source": {
-                        "queryId": query_id,
-                        "ts_ms": 0,
-                    },
-                    "signal": {"type": "RELOAD_REQUESTED", "reason": "Manual trigger"},
-                },
-            },
-            id="1",
-            pubsubname=drasi_pubsub_name,
-            topic=drasi_topic,
-        ),
-    ]
-
-    make_agent, make_runner, wf_scheduler_method = setup_deps
-    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = make_runner(
-        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
-    )
-
-    task_str = "ignored"
-
-    drasi_trigger(
-        agent,
-        query_id=query_id,
-        pubsub=drasi_pubsub_name,
-        topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
-        operations="x",
-    )
-    runner.subscribe(agent)
-
-    await _wait_for_completion()
-
-    assert wf_scheduler_method.call_count == 0  # type: ignore[attr-defined]
-
-
-@pytest.mark.ext
-@pytest.mark.drasi
-@pytest.mark.asyncio
 async def test_drasi_trigger_filters_by_query_id(setup_deps):
     """Test that the Drasi extension implicitly filters events by query ID."""
     query_id = "testquery"
@@ -1448,6 +1340,89 @@ async def test_drasi_trigger_filters_with_operations_tuple(setup_deps):
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
+async def test_drasi_trigger_ignores_non_change_events(setup_deps):
+    """Test that the Drasi extension ignores events with non-change operations even if they are explicitly targeted."""
+    query_id = "testquery"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
+    drasi_topic = "differenttopic"
+    events = [
+        _make_cloudevent(
+            data={
+                "op": "x",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 0,
+                    },
+                    "signal": {"type": "RELOAD_REQUESTED", "reason": "Manual trigger"},
+                },
+            },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "h",
+                "ts_ms": 1,
+                "seq": 1,
+            },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "r",
+                "ts_ms": 2,
+                "seq": 2,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 2,
+                    },
+                    "after": {
+                        "status": 200,
+                        "msg": "catastrophic error",
+                    },
+                },
+            },
+            id="3",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+    ]
+
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
+
+    task_str = "ignored"
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        operations="x",
+    )
+    runner.subscribe(agent)
+
+    await _wait_for_completion()
+
+    assert wf_scheduler_method.call_count == 0  # type: ignore[attr-defined]
+
+
+@pytest.mark.ext
+@pytest.mark.drasi
+@pytest.mark.asyncio
 async def test_drasi_trigger_validates_with_result_model(setup_deps):
     """Test that the Drasi extension validates the individual changes in events (and implicitly filters)."""
     query_id = "testquery"
@@ -1580,6 +1555,61 @@ async def test_drasi_trigger_validates_with_result_model(setup_deps):
     ]
     expected_tasks = [task_str for _ in expected_events]
     assert actual_tasks == expected_tasks
+
+
+@pytest.mark.ext
+@pytest.mark.drasi
+@pytest.mark.asyncio
+async def test_drasi_trigger_ignores_malformed_events(setup_deps):
+    """Test that the Drasi extension ignores events that do not conform to the expected format."""
+    query_id = "testquery"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
+    drasi_topic = "differenttopic"
+    events = [
+        _make_cloudevent(
+            data={
+                "foo": "bar",
+            },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "i",
+                "ts_ms": 123,
+                "seq": 1,
+                "payload": {},
+            },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+    ]
+
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
+
+    task_str = "ignored"
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+    )
+    runner.subscribe(agent)
+
+    await _wait_for_completion()
+
+    # Should gracefully handle malformed events
+    assert wf_scheduler_method.call_count == 0  # type: ignore[attr-defined]
 
 
 @pytest.mark.ext
