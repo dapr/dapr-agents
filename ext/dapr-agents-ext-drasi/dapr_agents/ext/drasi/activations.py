@@ -75,20 +75,21 @@ def _passes_filter(
     return filter_fn(event)
 
 
-def _validate_model_field(target_model: type[Any], model: Any, field_name: str) -> bool:
+def _is_valid_model_field(target_model: type[Any], model: Any, field_name: str) -> bool:
     """
     Return `True` if the provided model instance can be validated/coerced to the target model type,
     `False` otherwise.
-
     """
     try:
-        return validate_message_model(target_model, model)
+        validate_message_model(target_model, model)
+        return True
     except Exception:
         # Filters are independently applied. Drasi events may omit certain fields depending on the operation type,
         # so validation failures can be frequent;
         # we swallow exceptions here and log them under log level DEBUG to avoid noisy logs.
         logger.debug(
-            f"[drasi-trigger]: Failed to validate '{field_name}'", exc_info=True
+            f"[drasi-trigger]: Unable to validate field '{field_name}' against {target_model.__name__}, got {model!r}",
+            exc_info=True,
         )
         return False
 
@@ -128,14 +129,14 @@ def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
         def result_model_filter(event: DrasiChangeEvent) -> bool:
             return (
                 event.payload.before is None
-                or _validate_model_field(
+                or _is_valid_model_field(
                     config.result_model,
                     event.payload.before.root,
                     "before",
                 )
             ) and (
                 event.payload.after is None
-                or _validate_model_field(
+                or _is_valid_model_field(
                     config.result_model,
                     event.payload.after.root,
                     "after",
