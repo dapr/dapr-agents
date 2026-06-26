@@ -107,6 +107,23 @@ class ApprovalResponseEvent(BaseModel):
     decided_at: datetime = Field(
         default_factory=utcnow, description="When the decision was made"
     )
+    approver_token: Optional[str] = Field(
+        default=None,
+        description=(
+            "Raw JWT submitted by the approver via the approval UI, CLI, or chat bot. "
+            "Verified by the downstream HITL plugin against the requirements declared "
+            "on the original ApprovalRequiredEvent. MUST be scrubbed from any signed "
+            "workflow history — only the verified-claims subset (subject, scopes) propagates."
+        ),
+    )
+    approver_subject: Optional[str] = Field(
+        default=None,
+        description=(
+            "Approver's verified `sub` claim. Populated by the HITL plugin after "
+            "verifying approver_token; not trusted on input from the raw event payload. "
+            "Carrying it here lets observers see who approved without re-verifying."
+        ),
+    )
 
 
 class BroadcastMessage(BaseMessage):
