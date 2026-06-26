@@ -25,7 +25,7 @@ from typing import Literal
 from dapr_agents.ext.drasi.schemas import ChangeNotification
 
 
-DrasiOperation = Literal["i", "u", "d", "x", "h", "r"]
+DrasiOperation = Literal["i", "u", "d"]
 
 
 class DrasiChangeEvent(ChangeNotification):

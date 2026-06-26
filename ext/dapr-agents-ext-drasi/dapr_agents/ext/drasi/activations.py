@@ -22,8 +22,7 @@ from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.types.activation import ActivationContext
 from dapr_agents.ext.drasi.types import DrasiOperation, DrasiChangeEvent
 from dapr_agents.ext.drasi.utils.validation import (
-    is_change_operation,
-    is_valid_operation,
+    is_supported_operation,
     normalize_to_list,
 )
 from dapr_agents.types.workflow import PubSubRouteSpec
@@ -115,7 +114,7 @@ def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
             # We pass the enum value into `is_change_operation`
             # since validated events may not share the exact same operation enum type
             return (
-                is_change_operation(event.op.value)
+                is_supported_operation(event.op.value)
                 and event.op.value in normalized_operations
             )
 
@@ -179,7 +178,7 @@ def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> Non
             dict.fromkeys(normalize_to_list(config.operations))
         )
         for op in normalized_operations:
-            if not is_valid_operation(op):
+            if not is_supported_operation(op):
                 raise TypeError(f"Unsupported operation type: '{op}'")
 
         if config.result_model is not None and not is_supported_model(
@@ -232,10 +231,10 @@ def _subscribe(
     ctx: ActivationContext, specs: list[PubSubRouteSpec]
 ) -> list[Callable[[], None]]:
     """Wire pub/sub routes and return closers."""
-    # TODO: does this need to be publically accessible or is this even necessary
+    # TODO: does this need to be publicly accessible or is this even necessary
     client_factory = getattr(ctx.runner, "_client_factory", None)
 
-    # TODO: allow users to customize concurrency and other params
+    # TODO: allow users to customize concurrency, dedupe logic and other params
     closers = register_message_routes(
         dapr_client=ctx.dapr_client,
         routes=specs,
@@ -281,11 +280,7 @@ def drasi_trigger(
             * `"i"` - Insert
             * `"u"` - Update
             * `"d"` - Delete
-            * `"x"` - Control (lifecycle)
-            * `"h"` - Reload header (snapshot begin)
-            * `"r"` - Reload item (snapshot item)
 
-            Control and reload operations are accepted but currently have no effect (no-op).
             Defaults to `None` (no filtering).
         result_model: Optional model to use to validate the individual changes within Drasi change events.
             Defaults to `None` (no validation).

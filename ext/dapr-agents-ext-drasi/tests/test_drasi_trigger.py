@@ -1234,89 +1234,6 @@ async def test_drasi_trigger_filters_by_operations_list(setup_deps):
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
-async def test_drasi_trigger_ignores_non_change_events(setup_deps):
-    """Test that the Drasi extension ignores events with non-change operations even if they are explicitly targeted."""
-    query_id = "queryquery"
-    agent_pubsub_name = "testpubsub"
-    agent_topic = "testtopic"
-    drasi_pubsub_name = "differentpubsub"
-    drasi_topic = "differenttopic"
-    events = [
-        _make_cloudevent(
-            data={
-                "op": "x",
-                "ts_ms": 0,
-                "seq": 0,
-                "payload": {
-                    "source": {
-                        "queryId": query_id,
-                        "ts_ms": 0,
-                    },
-                    "kind": "fatal",
-                },
-            },
-            id="1",
-            pubsubname=drasi_pubsub_name,
-            topic=drasi_topic,
-        ),
-        _make_cloudevent(
-            data={
-                "op": "h",
-                "ts_ms": 1,
-                "seq": 1,
-            },
-            id="2",
-            pubsubname=drasi_pubsub_name,
-            topic=drasi_topic,
-        ),
-        _make_cloudevent(
-            data={
-                "op": "r",
-                "ts_ms": 2,
-                "seq": 2,
-                "payload": {
-                    "source": {
-                        "queryId": query_id,
-                        "ts_ms": 2,
-                    },
-                    "after": {
-                        "status": 200,
-                        "msg": "catastrophic error (who broke prod)",
-                    },
-                },
-            },
-            id="3",
-            pubsubname=drasi_pubsub_name,
-            topic=drasi_topic,
-        ),
-    ]
-
-    make_agent, make_runner, wf_scheduler_method = setup_deps
-    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
-    runner = make_runner(
-        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
-    )
-
-    task_str = "ignored"
-
-    drasi_trigger(
-        agent,
-        query_id=query_id,
-        pubsub=drasi_pubsub_name,
-        topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
-        operations="x",
-    )
-    runner.subscribe(agent)
-
-    await _wait_for_completion()
-
-    assert wf_scheduler_method.call_count == 0
-
-
-@pytest.mark.ext
-@pytest.mark.drasi
-@pytest.mark.asyncio
 async def test_drasi_trigger_validates_with_result_model(setup_deps):
     """Test that the Drasi extension validates the individual changes in events (and implicitly filters)."""
     query_id = "nucksquery"
@@ -1640,7 +1557,7 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps)
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
-async def test_drasi_trigger_raises_with_invalid_operation(setup_deps):
+async def test_drasi_trigger_raises_with_unsupported_operation(setup_deps):
     """Test that the Drasi extension fails when the provided operation is not supported."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
@@ -1650,7 +1567,7 @@ async def test_drasi_trigger_raises_with_invalid_operation(setup_deps):
     events = [
         _make_cloudevent(
             data={
-                "op": "u",
+                "op": "x",
                 "ts_ms": 0,
                 "seq": 0,
                 "payload": {
@@ -1658,12 +1575,7 @@ async def test_drasi_trigger_raises_with_invalid_operation(setup_deps):
                         "queryId": query_id,
                         "ts_ms": 0,
                     },
-                    "before": {
-                        "id": 0,
-                    },
-                    "after": {
-                        "id": 1,
-                    },
+                    "kind": "fatal",
                 },
             },
             id="1",
@@ -1676,8 +1588,8 @@ async def test_drasi_trigger_raises_with_invalid_operation(setup_deps):
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    task_str = "yummy"
-    operation = "slop"
+    task_str = "slop"
+    operation = "x"
 
     drasi_trigger(
         agent,
@@ -1688,6 +1600,7 @@ async def test_drasi_trigger_raises_with_invalid_operation(setup_deps):
         operations=operation,
     )
 
+    # Should fail when the agent is hosted so it doesn't try to process a valid but unsupported operation
     with pytest.raises(RuntimeError, match=f"operation.*{operation}"):
         runner.subscribe(agent)
 
@@ -1696,7 +1609,7 @@ async def test_drasi_trigger_raises_with_invalid_operation(setup_deps):
 @pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_with_invalid_result_model(setup_deps):
-    """Test that the Drasi extension fails when the provided result model is not supported."""
+    """Test that the Drasi extension fails when the provided result model is invalid."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"

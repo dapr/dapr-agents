@@ -21,20 +21,11 @@ from dapr_agents.ext.drasi.schemas import Op
 T = TypeVar("T")
 
 
-def is_change_operation(value: Any) -> bool:
-    """Return `True` if the value is a Drasi change operation, otherwise `False`."""
+def is_supported_operation(value: Any) -> bool:
+    """Return `True` if the value is a supported Drasi operation, otherwise `False`."""
     try:
         op = Op(value)
         return op in {Op.i, Op.u, Op.d}
-    except (ValueError, TypeError):
-        return False
-
-
-def is_valid_operation(value: Any) -> bool:
-    """Return `True` if the value is a valid Drasi operation, otherwise `False`."""
-    try:
-        Op(value)
-        return True
     except (ValueError, TypeError):
         return False
 
@@ -47,5 +38,5 @@ def normalize_to_list(value: T | list[T] | None) -> list[T]:
     if isinstance(value, list):
         return list(value)
 
-    # Treat strings as scalar values
+    # Treat sequences (e.g. strings) as scalar values
     return [value]

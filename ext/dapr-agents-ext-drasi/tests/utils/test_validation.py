@@ -15,31 +15,9 @@
 from __future__ import annotations
 
 from dapr_agents.ext.drasi.utils.validation import (
-    is_change_operation,
-    is_valid_operation,
+    is_supported_operation,
     normalize_to_list,
 )
-
-
-# ---------------------------------------------------------------------------
-# is_valid_operation
-# ---------------------------------------------------------------------------
-
-
-def test_is_valid_operation_accepts_valid_values():
-    assert is_valid_operation("i")
-    assert is_valid_operation("u")
-    assert is_valid_operation("d")
-    assert is_valid_operation("x")
-    assert is_valid_operation("h")
-    assert is_valid_operation("r")
-
-
-def test_is_valid_operation_rejects_invalid_values():
-    assert not is_valid_operation("xyz")
-    assert not is_valid_operation(123)
-    assert not is_valid_operation(True)
-    assert not is_valid_operation(None)
 
 
 # ---------------------------------------------------------------------------
@@ -48,19 +26,19 @@ def test_is_valid_operation_rejects_invalid_values():
 
 
 def test_is_change_operation_accepts_valid_values():
-    assert is_change_operation("i")
-    assert is_change_operation("u")
-    assert is_change_operation("d")
+    assert is_supported_operation("i")
+    assert is_supported_operation("u")
+    assert is_supported_operation("d")
 
 
 def test_is_change_operation_rejects_invalid_values():
-    assert not is_change_operation("x")
-    assert not is_change_operation("h")
-    assert not is_change_operation("r")
-    assert not is_change_operation("invalid")
-    assert not is_change_operation(456)
-    assert not is_change_operation(False)
-    assert not is_change_operation(None)
+    assert not is_supported_operation("x")
+    assert not is_supported_operation("h")
+    assert not is_supported_operation("r")
+    assert not is_supported_operation("invalid")
+    assert not is_supported_operation(456)
+    assert not is_supported_operation(False)
+    assert not is_supported_operation(None)
 
 
 # ---------------------------------------------------------------------------
