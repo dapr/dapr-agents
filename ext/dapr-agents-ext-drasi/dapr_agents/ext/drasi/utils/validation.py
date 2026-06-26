@@ -17,7 +17,6 @@ from typing import Any, TypeVar
 
 from dapr_agents.ext.drasi.schemas import Op
 
-
 T = TypeVar("T")
 
 

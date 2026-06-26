@@ -29,13 +29,15 @@ from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.registration import register_message_routes
 from dapr_agents.workflow.utils.routers import validate_message_model
-from dapr_agents.workflow.utils.subscription import MessageContext, ModelFilter
-
+from dapr_agents.workflow.utils.subscription import (
+    MessageContext,
+    ModelFilter,
+    TTLDedupeBackend,
+)
 
 logger = logging.getLogger(__name__)
 
-
-DRASI_TRIGGER_DEFAULT_TASK = "Return the following payload exactly as-is"
+DRASI_TRIGGER_DEFAULT_TASK = "Return the following payload as-is"
 DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX = "drasi-events"
 
 DrasiTaskMapper = Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
@@ -44,8 +46,8 @@ DrasiTaskMapper = Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
 @dataclass(frozen=True)
 class _DrasiTriggerConfig:
     """
-    Immutable container to hold the user-supplied `drasi_trigger` configuration instead of threading arguments through multiple call sites.
-    One instance is created per `drasi_trigger` invocation; must not be shared.
+    Immutable container to hold the user-supplied `drasi_trigger` configuration.
+    A single instance is created per `drasi_trigger` invocation; must not be shared.
     """
 
     query_id: str
@@ -228,16 +230,26 @@ def _build_pubsub_specs(
 
 
 def _subscribe(
-    ctx: ActivationContext, specs: list[PubSubRouteSpec]
+    ctx: ActivationContext, specs: list[PubSubRouteSpec], config: _DrasiTriggerConfig
 ) -> list[Callable[[], None]]:
     """Wire pub/sub routes and return closers."""
     # TODO: does this need to be publicly accessible or is this even necessary
     client_factory = getattr(ctx.runner, "_client_factory", None)
 
-    # TODO: allow users to customize concurrency, dedupe logic and other params
+    try:
+        deduper = TTLDedupeBackend()
+    except ImportError:
+        logger.warning(
+            f"[drasi-trigger]: cachetools not installed; "
+            f"disabling pub/sub message deduplication for pubsub component {config.pubsub} and topic {config.topic}"
+        )
+        deduper = None
+
+    # TODO: allow users to customize concurrency and other settings
     closers = register_message_routes(
         dapr_client=ctx.dapr_client,
         routes=specs,
+        deduper=deduper,
         wf_client=ctx.wf_client,
         client_factory=client_factory,
     )
@@ -303,8 +315,9 @@ def drasi_trigger(
                 "[drasi-trigger]: HTTP routes are not supported by this extension; only pub/sub routes will be wired."
             )
 
+        agent_name = ctx.agent.name or ctx.agent
         logger.debug(
-            f"[drasi-trigger]: Activation callback fired for agent '{ctx.agent.name}' with "
+            f"[drasi-trigger]: Activation callback fired for agent '{agent_name}' with "
             f"query_id='{query_id}', "
             f"pubsub='{pubsub}', "
             f"topic='{topic}', "
@@ -325,7 +338,7 @@ def drasi_trigger(
 
         _validate_config(ctx, config)
         specs = _build_pubsub_specs(ctx, config)
-        closers = _subscribe(ctx, specs)
+        closers = _subscribe(ctx, specs, config)
 
         closed = False
 
