@@ -131,6 +131,7 @@ class ApprovalResponseEvent(BaseModel):
     )
     approver_token: Optional[str] = Field(
         default=None,
+        repr=False,
         description=(
             "Raw JWT submitted by the approver via the approval UI / CLI / chat bot. "
             "Verified by the downstream HITL plugin against the requirements declared "

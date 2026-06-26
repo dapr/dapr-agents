@@ -98,6 +98,18 @@ def test_approval_response_event_with_approver_fields():
     assert r.approver_subject == "bob@acme.com"
 
 
+def test_approval_response_event_token_excluded_from_repr():
+    # approver_token is a sensitive raw JWT and must not leak via repr / logs,
+    # but it must still serialize for delivery.
+    r = ApprovalResponseEvent(
+        approval_request_id="appr-1",
+        approved=True,
+        approver_token="eyJhbG...",
+    )
+    assert "eyJhbG..." not in repr(r)
+    assert r.model_dump(mode="json")["approver_token"] == "eyJhbG..."
+
+
 def test_approval_response_event_serialization_roundtrip():
     r = ApprovalResponseEvent(
         approval_request_id="appr-1",
