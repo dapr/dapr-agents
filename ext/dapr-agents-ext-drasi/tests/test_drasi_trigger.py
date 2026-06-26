@@ -348,14 +348,12 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    task_str = "process order"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
     runner.subscribe(agent)
 
@@ -377,7 +375,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list
     ]
-    expected_tasks = [task_str for _ in events]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
     assert actual_tasks == expected_tasks
 
 
@@ -440,14 +438,12 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    task_str = "triage incidents"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
     runner.register_routes(agent, fastapi_app=FastAPI())
 
@@ -467,7 +463,7 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list
     ]
-    expected_tasks = [task_str for _ in events]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
     assert actual_tasks == expected_tasks
 
 
@@ -531,14 +527,12 @@ async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    task_str = "determine if potential fraud"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
     runner.serve(agent, app=FastAPI())
 
@@ -558,7 +552,7 @@ async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list
     ]
-    expected_tasks = [task_str for _ in events]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
     assert actual_tasks == expected_tasks
 
 
@@ -633,14 +627,12 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps)
     agent = make_agent()
     runner = make_runner(pubsub_names=[drasi_pubsub_name], event_stream=events)
 
-    task_str = "predict next move"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
     runner.subscribe(agent)
 
@@ -660,7 +652,7 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps)
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list
     ]
-    expected_tasks = [task_str for _ in events]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
     assert actual_tasks == expected_tasks
 
 
@@ -718,13 +710,11 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component(setup_deps):
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    task_str = "flag questionable searches"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
     runner.subscribe(agent)
 
@@ -744,7 +734,7 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component(setup_deps):
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list
     ]
-    expected_tasks = [task_str for _ in events]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
     assert actual_tasks == expected_tasks
 
 
@@ -815,13 +805,11 @@ async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    task_str = "summarize scoring"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
     runner.subscribe(agent)
 
@@ -841,7 +829,7 @@ async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list
     ]
-    expected_tasks = [task_str for _ in events]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
     assert actual_tasks == expected_tasks
 
 
@@ -997,14 +985,12 @@ async def test_drasi_trigger_filters_by_query_id(setup_deps):
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    task_str = "stats"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
     runner.subscribe(agent)
 
@@ -1025,7 +1011,7 @@ async def test_drasi_trigger_filters_by_query_id(setup_deps):
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list
     ]
-    expected_tasks = [task_str for _ in expected_events]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
     assert actual_tasks == expected_tasks
 
 
@@ -1086,14 +1072,12 @@ async def test_drasi_trigger_filters_by_operation(setup_deps):
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    task_str = "result"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
         operations="d",
     )
     runner.subscribe(agent)
@@ -1115,7 +1099,7 @@ async def test_drasi_trigger_filters_by_operation(setup_deps):
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list
     ]
-    expected_tasks = [task_str for _ in expected_events]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
     assert actual_tasks == expected_tasks
 
 
@@ -1198,14 +1182,12 @@ async def test_drasi_trigger_filters_by_operations_list(setup_deps):
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    task_str = "goat"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
         operations=["i", "u"],
     )
     runner.subscribe(agent)
@@ -1227,7 +1209,7 @@ async def test_drasi_trigger_filters_by_operations_list(setup_deps):
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list
     ]
-    expected_tasks = [task_str for _ in expected_events]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
     assert actual_tasks == expected_tasks
 
 
@@ -1352,8 +1334,6 @@ async def test_drasi_trigger_validates_with_result_model(setup_deps):
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    task_str = "trust"
-
     class Counter(BaseModel):
         count: int
 
@@ -1362,7 +1342,7 @@ async def test_drasi_trigger_validates_with_result_model(setup_deps):
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
         result_model=Counter,
     )
     runner.subscribe(agent)
@@ -1384,7 +1364,7 @@ async def test_drasi_trigger_validates_with_result_model(setup_deps):
         _safe_json_loads(c.kwargs.get("input", {})).get("task")
         for c in wf_scheduler_method.call_args_list
     ]
-    expected_tasks = [task_str for _ in expected_events]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
     assert actual_tasks == expected_tasks
 
 
@@ -1426,14 +1406,12 @@ async def test_drasi_trigger_ignores_malformed_events(setup_deps):
         pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
     )
 
-    task_str = "boring"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
     runner.subscribe(agent)
 
@@ -1482,14 +1460,12 @@ async def test_drasi_trigger_raises_when_pubsub_is_not_registered(setup_deps):
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    task_str = "dabigah"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
 
     # Ensure that the activation doesn't try to fall back to the agent's pub/sub component
@@ -1538,14 +1514,12 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps)
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    task_str = "6ix"
-
     drasi_trigger(
         agent,
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
 
     with pytest.raises(
@@ -1588,7 +1562,6 @@ async def test_drasi_trigger_raises_with_unsupported_operation(setup_deps):
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    task_str = "slop"
     operation = "x"
 
     drasi_trigger(
@@ -1596,7 +1569,7 @@ async def test_drasi_trigger_raises_with_unsupported_operation(setup_deps):
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
         operations=operation,
     )
 
@@ -1644,7 +1617,6 @@ async def test_drasi_trigger_raises_with_invalid_result_model(setup_deps):
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    task_str = "gng"
     result_model = 17
 
     drasi_trigger(
@@ -1652,7 +1624,7 @@ async def test_drasi_trigger_raises_with_invalid_result_model(setup_deps):
         query_id=query_id,
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
-        task_mapper=lambda _event, _msg_ctx: TriggerAction(task=task_str),
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
         result_model=result_model,
     )
 
@@ -1699,10 +1671,8 @@ async def test_drasi_trigger_raises_with_async_task_mapper(setup_deps):
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    task_str = "son"
-
-    async def async_task_mapper(_event, _msg_ctx):
-        return TriggerAction(task=task_str)
+    async def async_task_mapper(event, msg_ctx):
+        return TriggerAction(task=f"{event.seq}")
 
     drasi_trigger(
         agent,
@@ -1755,7 +1725,7 @@ async def test_drasi_trigger_raises_with_non_callable_task_mapper(setup_deps):
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    task_mapper = "tung tung"
+    task_mapper = "nobody will ever get this far into the test suite to read this"
 
     drasi_trigger(
         agent,
@@ -1811,11 +1781,9 @@ async def test_drasi_trigger_raises_with_async_callable_task_mapper(setup_deps):
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    task_str = "nobody will ever get this far into the test suite to read this"
-
     class AsyncCallableFilter:
-        async def __call__(self, payload, msg_ctx):
-            return TriggerAction(task=task_str)
+        async def __call__(self, event, msg_ctx):
+            return TriggerAction(task=f"{event.seq}")
 
     drasi_trigger(
         agent,
