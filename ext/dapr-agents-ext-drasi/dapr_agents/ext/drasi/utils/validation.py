@@ -39,12 +39,12 @@ def is_valid_operation(value: Any) -> bool:
         return False
 
 
-def normalize_to_list(value: T | list[T] | tuple[T, ...] | None) -> list[T]:
-    """Convert a scalar, list, or tuple to a list. If the value is `None`, returns an empty list."""
+def normalize_to_list(value: T | list[T] | None) -> list[T]:
+    """Convert a scalar or a list to a list. If the value is `None`, returns an empty list."""
     if value is None:
         return []
 
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list):
         return list(value)
 
     # Treat strings as scalar values

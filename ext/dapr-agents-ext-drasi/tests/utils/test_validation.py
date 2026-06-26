@@ -82,7 +82,3 @@ def test_normalize_to_list_scalar_sequence_returns_single_element_list():
 
 def test_normalize_to_list_list_returns_ordered_list():
     assert normalize_to_list([1, 2, 3]) == [1, 2, 3]
-
-
-def test_normalize_to_list_tuple_returns_ordered_list():
-    assert normalize_to_list((True, False)) == [True, False]

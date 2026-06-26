@@ -54,11 +54,11 @@ class _DrasiTriggerConfig:
     topic: str | None
     dead_letter_topic: str | None
     task_mapper: DrasiTaskMapper | None
-    operations: DrasiOperation | list[DrasiOperation] | tuple[DrasiOperation] | None
+    operations: DrasiOperation | list[DrasiOperation] | None
     result_model: type[Any] | None
 
 
-def _apply_filter(
+def _passes_filter(
     filter_fn: Callable[[DrasiChangeEvent], bool],
     event: DrasiChangeEvent,
     ctx: MessageContext,
@@ -143,7 +143,7 @@ def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
         filter_fns.append(result_model_filter)
 
     def _model_filter(event: DrasiChangeEvent, ctx: MessageContext) -> bool:
-        return all(_apply_filter(fn, event, ctx) for fn in filter_fns)
+        return all(_passes_filter(fn, event, ctx) for fn in filter_fns)
 
     return _model_filter
 
@@ -254,10 +254,7 @@ def drasi_trigger(
     topic: str | None = None,
     dead_letter_topic: str | None = None,
     task_mapper: DrasiTaskMapper | None = None,
-    operations: DrasiOperation
-    | list[DrasiOperation]
-    | tuple[DrasiOperation]
-    | None = None,
+    operations: DrasiOperation | list[DrasiOperation] | None = None,
     result_model: type[Any] | None = None,
 ) -> None:
     """
