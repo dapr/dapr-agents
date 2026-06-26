@@ -56,7 +56,7 @@ class _DrasiTriggerConfig:
     topic: str | None
     dead_letter_topic: str | None
     task_mapper: DrasiTaskMapper | None
-    operations: DrasiOperation | list[DrasiOperation] | None
+    operations: list[DrasiOperation]  # Normalized to a list for easier validation/filtering
     result_model: type[Any] | None
 
 
@@ -72,7 +72,7 @@ def _passes_filter(
     logger.debug(
         f"[drasi-trigger]: Applying filter '{filter_fn.__name__}' for handler '{ctx.handler_name}'"
     )
-    return filter_fn(event)
+    return bool(filter_fn(event))
 
 
 def _is_valid_model_field(target_model: type[Any], model: Any, field_name: str) -> bool:
@@ -92,58 +92,65 @@ def _is_valid_model_field(target_model: type[Any], model: Any, field_name: str) 
             exc_info=True,
         )
         return False
+    
 
-
-def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
-    """
-    Build a filter list conditionally using the **validated** configuration and
-    return the post-schema validation filter for Drasi pub/sub bindings via closure.
-    """
-    filter_fns: list[Callable[[DrasiChangeEvent], bool]] = []
-
-    # Deduplicate operations (preserving order) and normalize to a list for easier filtering
-    normalized_operations: list[DrasiOperation] = list(
-        dict.fromkeys(normalize_to_list(config.operations))
-    )
+def _make_query_id_filter(config: _DrasiTriggerConfig) -> Callable[[DrasiChangeEvent], bool]:
+    """Return a closure that filters Drasi events by the provided query ID."""
 
     def query_id_filter(event: DrasiChangeEvent) -> bool:
         return event.payload.source.queryId == config.query_id
 
-    filter_fns.append(query_id_filter)
+    return query_id_filter
 
-    if normalized_operations:
 
-        def operations_filter(event: DrasiChangeEvent) -> bool:
-            # Ignore non-change events
-            # We pass the enum value into `is_change_operation`
-            # since validated events may not share the exact same operation enum type
-            return (
-                is_supported_operation(event.op.value)
-                and event.op.value in normalized_operations
-            )
+def _make_operations_filter(config: _DrasiTriggerConfig) -> Callable[[DrasiChangeEvent], bool]:
+    """Return a closure that filters Drasi events by the provided operation(s)."""
 
-        filter_fns.append(operations_filter)
+    def operations_filter(event: DrasiChangeEvent) -> bool:
+        # Ignore non-change events
+        # We pass the enum value into `is_change_operation`
+        # since validated events may not share the exact same operation enum type
+        return (
+            is_supported_operation(event.op.value)
+            and event.op.value in config.operations
+        )
+
+    return operations_filter
+
+
+def _make_result_model_filter(config: _DrasiTriggerConfig) -> Callable[[DrasiChangeEvent], bool]:
+    """Return a closure that validates the change data within Drasi events using the provided result model."""
+    
+    def result_model_filter(event: DrasiChangeEvent) -> bool:
+        result_model_fields = [
+            ("before", event.payload.before),
+            ("after", event.payload.after),
+        ]
+
+        return all(
+            model is None
+            or _is_valid_model_field(config.result_model, model.root, field_name)
+            for field_name, model in result_model_fields
+        )
+
+    return result_model_filter
+
+
+def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
+    """
+    Build a filter list conditionally using the **validated** user configuration and
+    return the post-schema validation filter for Drasi pub/sub bindings via closure.
+    """
+    filter_fns: list[Callable[[DrasiChangeEvent], bool]] = []
+
+    # Mandatory filters
+    filter_fns.append(_make_query_id_filter(config))
+
+    if config.operations:
+        filter_fns.append(_make_operations_filter(config))
 
     if config.result_model is not None:
-
-        def result_model_filter(event: DrasiChangeEvent) -> bool:
-            return (
-                event.payload.before is None
-                or _is_valid_model_field(
-                    config.result_model,
-                    event.payload.before.root,
-                    "before",
-                )
-            ) and (
-                event.payload.after is None
-                or _is_valid_model_field(
-                    config.result_model,
-                    event.payload.after.root,
-                    "after",
-                )
-            )
-
-        filter_fns.append(result_model_filter)
+        filter_fns.append(_make_result_model_filter(config))
 
     def _model_filter(event: DrasiChangeEvent, ctx: MessageContext) -> bool:
         return all(_passes_filter(fn, event, ctx) for fn in filter_fns)
@@ -178,10 +185,7 @@ def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> Non
                 "the agent will be instructed to return the serialized Drasi event as-is."
             )
 
-        normalized_operations = list(
-            dict.fromkeys(normalize_to_list(config.operations))
-        )
-        for op in normalized_operations:
+        for op in config.operations:
             if not is_supported_operation(op):
                 raise TypeError(f"Unsupported operation type: '{op}'")
 
@@ -328,13 +332,15 @@ def drasi_trigger(
             f"result_model={result_model}"
         )
 
+        # Deduplicate operations (preserving order) and normalize to a list for easier validation and filtering
+        normalized_operations = list(dict.fromkeys(normalize_to_list(operations)))
         config = _DrasiTriggerConfig(
             query_id=query_id,
             pubsub=pubsub,
             topic=topic,
             dead_letter_topic=dead_letter_topic,
             task_mapper=task_mapper,
-            operations=operations,
+            operations=normalized_operations,
             result_model=result_model,
         )
 
