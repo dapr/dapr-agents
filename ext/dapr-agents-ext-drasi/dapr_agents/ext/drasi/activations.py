@@ -37,8 +37,8 @@ from dapr_agents.workflow.utils.subscription import (
 
 logger = logging.getLogger(__name__)
 
-DRASI_TRIGGER_DEFAULT_TASK = "Return the following payload as-is"
-DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX = "drasi-events"
+_DRASI_TRIGGER_DEFAULT_TASK = "Return the following payload as-is"
+_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX = "drasi-events"
 
 DrasiTaskMapper = Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
 
@@ -198,12 +198,12 @@ def _build_pubsub_specs(
     """Resolve user-supplied configuration with fallback values and return pub/sub routes."""
     resolved_pubsub = config.pubsub or ctx.agent.pubsub.pubsub_name
     resolved_topic = (
-        config.topic or f"{DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{config.query_id}"
+        config.topic or f"{_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{config.query_id}"
     )
     filter_fn = _make_model_filter(config)
     resolved_task_mapper: DrasiTaskMapper = config.task_mapper or (
         lambda event, _: TriggerAction(
-            task=f"{DRASI_TRIGGER_DEFAULT_TASK}: {event.model_dump_json()}"
+            task=f"{_DRASI_TRIGGER_DEFAULT_TASK}: {event.model_dump_json()}"
         )
     )
 

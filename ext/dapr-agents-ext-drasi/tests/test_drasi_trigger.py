@@ -37,10 +37,11 @@ from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.workflow.runners.agent import AgentRunner
-from dapr_agents.ext.drasi import (
-    DRASI_TRIGGER_DEFAULT_TASK,
-    DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX,
-    drasi_trigger,
+
+from dapr_agents.ext.drasi import drasi_trigger
+from dapr_agents.ext.drasi.activations import (
+    _DRASI_TRIGGER_DEFAULT_TASK,
+    _DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX,
 )
 
 
@@ -131,7 +132,7 @@ def _get_attr_from_wf_input_metadata(kwargs: dict[str, Any], name: str) -> str |
     )
 
 
-# TODO: this is very hacky and will need to be replaced
+# TODO: tests may still be flaky with this workaround, will need to be replaced
 async def _wait_for_completion():
     """
     Short sleep to allow background workflow scheduling to complete.
@@ -749,7 +750,7 @@ async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_pubsub_name = "goalspubsub"
-    drasi_topic = f"{DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{query_id}"
+    drasi_topic = f"{_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{query_id}"
     events = [
         _make_cloudevent(
             data={
@@ -922,7 +923,7 @@ async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
         _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
-    assert all(DRASI_TRIGGER_DEFAULT_TASK in task for task in actual_tasks)
+    assert all(_DRASI_TRIGGER_DEFAULT_TASK in task for task in actual_tasks)
 
 
 @pytest.mark.ext
