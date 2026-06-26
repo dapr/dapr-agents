@@ -3183,10 +3183,11 @@ class DurableAgent(AgentBase):
             approval_request_id: Unique request ID from the ApprovalRequiredEvent.
             approved: True to allow the tool to run, False to block it.
             reason: Optional human-provided explanation for the decision.
-            approver_token: Optional raw JWT from the approving user, required when
-                the originating approval declared approver scopes or subjects. Passed
-                through opaquely — the downstream HITL plugin verifies it before
-                honoring approved=True. Treated as sensitive and never logged here.
+            approver_token: Optional raw JWT from the approving user, which may be
+                required by downstream HITL plugins when the originating approval
+                declared approver scopes or subjects. Passed through opaquely — the
+                plugin verifies it before honoring approved=True. Treated as
+                sensitive and never logged here.
 
         Raises:
             Exception: If the Dapr workflow client cannot deliver the event.
