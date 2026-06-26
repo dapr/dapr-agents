@@ -96,7 +96,14 @@ def _create_mock_dapr_client(
     return mock_client
 
 
-def _make_cloudevent(data: dict, **fields) -> dict:
+def _safe_json_loads(data: Any) -> Any:
+    """Safely parses a JSON-serializable value, returning the parsed data."""
+    if isinstance(data, (dict, list)):
+        return data
+    return json.loads(data)
+
+
+def _make_cloudevent(data: dict[str, Any], **fields) -> dict[str, Any]:
     """Build a dict that `extract_cloudevent_data` will treat as a CloudEvent."""
     base = {
         "id": "1",
@@ -112,11 +119,16 @@ def _make_cloudevent(data: dict, **fields) -> dict:
     return base
 
 
-def _safe_json_loads(data: Any) -> Any:
-    """Safely parses a JSON-serializable value, returning the parsed data."""
-    if isinstance(data, (dict, list)):
-        return data
-    return json.loads(data)
+def _get_attr_from_wf_input(kwargs: dict[str, Any], name: str) -> str | None:
+    """Return an attribute from the input to the workflow scheduler method call."""
+    return _safe_json_loads(kwargs.get("input", {})).get(name)
+
+
+def _get_attr_from_wf_input_metadata(kwargs: dict[str, Any], name: str) -> str | None:
+    """Return a CloudEvent attribute from the input to the workflow scheduler method call."""
+    return (
+        _safe_json_loads(kwargs.get("input", {})).get("_message_metadata", {}).get(name)
+    )
 
 
 # TODO: this is very hacky and will need to be replaced
@@ -363,16 +375,14 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
 
     # Ensure that order is preserved
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     # Ensure that task strings are correctly generated
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
@@ -452,15 +462,13 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
     assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
@@ -541,15 +549,13 @@ async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
     assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
@@ -641,15 +647,13 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps)
     assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
@@ -723,15 +727,13 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component(setup_deps):
     assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
@@ -818,15 +820,13 @@ async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
     assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in events]
@@ -913,15 +913,13 @@ async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
     assert wf_scheduler_method.call_count == 2
 
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     assert all(DRASI_TRIGGER_DEFAULT_TASK in task for task in actual_tasks)
@@ -1000,15 +998,13 @@ async def test_drasi_trigger_filters_by_query_id(setup_deps):
 
     expected_events = [events[0]]
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
@@ -1088,15 +1084,13 @@ async def test_drasi_trigger_filters_by_operation(setup_deps):
 
     expected_events = [events[1]]
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
@@ -1198,15 +1192,13 @@ async def test_drasi_trigger_filters_by_operations_list(setup_deps):
 
     expected_events = [events[0], events[2]]
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
@@ -1353,15 +1345,13 @@ async def test_drasi_trigger_validates_with_result_model(setup_deps):
 
     expected_events = [events[0], events[1], events[2]]
     cloudevent_ids = [
-        _safe_json_loads(c.kwargs.get("input", {}))
-        .get("_message_metadata", {})
-        .get("id")
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
         for c in wf_scheduler_method.call_args_list
     ]
     assert cloudevent_ids == [e.get("id") for e in expected_events]
 
     actual_tasks = [
-        _safe_json_loads(c.kwargs.get("input", {})).get("task")
+        _get_attr_from_wf_input(c.kwargs, "task")
         for c in wf_scheduler_method.call_args_list
     ]
     expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
