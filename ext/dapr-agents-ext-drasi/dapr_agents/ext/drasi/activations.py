@@ -17,7 +17,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from dapr_agents import DurableAgent
+from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.types.activation import ActivationContext
 from dapr_agents.ext.drasi.types import DrasiOperation, DrasiChangeEvent
@@ -46,7 +46,8 @@ DrasiTaskMapper = Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
 @dataclass(frozen=True)
 class _DrasiTriggerConfig:
     """
-    Immutable container to hold the user-supplied `drasi_trigger` configuration.
+    Immutable container to hold the user-supplied `drasi_trigger` configuration
+    so helper callers don't need to pass every argument individually.
     A single instance is created per `drasi_trigger` invocation; must not be shared.
     """
 

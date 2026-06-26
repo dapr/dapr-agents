@@ -27,12 +27,12 @@ import pytest
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from dapr_agents import DurableAgent
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
     AgentPubSubConfig,
     AgentStateConfig,
 )
+from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
@@ -46,7 +46,56 @@ from dapr_agents.ext.drasi.activations import (
 
 
 # ---------------------------------------------------------------------------
-# Fixtures and helpers
+# Test helpers
+# ---------------------------------------------------------------------------
+
+
+def _safe_json_loads(data: Any) -> Any:
+    """Safely parses a JSON-serializable value, returning the parsed data."""
+    if isinstance(data, (dict, list)):
+        return data
+    return json.loads(data)
+
+
+def _make_cloudevent(data: dict[str, Any], **fields) -> dict[str, Any]:
+    """Build a dict that `extract_cloudevent_data` will treat as a CloudEvent."""
+    base = {
+        "id": "1",
+        "data": data,
+        "datacontenttype": "application/json",
+        "pubsubname": "testpubsub",
+        "source": "testpublisher",
+        "specversion": "1.0",
+        "topic": "testtopic",
+        "type": "com.dapr.event.sent",
+    }
+    base.update(fields)
+    return base
+
+
+def _get_attr_from_wf_input(kwargs: dict[str, Any], name: str) -> str | None:
+    """Return an attribute from the input to the workflow scheduler method call."""
+    return _safe_json_loads(kwargs.get("input", {})).get(name)
+
+
+def _get_attr_from_wf_input_metadata(kwargs: dict[str, Any], name: str) -> str | None:
+    """Return a CloudEvent attribute from the input to the workflow scheduler method call."""
+    return (
+        _safe_json_loads(kwargs.get("input", {})).get("_message_metadata", {}).get(name)
+    )
+
+
+# TODO: tests may still be flaky with this workaround, will need to be replaced
+async def _wait_for_completion():
+    """
+    Short sleep to allow background workflow scheduling to complete.
+    Call this after runner entrypoint methods (`subscribe()`/`register_routes()`/`serve()`) and before assertions.
+    """
+    await asyncio.sleep(0.2)
+
+
+# ---------------------------------------------------------------------------
+# Mocks
 # ---------------------------------------------------------------------------
 
 
@@ -97,53 +146,23 @@ def _create_mock_dapr_client(
     return mock_client
 
 
-def _safe_json_loads(data: Any) -> Any:
-    """Safely parses a JSON-serializable value, returning the parsed data."""
-    if isinstance(data, (dict, list)):
-        return data
-    return json.loads(data)
+class _MockRetryPolicy:
+    """Stand-in class for `dapr.ext.workflow.RetryPolicy`."""
+
+    def __init__(
+        self,
+        max_number_of_attempts=1,
+        first_retry_interval=timedelta(seconds=1),
+        max_retry_interval=timedelta(seconds=60),
+        backoff_coefficient=2.0,
+        retry_timeout: Optional[timedelta] = None,
+    ):
+        self.max_number_of_attempts = max_number_of_attempts
 
 
-def _make_cloudevent(data: dict[str, Any], **fields) -> dict[str, Any]:
-    """Build a dict that `extract_cloudevent_data` will treat as a CloudEvent."""
-    base = {
-        "id": "1",
-        "data": data,
-        "datacontenttype": "application/json",
-        "pubsubname": "testpubsub",
-        "source": "testpublisher",
-        "specversion": "1.0",
-        "topic": "testtopic",
-        "type": "com.dapr.event.sent",
-    }
-    base.update(fields)
-    return base
-
-
-def _get_attr_from_wf_input(kwargs: dict[str, Any], name: str) -> str | None:
-    """Return an attribute from the input to the workflow scheduler method call."""
-    return _safe_json_loads(kwargs.get("input", {})).get(name)
-
-
-def _get_attr_from_wf_input_metadata(kwargs: dict[str, Any], name: str) -> str | None:
-    """Return a CloudEvent attribute from the input to the workflow scheduler method call."""
-    return (
-        _safe_json_loads(kwargs.get("input", {})).get("_message_metadata", {}).get(name)
-    )
-
-
-# TODO: tests may still be flaky with this workaround, will need to be replaced
-async def _wait_for_completion():
+class _MockTopicEventResponse:
     """
-    Short sleep to allow background workflow scheduling to complete.
-    Call this after runner entrypoint methods (`subscribe()`/`register_routes()`/`serve()`) and before assertions.
-    """
-    await asyncio.sleep(0.2)
-
-
-class MockTopicEventResponse:
-    """
-    Mock response class replacing `dapr.clients.grpc._response.TopicEventResponse`.
+    Stand-in class for `dapr.clients.grpc._response.TopicEventResponse`.
 
     `conftest.py` mocks the `dapr.clients.grpc._response` module;
     patching `TopicEventResponse` prevents `_normalize_status` in `subscription.py`
@@ -154,12 +173,43 @@ class MockTopicEventResponse:
         self.status = status
 
 
+class _MockAgentMetadata:
+    """Stand-in class for `dapr_agents.agents.config.AgentMetadata`."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+class _MockAgentMetadataSchema:
+    """Stand-in class for `dapr_agents.agents.config.AgentMetadataSchema`."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def setup_env(monkeypatch):
+    """Provide an API key and a mock Dapr client factory."""
+    os.environ["OPENAI_API_KEY"] = "test-api-key"
+    monkeypatch.setattr(
+        "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+        lambda: _create_mock_dapr_client(),
+    )
+    yield
+    os.environ.pop("OPENAI_API_KEY", None)
+
+
 @pytest.fixture(autouse=True)
 def patch_subscription(monkeypatch):
     """Mock the subscription topic response to prevent issues with `_normalize_status` coercion."""
     monkeypatch.setattr(
         "dapr_agents.workflow.utils.subscription.TopicEventResponse",
-        MockTopicEventResponse,
+        _MockTopicEventResponse,
     )
 
 
@@ -171,30 +221,29 @@ def patch_dapr_workflow_runtime(monkeypatch):
     mock_runtime = Mock(spec=wf.WorkflowRuntime)
     monkeypatch.setattr(wf, "WorkflowRuntime", lambda: mock_runtime)
 
-    class MockRetryPolicy:
-        def __init__(
-            self,
-            max_number_of_attempts=1,
-            first_retry_interval=timedelta(seconds=1),
-            max_retry_interval=timedelta(seconds=60),
-            backoff_coefficient=2.0,
-            retry_timeout: Optional[timedelta] = None,
-        ):
-            self.max_number_of_attempts = max_number_of_attempts
-
-    monkeypatch.setattr(wf, "RetryPolicy", MockRetryPolicy)
+    monkeypatch.setattr(wf, "RetryPolicy", _MockRetryPolicy)
 
 
 @pytest.fixture(autouse=True)
-def setup_env(monkeypatch):
-    """Provide an API key and a mock Dapr client factory."""
-    os.environ["OPENAI_API_KEY"] = "test-api-key"
+def patch_agent_bootstrap_dapr_client(monkeypatch):
+    """Mock the Dapr client used by agent bootstrapping so no live Dapr instance is required."""
     monkeypatch.setattr(
-        "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-        Mock(side_effect=lambda: _create_mock_dapr_client()),
+        "dapr_agents.agents.base.DaprClient",
+        lambda *args, **kwargs: _create_mock_dapr_client(),
     )
-    yield
-    os.environ.pop("OPENAI_API_KEY", None)
+
+
+@pytest.fixture(autouse=True)
+def patch_agent_bootstrap_metadata(monkeypatch):
+    """Mock agent metadata classes used by agent bootstrapping to avoid schema validation issues."""
+    monkeypatch.setattr(
+        "dapr_agents.agents.base.AgentMetadata",
+        _MockAgentMetadata,
+    )
+    monkeypatch.setattr(
+        "dapr_agents.agents.base.AgentMetadataSchema",
+        _MockAgentMetadataSchema,
+    )
 
 
 @pytest.fixture(autouse=True)
