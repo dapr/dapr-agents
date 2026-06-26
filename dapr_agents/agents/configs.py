@@ -132,31 +132,39 @@ class RegistryIndexRetryConfig:
     single mutation can need many more attempts than an ordinary per-key state save,
     which is why this policy is intentionally separate from ``max_etag_attempts``
     (that knob governs single-writer workflow-state saves and is clamped low). A
-    mutation is bounded by *both* an attempt count and a wall-clock budget so it can
+    mutation is bounded by *both* an attempt count and a wall-clock timeout so it can
     never overrun the caller's shutdown grace period, and uses full-jitter
     exponential backoff to de-correlate concurrent writers so the team converges.
 
+    Field names mirror :class:`WorkflowRetryPolicy` for consistency across the
+    package's retry configuration.
+
+    .. warning::
+        **Alpha.** These fields are user-facing but not yet stable; the names may
+        change in a future 0.x release.
+
     Attributes:
         max_attempts: Maximum optimistic-concurrency attempts before giving up.
-        budget_seconds: Wall-clock ceiling across all attempts, including backoff.
-        backoff_base_seconds: Base delay for full-jitter exponential backoff.
-        backoff_cap_seconds: Per-attempt backoff ceiling.
+        initial_backoff_seconds: Initial ceiling for the full-jitter backoff delay.
+        max_backoff_seconds: Maximum ceiling for the full-jitter backoff delay.
+        retry_timeout: Wall-clock budget in seconds across all attempts, including
+            backoff.
     """
 
     max_attempts: int = 50
-    budget_seconds: float = 10.0
-    backoff_base_seconds: float = 0.05
-    backoff_cap_seconds: float = 1.0
+    initial_backoff_seconds: float = 0.05
+    max_backoff_seconds: float = 1.0
+    retry_timeout: float = 10.0
 
     def __post_init__(self) -> None:
         if self.max_attempts <= 0:
             raise ValueError("max_attempts must be greater than 0")
-        if self.budget_seconds <= 0:
-            raise ValueError("budget_seconds must be greater than 0")
-        if self.backoff_base_seconds <= 0:
-            raise ValueError("backoff_base_seconds must be greater than 0")
-        if self.backoff_cap_seconds <= 0:
-            raise ValueError("backoff_cap_seconds must be greater than 0")
+        if self.initial_backoff_seconds <= 0:
+            raise ValueError("initial_backoff_seconds must be greater than 0")
+        if self.max_backoff_seconds <= 0:
+            raise ValueError("max_backoff_seconds must be greater than 0")
+        if self.retry_timeout <= 0:
+            raise ValueError("retry_timeout must be greater than 0")
 
 
 @dataclass

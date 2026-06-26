@@ -807,7 +807,7 @@ class DaprInfra:
             correct); False if every attempt failed.
         """
         cfg = self._registry_index_retry
-        deadline = time.monotonic() + cfg.budget_seconds
+        deadline = time.monotonic() + cfg.retry_timeout
         last_exc: Optional[Exception] = None
         for attempt in range(1, cfg.max_attempts + 1):
             try:
@@ -859,8 +859,8 @@ class DaprInfra:
         """
         cfg = self._registry_index_retry
         ceiling = min(
-            cfg.backoff_cap_seconds,
-            cfg.backoff_base_seconds * (2 ** min(attempt - 1, 20)),
+            cfg.max_backoff_seconds,
+            cfg.initial_backoff_seconds * (2 ** min(attempt - 1, 20)),
         )
         remaining = deadline - time.monotonic()
         if remaining <= 0:

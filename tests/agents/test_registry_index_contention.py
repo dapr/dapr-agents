@@ -82,7 +82,7 @@ class FakeEtagStore:
 
 def _fast_retry(**overrides):
     """A retry policy with shrunk backoff so contention tests run quickly."""
-    params = dict(backoff_base_seconds=0.001, backoff_cap_seconds=0.03)
+    params = dict(initial_backoff_seconds=0.001, max_backoff_seconds=0.03)
     params.update(overrides)
     return RegistryIndexRetryConfig(**params)
 
@@ -200,9 +200,9 @@ def test_mutate_team_index_gives_up_when_always_conflicting():
         store,
         retry=_fast_retry(
             max_attempts=4,
-            budget_seconds=5.0,
-            backoff_base_seconds=0.001,
-            backoff_cap_seconds=0.005,
+            retry_timeout=5.0,
+            initial_backoff_seconds=0.001,
+            max_backoff_seconds=0.005,
         ),
     )
 
@@ -241,7 +241,7 @@ def test_mutate_team_index_retries_then_succeeds():
     infra = _make_infra(
         "agent-0",
         store,
-        retry=_fast_retry(backoff_base_seconds=0.001, backoff_cap_seconds=0.005),
+        retry=_fast_retry(initial_backoff_seconds=0.001, max_backoff_seconds=0.005),
     )
 
     def _remove(agents_list):
