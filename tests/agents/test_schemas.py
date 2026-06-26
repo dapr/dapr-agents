@@ -32,23 +32,30 @@ def test_trigger_action_with_caller_headers():
     assert t.caller_headers["X-Request-Id"] == "req-c4d2e1f0"
 
 
-def test_trigger_action_serialization_roundtrip():
+def test_trigger_action_caller_headers_excluded_from_serialization():
+    # caller_headers is transient (exclude=True): it must never be emitted by
+    # model_dump(), so raw headers like Authorization cannot leak into pub/sub
+    # payloads, signed workflow history, or logs.
     t = TriggerAction(
         task="x",
         workflow_instance_id="wf-1",
         caller_headers={"Authorization": "Bearer x"},
     )
     payload = t.model_dump()
+    assert "caller_headers" not in payload
+    assert payload == {"task": "x", "workflow_instance_id": "wf-1"}
+
+    # Round-tripping the serialized payload drops the transient headers.
     t2 = TriggerAction.model_validate(payload)
     assert t2.task == "x"
     assert t2.workflow_instance_id == "wf-1"
-    assert t2.caller_headers == {"Authorization": "Bearer x"}
+    assert t2.caller_headers is None
 
 
-def test_trigger_action_omitted_headers_serializes_as_none():
+def test_trigger_action_caller_headers_excluded_even_when_omitted():
     t = TriggerAction(task="x")
     payload = t.model_dump()
-    assert payload.get("caller_headers") is None
+    assert "caller_headers" not in payload
 
 
 def test_trigger_action_empty_headers_dict():
