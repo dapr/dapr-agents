@@ -23,29 +23,47 @@ other cross-cutting concerns without modifying DurableAgent itself.
 Design notes:
     - dapr_agents.lifecycle stays OSS-clean: no proprietary or
       plugin-specific imports. Any implementation can plug in.
-    - DecisionDict is a serializable subset of dapr_agents.hooks
-      decisions. Implementations that want richer return types can
-      still subclass; this type is the minimum protocol contract.
+    - DecisionDict mirrors the serializable fields of dapr_agents.hooks
+      decisions, plus a few forward-looking approver-authorization fields
+      that dispatcher implementations may populate (see below).
+      Implementations that want richer return types can still subclass;
+      this type is the minimum protocol contract.
     - This module is intentionally tiny. Heavy plugin logic lives
       outside dapr-agents.
 """
 
-from typing import Any, Dict, Literal, Optional, Protocol, Required, TypedDict, runtime_checkable
+from typing import (
+    Any,
+    Dict,
+    Literal,
+    Optional,
+    Protocol,
+    runtime_checkable,
+)
+
+from typing_extensions import Required, TypedDict
 
 
 class DecisionDict(TypedDict, total=False):
     """
-    Serializable subset of HookDecision returned from LifecycleDispatcher.dispatch.
+    Serializable decision returned from LifecycleDispatcher.dispatch.
 
-    The `type` field is required. Other fields are populated conditionally
-    based on the decision type:
+    Fields up to and including `details` mirror the serializable fields of
+    the dapr_agents.hooks decisions. The `type` field is required. Other
+    fields are populated conditionally based on the decision type:
         - "proceed": no other fields
         - "skip": optional `result`
         - "mutate": `payload` dict
         - "require_approval": optional `timeout_seconds`, `instructions`,
-          `reason`, `required_approver_scopes`, `allowed_approver_subjects`,
-          `approver_audience`
+          `reason`
         - "deny": optional `reason`, `code`, `details`
+
+    The `required_approver_scopes`, `allowed_approver_subjects`, and
+    `approver_audience` fields are extension fields for dispatcher
+    implementations that perform approver authorization. They are not part
+    of the current dapr_agents.hooks decisions or approval event schema, so
+    the core agent runtime does not interpret them; a dispatcher that emits
+    them is responsible for acting on them.
     """
 
     type: Required[Literal["proceed", "skip", "mutate", "require_approval", "deny"]]
