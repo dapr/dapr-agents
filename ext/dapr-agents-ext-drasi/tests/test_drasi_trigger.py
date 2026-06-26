@@ -1258,8 +1258,8 @@ async def test_drasi_trigger_filters_by_operations_list(setup_deps):
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
-async def test_drasi_trigger_validates_with_result_model(setup_deps):
-    """Test that the Drasi extension validates the individual changes in events (and implicitly filters)."""
+async def test_drasi_trigger_validates_with_change_model(setup_deps):
+    """Test that the Drasi extension validates the change data in events (and implicitly filters)."""
     query_id = "nucksquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1385,7 +1385,7 @@ async def test_drasi_trigger_validates_with_result_model(setup_deps):
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
-        result_model=Counter,
+        change_model=Counter,
     )
     runner.subscribe(agent)
 
@@ -1621,8 +1621,8 @@ async def test_drasi_trigger_raises_with_unsupported_operation(setup_deps):
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
-async def test_drasi_trigger_raises_with_invalid_result_model(setup_deps):
-    """Test that the Drasi extension fails when the provided result model is invalid."""
+async def test_drasi_trigger_raises_with_invalid_change_model(setup_deps):
+    """Test that the Drasi extension fails when the provided change model is invalid."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1657,7 +1657,7 @@ async def test_drasi_trigger_raises_with_invalid_result_model(setup_deps):
     agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
     runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
 
-    result_model = 17
+    change_model = 17
 
     drasi_trigger(
         agent,
@@ -1665,10 +1665,10 @@ async def test_drasi_trigger_raises_with_invalid_result_model(setup_deps):
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
-        result_model=result_model,
+        change_model=change_model,
     )
 
-    with pytest.raises(RuntimeError, match=f"model.*{result_model}"):
+    with pytest.raises(RuntimeError, match=f"model.*{change_model}"):
         runner.subscribe(agent)
 
 

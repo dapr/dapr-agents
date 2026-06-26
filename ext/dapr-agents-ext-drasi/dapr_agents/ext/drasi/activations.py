@@ -49,6 +49,9 @@ class _DrasiTriggerConfig:
     Immutable container to hold the user-supplied `drasi_trigger` configuration
     so helper callers don't need to pass every argument individually.
     A single instance is created per `drasi_trigger` invocation; must not be shared.
+
+    Note: `operations` should not the raw user input,
+    it **should** be deduplicated and normalized to make validation and filtering more convenient.
     """
 
     query_id: str
@@ -56,8 +59,8 @@ class _DrasiTriggerConfig:
     topic: str | None
     dead_letter_topic: str | None
     task_mapper: DrasiTaskMapper | None
-    operations: list[DrasiOperation]  # Normalized to a list for easier validation/filtering
-    result_model: type[Any] | None
+    operations: list[DrasiOperation]
+    change_model: type[Any] | None
 
 
 def _passes_filter(
@@ -92,9 +95,11 @@ def _is_valid_model_field(target_model: type[Any], model: Any, field_name: str) 
             exc_info=True,
         )
         return False
-    
 
-def _make_query_id_filter(config: _DrasiTriggerConfig) -> Callable[[DrasiChangeEvent], bool]:
+
+def _make_query_id_filter(
+    config: _DrasiTriggerConfig,
+) -> Callable[[DrasiChangeEvent], bool]:
     """Return a closure that filters Drasi events by the provided query ID."""
 
     def query_id_filter(event: DrasiChangeEvent) -> bool:
@@ -103,7 +108,9 @@ def _make_query_id_filter(config: _DrasiTriggerConfig) -> Callable[[DrasiChangeE
     return query_id_filter
 
 
-def _make_operations_filter(config: _DrasiTriggerConfig) -> Callable[[DrasiChangeEvent], bool]:
+def _make_operations_filter(
+    config: _DrasiTriggerConfig,
+) -> Callable[[DrasiChangeEvent], bool]:
     """Return a closure that filters Drasi events by the provided operation(s)."""
 
     def operations_filter(event: DrasiChangeEvent) -> bool:
@@ -118,22 +125,24 @@ def _make_operations_filter(config: _DrasiTriggerConfig) -> Callable[[DrasiChang
     return operations_filter
 
 
-def _make_result_model_filter(config: _DrasiTriggerConfig) -> Callable[[DrasiChangeEvent], bool]:
-    """Return a closure that validates the change data within Drasi events using the provided result model."""
-    
-    def result_model_filter(event: DrasiChangeEvent) -> bool:
-        result_model_fields = [
+def _make_change_model_filter(
+    config: _DrasiTriggerConfig,
+) -> Callable[[DrasiChangeEvent], bool]:
+    """Return a closure that validates the change data in Drasi events using the provided change model."""
+
+    def change_model_filter(event: DrasiChangeEvent) -> bool:
+        change_model_fields = [
             ("before", event.payload.before),
             ("after", event.payload.after),
         ]
 
         return all(
             model is None
-            or _is_valid_model_field(config.result_model, model.root, field_name)
-            for field_name, model in result_model_fields
+            or _is_valid_model_field(config.change_model, model.root, field_name)
+            for field_name, model in change_model_fields
         )
 
-    return result_model_filter
+    return change_model_filter
 
 
 def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
@@ -149,8 +158,8 @@ def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
     if config.operations:
         filter_fns.append(_make_operations_filter(config))
 
-    if config.result_model is not None:
-        filter_fns.append(_make_result_model_filter(config))
+    if config.change_model is not None:
+        filter_fns.append(_make_change_model_filter(config))
 
     def _model_filter(event: DrasiChangeEvent, ctx: MessageContext) -> bool:
         return all(_passes_filter(fn, event, ctx) for fn in filter_fns)
@@ -163,10 +172,6 @@ def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> Non
     Semantically validate user-supplied configuration, logging before re-raising any exceptions
     so the agent runner can rollback the activation.
     Warn if no task mapper is provided, but otherwise accept it.
-
-    Raises:
-        RuntimeError: If the agent's pub/sub component is used and the provided topic is the same as the agent's topic.
-        TypeError: If an unsupported operation type or result model is provided.
     """
     try:
         if (
@@ -189,10 +194,10 @@ def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> Non
             if not is_supported_operation(op):
                 raise TypeError(f"Unsupported operation type: '{op}'")
 
-        if config.result_model is not None and not is_supported_model(
-            config.result_model
+        if config.change_model is not None and not is_supported_model(
+            config.change_model
         ):
-            raise TypeError(f"Unsupported result model type: '{config.result_model}'")
+            raise TypeError(f"Unsupported change model type: '{config.change_model}'")
     except Exception:
         logger.exception("[drasi-trigger]: Activation failed during validation")
         raise
@@ -272,46 +277,42 @@ def drasi_trigger(
     dead_letter_topic: str | None = None,
     task_mapper: DrasiTaskMapper | None = None,
     operations: DrasiOperation | list[DrasiOperation] | None = None,
-    result_model: type[Any] | None = None,
+    change_model: type[Any] | None = None,
 ) -> None:
     """
     Wires pub/sub routes so that the target agent's workflow can be triggered by Drasi change events.
 
     If the agent's pub/sub component is used and a topic is provided,
-    the topic **MUST** be different from the agent's topic,
+    the topic **must** be different from the agent's topic,
     otherwise the activation will fail to prevent indeterministic behavior.
 
     Args:
         agent: The agent to target.
-        query_id: The Drasi query ID whose events should trigger the agent.
-        pubsub: Optional name of the Dapr pub/sub component to use.
+        query_id: The Drasi query ID whose change events should trigger the agent.
+        pubsub: Optional name of the Dapr pub/sub component to use for publishing and subscriptions.
             If `None`, the agent's pub/sub component is used.
         topic: Optional topic to subscribe to.
             If `None`, the topic is derived from the query ID as `"drasi-events-<query_id>"`.
         dead_letter_topic: Optional dead-letter topic to publish failed messages to.
             Defaults to `None`.
         task_mapper: Optional callable `(DrasiChangeEvent, MessageContext) -> TriggerAction`
-            to map Drasi events to agent task messages.
+            to map Drasi change events to agent task messages.
             If `None`, the task message will instruct the agent to return the serialized Drasi event as-is.
-        operations: Optional Drasi operation(s) to filter events by:
+        operations: Optional Drasi operation(s) to filter change events by:
 
             * `"i"` - Insert
             * `"u"` - Update
             * `"d"` - Delete
 
-            Defaults to `None` (no filtering).
-        result_model: Optional model to use to validate the individual changes within Drasi change events.
-            Defaults to `None` (no validation).
+            Events that are filtered out will not trigger the agent. Defaults to `None` (all operations are allowed).
+        change_model: Optional model to use to validate the change data in Drasi change events.
+            Events that fail validation will not trigger the agent. Defaults to `None` (no validation).
 
     Returns:
         `None`
-
-    Raises:
-        RuntimeError: If the agent's pub/sub component is used and the provided topic is the same as the agent's topic.
-        TypeError: If an unsupported operation type or result model is provided.
     """
 
-    def _activate(ctx: ActivationContext) -> Callable[[], None] | None:
+    def _activate(ctx: ActivationContext) -> Callable[[], None]:
         """
         Activation callback that semantically validates user-supplied configuration,
         wires pub/sub routes, and returns an idempotent closer to the runner.
@@ -329,11 +330,11 @@ def drasi_trigger(
             f"topic='{topic}', "
             f"dead_letter_topic='{dead_letter_topic}', "
             f"operations={operations}, "
-            f"result_model={result_model}"
+            f"change_model={change_model}"
         )
 
-        # Deduplicate operations (preserving order) and normalize to a list for easier validation and filtering
         normalized_operations = list(dict.fromkeys(normalize_to_list(operations)))
+
         config = _DrasiTriggerConfig(
             query_id=query_id,
             pubsub=pubsub,
@@ -341,7 +342,7 @@ def drasi_trigger(
             dead_letter_topic=dead_letter_topic,
             task_mapper=task_mapper,
             operations=normalized_operations,
-            result_model=result_model,
+            change_model=change_model,
         )
 
         _validate_config(ctx, config)
