@@ -50,7 +50,7 @@ class _DrasiTriggerConfig:
     so helper callers don't need to pass every argument individually.
     A single instance is created per `drasi_trigger` invocation; must not be shared.
 
-    Note: `operations` should not the raw user input,
+    Note: `operations` should not be the raw user input,
     it **should** be deduplicated and normalized to make validation and filtering more convenient.
     """
 
@@ -69,7 +69,7 @@ def _passes_filter(
     ctx: MessageContext,
 ) -> bool:
     """
-    Call the provided filter function with the validated Drasi model instance.
+    Call the provided filter function with the validated Drasi event model.
     Return `True` if the event passes the filter, `False` otherwise.
     """
     logger.debug(
@@ -80,7 +80,7 @@ def _passes_filter(
 
 def _is_valid_model_field(target_model: type[Any], model: Any, field_name: str) -> bool:
     """
-    Return `True` if the provided model instance can be validated/coerced to the target model type,
+    Return `True` if the provided model can be validated/coerced to the target model type,
     `False` otherwise.
     """
     try:
@@ -161,10 +161,10 @@ def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
     if config.change_model is not None:
         filter_fns.append(_make_change_model_filter(config))
 
-    def _model_filter(event: DrasiChangeEvent, ctx: MessageContext) -> bool:
+    def model_filter(event: DrasiChangeEvent, ctx: MessageContext) -> bool:
         return all(_passes_filter(fn, event, ctx) for fn in filter_fns)
 
-    return _model_filter
+    return model_filter
 
 
 def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> None:
@@ -211,21 +211,18 @@ def _build_pubsub_specs(
     resolved_topic = (
         config.topic or f"{_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{config.query_id}"
     )
-    filter_fn = _make_model_filter(config)
     resolved_task_mapper: DrasiTaskMapper = config.task_mapper or (
         lambda event, _: TriggerAction(
             task=f"{_DRASI_TRIGGER_DEFAULT_TASK}: {event.model_dump_json()}"
         )
     )
 
-    # Create a handler with the agent workflow name registered with the workflow runtime
+    # Create a stub with the agent workflow name registered with the workflow runtime
     # so the workflow client can target the actual agent workflow
-    def _stub(*_) -> None:
+    def handler_fn(*_) -> None:
         pass
 
-    _stub.__name__ = ctx.agent.agent_workflow_name
-
-    handler_fn = _stub
+    handler_fn.__name__ = ctx.agent.agent_workflow_name
 
     return [
         PubSubRouteSpec(
@@ -234,7 +231,7 @@ def _build_pubsub_specs(
             handler_fn=handler_fn,
             message_model=DrasiChangeEvent,
             dead_letter_topic=config.dead_letter_topic,
-            model_filter=filter_fn,
+            model_filter=_make_model_filter(config),
             mapper=resolved_task_mapper,
         )
     ]
