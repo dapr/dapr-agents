@@ -268,9 +268,9 @@ def stub_agent_route_wiring(monkeypatch):
 
 @pytest.fixture
 def setup_deps():
-    """Return factory functions to create `DurableAgent` and `AgentRunner` instances,
-    and a handle to the workflow scheduler method. Idempotent as multiple calls to `_make_agent`
-    and `_make_runner` return the same `DurableAgent` and `AgentRunner`, respectively."""
+    """
+    Return idempotent factory functions that return `DurableAgent` and `AgentRunner` instances,
+    and a handle to the mock workflow client's workflow scheduler method."""
 
     agent: DurableAgent | None = None
     runner: AgentRunner | None = None
@@ -335,17 +335,25 @@ def setup_deps():
             ),
         )
 
-        # Stub serve() mounts
+        # Stub `serve()` mounts
         runner._wire_http_routes = Mock()
         runner._mount_service_routes = Mock()
         runner._mount_hitl_routes = Mock()
 
         return runner
 
-    yield make_agent, make_runner, wf_client.schedule_new_workflow
-
-    if runner is not None:
-        runner.shutdown(agent)
+    try:
+        yield make_agent, make_runner, wf_client.schedule_new_workflow
+    finally:
+        if runner is not None:
+            if agent is not None:
+                runner.shutdown(agent)
+            else:
+                runner.shutdown()
+        if agent is not None:
+            # Shut down the agent explicitly in case the agent was never hosted by the runner
+            # Idempotent so it's safe to call multiple times
+            agent.stop()
 
 
 # ---------------------------------------------------------------------------
