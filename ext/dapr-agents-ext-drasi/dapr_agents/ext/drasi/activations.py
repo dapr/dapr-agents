@@ -20,11 +20,6 @@ from typing import Any, Callable
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.types.activation import ActivationContext
-from dapr_agents.ext.drasi.types import DrasiOperation, DrasiChangeEvent
-from dapr_agents.ext.drasi.utils.validation import (
-    is_supported_operation,
-    normalize_to_list,
-)
 from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.registration import register_message_routes
@@ -33,6 +28,12 @@ from dapr_agents.workflow.utils.subscription import (
     MessageContext,
     ModelFilter,
     TTLDedupeBackend,
+)
+
+from dapr_agents.ext.drasi.types import DrasiOperation, DrasiChangeEvent
+from dapr_agents.ext.drasi.utils.validation import (
+    is_supported_operation,
+    normalize_to_list,
 )
 
 logger = logging.getLogger(__name__)
