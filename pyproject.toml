@@ -81,7 +81,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-drasi = []
+drasi = [
+    "dapr-agents-ext-drasi>=0.1.0,<1.0.0",
+]
 vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<6.0.0",
@@ -108,7 +110,6 @@ test = [
     "docker>=7.0.0,<8.0.0",
     "pytest-rerunfailures>=14.0,<17.0",
 ]
-drasi = ["dapr_agents[drasi]"]
 vectorstore = [
     "dapr_agents[vectorstore]",
     "redisvl>=0.4.0,<1.0.0",
@@ -189,3 +190,6 @@ members = [
     "examples/11-expert-agent-tavily",
     "ext/*",
 ]
+
+[tool.uv.sources]
+dapr-agents-ext-drasi = { workspace = true }
