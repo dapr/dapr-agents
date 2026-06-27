@@ -80,7 +80,7 @@ def _passes_filter(
 
 
 def _is_valid_model_field(
-    target_model: type[Any],
+    target_model: type[Any] | None,
     value: Any,
     *,
     field_name: str,
@@ -89,6 +89,8 @@ def _is_valid_model_field(
     Return `True` if the provided value can be validated/coerced to the target model type,
     `False` otherwise.
     """
+    if target_model is None:
+        return False
     try:
         validate_message_model(target_model, value)
         return True
@@ -137,17 +139,16 @@ def _make_change_model_filter(
     """Return a closure that validates the change data in Drasi events using the provided change model."""
 
     def change_model_filter(event: DrasiChangeEvent) -> bool:
-        change_model_fields = [
-            ("before", event.payload.before),
-            ("after", event.payload.after),
-        ]
+        change_model_fields: list[tuple[str, dict[str, Any]]] = []
+
+        if event.payload.before is not None:
+            change_model_fields.append(("before", event.payload.before.root))
+        if event.payload.after is not None:
+            change_model_fields.append(("after", event.payload.after.root))
 
         return all(
-            model is None
-            or _is_valid_model_field(
-                config.change_model, model.root, field_name=field_name
-            )
-            for field_name, model in change_model_fields
+            _is_valid_model_field(config.change_model, data, field_name=field_name)
+            for field_name, data in change_model_fields
         )
 
     return change_model_filter
