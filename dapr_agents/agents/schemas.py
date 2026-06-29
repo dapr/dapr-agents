@@ -73,6 +73,28 @@ class ApprovalRequiredEvent(BaseModel):
     timeout_seconds: int = Field(
         description="Seconds before the workflow auto-denies if no human responds"
     )
+    required_approver_scopes: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Scopes the approver's JWT must carry. Empty list = any verified "
+            "approver. Approval UIs / approver-finding code can filter by these. "
+            "Enforced by the downstream HITL plugin."
+        ),
+    )
+    allowed_approver_subjects: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional allowlist of approver `sub` claim values. Empty list = "
+            "any subject that meets required_approver_scopes."
+        ),
+    )
+    approver_audience: Optional[str] = Field(
+        default=None,
+        description=(
+            "Expected `aud` claim on the approver's JWT. None = falls back to "
+            "the agent's own identity."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -106,6 +128,25 @@ class ApprovalResponseEvent(BaseModel):
     )
     decided_at: datetime = Field(
         default_factory=utcnow, description="When the decision was made"
+    )
+    approver_token: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description=(
+            "Raw JWT submitted by the approver via the approval UI / CLI / chat bot. "
+            "Verified by the downstream HITL plugin against the requirements declared "
+            "on the original ApprovalRequiredEvent. "
+            "MUST be scrubbed from any signed workflow history — only the "
+            "verified-claims subset (subject, scopes) propagates."
+        ),
+    )
+    approver_subject: Optional[str] = Field(
+        default=None,
+        description=(
+            "Approver's verified `sub` claim. Populated by the HITL plugin AFTER "
+            "verifying approver_token; not trusted on input from raw event payload. "
+            "Carrying it here lets observers see who approved without re-verifying."
+        ),
     )
 
 
