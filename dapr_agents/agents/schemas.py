@@ -178,6 +178,22 @@ class TriggerAction(BaseModel):
     workflow_instance_id: Optional[str] = Field(
         default=None, description="Dapr workflow instance id from source if available"
     )
+    caller_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        exclude=True,
+        description=(
+            "HTTP headers from the inbound request that triggered the agent. "
+            "Used by lifecycle plugins on BEFORE_AGENT_INVOKE "
+            "to extract the bearer token and other caller context. "
+            "Populated by the agent's HTTP/serve layer when the trigger arrives via "
+            "HTTP; left None for in-process or replay invocations. "
+            "Transient and in-memory only: excluded from serialization (exclude=True) "
+            "so raw headers such as Authorization are never emitted by model_dump(), "
+            "never published over pub/sub, and never persisted to signed workflow "
+            "history or logs. Plugins read it from the live object on "
+            "BEFORE_AGENT_INVOKE."
+        ),
+    )
 
 
 class AgentWorkflowMessage(MessageContent):
