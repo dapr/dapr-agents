@@ -296,8 +296,8 @@ def setup_deps():
         llm.api = "MockOpenAIAPI"
         llm.model = "gpt-4o-mock"
 
-        # Allow pubsub config to be omitted in tests
-        if not pubsub_name and not topic:
+        # Allow pub/sub config to be omitted in tests
+        if not pubsub_name:
             pubsub = None
         else:
             pubsub = AgentPubSubConfig(
@@ -322,7 +322,9 @@ def setup_deps():
 
         return agent
 
-    def make_runner(pubsub_names: list[str], event_stream: list[Any]) -> AgentRunner:
+    def make_runner(
+        pubsub_names: list[str] | None, event_stream: list[Any] | None
+    ) -> AgentRunner:
         nonlocal runner
 
         if runner is not None:
@@ -959,14 +961,9 @@ async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
     )
 
     drasi_trigger(agent, query_id=query_id, pubsub=drasi_pubsub_name, topic=drasi_topic)
-
-    with caplog.at_level(logging.WARNING):
-        runner.subscribe(agent)
+    runner.subscribe(agent)
 
     await _wait_for_completion()
-
-    # Ensure that a human-readable warning is emitted
-    assert "task mapper" in caplog.text
 
     assert wf_scheduler_method.call_count == 2
 
@@ -1472,6 +1469,54 @@ async def test_drasi_trigger_ignores_malformed_events(setup_deps):
 @pytest.mark.ext
 @pytest.mark.drasi
 @pytest.mark.asyncio
+async def test_drasi_trigger_raises_when_pubsub_is_missing(setup_deps):
+    """Test that the Drasi extension fails when no pub/sub component is provided (as an argument or on the agent)."""
+    query_id = "testquery"
+    agent_pubsub_name = "testpubsub"
+    drasi_pubsub_name = "missingpubsub"
+    drasi_topic = "testtopic"
+    events = [
+        _make_cloudevent(
+            data={
+                "op": "u",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 0,
+                    },
+                    "before": {
+                        "id": 0,
+                    },
+                    "after": {
+                        "id": 1,
+                    },
+                },
+            },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+    ]
+
+    make_agent, make_runner, _ = setup_deps
+    agent = make_agent()
+    runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
+    )
+
+    with pytest.raises(RuntimeError, match=".*no pub/sub"):
+        runner.subscribe(agent)
+
+
+@pytest.mark.ext
+@pytest.mark.drasi
+@pytest.mark.asyncio
 async def test_drasi_trigger_raises_when_pubsub_is_not_registered(setup_deps):
     """Test that the Drasi extension fails when the given pub/sub component is not registered."""
     query_id = "testquery"
@@ -1531,8 +1576,8 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps)
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
-    drasi_pubsub_name = "differentpubsub"
-    drasi_topic = "differenttopic"
+    drasi_pubsub_name = agent_pubsub_name
+    drasi_topic = agent_topic
     events = [
         _make_cloudevent(
             data={
@@ -1571,7 +1616,7 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps)
     )
 
     with pytest.raises(
-        RuntimeError, match=f"component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"
+        RuntimeError, match=f"{drasi_pubsub_name}.*{drasi_topic}.*matches"
     ):
         runner.subscribe(agent)
 

@@ -47,12 +47,12 @@ DrasiTaskMapper = Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
 @dataclass(frozen=True)
 class _DrasiTriggerConfig:
     """
-    Immutable container to hold the user-supplied `drasi_trigger` configuration
-    so helper callers don't need to pass every argument individually.
+    Immutable container to hold the resolved `drasi_trigger` configuration
+    so callers don't need to thread arguments through multiple call sites.
     A single instance is created per `drasi_trigger` invocation; must not be shared.
 
-    Note: `operations` should not be the raw user input,
-    it **should** be deduplicated and normalized to make validation and filtering more convenient.
+    Note: configuration is not guaranteed to be semantically valid; validation should be
+    performed after instantiation.
     """
 
     query_id: str
@@ -156,7 +156,7 @@ def _make_change_model_filter(
 
 def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
     """
-    Build a filter list conditionally using the **validated** user configuration and
+    Build a filter list conditionally using the **validated** configuration and
     return the post-schema validation filter for Drasi pub/sub bindings via closure.
     """
     filter_fns: list[Callable[[DrasiChangeEvent], bool]] = []
@@ -178,19 +178,28 @@ def _make_model_filter(config: _DrasiTriggerConfig) -> ModelFilter:
 
 def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> None:
     """
-    Semantically validate user-supplied configuration, logging before re-raising any exceptions
+    Semantically validate resolved configuration, logging before re-raising any exceptions
     so the agent runner can rollback the activation.
     Warn if no task mapper is provided, but otherwise accept it.
     """
     try:
+        if config.pubsub is None:
+            raise RuntimeError(
+                "No pub/sub component provided and the agent has no pub/sub configuration; "
+                "please set `pubsub=` explicitly or provide a pub/sub configuration for the agent."
+            )
+
         if (
             ctx.agent.pubsub
-            and (config.pubsub is None or ctx.agent.message_bus_name == config.pubsub)
+            and ctx.agent.message_bus_name == config.pubsub
             and ctx.agent.topic_name == config.topic
         ):
             raise RuntimeError(
-                f"Pubsub component '{config.pubsub}' and topic '{config.topic}' "
-                "is identical to the agent's pubsub component and topic"
+                f"Configured (pubsub, topic): "
+                f"('{config.pubsub}', topic '{config.topic}') "
+                f"matches the agent's (pubsub, topic): "
+                f"('{ctx.agent.message_bus_name}', topic '{ctx.agent.topic_name}'). "
+                f"Please use a different topic to avoid indeterministic behavior."
             )
 
         if config.task_mapper is None:
@@ -215,16 +224,7 @@ def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> Non
 def _build_pubsub_specs(
     ctx: ActivationContext, config: _DrasiTriggerConfig
 ) -> list[PubSubRouteSpec]:
-    """Resolve user-supplied configuration with fallback values and return pub/sub routes."""
-    resolved_pubsub = config.pubsub or ctx.agent.pubsub.pubsub_name
-    resolved_topic = (
-        config.topic or f"{_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{config.query_id}"
-    )
-    resolved_task_mapper: DrasiTaskMapper = config.task_mapper or (
-        lambda event, _: TriggerAction(
-            task=f"{_DRASI_TRIGGER_DEFAULT_TASK}: {event.model_dump_json()}"
-        )
-    )
+    """Build pub/sub routes from resolved configuration."""
 
     # Create a stub with the agent workflow name registered with the workflow runtime
     # so the workflow client can target the actual agent workflow
@@ -235,13 +235,13 @@ def _build_pubsub_specs(
 
     return [
         PubSubRouteSpec(
-            pubsub_name=resolved_pubsub,
-            topic=resolved_topic,
+            pubsub_name=config.pubsub,
+            topic=config.topic,
             handler_fn=handler_fn,
             message_model=DrasiChangeEvent,
             dead_letter_topic=config.dead_letter_topic,
             model_filter=_make_model_filter(config),
-            mapper=resolved_task_mapper,
+            mapper=config.task_mapper,
         )
     ]
 
@@ -258,7 +258,7 @@ def _subscribe(
     except ImportError:
         logger.warning(
             f"[drasi-trigger]: cachetools not installed; "
-            f"disabling pub/sub message deduplication for pubsub component {config.pubsub} and topic {config.topic}"
+            f"disabling pub/sub message deduplication for pub/sub component {config.pubsub} and topic {config.topic}"
         )
         deduper = None
 
@@ -320,7 +320,7 @@ def drasi_trigger(
 
     def _activate(ctx: ActivationContext) -> Callable[[], None]:
         """
-        Activation callback that semantically validates user-supplied configuration,
+        Activation callback that resolves and semantically validates user-supplied configuration,
         wires pub/sub routes, and returns an idempotent closer to the runner.
         """
         if ctx.app is not None:
@@ -339,14 +339,25 @@ def drasi_trigger(
             f"change_model={change_model}"
         )
 
+        # Resolve user-supplied configuration with documented fallback values
+        resolved_pubsub = pubsub or (
+            ctx.agent.pubsub.pubsub_name if ctx.agent.pubsub else None
+        )
+        resolved_topic = topic or f"{_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{query_id}"
+        resolved_task_mapper: DrasiTaskMapper = task_mapper or (
+            lambda event, _: TriggerAction(
+                task=f"{_DRASI_TRIGGER_DEFAULT_TASK}: {event.model_dump_json()}"
+            )
+        )
+        # Deduplicate and normalize operations for easier validation and filtering
         normalized_operations = list(dict.fromkeys(normalize_to_list(operations)))
 
         config = _DrasiTriggerConfig(
             query_id=query_id,
-            pubsub=pubsub,
-            topic=topic,
+            pubsub=resolved_pubsub,
+            topic=resolved_topic,
             dead_letter_topic=dead_letter_topic,
-            task_mapper=task_mapper,
+            task_mapper=resolved_task_mapper,
             operations=normalized_operations,
             change_model=change_model,
         )

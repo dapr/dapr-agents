@@ -16,7 +16,7 @@ set -euo pipefail
 
 EXT_DIR="."
 SCHEMA_DIR="$EXT_DIR/schemas/output-unpacked"
-OUT_DIR="$EXT_DIR/dapr_agents/ext/drasi/schemas/generated/unpacked"
+OUT_DIR="$EXT_DIR/dapr_agents/ext/drasi/schemas/unpacked"
 
 # Remove output directory to avoid stale generated models
 rm -rf "$OUT_DIR"
