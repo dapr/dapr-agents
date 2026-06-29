@@ -336,7 +336,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         chat_client_classes = []
 
         # Check each LLM provider module for ChatClient classes
-        for provider in ["openai", "nvidia", "huggingface", "dapr"]:
+        for provider in ["openai", "nvidia", "huggingface", "dapr", "iflytek"]:
             try:
                 module = __import__(f"dapr_agents.llm.{provider}.chat", fromlist=[""])
 
