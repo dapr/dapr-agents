@@ -77,7 +77,7 @@ class DecisionDict(TypedDict, total=False):
     details: Optional[Dict[str, Any]]
     timeout_seconds: Optional[int]
     instructions: Optional[str]
-    required_approver_scopes: list[str]
+    required_approver_scopes: Optional[list[str]]
     allowed_approver_subjects: Optional[list[str]]
     approver_audience: Optional[str]
 
