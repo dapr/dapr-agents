@@ -47,7 +47,7 @@ def validate_model(model: type[Any], data: dict) -> Any:
     """
     Validate/coerce data into a supported model instance (dict, dataclass, Pydantic v1/v2).
 
-    Mirrors `dapr_agents.workflow.utils.core.validate_model` but does not log exceptions
+    Mirrors `dapr_agents.workflow.utils.routers.validate_message_model` but does not log exceptions
     as validation failures are expected.
 
     Args:
