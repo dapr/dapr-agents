@@ -192,4 +192,4 @@ members = [
 ]
 
 [tool.uv.sources]
-dapr-agents-ext-drasi = { workspace = true }
+dapr-agents-ext-drasi = { workspace = true, editable = true }

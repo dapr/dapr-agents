@@ -59,7 +59,6 @@ Documentation = "https://github.com/dapr/docs"
 Source = "https://github.com/dapr/dapr-agents"
 
 [tool.setuptools.packages.find]
-include = ["dapr_agents*"]  # Ensure PEP 420 merging works
 exclude = ["tests"]
 
 [tool.setuptools.package-data]
