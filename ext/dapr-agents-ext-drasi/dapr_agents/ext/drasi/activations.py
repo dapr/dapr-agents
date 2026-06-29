@@ -23,7 +23,6 @@ from dapr_agents.types.activation import ActivationContext
 from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.registration import register_message_routes
-from dapr_agents.workflow.utils.routers import validate_message_model
 from dapr_agents.workflow.utils.subscription import (
     MessageContext,
     ModelFilter,
@@ -34,6 +33,7 @@ from dapr_agents.ext.drasi.types import DrasiOperation, DrasiChangeEvent
 from dapr_agents.ext.drasi.utils.validation import (
     is_supported_operation,
     normalize_to_list,
+    validate_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ def _passes_filter(
 
 
 def _is_valid_model_field(
-    target_model: type[Any] | None,
+    model: type[Any] | None,
     value: Any,
     *,
     field_name: str,
@@ -89,17 +89,17 @@ def _is_valid_model_field(
     Return `True` if the provided value can be validated/coerced to the target model type,
     `False` otherwise.
     """
-    if target_model is None:
+    if model is None:
         return False
     try:
-        validate_message_model(target_model, value)
+        validate_model(model, value)
         return True
     except Exception:
-        # Filters are independently applied. Drasi events may omit certain fields depending on the operation type,
-        # so validation failures can be frequent;
-        # we swallow exceptions here and log them under log level DEBUG to avoid noisy logs.
+        # Drasi events may omit fields by operation type, making validation failures frequent.
+        # Filters are applied independently with no way to validate selectively, so we swallow
+        # exceptions and log at DEBUG level to reduce noise.
         logger.debug(
-            f"[drasi-trigger]: Unable to validate field '{field_name}' against {target_model.__name__}, got {value!r}",
+            f"[drasi-trigger]: Unable to validate field '{field_name}' against {model.__name__}, got {value!r}",
             exc_info=True,
         )
         return False

@@ -13,11 +13,44 @@
 """Unit tests for Drasi validation helpers."""
 
 from __future__ import annotations
+from dataclasses import dataclass
+
+from pydantic import BaseModel
+import pytest
 
 from dapr_agents.ext.drasi.utils.validation import (
     is_supported_operation,
     normalize_to_list,
+    validate_model,
 )
+
+
+# ---------------------------------------------------------------------------
+# normalize_to_list
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_to_list_none_returns_empty_list():
+    """Test that None is normalized to an empty list."""
+    assert normalize_to_list(None) == []
+
+
+def test_normalize_to_list_scalar_returns_single_element_list():
+    """Test that a scalar value is normalized to a single-element list."""
+    assert normalize_to_list(1) == [1]
+
+
+def test_normalize_to_list_scalar_sequence_returns_single_element_list():
+    """Test that a scalar sequence is normalized to a single-element list."""
+    assert normalize_to_list("hi") == ["hi"]
+
+
+def test_normalize_to_list_list_returns_copied_list():
+    """Test that a list is normalized to a copy of the list."""
+    original_list = [{"a": "b"}, 100.0, True]
+    result = normalize_to_list(original_list)
+    assert result == original_list
+    assert result is not original_list
 
 
 # ---------------------------------------------------------------------------
@@ -26,12 +59,14 @@ from dapr_agents.ext.drasi.utils.validation import (
 
 
 def test_is_change_operation_accepts_valid_values():
+    """Test that valid Drasi change operations return `True`."""
     assert is_supported_operation("i")
     assert is_supported_operation("u")
     assert is_supported_operation("d")
 
 
 def test_is_change_operation_rejects_invalid_values():
+    """Test that unsupported Drasi operations and invalid values return `False`."""
     assert not is_supported_operation("x")
     assert not is_supported_operation("h")
     assert not is_supported_operation("r")
@@ -42,21 +77,75 @@ def test_is_change_operation_rejects_invalid_values():
 
 
 # ---------------------------------------------------------------------------
-# normalize_to_list
+# validate_model
 # ---------------------------------------------------------------------------
 
 
-def test_normalize_to_list_none_returns_empty_list():
-    assert normalize_to_list(None) == []
+def test_validate_model_pydantic():
+    """Test validating data against Pydantic model."""
+
+    class LowStockEvent(BaseModel):
+        product_id: str
+        quantity: int
+
+    event_data = {"product_id": "1", "quantity": 10}
+    result = validate_model(LowStockEvent, event_data)
+
+    assert isinstance(result, LowStockEvent)
+    assert result.product_id == "1"
+    assert result.quantity == 10
 
 
-def test_normalize_to_list_scalar_returns_single_element_list():
-    assert normalize_to_list({"a": "b"}) == [{"a": "b"}]
+def test_validate_model_dataclass():
+    """Test validating data against dataclass model."""
+
+    @dataclass
+    class PickupScheduled:
+        pickup_id: str
+        scheduled_time: str
+        cancelled: bool
+
+    event_data = {
+        "pickup_id": "P123",
+        "scheduled_time": "2026-06-29T12:00:00Z",
+        "cancelled": False,
+    }
+    result = validate_model(PickupScheduled, event_data)
+
+    assert isinstance(result, PickupScheduled)
+    assert result.pickup_id == "P123"
+    assert result.scheduled_time == "2026-06-29T12:00:00Z"
+    assert result.cancelled is False
 
 
-def test_normalize_to_list_scalar_sequence_returns_single_element_list():
-    assert normalize_to_list("hi") == ["hi"]
+def test_validate_model_dict():
+    """Test validating data against dict model (passthrough)."""
+    event_data = {"foo": "bar"}
+    result = validate_model(dict, event_data)
+
+    assert result == event_data
+    assert isinstance(result, dict)
 
 
-def test_normalize_to_list_list_returns_ordered_list():
-    assert normalize_to_list([1, 2, 3]) == [1, 2, 3]
+def test_validate_model_validation_error():
+    """Test that validation errors raise ValueError."""
+
+    class TicketCreated(BaseModel):
+        ticket_id: str
+        priority: int
+
+    # Missing 'priority'
+    event_data = {"ticket_id": "T1"}
+
+    with pytest.raises(ValueError, match="Validation failed"):
+        validate_model(TicketCreated, event_data)
+
+
+def test_validate_model_unsupported_type():
+    """Test that unsupported model types raise TypeError."""
+
+    class UnsupportedModel:
+        pass
+
+    with pytest.raises(TypeError, match="Unsupported model type"):
+        validate_model(UnsupportedModel, {})
