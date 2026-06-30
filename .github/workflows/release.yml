@@ -41,3 +41,10 @@ jobs:
         run: |
           python -m build
           twine upload dist/*
+      - name: Build and publish Drasi extension for Dapr Agents
+        env:
+          TWINE_PASSWORD: ${{ secrets.PYPI_UPLOAD_PASS }}
+        run: |
+          cd ext/dapr-agents-ext-drasi
+          python -m build
+          twine upload --skip-existing dist/*

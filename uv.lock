@@ -1735,6 +1735,7 @@ vectorstore = [
 
 [[package]]
 name = "dapr-agents-ext-drasi"
+version = "0.1.0"
 source = { editable = "ext/dapr-agents-ext-drasi" }
 dependencies = [
     { name = "dapr-agents" },

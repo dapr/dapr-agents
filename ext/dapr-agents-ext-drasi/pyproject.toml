@@ -17,7 +17,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dapr-agents-ext-drasi"
-dynamic = ["version"]
+version = "0.1.0"  # TODO: generate this at build time
 description = "Dapr Agents Extension for Drasi"
 keywords = ["dapr", "agents", "drasi"]
 readme = "README.md"
