@@ -129,6 +129,14 @@ class Deny(HookDecision):
     """
 
     reason: Optional[str] = None
+    code: Optional[str] = None
+    """Structured error code (e.g., "oauth.invalid_signature"). Plugin authors
+    can use this for programmatic error handling. Note: the agent runtime does not
+    currently surface this value automatically (e.g., in denial messages/events)."""
+
+    details: Optional[Dict[str, Any]] = None
+    """Plugin-specific diagnostic context (issuer attempted, expected audience,
+    etc.). NEVER include secrets — these flow into workflow history."""
 
 
 # Generic callable aliases — kept for backwards compatibility with user code that
