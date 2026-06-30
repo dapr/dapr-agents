@@ -174,6 +174,35 @@ class TestApprovalResponseEvent:
         assert restored.approved == resp.approved
         assert restored.reason == resp.reason
 
+    def test_approver_fields_default_to_none(self):
+        resp = ApprovalResponseEvent(
+            approval_request_id="req-1",
+            approved=True,
+        )
+        assert resp.approver_token is None
+        assert resp.approver_subject is None
+
+    def test_approver_fields_populated(self):
+        resp = ApprovalResponseEvent(
+            approval_request_id="req-1",
+            approved=True,
+            approver_token="eyJhbG...",
+            approver_subject="bob@acme.com",
+        )
+        assert resp.approver_token == "eyJhbG..."
+        assert resp.approver_subject == "bob@acme.com"
+
+    def test_approver_fields_roundtrip_serialization(self):
+        resp = ApprovalResponseEvent(
+            approval_request_id="req-1",
+            approved=True,
+            approver_token="eyJhbG...",
+            approver_subject="bob@acme.com",
+        )
+        restored = ApprovalResponseEvent.model_validate(resp.model_dump(mode="json"))
+        assert restored.approver_token == "eyJhbG..."
+        assert restored.approver_subject == "bob@acme.com"
+
 
 class TestAgentApprovalConfig:
     def test_default_pubsub_is_none(self):
