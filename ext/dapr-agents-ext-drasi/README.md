@@ -13,7 +13,7 @@ limitations under the License.
 
 # dapr-agents-ext-drasi
 
-[Drasi](https://drasi.io/) integration for Dapr Agents, enabling resilient, scalable, and business event-driven AI agents through Drasi's change notification capabilities.
+[Drasi](https://drasi.io/) extension for Dapr Agents, enabling resilient, scalable, and business event-driven AI agents through Drasi's change notification capabilities.
 
 ## Features
 

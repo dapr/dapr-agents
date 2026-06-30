@@ -11,4 +11,4 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# AGENTS.md — dapr.ext.drasi
+# AGENTS.md — dapr-agents-ext-drasi
