@@ -41,6 +41,9 @@ from typing import (
     runtime_checkable,
 )
 
+# Required, and the TypedDict that honors it, live in typing_extensions until
+# Python 3.11; on the project's 3.10 floor the stdlib typing.TypedDict ignores
+# the Required marker at runtime, so both must come from typing_extensions.
 from typing_extensions import Required, TypedDict
 
 
@@ -74,8 +77,8 @@ class DecisionDict(TypedDict, total=False):
     details: Optional[Dict[str, Any]]
     timeout_seconds: Optional[int]
     instructions: Optional[str]
-    required_approver_scopes: Optional[list]
-    allowed_approver_subjects: Optional[list]
+    required_approver_scopes: Optional[list[str]]
+    allowed_approver_subjects: Optional[list[str]]
     approver_audience: Optional[str]
 
 
