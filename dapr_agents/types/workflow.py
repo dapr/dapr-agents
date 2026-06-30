@@ -52,6 +52,9 @@ class PubSubRouteSpec:
         model_filter: Optional sync callable `(model, MessageContext) -> bool` run
             after schema validation. If omitted, falls back to the value on
             `handler_fn`'s `@message_router` decorator (if any).
+        mapper: Optional sync callable `(model, MessageContext) -> Any` run
+            after schema validation and filters. If omitted, falls back to the value on
+            `handler_fn`'s `@message_router` decorator (if any).
     """
 
     pubsub_name: str
@@ -61,6 +64,7 @@ class PubSubRouteSpec:
     dead_letter_topic: str | None = None
     payload_filter: Callable[[Any, MessageContext], bool] | None = None
     model_filter: Callable[[Any, MessageContext], bool] | None = None
+    mapper: Callable[[Any, MessageContext], Any] | None = None
 
 
 @dataclass
