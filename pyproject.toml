@@ -150,8 +150,6 @@ testpaths = ["tests", "ext"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 markers = [
-    "ext: marks tests as extension (non-core) tests (deselect with '-m \"not ext\"')",
-    "drasi: marks tests as Drasi extension tests (deselect with '-m \"not drasi\"')",
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "schema: marks tests that validate the agent metadata JSON schema golden files",
     "ollama: marks tests compatible with Ollama (local LLM, no API key needed)",

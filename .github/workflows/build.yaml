@@ -61,7 +61,7 @@ jobs:
         fi
     - name: Run Linter
       run: |
-        uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+        uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
   schema-validation:
     needs: lint
     runs-on: ubuntu-latest
@@ -100,9 +100,13 @@ jobs:
     - name: Install dependencies
       run: |
         uv sync --frozen --group test
-    - name: Check Typing
+    - name: Check typing
       run: |
         uv run mypy --config-file mypy.ini
-    - name: Run Tests
+    - name: Run tests
       run: |
         uv run pytest tests -m "not integration"
+    # TODO: combine this with the above step once non-absolute imports are removed from core tests
+    - name: Run extension tests
+      run: |
+        uv run pytest ext -m "not integration"
