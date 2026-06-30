@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 from datetime import timedelta
 from typing import Any, Optional
@@ -38,12 +37,21 @@ from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.workflow.runners.agent import AgentRunner
 
-from dapr_agents.ext.drasi import drasi_trigger
-from dapr_agents.ext.drasi.activations import (
-    _DRASI_TRIGGER_DEFAULT_TASK,
-    _DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX,
-)
+try:
+    from dapr_agents.ext.drasi import drasi_trigger
+    from dapr_agents.ext.drasi.activations import (
+        _DRASI_TRIGGER_DEFAULT_TASK,
+        _DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX,
+    )
 
+    DRASI_AVAILABLE = True
+except ImportError:
+    DRASI_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(
+    not DRASI_AVAILABLE,
+    reason="dapr.ext.drasi is not available. Install the extension with: `pip install dapr-agents[drasi]`",
+)
 
 # ---------------------------------------------------------------------------
 # Test helpers
@@ -363,8 +371,6 @@ def setup_deps():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
     """Test that the Drasi extension wires pub/sub routes using the runner's `subscribe()` entrypoint."""
@@ -449,8 +455,6 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
     assert actual_tasks == expected_tasks
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
     """Test that the Drasi extension wires pub/sub routes using the runner's `register_routes()` entrypoint."""
@@ -535,8 +539,6 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
     assert actual_tasks == expected_tasks
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
     """Test that the Drasi extension wires pub/sub routes using the runner's `serve()` entrypoint."""
@@ -622,8 +624,6 @@ async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
     assert actual_tasks == expected_tasks
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps):
     """Test that the Drasi extension wires pub/sub routes when the agent's pub/sub configuration is missing."""
@@ -720,8 +720,6 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps)
     assert actual_tasks == expected_tasks
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_defaults_to_agent_pubsub_component(setup_deps):
     """Test that the Drasi extension uses the agent's pub/sub component when the pub/sub component is omitted."""
@@ -800,8 +798,6 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component(setup_deps):
     assert actual_tasks == expected_tasks
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
     """Test that the Drasi extension uses the query ID to derive the pub/sub topic when the topic is omitted."""
@@ -893,8 +889,6 @@ async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
     assert actual_tasks == expected_tasks
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
     """Test that the Drasi extension uses the default pass-through task when the custom task mapping is omitted."""
@@ -980,8 +974,6 @@ async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
     assert all(_DRASI_TRIGGER_DEFAULT_TASK in task for task in actual_tasks)
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_filters_by_query_id(setup_deps):
     """Test that the Drasi extension implicitly filters events by query ID."""
@@ -1066,8 +1058,6 @@ async def test_drasi_trigger_filters_by_query_id(setup_deps):
     assert actual_tasks == expected_tasks
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_filters_by_operation(setup_deps):
     """Test that the Drasi extension filters for events that match a single Drasi operation."""
@@ -1152,8 +1142,6 @@ async def test_drasi_trigger_filters_by_operation(setup_deps):
     assert actual_tasks == expected_tasks
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_filters_by_operations_list(setup_deps):
     """Test that the Drasi extension filters for events that match a list of Drasi operations."""
@@ -1260,8 +1248,6 @@ async def test_drasi_trigger_filters_by_operations_list(setup_deps):
     assert actual_tasks == expected_tasks
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_validates_with_change_model(setup_deps):
     """Test that the Drasi extension validates the change data in events (and implicitly filters)."""
@@ -1413,8 +1399,6 @@ async def test_drasi_trigger_validates_with_change_model(setup_deps):
     assert actual_tasks == expected_tasks
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_ignores_malformed_events(setup_deps):
     """Test that the Drasi extension ignores events that do not conform to the expected format."""
@@ -1466,8 +1450,6 @@ async def test_drasi_trigger_ignores_malformed_events(setup_deps):
     assert wf_scheduler_method.call_count == 0
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_when_pubsub_is_missing(setup_deps):
     """Test that the Drasi extension fails when no pub/sub component is provided (as an argument or on the agent)."""
@@ -1514,8 +1496,6 @@ async def test_drasi_trigger_raises_when_pubsub_is_missing(setup_deps):
         runner.subscribe(agent)
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_when_pubsub_is_not_registered(setup_deps):
     """Test that the Drasi extension fails when the given pub/sub component is not registered."""
@@ -1568,8 +1548,6 @@ async def test_drasi_trigger_raises_when_pubsub_is_not_registered(setup_deps):
         runner.subscribe(agent)
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps):
     """Test that the Drasi extension fails when the agent pub/sub component is used and pub/sub topic matches the agent's pub/sub topic."""
@@ -1621,8 +1599,6 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps)
         runner.subscribe(agent)
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_with_unsupported_operation(setup_deps):
     """Test that the Drasi extension fails when the provided operation is not supported."""
@@ -1671,8 +1647,6 @@ async def test_drasi_trigger_raises_with_unsupported_operation(setup_deps):
         runner.subscribe(agent)
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_with_invalid_change_model(setup_deps):
     """Test that the Drasi extension fails when the provided change model is invalid."""
@@ -1725,8 +1699,6 @@ async def test_drasi_trigger_raises_with_invalid_change_model(setup_deps):
         runner.subscribe(agent)
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_with_async_task_mapper(setup_deps):
     """Test that the Drasi extension fails when the provided task mapper is async."""
@@ -1779,8 +1751,6 @@ async def test_drasi_trigger_raises_with_async_task_mapper(setup_deps):
         runner.subscribe(agent)
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_with_non_callable_task_mapper(setup_deps):
     """Test that the Drasi extension fails when the provided task mapper is not callable."""
@@ -1832,8 +1802,6 @@ async def test_drasi_trigger_raises_with_non_callable_task_mapper(setup_deps):
         runner.subscribe(agent)
 
 
-@pytest.mark.ext
-@pytest.mark.drasi
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_with_async_callable_task_mapper(setup_deps):
     """

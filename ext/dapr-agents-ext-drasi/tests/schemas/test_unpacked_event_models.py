@@ -20,12 +20,26 @@ and that they validate messages with the expected shape.
 
 from __future__ import annotations
 
-from dapr_agents.ext.drasi.schemas.unpacked.ChangeNotification import ChangeNotification
-from dapr_agents.ext.drasi.schemas.unpacked.ControlSignalNotification import (
-    ControlSignalNotification,
+import pytest
+
+try:
+    from dapr_agents.ext.drasi.schemas.unpacked.ChangeNotification import (
+        ChangeNotification,
+    )
+    from dapr_agents.ext.drasi.schemas.unpacked.ControlSignalNotification import (
+        ControlSignalNotification,
+    )
+    from dapr_agents.ext.drasi.schemas.unpacked.ReloadHeader import ReloadHeader
+    from dapr_agents.ext.drasi.schemas.unpacked.ReloadItem import ReloadItem
+
+    DRASI_AVAILABLE = True
+except ImportError:
+    DRASI_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(
+    not DRASI_AVAILABLE,
+    reason="dapr.ext.drasi is not available. Install the extension with: `pip install dapr-agents[drasi]`",
 )
-from dapr_agents.ext.drasi.schemas.unpacked.ReloadHeader import ReloadHeader
-from dapr_agents.ext.drasi.schemas.unpacked.ReloadItem import ReloadItem
 
 
 def test_change_notification_parses():

@@ -18,10 +18,20 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 import pytest
 
-from dapr_agents.ext.drasi.utils.validation import (
-    is_supported_operation,
-    normalize_to_list,
-    validate_model,
+try:
+    from dapr_agents.ext.drasi.utils.validation import (
+        is_supported_operation,
+        normalize_to_list,
+        validate_model,
+    )
+
+    DRASI_AVAILABLE = True
+except ImportError:
+    DRASI_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(
+    not DRASI_AVAILABLE,
+    reason="dapr.ext.drasi is not available. Install the extension with: `pip install dapr-agents[drasi]`",
 )
 
 
