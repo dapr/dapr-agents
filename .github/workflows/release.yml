@@ -47,4 +47,8 @@ jobs:
         run: |
           cd ext/dapr-agents-ext-drasi
           python -m build
+          # The dapr-agents-ext-drasi distribution is versioned independently
+          # and is currently determined by `pyproject.toml`.
+          # `--skip-existing` prevents a release workflow from failing
+          # when the version hasn't been updated, and makes re-runs retry-safe.
           twine upload --skip-existing dist/*
