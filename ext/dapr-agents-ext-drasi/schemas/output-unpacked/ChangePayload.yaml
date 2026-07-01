@@ -1,0 +1,18 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: ChangePayload.yaml
+type: object
+properties:
+  source:
+    $ref: ChangeSource.yaml
+  before:
+    $ref: "#/$defs/RecordUnknown"
+  after:
+    $ref: "#/$defs/RecordUnknown"
+required:
+  - source
+title: ChangePayload
+$defs:
+  RecordUnknown:
+    type: object
+    properties: {}
+    additionalProperties: {}

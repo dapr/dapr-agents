@@ -1,0 +1,16 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: ReloadHeader.yaml
+type: object
+properties:
+  op:
+    type: string
+    const: h
+  seq:
+    type: integer
+    description: The sequence number of last known source change
+required:
+  - op
+  - seq
+allOf:
+  - $ref: Notification.yaml
+title: ReloadHeader

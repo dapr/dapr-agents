@@ -82,6 +82,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+drasi = [
+    "dapr-agents-ext-drasi>=0.1.0,<1.0.0",
+]
 vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<6.0.0",
@@ -109,10 +112,7 @@ test = [
     "pytest-rerunfailures>=14.0,<17.0",
 ]
 vectorstore = [
-    "torch>=2.7.0",
-    "sentence-transformers>=4.1.0,<6.0.0",
-    "chromadb>=0.4.22,<2.0.0",
-    "nltk>=3.8.0,<4.0.0",
+    "dapr_agents[vectorstore]",
     "redisvl>=0.4.0,<1.0.0",
 ]
 
@@ -147,7 +147,7 @@ local_scheme = "node-and-date"
 fallback_version = "0.0.0.dev0"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "ext"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 markers = [
@@ -187,4 +187,8 @@ members = [
     "examples/09-agents-as-tools",
     "examples/10-mcpserver",
     "examples/11-expert-agent-tavily",
+    "ext/*",
 ]
+
+[tool.uv.sources]
+dapr-agents-ext-drasi = { workspace = true, editable = true }
