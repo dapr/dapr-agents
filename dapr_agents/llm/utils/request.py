@@ -17,6 +17,7 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Type, Union
 
 from pydantic import BaseModel, ValidationError
 
+from dapr_agents.llm.utils.providers import PROVIDERS_WITH_STREAM_OPTIONS
 from dapr_agents.llm.utils.structure import StructureHandler
 from dapr_agents.prompt.prompty import Prompty, PromptyHelper
 from dapr_agents.tool.base import AgentTool
@@ -166,6 +167,14 @@ class RequestHandler:
                 structured_mode=structured_mode,
                 **params,
             )
+
+        # When streaming for OpenAI-compatible providers, request usage on the
+        # terminal chunk so observability/accumulators can record token counts.
+        # Harmless when the provider ignores the flag.
+        if params.get("stream") and llm_provider in PROVIDERS_WITH_STREAM_OPTIONS:
+            stream_options = params.get("stream_options") or {}
+            stream_options.setdefault("include_usage", True)
+            params["stream_options"] = stream_options
 
         return params
 

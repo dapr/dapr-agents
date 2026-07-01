@@ -288,7 +288,11 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         """
         Issue a non-streaming chat completion via Dapr.
 
-        - **Streaming is not supported** and setting `stream=True` will raise.
+        - **Streaming is opportunistic**: if ``stream=True`` and the Dapr runtime
+          supports streaming conversations, real deltas are returned. Otherwise
+          the call silently falls back to non-streaming and tags the response
+          metadata with ``dapr_conversation_streaming_unsupported=True`` so callers can emit a
+          uniform (``START`` + ``TURN_COMPLETE``) stream shape.
         - Returns a unified `LLMChatResponse` (if no `response_format`), or
           validated Pydantic model(s) when `response_format` is provided.
 
@@ -308,17 +312,19 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             • Pydantic model (or `List[...]`) when `response_format` is set
 
         Raises:
-            ValueError: on invalid `structured_mode`, missing inputs, or if `stream=True`.
+            ValueError: on invalid `structured_mode` or missing inputs.
         """
         # 1) Validate structured_mode
         if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
             raise ValueError(
                 f"structured_mode must be one of {self.SUPPORTED_STRUCTURED_MODES}"
             )
-        # 2) Disallow streaming
-        # Note: response_format is now supported for structured output
-        if kwargs.get("stream"):
-            raise ValueError("Streaming is not supported by DaprChatClient.")
+        # 2) Streaming: accepted but currently always falls back to non-streaming.
+        # Upstream Dapr Conversation API streaming (Alpha3+) is in-flight; once
+        # it lands this branch can delegate to a streaming RPC and return an
+        # iterator directly. Until then, drop the flag and tag the response so
+        # the caller knows no deltas will arrive.
+        streaming_requested = bool(kwargs.pop("stream", False))
 
         # 3) Build messages via Prompty
         if input_data:
@@ -425,13 +431,26 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             raise
 
         # 7) Hand off to our unified handler (always non‐stream)
-        return ResponseHandler.process_response(
+        result = ResponseHandler.process_response(
             response=normalized,
             llm_provider=self.provider,
             response_format=response_format,
             structured_mode=structured_mode,
             stream=False,
         )
+        # Tag the response so an activity that requested streaming can detect
+        # that it fell back and emit START+TURN_COMPLETE instead of deltas.
+        if streaming_requested and hasattr(result, "metadata"):
+            metadata = dict(result.metadata or {})
+            metadata["dapr_conversation_streaming_unsupported"] = True
+            try:
+                result.metadata = metadata
+            except Exception:  # noqa: BLE001 - immutable in some Pydantic setups
+                logger.debug(
+                    "Could not annotate Dapr fallback metadata on response: %s",
+                    type(result).__name__,
+                )
+        return result
 
 
 def _simplify_anyof(schema: Dict[str, Any]) -> Dict[str, Any]:

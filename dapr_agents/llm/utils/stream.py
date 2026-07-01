@@ -21,6 +21,7 @@ from typing import (
 from openai.types.chat import ChatCompletionChunk
 from pydantic import BaseModel
 
+from dapr_agents.llm.utils.providers import PROVIDERS_WITH_STREAMING
 from dapr_agents.types.message import LLMChatCandidateChunk
 
 T = TypeVar("T", bound=BaseModel)
@@ -51,7 +52,7 @@ class StreamHandler:
             LLMChatCandidateChunk: fully-typed chunks, partial and final.
         """
 
-        if llm_provider in ("openai", "nvidia"):
+        if llm_provider in PROVIDERS_WITH_STREAMING:
             from dapr_agents.llm.openai.utils import process_openai_stream
 
             yield from process_openai_stream(

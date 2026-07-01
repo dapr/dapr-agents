@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from dapr_agents.streaming.keys import MESSAGE_METADATA, STREAM_CONTEXT
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 from dapr_agents.workflow.utils.names import sanitize_agent_name
 
@@ -147,6 +148,7 @@ def _schedule_agent_workflow(
     workflow_name: Optional[str] = None,
     framework: Optional[str] = None,
     _child_instance_id: Optional[str] = None,
+    _stream_context: Optional[dict] = None,
 ) -> Any:
     """
     Schedule a child workflow for a named agent.
@@ -169,10 +171,19 @@ def _schedule_agent_workflow(
         _child_instance_id: Explicit instance ID to assign to the child workflow.
             When provided, this exact ID is used so callers can record it in
             ``tool_history`` before the yield completes.
+        _stream_context: Optional streaming context inherited from the caller.
+            Threaded through ``_message_metadata._stream_context`` so the child
+            agent's ``agent_workflow`` can extend ``call_path`` and emit chunks
+            to the same session topic.
     """
     input_payload: dict = {"task": task}
+    message_metadata: dict = {}
     if _source_agent:
-        input_payload["_message_metadata"] = {"source": _source_agent}
+        message_metadata["source"] = _source_agent
+    if _stream_context:
+        message_metadata[STREAM_CONTEXT] = _stream_context
+    if message_metadata:
+        input_payload[MESSAGE_METADATA] = message_metadata
 
     workflow_id = agent_workflow_id(
         agent_name, framework=framework, workflow_name=workflow_name

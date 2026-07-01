@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
+from dapr_agents.streaming.keys import StreamContextDict
 from dapr_agents.types import MessageContent, ToolExecutionRecord
 from dapr_agents.types.message import BaseMessage
 
@@ -259,5 +260,26 @@ class AgentWorkflowEntry(BaseModel):
         description=(
             "Tracks approval requests that have already been published, keyed by "
             "approval_request_id. Prevents duplicate publishes when the workflow replays."
+        ),
+    )
+    pending_inputs: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description=(
+            "Outstanding ask_user requests awaiting a human answer, keyed by "
+            "request_id. Persisted so a client reconnecting after a restart can "
+            "recover the prompt (request_id + target_instance_id) via the status "
+            "route or a /stream reattach. Cleared when the answer arrives or the "
+            "request times out."
+        ),
+    )
+    stream_context: Optional[StreamContextDict] = Field(
+        default=None,
+        description=(
+            "Streaming context for this workflow instance — a structured "
+            "``StreamContextDict`` (see ``dapr_agents.streaming.keys``), not a "
+            "plain string: it carries ``root_instance_id``, the ``listener_config`` "
+            "dict, parent agent metadata, ``depth``, ``call_path``, and trace "
+            "correlation. Populated at session root and inherited by every "
+            "descendant agent. ``None`` when streaming is not enabled for this run."
         ),
     )
