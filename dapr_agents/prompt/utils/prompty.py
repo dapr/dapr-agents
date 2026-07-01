@@ -200,7 +200,7 @@ class PromptyHelper:
                     return PromptyHelper.process_file(variable[1], parent)
                 else:
                     v = PromptyHelper.process_env(variable[0], False)
-                    if len(v) == 0:
+                    if not v:
                         if len(variable) > 1:
                             return variable[1]
                         elif env_error:
