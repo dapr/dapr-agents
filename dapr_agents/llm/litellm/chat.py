@@ -28,6 +28,7 @@ from typing import (
     Union,
 )
 
+import litellm
 from pydantic import BaseModel, Field, model_validator
 
 from dapr_agents.llm.chat import ChatClientBase
@@ -116,14 +117,6 @@ class LiteLLMChatClient(LiteLLMClientBase, ChatClientBase):
         BaseModel,
         List[BaseModel],
     ]:
-        try:
-            import litellm
-        except ImportError:
-            raise ImportError(
-                "LiteLLM is required for LiteLLMChatClient. "
-                "Install it with: pip install 'dapr-agents[litellm]'"
-            )
-
         if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
             raise ValueError(
                 f"structured_mode must be one of {self.SUPPORTED_STRUCTURED_MODES}"

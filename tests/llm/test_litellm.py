@@ -271,7 +271,7 @@ def test_litellm_generate_api_error(mock_completion):
 
 def test_litellm_generate_requires_messages():
     client = LiteLLMChatClient()
-    with pytest.raises((ValueError, ImportError)):
+    with pytest.raises(ValueError):
         client.generate()
 
 
@@ -282,5 +282,5 @@ def test_litellm_from_prompty_not_implemented():
 
 def test_litellm_generate_rejects_unknown_structured_mode():
     client = LiteLLMChatClient()
-    with pytest.raises((ValueError, ImportError)):
+    with pytest.raises(ValueError):
         client.generate("hi", structured_mode="grammar")
