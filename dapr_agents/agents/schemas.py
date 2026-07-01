@@ -133,18 +133,19 @@ class ApprovalResponseEvent(BaseModel):
         default=None,
         repr=False,
         description=(
-            "Raw JWT submitted by the approver via the approval UI / CLI / chat bot. "
-            "Verified by the downstream HITL plugin against the requirements declared "
-            "on the original ApprovalRequiredEvent. "
-            "MUST be scrubbed from any signed workflow history — only the "
-            "verified-claims subset (subject, scopes) propagates."
+            "Sensitive: raw JWT submitted by the approver via the approval UI, CLI, "
+            "or chat bot. dapr-agents carries it through the event payload as-is and "
+            "does not validate or persist it. The downstream HITL plugin verifies it "
+            "against the requirements declared on the original ApprovalRequiredEvent, "
+            "and is responsible for scrubbing it so only the verified-claims subset "
+            "(subject, scopes) propagates into any retained workflow history."
         ),
     )
     approver_subject: Optional[str] = Field(
         default=None,
         description=(
-            "Approver's verified `sub` claim. Populated by the HITL plugin AFTER "
-            "verifying approver_token; not trusted on input from raw event payload. "
+            "Approver's verified `sub` claim. Populated by the HITL plugin after "
+            "verifying approver_token; not trusted on input from the raw event payload. "
             "Carrying it here lets observers see who approved without re-verifying."
         ),
     )
