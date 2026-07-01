@@ -250,7 +250,7 @@ def to_function_call_definition(
     fmt = format_type.lower()
 
     # OpenAI‑style wrapper schema:
-    if fmt in ("openai", "nvidia", "huggingface", "dapr"):
+    if fmt in ("openai", "nvidia", "huggingface", "dapr", "iflytek"):
         return to_openai_function_call_definition(
             name, description, args_schema, use_deprecated
         )
@@ -294,7 +294,7 @@ def validate_and_format_tool(
     fmt = tool_format.lower()
 
     try:
-        if fmt in ("openai", "azure_openai", "nvidia", "huggingface"):
+        if fmt in ("openai", "azure_openai", "nvidia", "huggingface", "iflytek"):
             validated = (
                 OAIFunctionDefinition(**tool)
                 if use_deprecated
