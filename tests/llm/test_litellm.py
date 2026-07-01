@@ -186,9 +186,7 @@ def test_litellm_generate_with_api_key_and_base(mock_completion):
 
 @patch("litellm.completion")
 def test_litellm_generate_model_override(mock_completion):
-    mock_completion.return_value = _fake_completion_response(
-        model="openai/gpt-4o-mini"
-    )
+    mock_completion.return_value = _fake_completion_response(model="openai/gpt-4o-mini")
 
     client = LiteLLMChatClient(model="openai/gpt-4o")
     client.generate("hi", model="openai/gpt-4o-mini")
