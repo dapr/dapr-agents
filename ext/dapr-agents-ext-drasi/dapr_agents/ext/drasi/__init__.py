@@ -12,7 +12,10 @@
 #
 
 from .activations import drasi_trigger
+from .types import DrasiChangeEvent, DrasiOperation
 
 __all__ = [
     "drasi_trigger",
+    "DrasiChangeEvent",
+    "DrasiOperation",
 ]
