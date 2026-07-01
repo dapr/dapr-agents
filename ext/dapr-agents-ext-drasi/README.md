@@ -23,9 +23,7 @@ limitations under the License.
 
 ### Prerequisites
 
-This extension is installed as a [PEP 771](https://peps.python.org/pep-0771/) extra on the core `dapr-agents` package; prerequisite steps can be found in the root [README](https://github.com/dapr/dapr-agents/blob/main/README.md).
-
-Drasi also needs to be deployed with a pub/sub event producer. See the [Drasi documentation](https://drasi.io/) for supported deployment models and the currently available connectors for each deployment model.
+This extension is installed as an optional dependency on the core `dapr-agents` package; see the `Getting Started` section in the [project README](../../README.md) for a list of prerequisites.
 
 ### Installation
 
@@ -33,70 +31,58 @@ Drasi also needs to be deployed with a pub/sub event producer. See the [Drasi do
 uv add dapr-agents[drasi]
 ```
 
-### Example Usage
-
-This minimal example demonstrates how to subscribe an agent to a Drasi query. Replace the placeholders with your desired values.
+### Public API
 
 ```python
-from __future__ import annotations
-
-import asyncio
-
-from dapr_agents import AgentRunner, DurableAgent, DaprChatClient
-from dapr_agents.agents.configs import (
-    AgentExecutionConfig,
-    AgentMemoryConfig,
-    AgentRegistryConfig,
-    AgentStateConfig,
-    AgentPubSubConfig,
+from dapr_agents.ext.drasi import (
+    drasi_trigger,                  # Register Drasi query subscriptions for agents
+    DrasiChangeEvent,               # Type for Drasi change events
+    DrasiOperation,                 # Operation type for Drasi change events
 )
-from dapr_agents.agents.schemas import TriggerAction
-from dapr_agents.memory import ConversationDaprStateMemory
-from dapr_agents.storage.daprstores.stateservice import StateStoreService
-from dapr_agents.workflow.utils.core import wait_for_shutdown
-
-from dapr_agents.ext.drasi import drasi_trigger
-
-
-async def main() -> None:
-    # Create the agent
-    agent = DurableAgent(
-        name="<AGENT_NAME>",
-        role="<AGENT_ROLE>",
-        goal="<AGENT_GOAL>",
-        instructions="<AGENT_INSTRUCTIONS>",
-        llm=DaprChatClient(component_name="<YOUR_DAPR_CONVERSATION_COMPONENT_NAME>"),
-        memory=AgentMemoryConfig(
-            store=ConversationDaprStateMemory(store_name="<YOUR_DAPR_STATE_STORE_COMPONENT_NAME>"),
-        ),
-        state=AgentStateConfig(
-            store=StateStoreService(store_name="<YOUR_DAPR_STATE_STORE_COMPONENT_NAME>"),
-        ),
-        execution=AgentExecutionConfig(max_iterations=1),
-    )
-
-    # Register Drasi query subscriptions
-    drasi_trigger(
-        agent,
-        query_id="<YOUR_DRASI_QUERY_ID>",
-        pubsub="<YOUR_DAPR_PUBSUB_COMPONENT_NAME>",
-        topic="<YOUR_TOPIC_NAME>",
-        task_mapper=lambda event, ctx: TriggerAction(task="<AGENT_TASK_MESSAGE>"),
-    )
-    
-    # Host the agent, wire Drasi query subscriptions and begin listening for Drasi events
-    runner = AgentRunner()
-    try:
-        runner.subscribe(agent)
-        await wait_for_shutdown()
-    finally:
-        runner.shutdown(agent)
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
-
 ```
+
+### Usage
+
+Register a Drasi query subscription on an agent before hosting:
+
+```python
+agent = DurableAgent(...)
+
+drasi_trigger(
+    agent,
+    query_id="<YOUR_DRASI_QUERY_ID>",
+    task_mapper=lambda event, ctx: TriggerAction(task="<AGENT_TASK_MESSAGE>")
+)
+
+runner = AgentRunner()
+try:
+    runner.subscribe(agent)
+    await wait_for_shutdown()
+finally:
+    runner.shutdown(agent)
+```
+
+### Examples
+- [`ext-drasi-trigger-k8s`](../../examples/ext-drasi-trigger-k8s/README.md) — demonstrates how to subscribe an agent to Drasi queries in a Kubernetes environment.
+
+## Development
+
+### Install extension in editable mode
+
+From the project root:
+
+```bash
+uv venv
+source .venv/bin/activate
+uv sync --active --group dev --group test --extra drasi
+```
+
+### Run extension tests
+
+```bash
+uv run --group test pytest ext/dapr-agents-ext-drasi -m "not integration" -v
+```
+
+### Extension code quality
+
+See the `Code Quality` section in the [development README](../../docs/development/README.md) for code quality commands.
