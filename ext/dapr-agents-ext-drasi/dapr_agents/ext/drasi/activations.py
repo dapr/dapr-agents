@@ -41,8 +41,6 @@ logger = logging.getLogger(__name__)
 _DRASI_TRIGGER_DEFAULT_TASK = "Return the following payload as-is"
 _DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX = "drasi-events"
 
-DrasiTaskMapper = Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
-
 
 @dataclass(frozen=True)
 class _DrasiTriggerConfig:
@@ -59,7 +57,7 @@ class _DrasiTriggerConfig:
     pubsub: str | None
     topic: str | None
     dead_letter_topic: str | None
-    task_mapper: DrasiTaskMapper | None
+    task_mapper: Callable[[DrasiChangeEvent, MessageContext], TriggerAction] | None
     operations: list[DrasiOperation]
     change_model: type[Any] | None
 
@@ -281,7 +279,8 @@ def drasi_trigger(
     pubsub: str | None = None,
     topic: str | None = None,
     dead_letter_topic: str | None = None,
-    task_mapper: DrasiTaskMapper | None = None,
+    task_mapper: Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
+    | None = None,
     operations: DrasiOperation | list[DrasiOperation] | None = None,
     change_model: type[Any] | None = None,
 ) -> None:
@@ -344,7 +343,7 @@ def drasi_trigger(
             ctx.agent.pubsub.pubsub_name if ctx.agent.pubsub else None
         )
         resolved_topic = topic or f"{_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{query_id}"
-        resolved_task_mapper: DrasiTaskMapper = task_mapper or (
+        resolved_task_mapper = task_mapper or (
             lambda event, _: TriggerAction(
                 task=f"{_DRASI_TRIGGER_DEFAULT_TASK}: {event.model_dump_json()}"
             )
