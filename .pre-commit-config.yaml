@@ -38,7 +38,7 @@ repos:
     hooks:
       - id: ruff-format
         name: Ruff format
-        entry: uv run ruff format dapr_agents tests ext
+        entry: uv run ruff format dapr_agents tests
         language: system
         pass_filenames: false
         stages: [pre-commit]
@@ -58,7 +58,7 @@ repos:
     hooks:
       - id: flake8
         name: Flake8 linting
-        entry: uv run flake8 dapr_agents tests ext
+        entry: uv run flake8 dapr_agents tests
         args: ['--ignore=E501,F401,W503,E203,E704']
         language: system
         pass_filenames: false

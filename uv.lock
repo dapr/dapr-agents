@@ -1655,8 +1655,11 @@ test = [
     { name = "pytest-xdist" },
 ]
 vectorstore = [
-    { name = "dapr-agents", extra = ["vectorstore"] },
+    { name = "chromadb" },
+    { name = "nltk" },
     { name = "redisvl" },
+    { name = "sentence-transformers" },
+    { name = "torch" },
 ]
 
 [package.metadata]
@@ -1729,8 +1732,11 @@ test = [
     { name = "pytest-xdist", specifier = ">=3.0.0,<4.0.0" },
 ]
 vectorstore = [
-    { name = "dapr-agents", extras = ["vectorstore"], marker = "python_full_version >= '3.11' and python_full_version < '3.14'" },
+    { name = "chromadb", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=0.4.22,<2.0.0" },
+    { name = "nltk", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=3.8.0,<4.0.0" },
     { name = "redisvl", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=0.4.0,<1.0.0" },
+    { name = "sentence-transformers", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=4.1.0,<6.0.0" },
+    { name = "torch", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=2.7.0" },
 ]
 
 [[package]]
