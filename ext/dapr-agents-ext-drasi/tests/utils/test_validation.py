@@ -31,7 +31,11 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(
     not DRASI_AVAILABLE,
-    reason="dapr.ext.drasi is not available. Install the extension with: `pip install dapr-agents[drasi]`",
+    reason=(
+        "dapr-agents-ext-drasi is not available. "
+        "To run these tests, install the extension with: "
+        "`uv sync --group test --extra drasi`",
+    ),
 )
 
 
@@ -41,7 +45,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_normalize_to_list_none_returns_empty_list():
-    """Test that None is normalized to an empty list."""
+    """Test that `None` is normalized to an empty list."""
     assert normalize_to_list(None) == []
 
 

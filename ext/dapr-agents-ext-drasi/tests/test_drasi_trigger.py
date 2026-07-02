@@ -50,7 +50,11 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(
     not DRASI_AVAILABLE,
-    reason="dapr.ext.drasi is not available. Install the extension with: `pip install dapr-agents[drasi]`",
+    reason=(
+        "dapr-agents-ext-drasi is not available. "
+        "To run these tests, install the extension with: "
+        "`uv sync --group test --extra drasi`",
+    ),
 )
 
 # ---------------------------------------------------------------------------
