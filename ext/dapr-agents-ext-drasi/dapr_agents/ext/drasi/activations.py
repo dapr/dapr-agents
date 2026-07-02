@@ -179,6 +179,11 @@ def _validate_config(ctx: ActivationContext, config: _DrasiTriggerConfig) -> Non
     Semantically validate resolved configuration, logging before re-raising any exceptions
     so the agent runner can rollback the activation.
     Warn if no task mapper is provided, but otherwise accept it.
+
+    Raises:
+        RuntimeError: If no pub/sub component can be resolved or
+            the user-provided (pubsub, topic) matches the agent's (pubsub, topic).
+        TypeError: If an unsupported operation type or change model type is provided.
     """
     try:
         if config.pubsub is None:
@@ -319,7 +324,7 @@ def drasi_trigger(
 
     def _activate(ctx: ActivationContext) -> Callable[[], None]:
         """
-        Activation callback that resolves and semantically validates user-supplied configuration,
+        Activation callback that resolves and semantically validates user-provided configuration,
         wires pub/sub routes, and returns an idempotent closer to the runner.
         """
         if ctx.app is not None:
@@ -338,7 +343,7 @@ def drasi_trigger(
             f"change_model={change_model}"
         )
 
-        # Resolve user-supplied configuration with documented fallback values
+        # Resolve user-provided configuration with documented fallback values
         resolved_pubsub = pubsub or (
             ctx.agent.pubsub.pubsub_name if ctx.agent.pubsub else None
         )
