@@ -132,7 +132,7 @@ create_secrets() {
 
   if [ -z "$OPENAI_API_KEY" ]; then
     echo "=== ERROR: OPENAI_API_KEY environment variable not set. ==="
-    echo "=== Please add it to your .env file or set it before running this script: ==="
+    echo "=== Please add it to your root .env file or set it before running this script: ==="
     echo "=== 'export OPENAI_API_KEY=your-api-key' ==="
     exit 1
   fi
@@ -170,11 +170,11 @@ create_secrets() {
 load_secrets() {
   echo "=== Loading secrets... ==="
   if [ -f "${BASE_DIR}/.env" ]; then
-    # Optional — use .env file if present
-    echo "=== .env file found. Loading secrets from '${BASE_DIR}/.env'... ==="
-    export $(grep -v '^#' .env | xargs)
+    # Optional — use .env file at the project root if present
+    echo "=== .env file found at project root. ==="
+    export $(grep -v '^#' ../../.env | xargs)
   else
-    echo "=== .env file not found. Using environment variables... ==="
+    echo "=== .env file not found at project root. Using environment variables... ==="
   fi
 }
 
