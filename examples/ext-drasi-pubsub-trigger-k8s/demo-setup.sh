@@ -15,6 +15,8 @@
 set -euo pipefail
 
 BASE_DIR=$(cd "$(dirname "$0")" && pwd)
+PROJECT_DIR=$(cd "$BASE_DIR/../.." && pwd)
+ENV_FILE="$PROJECT_DIR/.env"
 
 install_with_retries() {
     local tool_name="$1"
@@ -137,42 +139,64 @@ create_secrets() {
     exit 1
   fi
 
-  # Support Azure OpenAI and direct OpenAI
+  # Check if using Azure OpenAI
   if [[ "$OPENAI_ENDPOINT" == *".azure.com"* ]]; then
     echo "=== INFO: Azure OpenAI endpoint detected, using Azure defaults if needed. ==="
 
     OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4.1-nano"}
     OPENAI_API_TYPE=${OPENAI_API_TYPE:-"azure"}
-    OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2025-01-01-preview"}
-  elif [[ "$OPENAI_ENDPOINT" == *"api.openai.com"* ]]; then
-    echo "=== INFO: OpenAI endpoint detected, using OpenAI defaults if needed. ==="
+    OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2025-04-01-preview"}
 
-    OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4-turbo"}
-    OPENAI_API_TYPE=${OPENAI_API_TYPE:-"openai"}
-    OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2024-02-15"}
-  else
-    echo "=== ERROR: Unrecognized OPENAI_ENDPOINT '$OPENAI_ENDPOINT'. \
-    Expected an Azure OpenAI endpoint (*.azure.com) or OpenAI endpoint (api.openai.com). ==="
-    exit 1
+    kubectl create secret generic openai-secrets \
+      --from-literal=api-key="$OPENAI_API_KEY" \
+      --from-literal=endpoint="$OPENAI_ENDPOINT" \
+      --from-literal=model="$OPENAI_MODEL" \
+      --from-literal=apiType="$OPENAI_API_TYPE" \
+      --from-literal=apiVersion="$OPENAI_API_VERSION" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    
+    echo "=== Secrets successfully created! ==="
+
+    return 0
   fi
 
-  kubectl create secret generic openai-secrets \
-  --from-literal=api-key="$OPENAI_API_KEY" \
-  --from-literal=endpoint="$OPENAI_ENDPOINT" \
-  --from-literal=model="$OPENAI_MODEL" \
-  --from-literal=apiType="$OPENAI_API_TYPE" \
-  --from-literal=apiVersion="$OPENAI_API_VERSION" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  # Default to OpenAI if endpoint is omitted
+  $OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-"https://api.openai.com/v1"}
+  
+  if [[ "$OPENAI_ENDPOINT" == *"api.openai.com"* ]]; then
+    echo "=== INFO: OpenAI endpoint detected, using OpenAI defaults if needed. ==="
 
-  echo "=== Secrets successfully created! ==="
+    OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4.1-nano-2025-04-14"}
+    OPENAI_API_TYPE=${OPENAI_API_TYPE:-"openai"}
+    OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2025-04-01-preview"}
+
+    kubectl create secret generic openai-secrets \
+    --from-literal=api-key="$OPENAI_API_KEY" \
+    --from-literal=endpoint="$OPENAI_ENDPOINT" \
+    --from-literal=model="$OPENAI_MODEL" \
+    --from-literal=apiType="$OPENAI_API_TYPE" \
+    --from-literal=apiVersion="$OPENAI_API_VERSION" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+    echo "=== Secrets successfully created! ==="
+
+    return 0
+  fi
+
+  echo "=== ERROR: Unrecognized OPENAI_ENDPOINT '$OPENAI_ENDPOINT'. \
+  Expected an Azure OpenAI endpoint (*.azure.com) or OpenAI endpoint (api.openai.com). ==="
+
+  exit 1
 }
 
 load_secrets() {
   echo "=== Loading secrets... ==="
-  if [ -f "${BASE_DIR}/.env" ]; then
+  if [ -f "$ENV_FILE" ]; then
     # Optional — use .env file at the project root if present
     echo "=== .env file found at project root. ==="
-    export $(grep -v '^#' ../../.env | xargs)
+    set -a
+    source "$ENV_FILE"
+    set +a
   else
     echo "=== .env file not found at project root. Using environment variables... ==="
   fi
