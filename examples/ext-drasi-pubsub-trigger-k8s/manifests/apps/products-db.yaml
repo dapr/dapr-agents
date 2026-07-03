@@ -1,0 +1,154 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: products-db-init-scripts
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS products (
+      product_id INTEGER PRIMARY KEY,
+      product_name TEXT NOT NULL,
+      product_description TEXT NOT NULL,
+      stock_on_hand INTEGER NOT NULL DEFAULT 0,
+      low_stock_threshold INTEGER NOT NULL DEFAULT 0
+    );
+
+    INSERT INTO products (product_id, product_name, product_description, stock_on_hand, low_stock_threshold) VALUES
+    (1001, 'Smartphone XS', 'Latest flagship smartphone with 5G connectivity and AI camera', 15, 5),
+    (1002, 'Piston Engine', 'Powerful, compact gaming computer with high-end components', 6, 7),
+    (1003, 'Smart Watch Ultra', 'Fitness tracker with heart rate monitor and GPS', 12, 5),
+    (1004, 'Foldable Watch 12.9"', 'Portable, lightweight smartwatch with stylus support', 3, 3),
+    (1005, 'AR Sleep Mask Gen 3', 'Calming AI-generated visuals and sleep analytics for insomniacs', 1, 8),
+    (1006, 'External SSD 2TB', 'Portable solid-state drive with USB 3.2 Gen 2 interface', 0, 20),
+    (1007, 'Gaming Laptop RTX', 'High-end gaming laptop with RTX 4080 graphics', 4, 2),
+    (1008, 'Mechanical Keyboard RGB', 'Gaming keyboard with customizable RGB lighting', 25, 10),
+    (1009, '4K Webcam Pro', 'Professional webcam with AI-powered autofocus', 18, 7),
+    (1010, 'DDR5 RAM 32GB Kit', 'High-speed DDR5 memory kit for gaming and workstation builds', 0, 50);
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: products-db-credentials
+  labels:
+    app: products-db
+type: Opaque
+stringData:
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: products-db
+  labels:
+    app: products-db
+spec:
+  serviceName: products-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: products-db
+  template:
+    metadata:
+      labels:
+        app: products-db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:14
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: products-db-credentials
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: products-db-credentials
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          value: productsdb
+        args:
+        - -c
+        - wal_level=logical
+        - -c
+        - max_replication_slots=5
+        - -c
+        - max_wal_senders=10
+        volumeMounts:
+        - name: products-db-data
+          mountPath: /var/lib/postgresql/data
+        - name: products-db-init
+          mountPath: /docker-entrypoint-initdb.d
+        readinessProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - pg_isready -U postgres -h localhost
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - pg_isready -U postgres -h localhost
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
+            cpu: "0.5"
+            memory: "512Mi"
+      volumes:
+      - name: products-db-init
+        configMap:
+          name: products-db-init-scripts
+  volumeClaimTemplates:
+  - metadata:
+      name: products-db-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+  
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: products-db
+  labels:
+    app: products-db
+spec:
+  type: NodePort
+  ports:
+  - port: 5432
+    targetPort: 5432
+    nodePort: 30432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: products-db

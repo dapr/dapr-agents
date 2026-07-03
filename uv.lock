@@ -50,6 +50,7 @@ members = [
     "11-expert-agent-tavily",
     "dapr-agents",
     "dapr-agents-ext-drasi",
+    "ext-drasi-pubsub-trigger-k8s",
     "quickstarts",
 ]
 
@@ -2023,6 +2024,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/bf/89/780e11f9588d9e7128a3f87788354c7946a9cbb1401ad38a48c4db9a4f07/execnet-2.1.2.tar.gz", hash = "sha256:63d83bfdd9a23e35b9c6a3261412324f964c2ec8dcd8d3c6916ee9373e0befcd", size = 166622, upload-time = "2025-11-12T09:56:37.75Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ab/84/02fc1827e8cdded4aa65baef11296a9bbe595c474f0d6d758af082d849fd/execnet-2.1.2-py3-none-any.whl", hash = "sha256:67fba928dd5a544b783f6056f449e5e3931a5c378b128bc18501f7ea79e296ec", size = 40708, upload-time = "2025-11-12T09:56:36.333Z" },
+]
+
+[[package]]
+name = "ext-drasi-pubsub-trigger-k8s"
+version = "0.1.0"
+source = { virtual = "examples/ext-drasi-pubsub-trigger-k8s" }
+dependencies = [
+    { name = "dapr-agents", extra = ["drasi"] },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dapr-agents", extras = ["drasi"], editable = "." },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.2.9" },
+    { name = "pydantic", specifier = ">=2.11.3" },
 ]
 
 [[package]]
