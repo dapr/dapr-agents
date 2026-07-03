@@ -38,7 +38,10 @@ from dapr_agents.ext.drasi.utils.validation import (
 
 logger = logging.getLogger(__name__)
 
-_DRASI_TRIGGER_DEFAULT_TASK = "Return the following payload as-is"
+_DRASI_TRIGGER_DEFAULT_TASK = (
+    "Return the exact JSON payload below, unmodified. "
+    "Output ONLY a JSON object; no explanation, no markdown, no extra text.\n\n"
+)
 _DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX = "drasi-events"
 
 
