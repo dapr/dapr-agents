@@ -67,12 +67,13 @@ init_cluster() {
 
 install_redis() {
   echo "=== Installing Redis via Helm... ==="
-  local cmd="helm upgrade --install redis oci://registry-1.docker.io/cloudpirates/redis \
+  local install_cmd="helm upgrade \
+    --install redis oci://registry-1.docker.io/cloudpirates/redis \
     --set auth.enabled=false \
     --wait"
   install_with_retries \
     "Redis" \
-    "$cmd" \
+    "$install_cmd" \
     "helm uninstall redis" \
     3
 }
@@ -84,7 +85,8 @@ install_dapr() {
   echo "=== Dapr Helm chart repository successfully added! ==="
 
   echo "=== Installing Dapr via Helm... ==="
-  local cmd="helm upgrade --install dapr dapr/dapr \
+  local install_cmd="helm upgrade \
+    --install dapr dapr/dapr \
     --version=1.18.1 \
     --namespace dapr-system \
     --create-namespace \
@@ -93,7 +95,7 @@ install_dapr() {
     --wait"
   install_with_retries \
     "Dapr" \
-    "$cmd" \
+    "$install_cmd" \
     "helm uninstall dapr -n dapr-system" \
     3
 }
@@ -135,22 +137,23 @@ create_secrets() {
     exit 1
   fi
 
-  # OPENAI_ENDPOINT defaults to the standard OpenAI endpoint
-  OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-"https://api.openai.com/v1"}
+  # Support Azure OpenAI and direct OpenAI
+  if [[ "$OPENAI_ENDPOINT" == *".azure.com"* ]]; then
+    echo "=== INFO: Azure OpenAI endpoint detected, using Azure defaults if needed. ==="
 
-  # Support Azure and regular OpenAI
-  if [[ "$OPENAI_ENDPOINT" == *"azure"* ]]; then
-      echo "=== INFO: Azure OpenAI endpoint detected, using Azure defaults if needed. ==="
-      
-      OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4.1-nano"}
-      OPENAI_API_TYPE=${OPENAI_API_TYPE:-"azure"}
-      OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2025-01-01-preview"}
+    OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4.1-nano"}
+    OPENAI_API_TYPE=${OPENAI_API_TYPE:-"azure"}
+    OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2025-01-01-preview"}
+  elif [[ "$OPENAI_ENDPOINT" == *"api.openai.com"* ]]; then
+    echo "=== INFO: OpenAI endpoint detected, using OpenAI defaults if needed. ==="
+
+    OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4-turbo"}
+    OPENAI_API_TYPE=${OPENAI_API_TYPE:-"openai"}
+    OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2024-02-15"}
   else
-      echo "=== INFO: OpenAI endpoint detected, using OpenAI defaults if needed. ==="
-      
-      OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4-turbo"}
-      OPENAI_API_TYPE=${OPENAI_API_TYPE:-"openai"}
-      OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2024-02-15"}
+    echo "=== ERROR: Unrecognized OPENAI_ENDPOINT '$OPENAI_ENDPOINT'. \
+    Expected an Azure OpenAI endpoint (*.azure.com) or OpenAI endpoint (api.openai.com). ==="
+    exit 1
   fi
 
   kubectl create secret generic openai-secrets \
