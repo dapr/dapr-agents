@@ -51,7 +51,7 @@ spec:
       containers:
       - name: workflow-dashboard
         image: ghcr.io/diagridio/diagrid-dashboard:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         env:
         - name: COMPONENT_FILE
           value: /app/components/state.yaml
