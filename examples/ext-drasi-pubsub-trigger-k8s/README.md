@@ -19,7 +19,7 @@ This example demonstrates how to build business event-driven agent workflows wit
 
 Every system needs to interact with other sytems to be useful. Traditional polling may either result in unnecessary load on source systems, or stale data/unacceptable delays depending on the polling frequency. Custom change data capture (CDC) pipelines can power real-time, change-driven systems at scale, but can be expensive (if managed) or difficult to set up and maintain (if self-hosted).
 
-For many use cases, these tradeoffs can be eliminated by using Drasi, which offers a platform centered around detecting and reacting to changes. The high-level architecture is simple:
+For many use cases, these tradeoffs can be eliminated by using [Drasi](https://drasi.io/), which offers a platform centered around detecting and reacting to changes. The high-level architecture is simple:
 - Sources to ingest data from existing systems
 - Queries (known as Continuous Queries) to track high-level changes ("business conditions") that downstream consumers are interested in
 - Reactions to push events to downstream consumers
@@ -63,7 +63,7 @@ OPENAI_API_KEY=<YOUR_API_KEY>
 OPENAI_ENDPOINT=<YOUR_ENDPOINT>
 ```
 
-The following properties are optional:
+The following configuration is optional:
 
 ```properties
 OPENAI_MODEL=<YOUR_MODEL>                    # Default: "gpt-4.1-nano" for Azure, otherwise "gpt-4.1-nano-2025-04-14"
