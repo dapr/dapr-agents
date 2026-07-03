@@ -35,13 +35,20 @@ AGENT_PUBSUB_COMPONENT = os.getenv("AGENT_PUBSUB_COMPONENT", "agent-pubsub")
 def make_task(event: DrasiChangeEvent, ctx: Any) -> TriggerAction:
     return TriggerAction(
         task=(
-            f"Create an inventory order according to your instructions for this '{event.payload.source.queryId}' event.\n"
-            f"Use the following data: {event.payload.after}.\n"
-            "Summarize the order in the following format and DO NOT include an explanation:\n\n"
+            f"You are an inventory agent that creates purchase orders, calculating the order quantity dynamically.\n"
+            f"Create an inventory order for this '{event.payload.source.queryId}' event.\n"
+            f"Use the following data: {event.payload.after}.\n\n"
+            "Respond with exactly the following format, and nothing else:\n\n"
             "Product ID: <productId>\n"
             "Product Name: <productName>\n"
             "Product Description: <productDescription>\n"
-            "Order Quantity: <quantity>\n"
+            "Order Quantity: <quantity>\n\n"
+            "Rules:\n"
+            "- Output exactly these 4 lines, in this exact order.\n"
+            "- Do not add, remove, rename, or reorder any fields.\n"
+            "- Do not include any explanation, preamble, or extra text.\n"
+            "- Do not wrap the output in code blocks or markdown formatting."
+            "- Replace each <placeholder> with the actual value only — do not include the angle brackets."
         )
     )
 
