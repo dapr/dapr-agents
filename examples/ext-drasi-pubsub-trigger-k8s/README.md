@@ -105,7 +105,7 @@ This creates a `k3d`-managed cluster, installs Dapr and Drasi control plane serv
 
 Once the script completes, the dashboard and Postgres instance should be accessible from the host machine on ports `8080` and `5432`, respectively.
 
-Before proceeding, ensure that the Diagrid Dashboard is accessible at http://localhost:8080. Notice that there are no workflow executions at this stage.
+Before proceeding, ensure that the dashboard is accessible at http://localhost:8080. Notice that there are no workflow executions at this stage.
 
 ### Bring up Drasi resources
 

@@ -241,3 +241,4 @@ deploy_apps
 wait_for_workloads_ready
 
 echo "=== Setup complete! ==="
+echo "=== View the workflow dashboard at http://localhost:8080 ==="
