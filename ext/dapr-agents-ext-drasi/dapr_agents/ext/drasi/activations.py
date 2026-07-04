@@ -256,7 +256,7 @@ def _subscribe(
     ctx: ActivationContext, specs: list[PubSubRouteSpec], config: _DrasiTriggerConfig
 ) -> list[Callable[[], None]]:
     """Wire pub/sub routes and return closers."""
-    # TODO: does this need to be publicly accessible or is this even necessary
+    # This allows tests to pass a mock client factory via the runner
     client_factory = getattr(ctx.runner, "_client_factory", None)
 
     try:
@@ -380,7 +380,7 @@ def drasi_trigger(
             if closed:
                 return
             closed = True
-            # TODO: This is fine for now since we only wire one pub/sub route,
+            # This is fine for now since we only wire one pub/sub route,
             # a closer raising shouldn't result in resource leaks
             for closer in closers:
                 closer()
