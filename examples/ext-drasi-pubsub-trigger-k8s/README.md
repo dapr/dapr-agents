@@ -21,7 +21,7 @@ Every system needs to interact with other sytems to be useful. Traditional polli
 
 For many use cases, these tradeoffs can be eliminated by using [Drasi](https://drasi.io/), which offers a platform centered around detecting and reacting to changes. The high-level architecture is simple:
 - Sources to ingest data from existing systems
-- Queries (known as Continuous Queries) to track high-level changes ("business conditions") that downstream consumers are interested in
+- Continuous Queries to track high-level changes ("business conditions") that downstream consumers are interested in
 - Reactions to push events to downstream consumers
 
 ## How it works (with this example)
