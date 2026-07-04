@@ -25,7 +25,14 @@ from typing import Literal, TypeAlias
 from dapr_agents.ext.drasi.schemas import ChangeNotification
 
 DrasiOperation: TypeAlias = Literal["i", "u", "d"]
-"""A Drasi change operation (insert, update, delete)."""
+"""A Drasi change event operation (insert, update, delete)."""
 
 DrasiChangeEvent: TypeAlias = ChangeNotification
-"""A change event emitted by a Drasi query."""
+"""A change event emitted by a Drasi query.
+
+Attributes:
+    op: The change event operation enum (insert, update, delete).
+    ts_ms: The timestamp of the change event in milliseconds.
+    seq: The sequence number of the change event.
+    payload: The change data for the change event.
+"""
