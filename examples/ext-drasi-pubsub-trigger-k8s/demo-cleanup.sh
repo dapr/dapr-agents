@@ -14,11 +14,11 @@
 
 echo "=== Beginning cleanup (best-effort)... ==="
 
-echo "=== Deleting k3s cluster... ==="
+echo "=== Deleting cluster... ==="
 if k3d cluster delete dapr-agents 2>/dev/null; then
-  echo "=== k3s cluster deleted successfully! ==="
+  echo "=== Cluster deleted successfully! ==="
 else
-  echo "=== WARNING: Failed to delete k3s cluster. ==="
+  echo "=== WARNING: Failed to delete cluster. ==="
 fi
 
 echo "=== Cleanup complete! ==="

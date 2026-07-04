@@ -50,7 +50,7 @@ install_with_retries() {
 }
 
 init_cluster() {
-  echo "=== Creating k3s cluster... ==="
+  echo "=== Creating cluster... ==="
   # Delete cluster if it already exists
   k3d cluster delete dapr-agents 2>/dev/null
   k3d cluster create dapr-agents \
@@ -60,7 +60,7 @@ init_cluster() {
     --registry-create local-registry:0.0.0.0:5001
   echo "=== Cluster created successfully! ==="
 
-  echo "=== Switching active context to k3s cluster... ==="
+  echo "=== Switching active context to the cluster... ==="
   kubectl config use-context k3d-dapr-agents
 
   echo "=== Waiting for cluster to be ready... ==="
