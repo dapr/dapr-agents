@@ -30,7 +30,7 @@ install_with_retries() {
         echo "=== $tool_name installation attempt $attempt of $max_attempts... ==="
         
         if eval "$install_cmd"; then
-            echo "=== $tool_name successfully installed! ==="
+            echo "=== $tool_name installed successfully! ==="
             return 0
         fi
         
@@ -84,7 +84,7 @@ install_dapr() {
   echo "=== Adding Dapr Helm chart repository... ==="
   helm repo add dapr https://dapr.github.io/helm-charts/
   helm repo update
-  echo "=== Dapr Helm chart repository successfully added! ==="
+  echo "=== Dapr Helm chart repository added successfully! ==="
 
   echo "=== Installing Dapr via Helm... ==="
   local install_cmd="helm upgrade \
@@ -103,11 +103,11 @@ install_dapr() {
 }
 
 install_drasi() {
-  echo "=== Configuring Drasi to use the active context... ==="
+  echo "=== Configuring Drasi environment to use the active context... ==="
   if drasi env kube 2>/dev/null; then
-    echo "=== Drasi succesfully configured! ==="
+    echo "=== Drasi environment configured successfully! ==="
   else
-    echo "=== WARNING: Failed to configure Drasi to use the active context. ==="
+    echo "=== WARNING: Failed to configure Drasi environment to use the active context. ==="
     echo "=== Continuing with setup anyway... ==="
   fi
 
@@ -122,11 +122,11 @@ install_drasi() {
 build_push_images() {
   echo "=== Building images... ==="
   docker compose -f docker-compose.yaml build --no-cache
-  echo "=== Images successfully built! ==="
+  echo "=== Images built successfully! ==="
 
   echo "=== Pushing images to local registry... ==="
   docker push localhost:5001/inventory-agent:latest
-  echo "=== Images successfully pushed! ==="
+  echo "=== Images pushed successfully! ==="
 }
 
 create_secrets() {
@@ -155,7 +155,7 @@ create_secrets() {
       --from-literal=apiVersion="$OPENAI_API_VERSION" \
       --dry-run=client -o yaml | kubectl apply -f -
     
-    echo "=== Secrets successfully created! ==="
+    echo "=== Secrets created successfully! ==="
 
     return 0
   fi
@@ -178,7 +178,7 @@ create_secrets() {
     --from-literal=apiVersion="$OPENAI_API_VERSION" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-    echo "=== Secrets successfully created! ==="
+    echo "=== Secrets created successfully! ==="
 
     return 0
   fi
@@ -205,13 +205,13 @@ load_secrets() {
 deploy_components() {
   echo "=== Deploying Dapr components... ==="
   kubectl apply -f "${BASE_DIR}/manifests/components/"
-  echo "=== Dapr components deployed! ==="
+  echo "=== Dapr components deployed successfully! ==="
 }
 
 deploy_apps() {
   echo "=== Deploying apps... ==="
   kubectl apply -f "${BASE_DIR}/manifests/apps/"
-  echo "=== Apps deployed! ==="
+  echo "=== Apps deployed successfully! ==="
 }
 
 wait_for_workloads_ready() {
