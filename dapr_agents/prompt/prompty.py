@@ -21,7 +21,7 @@ from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.chat import ChatPromptTemplate
 from dapr_agents.prompt.string import StringPromptTemplate
 from dapr_agents.prompt.utils.prompty import PromptyHelper
-from typing import Dict, Any, Union, Optional, Literal, List, Tuple
+from typing import Dict, Any, Union, Optional, Literal, List
 from pathlib import Path
 import logging
 
@@ -35,19 +35,16 @@ class Prompty(PromptyDefinition):
 
     def extract_input_variables(
         self, template_format: Literal["f-string", "jinja2"] = "jinja2"
-    ) -> Tuple[List[str], List[str]]:
+    ) -> List[str]:
         """
         Extract all input variables from the Prompty instance, including placeholders from content,
-        predefined inputs, and sample inputs. This method returns both regular input variables and
-        more complex placeholders that may require additional processing.
+        predefined inputs, and sample inputs.
 
         Args:
             template_format (Literal["f-string", "jinja2"]): Template format for content parsing. Default is 'jinja2'.
 
         Returns:
-            Tuple[List[str], List[str]]:
-                - A list of regular input variables.
-                - A list of placeholders that may require extra processing (e.g., loops or attributes).
+            List[str]: A deduplicated list of input variable names.
         """
         # Extract undeclared variables and placeholders from the content
         undeclared_variables = PromptyHelper.extract_placeholders_from_content(

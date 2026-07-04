@@ -13,6 +13,7 @@
 
 """Unit tests for PromptyHelper.normalize() environment variable resolution."""
 
+from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.prompt.utils.prompty import PromptyHelper
 
 
@@ -44,3 +45,55 @@ class TestPromptyHelperNormalize:
     def test_plain_string_unchanged(self):
         """A plain string is returned unchanged."""
         assert PromptyHelper.normalize("hello") == "hello"
+
+
+class TestPromptyExtractInputVariables:
+    """Tests for Prompty.extract_input_variables() return contract."""
+
+    PROMPTY_CONTENT = """---
+name: Extract Vars Test
+model:
+  api: chat
+  configuration:
+    type: openai
+    name: gpt-4o
+  parameters:
+    max_tokens: 128
+    temperature: 0.2
+inputs:
+  question:
+    type: string
+sample:
+  "topic": "history"
+---
+system:
+You are a helpful assistant.
+
+user:
+{{question}} about {{subject}}
+"""
+
+    def test_returns_flat_list_of_strings(self):
+        """extract_input_variables returns a single flat list of variable names.
+
+        Regression test: the method used to be annotated
+        ``-> Tuple[List[str], List[str]]`` while it only ever returns one list,
+        so callers (e.g. to_prompt_template) treat the result as ``List[str]``.
+        """
+        prompty = Prompty.load(self.PROMPTY_CONTENT)
+
+        result = prompty.extract_input_variables("jinja2")
+
+        assert isinstance(result, list)
+        assert all(isinstance(name, str) for name in result)
+        # Content placeholders (question, subject), declared inputs (question),
+        # and sample keys (topic), deduplicated into one flat list.
+        assert sorted(result) == ["question", "subject", "topic"]
+
+    def test_result_feeds_prompt_template_input_variables(self):
+        """The returned list is used directly as the template input variables."""
+        prompty = Prompty.load(self.PROMPTY_CONTENT)
+
+        template = prompty.to_prompt_template("jinja2")
+
+        assert sorted(template.input_variables) == ["question", "subject", "topic"]
