@@ -139,38 +139,26 @@ create_secrets() {
     exit 1
   fi
 
-  # Check if using Azure OpenAI
+  # Default to direct OpenAI if endpoint is omitted
+  OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-"https://api.openai.com/v1"}
+
   if [[ "$OPENAI_ENDPOINT" == *".azure.com"* ]]; then
     echo "=== INFO: Azure OpenAI endpoint detected, using Azure defaults if needed. ==="
-
     OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4.1-nano"}
     OPENAI_API_TYPE=${OPENAI_API_TYPE:-"azure"}
     OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2025-04-01-preview"}
-
-    kubectl create secret generic openai-secrets \
-      --from-literal=api-key="$OPENAI_API_KEY" \
-      --from-literal=endpoint="$OPENAI_ENDPOINT" \
-      --from-literal=model="$OPENAI_MODEL" \
-      --from-literal=apiType="$OPENAI_API_TYPE" \
-      --from-literal=apiVersion="$OPENAI_API_VERSION" \
-      --dry-run=client -o yaml | kubectl apply -f -
-    
-    echo "=== Secrets created successfully! ==="
-
-    return 0
-  fi
-
-  # Default to OpenAI if endpoint is omitted
-  $OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-"https://api.openai.com/v1"}
-  
-  if [[ "$OPENAI_ENDPOINT" == *"api.openai.com"* ]]; then
+  elif [[ "$OPENAI_ENDPOINT" == *"api.openai.com"* ]]; then
     echo "=== INFO: OpenAI endpoint detected, using OpenAI defaults if needed. ==="
-
     OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4.1-nano-2025-04-14"}
     OPENAI_API_TYPE=${OPENAI_API_TYPE:-"openai"}
     OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2025-04-01-preview"}
+  else
+    echo "=== ERROR: Unrecognized OPENAI_ENDPOINT '$OPENAI_ENDPOINT'. \
+    Expected an Azure OpenAI endpoint (*.azure.com) or OpenAI endpoint (api.openai.com). ==="
+    exit 1
+  fi
 
-    kubectl create secret generic openai-secrets \
+  kubectl create secret generic openai-secrets \
     --from-literal=api-key="$OPENAI_API_KEY" \
     --from-literal=endpoint="$OPENAI_ENDPOINT" \
     --from-literal=model="$OPENAI_MODEL" \
@@ -178,15 +166,7 @@ create_secrets() {
     --from-literal=apiVersion="$OPENAI_API_VERSION" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-    echo "=== Secrets created successfully! ==="
-
-    return 0
-  fi
-
-  echo "=== ERROR: Unrecognized OPENAI_ENDPOINT '$OPENAI_ENDPOINT'. \
-  Expected an Azure OpenAI endpoint (*.azure.com) or OpenAI endpoint (api.openai.com). ==="
-
-  exit 1
+  echo "=== Secrets created successfully! ==="
 }
 
 load_secrets() {
