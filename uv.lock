@@ -2032,14 +2032,10 @@ version = "0.1.0"
 source = { virtual = "examples/ext-drasi-pubsub-trigger-k8s" }
 dependencies = [
     { name = "dapr-agents", extra = ["drasi"] },
-    { name = "pydantic" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "dapr-agents", extras = ["drasi"], editable = "." },
-    { name = "pydantic", specifier = ">=2.11.3" },
-]
+requires-dist = [{ name = "dapr-agents", extras = ["drasi"], editable = "." }]
 
 [[package]]
 name = "fastapi"

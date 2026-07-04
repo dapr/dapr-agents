@@ -17,7 +17,6 @@ version = "0.1.0"
 requires-python = ">=3.11, <3.14"
 dependencies = [
     "dapr-agents[drasi]",
-    "pydantic>=2.11.3",
 ]
 
 [tool.uv.sources]

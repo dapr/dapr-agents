@@ -192,7 +192,7 @@ With the Drasi VS Code extension, simply click the trash icon next to the query 
 
 ### Adapt for different use cases (advanced)
 
-Modify the inventory agent to perform another task, write a new Drasi query, or point Drasi to different entities and sources. You can use the existing files as a starting point.
+Modify the inventory agent to perform another task, write a new Drasi query, or point Drasi to different sources with different entities. You can use the existing files as a starting point.
 
 Some useful documentation:
 - [Drasi extension for Dapr Agents](../../ext/dapr-agents-ext-drasi/README.md)
