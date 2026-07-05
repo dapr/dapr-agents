@@ -203,10 +203,10 @@ deploy_components() {
   echo "=== Dapr components deployed successfully! ==="
 }
 
-deploy_apps() {
-  echo "=== Deploying apps... ==="
-  kubectl apply -f "${BASE_DIR}/manifests/apps/"
-  echo "=== Apps deployed successfully! ==="
+deploy_services() {
+  echo "=== Deploying services... ==="
+  kubectl apply -f "${BASE_DIR}/manifests/services/"
+  echo "=== Services deployed successfully! ==="
 }
 
 wait_for_workloads_ready() {
@@ -232,7 +232,7 @@ load_secrets
 create_secrets
 
 deploy_components
-deploy_apps
+deploy_services
 wait_for_workloads_ready
 
 echo "=== Setup complete! ==="
