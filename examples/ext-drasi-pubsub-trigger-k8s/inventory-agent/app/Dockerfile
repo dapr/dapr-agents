@@ -31,7 +31,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY uv.lock pyproject.toml /app
 COPY dapr_agents /app/dapr_agents
 COPY ext/dapr-agents-ext-drasi /app/ext/dapr-agents-ext-drasi
-COPY examples/ext-drasi-pubsub-trigger-k8s/services/inventory-agent /app
+
+COPY examples/ext-drasi-pubsub-trigger-k8s/inventory-agent/app /app
 
 # Build wheel and install it into the virtual environment
 RUN --mount=type=cache,target=/root/.cache/uv \

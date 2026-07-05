@@ -125,7 +125,7 @@ install_postgres() {
   local install_cmd="helm upgrade \
     --install postgres oci://registry-1.docker.io/cloudpirates/postgres \
     --version 0.19.6 \
-    -f manifests/config/products-values.yaml \
+    -f products/values.yaml \
     --wait"
   install_with_retries \
     "Postgres" \
@@ -199,14 +199,16 @@ load_secrets() {
 
 deploy_components() {
   echo "=== Deploying Dapr components... ==="
-  kubectl apply -f "${BASE_DIR}/manifests/components/"
+  kubectl apply -f "${BASE_DIR}/drasi/components/"
+  kubectl apply -f "${BASE_DIR}/inventory-agent/components/"
   echo "=== Dapr components deployed successfully! ==="
 }
 
-deploy_services() {
-  echo "=== Deploying services... ==="
-  kubectl apply -f "${BASE_DIR}/manifests/services/"
-  echo "=== Services deployed successfully! ==="
+deploy_apps() {
+  echo "=== Deploying apps... ==="
+  kubectl apply -f "${BASE_DIR}/inventory-agent/inventory-agent.yaml"
+  kubectl apply -f "${BASE_DIR}/workflow-dashboard/workflow-dashboard.yaml"
+  echo "=== Apps deployed successfully! ==="
 }
 
 wait_for_workloads_ready() {
@@ -232,7 +234,7 @@ load_secrets
 create_secrets
 
 deploy_components
-deploy_services
+deploy_apps
 wait_for_workloads_ready
 
 echo "=== Setup complete! ==="

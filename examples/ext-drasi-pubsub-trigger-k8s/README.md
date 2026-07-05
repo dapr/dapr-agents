@@ -92,7 +92,7 @@ Ensure that the current working directory is the directory containing this `READ
 echo $(pwd)
 ```
 
-Then, run the following initialization script:
+Then, run the following setup script:
 
 ```bash
 ./demo-setup.sh
@@ -103,38 +103,38 @@ This creates a `k3d`-managed cluster, installs Dapr and Drasi control plane serv
   - An inventory agent configured to consume "low" and "critical" stock events from Drasi
   - A Diagrid Dashboard instance to observe agent workflow executions
 
-Once the script completes, the dashboard and Postgres instance should be accessible from the host machine on ports `8080` and `5432`, respectively.
+Once the script completes, the Postgres instance and workflow dashboard should be accessible from the host machine on ports `5432` and `8080`, respectively.
 
-Before proceeding, ensure that the dashboard is accessible at http://localhost:8080. Notice that there are no workflow executions at this stage.
+Before proceeding, ensure that the workflow dashboard is accessible at http://localhost:8080. Notice that there are no workflow executions at this stage.
 
 ### Bring up Drasi resources
 
 **Option 1 — Drasi CLI**
 
-All of the Drasi resource manifests (sources, queries, reactions) are found in `manifests/drasi/`.
+All of the Drasi resource manifests (sources, queries, reactions) are found in `drasi/`.
 
 First, bring up the sources and wait for them to be ready:
 
 ```bash
-drasi apply -f ./manifests/drasi/sources/products.yaml
-drasi wait -f ./manifests/drasi/sources/products.yaml -t 120
+drasi apply -f ./drasi/sources/products.yaml
+drasi wait -f ./drasi/sources/products.yaml -t 120
 ```
 
 Bring up the queries and wait for them to be ready:
 
 ```bash
-drasi apply -f ./manifests/drasi/queries/critical-stock-event-query.yaml
-drasi wait -f ./manifests/drasi/queries/critical-stock-event-query.yaml -t 120
+drasi apply -f ./drasi/queries/critical-stock-event-query.yaml
+drasi wait -f ./drasi/queries/critical-stock-event-query.yaml -t 120
 
-drasi apply -f ./manifests/drasi/queries/low-stock-event-query.yaml
-drasi wait -f ./manifests/drasi/queries/low-stock-event-query.yaml -t 120
+drasi apply -f ./drasi/queries/low-stock-event-query.yaml
+drasi wait -f ./drasi/queries/low-stock-event-query.yaml -t 120
 ```
 
 Bring up the reactions and wait for them to be ready:
 
 ```bash
-drasi apply -f ./manifests/drasi/reactions/inventory-events-publisher.yaml
-drasi wait -f ./manifests/drasi//reactions/inventory-events-publisher.yaml -t 120
+drasi apply -f ./drasi/reactions/inventory-events-publisher.yaml
+drasi wait -f ./drasi/reactions/inventory-events-publisher.yaml -t 120
 ```
 
 You can verify that all of the resources are up with the following commands:
@@ -155,7 +155,7 @@ For a guide on how to use the extension, see the [Drasi documentation](https://d
 
 Once the Drasi resources are up and running, open http://localhost:8080 once again to view the Diagrid Dashboard.
 
-At this point, you should be able to see several completed and/or in-flight workflow executions — the seed data in `manifests/config/products-values.yaml` contains several products that satisfy the "low" and "critical" stock conditions tracked by the Drasi queries. This causes Drasi to emit stock events, which are eventually consumed by the inventory agent.
+At this point, you should be able to see several completed and/or in-flight workflow executions — the seed data in `products/values.yaml` contains several products that satisfy the "low" and "critical" stock conditions tracked by the Drasi queries. This causes Drasi to emit stock events, which are eventually consumed by the inventory agent.
 
 This demonstrates the drop-in capabilities of Drasi — it can work with existing data sources, while downstream services can be developed independently.
 
@@ -174,18 +174,18 @@ You can use the following parameters to connect to the Postgres instance:
 
 ### Adjust business conditions
 
-Update the Drasi queries in `manifests/drasi/queries/` by setting new thresholds for "low" and "critical" stock — no code changes necessary.
+Update the Drasi queries in `drasi/queries/` by setting new thresholds for "low" and "critical" stock — no code changes necessary.
 
-For the new queries to take effect, you must first delete the existing resources in the cluster. For example, to delete the resource for `manifests/drasi/queries/low-stock-event.yaml`, run:
+For the new queries to take effect, you must first delete the existing resources in the cluster. For example, to delete the resource for `drasi/queries/low-stock-event.yaml`, run:
 
 ```bash
-drasi delete -f ./manifests/drasi/queries/low-stock-event.yaml
+drasi delete -f ./drasi/queries/low-stock-event.yaml
 ```
 
 Then, bring up the new query and wait for it to be ready:
 ```bash
-drasi apply -f ./manifests/drasi/queries/low-stock-event-query.yaml
-drasi wait -f ./manifests/drasi/queries/low-stock-event-query.yaml -t 120
+drasi apply -f ./drasi/queries/low-stock-event-query.yaml
+drasi wait -f ./drasi/queries/low-stock-event-query.yaml -t 120
 ```
 
 With the Drasi VS Code extension, simply click the trash icon next to the query you want to delete, then apply the new query.

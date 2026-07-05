@@ -16,4 +16,4 @@ services:
     image: localhost:5001/inventory-agent:latest
     build:
       context: ../../
-      dockerfile: ./examples/ext-drasi-pubsub-trigger-k8s/services/inventory-agent/Dockerfile
+      dockerfile: ./examples/ext-drasi-pubsub-trigger-k8s/inventory-agent/app/Dockerfile
