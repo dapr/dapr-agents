@@ -99,7 +99,7 @@ Then, run the following initialization script:
 ```
 
 This creates a `k3d`-managed cluster, installs Dapr and Drasi control plane services, and spins up several apps:
-  - A Postgres instance with initialized with a default `productsdb` database, a `products` table, and seed data
+  - A Postgres instance with a `products` table and seed product data
   - An inventory agent configured to consume "low" and "critical" stock events from Drasi
   - A Diagrid Dashboard instance to observe agent workflow executions
 
@@ -111,7 +111,7 @@ Before proceeding, ensure that the dashboard is accessible at http://localhost:8
 
 **Option 1 — Drasi CLI**
 
-All of the Drasi resource manifests (sources, queries, reactions) are found in `./manifests/drasi/`.
+All of the Drasi resource manifests (sources, queries, reactions) are found in `manifests/drasi/`.
 
 First, bring up the sources and wait for them to be ready:
 
@@ -155,7 +155,7 @@ For a guide on how to use the extension, see the [Drasi documentation](https://d
 
 Once the Drasi resources are up and running, open http://localhost:8080 once again to view the Diagrid Dashboard.
 
-At this point, you should be able to see several completed and/or in-flight workflow executions — the seed data in `./manifests/apps/products-db.yaml` contains several products that satisfy the "low" and "critical" stock conditions tracked by the Drasi queries. This causes Drasi to emit stock events, which are eventually consumed by the inventory agent.
+At this point, you should be able to see several completed and/or in-flight workflow executions — the seed data in `manifests/config/products-values.yaml` contains several products that satisfy the "low" and "critical" stock conditions tracked by the Drasi queries. This causes Drasi to emit stock events, which are eventually consumed by the inventory agent.
 
 This demonstrates the drop-in capabilities of Drasi — it can work with existing data sources, while downstream services can be developed independently.
 
@@ -168,15 +168,15 @@ Insert products directly into the `products` table and notice how workflow execu
 You can use the following parameters to connect to the Postgres instance:
 - Host: `localhost`
 - Port: `5432`
-- Database: `productsdb`
+- Database: `postgres`
 - Username: `postgres`
 - Password: `postgres`
 
 ### Adjust business conditions
 
-Update the Drasi queries in `./manifests/drasi/queries/` by setting new thresholds for "low" and "critical" stock — no code changes necessary.
+Update the Drasi queries in `manifests/drasi/queries/` by setting new thresholds for "low" and "critical" stock — no code changes necessary.
 
-For the new queries to take effect, you must first delete the existing resources in the cluster. For example, to delete the resource for `./manifests/drasi/queries/low-stock-event.yaml`, run:
+For the new queries to take effect, you must first delete the existing resources in the cluster. For example, to delete the resource for `manifests/drasi/queries/low-stock-event.yaml`, run:
 
 ```bash
 drasi delete -f ./manifests/drasi/queries/low-stock-event.yaml

@@ -67,19 +67,6 @@ init_cluster() {
   kubectl wait --for=condition=ready node --all --timeout=60s
 }
 
-install_redis() {
-  echo "=== Installing Redis via Helm... ==="
-  local install_cmd="helm upgrade \
-    --install redis oci://registry-1.docker.io/cloudpirates/redis \
-    --set auth.enabled=false \
-    --wait"
-  install_with_retries \
-    "Redis" \
-    "$install_cmd" \
-    "helm uninstall redis" \
-    3
-}
-
 install_dapr() {
   echo "=== Adding Dapr Helm chart repository... ==="
   helm repo add dapr https://dapr.github.io/helm-charts/
@@ -114,8 +101,36 @@ install_drasi() {
   echo "=== Installing Drasi... ==="
   install_with_retries \
     "Drasi" \
-    "drasi init" \
+    "drasi init --version 0.10.0" \
     "drasi uninstall -y" \
+    3
+}
+
+install_redis() {
+  echo "=== Installing Redis via Helm... ==="
+  local install_cmd="helm upgrade \
+    --install redis oci://registry-1.docker.io/cloudpirates/redis \
+    --version 0.30.7 \
+    --set auth.enabled=false \
+    --wait"
+  install_with_retries \
+    "Redis" \
+    "$install_cmd" \
+    "helm uninstall redis" \
+    3
+}
+
+install_postgres() {
+  echo "=== Installing Postgres via Helm... ==="
+  local install_cmd="helm upgrade \
+    --install postgres oci://registry-1.docker.io/cloudpirates/postgres \
+    --version 0.19.6 \
+    -f manifests/config/products-values.yaml \
+    --wait"
+  install_with_retries \
+    "Postgres" \
+    "$install_cmd" \
+    "helm uninstall postgres" \
     3
 }
 
@@ -198,7 +213,6 @@ wait_for_workloads_ready() {
   echo "=== Waiting for all workloads to be ready... ==="
   kubectl rollout status deployment/inventory-agent --namespace default --timeout=300s
   kubectl rollout status deployment/workflow-dashboard --namespace default --timeout=300s
-  kubectl rollout status statefulset/products-db --namespace default --timeout=300s
   kubectl wait --for=condition=Ready pod --all --namespace default --timeout=300s
   echo "=== All workloads ready! ==="
 }
@@ -207,9 +221,10 @@ echo "=== Beginning setup... ==="
 
 init_cluster
 
-install_redis
 install_dapr
 install_drasi
+install_redis
+install_postgres
 
 build_push_images
 

@@ -17,11 +17,11 @@ name: products-source
 spec:
   kind: PostgreSQL
   properties:
-    host: products-db.default.svc.cluster.local
+    host: postgres.default.svc.cluster.local
     port: 5432
     user: postgres
     password: postgres
-    database: productsdb
+    database: postgres
     ssl: false
     tables:
       - public.products
