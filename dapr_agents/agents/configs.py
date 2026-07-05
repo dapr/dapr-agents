@@ -429,6 +429,25 @@ class OrchestrationMode(StrEnum):
     ROUNDROBIN = "roundrobin"
 
 
+class BuiltinTool(StrEnum):
+    """Framework-provided tools an agent can opt into via
+    ``AgentExecutionConfig.builtin_tools``.
+
+    Values are plain strings so configs stay YAML/JSON-serializable
+    (``builtin_tools: ["ask_user"]``); referencing the enum member
+    (``builtin_tools=[BuiltinTool.ASK_USER]``) additionally gives editor
+    autocomplete and is validated at config time (see
+    ``AgentExecutionConfig.__post_init__``). Each member must have a matching
+    factory in ``dapr_agents.agents.durable.BUILTIN_TOOL_FACTORIES``.
+
+    ASK_USER: Pauses the workflow to ask the human a question over the
+        session's stream and resumes with their answer. Requires
+        ``streaming=True`` and is skipped for orchestrators.
+    """
+
+    ASK_USER = "ask_user"
+
+
 @dataclass
 class AgentApprovalConfig:
     """
@@ -519,9 +538,28 @@ class AgentExecutionConfig:
     # Built-in tools are opt-in. Default is an empty list to preserve strict
     # backwards compatibility — upgrading agents do not suddenly see new tools
     # in their LLM tool schema. To enable ``ask_user``, set
-    # ``builtin_tools=["ask_user"]`` *and* ``streaming=True``; the tool is
-    # registered only when both are true and the agent is not an orchestrator.
+    # ``builtin_tools=[BuiltinTool.ASK_USER]`` (or the raw string ``"ask_user"``
+    # for YAML/JSON config) *and* ``streaming=True``; the tool is registered
+    # only when both are true and the agent is not an orchestrator. Names are
+    # validated against ``BuiltinTool`` in ``__post_init__``.
     builtin_tools: List[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # Validate builtin_tools up-front so a typo fails at config time with a
+        # clear message instead of being silently skipped when tools are
+        # registered later. Accepts BuiltinTool members and raw strings (for
+        # declarative config) and normalizes both to the plain string value.
+        valid = {tool.value for tool in BuiltinTool}
+        normalized: List[str] = []
+        for name in self.builtin_tools:
+            value = str(name)
+            if value not in valid:
+                raise ValueError(
+                    f"Unknown builtin tool {value!r} in builtin_tools. "
+                    f"Valid values: {sorted(valid)}."
+                )
+            normalized.append(value)
+        self.builtin_tools = normalized
 
 
 @dataclass

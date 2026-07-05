@@ -363,9 +363,10 @@ class AgentRunner(WorkflowRunner):
         """Pick a listener config when the caller didn't specify one.
 
         Order of precedence: explicit > agent.execution.stream_listener >
-        mode-based default. The mode-based default is ``in_process`` for
-        same-process sessions and ``pubsub`` when the agent has cross-app
-        peers or no in-process runtime available.
+        mode-based default. The mode-based default prefers ``pubsub`` when the
+        agent has cross-app peers, is horizontally scaled, or has a message bus
+        configured (all safe across a multi-replica handoff), and only falls
+        back to ``in_process`` when no bus is available (local / direct-run).
         """
 
         if explicit:
@@ -396,17 +397,30 @@ class AgentRunner(WorkflowRunner):
                 infra=agent._infra,
                 agent_name=agent.name,
             )
-        # in_process is safe only for single-replica / direct-run. Warn once per
-        # agent so horizontally-scaled deployments know to switch to pubsub.
+        # Safe-by-default when deployed: if a message bus is configured, stream
+        # over pubsub so the session survives a multi-replica handoff even when
+        # the operator hasn't set a replica-count env var. Fall through to
+        # in_process only when there is no bus (local / direct-run), which
+        # cannot cross processes anyway.
+        infra = getattr(agent, "_infra", None)
+        if infra is not None and getattr(infra, "message_bus_name", None):
+            return self._materialize_listener_config(
+                {"type": "pubsub"},
+                root_instance_id,
+                infra=infra,
+                agent_name=agent.name,
+            )
+        # in_process is the last resort (no bus available). Warn once per agent
+        # so horizontally-scaled deployments know it is unsafe across handoff.
         if agent.name not in _WARNED_IN_PROCESS_DEFAULT:
             _WARNED_IN_PROCESS_DEFAULT.add(agent.name)
             logger.warning(
-                "Agent '%s' is streaming over the default 'in_process' listener. "
-                "This is unsafe across multi-replica handoff: a workflow rehydrated "
-                "on another replica after a restart emits to a dead in-process "
-                "queue. For horizontally-scaled deployments set "
-                "stream_listener={'type': 'pubsub'} or export "
-                "DAPR_AGENTS_MULTI_REPLICA=1.",
+                "Agent '%s' is streaming over the default 'in_process' listener "
+                "(no message bus configured). This is unsafe across multi-replica "
+                "handoff: a workflow rehydrated on another replica after a restart "
+                "emits to a dead in-process queue. For horizontally-scaled "
+                "deployments configure a message bus or set "
+                "stream_listener={'type': 'pubsub'}.",
                 agent.name,
             )
         return self._materialize_listener_config(

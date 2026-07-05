@@ -52,6 +52,7 @@ from dapr_agents.agents.orchestrators.llm.utils import (
 from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
     AgentMCPConfig,
+    BuiltinTool,
     OrchestrationMode,
     ToolExecutionMode,
     AgentExecutionConfig,
@@ -233,7 +234,7 @@ def orchestration_workflow_id(
 # constructed — so there's nothing to import-and-pass as a config-time instance.
 # Extend by adding an entry here (mirrors ``register_stream_listener``).
 BUILTIN_TOOL_FACTORIES: Dict[str, Callable[[Any], Any]] = {
-    ASK_USER_TOOL_NAME: lambda agent: build_ask_user_tool(
+    BuiltinTool.ASK_USER: lambda agent: build_ask_user_tool(
         agent._activity_name(agent.publish_stream_event)
     ),
 }

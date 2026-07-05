@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
-from typing import Iterable, List, Optional
+from types import SimpleNamespace
+from typing import Any, Iterable, List, Optional
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -38,8 +39,11 @@ from dapr_agents.streaming.listeners import (
     _USER_LISTENERS,
 )
 from dapr_agents.types.message import (
+    AssistantMessage,
     FunctionCallChunk,
+    LLMChatCandidate,
     LLMChatCandidateChunk,
+    LLMChatResponse,
     LLMChatResponseChunk,
     ToolCallChunk,
 )
@@ -380,3 +384,118 @@ class TestIsChunkIterator:
 
     def test_list_is_iterator(self) -> None:
         assert DurableAgent._is_chunk_iterator([1, 2, 3]) is True
+
+
+def _run_call_llm(
+    agent: DurableAgent,
+    monkeypatch: pytest.MonkeyPatch,
+    response: Any,
+    *,
+    turn: int = 1,
+) -> dict:
+    """Drive the real ``call_llm`` activity for a streaming session with a given
+    provider ``generate`` return value, stubbing the surrounding state I/O.
+
+    Isolates the real-stream-vs-fallback *routing* decision (the branch keyed on
+    ``_is_chunk_iterator``) from history reconstruction and persistence, so the
+    test asserts only on what reaches the stream.
+    """
+    entry = SimpleNamespace(stream_context=_stream_context())
+    monkeypatch.setattr(agent._infra, "get_state", lambda *a, **k: entry)
+    monkeypatch.setattr(agent, "_reconstruct_conversation_history", lambda *a, **k: [])
+    monkeypatch.setattr(
+        agent.prompting_helper, "build_initial_messages", lambda *a, **k: []
+    )
+    monkeypatch.setattr(agent, "_sync_system_messages_with_state", lambda *a, **k: None)
+    monkeypatch.setattr(agent, "get_llm_tools", lambda *a, **k: [])
+    monkeypatch.setattr(agent, "_save_assistant_message", lambda *a, **k: None)
+    monkeypatch.setattr(agent, "save_state", lambda *a, **k: None)
+    monkeypatch.setattr(agent.text_formatter, "print_message", lambda *a, **k: None)
+    agent.llm.generate = Mock(return_value=response)
+    return agent.call_llm(ctx=Mock(), payload={"instance_id": "wf-1", "turn": turn})
+
+
+class TestCallLLMStreamingRouting:
+    """End-to-end routing in ``call_llm`` for a streaming session.
+
+    A real provider stream must go down the delta path
+    (``_consume_llm_stream``); a provider fallback (what the Dapr Conversation
+    API returns today) must go down the uniform START+TURN_COMPLETE envelope.
+    This guards the real-delta branch from going stale while only the fallback
+    exercises in practice — so there are no surprises once Dapr streams for real.
+    """
+
+    def test_real_stream_routes_to_delta_path(
+        self, durable_agent: DurableAgent, monkeypatch, registered_capturing_listener
+    ) -> None:
+        result = _run_call_llm(
+            durable_agent, monkeypatch, _content_stream(["Hello ", "world"])
+        )
+        assert result == {"role": "assistant", "content": "Hello world"}
+        assert len(registered_capturing_listener) == 1
+        types = [c.type for c in registered_capturing_listener[0].chunks]
+        assert types[0] is StreamChunkType.START
+        assert types[-1] is StreamChunkType.TURN_COMPLETE
+        # Real deltas flowed — not the single-envelope fallback.
+        assert types.count(StreamChunkType.CONTENT_DELTA) == 2
+
+    def test_tool_call_stream_routes_to_delta_path(
+        self, durable_agent: DurableAgent, monkeypatch, registered_capturing_listener
+    ) -> None:
+        stream = [
+            LLMChatResponseChunk(result=LLMChatCandidateChunk(role="assistant")),
+            LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(
+                    tool_calls=[
+                        ToolCallChunk(
+                            index=0,
+                            id="call_1",
+                            type="function",
+                            function=FunctionCallChunk(name="search", arguments=""),
+                        )
+                    ]
+                )
+            ),
+            LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(
+                    tool_calls=[
+                        ToolCallChunk(
+                            index=0,
+                            function=FunctionCallChunk(arguments='{"q":"py"}'),
+                        )
+                    ]
+                )
+            ),
+            LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(finish_reason="tool_calls")
+            ),
+        ]
+        result = _run_call_llm(durable_agent, monkeypatch, stream)
+        assert result["tool_calls"][0]["function"]["name"] == "search"
+        assert result["tool_calls"][0]["function"]["arguments"] == '{"q":"py"}'
+        chunks = registered_capturing_listener[0].chunks
+        assert any(c.type is StreamChunkType.TOOL_CALL_DELTA for c in chunks)
+
+    def test_dapr_fallback_routes_to_uniform_envelope(
+        self, durable_agent: DurableAgent, monkeypatch, registered_capturing_listener
+    ) -> None:
+        fallback = LLMChatResponse(
+            results=[
+                LLMChatCandidate(
+                    message=AssistantMessage(role="assistant", content="final answer"),
+                    finish_reason="stop",
+                )
+            ],
+            metadata={"dapr_conversation_streaming_unsupported": True},
+        )
+        result = _run_call_llm(durable_agent, monkeypatch, fallback)
+        assert result["content"] == "final answer"
+        assert len(registered_capturing_listener) == 1
+        listener = registered_capturing_listener[0]
+        types = [c.type for c in listener.chunks]
+        # Fallback: uniform envelope, no content deltas.
+        assert types == [StreamChunkType.START, StreamChunkType.TURN_COMPLETE]
+        assert (
+            listener.chunks[-1].metadata.get("dapr_conversation_streaming_unsupported")
+            is True
+        )
