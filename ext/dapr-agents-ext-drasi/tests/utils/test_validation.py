@@ -19,8 +19,10 @@ from pydantic import BaseModel
 import pytest
 
 try:
+    from dapr_agents.ext.drasi.types import DrasiOperation
     from dapr_agents.ext.drasi.utils.validation import (
         is_supported_operation,
+        maybe_coerce_operation,
         normalize_to_list,
         validate_model,
     )
@@ -68,18 +70,18 @@ def test_normalize_to_list_list_returns_copied_list():
 
 
 # ---------------------------------------------------------------------------
-# is_change_operation
+# is_supported_operation
 # ---------------------------------------------------------------------------
 
 
-def test_is_change_operation_accepts_valid_values():
-    """Test that valid Drasi change operations return `True`."""
+def test_is_supported_operation_accepts_valid_values():
+    """Test that supported Drasi operations return `True`."""
     assert is_supported_operation("i")
     assert is_supported_operation("u")
     assert is_supported_operation("d")
 
 
-def test_is_change_operation_rejects_invalid_values():
+def test_is_supported_operation_rejects_invalid_values():
     """Test that unsupported Drasi operations and invalid values return `False`."""
     assert not is_supported_operation("x")
     assert not is_supported_operation("h")
@@ -88,6 +90,29 @@ def test_is_change_operation_rejects_invalid_values():
     assert not is_supported_operation(456)
     assert not is_supported_operation(False)
     assert not is_supported_operation(None)
+
+
+# ---------------------------------------------------------------------------
+# maybe_coerce_operation
+# ---------------------------------------------------------------------------
+
+
+def test_maybe_coerce_operation_coerces_valid_values():
+    """Test that supported Drasi operations are normalized."""
+    assert maybe_coerce_operation("i") == DrasiOperation.i
+    assert maybe_coerce_operation("u") == DrasiOperation.u
+    assert maybe_coerce_operation("d") == DrasiOperation.d
+
+
+def test_maybe_coerce_operation_returns_invalid_values_unchanged():
+    """Test that unsupported Drasi operations and invalid values are returned unchanged."""
+    assert maybe_coerce_operation("x") == "x"
+    assert maybe_coerce_operation("h") == "h"
+    assert maybe_coerce_operation("r") == "r"
+    assert maybe_coerce_operation("invalid") == "invalid"
+    assert maybe_coerce_operation(456) == 456
+    assert maybe_coerce_operation(False) is False
+    assert maybe_coerce_operation(None) is None
 
 
 # ---------------------------------------------------------------------------

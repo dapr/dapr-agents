@@ -63,7 +63,7 @@ finally:
 ```
 
 ### Examples
-- [`ext-drasi-trigger-k8s`](../../examples/ext-drasi-trigger-k8s/README.md) — demonstrates how to subscribe an agent to Drasi queries in a Kubernetes environment.
+- [`ext-drasi-pubsub-trigger-k8s`](../../examples/ext-drasi-pubsub-trigger-k8s/README.md) — demonstrates how to subscribe an agent to Drasi queries in a Kubernetes environment.
 
 ## Development
 

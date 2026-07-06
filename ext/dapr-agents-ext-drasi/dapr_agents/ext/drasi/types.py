@@ -20,12 +20,12 @@ and provides a stable API for external consumers.
 
 from __future__ import annotations
 
-from typing import Literal, TypeAlias
+from typing import TypeAlias
 
-from dapr_agents.ext.drasi.schemas import ChangeNotification
+from dapr_agents.ext.drasi.schemas import ChangeNotification, Op
 
-DrasiOperation: TypeAlias = Literal["i", "u", "d"]
-"""A Drasi change event operation (insert, update, delete)."""
+DrasiOperation = Op
+"""A Drasi change event operation: "i" (insert), "u" (update), "d" (delete)."""
 
 DrasiChangeEvent: TypeAlias = ChangeNotification
 """A change event emitted by a Drasi query.

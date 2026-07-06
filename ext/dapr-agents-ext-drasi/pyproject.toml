@@ -11,13 +11,9 @@
 # limitations under the License.
 #
 
-[build-system]
-requires = ["setuptools>=61.0", "setuptools_scm"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "dapr-agents-ext-drasi"
-version = "0.1.0"  # TODO: generate this at build time
+version = "0.1.0"  # TODO: switch to dynamic versioning
 description = "Drasi extension for Dapr Agents"
 keywords = ["dapr", "agents", "drasi"]
 readme = "README.md"
@@ -63,11 +59,6 @@ exclude = ["tests"]
 
 [tool.setuptools.package-data]
 "dapr_agents.ext.drasi" = ["py.typed"]
-
-[tool.setuptools_scm]
-version_scheme = "guess-next-dev"
-local_scheme = "node-and-date"
-fallback_version = "0.0.0.dev0"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

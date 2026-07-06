@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
+import re
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any, Optional
 from unittest.mock import MagicMock, Mock
@@ -35,10 +38,11 @@ from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
+from dapr_agents.types.exceptions import PubSubNotAvailableError
 from dapr_agents.workflow.runners.agent import AgentRunner
 
 try:
-    from dapr_agents.ext.drasi import drasi_trigger
+    from dapr_agents.ext.drasi import DrasiOperation, drasi_trigger
     from dapr_agents.ext.drasi.activations import (
         _DRASI_TRIGGER_DEFAULT_TASK,
         _DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX,
@@ -98,12 +102,39 @@ def _get_attr_from_wf_input_metadata(kwargs: dict[str, Any], name: str) -> str |
 
 
 # TODO: tests may still be flaky with this workaround, will need to be replaced
-async def _wait_for_completion():
+async def _wait_for_completion() -> None:
     """
     Short sleep to allow background workflow scheduling to complete.
     Call this after runner entrypoint methods (`subscribe()`/`register_routes()`/`serve()`) and before assertions.
     """
     await asyncio.sleep(0.2)
+
+
+@contextmanager
+def _runner_raises_exception_with_cause(
+    type: type[BaseException], match: str | re.Pattern[str] | None = None
+):
+    """
+    Context manager for the runner mirroring `pytest.raises`.
+
+    Asserts that a caught exception has a cause of the expected type
+    and contains the expected message/matches the expected pattern.
+    """
+
+    # Runner always re-raises a caught exception as a RuntimeError
+    with pytest.raises(RuntimeError) as exc_info:
+        yield exc_info
+
+    base_exc = exc_info.value.__cause__
+
+    assert base_exc is not None
+    assert isinstance(base_exc, type)
+
+    if match is not None:
+        pattern = (
+            match if isinstance(match, re.Pattern) else re.compile(match, re.IGNORECASE)
+        )
+        assert pattern.search(str(base_exc)) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +408,7 @@ def setup_deps():
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes using the runner's `subscribe()` entrypoint."""
+    """Test that the Drasi pub/sub trigger wires pub/sub routes using the runner's `subscribe()` entrypoint."""
     query_id = "ordersquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -461,7 +492,7 @@ async def test_drasi_trigger_uses_pubsub_under_subscribe(setup_deps):
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes using the runner's `register_routes()` entrypoint."""
+    """Test that the Drasi pub/sub trigger wires pub/sub routes using the runner's `register_routes()` entrypoint."""
     query_id = "incidentsquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -545,7 +576,7 @@ async def test_drasi_trigger_uses_pubsub_under_register_routes(setup_deps):
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes using the runner's `serve()` entrypoint."""
+    """Test that the Drasi pub/sub trigger wires pub/sub routes using the runner's `serve()` entrypoint."""
     query_id = "potentialfraudquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -630,7 +661,7 @@ async def test_drasi_trigger_uses_pubsub_under_serve(setup_deps):
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps):
-    """Test that the Drasi extension wires pub/sub routes when the agent's pub/sub configuration is missing."""
+    """Test that the Drasi pub/sub trigger wires pub/sub routes when the agent's pub/sub configuration is missing."""
     query_id = "gamestatequery"
     drasi_pubsub_name = "gamestatepubsub"
     drasi_topic = "gamestate"
@@ -726,7 +757,7 @@ async def test_drasi_trigger_uses_pubsub_independent_of_agent_pubsub(setup_deps)
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_defaults_to_agent_pubsub_component(setup_deps):
-    """Test that the Drasi extension uses the agent's pub/sub component when the pub/sub component is omitted."""
+    """Test that the Drasi pub/sub trigger uses the agent's pub/sub component when the pub/sub component is omitted."""
     query_id = "searchquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -804,7 +835,7 @@ async def test_drasi_trigger_defaults_to_agent_pubsub_component(setup_deps):
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
-    """Test that the Drasi extension uses the query ID to derive the pub/sub topic when the topic is omitted."""
+    """Test that the Drasi pub/sub trigger uses the query ID to derive the pub/sub topic when the topic is omitted."""
     query_id = "goalsquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -894,8 +925,8 @@ async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
 
 
 @pytest.mark.asyncio
-async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
-    """Test that the Drasi extension uses the default pass-through task when the custom task mapping is omitted."""
+async def test_drasi_trigger_defaults_to_passthrough_task(setup_deps, caplog):
+    """Test that the Drasi pub/sub trigger uses the default pass-through task when the task mapper is omitted."""
     query_id = "passwordupdatequery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -959,9 +990,14 @@ async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
     )
 
     drasi_trigger(agent, query_id=query_id, pubsub=drasi_pubsub_name, topic=drasi_topic)
-    runner.subscribe(agent)
+
+    with caplog.at_level(logging.WARNING):
+        runner.subscribe(agent)
 
     await _wait_for_completion()
+
+    # Ensure that a human-readable warning is logged
+    assert "no task mapper" in caplog.text.lower()
 
     assert wf_scheduler_method.call_count == 2
 
@@ -980,7 +1016,7 @@ async def test_drasi_trigger_defaults_to_passthrough_task(caplog, setup_deps):
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_filters_by_query_id(setup_deps):
-    """Test that the Drasi extension implicitly filters events by query ID."""
+    """Test that the Drasi pub/sub trigger filters for events that match the provided query ID."""
     query_id = "statsquery"
     different_query_id = "differentquery"
     agent_pubsub_name = "testpubsub"
@@ -1063,8 +1099,8 @@ async def test_drasi_trigger_filters_by_query_id(setup_deps):
 
 
 @pytest.mark.asyncio
-async def test_drasi_trigger_filters_by_operation(setup_deps):
-    """Test that the Drasi extension filters for events that match a single Drasi operation."""
+async def test_drasi_trigger_filters_by_operation_enum(setup_deps):
+    """Test that the Drasi pub/sub trigger filters for events that match a single Drasi operation enum."""
     query_id = "calculatorquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1123,6 +1159,90 @@ async def test_drasi_trigger_filters_by_operation(setup_deps):
         pubsub=drasi_pubsub_name,
         topic=drasi_topic,
         task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
+        operations=DrasiOperation.d,
+    )
+    runner.subscribe(agent)
+
+    await _wait_for_completion()
+
+    assert wf_scheduler_method.call_count == 1
+
+    expected_events = [events[1]]
+    cloudevent_ids = [
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
+        for c in wf_scheduler_method.call_args_list
+    ]
+    assert cloudevent_ids == [e.get("id") for e in expected_events]
+
+    actual_tasks = [
+        _get_attr_from_wf_input(c.kwargs, "task")
+        for c in wf_scheduler_method.call_args_list
+    ]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
+    assert actual_tasks == expected_tasks
+
+
+@pytest.mark.asyncio
+async def test_drasi_trigger_filters_by_operation_literal(setup_deps):
+    """Test that the Drasi pub/sub trigger filters for events that match a single Drasi operation literal."""
+    query_id = "calculatorquery"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
+    drasi_topic = "differenttopic"
+    events = [
+        _make_cloudevent(
+            data={
+                "op": "i",
+                "ts_ms": 420,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 420,
+                    },
+                    "after": {
+                        "multiply": "ultra soft",
+                    },
+                },
+            },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "d",
+                "ts_ms": 440,
+                "seq": 1,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 440,
+                    },
+                    "before": {
+                        "divide": "conquer",
+                    },
+                },
+            },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+    ]
+
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
         operations="d",
     )
     runner.subscribe(agent)
@@ -1147,8 +1267,114 @@ async def test_drasi_trigger_filters_by_operation(setup_deps):
 
 
 @pytest.mark.asyncio
-async def test_drasi_trigger_filters_by_operations_list(setup_deps):
-    """Test that the Drasi extension filters for events that match a list of Drasi operations."""
+async def test_drasi_trigger_filters_by_operation_enums(setup_deps):
+    """Test that the Drasi pub/sub trigger filters for events that match a list of Drasi operation enums."""
+    query_id = "babygoatquery"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
+    drasi_topic = "differenttopic"
+    events = [
+        _make_cloudevent(
+            data={
+                "op": "i",
+                "ts_ms": 1,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 1,
+                    },
+                    "after": {
+                        "name": "zverev",
+                    },
+                },
+            },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "d",
+                "ts_ms": 4,
+                "seq": 1,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 4,
+                    },
+                    "before": {
+                        "name": "jannik",
+                    },
+                },
+            },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "u",
+                "ts_ms": 7,
+                "seq": 2,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 7,
+                    },
+                    "before": {
+                        "name": "carlos",
+                    },
+                    "after": {
+                        "name": "carlitos",
+                    },
+                },
+            },
+            id="3",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+    ]
+
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
+        operations=[DrasiOperation.i, DrasiOperation.u],
+    )
+    runner.subscribe(agent)
+
+    await _wait_for_completion()
+
+    assert wf_scheduler_method.call_count == 2
+
+    expected_events = [events[0], events[2]]
+    cloudevent_ids = [
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
+        for c in wf_scheduler_method.call_args_list
+    ]
+    assert cloudevent_ids == [e.get("id") for e in expected_events]
+
+    actual_tasks = [
+        _get_attr_from_wf_input(c.kwargs, "task")
+        for c in wf_scheduler_method.call_args_list
+    ]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
+    assert actual_tasks == expected_tasks
+
+
+@pytest.mark.asyncio
+async def test_drasi_trigger_filters_by_operation_literals(setup_deps):
+    """Test that the Drasi pub/sub trigger filters for events that match a list of Drasi operation literals."""
     query_id = "goatquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1253,8 +1479,115 @@ async def test_drasi_trigger_filters_by_operations_list(setup_deps):
 
 
 @pytest.mark.asyncio
-async def test_drasi_trigger_validates_with_change_model(setup_deps):
-    """Test that the Drasi extension validates the change data in events (and implicitly filters)."""
+async def test_drasi_trigger_filters_by_mixed_operations(setup_deps):
+    """
+    Test that the Drasi pub/sub trigger filters for events that
+    match a list of Drasi operations (enums and literals).
+    """
+    query_id = "leaderquery"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
+    drasi_topic = "differenttopic"
+    events = [
+        _make_cloudevent(
+            data={
+                "op": "i",
+                "ts_ms": 10,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 10,
+                    },
+                    "after": {
+                        "name": "mbappe",
+                        "type": "dict",
+                    },
+                },
+            },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "d",
+                "ts_ms": 19,
+                "seq": 1,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 19,
+                    },
+                    "before": {
+                        "name": "lamine",
+                        "type": "yaml",
+                    },
+                },
+            },
+            id="2",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+        _make_cloudevent(
+            data={
+                "op": "u",
+                "ts_ms": 10,
+                "seq": 2,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 10,
+                    },
+                    "before": {"name": "neymar", "type": "gif"},
+                    "after": {"name": "neymar", "type": "jif"},
+                },
+            },
+            id="3",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+    ]
+
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
+        operations=[DrasiOperation.i, "u"],
+    )
+    runner.subscribe(agent)
+
+    await _wait_for_completion()
+
+    assert wf_scheduler_method.call_count == 2
+
+    expected_events = [events[0], events[2]]
+    cloudevent_ids = [
+        _get_attr_from_wf_input_metadata(c.kwargs, "id")
+        for c in wf_scheduler_method.call_args_list
+    ]
+    assert cloudevent_ids == [e.get("id") for e in expected_events]
+
+    actual_tasks = [
+        _get_attr_from_wf_input(c.kwargs, "task")
+        for c in wf_scheduler_method.call_args_list
+    ]
+    expected_tasks = [f"{e.get('data', {}).get('seq')}" for e in expected_events]
+    assert actual_tasks == expected_tasks
+
+
+@pytest.mark.asyncio
+async def test_drasi_trigger_filters_by_change_model(setup_deps):
+    """Test that the Drasi pub/sub trigger validates the change data in events (and implicitly filters)."""
     query_id = "nucksquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1404,8 +1737,60 @@ async def test_drasi_trigger_validates_with_change_model(setup_deps):
 
 
 @pytest.mark.asyncio
+async def test_drasi_trigger_ignores_events_without_change_data(setup_deps, caplog):
+    """Test that the Drasi pub/sub trigger ignores events that do not contain change data."""
+    query_id = "phoquery"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
+    drasi_topic = "differenttopic"
+    events = [
+        _make_cloudevent(
+            data={
+                "op": "i",
+                "ts_ms": 0,
+                "seq": 1,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 0,
+                    },
+                },
+            },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+    ]
+
+    make_agent, make_runner, wf_scheduler_method = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(
+        pubsub_names=[agent_pubsub_name, drasi_pubsub_name], event_stream=events
+    )
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        runner.subscribe(agent)
+
+    await _wait_for_completion()
+
+    # Ensure that a human-readable warning is logged
+    assert "no change data" in caplog.text.lower()
+
+    assert wf_scheduler_method.call_count == 0
+
+
+@pytest.mark.asyncio
 async def test_drasi_trigger_ignores_malformed_events(setup_deps):
-    """Test that the Drasi extension ignores events that do not conform to the expected format."""
+    """Test that the Drasi pub/sub trigger ignores events that do not conform to the expected format."""
     query_id = "boringquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1456,7 +1841,10 @@ async def test_drasi_trigger_ignores_malformed_events(setup_deps):
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_when_pubsub_is_missing(setup_deps):
-    """Test that the Drasi extension fails when no pub/sub component is provided (as an argument or on the agent)."""
+    """
+    Test that the Drasi pub/sub trigger fails when no pub/sub component is provided
+    (as an argument or on the agent).
+    """
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     drasi_pubsub_name = "missingpubsub"
@@ -1496,13 +1884,13 @@ async def test_drasi_trigger_raises_when_pubsub_is_missing(setup_deps):
         task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
 
-    with pytest.raises(RuntimeError, match=".*no pub/sub"):
+    with _runner_raises_exception_with_cause(RuntimeError, match=".*no pub/sub"):
         runner.subscribe(agent)
 
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_when_pubsub_is_not_registered(setup_deps):
-    """Test that the Drasi extension fails when the given pub/sub component is not registered."""
+    """Test that the Drasi pub/sub trigger fails when the given pub/sub component is not registered."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1546,15 +1934,16 @@ async def test_drasi_trigger_raises_when_pubsub_is_not_registered(setup_deps):
     )
 
     # Ensure that the activation doesn't try to fall back to the agent's pub/sub component
-    with pytest.raises(
-        RuntimeError, match=f"component.*{drasi_pubsub_name}.*topic.*{drasi_topic}"
+    with _runner_raises_exception_with_cause(
+        PubSubNotAvailableError,
+        match=f"component.*{drasi_pubsub_name}.*topic.*{drasi_topic}",
     ):
         runner.subscribe(agent)
 
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps):
-    """Test that the Drasi extension fails when the agent pub/sub component is used and pub/sub topic matches the agent's pub/sub topic."""
+    """Test that the Drasi pub/sub trigger fails when the agent pub/sub component is used and pub/sub topic matches the agent's pub/sub topic."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1597,7 +1986,7 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps)
         task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
     )
 
-    with pytest.raises(
+    with _runner_raises_exception_with_cause(
         RuntimeError, match=f"{drasi_pubsub_name}.*{drasi_topic}.*matches"
     ):
         runner.subscribe(agent)
@@ -1605,7 +1994,7 @@ async def test_drasi_trigger_raises_when_pubsub_matches_agent_pubsub(setup_deps)
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_with_unsupported_operation(setup_deps):
-    """Test that the Drasi extension fails when the provided operation is not supported."""
+    """Test that the Drasi pub/sub trigger fails when the provided operation is not supported."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1647,13 +2036,64 @@ async def test_drasi_trigger_raises_with_unsupported_operation(setup_deps):
     )
 
     # Should fail when the agent is hosted so it doesn't try to process a valid but unsupported operation
-    with pytest.raises(RuntimeError, match=f"operation.*{operation}"):
+    with _runner_raises_exception_with_cause(
+        TypeError, match=".*unsupported operation type"
+    ):
         runner.subscribe(agent)
 
 
 @pytest.mark.asyncio
-async def test_drasi_trigger_raises_with_invalid_change_model(setup_deps):
-    """Test that the Drasi extension fails when the provided change model is invalid."""
+async def test_drasi_trigger_raises_with_partially_valid_operation_list(setup_deps):
+    """Test that the Drasi pub/sub trigger fails when the some of the provided operations are not supported."""
+    query_id = "testquery"
+    agent_pubsub_name = "testpubsub"
+    agent_topic = "testtopic"
+    drasi_pubsub_name = "differentpubsub"
+    drasi_topic = "differenttopic"
+    events = [
+        _make_cloudevent(
+            data={
+                "op": "x",
+                "ts_ms": 0,
+                "seq": 0,
+                "payload": {
+                    "source": {
+                        "queryId": query_id,
+                        "ts_ms": 0,
+                    },
+                    "kind": "not really",
+                },
+            },
+            id="1",
+            pubsubname=drasi_pubsub_name,
+            topic=drasi_topic,
+        ),
+    ]
+
+    make_agent, make_runner, _ = setup_deps
+    agent = make_agent(pubsub_name=agent_pubsub_name, topic=agent_topic)
+    runner = make_runner(pubsub_names=[agent_pubsub_name], event_stream=events)
+
+    operations = [DrasiOperation.u, "x", "i", 7]
+
+    drasi_trigger(
+        agent,
+        query_id=query_id,
+        pubsub=drasi_pubsub_name,
+        topic=drasi_topic,
+        task_mapper=lambda event, msg_ctx: TriggerAction(task=f"{event.seq}"),
+        operations=operations,
+    )
+
+    with _runner_raises_exception_with_cause(
+        TypeError, match=".*unsupported operation type"
+    ):
+        runner.subscribe(agent)
+
+
+@pytest.mark.asyncio
+async def test_drasi_trigger_raises_with_unsupported_change_model(setup_deps):
+    """Test that the Drasi pub/sub trigger fails when the provided change model is not supported."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1699,13 +2139,15 @@ async def test_drasi_trigger_raises_with_invalid_change_model(setup_deps):
         change_model=change_model,
     )
 
-    with pytest.raises(RuntimeError, match=f"model.*{change_model}"):
+    with _runner_raises_exception_with_cause(
+        TypeError, match=".*unsupported change model type"
+    ):
         runner.subscribe(agent)
 
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_with_async_task_mapper(setup_deps):
-    """Test that the Drasi extension fails when the provided task mapper is async."""
+    """Test that the Drasi pub/sub trigger fails when the provided task mapper is async."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1751,13 +2193,13 @@ async def test_drasi_trigger_raises_with_async_task_mapper(setup_deps):
         task_mapper=async_task_mapper,
     )
 
-    with pytest.raises(RuntimeError, match="mapper.*synchronous"):
+    with _runner_raises_exception_with_cause(TypeError, match="mapper.*synchronous"):
         runner.subscribe(agent)
 
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_with_non_callable_task_mapper(setup_deps):
-    """Test that the Drasi extension fails when the provided task mapper is not callable."""
+    """Test that the Drasi pub/sub trigger fails when the provided task mapper is not callable."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1802,14 +2244,14 @@ async def test_drasi_trigger_raises_with_non_callable_task_mapper(setup_deps):
         task_mapper=task_mapper,
     )
 
-    with pytest.raises(RuntimeError, match="mapper.*callable"):
+    with _runner_raises_exception_with_cause(TypeError, match="mapper.*callable"):
         runner.subscribe(agent)
 
 
 @pytest.mark.asyncio
 async def test_drasi_trigger_raises_with_async_callable_task_mapper(setup_deps):
     """
-    Test that the Drasi extension fails when the provided task mapper is a callable object
+    Test that the Drasi pub/sub trigger fails when the provided task mapper is a callable object
     with an `async def` `__call__` method.
     """
     query_id = "testquery"
@@ -1858,5 +2300,5 @@ async def test_drasi_trigger_raises_with_async_callable_task_mapper(setup_deps):
         task_mapper=AsyncCallableFilter(),
     )
 
-    with pytest.raises(RuntimeError, match="mapper.*synchronous"):
+    with _runner_raises_exception_with_cause(TypeError, match="mapper.*synchronous"):
         runner.subscribe(agent)

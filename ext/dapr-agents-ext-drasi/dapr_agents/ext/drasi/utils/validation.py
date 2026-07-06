@@ -16,8 +16,9 @@ from __future__ import annotations
 from dataclasses import is_dataclass
 from typing import Any, TypeVar
 
-from dapr_agents.ext.drasi.schemas import Op
 from dapr_agents.workflow.utils.core import is_supported_model
+
+from dapr_agents.ext.drasi.types import DrasiOperation
 
 T = TypeVar("T")
 
@@ -37,15 +38,22 @@ def normalize_to_list(value: T | list[T] | None) -> list[T]:
 def is_supported_operation(value: Any) -> bool:
     """Return `True` if the value is a supported Drasi operation, otherwise `False`."""
     try:
-        op = Op(value)
-        return op in {Op.i, Op.u, Op.d}
+        op = DrasiOperation(value)
+        return op in {DrasiOperation.i, DrasiOperation.u, DrasiOperation.d}
     except (ValueError, TypeError):
         return False
 
 
+def maybe_coerce_operation(value: Any) -> DrasiOperation | Any:
+    """Normalize the value to a supported Drasi operation if possible, otherwise return the value unchanged."""
+    if not is_supported_operation(value):
+        return value
+    return DrasiOperation(value)
+
+
 def validate_model(model: type[Any], data: dict) -> Any:
     """
-    Validate/coerce data into a supported model instance (dict, dataclass, Pydantic v1/v2).
+    Validate/coerce `data` to a supported model instance (dict, dataclass, Pydantic v1/v2).
 
     Mirrors `dapr_agents.workflow.utils.routers.validate_message_model` but does not log exceptions
     as validation failures are expected.

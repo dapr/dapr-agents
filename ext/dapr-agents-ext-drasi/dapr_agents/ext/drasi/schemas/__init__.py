@@ -11,26 +11,13 @@
 # limitations under the License.
 #
 
-from .unpacked.ChangeNotification import ChangeNotification
-from .unpacked.ChangePayload import ChangePayload
-from .unpacked.ChangeSource import ChangeSource
-from .unpacked.ControlPayload import ControlPayload
-from .unpacked.ControlSignalNotification import ControlSignalNotification
-from .unpacked.Notification import Notification
-from .unpacked.Op import Op
-from .unpacked.ReloadHeader import ReloadHeader
-from .unpacked.ReloadItem import ReloadItem
-from .unpacked.Versions import Versions
+from .unpacked.ChangeNotification import (
+    ChangeNotification,
+    Op,
+)
 
+# Only export models that are used by the extension
 __all__ = [
     "ChangeNotification",
-    "ChangePayload",
-    "ChangeSource",
-    "ControlPayload",
-    "ControlSignalNotification",
-    "Notification",
     "Op",
-    "ReloadHeader",
-    "ReloadItem",
-    "Versions",
 ]
