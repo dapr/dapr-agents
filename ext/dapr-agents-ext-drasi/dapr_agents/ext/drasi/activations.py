@@ -76,7 +76,8 @@ def _passes_filter(
     Return `True` if the event passes the filter, `False` otherwise.
     """
     logger.debug(
-        f"[drasi-trigger]: Applying filter '{getattr(filter_fn, '__name__', repr(filter_fn))}' for handler '{ctx.handler_name}'"
+        f"[drasi-trigger]: Calling filter '{getattr(filter_fn, '__name__', repr(filter_fn))}' "
+        f"for handler '{ctx.handler_name}'"
     )
     return bool(filter_fn(event))
 
