@@ -20,9 +20,9 @@ This example demonstrates how to build business event-driven agent workflows wit
 Many systems need to consume data from other systems to be useful. Traditional polling may either result in unnecessary load on source systems, or stale data/unacceptable delays depending on the polling frequency. Custom change data capture (CDC) pipelines can power near real-time, change-driven systems at scale, but can be expensive (if managed) or difficult to set up and maintain (if self-hosted).
 
 For many use cases, [Drasi](https://drasi.io/) is a viable alternative. It has a simple architecture centered around detecting and reacting to changes, which eliminates many of the tradeoffs mentioned above:
-- Sources to ingest data from existing systems
-- Continuous Queries to track high-level changes ("business conditions") that downstream consumers are interested in
-- Reactions to push events to downstream consumers
+- Sources to ingest data from existing systems/"sources"
+- Continuous Queries that track user-defined, high-level "business" conditions, and emit events when those conditions are satisfied
+- Reactions to push events to downstream consumers/"sinks"
 
 ## How it works (with this example)
 
