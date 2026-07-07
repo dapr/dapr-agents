@@ -292,7 +292,7 @@ def drasi_trigger(
     dead_letter_topic: str | None = None,
     task_mapper: Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
     | None = None,
-    operations: str | DrasiOperation | list[str | DrasiOperation] | None = None,
+    operations: DrasiOperation | list[DrasiOperation] | None = None,
     change_model: type[Any] | None = None,
 ) -> None:
     """
@@ -314,11 +314,12 @@ def drasi_trigger(
         task_mapper: Optional callable `(DrasiChangeEvent, MessageContext) -> TriggerAction`
             to map Drasi change events to agent task messages.
             If `None`, the task message will instruct the agent to return the serialized Drasi event as-is.
-        operations: Optional Drasi operation(s) to filter change events by:
+        operations: Optional Drasi operation(s) to filter change events by.
+            Accepts `DrasiOperation` (canonical type) or equivalent string literals:
 
-            * `"i"` - Insert
-            * `"u"` - Update
-            * `"d"` - Delete
+            - `DrasiOperation.i` / `"i"` - Insert
+            - `DrasiOperation.u` / `"u"` - Update
+            - `DrasiOperation.d` / `"d"` - Delete
 
             Events that are filtered out will not trigger the agent. Defaults to `None` (all operations are allowed).
         change_model: Optional model to use to validate the change data in Drasi change events.

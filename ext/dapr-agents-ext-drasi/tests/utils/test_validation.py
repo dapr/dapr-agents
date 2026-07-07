@@ -74,8 +74,15 @@ def test_normalize_to_list_list_returns_copied_list():
 # ---------------------------------------------------------------------------
 
 
-def test_is_supported_operation_accepts_valid_values():
+def test_is_supported_operation_accepts_valid_enum_values():
     """Test that supported Drasi operations return `True`."""
+    assert is_supported_operation(DrasiOperation.i)
+    assert is_supported_operation(DrasiOperation.u)
+    assert is_supported_operation(DrasiOperation.d)
+
+
+def test_is_supported_operation_accepts_valid_string_literal_values():
+    """Test that string literal equivalents of supported Drasi operations return `True`."""
     assert is_supported_operation("i")
     assert is_supported_operation("u")
     assert is_supported_operation("d")
@@ -97,8 +104,15 @@ def test_is_supported_operation_rejects_invalid_values():
 # ---------------------------------------------------------------------------
 
 
-def test_maybe_coerce_operation_coerces_valid_values():
+def test_maybe_coerce_operation_coerces_valid_enum_values():
     """Test that supported Drasi operations are normalized."""
+    assert maybe_coerce_operation(DrasiOperation.i) == DrasiOperation.i
+    assert maybe_coerce_operation(DrasiOperation.u) == DrasiOperation.u
+    assert maybe_coerce_operation(DrasiOperation.d) == DrasiOperation.d
+
+
+def test_maybe_coerce_operation_coerces_valid_string_literal_values():
+    """Test that string literal equivalents of supported Drasi operations are normalized."""
     assert maybe_coerce_operation("i") == DrasiOperation.i
     assert maybe_coerce_operation("u") == DrasiOperation.u
     assert maybe_coerce_operation("d") == DrasiOperation.d
