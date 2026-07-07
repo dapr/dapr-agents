@@ -45,6 +45,15 @@ class MistralClientConfig(BaseModel):
     )
 
 
+class LiteLLMClientConfig(BaseModel):
+    api_key: Optional[str] = Field(
+        None, description="API key for LiteLLM proxy or the underlying provider."
+    )
+    api_base: Optional[str] = Field(
+        None, description="Base URL for a LiteLLM proxy or compatible endpoint."
+    )
+
+
 class AnthropicClientConfig(BaseModel):
     base_url: Optional[str] = Field(
         None, description="Base URL override for the Anthropic API."
