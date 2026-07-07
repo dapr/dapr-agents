@@ -11,15 +11,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Drasi pub/sub-triggered agent
+# Drasi Change-Driven Agents on Kubernetes
 
-This example demonstrates how to build business event-driven agent workflows with Drasi and Dapr Agents on Kubernetes. With only a handful of lines of code, users can subscribe agents to Drasi queries and allow agents to take action when complex conditions in data sources (databases, streaming platforms) are satisfied.
+This example demonstrates how to build change-driven agents with Drasi and Dapr Agents on Kubernetes. With only a handful of lines of code, users can subscribe agents to Drasi queries and allow agents to take action when complex business conditions in data sources (databases, streaming platforms) are satisfied.
 
 ## Why use Drasi?
 
 Many systems need to consume data from other systems to be useful. Traditional polling may either result in unnecessary load on source systems, or stale data/unacceptable delays depending on the polling frequency. Custom change data capture (CDC) pipelines can power near real-time, change-driven systems at scale, but can be expensive (if managed) or difficult to set up and maintain (if self-hosted).
 
-For many use cases, [Drasi](https://drasi.io/) is a viable alternative. It has a simple architecture centered around detecting and reacting to changes, which eliminates many of the tradeoffs mentioned above:
+For many use cases, [Drasi](https://drasi.io/) is a viable alternative. Drasi is a **CNCF Sandbox** project attempting to eliminate many of the tradeoffs mentioned above with a simple architecture centered around detecting and reacting to changes:
 - Sources to ingest data from existing systems/"sources"
 - Continuous Queries that track user-defined, high-level "business" conditions, and emit events when those conditions are satisfied
 - Reactions to push events to downstream consumers/"sinks"
@@ -39,6 +39,7 @@ Data lives in a Postgres instance — when a product's stock level dips below it
 - [Drasi CLI](https://drasi.io/drasi-kubernetes/reference/command-line-interface/#get-the-drasi-cli)
 - [uv](https://docs.astral.sh/uv/) package manager
 - OpenAI API key (Azure and direct OpenAI are supported)
+- A Bash terminal
 
 ## Setup
 
@@ -151,19 +152,19 @@ If you're using VS Code, you can manage Drasi resources interactively via the [D
 
 For a guide on how to use the extension, see the [Drasi documentation](https://drasi.io/drasi-kubernetes/reference/vscode-extension/).
 
-## View workflows
+## View agent workflows
 
 Once the Drasi resources are up and running, open http://localhost:8080 once again to view the Diagrid Dashboard.
 
-At this point, you should be able to see several completed and/or in-flight workflow executions — the seed data in `products/values.yaml` contains several products that satisfy the "low" and "critical" stock conditions tracked by the Drasi queries. This causes Drasi to emit stock events, which are eventually consumed by the inventory agent.
+At this point, you should be able to see several completed and/or in-flight agent workflow executions — the seed data in `products/values.yaml` contains several products that satisfy the "low" and "critical" stock conditions tracked by the Drasi queries. This causes Drasi to emit stock events, which are eventually consumed by the inventory agent.
 
 This demonstrates the drop-in capabilities of Drasi — it can work with existing data sources, while downstream services can be developed independently.
 
 ## Experiment
 
-### Trigger more workflows
+### Trigger more agent workflows
 
-Insert products directly into the `products` table and notice how workflow executions only occur for products that satisfy the "low" and "critical" stock conditions.
+Insert products directly into the `products` table and notice how agent workflow executions only occur for products that satisfy the "low" and "critical" stock conditions.
 
 You can use the following parameters to connect to the Postgres instance:
 - Host: `localhost`

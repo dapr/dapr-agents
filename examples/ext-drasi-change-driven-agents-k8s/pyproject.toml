@@ -11,9 +11,13 @@
 # limitations under the License.
 #
 
-services:
-  inventory-agent:
-    image: localhost:5001/inventory-agent:latest
-    build:
-      context: ../../
-      dockerfile: ./examples/ext-drasi-pubsub-trigger-k8s/inventory-agent/app/Dockerfile
+[project]
+name = "ext-drasi-change-driven-agents-k8s"
+version = "0.1.0"
+requires-python = ">=3.11, <3.14"
+dependencies = [
+    "dapr-agents[drasi]",
+]
+
+[tool.uv.sources]
+dapr-agents = { workspace = true }

@@ -50,7 +50,7 @@ members = [
     "11-expert-agent-tavily",
     "dapr-agents",
     "dapr-agents-ext-drasi",
-    "ext-drasi-pubsub-trigger-k8s",
+    "ext-drasi-change-driven-agents-k8s",
     "quickstarts",
 ]
 
@@ -2027,9 +2027,9 @@ wheels = [
 ]
 
 [[package]]
-name = "ext-drasi-pubsub-trigger-k8s"
+name = "ext-drasi-change-driven-agents-k8s"
 version = "0.1.0"
-source = { virtual = "examples/ext-drasi-pubsub-trigger-k8s" }
+source = { virtual = "examples/ext-drasi-change-driven-agents-k8s" }
 dependencies = [
     { name = "dapr-agents", extra = ["drasi"] },
 ]

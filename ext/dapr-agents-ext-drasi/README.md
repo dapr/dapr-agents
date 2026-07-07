@@ -23,7 +23,7 @@ limitations under the License.
 
 ### Prerequisites
 
-This extension is installed as an optional dependency on the core `dapr-agents` package; see the `Getting Started` section in the [project README](../../README.md) for a list of prerequisites.
+This extension is installed as an optional dependency on the core `dapr-agents` package; see the `Getting Started` section in the [root README](../../README.md) for a list of prerequisites.
 
 ### Installation
 
@@ -63,7 +63,7 @@ finally:
 ```
 
 ### Examples
-- [`ext-drasi-pubsub-trigger-k8s`](../../examples/ext-drasi-pubsub-trigger-k8s/README.md) — demonstrates how to subscribe an agent to Drasi queries in a Kubernetes environment.
+- [Drasi Change-Driven Agents on Kubernetes](../../examples/ext-drasi-change-driven-agents-k8s/README.md) — demonstrates how to subscribe an agent to Drasi queries in a Kubernetes environment.
 
 ## Development
 

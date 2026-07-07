@@ -189,7 +189,7 @@ members = [
     "examples/09-agents-as-tools",
     "examples/10-mcpserver",
     "examples/11-expert-agent-tavily",
-    "examples/ext-drasi-pubsub-trigger-k8s",
+    "examples/ext-drasi-change-driven-agents-k8s",
     "ext/*",
 ]
 
