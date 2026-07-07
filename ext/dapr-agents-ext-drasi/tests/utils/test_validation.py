@@ -75,25 +75,29 @@ def test_normalize_to_list_list_returns_copied_list():
 # ---------------------------------------------------------------------------
 
 
-def test_is_supported_operation_accepts_valid_enum_values():
+def test_is_supported_operation_accepts_supported_enum_operations():
     """Test that supported Drasi operations return `True`."""
     assert is_supported_operation(DrasiOperation.i)
     assert is_supported_operation(DrasiOperation.u)
     assert is_supported_operation(DrasiOperation.d)
 
 
-def test_is_supported_operation_accepts_valid_string_literal_values():
+def test_is_supported_operation_accepts_supported_string_literal_operations():
     """Test that string literal equivalents of supported Drasi operations return `True`."""
     assert is_supported_operation("i")
     assert is_supported_operation("u")
     assert is_supported_operation("d")
 
 
-def test_is_supported_operation_rejects_invalid_values():
-    """Test that unsupported Drasi operations and invalid values return `False`."""
+def test_is_supported_operation_rejects_unsupported_operations():
+    """Test that unsupported Drasi operations return `False`."""
     assert not is_supported_operation("x")
     assert not is_supported_operation("h")
     assert not is_supported_operation("r")
+
+
+def test_is_supported_operation_rejects_invalid_values():
+    """Test that invalid values return `False`."""
     assert not is_supported_operation("invalid")
     assert not is_supported_operation(456)
     assert not is_supported_operation(False)
@@ -105,25 +109,29 @@ def test_is_supported_operation_rejects_invalid_values():
 # ---------------------------------------------------------------------------
 
 
-def test_maybe_coerce_operation_coerces_valid_enum_values():
+def test_maybe_coerce_operation_coerces_supported_enum_operations():
     """Test that supported Drasi operations are normalized."""
     assert maybe_coerce_operation(DrasiOperation.i) == DrasiOperation.i
     assert maybe_coerce_operation(DrasiOperation.u) == DrasiOperation.u
     assert maybe_coerce_operation(DrasiOperation.d) == DrasiOperation.d
 
 
-def test_maybe_coerce_operation_coerces_valid_string_literal_values():
+def test_maybe_coerce_operation_coerces_supported_string_literal_operations():
     """Test that string literal equivalents of supported Drasi operations are normalized."""
     assert maybe_coerce_operation("i") == DrasiOperation.i
     assert maybe_coerce_operation("u") == DrasiOperation.u
     assert maybe_coerce_operation("d") == DrasiOperation.d
 
 
-def test_maybe_coerce_operation_returns_invalid_values_unchanged():
-    """Test that unsupported Drasi operations and invalid values are returned unchanged."""
+def test_maybe_coerce_operation_returns_unsupported_operations_unchanged():
+    """Test that unsupported Drasi operations are returned unchanged."""
     assert maybe_coerce_operation("x") == "x"
     assert maybe_coerce_operation("h") == "h"
     assert maybe_coerce_operation("r") == "r"
+
+
+def test_maybe_coerce_operation_returns_invalid_values_unchanged():
+    """Test that invalid values are returned unchanged."""
     assert maybe_coerce_operation("invalid") == "invalid"
     assert maybe_coerce_operation(456) == 456
     assert maybe_coerce_operation(False) is False
