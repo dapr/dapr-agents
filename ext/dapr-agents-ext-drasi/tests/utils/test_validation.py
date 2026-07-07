@@ -65,6 +65,7 @@ def test_normalize_to_list_list_returns_copied_list():
     """Test that a list is normalized to a copy of the list."""
     original_list = [{"a": "b"}, 100.0, True]
     result = normalize_to_list(original_list)
+
     assert result == original_list
     assert result is not original_list
 

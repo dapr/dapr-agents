@@ -1099,7 +1099,7 @@ async def test_drasi_trigger_filters_by_query_id(setup_deps):
 
 
 @pytest.mark.asyncio
-async def test_drasi_trigger_filters_by_operation_enum(setup_deps):
+async def test_drasi_trigger_filters_by_enum_operation(setup_deps):
     """Test that the Drasi pub/sub trigger filters for events that match a single Drasi operation enum."""
     query_id = "calculatorquery"
     agent_pubsub_name = "testpubsub"
@@ -1183,8 +1183,8 @@ async def test_drasi_trigger_filters_by_operation_enum(setup_deps):
 
 
 @pytest.mark.asyncio
-async def test_drasi_trigger_filters_by_operation_literal(setup_deps):
-    """Test that the Drasi pub/sub trigger filters for events that match a single Drasi operation literal."""
+async def test_drasi_trigger_filters_by_string_literal_operation(setup_deps):
+    """Test that the Drasi pub/sub trigger filters for events that match a single Drasi operation string literal."""
     query_id = "calculatorquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1267,7 +1267,7 @@ async def test_drasi_trigger_filters_by_operation_literal(setup_deps):
 
 
 @pytest.mark.asyncio
-async def test_drasi_trigger_filters_by_operation_enums(setup_deps):
+async def test_drasi_trigger_filters_by_enum_operations(setup_deps):
     """Test that the Drasi pub/sub trigger filters for events that match a list of Drasi operation enums."""
     query_id = "babygoatquery"
     agent_pubsub_name = "testpubsub"
@@ -1373,8 +1373,8 @@ async def test_drasi_trigger_filters_by_operation_enums(setup_deps):
 
 
 @pytest.mark.asyncio
-async def test_drasi_trigger_filters_by_operation_literals(setup_deps):
-    """Test that the Drasi pub/sub trigger filters for events that match a list of Drasi operation literals."""
+async def test_drasi_trigger_filters_by_string_literal_operations(setup_deps):
+    """Test that the Drasi pub/sub trigger filters for events that match a list of Drasi operation string literals."""
     query_id = "goatquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
@@ -1482,7 +1482,7 @@ async def test_drasi_trigger_filters_by_operation_literals(setup_deps):
 async def test_drasi_trigger_filters_by_mixed_operations(setup_deps):
     """
     Test that the Drasi pub/sub trigger filters for events that
-    match a list of Drasi operations (enums and literals).
+    match a list of Drasi operations (enums and string literals).
     """
     query_id = "leaderquery"
     agent_pubsub_name = "testpubsub"
@@ -2043,8 +2043,8 @@ async def test_drasi_trigger_raises_with_unsupported_operation(setup_deps):
 
 
 @pytest.mark.asyncio
-async def test_drasi_trigger_raises_with_partially_valid_operation_list(setup_deps):
-    """Test that the Drasi pub/sub trigger fails when the some of the provided operations are not supported."""
+async def test_drasi_trigger_raises_with_some_supported_operations(setup_deps):
+    """Test that the Drasi pub/sub trigger fails when some of the provided operations are not supported."""
     query_id = "testquery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
