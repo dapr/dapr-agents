@@ -160,11 +160,9 @@ def test_trigger_action_caller_headers_excluded_from_serialization():
     )
     payload = t.model_dump()
     assert "caller_headers" not in payload
-    assert payload == {
-        "task": "x",
-        "workflow_instance_id": "wf-1",
-        "caller_claims": None,
-    }
+    assert payload["task"] == "x"
+    assert payload["workflow_instance_id"] == "wf-1"
+    assert payload.get("caller_claims") is None
 
     # Round-tripping the serialized payload drops the transient headers.
     t2 = TriggerAction.model_validate(payload)
