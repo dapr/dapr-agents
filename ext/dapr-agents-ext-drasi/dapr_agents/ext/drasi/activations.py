@@ -296,7 +296,7 @@ def drasi_trigger(
     change_model: type[Any] | None = None,
 ) -> None:
     """
-    Registers a Drasi query subscription for a target agent,
+    Register a Drasi query subscription for a target agent,
     allowing the agent to be triggered by Drasi change events.
 
     If the agent's pub/sub component is used and a topic is provided,
@@ -316,7 +316,7 @@ def drasi_trigger(
             to map Drasi change events to agent task messages.
             If `None`, the task message will instruct the agent to return the serialized Drasi event as-is.
         operations: Optional Drasi operation(s) to filter change events by.
-            Accepts `DrasiOperation` (canonical type) or equivalent string literals:
+            Accepts `DrasiOperation` or equivalent string literals:
 
             - `DrasiOperation.i` / `"i"` - Insert
             - `DrasiOperation.u` / `"u"` - Update
