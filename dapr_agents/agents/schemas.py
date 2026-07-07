@@ -228,8 +228,8 @@ class TriggerAction(BaseModel):
     caller_claims: Optional[CallerClaims] = Field(
         default=None,
         description=(
-            "Verified user identity populated by the OAuth plugin after "
-            "/auth/verify succeeds. Unlike `caller_headers` (which is scrubbed of "
+            "Verified user identity populated by plugins after the inbound "
+            "credential is verified. Unlike `caller_headers` (which is scrubbed of "
             "the raw token and excluded from serialization), `caller_claims` IS "
             "serialized into workflow input and signed workflow history. "
             "PropagateLineage() carries this to child workflows so sub-agents "

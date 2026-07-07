@@ -239,8 +239,8 @@ def test_caller_claims_in_signed_workflow_history():
 def test_caller_claims_no_raw_token_field():
     # Sanity check: CallerClaims doesn't have a field that could carry a raw token.
     fields = CallerClaims.model_fields
-    forbidden = {"token", "jwt", "raw_token", "authorization", "bearer"}
-    for f in fields:
-        assert f.lower() not in forbidden, (
-            f"CallerClaims must not have a raw-token field: {f}"
+    forbidden = {"token", "jwt", "authorization", "bearer"}
+    for name in fields:
+        assert not any(term in name.lower() for term in forbidden), (
+            f"CallerClaims must not have a raw-token field: {name}"
         )
