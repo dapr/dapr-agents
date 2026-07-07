@@ -36,8 +36,8 @@ def make_task(event: DrasiChangeEvent, ctx: Any) -> TriggerAction:
     return TriggerAction(
         task=(
             f"You are an inventory agent that creates purchase orders, calculating the order quantity dynamically.\n"
-            f"Create an inventory order for this '{event.payload.source.queryId}' event.\n"
-            f"Use the following data: {event.payload.after}.\n\n"
+            f"Create a purchase order for this '{event.payload.source.queryId}' event.\n"
+            f"Use the following data: {event.payload.after.model_dump()}.\n\n"
             "Respond with exactly the following format, and nothing else:\n\n"
             "Product ID: <productId>\n"
             "Product Name: <productName>\n"
@@ -47,7 +47,7 @@ def make_task(event: DrasiChangeEvent, ctx: Any) -> TriggerAction:
             "- Output exactly these 4 lines, in this exact order.\n"
             "- Do not add, remove, rename, or reorder any fields.\n"
             "- Do not include any explanation, preamble, or extra text.\n"
-            "- Do not wrap the output in code blocks or markdown formatting."
+            "- Do not wrap the output in code blocks or markdown formatting.\n"
             "- Replace each <placeholder> with the actual value only — do not include the angle brackets."
         )
     )

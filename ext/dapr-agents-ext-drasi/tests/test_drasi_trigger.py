@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-"""Test suite for the Drasi pub/sub trigger extension."""
+"""Test suite for the Drasi pub/sub trigger."""
 
 from __future__ import annotations
 

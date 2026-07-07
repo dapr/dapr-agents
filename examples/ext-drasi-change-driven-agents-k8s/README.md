@@ -124,11 +124,11 @@ drasi wait -f ./drasi/sources/products.yaml -t 120
 Bring up the queries and wait for them to be ready:
 
 ```bash
-drasi apply -f ./drasi/queries/critical-stock-event-query.yaml
-drasi wait -f ./drasi/queries/critical-stock-event-query.yaml -t 120
+drasi apply -f ./drasi/queries/critical-stock-event.yaml
+drasi wait -f ./drasi/queries/critical-stock-event.yaml -t 120
 
-drasi apply -f ./drasi/queries/low-stock-event-query.yaml
-drasi wait -f ./drasi/queries/low-stock-event-query.yaml -t 120
+drasi apply -f ./drasi/queries/low-stock-event.yaml
+drasi wait -f ./drasi/queries/low-stock-event.yaml -t 120
 ```
 
 Bring up the reactions and wait for them to be ready:
@@ -185,8 +185,8 @@ drasi delete -f ./drasi/queries/low-stock-event.yaml
 
 Then, bring up the new query and wait for it to be ready:
 ```bash
-drasi apply -f ./drasi/queries/low-stock-event-query.yaml
-drasi wait -f ./drasi/queries/low-stock-event-query.yaml -t 120
+drasi apply -f ./drasi/queries/low-stock-event.yaml
+drasi wait -f ./drasi/queries/low-stock-event.yaml -t 120
 ```
 
 With the Drasi VS Code extension, simply click the trash icon next to the query you want to delete, then apply the new query.

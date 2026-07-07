@@ -137,7 +137,7 @@ Documentation = "https://github.com/dapr/docs"
 Source = "https://github.com/dapr/python-sdk"
 
 [tool.setuptools.packages.find]
-include = ["dapr_agents*"]
+include = ["dapr_agents"]
 exclude = ["tests"]
 
 [tool.setuptools.package-data]
