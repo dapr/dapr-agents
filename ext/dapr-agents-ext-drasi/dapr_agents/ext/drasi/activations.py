@@ -296,15 +296,16 @@ def drasi_trigger(
     change_model: type[Any] | None = None,
 ) -> None:
     """
-    Wires pub/sub routes so that the target agent's workflow can be triggered by Drasi change events.
+    Registers a Drasi query subscription for a target agent,
+    allowing the agent to be triggered by Drasi change events.
 
     If the agent's pub/sub component is used and a topic is provided,
     the topic **must** be different from the agent's topic,
     otherwise the activation will fail to prevent indeterministic behavior.
 
     Args:
-        agent: The agent to target.
-        query_id: The Drasi query ID whose change events should trigger the agent.
+        agent: The target agent.
+        query_id: The Drasi query ID to subscribe to for change events.
         pubsub: Optional name of the Dapr pub/sub component to use for publishing and subscriptions.
             If `None`, the agent's pub/sub component is used.
         topic: Optional topic to subscribe to.
