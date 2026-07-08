@@ -1484,7 +1484,7 @@ async def test_drasi_trigger_filters_by_mixed_operations(setup_deps):
     Test that the Drasi pub/sub trigger filters for events that
     match a list of Drasi operations (enums and string literals).
     """
-    query_id = "leaderquery"
+    query_id = "filequery"
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_pubsub_name = "differentpubsub"
