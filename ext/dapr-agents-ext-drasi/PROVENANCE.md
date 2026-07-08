@@ -18,5 +18,5 @@ The generated `output-unpacked/_generated/@typespec/json-schema/*.yaml` JSON Sch
 
 ## How the Python models are generated
 ```bash
-./scripts/generate-drasi-models.sh
+./scripts/regen-drasi-models.sh
 ```

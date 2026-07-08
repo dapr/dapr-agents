@@ -27,7 +27,7 @@ ext/dapr-agents-ext-drasi/
 ├── LICENSE                                 # Apache 2.0
 ├── PROVENANCE.md                           # Provenance / generated-artifact notes
 ├── scripts/
-│   └── generate-drasi-models.sh            # Regenerates Drasi schema models
+│   └── regen-drasi-models.sh               # Regenerates Drasi schema models
 ├── dapr_agents/
 │   └── ext/
 │       └── drasi/                          # PEP 420 namespace package under dapr_agents.ext
