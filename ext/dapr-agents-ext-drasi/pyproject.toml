@@ -55,6 +55,7 @@ Documentation = "https://github.com/dapr/docs"
 Source = "https://github.com/dapr/dapr-agents"
 
 [tool.setuptools.packages.find]
+include = ["dapr_agents.ext.drasi", "dapr_agents.ext.drasi.*"]
 exclude = ["tests"]
 
 [tool.setuptools.package-data]

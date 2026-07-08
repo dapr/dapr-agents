@@ -11,6 +11,8 @@
 # limitations under the License.
 #
 
+from importlib.metadata import version, PackageNotFoundError
+
 from .activations import drasi_trigger
 from .types import DrasiChangeEvent, DrasiOperation
 
@@ -19,3 +21,9 @@ __all__ = [
     "DrasiChangeEvent",
     "DrasiOperation",
 ]
+
+try:
+    __version__ = version("dapr-agents-ext-drasi")
+except PackageNotFoundError:
+    # This should only happen during development
+    __version__ = "0.0.0.dev0"
