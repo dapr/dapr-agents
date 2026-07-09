@@ -20,9 +20,9 @@ This example demonstrates how to build change-driven agents with Drasi and Dapr 
 Many systems need to consume data from other systems to be useful. Traditional polling may either result in unnecessary load on source systems, or stale data/unacceptable delays depending on the polling frequency. Custom change data capture (CDC) pipelines can power near real-time, change-driven systems at scale, but can be expensive (if managed) or difficult to set up and maintain (if self-hosted).
 
 For many use cases, [Drasi](https://drasi.io/) is a viable alternative. Drasi is a **CNCF Sandbox** project attempting to eliminate many of the tradeoffs mentioned above with a simple architecture centered around detecting and reacting to changes:
-- Sources to ingest data from existing systems/"sources"
-- Continuous Queries that track user-defined, high-level "business" conditions, and emit events when those conditions are satisfied
-- Reactions to push events to downstream consumers/"sinks"
+- **Sources** to ingest data from existing systems (similar to *sources* in event processing terminology)
+- **Continuous** Queries that evaluate incoming data from different sources against user-defined, high-level "business conditions", and emit events when those conditions are satisfied
+- **Reactions** to push events to downstream consumers (similar to *sinks* in event processing terminology)
 
 ## How it works (with this example)
 
@@ -100,9 +100,9 @@ Then, run the following setup script:
 ```
 
 This creates a `k3d`-managed cluster, installs Dapr and Drasi control plane services, and spins up several apps:
-  - A Postgres instance with a `products` table and seed product data
-  - An inventory agent configured to consume "low" and "critical" stock events from Drasi
-  - A Diagrid Dashboard instance to observe agent workflow executions
+  - **A Postgres instance** with a `products` table and seed product data
+  - **An inventory agent** configured to consume "low" and "critical" stock events from Drasi
+  - **A Diagrid Dashboard instance** to observe agent workflow executions
 
 Once the script completes, the Postgres instance and workflow dashboard should be accessible from the host machine on ports `5432` and `8080`, respectively.
 
