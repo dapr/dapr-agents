@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError, version
 
 from .activations import drasi_trigger
 from .types import DrasiChangeEvent, DrasiOperation
