@@ -386,7 +386,7 @@ def drasi_trigger(
 
         if ctx.app is not None:
             logger.info(
-                "[drasi-trigger]: HTTP routes are not supported by this extension; only pub/sub routes will be wired."
+                "[drasi-trigger]: HTTP routes are not supported by this activation; only pub/sub routes will be wired."
             )
 
         config = _resolve_config(ctx)
