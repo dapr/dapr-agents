@@ -21,12 +21,13 @@ is a one-line change in one place.
 from __future__ import annotations
 
 #: Providers with first-class streaming chunk processing (real token deltas).
-PROVIDERS_WITH_STREAMING = ("openai", "nvidia")
+#: ``litellm`` is OpenAI-compatible and routes through ``process_openai_stream``.
+PROVIDERS_WITH_STREAMING = ("openai", "nvidia", "litellm")
 
 #: OpenAI-compatible providers that honor ``stream_options={"include_usage": True}``
 #: to report token usage on the terminal streaming chunk. Harmless for providers
 #: that ignore the flag; only set for those we know accept it.
-PROVIDERS_WITH_STREAM_OPTIONS = ("openai", "nvidia")
+PROVIDERS_WITH_STREAM_OPTIONS = ("openai", "nvidia", "litellm")
 
 __all__ = [
     "PROVIDERS_WITH_STREAMING",

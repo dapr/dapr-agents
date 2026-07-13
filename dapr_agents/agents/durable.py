@@ -3970,6 +3970,7 @@ class DurableAgent(AgentBase):
         approval_request_id: str,
         approved: bool,
         reason: Optional[str] = None,
+        approver_token: Optional[str] = None,
     ) -> None:
         """
         Send a human approval decision back to a workflow that is waiting for it.
@@ -3983,6 +3984,11 @@ class DurableAgent(AgentBase):
             approval_request_id: Unique request ID from the ApprovalRequiredEvent.
             approved: True to allow the tool to run, False to block it.
             reason: Optional human-provided explanation for the decision.
+            approver_token: Optional raw JWT from the approving user, which may be
+                required by downstream HITL plugins when the originating approval
+                declared approver scopes or subjects. Passed through opaquely — the
+                plugin verifies it before honoring approved=True. Treated as
+                sensitive and never logged here.
 
         Raises:
             Exception: If the Dapr workflow client cannot deliver the event.
@@ -3992,6 +3998,7 @@ class DurableAgent(AgentBase):
             approval_request_id=approval_request_id,
             approved=approved,
             reason=reason,
+            approver_token=approver_token,
         )
 
         wf_client = self._wf_client
