@@ -81,19 +81,7 @@ repos:
       - id: pytest
         name: Run unit tests
         entry: uv run --group test pytest
-        args: [tests, -m, "not integration", --tb=short, -q]
-        language: system
-        pass_filenames: false
-        stages: [pre-push]
-  
-  # Extension unit tests — also kept on push.
-  # TODO: combine this with the above step once non-absolute imports are removed from core tests
-  - repo: local
-    hooks:
-      - id: pytest
-        name: Run extension unit tests
-        entry: uv run --group test pytest
-        args: [ext, -m, "not integration", --tb=short, -q]
+        args: [tests, ext, -m, "not integration", --tb=short, -q]
         language: system
         pass_filenames: false
         stages: [pre-push]

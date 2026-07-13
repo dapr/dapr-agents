@@ -105,8 +105,4 @@ jobs:
         uv run mypy --config-file mypy.ini
     - name: Run tests
       run: |
-        uv run pytest tests -m "not integration"
-    # TODO: combine this with the above step once non-absolute imports are removed from core tests
-    - name: Run extension tests
-      run: |
-        uv run pytest ext -m "not integration"
+        uv run pytest tests ext -m "not integration"
