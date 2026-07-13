@@ -27,9 +27,8 @@ from dapr_agents.ext.drasi import DrasiChangeEvent, drasi_trigger
 from agent import make_agent
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-AGENT_PUBSUB_COMPONENT = os.getenv("AGENT_PUBSUB_COMPONENT", "agent-pubsub")
+logger = logging.getLogger(__name__)
 
 
 def make_task(event: DrasiChangeEvent, ctx: Any) -> TriggerAction:
@@ -37,7 +36,7 @@ def make_task(event: DrasiChangeEvent, ctx: Any) -> TriggerAction:
         task=(
             f"You are an inventory agent that creates purchase orders, calculating the order quantity dynamically.\n"
             f"Create a purchase order for this '{event.payload.source.queryId}' event.\n"
-            f"Use the following data: {event.payload.after.model_dump()}.\n\n"
+            f"Use the following data: {event.payload.after.model_dump_json()}.\n\n"
             "Respond with exactly the following format, and nothing else:\n\n"
             "Product ID: <productId>\n"
             "Product Name: <productName>\n"
@@ -60,14 +59,12 @@ async def main() -> None:
     drasi_trigger(
         agent,
         query_id="critical-stock-event-query",
-        pubsub=AGENT_PUBSUB_COMPONENT,
         task_mapper=make_task,
         operations="i",
     )
     drasi_trigger(
         agent,
         query_id="low-stock-event-query",
-        pubsub=AGENT_PUBSUB_COMPONENT,
         task_mapper=make_task,
         operations="i",
     )

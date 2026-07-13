@@ -17,12 +17,14 @@ from dapr_agents import DurableAgent, DaprChatClient
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
     AgentMemoryConfig,
+    AgentPubSubConfig,
     AgentStateConfig,
 )
 from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 
 AGENT_CONVERSATION_COMPONENT = os.getenv("AGENT_CONVERSATION_COMPONENT", "agent-llm")
+AGENT_PUBSUB_COMPONENT = os.getenv("AGENT_PUBSUB_COMPONENT", "agent-pubsub")
 AGENT_MEMORY_COMPONENT = os.getenv("AGENT_MEMORY_COMPONENT", "agent-memory")
 AGENT_RUNTIME_COMPONENT = os.getenv("AGENT_RUNTIME_COMPONENT", "agent-runtime")
 
@@ -45,6 +47,10 @@ def make_agent() -> DurableAgent:
         llm=DaprChatClient(component_name=AGENT_CONVERSATION_COMPONENT),
         memory=AgentMemoryConfig(
             store=ConversationDaprStateMemory(store_name=AGENT_MEMORY_COMPONENT),
+        ),
+        pubsub=AgentPubSubConfig(
+            pubsub_name=AGENT_PUBSUB_COMPONENT,
+            agent_topic="inventory-agent",
         ),
         state=AgentStateConfig(
             store=StateStoreService(store_name=AGENT_RUNTIME_COMPONENT),
