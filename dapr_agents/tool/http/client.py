@@ -130,8 +130,8 @@ class DaprHTTPClient(BaseModel):
         Send an HTTP request to the specified endpoint.
 
         Args:
-            endpoint (str): The host of the URI to send the request to.
             payload (dict[str, str]): The payload to include in the request.
+            endpoint (str): The host of the URI to send the request to.
             path (str): The path of the URI to invoke including any query strings appended.
             verb (str): The HTTP verb. Either GET or POST.
         Returns:
