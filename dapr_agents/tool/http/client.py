@@ -135,7 +135,7 @@ class DaprHTTPClient(BaseModel):
             path (str): The path of the URI to invoke including any query strings appended.
             verb (str): The HTTP verb. Either GET or POST.
         Returns:
-            A tuple with the http status code and respose or a ToolError.
+            A tuple with the HTTP status code and response, or a ToolError.
         """
 
         try:
