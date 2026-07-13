@@ -734,9 +734,16 @@ class AgentRunner(WorkflowRunner):
                 config.broadcast_topic if is_broadcast else config.agent_topic
             )
             if not topic:
-                kind = "broadcast" if is_broadcast else "direct"
+                if is_broadcast:
+                    # Skip broadcast handlers if the agent has no broadcast topic configured,
+                    # as no registered broadcast workflow exists to handle messages.
+                    logger.debug(
+                        f"[{self._name}] Agent {getattr(agent, 'name', agent)} has no broadcast topic; "
+                        f"skipping broadcast handler {handler.__name__}."
+                    )
+                    continue
                 raise ValueError(
-                    f"AgentPubSubConfig missing topic for {kind} handler {handler.__name__}"
+                    f"AgentPubSubConfig missing agent topic for handler {handler.__name__}"
                 )
 
             schemas = meta.get("message_schemas") or []
