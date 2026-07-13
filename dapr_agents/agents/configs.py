@@ -121,6 +121,52 @@ class WorkflowGrpcOptions:
             raise ValueError("keepalive_timeout_ms must be greater than 0")
 
 
+@dataclass(frozen=True)
+class RegistryIndexRetryConfig:
+    """
+    Retry/backoff policy for mutating the shared team-registry ``_index`` document.
+
+    The index is a single document that every agent on a team contends on when it
+    registers or deregisters (acutely so during a coordinated shutdown, where a
+    whole team writes at once). Under that N-way optimistic-concurrency contention a
+    single mutation can need many more attempts than an ordinary per-key state save,
+    which is why this policy is intentionally separate from ``max_etag_attempts``
+    (that knob governs single-writer workflow-state saves and is clamped low). A
+    mutation is bounded by *both* an attempt count and a wall-clock timeout so it can
+    never overrun the caller's shutdown grace period, and uses full-jitter
+    exponential backoff to de-correlate concurrent writers so the team converges.
+
+    Field names mirror :class:`WorkflowRetryPolicy` for consistency across the
+    package's retry configuration.
+
+    .. warning::
+        **Alpha.** These fields are user-facing but not yet stable; the names may
+        change in a future 0.x release.
+
+    Attributes:
+        max_attempts: Maximum optimistic-concurrency attempts before giving up.
+        initial_backoff_seconds: Initial ceiling for the full-jitter backoff delay.
+        max_backoff_seconds: Maximum ceiling for the full-jitter backoff delay.
+        retry_timeout: Wall-clock budget in seconds across all attempts, including
+            backoff.
+    """
+
+    max_attempts: int = 50
+    initial_backoff_seconds: float = 0.05
+    max_backoff_seconds: float = 1.0
+    retry_timeout: float = 10.0
+
+    def __post_init__(self) -> None:
+        if self.max_attempts <= 0:
+            raise ValueError("max_attempts must be greater than 0")
+        if self.initial_backoff_seconds <= 0:
+            raise ValueError("initial_backoff_seconds must be greater than 0")
+        if self.max_backoff_seconds <= 0:
+            raise ValueError("max_backoff_seconds must be greater than 0")
+        if self.retry_timeout <= 0:
+            raise ValueError("retry_timeout must be greater than 0")
+
+
 @dataclass
 class AgentStateConfig:
     """
@@ -302,10 +348,20 @@ class RuntimeSubscriptionConfig:
 
 @dataclass
 class AgentRegistryConfig:
-    """Configuration for agent registry storage."""
+    """Configuration for agent registry storage.
+
+    Attributes:
+        store: Dapr state store backing the team registry.
+        team_name: Optional team override; falls back to the configured default.
+        index_retry: Retry/backoff policy for mutating the shared team-index
+            document under multi-agent contention (e.g. coordinated shutdown).
+    """
 
     store: StateStoreService
     team_name: Optional[str] = None
+    index_retry: RegistryIndexRetryConfig = field(
+        default_factory=RegistryIndexRetryConfig
+    )
 
 
 @dataclass
