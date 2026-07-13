@@ -150,6 +150,7 @@ local_scheme = "node-and-date"
 fallback_version = "0.0.0.dev0"
 
 [tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
 testpaths = ["tests", "ext"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
