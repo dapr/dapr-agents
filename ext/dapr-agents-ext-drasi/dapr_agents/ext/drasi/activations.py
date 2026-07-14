@@ -292,7 +292,7 @@ def drasi_trigger(
     dead_letter_topic: str | None = None,
     task_mapper: Callable[[DrasiChangeEvent, MessageContext], TriggerAction]
     | None = None,
-    operations: DrasiOperation | list[DrasiOperation] | None = None,
+    operations: DrasiOperation | str | list[DrasiOperation | str] | None = None,
     change_model: type[Any] | None = None,
 ) -> None:
     """
