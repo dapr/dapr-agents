@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-"""Unit tests for PromptyHelper.normalize() environment variable resolution."""
+"""Unit tests for Prompty and PromptyHelper prompt utilities."""
 
 from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.prompt.utils.prompty import PromptyHelper
