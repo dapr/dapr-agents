@@ -12,6 +12,8 @@
 #
 
 from importlib.metadata import version, PackageNotFoundError
+from typing import TYPE_CHECKING, Any
+
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.configs import (
     AgentApprovalConfig,
@@ -52,7 +54,6 @@ from dapr_agents.hooks import (
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
 from dapr_agents.llm.anthropic import AnthropicChatClient
 from dapr_agents.llm.dapr import DaprChatClient
-from dapr_agents.llm.litellm import LiteLLMChatClient
 from dapr_agents.llm.elevenlabs import ElevenLabsSpeechClient
 from dapr_agents.llm.huggingface import HFHubChatClient
 from dapr_agents.llm.nvidia import NVIDIAChatClient, NVIDIAEmbeddingClient
@@ -117,6 +118,23 @@ __all__ = [
     "RegistryMetadata",
     "LLMMetadata",
 ]
+
+if TYPE_CHECKING:
+    from dapr_agents.llm.litellm import LiteLLMChatClient
+
+
+def __getattr__(name: str) -> Any:
+    # LiteLLM is a heavy optional dependency (~190 MB RSS, ~2100 modules on
+    # import). Load it lazily so merely importing dapr_agents does not pay that
+    # cost in every agent process. Eager import here previously multiplied
+    # memory use across multi-agent workflows and starved co-located model
+    # servers on constrained CI runners.
+    if name == "LiteLLMChatClient":
+        from dapr_agents.llm.litellm import LiteLLMChatClient
+
+        return LiteLLMChatClient
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 try:
     __version__ = version("dapr-agents")
