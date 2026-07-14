@@ -11,18 +11,6 @@
 # limitations under the License.
 #
 
-from mcp.server.fastmcp import FastMCP
+from .chat import IFlytekChatClient
 
-mcp = FastMCP("MathServer")
-
-
-@mcp.tool()
-async def add(a: int, b: int) -> int:
-    """Add two numbers and return the result."""
-    return a + b
-
-
-@mcp.tool()
-async def multiply(a: int, b: int) -> int:
-    """Multiply two numbers and return the result."""
-    return a * b
+__all__ = ["IFlytekChatClient"]
