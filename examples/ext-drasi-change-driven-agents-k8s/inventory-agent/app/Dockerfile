@@ -14,6 +14,7 @@
 # ------------------------------------------
 # Build stage
 # ------------------------------------------
+
 FROM python:3.13-slim-bookworm AS build
 
 # Copy uv binary from distroless image
@@ -33,11 +34,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=ext/dapr-agents-ext-drasi,target=ext/dapr-agents-ext-drasi,rw \
     uv sync --frozen --no-install-project --package ext-drasi-change-driven-agents-k8s
 
-COPY uv.lock pyproject.toml /app
-COPY dapr_agents /app/dapr_agents
-COPY ext/dapr-agents-ext-drasi /app/ext/dapr-agents-ext-drasi
+COPY uv.lock pyproject.toml .
+COPY dapr_agents ./dapr_agents
+COPY ext/dapr-agents-ext-drasi ./ext/dapr-agents-ext-drasi
 
-COPY examples/ext-drasi-change-driven-agents-k8s/inventory-agent/app /app
+COPY examples/ext-drasi-change-driven-agents-k8s/inventory-agent/app .
 
 # Build wheel and install it into the virtual environment
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -46,6 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ------------------------------------------
 # Runtime stage
 # ------------------------------------------
+
 FROM python:3.13-slim-bookworm
 
 WORKDIR /app
