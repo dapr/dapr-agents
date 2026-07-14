@@ -11,9 +11,10 @@
 # limitations under the License.
 #
 
+from typing import TYPE_CHECKING, Any
+
 from .anthropic.chat import AnthropicChatClient
 from .dapr import DaprChatClient
-from .litellm.chat import LiteLLMChatClient
 from .elevenlabs import ElevenLabsSpeechClient
 from .huggingface.chat import HFHubChatClient
 from .iflytek.chat import IFlytekChatClient
@@ -38,3 +39,17 @@ __all__ = [
     "AnthropicChatClient",
     "LiteLLMChatClient",
 ]
+
+if TYPE_CHECKING:
+    from .litellm.chat import LiteLLMChatClient
+
+
+def __getattr__(name: str) -> Any:
+    # LiteLLM is a heavy optional dependency (~190 MB RSS, ~2100 modules on
+    # import). Load it lazily so merely importing dapr_agents.llm — e.g. to use
+    # DaprChatClient — does not pay that cost or require litellm to be installed.
+    if name == "LiteLLMChatClient":
+        from .litellm.chat import LiteLLMChatClient
+
+        return LiteLLMChatClient
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
