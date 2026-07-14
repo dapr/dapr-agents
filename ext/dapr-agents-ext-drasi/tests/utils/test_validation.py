@@ -37,7 +37,7 @@ pytestmark = pytest.mark.skipif(
     reason=(
         "dapr-agents-ext-drasi is not available. "
         "To run these tests, install the extension with: "
-        "`uv sync --group test --extra drasi`",
+        "`uv sync --group test --extra drasi`"
     ),
 )
 
