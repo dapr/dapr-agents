@@ -13,7 +13,7 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import Field
@@ -87,7 +87,7 @@ class ConversationDaprStateMemory(MemoryBase):
         message = self._convert_to_dict(message)
         message.update(
             {
-                "createdAt": datetime.now().isoformat() + "Z",
+                "createdAt": datetime.now(timezone.utc).isoformat(),
             }
         )
 
