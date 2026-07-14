@@ -11,15 +11,20 @@
 # limitations under the License.
 #
 
+# ------------------------------------------
 # Build stage
-FROM astral/uv:python3.13-bookworm-slim AS build
+# ------------------------------------------
+FROM python:3.13-slim-bookworm AS build
 
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+# Copy uv binary from distroless image
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /uvx /bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_DEV=1 \
+    UV_PYTHON_DOWNLOADS=0
 
 WORKDIR /app
-
-ENV UV_NO_DEV=1
-ENV UV_PYTHON_DOWNLOADS=0
 
 # Install project dependencies only (cached layer)
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -38,7 +43,9 @@ COPY examples/ext-drasi-change-driven-agents-k8s/inventory-agent/app /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-editable --package ext-drasi-change-driven-agents-k8s
 
+# ------------------------------------------
 # Runtime stage
+# ------------------------------------------
 FROM python:3.13-slim-bookworm
 
 WORKDIR /app
