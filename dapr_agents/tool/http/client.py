@@ -127,15 +127,15 @@ class DaprHTTPClient(BaseModel):
         verb: str = "GET",
     ) -> Union[tuple[int, str] | ToolError]:
         """
-        Send a POST request to the specified endpoint with the given input.
+        Send an HTTP request to the specified endpoint.
 
         Args:
-            endpoint_url (str): The host of the URI to send the request to.
             payload (dict[str, str]): The payload to include in the request.
+            endpoint (str): The host of the URI to send the request to.
             path (str): The path of the URI to invoke including any query strings appended.
             verb (str): The HTTP verb. Either GET or POST.
         Returns:
-            A tuple with the http status code and respose or a ToolError.
+            A tuple with the HTTP status code and response, or a ToolError.
         """
 
         try:
