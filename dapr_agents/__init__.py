@@ -52,6 +52,7 @@ from dapr_agents.hooks import (
 from dapr_agents.executors import DockerCodeExecutor, LocalCodeExecutor
 from dapr_agents.llm.anthropic import AnthropicChatClient
 from dapr_agents.llm.dapr import DaprChatClient
+from dapr_agents.llm.litellm import LiteLLMChatClient
 from dapr_agents.llm.elevenlabs import ElevenLabsSpeechClient
 from dapr_agents.llm.huggingface import HFHubChatClient
 from dapr_agents.llm.nvidia import NVIDIAChatClient, NVIDIAEmbeddingClient
@@ -73,6 +74,7 @@ __all__ = [
     "DockerCodeExecutor",
     "LocalCodeExecutor",
     "AnthropicChatClient",
+    "LiteLLMChatClient",
     "ElevenLabsSpeechClient",
     "DaprChatClient",
     "HFHubChatClient",

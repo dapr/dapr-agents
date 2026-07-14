@@ -13,6 +13,7 @@
 
 from .anthropic.chat import AnthropicChatClient
 from .dapr import DaprChatClient
+from .litellm.chat import LiteLLMChatClient
 from .elevenlabs import ElevenLabsSpeechClient
 from .huggingface.chat import HFHubChatClient
 from .mistral.chat import MistralChatClient
@@ -33,4 +34,5 @@ __all__ = [
     "ElevenLabsSpeechClient",
     "DaprChatClient",
     "AnthropicChatClient",
+    "LiteLLMChatClient",
 ]
