@@ -30,7 +30,7 @@ def value_sanitize(data: Any) -> Any:
         data (Any): The data to sanitize, which can be a dictionary, list, or other types.
 
     Returns:
-        Any: The sanitized data. Returns `None` for lists exceeding the size limit or unsupported types.
+        Any: The sanitized data. Lists exceeding the size limit are truncated to their first `LIST_LIMIT` elements, and `None` is returned for unsupported types.
     """
     if isinstance(data, dict):
         # Sanitize each key-value pair in the dictionary.
