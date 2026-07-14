@@ -43,8 +43,13 @@ def extract_fstring_variables(template: str) -> List[str]:
     # extraction matches how render_fstring_template renders the template. This
     # correctly treats escaped braces ({{ and }}) as literal characters instead
     # of variables, and drops any format spec (e.g. {value:>10} -> "value").
-    return [
-        field_name
-        for _, field_name, _, _ in Formatter().parse(template)
-        if field_name is not None
-    ]
+    variables: List[str] = []
+    for _, field_name, _, _ in Formatter().parse(template):
+        if field_name is None:
+            continue
+        if field_name == "" or field_name.isdigit():
+            raise ValueError(
+                "Positional placeholders (e.g. '{}' or '{0}') are not supported; use named fields like '{name}'."
+            )
+        variables.append(field_name)
+    return variables
