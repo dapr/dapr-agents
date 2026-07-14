@@ -586,11 +586,11 @@ class AgentRunner(WorkflowRunner):
 
         self._mount_hitl_routes(fastapi_app=fastapi_app, agent=agent)
 
-        # Wrap the app's lifespan so runner.shutdown(agent) runs during
-        # graceful shutdown (uvicorn SIGINT/SIGTERM handling) — before the
-        # Dapr sidecar dies. Without this, the durabletask worker and
-        # subscription clients see "Stream removed (Socket closed)" mid-flight
-        # and emit a reconnect storm + OTel context-detach errors on the way out.
+        # Wrap the app's lifespan so runner.shutdown(agent) runs automatically
+        # during uvicorn's graceful shutdown (SIGINT/SIGTERM), without relying on
+        # the caller remembering a finally block. Teardown runs after uvicorn has
+        # stopped serving — the same point in the lifecycle as an explicit
+        # finally — so it never blocks uvicorn's own signal handling.
         original_lifespan = fastapi_app.router.lifespan_context
 
         @asynccontextmanager
@@ -626,36 +626,19 @@ class AgentRunner(WorkflowRunner):
                     "install uvicorn or pass an existing FastAPI app."
                 ) from exc
 
-            config = uvicorn.Config(
+            # Let uvicorn own signal handling: SIGINT/SIGTERM flips its
+            # `should_exit` flag and it drains promptly. Agent teardown then runs
+            # from the wrapped lifespan above. Do NOT run shutdown(agent) inside a
+            # signal handler — `dapr run` SIGTERMs the app and daprd together, so
+            # the durabletask worker would block the event loop in a
+            # reconnect-with-backoff loop against a dead sidecar and prevent the
+            # process from exiting within its shutdown grace period.
+            uvicorn.run(
                 fastapi_app,
                 host=host,
                 port=port,
                 log_level=logging.getLevelName(logger.getEffectiveLevel()).lower(),
             )
-            server = uvicorn.Server(config)
-
-            # Run our shutdown BEFORE uvicorn starts its drain. uvicorn's
-            # lifespan shutdown fires only after in-flight HTTP requests have
-            # drained, which is typically too late: `dapr run` SIGTERMs (and
-            # often SIGKILLs) daprd in parallel, so by the time the lifespan
-            # exits the sidecar is already gone — producing a reconnect storm
-            # from the durabletask worker and pubsub subscription, plus OTel
-            # context-detach errors from cancelled gRPC streams. Hooking
-            # `handle_exit` lets us stop agent workers in the signal handler
-            # itself, while the sidecar is still alive.
-            _uvicorn_handle_exit = server.handle_exit
-
-            def _handle_exit(sig: int, frame: Any) -> None:
-                try:
-                    self.shutdown(agent)
-                except Exception:
-                    logger.exception(
-                        "Error during AgentRunner pre-shutdown signal hook"
-                    )
-                _uvicorn_handle_exit(sig, frame)
-
-            server.handle_exit = _handle_exit  # type: ignore[method-assign]
-            server.run()
 
         return fastapi_app
 
