@@ -19,13 +19,27 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
+from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
-from test_mcp_math_tools import mcp
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("mcp-server")
+
+mcp = FastMCP("MathServer")
+
+
+@mcp.tool()
+async def add(a: int, b: int) -> int:
+    """Add two numbers and return the result."""
+    return a + b
+
+
+@mcp.tool()
+async def multiply(a: int, b: int) -> int:
+    """Multiply two numbers and return the result."""
+    return a * b
 
 
 class MCPServer:
