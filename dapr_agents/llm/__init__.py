@@ -16,6 +16,7 @@ from .dapr import DaprChatClient
 from .litellm.chat import LiteLLMChatClient
 from .elevenlabs import ElevenLabsSpeechClient
 from .huggingface.chat import HFHubChatClient
+from .iflytek.chat import IFlytekChatClient
 from .mistral.chat import MistralChatClient
 from .nvidia.chat import NVIDIAChatClient
 from .nvidia.embeddings import NVIDIAEmbeddingClient
@@ -28,6 +29,7 @@ __all__ = [
     "OpenAIAudioClient",
     "OpenAIEmbeddingClient",
     "HFHubChatClient",
+    "IFlytekChatClient",
     "MistralChatClient",
     "NVIDIAChatClient",
     "NVIDIAEmbeddingClient",
