@@ -223,8 +223,8 @@ def to_function_call_definition(
     """
     Generates a dictionary representing a function call specification, supporting various API formats.
 
-    - For format_type in ("openai", "nvidia", "huggingface"), produces an OpenAI-style
-      tool definition (type="function", function={…}).
+    - For format_type in ("openai", "nvidia", "huggingface", "dapr", "litellm", "iflytek"), produces
+      an OpenAI-style tool definition (type="function", function={…}).
     - For "claude", produces a Claude-style {name, description, input_schema}.
     - (Gemini omitted here—call to_gemini_function_call_definition if you need it.)
 
@@ -235,7 +235,8 @@ def to_function_call_definition(
         description (str): A brief description of what the function does.
         args_schema (BaseModel): The Pydantic model describing the function's parameters.
         format_type (str, optional): Which API flavor to target:
-            - "openai", "nvidia", or "huggingface" all share the same OpenAI-style schema.
+            - "openai", "nvidia", "huggingface", "dapr", "litellm", and "iflytek" all share the same
+              OpenAI-style schema.
             - "claude" uses Anthropic's format.
           Defaults to "openai".
         use_deprecated (bool): If True and format_type is OpenAI,
@@ -294,7 +295,14 @@ def validate_and_format_tool(
     fmt = tool_format.lower()
 
     try:
-        if fmt in ("openai", "azure_openai", "nvidia", "huggingface", "litellm", "iflytek"):
+        if fmt in (
+            "openai",
+            "azure_openai",
+            "nvidia",
+            "huggingface",
+            "litellm",
+            "iflytek",
+        ):
             validated = (
                 OAIFunctionDefinition(**tool)
                 if use_deprecated

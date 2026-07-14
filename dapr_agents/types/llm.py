@@ -441,7 +441,7 @@ class IFlytekChatCompletionParams(OpenAIParamsBase):
         1, ge=1, description="Number of chat completion choices to generate"
     )
     tools: Optional[List[Dict[str, Any]]] = Field(
-        None, description="List of tools the model may call"
+        None, max_length=64, description="List of tools the model may call"
     )
     tool_choice: Optional[Union[str, Dict[str, Any]]] = Field(
         None, description="Controls which tool is called"

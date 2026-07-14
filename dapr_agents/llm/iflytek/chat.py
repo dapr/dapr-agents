@@ -66,6 +66,7 @@ class IFlytekChatClient(IFlytekClientBase, ChatClientBase):
     )
     max_tokens: Optional[int] = Field(
         default=1024,
+        ge=1,
         description=(
             "Maximum number of tokens to generate in a single call. "
             "Must be ≥1; defaults to 1024."
