@@ -48,7 +48,7 @@ jobs:
         version: "latest"
     - name: Install dependencies to match uv lock file to that of CI
       run: uv sync --frozen --group test --extra drasi
-    - name: Run Autoformatter
+    - name: Run autoformatter
       run: |
         uv run ruff format
         statusResult=$(git status -u --porcelain)
@@ -59,7 +59,7 @@ jobs:
             echo "Source files are not formatted correctly. Run 'uv run ruff format' to autoformat."
             exit 1
         fi
-    - name: Run Linter
+    - name: Run linter
       run: |
         uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
   schema-validation:
