@@ -59,7 +59,7 @@ class _DrasiTriggerConfig:
 
     query_id: str
     pubsub: str | None
-    topic: str | None
+    topic: str
     dead_letter_topic: str | None
     task_mapper: Callable[[DrasiChangeEvent, MessageContext], TriggerAction] | None
     operations: list[DrasiOperation]
@@ -253,7 +253,7 @@ def _build_pubsub_specs(
 
     return [
         PubSubRouteSpec(
-            pubsub_name=config.pubsub,
+            pubsub_name=config.pubsub,  # type: ignore[arg-type]
             topic=config.topic,
             handler_fn=handler_fn,
             message_model=DrasiChangeEvent,
