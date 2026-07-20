@@ -70,8 +70,8 @@ All public symbols are exported from `dapr_agents.ext.drasi`:
 ```python
 from dapr_agents.ext.drasi import (
     drasi_trigger,      # Register Drasi query subscriptions for an agent
-    DrasiChangeEvent,   # Drasi change-event model emitted by a query
-    DrasiOperation,     # Drasi operation literal: i, u, or d
+    DrasiChangeEvent,   # Drasi change event model emitted by a query
+    DrasiOperation,     # Drasi operation enum: i, u, or d
 )
 ```
 
