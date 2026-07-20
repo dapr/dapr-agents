@@ -86,3 +86,11 @@ uv run --group test pytest ext/dapr-agents-ext-drasi -m "not integration" -v
 ### Extension code quality
 
 See the `Code Quality` section in the [development README](../../docs/development/README.md) for code quality commands.
+
+### Regenerate Drasi models
+
+See the [provenance file](./PROVENANCE.md) for context.
+
+```bash
+./scripts/regen-drasi-models.sh
+```
