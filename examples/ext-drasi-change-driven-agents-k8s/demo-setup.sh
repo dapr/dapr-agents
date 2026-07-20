@@ -147,38 +147,20 @@ build_push_images() {
 create_secrets() {
   echo "=== Creating secrets... ==="
 
-  if [ -z "$OPENAI_API_KEY" ]; then
-    echo "=== ERROR: OPENAI_API_KEY environment variable not set. ==="
+  if [ -z "$DAPR_CONVERSATION_API_KEY" ]; then
+    echo "=== ERROR: DAPR_CONVERSATION_API_KEY environment variable not set. ==="
     echo "=== Please add it to your root .env file or set it before running this script: ==="
-    echo "=== 'export OPENAI_API_KEY=your-api-key' ==="
+    echo "=== 'export DAPR_CONVERSATION_API_KEY=<YOUR_API_KEY>' ==="
     exit 1
   fi
 
-  # Default to direct OpenAI if endpoint is omitted
-  OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-"https://api.openai.com/v1"}
-
-  if [[ "$OPENAI_ENDPOINT" == *".azure.com"* ]]; then
-    echo "=== INFO: Azure OpenAI endpoint detected, using Azure defaults if needed. ==="
-    OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4.1-nano"}
-    OPENAI_API_TYPE=${OPENAI_API_TYPE:-"azure"}
-    OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2025-04-01-preview"}
-  elif [[ "$OPENAI_ENDPOINT" == *"api.openai.com"* ]]; then
-    echo "=== INFO: OpenAI endpoint detected, using OpenAI defaults if needed. ==="
-    OPENAI_MODEL=${OPENAI_MODEL:-"gpt-4.1-nano-2025-04-14"}
-    OPENAI_API_TYPE=${OPENAI_API_TYPE:-"openai"}
-    OPENAI_API_VERSION=${OPENAI_API_VERSION:-"2025-04-01-preview"}
-  else
-    echo "=== ERROR: Unrecognized OPENAI_ENDPOINT '$OPENAI_ENDPOINT'. \
-    Expected an Azure OpenAI endpoint (*.azure.com) or OpenAI endpoint (api.openai.com). ==="
-    exit 1
-  fi
-
-  kubectl create secret generic openai-secrets \
-    --from-literal=api-key="$OPENAI_API_KEY" \
-    --from-literal=endpoint="$OPENAI_ENDPOINT" \
-    --from-literal=model="$OPENAI_MODEL" \
-    --from-literal=apiType="$OPENAI_API_TYPE" \
-    --from-literal=apiVersion="$OPENAI_API_VERSION" \
+  # Unset optional fields fall back to provider-specific defaults
+  kubectl create secret generic dapr-conversation-secrets \
+    --from-literal=key="$DAPR_CONVERSATION_API_KEY" \
+    --from-literal=endpoint="${DAPR_CONVERSATION_ENDPOINT:-}" \
+    --from-literal=model="${DAPR_CONVERSATION_MODEL:-}" \
+    --from-literal=apiType="${DAPR_CONVERSATION_API_TYPE:-}" \
+    --from-literal=apiVersion="${DAPR_CONVERSATION_API_VERSION:-}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
   echo "=== Secrets created successfully! ==="

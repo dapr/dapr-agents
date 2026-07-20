@@ -38,52 +38,53 @@ Data lives in a Postgres instance — when a product's stock level dips below it
 - [Helm](https://helm.sh/docs/intro/install/)
 - [Drasi CLI](https://drasi.io/drasi-kubernetes/reference/command-line-interface/#get-the-drasi-cli)
 - [uv](https://docs.astral.sh/uv/) package manager
-- OpenAI API key (Azure and direct OpenAI are supported)
+- An API key for your preferred LLM provider
 - A Bash terminal
 
 ## Setup
 
-### Configure OpenAI credentials
+### Configure LLM provider
 
-NOTE: Azure OpenAI and direct OpenAI are the only two supported providers — the setup script fails if an API endpoint is given and it is not supported by one of the two providers.
+**NOTE:** Required fields and default values may vary between LLM providers. Please see the "Generic" section in the [Dapr Conversation component docs](https://docs.dapr.io/reference/components-reference/supported-conversation/) for a list
+of supported LLM providers and their expected structures.
 
-**Option 1 — .env file**
+**Option 1: `.env` file**
 
-Create a `.env` file in the project root with your OpenAI configuration.
+Create a `.env` file in the project root with your LLM provider configuration.
 
-For direct OpenAI, only the API key is required (the API endpoint is optional and defaults to `https://api.openai.com/v1`):
-
-```properties
-OPENAI_API_KEY=<YOUR_API_KEY>
-```
-
-For Azure OpenAI, the API key and API endpoint are both required:
+Only the API key is strictly required:
 
 ```properties
-OPENAI_API_KEY=<YOUR_API_KEY>
-OPENAI_ENDPOINT=<YOUR_ENDPOINT>
+DAPR_CONVERSATION_API_KEY=<YOUR_API_KEY>
 ```
 
-The following configuration is optional:
+The following configuration is (generally) optional.
+If they are not set, provider-specific defaults will be used:
 
 ```properties
-OPENAI_MODEL=<YOUR_MODEL>                    # Default: "gpt-4.1-nano" for Azure, otherwise "gpt-4.1-nano-2025-04-14"
-OPENAI_API_TYPE=<YOUR_API_TYPE>              # Default: "azure" for Azure, otherwise "openai"
-OPENAI_API_VERSION=<YOUR_API_VERSION>        # Default: "2025-04-01-preview"
+DAPR_CONVERSATION_ENDPOINT=<YOUR_ENDPOINT>
+DAPR_CONVERSATION_MODEL=<YOUR_MODEL>
+DAPR_CONVERSATION_API_TYPE=<YOUR_API_TYPE>
+DAPR_CONVERSATION_API_VERSION=<YOUR_API_VERSION>
 ```
 
-**Option 2 — environment variables**
+**Option 2: Environment variables**
 
-Alternatively, you can export your OpenAI configuration as environment variables.
-Required and optional variables are the same as in the first option.
+Alternatively, you can export your LLM provider configuration as environment variables:
 
 ```bash
-export OPENAI_API_KEY=<YOUR_API_KEY>
-export OPENAI_ENDPOINT=<YOUR_ENDPOINT>
-export OPENAI_MODEL=<YOUR_MODEL>
-export OPENAI_API_TYPE=<YOUR_API_TYPE>
-export OPENAI_API_VERSION=<YOUR_API_VERSION>
+export DAPR_CONVERSATION_API_KEY=<YOUR_API_KEY>
+export DAPR_CONVERSATION_ENDPOINT=<YOUR_ENDPOINT>
+export DAPR_CONVERSATION_MODEL=<YOUR_MODEL>
+export DAPR_CONVERSATION_API_TYPE=<YOUR_API_TYPE>
+export DAPR_CONVERSATION_API_VERSION=<YOUR_API_VERSION>
 ```
+
+**Update Dapr conversation component type**
+
+Open `inventory-agent/components/agent-llm.yaml` and update `spec.type` according to your LLM provider.
+
+For example, the component type for OpenAI would be `conversation.openai`.
 
 ### Create cluster
 
@@ -110,7 +111,7 @@ Before proceeding, ensure that the workflow dashboard is accessible at http://lo
 
 ### Bring up Drasi resources
 
-**Option 1 — Drasi CLI**
+**Option 1: Drasi CLI**
 
 All of the Drasi resource manifests (sources, queries, reactions) are found in `drasi/`.
 
@@ -146,7 +147,7 @@ drasi list query
 drasi list reaction
 ```
 
-**Option 2 — Drasi VS Code Extension**
+**Option 2: Drasi VS Code Extension**
 
 If you're using VS Code, you can manage Drasi resources interactively via the [Drasi VS Code extension](https://marketplace.visualstudio.com/items?itemName=DrasiProject.drasi).
 

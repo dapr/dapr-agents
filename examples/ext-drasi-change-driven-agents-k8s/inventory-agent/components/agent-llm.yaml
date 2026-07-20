@@ -21,21 +21,21 @@ spec:
   metadata:
   - name: key
     secretKeyRef:
-      name: openai-secrets
-      key: api-key
+      name: dapr-conversation-secrets
+      key: key
   - name: endpoint
     secretKeyRef:
-      name: openai-secrets
+      name: dapr-conversation-secrets
       key: endpoint
   - name: model
     secretKeyRef:
-      name: openai-secrets
+      name: dapr-conversation-secrets
       key: model
   - name: apiType
     secretKeyRef:
-      name: openai-secrets
+      name: dapr-conversation-secrets
       key: apiType
   - name: apiVersion
     secretKeyRef:
-      name: openai-secrets
+      name: dapr-conversation-secrets
       key: apiVersion
