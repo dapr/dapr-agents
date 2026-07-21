@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
+from contextlib import asynccontextmanager
 from threading import Lock, Thread
 from typing import Any, Callable, Dict, Literal, Optional, TypeVar, Union, List
 
@@ -550,6 +551,12 @@ class AgentRunner(WorkflowRunner):
 
         Returns:
             The FastAPI application with the workflow routes.
+
+        Note:
+            The app's lifespan is wrapped so that ``self.shutdown(agent)`` runs
+            automatically when uvicorn handles SIGINT/SIGTERM. Callers may still
+            invoke ``runner.shutdown(agent)`` explicitly (e.g. in a ``finally``
+            block); the call is idempotent.
         """
 
         fastapi_app = app or FastAPI(title="Dapr Agent Service", version="1.0.0")
@@ -579,6 +586,26 @@ class AgentRunner(WorkflowRunner):
 
         self._mount_hitl_routes(fastapi_app=fastapi_app, agent=agent)
 
+        # Wrap the app's lifespan so runner.shutdown(agent) runs automatically
+        # during uvicorn's graceful shutdown (SIGINT/SIGTERM), without relying on
+        # the caller remembering a finally block. Teardown runs after uvicorn has
+        # stopped serving — the same point in the lifecycle as an explicit
+        # finally — so it never blocks uvicorn's own signal handling.
+        original_lifespan = fastapi_app.router.lifespan_context
+
+        @asynccontextmanager
+        async def _shutdown_aware_lifespan(_app: FastAPI):
+            async with original_lifespan(_app) as state:
+                try:
+                    yield state
+                finally:
+                    try:
+                        self.shutdown(agent)
+                    except Exception:
+                        logger.exception("Error during AgentRunner shutdown hook")
+
+        fastapi_app.router.lifespan_context = _shutdown_aware_lifespan
+
         auto_run = app is None
         if auto_run:
             try:
@@ -599,6 +626,13 @@ class AgentRunner(WorkflowRunner):
                     "install uvicorn or pass an existing FastAPI app."
                 ) from exc
 
+            # Let uvicorn own signal handling: SIGINT/SIGTERM flips its
+            # `should_exit` flag and it drains promptly. Agent teardown then runs
+            # from the wrapped lifespan above. Do NOT run shutdown(agent) inside a
+            # signal handler — `dapr run` SIGTERMs the app and daprd together, so
+            # the durabletask worker would block the event loop in a
+            # reconnect-with-backoff loop against a dead sidecar and prevent the
+            # process from exiting within its shutdown grace period.
             uvicorn.run(
                 fastapi_app,
                 host=host,

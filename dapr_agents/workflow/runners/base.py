@@ -240,6 +240,11 @@ class WorkflowRunner(SignalMixin):
                 logger.debug(
                     "Ignoring error while closing DaprWorkflowClient", exc_info=True
                 )
+            # Clear the reference so repeated shutdown() calls (e.g. the wrapped
+            # lifespan plus an explicit finally) are true no-ops rather than
+            # re-closing an already-closed client.
+            self._wf_client = None
+            self._wf_client_owned = False
 
     def register_routes(
         self,

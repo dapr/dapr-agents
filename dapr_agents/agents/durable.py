@@ -3310,8 +3310,13 @@ class DurableAgent(AgentBase):
         if not self._started:
             return
 
-        super().stop()
-
+        # Stop the workflow runtime before the base teardown. The base stop
+        # issues best-effort Dapr calls (registry deregister, config
+        # unsubscribe) that can block while the sidecar is going away (e.g.
+        # `dapr run` stopping daprd in parallel). Stopping the durabletask
+        # worker first means it won't spin in a reconnect-with-backoff loop
+        # during that window and overrun the process's shutdown grace period;
+        # the base calls then unblock as soon as the sidecar exits.
         if self._runtime_owned:
             try:
                 self._runtime.shutdown()
@@ -3319,6 +3324,8 @@ class DurableAgent(AgentBase):
                 logger.debug(
                     "Error while shutting down workflow runtime", exc_info=True
                 )
+
+        super().stop()
 
         self._started = False
 
