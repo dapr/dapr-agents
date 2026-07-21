@@ -82,6 +82,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+drasi = [
+    "dapr-agents-ext-drasi>=0.1.0,<1.0.0",
+]
 vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<6.0.0",
@@ -135,7 +138,7 @@ Documentation = "https://github.com/dapr/docs"
 Source = "https://github.com/dapr/python-sdk"
 
 [tool.setuptools.packages.find]
-include = ["dapr_agents"]
+include = ["dapr_agents", "dapr_agents.*"]
 exclude = ["tests"]
 
 [tool.setuptools.package-data]
@@ -147,7 +150,8 @@ local_scheme = "node-and-date"
 fallback_version = "0.0.0.dev0"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
+testpaths = ["tests", "ext"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 markers = [
@@ -187,4 +191,9 @@ members = [
     "examples/09-agents-as-tools",
     "examples/10-mcpserver",
     "examples/11-expert-agent-tavily",
+    "examples/ext-drasi-change-driven-agents-k8s",
+    "ext/*",
 ]
+
+[tool.uv.sources]
+dapr-agents-ext-drasi = { workspace = true, editable = true }
