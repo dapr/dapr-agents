@@ -453,7 +453,7 @@ class MCPClient(BaseModel):
             logger.warning(
                 f"Failed to load prompts from server '{server_name}': {str(e)}"
             )
-            self._server_prompts[server_name] = []
+            self._server_prompts[server_name] = {}
 
     async def wrap_mcp_tool(self, server_name: str, mcp_tool: MCPTool) -> AgentTool:
         """
