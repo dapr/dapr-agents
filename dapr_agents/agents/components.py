@@ -92,6 +92,8 @@ class DaprInfra:
                 pubsub_name=pubsub.pubsub_name,
                 agent_topic=pubsub.agent_topic or name,
                 broadcast_topic=pubsub.broadcast_topic,
+                stream_topic_prefix=pubsub.stream_topic_prefix,
+                control_topic_prefix=pubsub.control_topic_prefix,
             )
 
         # -----------------------------
@@ -188,6 +190,42 @@ class DaprInfra:
         if not self._pubsub:
             return None
         return self._pubsub.broadcast_topic
+
+    @property
+    def stream_topic_prefix(self) -> Optional[str]:
+        """Return the configured streaming topic prefix, or None if no pubsub."""
+        if not self._pubsub:
+            return None
+        return self._pubsub.stream_topic_prefix
+
+    @property
+    def control_topic_prefix(self) -> Optional[str]:
+        """Return the configured control topic prefix, or None if no pubsub."""
+        if not self._pubsub:
+            return None
+        return self._pubsub.control_topic_prefix
+
+    def stream_topic_name(self, root_instance_id: str) -> Optional[str]:
+        """Return the per-session streaming topic, or None if no pubsub configured.
+
+        Args:
+            root_instance_id: Workflow instance id of the user-facing entry agent.
+        """
+        prefix = self.stream_topic_prefix
+        if not prefix:
+            return None
+        return f"{prefix}.{root_instance_id}"
+
+    def control_topic_name(self, root_instance_id: str) -> Optional[str]:
+        """Return the per-session control topic, or None if no pubsub configured.
+
+        Args:
+            root_instance_id: Workflow instance id of the user-facing entry agent.
+        """
+        prefix = self.control_topic_prefix
+        if not prefix:
+            return None
+        return f"{prefix}.{root_instance_id}"
 
     # ------------------------------------------------------------------
     # State helpers

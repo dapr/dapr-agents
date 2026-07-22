@@ -27,6 +27,7 @@ from dapr.common.pubsub.subscription import SubscriptionMessage
 from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 from cachetools import TTLCache
 
+from dapr_agents.streaming.keys import MESSAGE_METADATA as METADATA_KEY
 from dapr_agents.types.message import EventMessageMetadata
 from dapr_agents.workflow.utils.core import is_supported_model_instance
 from dapr_agents.workflow.utils.routers import (
@@ -44,9 +45,6 @@ DELIVERY_MODE_ASYNC: Literal["async"] = "async"
 STATUS_SUCCESS = "success"
 STATUS_RETRY = "retry"
 STATUS_DROP = "drop"
-
-# Metadata key for attaching message metadata to payloads
-METADATA_KEY = "_message_metadata"
 
 # Thread shutdown timeout in seconds
 THREAD_SHUTDOWN_TIMEOUT_SECONDS = 10.0
