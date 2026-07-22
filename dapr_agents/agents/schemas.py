@@ -167,6 +167,36 @@ class AgentTaskResponse(BaseMessage):
     )
 
 
+class CallerClaims(BaseModel):
+    """Verified user identity populated by plugins.
+
+    Becomes part of signed workflow history. Carries no secrets: raw tokens never
+    appear here; the plugins extract only verified claims.
+    """
+
+    subject: str = Field(description="Verified `sub` claim from the user's JWT.")
+    tenant: Optional[str] = Field(
+        default=None,
+        description="Verified tenant/org claim if present.",
+    )
+    scopes: List[str] = Field(
+        default_factory=list,
+        description="Verified scopes granted to the user.",
+    )
+    email: Optional[str] = Field(
+        default=None,
+        description="Verified email claim if present.",
+    )
+    issuer_id: Optional[str] = Field(
+        default=None,
+        description="Identifier of the trusted issuer that signed the JWT.",
+    )
+    claims_hash: Optional[str] = Field(
+        default=None,
+        description="SHA-256 hash of the full verified claims set for audit / tamper detection.",
+    )
+
+
 class TriggerAction(BaseModel):
     """
     Represents a message used to trigger an agent's activity within the workflow.
@@ -193,6 +223,17 @@ class TriggerAction(BaseModel):
             "never published over pub/sub, and never persisted to signed workflow "
             "history or logs. Plugins read it from the live object on "
             "BEFORE_AGENT_INVOKE."
+        ),
+    )
+    caller_claims: Optional[CallerClaims] = Field(
+        default=None,
+        description=(
+            "Verified user identity populated by plugins after the inbound "
+            "credential is verified. Unlike `caller_headers` (which is scrubbed of "
+            "the raw token and excluded from serialization), `caller_claims` IS "
+            "serialized into workflow input and signed workflow history. "
+            "PropagateLineage() carries this to child workflows so sub-agents "
+            "inherit the user identity. Carries no secrets: only verified claims."
         ),
     )
 
