@@ -12,7 +12,7 @@
 #
 
 from typing import Any, List
-import re
+from string import Formatter
 
 
 def render_fstring_template(template: str, **kwargs: Any) -> str:
@@ -39,7 +39,17 @@ def extract_fstring_variables(template: str) -> List[str]:
     Returns:
         List[str]: A list of variable names found in the template.
     """
-    # Find all occurrences of {variable_name} in the template
-    # This will match {name}, {role}, etc. even when they're part of sentences
-    matches = re.findall(r"\{([^{}]+)\}", template)
-    return matches
+    # Use the stdlib string.Formatter, which shares str.format() semantics, so
+    # extraction matches how render_fstring_template renders the template. This
+    # correctly treats escaped braces ({{ and }}) as literal characters instead
+    # of variables, and drops any format spec (e.g. {value:>10} -> "value").
+    variables: List[str] = []
+    for _, field_name, _, _ in Formatter().parse(template):
+        if field_name is None:
+            continue
+        if field_name == "" or field_name.isdigit():
+            raise ValueError(
+                "Positional placeholders (e.g. '{}' or '{0}') are not supported; use named fields like '{name}'."
+            )
+        variables.append(field_name)
+    return variables
