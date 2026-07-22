@@ -1,0 +1,56 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-agent
+  labels:
+    app: inventory-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-agent
+  template:
+    metadata:
+      labels:
+        app: inventory-agent
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "inventory-agent"
+        dapr.io/enable-api-logging: "true"
+        dapr.io/log-level: "info"
+    spec:
+      containers:
+      - name: inventory-agent
+        image: local-registry:5000/inventory-agent:latest
+        imagePullPolicy: Always
+        env:
+        - name: AGENT_CONVERSATION_COMPONENT
+          value: "agent-llm"
+        - name: AGENT_MEMORY_COMPONENT
+          value: "agent-memory"
+        - name: AGENT_RUNTIME_COMPONENT
+          value: "agent-runtime"
+        - name: AGENT_PUBSUB_COMPONENT
+          value: "agent-pubsub"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"

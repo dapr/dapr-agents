@@ -1,0 +1,11 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: Op.yaml
+type: string
+enum:
+  - i
+  - u
+  - d
+  - x
+  - h
+  - r
+title: Op

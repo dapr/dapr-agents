@@ -15,12 +15,12 @@
 .PHONY: test
 test:
 	@echo "Running tests..."
-	python -m pytest tests/ -v --tb=short
+	python -m pytest tests/ ext/ -v --tb=short
 
 .PHONY: test-cov
 test-cov:
 	@echo "Running tests with coverage..."
-	python -m pytest tests/ -v --cov=dapr_agents --cov-report=term-missing --cov-report=html
+	python -m pytest tests/ ext/ -v --cov=dapr_agents --cov-report=term-missing --cov-report=html
 
 .PHONY: test-install
 test-install:
@@ -58,12 +58,12 @@ hooks-run-all:
 .PHONY: format
 format:
 	@echo "Formatting code with ruff..."
-	uv run ruff format dapr_agents tests
+	uv run ruff format dapr_agents tests ext
 
 .PHONY: lint
 lint:
 	@echo "Linting with flake8..."
-	uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+	uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
 
 .PHONY: typecheck
 typecheck:
@@ -73,4 +73,4 @@ typecheck:
 .PHONY: test-unit
 test-unit:
 	@echo "Running unit tests..."
-	uv run pytest tests -m "not integration" -v
+	uv run pytest tests ext -m "not integration" -v
