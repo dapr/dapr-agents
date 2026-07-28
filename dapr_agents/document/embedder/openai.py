@@ -160,7 +160,12 @@ class OpenAIEmbedder(OpenAIEmbeddingClient, EmbedderBase):
         for embeddings, tokens in zip(grouped_embeddings, tokenized_inputs):
             if len(embeddings) == 1:
                 # If only one chunk, use its embedding directly
-                results.append(embeddings[0])
+                embedding = embeddings[0]
+                if self.normalize:
+                    embedding = (
+                        np.array(embedding) / np.linalg.norm(embedding)
+                    ).tolist()
+                results.append(embedding)
             else:
                 # Combine chunk embeddings using weighted averaging
                 weights = [

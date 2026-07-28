@@ -1,0 +1,210 @@
+<!--
+Copyright 2026 The Dapr Authors
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# Drasi Change-Driven Agents on Kubernetes
+
+This example demonstrates how to build change-driven agents with Drasi and Dapr Agents on Kubernetes. With only a handful of lines of code, users can subscribe agents to Drasi queries and allow agents to take action when complex business conditions in data sources (databases, streaming platforms) are satisfied.
+
+## Why use Drasi?
+
+Many systems need to consume data from other systems to be useful. Traditional polling may either result in unnecessary load on source systems, or stale data/unacceptable delays depending on the polling frequency. Custom change data capture (CDC) pipelines can power near real-time, change-driven systems at scale, but can be expensive (if managed) or difficult to set up and maintain (if self-hosted).
+
+For many use cases, [Drasi](https://drasi.io/) is a viable alternative. Drasi is a **CNCF Sandbox** project attempting to eliminate many of the tradeoffs mentioned above with a simple architecture centered around detecting and reacting to changes:
+- **Sources** to ingest data from existing systems (similar to *sources* in event processing terminology)
+- **Continuous** Queries that evaluate incoming data from different sources against user-defined, high-level "business conditions", and emit events when those conditions are satisfied
+- **Reactions** to push events to downstream consumers (similar to *sinks* in event processing terminology)
+
+## How it works (with this example)
+
+This example focuses on an inventory agent that automatically generates purchase orders. The agent should be triggered when it receives an event indicating that a product is "low" in stock (having stock less than some threshold), or "critical" (having no stock).
+
+Data lives in a Postgres instance — when a product's stock level dips below its threshold (or reaches zero), it emits a low-level change event that is tracked by two Drasi queries: one for "low" and one for "critical". All of the low-level changes are transparent to downstream consumers, as queries **only** emit change events when their conditions are satisfied. The inventory agent does not have to do any additional processing.
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-started/get-docker/)
+- [k3d](https://k3d.io/#installation)
+- [kubectl](https://kubernetes.io/docs/reference/kubectl/)
+- [Helm](https://helm.sh/docs/intro/install/)
+- [Drasi CLI](https://drasi.io/drasi-kubernetes/reference/command-line-interface/#get-the-drasi-cli)
+- [uv](https://docs.astral.sh/uv/) package manager
+- An API key for your preferred LLM provider
+- A Bash terminal
+
+## Setup
+
+### Configure LLM provider
+
+**NOTE:** Required fields and default values may vary between LLM providers. Please see the "Generic" section in the [Dapr Conversation component docs](https://docs.dapr.io/reference/components-reference/supported-conversation/) for a list
+of supported LLM providers and their expected structures.
+
+**Option 1: `.env` file**
+
+Create a `.env` file in the project root with your LLM provider configuration.
+
+Only the API key is strictly required:
+
+```properties
+DAPR_CONVERSATION_API_KEY=<YOUR_API_KEY>
+```
+
+The following configuration is (generally) optional.
+If they are not set, provider-specific defaults will be used:
+
+```properties
+DAPR_CONVERSATION_ENDPOINT=<YOUR_ENDPOINT>
+DAPR_CONVERSATION_MODEL=<YOUR_MODEL>
+DAPR_CONVERSATION_API_TYPE=<YOUR_API_TYPE>
+DAPR_CONVERSATION_API_VERSION=<YOUR_API_VERSION>
+```
+
+**Option 2: Environment variables**
+
+Alternatively, you can export your LLM provider configuration as environment variables:
+
+```bash
+export DAPR_CONVERSATION_API_KEY=<YOUR_API_KEY>
+export DAPR_CONVERSATION_ENDPOINT=<YOUR_ENDPOINT>
+export DAPR_CONVERSATION_MODEL=<YOUR_MODEL>
+export DAPR_CONVERSATION_API_TYPE=<YOUR_API_TYPE>
+export DAPR_CONVERSATION_API_VERSION=<YOUR_API_VERSION>
+```
+
+**Update Dapr conversation component type**
+
+Open `inventory-agent/components/agent-llm.yaml` and update `spec.type` according to your LLM provider.
+
+For example, the component type for OpenAI would be `conversation.openai`.
+
+### Create cluster
+
+Ensure that the current working directory is the directory containing this `README`:
+
+```bash
+echo $(pwd)
+```
+
+Then, run the following setup script:
+
+```bash
+./demo-setup.sh
+```
+
+This creates a `k3d`-managed cluster, installs Dapr and Drasi control plane services, and spins up several apps:
+  - **A Postgres instance** with a `products` table and seed product data
+  - **An inventory agent** configured to consume "low" and "critical" stock events from Drasi
+  - **A Diagrid Dashboard instance** to observe agent workflow executions
+
+Once the script completes, the Postgres instance and workflow dashboard should be accessible from the host machine on ports `5432` and `8080`, respectively.
+
+Before proceeding, ensure that the workflow dashboard is accessible at http://localhost:8080. Notice that there are no workflow executions at this stage.
+
+### Bring up Drasi resources
+
+**Option 1: Drasi CLI**
+
+All of the Drasi resource manifests (sources, queries, reactions) are found in `drasi/`.
+
+First, bring up the sources and wait for them to be ready:
+
+```bash
+drasi apply -f ./drasi/sources/products.yaml
+drasi wait -f ./drasi/sources/products.yaml -t 120
+```
+
+Bring up the queries and wait for them to be ready:
+
+```bash
+drasi apply -f ./drasi/queries/critical-stock-event.yaml
+drasi wait -f ./drasi/queries/critical-stock-event.yaml -t 120
+
+drasi apply -f ./drasi/queries/low-stock-event.yaml
+drasi wait -f ./drasi/queries/low-stock-event.yaml -t 120
+```
+
+Bring up the reactions and wait for them to be ready:
+
+```bash
+drasi apply -f ./drasi/reactions/inventory-events-publisher.yaml
+drasi wait -f ./drasi/reactions/inventory-events-publisher.yaml -t 120
+```
+
+You can verify that all of the resources are up with the following commands:
+
+```bash
+drasi list source
+drasi list query
+drasi list reaction
+```
+
+**Option 2: Drasi VS Code Extension**
+
+If you're using VS Code, you can manage Drasi resources interactively via the [Drasi VS Code extension](https://marketplace.visualstudio.com/items?itemName=DrasiProject.drasi).
+
+For a guide on how to use the extension, see the [Drasi documentation](https://drasi.io/drasi-kubernetes/reference/vscode-extension/).
+
+## View agent workflows
+
+Once the Drasi resources are up and running, open http://localhost:8080 once again to view the Diagrid Dashboard.
+
+At this point, you should be able to see several completed and/or in-flight agent workflow executions — the seed data in `products/values.yaml` contains several products that satisfy the "low" and "critical" stock conditions tracked by the Drasi queries. This causes Drasi to emit stock events, which are eventually consumed by the inventory agent.
+
+This demonstrates the drop-in capabilities of Drasi — it can work with existing data sources, while downstream services can be developed independently.
+
+## Experiment
+
+### Trigger more agent workflows
+
+Insert products directly into the `products` table and notice how agent workflow executions only occur for products that satisfy the "low" and "critical" stock conditions.
+
+You can use the following parameters to connect to the Postgres instance:
+- Host: `localhost`
+- Port: `5432`
+- Database: `postgres`
+- Username: `postgres`
+- Password: `postgres`
+
+### Adjust business conditions
+
+Update the Drasi queries in `drasi/queries/` by setting new thresholds for "low" and "critical" stock — no code changes necessary.
+
+For the new queries to take effect, you must first delete the existing resources in the cluster. For example, to delete the resource for `drasi/queries/low-stock-event.yaml`, run:
+
+```bash
+drasi delete -f ./drasi/queries/low-stock-event.yaml
+```
+
+Then, bring up the new query and wait for it to be ready:
+```bash
+drasi apply -f ./drasi/queries/low-stock-event.yaml
+drasi wait -f ./drasi/queries/low-stock-event.yaml -t 120
+```
+
+With the Drasi VS Code extension, simply click the trash icon next to the query you want to delete, then apply the new query.
+
+### Adapt for different use cases (advanced)
+
+Modify the inventory agent to perform another task, write a new Drasi query, or point Drasi to different sources with different entities. You can use the existing files as a starting point.
+
+Some useful documentation:
+- [Drasi extension for Dapr Agents](../../ext/dapr-agents-ext-drasi/README.md)
+- [Drasi query syntax](https://drasi.io/reference/query-language/)
+- [Supported Drasi sources](https://drasi.io/drasi-kubernetes/how-to-guides/configure-sources/)
+
+## Cleanup
+
+Once you're done experimenting, run the cleanup script to delete the `k3d`-managed cluster:
+
+```bash
+./demo-cleanup.sh
+```

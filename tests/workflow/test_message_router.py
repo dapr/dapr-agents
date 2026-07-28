@@ -39,6 +39,8 @@ from dapr_agents.workflow.utils.subscription import (
     MessageRouteBinding,
     TTLDedupeBackend,
     WorkflowStatus,
+    validate_hook,
+    _apply_mapper,
     _attach_metadata_to_payload,
     _build_binding_schema_pairs,
     _cancel_tasks,
@@ -52,7 +54,6 @@ from dapr_agents.workflow.utils.subscription import (
     _shutdown_thread,
     _validate_dead_letter_topics,
     _validate_delivery_mode,
-    _validate_filter,
     _warn_unreachable_bindings,
 )
 from dapr.clients.grpc._response import TopicEventResponseStatus
@@ -812,6 +813,75 @@ class TestTTLDedupeBackend:
 
 
 # ============================================================================
+# Fixtures/helpers for tests exercising the handler path
+# ============================================================================
+
+
+def _make_cloudevent(data: dict, **fields) -> dict:
+    """Build a dict that `extract_cloudevent_data` will treat as a CloudEvent."""
+    base = {
+        "id": "evt-1",
+        "data": data,
+        "datacontenttype": "application/json",
+        "pubsubname": "messagepubsub",
+        "source": "/test",
+        "specversion": "1.0",
+        "topic": "orders",
+        "type": "OrderCreated",
+        "extensions": {},
+    }
+    base.update(fields)
+    return base
+
+
+def _run_messages(
+    mock_dapr, mock_wf, target, messages: list[dict], *, deduper=None
+) -> None:
+    """Feed `messages` through the subscription thread and join cleanly."""
+    mock_dapr.subscribe.return_value.__iter__.return_value = iter(messages)
+    with patch(_PATCH_TARGET, return_value=mock_dapr):
+        closers = register_message_routes(
+            dapr_client=mock_dapr,
+            targets=[target],
+            wf_client=mock_wf,
+            deduper=deduper,
+        )
+    for closer in closers:
+        closer()
+
+
+def _run_one_message(mock_dapr, mock_wf, target, message: dict) -> None:
+    """Feed exactly one message through the subscription thread and join cleanly."""
+    _run_messages(mock_dapr, mock_wf, target, messages=[message])
+
+
+class _FakeTopicEventResponse:
+    """Test stand-in for the SDK's TopicEventResponse.
+
+    `conftest.py` mocks `dapr.clients.grpc._response`, so the real
+    `TopicEventResponse` is a `MagicMock` inside `subscription.py` and its
+    `.status` would be a chained mock. We patch it to a plain class so
+    `_normalize_status` can read the string back out.
+    """
+
+    def __init__(self, status: str) -> None:
+        self.status = status
+
+
+@pytest.fixture
+def filter_env(monkeypatch):
+    """Mock dapr_client + wf_client suitable for exercising the handler path."""
+    monkeypatch.setattr(
+        "dapr_agents.workflow.utils.subscription.TopicEventResponse",
+        _FakeTopicEventResponse,
+    )
+    mock_dapr = create_mock_dapr_client(["messagepubsub"])
+    mock_wf = MagicMock()
+    mock_wf.schedule_new_workflow.return_value = "instance-1"
+    return mock_dapr, mock_wf
+
+
+# ============================================================================
 # Filter behavior — payload_filter / model_filter
 # ============================================================================
 
@@ -880,7 +950,7 @@ def test_message_router_rejects_non_callable_filter():
             pass
 
 
-def test_message_router_rejects_callable_with_async_dunder_call():
+def test_message_router_rejects_callable_filter_with_async_dunder_call():
     """Callable objects whose `__call__` is `async def` are rejected too."""
 
     class AsyncCallableFilter:
@@ -1009,62 +1079,6 @@ def test_pubsub_route_spec_falls_back_to_decorator_filter():
 # Behavioral tests via mock subscription
 
 
-def _make_cloudevent(data: dict, **fields) -> dict:
-    """Build a dict that `extract_cloudevent_data` will treat as a CloudEvent."""
-    base = {
-        "id": "evt-1",
-        "data": data,
-        "datacontenttype": "application/json",
-        "pubsubname": "messagepubsub",
-        "source": "/test",
-        "specversion": "1.0",
-        "topic": "orders",
-        "type": "OrderCreated",
-        "extensions": {},
-    }
-    base.update(fields)
-    return base
-
-
-def _run_one_message(mock_dapr, mock_wf, target, message: dict) -> None:
-    """Feed exactly one message through the subscription thread and join cleanly."""
-    mock_dapr.subscribe.return_value.__iter__.return_value = iter([message])
-    with patch(_PATCH_TARGET, return_value=mock_dapr):
-        closers = register_message_routes(
-            dapr_client=mock_dapr,
-            targets=[target],
-            wf_client=mock_wf,
-        )
-    for closer in closers:
-        closer()  # joins the consumer thread after the iterator is exhausted
-
-
-class _FakeTopicEventResponse:
-    """Test stand-in for the SDK's TopicEventResponse.
-
-    `conftest.py` mocks `dapr.clients.grpc._response`, so the real
-    `TopicEventResponse` is a `MagicMock` inside `subscription.py` and its
-    `.status` would be a chained mock. We patch it to a plain class so
-    `_normalize_status` can read the string back out.
-    """
-
-    def __init__(self, status: str) -> None:
-        self.status = status
-
-
-@pytest.fixture
-def filter_env(monkeypatch):
-    """Mock dapr_client + wf_client suitable for exercising the handler path."""
-    monkeypatch.setattr(
-        "dapr_agents.workflow.utils.subscription.TopicEventResponse",
-        _FakeTopicEventResponse,
-    )
-    mock_dapr = create_mock_dapr_client(["messagepubsub"])
-    mock_wf = MagicMock()
-    mock_wf.schedule_new_workflow.return_value = "instance-1"
-    return mock_dapr, mock_wf
-
-
 def test_payload_filter_accept_schedules_workflow(filter_env):
     mock_dapr, mock_wf = filter_env
 
@@ -1191,7 +1205,7 @@ def test_payload_filter_runs_once_per_binding_for_union(filter_env):
     assert not mock_wf.schedule_new_workflow.called
 
 
-def test_message_context_exposes_event_and_handler_name(filter_env):
+def test_filter_message_context_exposes_event_and_handler_name(filter_env):
     mock_dapr, mock_wf = filter_env
     captured: list = []
 
@@ -1225,22 +1239,428 @@ def test_message_context_exposes_event_and_handler_name(filter_env):
 
 
 # ============================================================================
-# Dedup behavior — mark on terminal outcome, not on arrival
+# Mapping behavior
 # ============================================================================
 
 
-def _run_messages(mock_dapr, mock_wf, target, messages, *, deduper=None) -> None:
-    """Feed `messages` through the subscription thread and join cleanly."""
-    mock_dapr.subscribe.return_value.__iter__.return_value = iter(messages)
-    with patch(_PATCH_TARGET, return_value=mock_dapr):
-        closers = register_message_routes(
-            dapr_client=mock_dapr,
-            targets=[target],
-            wf_client=mock_wf,
-            deduper=deduper,
+def test_message_router_with_mapper():
+    """mapper callable is stored on the decorator metadata."""
+
+    def mapper(model, msg_ctx):
+        return model
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=mapper,
+    )
+    def handler(message):
+        pass
+
+    assert handler._message_router_data["mapper"] is mapper
+
+
+def test_message_router_rejects_async_mapper():
+    """Async mapper is rejected at decoration time."""
+
+    async def mapper(model, msg_ctx):
+        return True
+
+    with pytest.raises(TypeError, match="mapper.*synchronous"):
+
+        @message_router(
+            pubsub="messagepubsub",
+            topic="orders",
+            message_model=OrderCreated,
+            mapper=mapper,
         )
-    for closer in closers:
-        closer()
+        def handler(message):
+            pass
+
+
+def test_message_router_rejects_non_callable_mapper():
+    """Non-callable mapper values are rejected at decoration time."""
+
+    with pytest.raises(TypeError, match="mapper.*callable"):
+
+        @message_router(
+            pubsub="messagepubsub",
+            topic="orders",
+            message_model=OrderCreated,
+            mapper=False,
+        )
+        def handler(message):
+            pass
+
+
+def test_message_router_rejects_callable_mapper_with_async_dunder_call():
+    """Callable mapper objects whose `__call__` is `async def` are rejected too."""
+
+    class AsyncCallableMapper:
+        async def __call__(self, model, msg_ctx):
+            return {}
+
+    with pytest.raises(TypeError, match="mapper.*synchronous"):
+
+        @message_router(
+            pubsub="messagepubsub",
+            topic="orders",
+            message_model=OrderCreated,
+            mapper=AsyncCallableMapper(),
+        )
+        def handler(message):
+            pass
+
+
+def test_collect_bindings_carries_decorator_mapper():
+    """_collect_message_bindings propagates mapper from decorator metadata."""
+    from dapr_agents.workflow.utils.registration import _collect_message_bindings
+
+    def mapper(payload, msg_ctx):
+        return {}
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=mapper,
+    )
+    def handler(message):
+        pass
+
+    bindings = _collect_message_bindings(targets=[handler], routes=None)
+    assert len(bindings) == 1
+    assert bindings[0].mapper is mapper
+
+
+def test_pubsub_route_spec_mapper_wins_over_decorator():
+    """When PubSubRouteSpec carries a mapper, it overrides the decorator's."""
+    from dapr_agents.types.workflow import PubSubRouteSpec
+    from dapr_agents.workflow.utils.registration import _collect_message_bindings
+
+    def deco_mapper(payload, msg_ctx):
+        return {}
+
+    def spec_mapper(payload, msg_ctx):
+        return {}
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=deco_mapper,
+    )
+    def handler(message):
+        pass
+
+    spec = PubSubRouteSpec(
+        pubsub_name="messagepubsub",
+        topic="orders",
+        handler_fn=handler,
+        message_model=OrderCreated,
+        mapper=spec_mapper,
+    )
+    bindings = _collect_message_bindings(targets=None, routes=[spec])
+    assert bindings[0].mapper is spec_mapper
+
+
+def test_pubsub_route_spec_rejects_async_mapper():
+    """Async mapper via PubSubRouteSpec is rejected at binding collection."""
+    from dapr_agents.types.workflow import PubSubRouteSpec
+    from dapr_agents.workflow.utils.registration import _collect_message_bindings
+
+    async def mapper(payload, msg_ctx):
+        return {}
+
+    def handler(message):
+        pass
+
+    spec = PubSubRouteSpec(
+        pubsub_name="messagepubsub",
+        topic="orders",
+        handler_fn=handler,
+        message_model=OrderCreated,
+        mapper=mapper,
+    )
+    with pytest.raises(TypeError, match="mapper.*synchronous"):
+        _collect_message_bindings(targets=None, routes=[spec])
+
+
+def test_pubsub_route_spec_rejects_non_callable_mapper():
+    """Non-callable mapper via PubSubRouteSpec is rejected at binding collection."""
+    from dapr_agents.types.workflow import PubSubRouteSpec
+    from dapr_agents.workflow.utils.registration import _collect_message_bindings
+
+    def handler(message):
+        pass
+
+    spec = PubSubRouteSpec(
+        pubsub_name="messagepubsub",
+        topic="orders",
+        handler_fn=handler,
+        message_model=OrderCreated,
+        mapper=False,
+    )
+    with pytest.raises(TypeError, match="mapper.*callable"):
+        _collect_message_bindings(targets=None, routes=[spec])
+
+
+def test_pubsub_route_spec_falls_back_to_decorator_mapper():
+    """When PubSubRouteSpec omits a mapper, the decorator's is used."""
+    from dapr_agents.types.workflow import PubSubRouteSpec
+    from dapr_agents.workflow.utils.registration import _collect_message_bindings
+
+    def deco_mapper(payload, msg_ctx):
+        return {}
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=deco_mapper,
+    )
+    def handler(message):
+        pass
+
+    spec = PubSubRouteSpec(
+        pubsub_name="messagepubsub", topic="orders", handler_fn=handler
+    )
+    bindings = _collect_message_bindings(targets=None, routes=[spec])
+    assert bindings[0].mapper is deco_mapper
+
+
+# Behavioral tests via mock subscription
+
+
+def test_mapper_dict_model_schedules_workflow(filter_env):
+    mock_dapr, mock_wf = filter_env
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=lambda m, msg_ctx: {"foo": "bar"},
+    )
+    def handler(message):
+        return "ok"
+
+    msg = _make_cloudevent({"order_id": "1", "amount": 1000.0, "customer": "Bob"})
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert mock_wf.schedule_new_workflow.called
+    assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["foo"] == "bar"
+
+
+def test_mapper_pydantic_model_schedules_workflow(filter_env):
+    mock_dapr, mock_wf = filter_env
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=lambda m, msg_ctx: OrderCancelled(
+            order_id=m.order_id, reason="Buyers remorse"
+        ),
+    )
+    def handler(message):
+        return "ok"
+
+    msg = _make_cloudevent({"order_id": "1", "amount": 1000.0, "customer": "Bob"})
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert mock_wf.schedule_new_workflow.called
+    assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["order_id"] == "1"
+    assert (
+        mock_wf.schedule_new_workflow.call_args.kwargs["input"]["reason"]
+        == "Buyers remorse"
+    )
+
+
+def test_mapper_dataclass_model_schedules_workflow(filter_env):
+    mock_dapr, mock_wf = filter_env
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=lambda m, msg_ctx: ShipmentCreated(
+            shipment_id="s1", order_id=m.order_id, carrier="UPS"
+        ),
+    )
+    def handler(message):
+        return "ok"
+
+    msg = _make_cloudevent({"order_id": "1", "amount": 1000.0, "customer": "Bob"})
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert mock_wf.schedule_new_workflow.called
+    assert (
+        mock_wf.schedule_new_workflow.call_args.kwargs["input"]["shipment_id"] == "s1"
+    )
+    assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["order_id"] == "1"
+    assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["carrier"] == "UPS"
+
+
+def test_mapper_mutated_model_schedules_workflow(filter_env):
+    mock_dapr, mock_wf = filter_env
+
+    def mapper(model: OrderCreated, msg_ctx):
+        model.amount = 0.0
+        return model
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=mapper,
+    )
+    def handler(message):
+        return "ok"
+
+    msg = _make_cloudevent({"order_id": "1", "amount": 1000.0, "customer": "Bob"})
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert mock_wf.schedule_new_workflow.called
+    assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["order_id"] == "1"
+    assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["amount"] == 0.0
+    assert mock_wf.schedule_new_workflow.call_args.kwargs["input"]["customer"] == "Bob"
+
+
+def test_mapper_non_json_serializable_model_skips_binding(filter_env):
+    mock_dapr, mock_wf = filter_env
+
+    def mapper(value, msg_ctx):
+        return False
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=mapper,
+    )
+    def handler(message):
+        return "ok"
+
+    msg = _make_cloudevent({"order_id": "1", "amount": 1000.0, "customer": "Bob"})
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert not mock_wf.schedule_new_workflow.called
+
+
+def test_mapper_exception_skips_binding(filter_env):
+    mock_dapr, mock_wf = filter_env
+
+    def mapper(model, msg_ctx):
+        raise RuntimeError("fahh")
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=mapper,
+    )
+    def handler(message):
+        return "ok"
+
+    msg = _make_cloudevent({"order_id": "1", "amount": 1000.0, "customer": "Bob"})
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert not mock_wf.schedule_new_workflow.called
+
+
+def test_mapper_failure_skips_remaining_schemas_of_binding(filter_env):
+    """A mapper failure on one schema must skip the binding's other schemas."""
+    mock_dapr, mock_wf = filter_env
+    call_count = {"n": 0}
+
+    def failing_mapper(model, msg_ctx):
+        call_count["n"] += 1
+        return False
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=Union[OrderCreated, OrderCancelled],
+        mapper=failing_mapper,
+    )
+    def handler(message):
+        return "ok"
+
+    # Loose payload that validates against both OrderCreated and OrderCancelled
+    msg = _make_cloudevent(
+        {"order_id": "1", "amount": 1000.0, "customer": "Bob"}, type="Unknown"
+    )
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert call_count["n"] == 1
+    assert not mock_wf.schedule_new_workflow.called
+
+
+def test_mapper_runs_once_per_binding_for_union(filter_env):
+    """For a binding with multiple schemas, mapper is evaluated once."""
+    mock_dapr, mock_wf = filter_env
+    call_count = {"n": 0}
+
+    def counting_mapper(model, msg_ctx):
+        call_count["n"] += 1
+        return False  # mapper always fails so we exhaust every schema slot
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=Union[OrderCreated, OrderCancelled],
+        mapper=counting_mapper,
+    )
+    def handler(message):
+        return "ok"
+
+    msg = _make_cloudevent(
+        {"order_id": "1", "amount": 1000.0, "customer": "Bob"}, type="Unknown"
+    )
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert call_count["n"] == 1
+    assert not mock_wf.schedule_new_workflow.called
+
+
+def test_mapper_message_context_exposes_event_and_handler_name(filter_env):
+    mock_dapr, mock_wf = filter_env
+    captured: list = []
+
+    def capturing(model, msg_ctx):
+        captured.append(msg_ctx)
+        return model
+
+    @message_router(
+        pubsub="messagepubsub",
+        topic="orders",
+        message_model=OrderCreated,
+        mapper=capturing,
+    )
+    def handler(message):
+        return "ok"
+
+    msg = _make_cloudevent(
+        {"order_id": "1", "amount": 1000.0, "customer": "Bob"},
+        id="evt-67",
+        source="/api/orders",
+        type="OrderCreated",
+    )
+    _run_one_message(mock_dapr, mock_wf, handler, msg)
+
+    assert len(captured) == 1
+    msg_ctx = captured[0]
+    assert msg_ctx.event.id == "evt-67"
+    assert msg_ctx.event.source == "/api/orders"
+    assert msg_ctx.event.topic == "orders"
+    assert msg_ctx.event.type == "OrderCreated"
+    assert msg_ctx.handler_name == "handler"
+
+
+# ============================================================================
+# Dedup behavior — mark on terminal outcome, not on arrival
+# ============================================================================
 
 
 def test_dedup_success_drops_redelivery(filter_env):
@@ -1411,6 +1831,37 @@ def _msg_ctx(handler_name: str = "handler") -> MessageContext:
     return MessageContext(event=event, handler_name=handler_name)
 
 
+# ---- validate_hook ------------------------------------------------------
+
+
+def test_validate_hook_none_and_sync_are_ok():
+    validate_hook(None, "payload_filter")
+    validate_hook(lambda v, c: True, "model_filter")
+    validate_hook(lambda v, c: False, "mapper")
+
+
+def test_validate_hook_rejects_non_callable():
+    with pytest.raises(TypeError, match="payload_filter.*callable"):
+        validate_hook(42, "payload_filter")
+
+
+def test_validate_hook_rejects_async_function():
+    async def f(v, c):
+        return True
+
+    with pytest.raises(TypeError, match="model_filter.*synchronous"):
+        validate_hook(f, "model_filter")
+
+
+def test_validate_hook_rejects_async_dunder_call():
+    class AsyncCallable:
+        async def __call__(self, v, c):
+            return True
+
+    with pytest.raises(TypeError, match="mapper.*synchronous"):
+        validate_hook(AsyncCallable(), "mapper")
+
+
 # ---- _validate_delivery_mode ----------------------------------------------
 
 
@@ -1422,36 +1873,6 @@ def test_validate_delivery_mode_accepts_known_modes():
 def test_validate_delivery_mode_rejects_unknown():
     with pytest.raises(ValueError, match="delivery_mode must be"):
         _validate_delivery_mode("turbo")
-
-
-# ---- _validate_filter ------------------------------------------------------
-
-
-def test_validate_filter_none_and_sync_are_ok():
-    _validate_filter(None, "payload_filter")
-    _validate_filter(lambda v, c: True, "payload_filter")
-
-
-def test_validate_filter_rejects_non_callable():
-    with pytest.raises(TypeError, match="payload_filter.*callable"):
-        _validate_filter(42, "payload_filter")
-
-
-def test_validate_filter_rejects_async_function():
-    async def f(v, c):
-        return True
-
-    with pytest.raises(TypeError, match="model_filter.*synchronous"):
-        _validate_filter(f, "model_filter")
-
-
-def test_validate_filter_rejects_async_dunder_call():
-    class AsyncCallable:
-        async def __call__(self, v, c):
-            return True
-
-    with pytest.raises(TypeError, match="payload_filter.*synchronous"):
-        _validate_filter(AsyncCallable(), "payload_filter")
 
 
 # ---- _validate_dead_letter_topics -----------------------------------------
@@ -1564,6 +1985,10 @@ def test_normalize_status_unknown_returns_none():
     assert _normalize_status("teapot") is None
 
 
+def test_normalize_status_non_str_non_enum_returns_none():
+    assert _normalize_status(None) is None
+
+
 # ---- _filter_accepts -------------------------------------------------------
 
 
@@ -1616,6 +2041,93 @@ def test_filter_accepts_swallows_exception_as_rejection(caplog):
         )
     assert result is False
     assert "bind-x" in caplog.text
+
+
+# ---- _apply_mapper ------------------------------------------
+
+
+def test_apply_mapper_passes_through_value_when_no_mapper():
+    value = {"messi": 10}
+    result = _apply_mapper(None, value, _msg_ctx(), binding_name="pr")
+    assert result is value
+
+
+def test_apply_mapper_forwards_value_and_context():
+    seen = {}
+
+    def mapper(value, ctx):
+        seen["value"] = value
+        seen["ctx"] = ctx
+        return {"lamont yall": 10}
+
+    value = {"lamont yall": 10}
+    ctx = _msg_ctx()
+    result = _apply_mapper(mapper, value, ctx, binding_name="jamal")
+    assert result == value
+    assert seen["value"] is value
+    assert seen["ctx"] is ctx
+
+
+def test_apply_mapper_allows_mutation():
+    def mapper(value, ctx):
+        value["endo"] = 3
+        return value
+
+    value = {"mitoma": 9}
+    result = _apply_mapper(mapper, value, _msg_ctx(), binding_name="jpn")
+    assert result is value
+
+
+def test_apply_mapper_returns_dict():
+    def mapper(value, ctx):
+        return {"mbappe": 10}
+
+    result = _apply_mapper(mapper, {}, _msg_ctx(), binding_name="offside")
+    assert result == {"mbappe": 10}
+
+
+def test_apply_mapper_returns_pydantic_model():
+    def mapper(value, ctx):
+        return OrderCreated(
+            order_id="therapy-sessions-1",
+            amount=50000000.0,
+            customer="italian sports fans",
+        )
+
+    result = _apply_mapper(mapper, {}, _msg_ctx(), binding_name="therapy")
+    assert result == OrderCreated(
+        order_id="therapy-sessions-1", amount=50000000.0, customer="italian sports fans"
+    )
+
+
+def test_apply_mapper_returns_dataclass():
+    def mapper(value, ctx):
+        return ShipmentCreated(
+            shipment_id="s1",
+            order_id="therapy-sessions-1",
+            carrier="italian therapists",
+        )
+
+    result = _apply_mapper(mapper, {}, _msg_ctx(), binding_name="therapy")
+    assert result == ShipmentCreated(
+        shipment_id="s1", order_id="therapy-sessions-1", carrier="italian therapists"
+    )
+
+
+def test_apply_mapper_mapper_exception_propagates():
+    def mapper(value, ctx):
+        raise RuntimeError("yellow")
+
+    with pytest.raises(RuntimeError, match="yellow"):
+        _apply_mapper(mapper, {}, _msg_ctx(), binding_name="flop")
+
+
+def test_apply_mapper_non_json_serializable_model_raises():
+    def mapper(value, ctx):
+        return "handball"
+
+    with pytest.raises(TypeError, match="returned unsupported model type"):
+        _apply_mapper(mapper, {}, _msg_ctx(), binding_name="var")
 
 
 # ---- _attach_metadata_to_payload ------------------------------------------

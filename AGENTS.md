@@ -37,13 +37,32 @@ limitations under the License.
 - Types: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `perf`, `ci`, `style`, `build`
 - Example: `feat(agents): add new orchestrator` or `fix(llm): handle timeout errors`
 
+**Sign-off (REQUIRED)**: Every commit must carry a DCO `Signed-off-by` line — add it automatically with `git commit -s`. The DCO bot blocks the PR if any commit is unsigned. See [CONTRIBUTING.md](./CONTRIBUTING.md#developer-certificate-of-origin-signing-your-work).
+
 **Versioning**:
 Dapr Agents use semantic versioning for releasing. Prefer making changes that allow backward compatability.
+
+**License Header**: Every new `.py` file (source and test) must start with the Apache 2.0 header below — copied verbatim, `#`-comment style, with the year `2026`, followed by a blank line before the first import or docstring:
+
+```python
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+```
 
 **Code Quality** (enforced by CI):
 - **Python version**: >=3.11
 - **Formatting**: ruff (auto-format, no exceptions)
-- **Linting**: flake8 (ignores: E501, F401, W503, E203)
+- **Linting**: flake8 (ignores: E501, F401, W503, E203, E704)
 - **Type Checking**: mypy (config: `./mypy.ini`)
 - **All checks MUST pass** before merge
 - **General**:
@@ -80,10 +99,11 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
 1. Run `uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"` locally - all checks must pass
 2. Use conventional commit format for PR title
 3. Update docs in `dapr/docs` repo for: API changes, new features, breaking changes, config options
+   - **Not required** for internal-only changes (bug fixes, refactors, performance, tests) that don't change the public API, features, config options, or documented/observable behavior
 4. Include "AGENTS.md Notes" in the PR with suggestions to make this prompt better
 
 **PR Will Fail If**:
-- Commits are not signed
+- Commits are not signed (missing DCO `Signed-off-by`; use `git commit -s`)
 - Not formatted with ruff
 - Flake8 errors exist
 - Mypy type errors present

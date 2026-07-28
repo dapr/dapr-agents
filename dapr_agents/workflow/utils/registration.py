@@ -40,7 +40,7 @@ from dapr_agents.workflow.utils.routers import parse_http_json
 from dapr_agents.workflow.utils.subscription import (
     DedupeBackend,
     MessageRouteBinding,
-    _validate_filter,
+    validate_hook,
     subscribe_message_bindings,
 )
 
@@ -165,6 +165,7 @@ def _collect_message_bindings(
                         name=getattr(bound, "__name__", str(bound)),
                         payload_filter=meta.get("payload_filter"),
                         model_filter=meta.get("model_filter"),
+                        mapper=meta.get("mapper"),
                     )
                 )
 
@@ -178,8 +179,9 @@ def _collect_message_bindings(
                 schemas = list(meta.get("message_schemas"))
             else:
                 schemas = [dict]
-            _validate_filter(spec.payload_filter, "payload_filter")
-            _validate_filter(spec.model_filter, "model_filter")
+            validate_hook(spec.payload_filter, "payload_filter")
+            validate_hook(spec.model_filter, "model_filter")
+            validate_hook(spec.mapper, "mapper")
             meta_dict = meta or {}
             payload_filter = (
                 spec.payload_filter
@@ -191,6 +193,7 @@ def _collect_message_bindings(
                 if spec.model_filter is not None
                 else meta_dict.get("model_filter")
             )
+            mapper = spec.mapper if spec.mapper is not None else meta_dict.get("mapper")
             bindings.append(
                 MessageRouteBinding(
                     handler=bound,
@@ -201,6 +204,7 @@ def _collect_message_bindings(
                     name=getattr(bound, "__name__", str(bound)),
                     payload_filter=payload_filter,
                     model_filter=model_filter,
+                    mapper=mapper,
                 )
             )
 

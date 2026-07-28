@@ -15,7 +15,6 @@ from typing import Any
 from pydantic import (
     BaseModel,
     field_validator,
-    ValidationError,
     model_validator,
     ConfigDict,
 )
@@ -99,13 +98,13 @@ class FunctionCall(BaseModel):
             try:
                 return json.dumps(v)
             except TypeError as e:
-                raise ValidationError(f"Invalid data type in dictionary: {e}")
+                raise ValueError(f"Invalid data type in dictionary: {e}")
         elif isinstance(v, str):
             try:
                 json.loads(v)  # This is to check if it's valid JSON
                 return v
             except json.JSONDecodeError as e:
-                raise ValidationError(f"Invalid JSON format: {e}")
+                raise ValueError(f"Invalid JSON format: {e}")
         else:
             raise TypeError(f"Unsupported type for field: {type(v)}")
 

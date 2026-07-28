@@ -1,0 +1,19 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: Notification.yaml
+type: object
+properties:
+  op:
+    $ref: Op.yaml
+  ts_ms:
+    type: integer
+  metadata:
+    $ref: "#/$defs/RecordUnknown"
+required:
+  - op
+  - ts_ms
+title: Notification
+$defs:
+  RecordUnknown:
+    type: object
+    properties: {}
+    additionalProperties: {}

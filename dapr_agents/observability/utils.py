@@ -334,6 +334,8 @@ def resolve_provider_name(instance: Any) -> str:
         return "openai"
     if "nvidia" in module:
         return "nvidia"
+    if "iflytek" in module:
+        return "iflytek"
     if "huggingface" in module:
         return "huggingface"
     return "unknown"

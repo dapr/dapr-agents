@@ -172,15 +172,18 @@ The application entry point registers the workflow and sets up the pub/sub subsc
 - The workflow function itself is passed as the target, not a separate handler function
 - When a message arrives, `register_message_routes` validates it and automatically schedules the workflow
 
-## Filtering messages (`payload_filter` / `model_filter`)
+## Hooks (`payload_filter` / `model_filter` / `mapper`)
 
 `@message_router` accepts two optional callables that decide whether a message
-triggers the workflow. Both receive a `MessageContext` (the CloudEvent envelope).
+triggers the workflow, and an optional callable to decide the shape of the final message
+accepted as the workflow input. All receive a `MessageContext` (the CloudEvent envelope).
 
 - **`payload_filter(data, msg_ctx)`** runs before schema validation. Suited to
   cheap checks against the raw CloudEvent data or its envelope metadata
   (`msg_ctx.event.source`, `msg_ctx.event.type`, headers).
 - **`model_filter(model, msg_ctx)`** runs after schema validation, against the
+  parsed instance.
+- **`mapper(model, msg_ctx)`** runs as the last step after schema validation and filtering, against the
   parsed instance.
 
 ```python
@@ -189,28 +192,37 @@ from dapr_agents.workflow import MessageContext, message_router
 def is_high_priority(model: StartBlogMessage, msg_ctx: MessageContext) -> bool:
     return model.topic.startswith("URGENT:")
 
+def make_blog_outline(model: StartBlogMessage, msg_ctx: MessageContext) -> dict:
+    return {"title": model.topic.removeprefix("URGENT:"), "author": "your name", "content": "lorem ipsum"}
+
 @message_router(
     pubsub="messagepubsub",
     topic="blog.requests",
     message_model=StartBlogMessage,
     model_filter=is_high_priority,
+    mapper=make_blog_outline,
 )
 def urgent_blog_workflow(ctx, wf_input: dict) -> str:
     ...
 ```
 
-Returning `False` skips the binding (the next binding on the same topic is
+For filters, returning `False` skips the binding (the next binding on the same topic is
 tried, or the message is DROP-ack'd if nothing matches). Raising an exception
 also drops the binding (but logs the traceback), so a bug in a filter never
 pins a topic in a retry loop.
 
-> **Filters are on the critical path of message intake.** They run on the
+For mappers, return values must be JSON-serializable model instances (e.g. dict, Pydantic, dataclass).
+A non-JSON-serializable model instance logs the traceback and skips the binding
+(the next binding on the same topic is tried, or the message is DROP-ack'd if nothing matches).
+Raising an exception has the exact same semantics.
+
+> **Hooks are on the critical path of message intake.** They run on the
 > per-topic consumer thread and **block further messages from being read**
 > until they return. Keep them in-memory, side-effect-free, and fast. If you
 > need an external check (database lookup, HTTP call, state-store read), do
 > it inside the workflow body and return early there.
 
-> **`async def` filters are rejected at decoration time.** They look like
+> **`async def` hooks are rejected at decoration time.** They look like
 > they'd run concurrently, but the consumer thread would still block waiting
 > for the result, so the library refuses them to avoid the misleading
 > appearance of concurrency.
