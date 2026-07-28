@@ -1,0 +1,54 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+#
+# This workflow runs in the unprivileged pull_request context. Its output is
+# treated as data by the privileged workflow that posts comments.
+#
+
+name: Schema Compatibility Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  schema-compat-check:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout base branch
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        path: base
+    - name: Checkout pull request
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        path: head
+    - name: Check if schema changed
+      id: schema-diff
+      run: |
+        if diff -q base/schemas/agent-metadata/latest.json head/schemas/agent-metadata/latest.json > /dev/null 2>&1; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Check for breaking schema changes
+      if: steps.schema-diff.outputs.changed == 'true'
+      run: |
+        python head/scripts/check_schema_compat.py \
+          --old "$GITHUB_WORKSPACE/base/schemas/agent-metadata/latest.json" \
+          > report.md
+    - name: Write no-change report
+      if: steps.schema-diff.outputs.changed != 'true'
+      run: echo "No metadata schema changes detected." > report.md
+    - name: Upload compatibility report
+      uses: actions/upload-artifact@v4
+      with:
+        name: schema-compat-report
+        path: report.md
