@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import MagicMock, patch
@@ -145,3 +146,20 @@ def test_run_workflow_retry_on_transient_grpc_error():
 
     assert result == "id-retry-success"
     assert client.schedule_new_workflow.call_count == 2
+
+
+def test_wait_retries_when_workflow_actor_is_deactivated():
+    """A transient actor deactivation must not fail an otherwise valid wait."""
+    client = MagicMock()
+    final_state = MagicMock(runtime_status="COMPLETED")
+    client.wait_for_workflow_completion.side_effect = [
+        RuntimeError("actor is closed, cannot handle deactivated"),
+        final_state,
+    ]
+    runner = _make_runner(client)
+
+    with patch("dapr_agents.workflow.runners.base.time.sleep"):
+        result = asyncio.run(runner._await_state("instance-123", 30, True))
+
+    assert result is final_state
+    assert client.wait_for_workflow_completion.call_count == 2

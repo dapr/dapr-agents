@@ -567,11 +567,34 @@ class WorkflowRunner(SignalMixin):
         """
 
         def _wait() -> Optional[WorkflowState]:
-            return self._wf_client.wait_for_workflow_completion(
-                instance_id,
-                fetch_payloads=fetch_payloads,
-                timeout_in_seconds=timeout_in_seconds,
-            )
+            # Dapr may deactivate an idle workflow actor while a streaming
+            # completion RPC is in flight. The workflow is still valid; retry
+            # the wait so the client can reconnect to the reactivated actor.
+            max_retries = 3
+            retry_delay = 0.1
+            for attempt in range(max_retries + 1):
+                try:
+                    return self._wf_client.wait_for_workflow_completion(
+                        instance_id,
+                        fetch_payloads=fetch_payloads,
+                        timeout_in_seconds=timeout_in_seconds,
+                    )
+                except Exception as exc:
+                    if (
+                        "actor is closed" not in str(exc).lower()
+                        or attempt == max_retries
+                    ):
+                        raise
+                    logger.warning(
+                        "[%s] Workflow actor deactivated while waiting for %s; "
+                        "retrying (%d/%d)",
+                        self._name,
+                        instance_id,
+                        attempt + 1,
+                        max_retries,
+                    )
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
 
         return await asyncio.to_thread(_wait)
 
