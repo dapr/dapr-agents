@@ -17,7 +17,7 @@ def _wire(runner, agent):
 
 
 def test_rewires_pubsub_routes_when_specs_change():
-    runner = AgentRunner(wf_client=MagicMock(), dapr_client=MagicMock())
+    runner = AgentRunner(wf_client=MagicMock(), client_factory=lambda: MagicMock())
     agent = MagicMock(pubsub=object())
     first_handler = MagicMock()
     second_handler = MagicMock()
@@ -41,7 +41,7 @@ def test_rewires_pubsub_routes_when_specs_change():
 
 
 def test_does_not_reregister_identical_pubsub_specs():
-    runner = AgentRunner(wf_client=MagicMock(), dapr_client=MagicMock())
+    runner = AgentRunner(wf_client=MagicMock(), client_factory=lambda: MagicMock())
     agent = MagicMock(pubsub=object())
     handler = MagicMock()
     specs = [PubSubRouteSpec("pubsub", "topic", handler)]
