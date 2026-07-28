@@ -87,6 +87,7 @@ class AgentRunner(WorkflowRunner):
         #   _activation_closers  — teardown closers per agent, drained on shutdown
         self._activated_agent_ids: set[int] = set()
         self._activation_closers: Dict[int, List[Callable[[], None]]] = {}
+        self._pubsub_specs: list[PubSubRouteSpec] = []
 
     @staticmethod
     async def _ensure_mcp_connected(agent: DurableAgent) -> None:
@@ -429,11 +430,18 @@ class AgentRunner(WorkflowRunner):
 
         specs = self._build_pubsub_specs(agent, config)
         if not specs:
+            if self._wired_pubsub:
+                self.unwire_pubsub()
+            self._pubsub_specs = []
             return
 
         self._ensure_dapr_client()
-        if self._wired_pubsub or self._dapr_client is None:
+        if self._dapr_client is None:
             return
+        if self._wired_pubsub:
+            if specs == self._pubsub_specs:
+                return
+            self.unwire_pubsub()
 
         try:
             deduper = TTLDedupeBackend()
@@ -458,6 +466,7 @@ class AgentRunner(WorkflowRunner):
             client_factory=self._client_factory,
         )
         self._pubsub_closers.extend(closers)
+        self._pubsub_specs = specs
         self._wired_pubsub = True
 
     def _wire_http_routes(
