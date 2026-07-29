@@ -13,54 +13,48 @@
 
 name: Schema Compatibility Comment
 
-# pull_request_target grants a privileged token (required to comment on fork
-# PRs), so this job must never check out or execute code from the PR head.
-# Only the trusted base branch is checked out; the head's schema file is
-# fetched as inert data through git and passed to the base branch's script.
 on:
-  pull_request_target:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["Schema Compatibility Check"]
+    types:
+      - completed
 
 jobs:
   schema-compat-comment:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       pull-requests: write
+      actions: read
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
     steps:
-    - name: Checkout base branch
-      uses: actions/checkout@v6
-      with:
-        ref: ${{ github.event.pull_request.base.sha }}
-    - name: Fetch PR head schema as data
-      id: schema-diff
-      env:
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-      run: |
-        git fetch --depth=1 origin "refs/pull/${PR_NUMBER}/head"
-        if ! git show FETCH_HEAD:schemas/agent-metadata/latest.json > "$RUNNER_TEMP/head-latest.json" 2>/dev/null; then
-          echo "Schema file not present on PR head — skipping check."
-          echo "changed=false" >> "$GITHUB_OUTPUT"
-        elif diff -q schemas/agent-metadata/latest.json "$RUNNER_TEMP/head-latest.json" > /dev/null 2>&1; then
-          echo "changed=false" >> "$GITHUB_OUTPUT"
-        else
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-        fi
-    - name: Check for breaking schema changes
-      if: steps.schema-diff.outputs.changed == 'true'
+    - name: Download schema report artifact
       env:
         GH_TOKEN: ${{ github.token }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
-        REPORT=$(python3 scripts/check_schema_compat.py \
-          --old schemas/agent-metadata/latest.json \
-          --new "$RUNNER_TEMP/head-latest.json")
-        if echo "$REPORT" | grep -q "Breaking"; then
-          gh pr comment "$PR_NUMBER" \
-            --body "## Metadata Schema Compatibility Report
-
-        $REPORT
-
-        > This is informational — breaking changes may be intentional for a new release."
+        RUN_ID="${{ github.event.workflow_run.id }}"
+        gh run download "$RUN_ID" --name schema-compat-report --dir /tmp/schema-report-dir 2>/dev/null || true
+    - name: Comment on PR if breaking changes
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        REPORT_FILE="/tmp/schema-report-dir/schema-report.md"
+        if [ ! -f "$REPORT_FILE" ]; then
+          echo "No schema report — schema did not change."
+          exit 0
         fi
+        REPORT=$(cat "$REPORT_FILE")
+        if ! echo "$REPORT" | grep -q "Breaking"; then
+          echo "No breaking changes detected."
+          exit 0
+        fi
+        PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+        if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+          echo "No PR number found — skipping comment."
+          exit 0
+        fi
+        gh pr comment "$PR_NUMBER" --body "$(printf '%s\n\n%s\n\n%s' \
+          '## Metadata Schema Compatibility Report' \
+          "$REPORT" \
+          '> This is informational — breaking changes may be intentional for a new release.')"
