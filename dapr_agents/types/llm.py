@@ -38,6 +38,16 @@ class NVIDIAClientConfig(BaseModel):
     )
 
 
+class IFlytekClientConfig(BaseModel):
+    base_url: Optional[str] = Field(
+        "https://spark-api-open.xf-yun.com/v1",
+        description="Base URL for the iFlytek Spark OpenAI-compatible API",
+    )
+    api_key: Optional[str] = Field(
+        None, description="API key to authenticate the iFlytek Spark API"
+    )
+
+
 class MistralClientConfig(BaseModel):
     endpoint: Optional[str] = Field(None, description="Base URL for the Mistral API")
     api_key: Optional[str] = Field(
@@ -247,6 +257,15 @@ class NVIDIAModelConfig(NVIDIAClientConfig):
     )
 
 
+class IFlytekModelConfig(IFlytekClientConfig):
+    type: Literal["iflytek"] = Field(
+        "iflytek", description="Type of the model, must always be 'iflytek'"
+    )
+    name: str = Field(
+        default="", description="Name of the model available through iFlytek Spark"
+    )
+
+
 class OpenAIParamsBase(BaseModel):
     """
     Common request settings for OpenAI services.
@@ -410,6 +429,25 @@ class NVIDIAChatCompletionParams(OpenAIParamsBase):
     )
 
 
+class IFlytekChatCompletionParams(OpenAIParamsBase):
+    """
+    Specific settings for the iFlytek Spark Chat Completion endpoint.
+
+    iFlytek Spark exposes an OpenAI-compatible Chat Completion API, so these
+    parameters mirror the OpenAI-style request settings.
+    """
+
+    n: Optional[int] = Field(
+        1, ge=1, description="Number of chat completion choices to generate"
+    )
+    tools: Optional[List[Dict[str, Any]]] = Field(
+        None, max_length=64, description="List of tools the model may call"
+    )
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = Field(
+        None, description="Controls which tool is called"
+    )
+
+
 class PromptyModelConfig(BaseModel):
     api: Literal["chat", "completion"] = Field(
         "chat", description="The API to use, either 'chat' or 'completion'"
@@ -419,6 +457,7 @@ class PromptyModelConfig(BaseModel):
         AzureOpenAIModelConfig,
         HFHubModelConfig,
         NVIDIAModelConfig,
+        IFlytekModelConfig,
         MistralModelConfig,
         AnthropicModelConfig,
     ] = Field(..., description="Model configuration settings")
@@ -427,6 +466,7 @@ class PromptyModelConfig(BaseModel):
         OpenAIChatCompletionParams,
         HFHubChatCompletionParams,
         NVIDIAChatCompletionParams,
+        IFlytekChatCompletionParams,
         MistralChatCompletionParams,
         AnthropicChatCompletionParams,
     ] = Field(..., description="Parameters for the model request")
@@ -453,6 +493,8 @@ class PromptyModelConfig(BaseModel):
                 configuration = HFHubModelConfig(**configuration)
             elif configuration.get("type") == "nvidia":
                 configuration = NVIDIAModelConfig(**configuration)
+            elif configuration.get("type") == "iflytek":
+                configuration = IFlytekModelConfig(**configuration)
             elif configuration.get("type") == "mistral":
                 configuration = MistralModelConfig(**configuration)
             elif configuration.get("type") == "anthropic":
@@ -463,6 +505,7 @@ class PromptyModelConfig(BaseModel):
             | AzureOpenAIModelConfig
             | HFHubModelConfig
             | NVIDIAModelConfig
+            | IFlytekModelConfig
             | MistralModelConfig
             | AnthropicModelConfig,
             configuration,
@@ -478,6 +521,8 @@ class PromptyModelConfig(BaseModel):
                 parameters = HFHubChatCompletionParams(**parameters)
             elif configuration and isinstance(configuration, NVIDIAModelConfig):
                 parameters = NVIDIAChatCompletionParams(**parameters)
+            elif configuration and isinstance(configuration, IFlytekModelConfig):
+                parameters = IFlytekChatCompletionParams(**parameters)
             elif configuration and isinstance(configuration, MistralModelConfig):
                 parameters = MistralChatCompletionParams(**parameters)
             elif configuration and isinstance(configuration, AnthropicModelConfig):
@@ -487,6 +532,7 @@ class PromptyModelConfig(BaseModel):
             OpenAIChatCompletionParams
             | HFHubChatCompletionParams
             | NVIDIAChatCompletionParams
+            | IFlytekChatCompletionParams
             | MistralChatCompletionParams
             | AnthropicChatCompletionParams,
             parameters,

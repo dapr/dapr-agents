@@ -257,6 +257,21 @@ This example shows how to deploy agents with full observability on Kubernetes, i
 
 [Go to OpenTelemetry Observability on Kubernetes](./demo-otel-k8s)
 
+## Extension Examples
+
+### Drasi Change-Driven Agents on Kubernetes
+
+Demonstrates how Dapr Agents can react to real-time data changes detected by Drasi, using Dapr Pub/Sub as the delivery mechanism:
+
+- **Change Detection**: Drasi continuously watches a data source for changes satisfying a user-defined query
+- **Event Publishing**: Detected changes are published to a Dapr Pub/Sub topic
+- **Agent Subscription**: An agent subscribes to a Drasi query and reacts to incoming change events
+- **Kubernetes Deployment**: Run Drasi and Dapr Agents together on Kubernetes for an end-to-end reactive pipeline
+
+This example shows how to build an inventory agent that automatically creates purchase orders for products that dip below user-defined stock thresholds, demonstrating how the Drasi extension enables reliable, business event-driven agentic systems on Kubernetes.
+
+[Go to Drasi Change-Driven Agents on Kubernetes](./ext-drasi-change-driven-agents-k8s)
+
 ### Contributing to Dapr Agents Examples
 
 Please refer to our [Dapr Community Code of Conduct](https://github.com/dapr/community/blob/master/CODE-OF-CONDUCT.md)

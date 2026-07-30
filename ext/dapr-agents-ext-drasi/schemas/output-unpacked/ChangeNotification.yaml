@@ -1,0 +1,24 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: ChangeNotification.yaml
+type: object
+properties:
+  op:
+    anyOf:
+      - type: string
+        const: i
+      - type: string
+        const: u
+      - type: string
+        const: d
+  payload:
+    $ref: ChangePayload.yaml
+  seq:
+    type: integer
+    description: The sequence number of the source change
+required:
+  - op
+  - payload
+  - seq
+allOf:
+  - $ref: Notification.yaml
+title: ChangeNotification

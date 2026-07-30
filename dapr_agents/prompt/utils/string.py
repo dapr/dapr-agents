@@ -19,7 +19,7 @@ from dapr_agents.prompt.utils.fstring import (
     render_fstring_template,
     extract_fstring_variables,
 )
-from typing import Any, Dict
+from typing import Any, List
 
 DEFAULT_FORMATTER_MAPPING = {
     "f-string": render_fstring_template,
@@ -57,7 +57,7 @@ class StringPromptHelper:
         return formatter(content, **kwargs)
 
     @staticmethod
-    def extract_variables(template: str, template_format: str) -> Dict[str, Any]:
+    def extract_variables(template: str, template_format: str) -> List[str]:
         """
         Extract variables from the template content based on the template format.
 
@@ -66,7 +66,7 @@ class StringPromptHelper:
             template_format (str): Template format ('f-string' or 'jinja2').
 
         Returns:
-            Dict[str, Any]: A dictionary of extracted variables.
+            List[str]: A list of extracted variable names.
         """
         extractor = DEFAULT_VARIABLE_EXTRACTOR_MAPPING.get(template_format)
         if not extractor:
