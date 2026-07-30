@@ -392,9 +392,8 @@ class DurableAgent(AgentBase):
 
         self._orchestration_strategy: Optional[OrchestrationStrategy] = None
         # Initialize orchestration strategy if this agent is an orchestrator
+        # Otherwise default to the standard "agent" mode
         if self.execution.orchestration_mode:
-            # Default to "agent" mode if no mode specified
-
             match self.execution.orchestration_mode:
                 case OrchestrationMode.AGENT:
                     self._orchestration_strategy = AgentOrchestrationStrategy()

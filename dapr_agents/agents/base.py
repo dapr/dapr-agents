@@ -572,9 +572,9 @@ class AgentBase:
         self.instrumentor: Optional[DaprAgentsInstrumentor] = None
         self._otel_logging_handler = None
         self._agent_observability = AgentObservabilityConfig.resolve_config(
-            agent_observability or AgentObservabilityConfig(),
-            self._runtime_secrets,
-            self._runtime_conf,
+            agent_observability,
+            # OTEL_EXPORTER_OTLP_HEADERS may come from runtime config or secrets (as an access token).
+            {**self._runtime_conf, **self._runtime_secrets},
         )
         self._setup_agent_observability()
 
@@ -656,22 +656,16 @@ class AgentBase:
         # Execution config
         # -----------------------------
         self.execution = AgentExecutionConfig.resolve_config(
-            execution or AgentExecutionConfig(),
+            execution,
             self._runtime_conf,
         )
 
-        try:
-            self.execution.max_iterations = max(1, int(self.execution.max_iterations))
-        except Exception:
-            self.execution.max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
         if not self.tools:
             if self.execution.tool_choice is not None:
                 logger.debug(
                     f"No tools configured for agent '{self.name}'; ignoring tool_choice={self.execution.tool_choice!r}."
                 )
             self.execution.tool_choice = None
-        elif self.execution.tool_choice is None:
-            self.execution.tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
         # -----------------------------
         # Agent metadata & registry registration

@@ -125,8 +125,6 @@ class TestAgentExecutionConfigToolMode:
         assert config.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
         assert config.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
         assert config.orchestration_mode is None
-        assert config.app_health_check_enabled is None
-        assert config.app_ready_check_enabled is None
 
 
 # ---------------------------------------------------------------------------
