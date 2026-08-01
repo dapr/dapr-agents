@@ -14,13 +14,11 @@
 from __future__ import annotations
 
 import functools
-import json
 import logging
 import re
 from os import getenv
 from enum import StrEnum
 from dataclasses import dataclass, field
-from types import UnionType
 from typing import (
     Any,
     Callable,
@@ -32,18 +30,13 @@ from typing import (
     Type,
     TypeVar,
     Union,
-    get_args,
-    get_origin,
 )
 
 from pydantic import BaseModel, Field
 
 from dapr_agents.agents.utils.headers import parse_header_string
-from dapr_agents.agents.utils.models import (
-    get_model_factory,
-    get_model_fields,
-    is_supported_config_model,
-)
+from dapr_agents.utils.config import ConfigFieldDescriptor, apply_config_map
+from dapr_agents.utils.models import merge_models
 from dapr_agents.types.agent import ToolChoice, ToolExecutionMode, OrchestrationMode
 from dapr_agents.agents.constants import (
     AGENT_DEFAULT_MAX_ITERATIONS,
@@ -273,33 +266,8 @@ class AgentStateConfig:
         return self._state_model_bundle
 
 
-@dataclass(frozen=True)
-class ConfigFieldDescriptor:
-    """Describes how a configuration key maps to a configuration attribute.
-
-    Attributes:
-        target_type: Expected Python type for the coerced value.
-        setter: Callable ``(obj, value) -> None`` that applies the value after coercion and validation.
-        getter: Optional callable ``() -> Any`` that retrieves the value before coercion.
-        validator: Optional idempotent callable ``(value) -> Any`` to validate/transform the coerced value.
-        fallback: Value to use if mapping fails or when a default baseline value is needed. Defaults to None.
-        sensitive: If ``True``, the value is redacted in log output.
-        rebuilds_prompt: If ``True``, the prompt template is rebuilt after update.
-        triggers_otel_reload: If ``True``, triggers an OpenTelemetry configuration reload after update.
-    """
-
-    target_type: Type
-    setter: Callable[..., None]
-    getter: Optional[Callable[[], Any]] = None
-    validator: Optional[Callable[..., Any]] = None
-    fallback: Optional[Any] = None
-    sensitive: bool = False
-    rebuilds_prompt: bool = False
-    triggers_otel_reload: bool = False
-
-
 # ---------------------------------------------------------------------------
-# Built-in ConfigFieldDescriptor validators for agents
+# Built-in config validators for agents
 # ---------------------------------------------------------------------------
 
 _config_logger = logging.getLogger(__name__)
@@ -379,243 +347,6 @@ def validate_otel_exporter_logging(v: str) -> str:
             f"Valid options: {[e.value for e in AgentLoggingExporter]}"
         )
     return v
-
-
-# ---------------------------------------------------------------------------
-# Config helpers
-# ---------------------------------------------------------------------------
-
-
-def normalize_config_key(key: str) -> str:
-    """Default normalization of configuration keys to attribute names."""
-    return key.lower().replace("-", "_")
-
-
-def apply_config_map(target_obj: Any, config_field_map: Dict[str, Any]) -> None:
-    """
-    Apply a map of configuration field names to field descriptors onto a target object.
-    """
-    for key, descriptor in config_field_map.items():
-        try:
-            apply_config_update(target_obj=target_obj, key=key, descriptor=descriptor)
-        except (ValueError, RuntimeError) as e:
-            logger.debug(f"Failed to apply config update for {key}: {e}")
-
-
-def apply_config_update(
-    target_obj: Any,
-    *,
-    key: str,
-    descriptor: ConfigFieldDescriptor,
-    value: Any = None,
-) -> Any:
-    """
-    Process and apply a configuration update to an object.
-    This function is guaranteed to be idempotent if the processing logic is idempotent.
-
-    Args:
-        target_obj: The object to be updated.
-        key: The configuration key.
-        value: Optional value to process and apply.
-            Falls back to the descriptor's getter if not provided (may not be idempotent).
-        descriptor: An object describing how to process a value for a particular key.
-
-    Returns:
-        The final applied value.
-
-    Raises:
-        ValueError: If no value can be retrieved or processing fails.
-        RuntimeError: If the value cannot be applied.
-    """
-    processed_value = process_config_update(key=key, value=value, descriptor=descriptor)
-
-    # Apply via setter callback
-    try:
-        descriptor.setter(target_obj, processed_value)
-    except (AttributeError, TypeError):
-        raise RuntimeError(
-            f"Could not apply setter for key '{key}' (likely read-only)."
-        )
-
-    return processed_value
-
-
-def process_config_update(
-    key: str,
-    descriptor: ConfigFieldDescriptor,
-    value: Any = None,
-) -> Any:
-    """
-    Process a configuration update by coercing, validating, and transforming a value.
-    This function is guaranteed to be idempotent if the processing logic is idempotent.
-
-    Args:
-        key: The configuration key.
-        value: Optional value to process.
-            Falls back to the descriptor's getter if not provided (may not be idempotent).
-        descriptor: An object describing how to process a value for a particular key.
-
-    Returns:
-        The processed value.
-
-    Raises:
-        ValueError: If no value can be retrieved or processing fails.
-    """
-    if not descriptor:
-        raise ValueError(f"Unrecognized config key: {key}.")
-
-    try:
-        # Retrieve value using getter callback as a fallback
-        if value is None and descriptor.getter:
-            try:
-                value = descriptor.getter()
-            except Exception as e:
-                raise ValueError(f"Unable to retrieve value for key '{key}': {e}.")
-
-        # Type coercion
-        try:
-            if value is None:
-                # Pass through unset `None` values
-                processed_value = None
-            else:
-                processed_value = coerce_config_value(value, descriptor.target_type)
-        except (ValueError, TypeError) as e:
-            raise ValueError(f"Invalid value for key '{key}': {e}.")
-
-        # Validation/transformation
-        if descriptor.validator:
-            try:
-                processed_value = descriptor.validator(processed_value)
-            except Exception as e:
-                raise ValueError(f"Validation failed for key '{key}': {e}.")
-    except Exception:
-        if descriptor.fallback:
-            logger.debug(
-                f"Using fallback value for key '{key}': {descriptor.fallback!r}"
-            )
-            return descriptor.fallback
-        raise
-
-    return processed_value
-
-
-def coerce_config_value(value: Any, target_type: Type) -> Any:
-    """Coerce a configuration value (usually a string) to the target Python type."""
-    if isinstance(value, target_type):
-        return value
-
-    if target_type is str:
-        return str(value)
-
-    if target_type is int:
-        return int(float(value))
-
-    if target_type is float:
-        return float(value)
-
-    if target_type is bool:
-        if isinstance(value, str):
-            if value.lower() in ("true", "1", "yes"):
-                return True
-            if value.lower() in ("false", "0", "no"):
-                return False
-        raise ValueError(f"Cannot coerce {value!r} to bool")
-
-    if target_type is list:
-        if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-                if isinstance(parsed, list):
-                    return parsed
-            except (json.JSONDecodeError, TypeError):
-                pass
-            return [value]
-        if isinstance(value, (list, tuple)):
-            return list(value)
-        return [value]
-
-    if target_type is dict:
-        if isinstance(value, str):
-            parsed = json.loads(value)
-            if isinstance(parsed, dict):
-                return parsed
-            raise ValueError(f"JSON parsed to {type(parsed).__name__}, expected dict")
-        if isinstance(value, dict):
-            return value
-        raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
-
-    # Handle types that are not classes
-    origin = get_origin(target_type)
-    if origin is not None:
-        # Support union and bar syntax
-        if origin in (Union, UnionType):
-            for arg in get_args(target_type):
-                try:
-                    return coerce_config_value(value, arg)
-                except ValueError:
-                    continue
-            raise ValueError(f"Cannot coerce {value!r} to any type in {target_type}")
-
-    raise ValueError(f"Unsupported target type: {target_type}")
-
-
-def merge_models(base: T, override: T) -> T:
-    """
-    Merge two models of the same type, with override taking precedence.
-    Only override if the override value is not None.
-    If merging fails, falls back to the base model if it is valid, otherwise falls back to the override model.
-
-    Args:
-        base: The base model.
-        override: The new model with potential override values.
-
-    Returns:
-        The merged model.
-    """
-    if not is_supported_config_model(type(base)):
-        logger.warning(f"Unsupported model type: {base!r}")
-        return override
-
-    if not is_supported_config_model(type(override)):
-        logger.warning(f"Unsupported model type: {override!r}")
-        return base
-
-    if base.__class__ != override.__class__:
-        logger.warning(
-            f"Cannot merge models of different types: {base!r} and {override!r}"
-        )
-        return base
-
-    try:
-        # Infer model type from the base model
-        model_fields = get_model_fields(base)
-        model_factory = get_model_factory(base)
-
-        logger.debug(
-            (f"Merging models:\nBase model: {base!r}\nOverride model: {override!r}")
-        )
-
-        merged_fields: Dict[str, Any] = {}
-
-        for model_field in model_fields:
-            base_field = getattr(base, model_field)
-            override_field = getattr(override, model_field)
-
-            if isinstance(base_field, dict) and isinstance(override_field, dict):
-                # Shallow merge dicts
-                merged_fields[model_field] = {**base_field, **override_field}
-            else:
-                merged_fields[model_field] = (
-                    override_field if override_field is not None else base_field
-                )
-
-        model = model_factory(merged_fields)
-
-        logger.debug(f"Merged model: {model!r}")
-        return model
-    except Exception as e:
-        logger.warning(f"Failed to merge models: {e}")
-        return base
 
 
 @dataclass

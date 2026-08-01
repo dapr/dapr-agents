@@ -28,11 +28,11 @@ from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 from cachetools import TTLCache
 
 from dapr_agents.types.message import EventMessageMetadata
-from dapr_agents.workflow.utils.core import is_supported_model_instance
 from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
     validate_message_model,
 )
+from dapr_agents.utils.models import is_supported_model_instance
 
 logger = logging.getLogger(__name__)
 

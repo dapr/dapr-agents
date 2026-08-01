@@ -21,10 +21,8 @@ from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
     AgentMetadata,
     AgentMetadataSchema,
-    AgentObservabilityConfig,
     LLMMetadata,
     RuntimeSubscriptionConfig,
-    coerce_config_value,
 )
 from dapr_agents.observability.instrumentor import DaprAgentsInstrumentor
 from .mocks.llm_client import MockLLMClient

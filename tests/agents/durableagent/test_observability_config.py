@@ -26,10 +26,10 @@ from dapr_agents.agents.configs import (
     AgentObservabilityConfig,
     AgentTracingExporter,
     AgentLoggingExporter,
-    merge_models,
 )
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
+from dapr_agents.utils.models import merge_models
 
 
 class TestObservabilityConfigFromInstantiation:

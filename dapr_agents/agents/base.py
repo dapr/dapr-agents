@@ -55,7 +55,6 @@ from dapr_agents.agents.configs import (
     AgentStateConfig,
     AgentExecutionConfig,
     AgentTracingExporter,
-    ConfigFieldDescriptor,
     RuntimeConfigKey,
     LLMMetadata,
     MemoryMetadata,
@@ -66,9 +65,6 @@ from dapr_agents.agents.configs import (
     WorkflowGrpcOptions,
     AGENT_DEFAULT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
-    apply_config_update,
-    normalize_config_key,
-    process_config_update,
     validate_max_iterations,
     validate_non_empty_string,
     validate_tool_choice,
@@ -91,6 +87,12 @@ from dapr_agents.tool.executor import AgentToolExecutor
 from dapr_agents.types import (
     AgentError,
     ToolExecutionRecord,
+)
+from dapr_agents.utils.config import (
+    ConfigFieldDescriptor,
+    apply_config_update,
+    normalize_config_key,
+    process_config_update,
 )
 from pydantic import ValidationError
 

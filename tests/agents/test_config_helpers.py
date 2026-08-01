@@ -15,7 +15,7 @@
 
 import pytest
 
-from dapr_agents.agents.configs import coerce_config_value
+from dapr_agents.utils.config import coerce_config_value
 
 
 class TestCoerceConfigValue:
