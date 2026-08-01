@@ -16,10 +16,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from importlib.metadata import version
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, Union, Coroutine
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Union, Coroutine
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 from dapr_agents.utils import (
@@ -40,12 +39,7 @@ from dapr.clients.grpc._response import (
 )
 
 from dapr_agents.agents.components import DaprInfra
-from dapr_agents.agents.constants import (
-    AGENT_DEFAULT_MAX_ITERATIONS,
-    AGENT_DEFAULT_TOOL_CHOICE,
-)
 from dapr_agents.agents.configs import (
-    AgentApprovalConfig,
     AgentLoggingExporter,
     AgentMemoryConfig,
     AgentMetadata,
@@ -63,8 +57,8 @@ from dapr_agents.agents.configs import (
     RuntimeSubscriptionConfig,
     ToolMetadata,
     WorkflowGrpcOptions,
-    AGENT_DEFAULT_WORKFLOW_BUNDLE,
     AgentObservabilityConfig,
+    AGENT_DEFAULT_WORKFLOW_BUNDLE,
     validate_max_iterations,
     validate_non_empty_string,
     validate_tool_choice,
