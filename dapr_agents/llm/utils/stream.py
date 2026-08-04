@@ -52,7 +52,7 @@ class StreamHandler:
             LLMChatCandidateChunk: fully-typed chunks, partial and final.
         """
 
-        if llm_provider in ("openai", "nvidia", "litellm"):
+        if llm_provider in ("openai", "nvidia", "litellm", "iflytek"):
             from dapr_agents.llm.openai.utils import process_openai_stream
 
             yield from process_openai_stream(

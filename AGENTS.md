@@ -37,6 +37,8 @@ limitations under the License.
 - Types: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `perf`, `ci`, `style`, `build`
 - Example: `feat(agents): add new orchestrator` or `fix(llm): handle timeout errors`
 
+**Sign-off (REQUIRED)**: Every commit must carry a DCO `Signed-off-by` line — add it automatically with `git commit -s`. The DCO bot blocks the PR if any commit is unsigned. See [CONTRIBUTING.md](./CONTRIBUTING.md#developer-certificate-of-origin-signing-your-work).
+
 **Versioning**:
 Dapr Agents use semantic versioning for releasing. Prefer making changes that allow backward compatability.
 
@@ -60,7 +62,7 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
 **Code Quality** (enforced by CI):
 - **Python version**: >=3.11
 - **Formatting**: ruff (auto-format, no exceptions)
-- **Linting**: flake8 (ignores: E501, F401, W503, E203)
+- **Linting**: flake8 (ignores: E501, F401, W503, E203, E704)
 - **Type Checking**: mypy (config: `./mypy.ini`)
 - **All checks MUST pass** before merge
 - **General**:
@@ -101,7 +103,7 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
 4. Include "AGENTS.md Notes" in the PR with suggestions to make this prompt better
 
 **PR Will Fail If**:
-- Commits are not signed
+- Commits are not signed (missing DCO `Signed-off-by`; use `git commit -s`)
 - Not formatted with ruff
 - Flake8 errors exist
 - Mypy type errors present
