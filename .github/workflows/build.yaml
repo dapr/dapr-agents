@@ -47,8 +47,8 @@ jobs:
       with:
         version: "latest"
     - name: Install dependencies to match uv lock file to that of CI
-      run: uv sync --frozen --group test
-    - name: Run Autoformatter
+      run: uv sync --frozen --group test --extra drasi
+    - name: Run autoformatter
       run: |
         uv run ruff format
         statusResult=$(git status -u --porcelain)
@@ -59,9 +59,9 @@ jobs:
             echo "Source files are not formatted correctly. Run 'uv run ruff format' to autoformat."
             exit 1
         fi
-    - name: Run Linter
+    - name: Run linter
       run: |
-        uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+        uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
   schema-validation:
     needs: lint
     runs-on: ubuntu-latest
@@ -99,10 +99,10 @@ jobs:
         version: "latest"
     - name: Install dependencies
       run: |
-        uv sync --frozen --group test
-    - name: Check Typing
+        uv sync --frozen --group test --extra drasi
+    - name: Check typing
       run: |
         uv run mypy --config-file mypy.ini
-    - name: Run Tests
+    - name: Run tests
       run: |
-        uv run pytest tests -m "not integration"
+        uv run pytest tests ext -m "not integration"

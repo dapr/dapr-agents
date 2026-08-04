@@ -1,0 +1,21 @@
+version: 1
+common:
+  appLogDestination: console
+  enableAppHealthCheck: false
+  logLevel: info
+  resourcesPath: ./resources
+apps:
+  - appID: app1
+    appDirPath: ./
+    command: ["python", "catalyst_agent_serve.py"]
+    appChannelAddress: 127.0.0.1
+    appProtocol: http
+    env:
+      DAPR_APP_ID: app1
+      APP_PORT: "8001"
+    enableAppHealthCheck: false
+    appHealthCheckPath: /healthz
+    appHealthProbeInterval: 5
+    appHealthProbeTimeout: 500
+    appHealthThreshold: 3
+    appLogDestination: console
