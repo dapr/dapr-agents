@@ -193,7 +193,14 @@ class DaprInferenceClient:
                             "finish_reason": getattr(choice, "finish_reason", "stop"),
                         }
                     )
-                outputs.append({"choices": choices_list})
+                output_dict: Dict[str, Any] = {"choices": choices_list}
+                model_name = getattr(output, "model", None)
+                if model_name:
+                    output_dict["model"] = model_name
+                usage = _usage_to_dict(getattr(output, "usage", None))
+                if usage is not None:
+                    output_dict["usage"] = usage
+                outputs.append(output_dict)
 
             return {
                 "context_id": getattr(response_alpha2, "context_id", None),
@@ -269,3 +276,44 @@ class DaprInferenceClientBase(LLMClientBase):
         # Build a fresh wrapper so that updates to ``self.client_factory`` are
         # observed on the next call without needing a manual refresh.
         return self.get_client()
+
+
+#: OpenAI-style usage fields mirrored from the Alpha2 SDK dataclasses
+#: (dapr.clients.grpc.conversation.ConversationResultAlpha2CompletionUsage).
+_USAGE_TOKEN_FIELDS = ("prompt_tokens", "completion_tokens", "total_tokens")
+_COMPLETION_TOKENS_DETAILS_FIELDS = (
+    "accepted_prediction_tokens",
+    "audio_tokens",
+    "reasoning_tokens",
+    "rejected_prediction_tokens",
+)
+_PROMPT_TOKENS_DETAILS_FIELDS = ("audio_tokens", "cached_tokens")
+
+
+def _int_fields(obj: Any, fields: Tuple[str, ...]) -> Dict[str, int]:
+    """Read the given attributes off ``obj`` as ints (missing/None → 0)."""
+    return {field: int(getattr(obj, field, 0) or 0) for field in fields}
+
+
+def _usage_to_dict(usage: Any) -> Optional[Dict[str, Any]]:
+    """
+    Convert an Alpha2 completion-usage object to an OpenAI-style dict.
+
+    Returns None when the runtime reported no usage (older runtimes degrade to
+    None). Token counts are coerced to int so the envelope never carries string
+    sentinels; ``*_tokens_details`` are included only when present.
+    """
+    if usage is None:
+        return None
+    result: Dict[str, Any] = _int_fields(usage, _USAGE_TOKEN_FIELDS)
+    completion_details = getattr(usage, "completion_tokens_details", None)
+    if completion_details is not None:
+        result["completion_tokens_details"] = _int_fields(
+            completion_details, _COMPLETION_TOKENS_DETAILS_FIELDS
+        )
+    prompt_details = getattr(usage, "prompt_tokens_details", None)
+    if prompt_details is not None:
+        result["prompt_tokens_details"] = _int_fields(
+            prompt_details, _PROMPT_TOKENS_DETAILS_FIELDS
+        )
+    return result
