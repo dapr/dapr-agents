@@ -1,0 +1,15 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: ReloadItem.yaml
+type: object
+properties:
+  op:
+    type: string
+    const: r
+  payload:
+    $ref: ChangePayload.yaml
+required:
+  - op
+  - payload
+allOf:
+  - $ref: Notification.yaml
+title: ReloadItem
