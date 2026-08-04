@@ -2430,8 +2430,20 @@ class DurableAgent(AgentBase):
             else:
                 # Regular chat response — either streaming wasn't requested or the
                 # provider fell back (e.g., Dapr Conversation API pre-streaming).
+                stream_metadata: Optional[Dict[str, Any]] = None
                 if isinstance(response, LLMChatResponse):
                     assistant_message = response.get_message()
+                    # Forward provider metadata (usage, model, fallback tag, …)
+                    # so TURN_COMPLETE carries it — mirroring the real streaming
+                    # path, which forwards the accumulator metadata.
+                    if response.metadata:
+                        stream_metadata = dict(response.metadata)
+                    finish_reason = (
+                        response.results[0].finish_reason if response.results else None
+                    )
+                    if finish_reason:
+                        stream_metadata = stream_metadata or {}
+                        stream_metadata.setdefault("finish_reason", finish_reason)
                     fallback = bool(
                         (response.metadata or {}).get(
                             "dapr_conversation_streaming_unsupported"
@@ -2453,11 +2465,7 @@ class DurableAgent(AgentBase):
                             turn=int(payload.get("turn", 0)),
                             phase=payload.get(STREAM_PHASE),
                             assistant_message=assistant_message,
-                            metadata={
-                                "dapr_conversation_streaming_unsupported": fallback
-                            }
-                            if fallback
-                            else None,
+                            metadata=stream_metadata,
                         )
 
         # after_llm_call hook dispatch. Receives a copy of the built

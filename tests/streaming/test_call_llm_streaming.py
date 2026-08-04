@@ -499,3 +499,29 @@ class TestCallLLMStreamingRouting:
             listener.chunks[-1].metadata.get("dapr_conversation_streaming_unsupported")
             is True
         )
+
+    def test_dapr_fallback_forwards_usage_metadata(
+        self, durable_agent: DurableAgent, monkeypatch, registered_capturing_listener
+    ) -> None:
+        """Provider metadata (usage, …) must reach TURN_COMPLETE on the fallback
+        path, matching the real-streaming path and the AgentStreamChunk contract
+        ("metadata carries finish_reason and provider usage")."""
+        usage = {"prompt_tokens": 12, "completion_tokens": 34, "total_tokens": 46}
+        fallback = LLMChatResponse(
+            results=[
+                LLMChatCandidate(
+                    message=AssistantMessage(role="assistant", content="final answer"),
+                    finish_reason="stop",
+                )
+            ],
+            metadata={
+                "dapr_conversation_streaming_unsupported": True,
+                "usage": usage,
+            },
+        )
+        _run_call_llm(durable_agent, monkeypatch, fallback)
+        chunk = registered_capturing_listener[0].chunks[-1]
+        assert chunk.type is StreamChunkType.TURN_COMPLETE
+        assert chunk.metadata["usage"] == usage
+        assert chunk.metadata["dapr_conversation_streaming_unsupported"] is True
+        assert chunk.metadata["finish_reason"] == "stop"
