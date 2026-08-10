@@ -29,7 +29,10 @@ from typing import (
 
 from pydantic import BaseModel, Field
 from dapr_agents.llm.chat import ChatClientBase
-from dapr_agents.llm.dapr.client import DaprInferenceClientBase
+from dapr_agents.llm.dapr.client import (
+    _USAGE_TOKEN_FIELDS,
+    DaprInferenceClientBase,
+)
 from dapr_agents.llm.utils import RequestHandler, ResponseHandler
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.prompty import Prompty
@@ -138,6 +141,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
     def translate_response(self, response: dict, model: str) -> dict:
         """
         Convert Dapr Alpha2 response into OpenAI-style ChatCompletion dict.
+
+        Token usage reported by the runtime is propagated as ints; the
+        ``usage`` key is omitted when no output carried usage.
         """
         if not isinstance(response, dict):
             logger.error(f"Invalid response type: {type(response)}")
@@ -175,13 +181,16 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                 choice["message"] = message
                 choices.append(choice)
 
-        return {
+        envelope: Dict[str, Any] = {
             "choices": choices,
             "created": int(time.time()),
             "model": model,
             "object": "chat.completion",
-            "usage": {"total_tokens": "-1"},
         }
+        usage = _aggregate_usage(outputs)
+        if usage is not None:
+            envelope["usage"] = usage
+        return envelope
 
     def convert_to_conversation_inputs(self, inputs: List[Dict[str, Any]]) -> List[Any]:
         """
@@ -451,6 +460,36 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                     type(result).__name__,
                 )
         return result
+
+
+def _aggregate_usage(outputs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Aggregate per-output Alpha2 usage dicts into one OpenAI-style dict.
+
+    Returns None when no output reported usage so the envelope omits the key
+    (mirroring the OpenAI client, where usage is absent when unknown). The
+    single-output case — the norm for the Conversation API — is copied through
+    with the three token counters coerced to int (so a stray string sentinel
+    can never ride along), preserving ``*_tokens_details``; with multiple
+    outputs the counters are summed and the detail breakdowns dropped.
+    """
+    usages = [
+        output["usage"]
+        for output in outputs
+        if isinstance(output, dict) and isinstance(output.get("usage"), dict)
+    ]
+    if not usages:
+        return None
+    if len(usages) == 1:
+        merged = dict(usages[0])
+        for field in _USAGE_TOKEN_FIELDS:
+            if field in merged:
+                merged[field] = int(merged[field] or 0)
+        return merged
+    return {
+        field: sum(int(usage.get(field, 0) or 0) for usage in usages)
+        for field in _USAGE_TOKEN_FIELDS
+    }
 
 
 def _simplify_anyof(schema: Dict[str, Any]) -> Dict[str, Any]:
