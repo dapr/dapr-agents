@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional, Sequence
+
+from cachetools import LRUCache
 
 from dapr.clients.grpc._state import Concurrency, Consistency, StateOptions
 
@@ -39,6 +42,12 @@ logger = logging.getLogger(__name__)
 
 # Registry index key for the list of registered agent names
 _REGISTRY_AGENTS_KEY = "agents"
+
+# Upper bound on the per-instance etag cache. A single long-lived DaprInfra can
+# serve an unbounded stream of workflow_instance_ids, so the cache is capped
+# (LRU eviction) to keep it from growing without limit. On a miss, save_state
+# falls back to load_with_etag, so eviction only costs an extra round-trip.
+_ETAG_CACHE_MAXSIZE = 1024
 
 
 class DaprInfra:
@@ -92,6 +101,8 @@ class DaprInfra:
                 pubsub_name=pubsub.pubsub_name,
                 agent_topic=pubsub.agent_topic or name,
                 broadcast_topic=pubsub.broadcast_topic,
+                stream_topic_prefix=pubsub.stream_topic_prefix,
+                control_topic_prefix=pubsub.control_topic_prefix,
             )
 
         # -----------------------------
@@ -134,8 +145,14 @@ class DaprInfra:
         # Per-instance-id etag cache replaces the single _last_etag field.
         # Using a dict keyed by state-store key prevents concurrent activities
         # (different workflow_instance_ids on the same DurableAgent object) from
-        # overwriting each other's cached etag.
-        self._etag_cache: Dict[str, Optional[str]] = {}
+        # overwriting each other's cached etag. It is bounded with LRU eviction
+        # because a long-lived DaprInfra serves an unbounded stream of instance
+        # ids and read-only get_state callers never pair with a save_state that
+        # would otherwise drain the entry.
+        self._etag_cache: LRUCache[str, Optional[str]] = LRUCache(
+            maxsize=_ETAG_CACHE_MAXSIZE
+        )
+        self._etag_cache_lock = threading.Lock()
 
         # -----------------------------
         # Registry configuration
@@ -188,6 +205,42 @@ class DaprInfra:
         if not self._pubsub:
             return None
         return self._pubsub.broadcast_topic
+
+    @property
+    def stream_topic_prefix(self) -> Optional[str]:
+        """Return the configured streaming topic prefix, or None if no pubsub."""
+        if not self._pubsub:
+            return None
+        return self._pubsub.stream_topic_prefix
+
+    @property
+    def control_topic_prefix(self) -> Optional[str]:
+        """Return the configured control topic prefix, or None if no pubsub."""
+        if not self._pubsub:
+            return None
+        return self._pubsub.control_topic_prefix
+
+    def stream_topic_name(self, root_instance_id: str) -> Optional[str]:
+        """Return the per-session streaming topic, or None if no pubsub configured.
+
+        Args:
+            root_instance_id: Workflow instance id of the user-facing entry agent.
+        """
+        prefix = self.stream_topic_prefix
+        if not prefix:
+            return None
+        return f"{prefix}.{root_instance_id}"
+
+    def control_topic_name(self, root_instance_id: str) -> Optional[str]:
+        """Return the per-session control topic, or None if no pubsub configured.
+
+        Args:
+            root_instance_id: Workflow instance id of the user-facing entry agent.
+        """
+        prefix = self.control_topic_prefix
+        if not prefix:
+            return None
+        return f"{prefix}.{root_instance_id}"
 
     # ------------------------------------------------------------------
     # State helpers
@@ -271,7 +324,8 @@ class DaprInfra:
             default=self._initial_state(),
             state_metadata=meta,
         )
-        self._etag_cache[key] = etag
+        with self._etag_cache_lock:
+            self._etag_cache[key] = etag
         try:
             if isinstance(snapshot, dict):
                 entry = self._entry_model_cls.model_validate(snapshot)
@@ -327,7 +381,8 @@ class DaprInfra:
         # Use the per-key cached etag from a prior get_state when available to avoid
         # an extra round-trip.  Falls back to load_with_etag on the first
         # attempt when no cached etag exists, and always on retries.
-        etag = self._etag_cache.pop(key, None)
+        with self._etag_cache_lock:
+            etag = self._etag_cache.pop(key, None)
 
         if etag is None:
             # No cached etag — ensure the document exists so we get one.
@@ -426,6 +481,11 @@ class DaprInfra:
                 workflow_instance_id,
                 exc,
             )
+        finally:
+            # Drop any cached etag for this instance so teardown reclaims the slot
+            # even when a read-only get_state left an entry behind.
+            with self._etag_cache_lock:
+                self._etag_cache.pop(key, None)
 
     def _default_entry_model(self) -> BaseModel:
         """Return a default workflow entry model (one-key-per-instance)."""
