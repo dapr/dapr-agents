@@ -29,7 +29,10 @@ from typing import (
 
 from pydantic import BaseModel, Field
 from dapr_agents.llm.chat import ChatClientBase
-from dapr_agents.llm.dapr.client import DaprInferenceClientBase
+from dapr_agents.llm.dapr.client import (
+    _USAGE_TOKEN_FIELDS,
+    DaprInferenceClientBase,
+)
 from dapr_agents.llm.utils import RequestHandler, ResponseHandler
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.prompty import Prompty
@@ -138,6 +141,9 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
     def translate_response(self, response: dict, model: str) -> dict:
         """
         Convert Dapr Alpha2 response into OpenAI-style ChatCompletion dict.
+
+        Token usage reported by the runtime is propagated as ints; the
+        ``usage`` key is omitted when no output carried usage.
         """
         if not isinstance(response, dict):
             logger.error(f"Invalid response type: {type(response)}")
@@ -175,13 +181,16 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
                 choice["message"] = message
                 choices.append(choice)
 
-        return {
+        envelope: Dict[str, Any] = {
             "choices": choices,
             "created": int(time.time()),
             "model": model,
             "object": "chat.completion",
-            "usage": {"total_tokens": "-1"},
         }
+        usage = _aggregate_usage(outputs)
+        if usage is not None:
+            envelope["usage"] = usage
+        return envelope
 
     def convert_to_conversation_inputs(self, inputs: List[Dict[str, Any]]) -> List[Any]:
         """
@@ -288,7 +297,11 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
         """
         Issue a non-streaming chat completion via Dapr.
 
-        - **Streaming is not supported** and setting `stream=True` will raise.
+        - **Streaming is opportunistic**: if ``stream=True`` and the Dapr runtime
+          supports streaming conversations, real deltas are returned. Otherwise
+          the call silently falls back to non-streaming and tags the response
+          metadata with ``dapr_conversation_streaming_unsupported=True`` so callers can emit a
+          uniform (``START`` + ``TURN_COMPLETE``) stream shape.
         - Returns a unified `LLMChatResponse` (if no `response_format`), or
           validated Pydantic model(s) when `response_format` is provided.
 
@@ -308,17 +321,19 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             • Pydantic model (or `List[...]`) when `response_format` is set
 
         Raises:
-            ValueError: on invalid `structured_mode`, missing inputs, or if `stream=True`.
+            ValueError: on invalid `structured_mode` or missing inputs.
         """
         # 1) Validate structured_mode
         if structured_mode not in self.SUPPORTED_STRUCTURED_MODES:
             raise ValueError(
                 f"structured_mode must be one of {self.SUPPORTED_STRUCTURED_MODES}"
             )
-        # 2) Disallow streaming
-        # Note: response_format is now supported for structured output
-        if kwargs.get("stream"):
-            raise ValueError("Streaming is not supported by DaprChatClient.")
+        # 2) Streaming: accepted but currently always falls back to non-streaming.
+        # Upstream Dapr Conversation API streaming (Alpha3+) is in-flight; once
+        # it lands this branch can delegate to a streaming RPC and return an
+        # iterator directly. Until then, drop the flag and tag the response so
+        # the caller knows no deltas will arrive.
+        streaming_requested = bool(kwargs.pop("stream", False))
 
         # 3) Build messages via Prompty
         if input_data:
@@ -425,13 +440,56 @@ class DaprChatClient(DaprInferenceClientBase, ChatClientBase):
             raise
 
         # 7) Hand off to our unified handler (always non‐stream)
-        return ResponseHandler.process_response(
+        result = ResponseHandler.process_response(
             response=normalized,
             llm_provider=self.provider,
             response_format=response_format,
             structured_mode=structured_mode,
             stream=False,
         )
+        # Tag the response so an activity that requested streaming can detect
+        # that it fell back and emit START+TURN_COMPLETE instead of deltas.
+        if streaming_requested and hasattr(result, "metadata"):
+            metadata = dict(result.metadata or {})
+            metadata["dapr_conversation_streaming_unsupported"] = True
+            try:
+                result.metadata = metadata
+            except Exception:  # noqa: BLE001 - immutable in some Pydantic setups
+                logger.debug(
+                    "Could not annotate Dapr fallback metadata on response: %s",
+                    type(result).__name__,
+                )
+        return result
+
+
+def _aggregate_usage(outputs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Aggregate per-output Alpha2 usage dicts into one OpenAI-style dict.
+
+    Returns None when no output reported usage so the envelope omits the key
+    (mirroring the OpenAI client, where usage is absent when unknown). The
+    single-output case — the norm for the Conversation API — is copied through
+    with the three token counters coerced to int (so a stray string sentinel
+    can never ride along), preserving ``*_tokens_details``; with multiple
+    outputs the counters are summed and the detail breakdowns dropped.
+    """
+    usages = [
+        output["usage"]
+        for output in outputs
+        if isinstance(output, dict) and isinstance(output.get("usage"), dict)
+    ]
+    if not usages:
+        return None
+    if len(usages) == 1:
+        merged = dict(usages[0])
+        for field in _USAGE_TOKEN_FIELDS:
+            if field in merged:
+                merged[field] = int(merged[field] or 0)
+        return merged
+    return {
+        field: sum(int(usage.get(field, 0) or 0) for usage in usages)
+        for field in _USAGE_TOKEN_FIELDS
+    }
 
 
 def _simplify_anyof(schema: Dict[str, Any]) -> Dict[str, Any]:

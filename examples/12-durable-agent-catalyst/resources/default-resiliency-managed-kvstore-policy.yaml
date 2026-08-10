@@ -1,0 +1,20 @@
+apiVersion: dapr.io/v1alpha1
+kind: Resiliency
+metadata:
+  name: managed-kvstore-policy
+spec:
+  policies:
+    retries:
+      kvstoreOut:
+        duration: 5s
+        maxRetries: 3
+        policy: constant
+    timeouts:
+      kvstoreOut: 10s
+  targets:
+    components:
+      kvstore:
+        inbound: {}
+        outbound:
+          retry: kvstoreOut
+          timeout: kvstoreOut
