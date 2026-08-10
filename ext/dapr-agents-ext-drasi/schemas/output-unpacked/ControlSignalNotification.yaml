@@ -1,0 +1,19 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: ControlSignalNotification.yaml
+type: object
+properties:
+  op:
+    type: string
+    const: x
+  payload:
+    $ref: ControlPayload.yaml
+  seq:
+    type: integer
+    description: The sequence number of the control signal
+required:
+  - op
+  - payload
+  - seq
+allOf:
+  - $ref: Notification.yaml
+title: ControlSignalNotification

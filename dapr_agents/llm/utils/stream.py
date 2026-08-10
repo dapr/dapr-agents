@@ -21,6 +21,7 @@ from typing import (
 from openai.types.chat import ChatCompletionChunk
 from pydantic import BaseModel
 
+from dapr_agents.llm.utils.providers import PROVIDERS_WITH_STREAMING
 from dapr_agents.types.message import LLMChatCandidateChunk
 
 T = TypeVar("T", bound=BaseModel)
