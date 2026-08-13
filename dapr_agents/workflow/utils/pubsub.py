@@ -58,6 +58,7 @@ async def publish_message(
     default_pubsub: Optional[str] = None,
     client_factory: Callable[[], DaprClient] = default_async_dapr_client_factory,
     logger_: logging.Logger = logger,
+    client: Optional[DaprClient] = None,
 ) -> None:
     """
     Publish a raw JSON-serializable payload to a Dapr pub/sub topic.
@@ -70,6 +71,11 @@ async def publish_message(
         default_pubsub: Component used when ``pubsub_name`` is falsy.
         client_factory: Callable returning an async Dapr client (primarily for testing).
         logger_: Logger used for diagnostic output.
+        client: Optional pre-opened Dapr client. When provided the function
+            does not open/close its own context manager — caller owns the
+            lifetime. Used by long-lived publishers (e.g., the pub/sub
+            streaming listener) to reuse a single gRPC channel across many
+            publishes instead of incurring channel warmup per call.
     """
     json_body = await serialize_message(message)
     target_pubsub = pubsub_name or default_pubsub
@@ -79,7 +85,7 @@ async def publish_message(
     meta = metadata or {}
 
     try:
-        async with client_factory() as client:
+        if client is not None:
             await client.publish_event(
                 pubsub_name=target_pubsub,
                 topic_name=topic_name,
@@ -87,6 +93,15 @@ async def publish_message(
                 data_content_type="application/json",
                 publish_metadata=meta,
             )
+        else:
+            async with client_factory() as owned:
+                await owned.publish_event(
+                    pubsub_name=target_pubsub,
+                    topic_name=topic_name,
+                    data=json_body,
+                    data_content_type="application/json",
+                    publish_metadata=meta,
+                )
         logger_.debug(
             "Published message to pubsub=%s topic=%s metadata=%s payload=%s",
             target_pubsub,
