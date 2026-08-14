@@ -1,0 +1,27 @@
+apiVersion: dapr.io/v1alpha1
+kind: Resiliency
+metadata:
+  name: managed-pubsub-policy
+spec:
+  policies:
+    retries:
+      pubsubIn:
+        duration: 5s
+        maxRetries: 3
+        policy: constant
+      pubsubOut:
+        duration: 5s
+        maxRetries: 3
+        policy: constant
+    timeouts:
+      pubsubIn: 120s
+      pubsubOut: 10s
+  targets:
+    components:
+      pubsub:
+        inbound:
+          retry: pubsubIn
+          timeout: pubsubIn
+        outbound:
+          retry: pubsubOut
+          timeout: pubsubOut

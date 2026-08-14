@@ -57,14 +57,17 @@ from ..utils import (
 )
 from openinference.instrumentation import get_attributes_from_context
 
+from .llm_streaming import LLMStreamingMixin
+
 logger = logging.getLogger(__name__)
+
 
 # ============================================================================
 # LLM Interaction Wrapper
 # ============================================================================
 
 
-class LLMWrapper:
+class LLMWrapper(LLMStreamingMixin):
     """
     Wrapper for LLM chat completion calls with comprehensive message and tool tracing.
 
@@ -293,6 +296,16 @@ class LLMWrapper:
         """
 
         async def async_wrapper():
+            # Async streaming returns an async iterator — wrap it the same way
+            # as sync streaming so attributes are set at stream end.
+            if kwargs.get("stream"):
+                return await self._wrap_async_streaming(
+                    wrapped=wrapped,
+                    args=args,
+                    kwargs=kwargs,
+                    span_name=span_name,
+                    attributes=attributes,
+                )
             with self._tracer.start_as_current_span(
                 span_name, attributes=attributes
             ) as span:
@@ -302,9 +315,7 @@ class LLMWrapper:
                     span.set_status(Status(StatusCode.OK))
                     return result
                 except Exception as e:
-                    span.set_status(Status(StatusCode.ERROR, str(e)))
-                    span.set_attribute("error.type", type(e).__qualname__)
-                    span.record_exception(e)
+                    self._record_span_error(span, e)
                     raise
 
         return async_wrapper()
@@ -335,6 +346,17 @@ class LLMWrapper:
             Any: Result from wrapped method execution with proper span instrumentation,
                  output processing, and comprehensive error handling
         """
+        if kwargs.get("stream"):
+            return self._handle_streaming_execution(
+                wrapped=wrapped,
+                args=args,
+                kwargs=kwargs,
+                span_name=span_name,
+                attributes=attributes,
+                instance=instance,
+                messages=messages,
+            )
+
         with self._tracer.start_as_current_span(
             span_name, attributes=attributes
         ) as span:
@@ -344,10 +366,17 @@ class LLMWrapper:
                 span.set_status(Status(StatusCode.OK))
                 return result
             except Exception as e:
-                span.set_status(Status(StatusCode.ERROR, str(e)))
-                span.set_attribute("error.type", type(e).__qualname__)
-                span.record_exception(e)
+                self._record_span_error(span, e)
                 raise
+
+    # -- shared span helpers ----------------------------------------------
+
+    @staticmethod
+    def _record_span_error(span: Any, exc: BaseException) -> None:
+        """Attach an exception to a span without raising from the helper."""
+        span.set_status(Status(StatusCode.ERROR, str(exc)))
+        span.set_attribute("error.type", type(exc).__qualname__)
+        span.record_exception(exc)
 
     def _set_output_attributes(self, span: Any, result: Any) -> None:
         """
