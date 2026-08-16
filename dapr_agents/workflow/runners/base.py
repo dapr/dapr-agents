@@ -597,10 +597,23 @@ class WorkflowRunner(SignalMixin):
                 instance_id, timeout_in_seconds, fetch_payloads
             )
             self._log_state(instance_id, state)
-        except Exception:
-            logger.exception(
-                f"[{self._name}] {instance_id}: error while monitoring workflow outcome",
-            )
+        except Exception as exc:
+            import grpc
+
+            if (
+                isinstance(exc, grpc._channel._InactiveRpcError)
+                and "actor is closed" in exc.details()
+            ):
+                logger.warning(
+                    "[%s] %s: workflow monitor interrupted because the actor was deactivated "
+                    "(expected during scale-to-zero). Outcome will be checked on next poll.",
+                    self._name,
+                    instance_id,
+                )
+            else:
+                logger.exception(
+                    f"[{self._name}] {instance_id}: error while monitoring workflow outcome",
+                )
 
     def _log_state(self, instance_id: str, state: Optional[WorkflowState]) -> None:
         """
