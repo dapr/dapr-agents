@@ -21,7 +21,7 @@ const owners = [
 const docsIssueBodyTpl = (
     issueNumber
 ) => `This issue was automatically created by \
-[Dapr Bot](https://github.com/dapr/dapr-agents/blob/master/.github/workflows/dapr-bot.yml) because a \"docs-needed\" label \
+[Dapr Bot](https://github.com/dapr/dapr-agents/blob/main/.github/workflows/dapr-bot.yaml) because a \"docs-needed\" label \
 was added to dapr/dapr#${issueNumber}. \n\n\
 TODO: Add more details as per [this template](.github/ISSUE_TEMPLATE/new-content-needed.md).`
 
