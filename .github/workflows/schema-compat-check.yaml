@@ -37,7 +37,10 @@ jobs:
     - name: Check if schema changed
       id: schema-diff
       run: |
-        if diff -q base/schemas/agent-metadata/latest.json head/schemas/agent-metadata/latest.json > /dev/null 2>&1; then
+        if [ ! -f "head/schemas/agent-metadata/latest.json" ]; then
+          echo "Schema file not present on PR head — skipping check."
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        elif diff -q base/schemas/agent-metadata/latest.json head/schemas/agent-metadata/latest.json > /dev/null 2>&1; then
           echo "changed=false" >> "$GITHUB_OUTPUT"
         else
           echo "changed=true" >> "$GITHUB_OUTPUT"

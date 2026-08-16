@@ -34,7 +34,16 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         RUN_ID="${{ github.event.workflow_run.id }}"
-        gh run download "$RUN_ID" --name schema-compat-report --dir /tmp/schema-report-dir 2>/dev/null || true
+        # The check workflow only uploads the artifact when the schema changed,
+        # so a missing artifact means "no change". Any other download failure is
+        # a real error and must fail the job rather than be silently swallowed.
+        if gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name == "schema-compat-report") | .name' \
+            | grep -q .; then
+          gh run download "$RUN_ID" --name schema-compat-report --dir /tmp/schema-report-dir
+        else
+          echo "Schema report artifact not found — schema did not change."
+        fi
     - name: Comment on PR if breaking changes
       env:
         GH_TOKEN: ${{ github.token }}
