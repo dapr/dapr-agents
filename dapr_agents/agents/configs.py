@@ -582,13 +582,13 @@ class AgentExecutionConfig:
         cls, runtime_config: Optional[Dict[str, Any]]
     ) -> "AgentExecutionConfig":
         """
-        Create execution configuration from the state store configuration.
+        Create execution configuration from the state store runtime configuration.
 
         Args:
-            runtime_config: Optional runtime configuration.
+            runtime_config: Optional state store runtime configuration.
 
         Returns:
-            AgentExecutionConfig instance created from the state store configuration.
+            AgentExecutionConfig instance created from the state store runtime configuration.
         """
         runtime_config = runtime_config or {}
         config_field_map = {
@@ -619,13 +619,13 @@ class AgentExecutionConfig:
     ) -> "AgentExecutionConfig":
         """
         Resolve the execution configuration for the agent in the following order:
-        1. Statestore runtime configuration (highest priority)
+        1. State store runtime configuration (highest priority)
         2. Passed through instantiation
         3. Environment variables (lowest priority)
 
         Args:
             config: Optional user-instantiated configuration.
-            runtime_config: Optional runtime configuration.
+            runtime_config: Optional state store runtime configuration.
 
         Returns:
             Resolved AgentExecutionConfig instance.
@@ -638,7 +638,7 @@ class AgentExecutionConfig:
         logger.debug(f"Instantiated execution config: {config}")
 
         statestore_config = AgentExecutionConfig.from_statestore(runtime_config)
-        logger.debug(f"Statestore execution config: {statestore_config}")
+        logger.debug(f"State store runtime execution config: {statestore_config}")
 
         resolved_config = functools.reduce(
             merge_models,
@@ -651,8 +651,8 @@ class AgentExecutionConfig:
     @classmethod
     def _template_config(cls) -> "AgentExecutionConfig":
         """Create an execution configuration with defaults cleared.
-        Used by environment variable and statestore resolution so
-        configuration defaults do not bleed into the merged configuration.
+        Used by environment variable and state store resolution so
+        unset variables with defaults do not bleed into the merged configuration.
         """
         return cls(
             max_iterations=None,
@@ -665,7 +665,7 @@ class AgentExecutionConfig:
 
     @classmethod
     def _base_config(cls) -> "AgentExecutionConfig":
-        """Create a base execution config for resolution."""
+        """Create a base execution configuration for resolution."""
         return cls(
             max_iterations=AGENT_DEFAULT_MAX_ITERATIONS,
             tool_choice=AGENT_DEFAULT_TOOL_CHOICE,
@@ -882,13 +882,13 @@ class AgentObservabilityConfig:
         cls, runtime_config: Optional[Dict[str, Any]]
     ) -> "AgentObservabilityConfig":
         """
-        Create observability configuration from the state store configuration.
+        Create observability configuration from the state store runtime configuration.
 
         Args:
-            runtime_config: Optional runtime configuration.
+            runtime_config: Optional state store runtime configuration.
 
         Returns:
-            AgentObservabilityConfig instance created from the state store configuration.
+            AgentObservabilityConfig instance created from the state store runtime configuration.
         """
         runtime_config = runtime_config or {}
         config_field_map = {
@@ -957,17 +957,17 @@ class AgentObservabilityConfig:
         Resolve the observability configuration for the agent in the following order:
         1. Passed through instantiation (highest priority)
         2. Environment variables
-        3. Default statestore runtime configuration (lowest priority)
+        3. State store runtime configuration (lowest priority)
 
         Args:
             config: Optional user-instantiated configuration.
-            runtime_config: Optional runtime configuration.
+            runtime_config: Optional state store runtime configuration.
 
         Returns:
             Resolved AgentObservabilityConfig instance.
         """
         statestore_config = AgentObservabilityConfig.from_statestore(runtime_config)
-        logger.debug(f"Statestore observability config: {statestore_config}")
+        logger.debug(f"State store observability config: {statestore_config}")
 
         env_config = AgentObservabilityConfig.from_env()
         logger.debug(f"Environment variable observability config: {env_config}")
@@ -986,8 +986,8 @@ class AgentObservabilityConfig:
     @classmethod
     def _template_config(cls) -> "AgentObservabilityConfig":
         """Create an observability configuration with defaults cleared.
-        Used by environment variable and statestore resolution so
-        configuration defaults do not bleed into the merged configuration.
+        Used by environment variable and state store resolution so
+        unset variables with defaults do not bleed into the merged configuration.
         """
         return cls(
             enabled=None,
