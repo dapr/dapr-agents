@@ -46,6 +46,17 @@ class ExampleModel(BaseModel):
     description: str | None = None
 
 
+@dataclass
+class FalsyDataclass:
+    """Dataclass fixture for falsy merge behavior."""
+
+    enabled: bool
+    count: int
+    label: str
+    tags: list[str]
+    description: str | None = None
+
+
 class TestIsPydanticModel:
     """Tests for is_pydantic_model."""
 
@@ -193,3 +204,27 @@ class TestMergeModels:
         merged = merge_models(base, override)
 
         assert merged is base
+
+    def test_merge_keeps_falsy_values_and_ignores_only_none(self):
+        base = FalsyDataclass(
+            enabled=True,
+            count=1,
+            label="base",
+            tags=["base"],
+            description="base-description",
+        )
+        override = FalsyDataclass(
+            enabled=False,
+            count=0,
+            label="",
+            tags=[],
+            description=None,
+        )
+
+        merged = merge_models(base, override)
+
+        assert merged.enabled is False
+        assert merged.count == 0
+        assert merged.label == ""
+        assert merged.tags == []
+        assert merged.description == "base-description"

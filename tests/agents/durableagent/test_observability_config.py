@@ -347,7 +347,7 @@ class TestObservabilityConfigFromEnvironment:
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
 
 
-class TestObservabilityConfigFromStatestore:
+class TestObservabilityConfigFromStateStore:
     """Test cases for observability config from default statestore."""
 
     @pytest.fixture(autouse=True)
