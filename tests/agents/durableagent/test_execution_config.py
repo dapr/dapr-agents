@@ -17,6 +17,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from dapr_agents.agents.constants import AGENT_DEFAULT_MAX_ITERATIONS, AGENT_DEFAULT_TOOL_CHOICE, AGENT_DEFAULT_TOOL_EXECUTION_MODE
 from tests.conftest import MockDaprClient
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
@@ -110,15 +111,17 @@ class TestExecutionConfigDefaults(ExecutionConfigTestBase):
     def test_execution_config_defaults(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test defaults are preserved when env, runtime, and instantiation are empty."""
+        """
+        Test defaults are preserved when none of the configuration sources are available.
+        """
         mock_client = MockDaprClient()
         self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
-        assert agent.execution.max_iterations == 10
-        assert agent.execution.tool_choice == ToolChoice.AUTO
-        assert agent.execution.tool_execution_mode == ToolExecutionMode.PARALLEL
+        assert agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
+        assert agent.execution.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
+        assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
         assert agent._dapr_client_config is None
@@ -158,7 +161,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
 class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
     """Test cases for execution config from environment variables."""
 
-    def test_execution_config_from_environment(self, mock_llm, mock_tool, monkeypatch):
+    def test_execution_config_from_env(self, mock_llm, mock_tool, monkeypatch):
         """Test execution config loaded from environment variables."""
         monkeypatch.setenv("MAX_ITERATIONS", "7")
         monkeypatch.setenv("TOOL_CHOICE", "required")
@@ -180,12 +183,11 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode == OrchestrationMode.AGENT
         assert agent.execution.max_grpc_inbound_message_size_bytes == 654321
 
-    def test_execution_config_from_env_invalid_values(
+    def test_execution_config_from_env_invalid_values_ignored(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test invalid env values are ignored and valid fields still apply."""
+        """Test invalid environment variable values are ignored."""
         monkeypatch.setenv("MAX_ITERATIONS", "zero")
-        monkeypatch.setenv("TOOL_CHOICE", "huh")
         monkeypatch.setenv("TOOL_EXECUTION_MODE", "sideways")
         monkeypatch.setenv("ORCHESTRATION_MODE", "upward")
         monkeypatch.setenv("MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES", "abc")
@@ -198,18 +200,34 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
             tools=[mock_tool],
         )
 
-        assert agent.execution.max_iterations == 10
-        assert agent.execution.tool_choice == ToolChoice.AUTO
-        assert agent.execution.tool_execution_mode == ToolExecutionMode.PARALLEL
+        assert agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
+        assert agent.execution.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
+        assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
+    def test_execution_config_from_env_permissive_tool_choice(
+        self, mock_llm, mock_tool, monkeypatch
+    ):
+        """Specifically test that a non-standard environment variable tool choice is preserved."""
+        monkeypatch.setenv("TOOL_CHOICE", "tool")
+
+        mock_client = MockDaprClient()
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = self._make_agent(
+            mock_llm,
+            tools=[mock_tool],
+        )
+
+        assert agent.execution.tool_choice == "tool"
+
 
 class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
-    """Test cases for execution config from default statestore."""
+    """Test cases for execution config from runtime configuration."""
 
     def test_execution_config_from_statestore(self, mock_llm, mock_tool, monkeypatch):
-        """Test execution config loaded from statestore runtime configuration."""
+        """Test execution config loaded from runtime configuration."""
         runtime_config = {
             "MAX_ITERATIONS": "9",
             "TOOL_CHOICE": "none",
@@ -222,16 +240,34 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
 
         assert agent.execution.max_iterations == 9
         assert agent.execution.tool_choice == ToolChoice.NONE
-        assert agent.execution.tool_execution_mode == ToolExecutionMode.PARALLEL
+        assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_from_statestore_invalid_values(
+    def test_execution_config_from_statestore_invalid_values_ignored(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test invalid runtime values are ignored and valid fields still apply."""
+        """Test invalid runtime values are ignored."""
         runtime_config = {
             "MAX_ITERATIONS": "two",
+        }
+
+        mock_client = MockDaprClient(runtime_config=runtime_config)
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = self._make_agent(mock_llm, tools=[mock_tool])
+
+        assert agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
+        assert agent.execution.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
+        assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
+        assert agent.execution.orchestration_mode is None
+        assert agent.execution.max_grpc_inbound_message_size_bytes is None
+
+    def test_execution_config_from_statestore_permissive_tool_choice(
+        self, mock_llm, mock_tool, monkeypatch
+    ):
+        """Specifically test that a non-standard runtime tool choice is preserved."""
+        runtime_config = {
             "TOOL_CHOICE": "no",
         }
 
@@ -240,20 +276,16 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
 
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
-        assert agent.execution.max_iterations == 10
-        assert agent.execution.tool_choice == ToolChoice.AUTO
-        assert agent.execution.tool_execution_mode == ToolExecutionMode.PARALLEL
-        assert agent.execution.orchestration_mode is None
-        assert agent.execution.max_grpc_inbound_message_size_bytes is None
+        assert agent.execution.tool_choice == "no"
 
 
 class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
     """Test execution config precedence with across sources."""
 
-    def test_execution_statestore_over_instantiation(
+    def test_execution_config_statestore_over_instantiation(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test statestore runtime > instantiation precedence."""
+        """Test  runtime > instantiation precedence."""
         runtime_config = {
             "MAX_ITERATIONS": "8",
             "TOOL_CHOICE": "required",
@@ -279,8 +311,8 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_instantiation_over_env(self, mock_llm, mock_tool, monkeypatch):
-        """Test instantiation > environment precedence."""
+    def test_execution_config_instantiation_over_env(self, mock_llm, mock_tool, monkeypatch):
+        """Test instantiation > environment variable precedence."""
         monkeypatch.setenv("MAX_ITERATIONS", "2")
         monkeypatch.setenv("TOOL_CHOICE", "auto")
         monkeypatch.setenv("TOOL_EXECUTION_MODE", "sequential")
@@ -306,8 +338,8 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_statestore_over_env(self, mock_llm, mock_tool, monkeypatch):
-        """Test statestore runtime > environment precedence."""
+    def test_execution_config_statestore_over_env(self, mock_llm, mock_tool, monkeypatch):
+        """Test runtime > environment variable precedence."""
         monkeypatch.setenv("MAX_ITERATIONS", "3")
         monkeypatch.setenv("TOOL_CHOICE", "auto")
         monkeypatch.setenv("TOOL_EXECUTION_MODE", "parallel")
@@ -334,7 +366,7 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
     def test_execution_config_full_precedence(self, mock_llm, mock_tool, monkeypatch):
-        """Test runtime > instantiation > environment precedence."""
+        """Test runtime > instantiation > environment variable precedence."""
         monkeypatch.setenv("MAX_ITERATIONS", "1")
         monkeypatch.setenv("TOOL_CHOICE", "none")
         monkeypatch.setenv("TOOL_EXECUTION_MODE", "sequential")
@@ -364,7 +396,7 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_partial_overlap_between_runtime_env_and_instantiation(
+    def test_execution_config_full_precedence_partial_overlap(
         self, mock_llm, mock_tool, monkeypatch
     ):
         """Test partial overlap where each source contributes different fields."""

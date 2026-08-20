@@ -634,7 +634,7 @@ class AgentExecutionConfig:
         env_config = AgentExecutionConfig.from_env()
         logger.debug(f"Environment variable execution config: {env_config}")
 
-        config = config or cls()
+        config = config or cls._template_config()
         logger.debug(f"Instantiated execution config: {config}")
 
         statestore_config = AgentExecutionConfig.from_statestore(runtime_config)
@@ -651,8 +651,8 @@ class AgentExecutionConfig:
     @classmethod
     def _template_config(cls) -> "AgentExecutionConfig":
         """Create an execution configuration with defaults cleared.
-        Used by environment variable and state store resolution so
-        unset variables with defaults do not bleed into the merged configuration.
+        Used by environment variable and state store resolution, and as a fallback for instantiated configuration
+        so that unset fields with default values do not bleed into the merged configuration.
         """
         return cls(
             max_iterations=None,
@@ -972,7 +972,7 @@ class AgentObservabilityConfig:
         env_config = AgentObservabilityConfig.from_env()
         logger.debug(f"Environment variable observability config: {env_config}")
 
-        config = config or cls()
+        config = config or cls._template_config()
         logger.debug(f"Instantiated observability config: {config}")
 
         resolved_config = functools.reduce(
@@ -986,8 +986,8 @@ class AgentObservabilityConfig:
     @classmethod
     def _template_config(cls) -> "AgentObservabilityConfig":
         """Create an observability configuration with defaults cleared.
-        Used by environment variable and state store resolution so
-        unset variables with defaults do not bleed into the merged configuration.
+        Used by environment variable and state store resolution, and as a fallback for instantiated configuration
+        so that unset fields with default values do not bleed into the merged configuration.
         """
         return cls(
             enabled=None,
