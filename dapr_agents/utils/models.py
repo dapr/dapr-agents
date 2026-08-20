@@ -52,7 +52,7 @@ def get_model_fields(model: Any) -> Any:
 
     if hasattr(model, "model_validate"):
         # Pydantic v2
-        return model.model_fields.keys()
+        return model.__class__.model_fields.keys()
 
     if hasattr(model, "parse_obj"):
         # Pydantic v1
@@ -107,6 +107,10 @@ def merge_models(base: T, override: T) -> T:
         )
         return base
 
+    # If both models are dictionaries, perform a direct shallow merge (more performant)
+    if isinstance(base, dict) and isinstance(override, dict):
+        return {**base, **override}
+
     try:
         # Infer model type from the base model
         model_fields = get_model_fields(base)
@@ -134,6 +138,6 @@ def merge_models(base: T, override: T) -> T:
 
         logger.debug(f"Merged model: {model!r}")
         return model
-    except Exception as e:
-        logger.warning(f"Failed to merge models: {e}")
+    except Exception:
+        logger.warning(f"Failed to merge models", exc_info=True)
         return base
