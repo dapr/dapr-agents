@@ -75,9 +75,11 @@ class DaprClientConfig:
     max_grpc_message_length: Optional[int] = None
 
     def __post_init__(self) -> None:
-        if (
-            self.max_grpc_message_length is not None
-            and self.max_grpc_message_length <= 0
+        # Validate that the gRPC inbound message size limit is a positive integer if set.
+        # Prefer type() over isinstance() as the latter returns True for booleans.
+        if self.max_grpc_message_length is not None and (
+            type(self.max_grpc_message_length) is not int
+            or self.max_grpc_message_length <= 0
         ):
             raise ValueError(
                 "max_grpc_message_length must be a positive integer, "
@@ -117,7 +119,7 @@ def dapr_client_kwargs(
         if explicit is None:
             # Drop the unset kwarg so we fall through to config/env resolution.
             del resolved["max_grpc_message_length"]
-        elif not isinstance(explicit, int) or explicit <= 0:
+        elif not type(explicit) is int or explicit <= 0:
             raise ValueError(
                 f"max_grpc_message_length must be a positive integer, got {explicit!r}"
             )
