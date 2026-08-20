@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from dapr_agents.utils.models import (
     get_model_factory,
@@ -27,6 +27,11 @@ from dapr_agents.utils.models import (
     is_supported_model_instance,
     merge_models,
 )
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -46,15 +51,9 @@ class ExampleModel(BaseModel):
     description: str | None = None
 
 
-@dataclass
-class FalsyDataclass:
-    """Dataclass fixture for falsy merge behavior."""
-
-    enabled: bool
-    count: int
-    label: str
-    tags: list[str]
-    description: str | None = None
+# ---------------------------------------------------------------------------
+# Model helper tests
+# ---------------------------------------------------------------------------
 
 
 class TestIsPydanticModel:
@@ -137,7 +136,7 @@ class TestGetModelFactory:
 class TestMergeModels:
     """Tests for merge_models across supported model types."""
 
-    def test_merge_dataclass_models(self):
+    def test_merge_models_dataclass_returns_merged(self):
         base = ExampleDataclass(
             name="base",
             metadata={"shared": "base", "base_only": "yes"},
@@ -159,7 +158,7 @@ class TestMergeModels:
         }
         assert merged.description == "base-description"
 
-    def test_merge_pydantic_models(self):
+    def test_merge_models_pydantic_returns_merged(self):
         base = ExampleModel(
             name="base",
             metadata={"shared": "base", "base_only": "yes"},
@@ -197,15 +196,39 @@ class TestMergeModels:
 
         assert merged is base
 
-    def test_merge_dict_models_falls_back_to_base(self):
-        base = {"name": "base", "metadata": {"shared": "base"}}
-        override = {"name": "override", "metadata": {"shared": "override"}}
+    def test_merge_models_returns_override_for_unsupported_base(self):
+        base = object()
+        override = ExampleDataclass(name="override")
 
         merged = merge_models(base, override)
 
-        assert merged is base
+        assert merged is override
 
-    def test_merge_keeps_falsy_values_and_ignores_only_none(self):
+    def test_merge_models_dicts_shallow_merge(self):
+        base = {
+            "name": "base",
+            "metadata": {"shared": "base", "base_only": "yes"},
+        }
+        override = {
+            "metadata": {"override_only": "override"},
+        }
+
+        merged = merge_models(base, override)
+
+        assert merged == {
+            "name": "base",
+            "metadata": {"override_only": "override"},
+        }
+
+    def test_merge_models_keeps_falsy_values_and_ignores_only_none(self):
+        @dataclass
+        class FalsyDataclass:
+            enabled: bool
+            count: int
+            label: str
+            tags: list[str]
+            description: str | None = None
+
         base = FalsyDataclass(
             enabled=True,
             count=1,
@@ -228,3 +251,23 @@ class TestMergeModels:
         assert merged.label == ""
         assert merged.tags == []
         assert merged.description == "base-description"
+
+    def test_merge_models_failed_merge_raises(self):
+        class DateRange(BaseModel):
+            """Date range where start_date must be before end_date."""
+
+            start_date: str | None = None
+            end_date: str | None = None
+
+            @model_validator(mode="after")
+            def check_order(self) -> "DateRange":
+                if self.start_date and self.end_date and self.start_date > self.end_date:
+                    raise ValueError("start_date must be before end_date")
+                return self
+
+        base = DateRange(start_date="2024-01-01", end_date="2024-06-01")
+        override = DateRange(start_date="2024-12-01", end_date=None)
+
+        result = merge_models(base, override)
+
+        assert result == base

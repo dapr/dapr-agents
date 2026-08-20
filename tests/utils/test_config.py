@@ -27,6 +27,11 @@ from dapr_agents.utils.config import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Config helper tests
+# ---------------------------------------------------------------------------
+
+
 class TestCoerceConfigValue:
     """Tests for coerce_config_value type coercion."""
 
