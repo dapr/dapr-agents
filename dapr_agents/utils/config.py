@@ -164,6 +164,22 @@ def process_config_update(
 
 def coerce_config_value(value: Any, target_type: type) -> Any:
     """Coerce a configuration value (usually a string) to the target Python type."""
+    origin = get_origin(target_type)
+
+    if origin in (Union, UnionType):
+        # Handle PEP 604 / typing.Union types by trying each branch in order
+        for arg in get_args(target_type):
+            try:
+                return coerce_config_value(value, arg)
+            except ValueError:
+                continue
+        raise ValueError(f"Cannot coerce {value!r} to any type in {target_type}")
+
+    if origin is not None:
+        # Unwrap parameterized generics such as dict[str, str] / list[int]
+        # to their runtime container type before `isinstance`
+        target_type = origin
+
     if isinstance(value, target_type):
         return value
 
@@ -206,17 +222,5 @@ def coerce_config_value(value: Any, target_type: type) -> Any:
         if isinstance(value, dict):
             return value
         raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
-
-    # Handle types that are not classes
-    origin = get_origin(target_type)
-    if origin is not None:
-        # Support union and bar syntax
-        if origin in (Union, UnionType):
-            for arg in get_args(target_type):
-                try:
-                    return coerce_config_value(value, arg)
-                except ValueError:
-                    continue
-            raise ValueError(f"Cannot coerce {value!r} to any type in {target_type}")
 
     raise ValueError(f"Unsupported target type: {target_type}")

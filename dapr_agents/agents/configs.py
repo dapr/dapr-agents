@@ -527,8 +527,8 @@ class AgentExecutionConfig:
     tool_choice: Optional[ToolChoice] = AGENT_DEFAULT_TOOL_CHOICE
     tool_execution_mode: Optional[ToolExecutionMode] = AGENT_DEFAULT_TOOL_EXECUTION_MODE
     orchestration_mode: Optional[OrchestrationMode] = None
-    approval: Optional[AgentApprovalConfig] = field(default_factory=AgentApprovalConfig)
     max_grpc_inbound_message_size_bytes: Optional[int] = None
+    approval: Optional[AgentApprovalConfig] = field(default_factory=AgentApprovalConfig)
 
     @classmethod
     def from_env(cls) -> "AgentExecutionConfig":
@@ -578,17 +578,75 @@ class AgentExecutionConfig:
         return config
 
     @classmethod
+    def from_instantiation(cls, instantiated_config: Optional["AgentExecutionConfig"]) -> "AgentExecutionConfig":
+        """
+        Create execution configuration from an instantiated configuration.
+
+        Args:
+            config: Optional user-instantiated configuration.
+
+        Returns:
+            AgentExecutionConfig instance created from the instantiated configuration.
+        """
+        instantiated_config = instantiated_config or cls._template_config()
+        config_field_map = {
+            "max_iterations": ConfigFieldDescriptor(
+                target_type=Optional[int],
+                setter=lambda obj, v: setattr(obj, "max_iterations", v),
+                getter=lambda: instantiated_config.max_iterations,
+                validator=validate_max_iterations,
+            ),
+            "tool_choice": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tool_choice", v),
+                getter=lambda: instantiated_config.tool_choice,
+                validator=validate_tool_choice,
+            ),
+            "tool_execution_mode": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
+                getter=lambda: instantiated_config.tool_execution_mode,
+                validator=validate_tool_execution_mode,
+            ),
+            "orchestration_mode": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
+                getter=lambda: instantiated_config.orchestration_mode,
+                validator=validate_orchestration_mode,
+            ),
+            "max_grpc_inbound_message_size_bytes": ConfigFieldDescriptor(
+                target_type=Optional[int],
+                setter=lambda obj, v: setattr(
+                    obj, "max_grpc_inbound_message_size_bytes", v
+                ),
+                getter=lambda: instantiated_config.max_grpc_inbound_message_size_bytes,
+            ),
+            # TODO: validate approval config fields
+            "approval": ConfigFieldDescriptor(
+                target_type=Optional[AgentApprovalConfig],
+                setter=lambda obj, v: setattr(obj, "approval", v),
+                getter=lambda: instantiated_config.approval,
+            ),
+        }
+
+        config = cls._template_config()
+        apply_config_map(config, config_field_map)
+
+        return config
+
+
+    @classmethod
     def from_statestore(
         cls, runtime_config: Optional[Dict[str, Any]]
     ) -> "AgentExecutionConfig":
         """
-        Create execution configuration from the state store runtime configuration.
+        Validate and create execution configuration from state store runtime configuration.
 
         Args:
             runtime_config: Optional state store runtime configuration.
 
         Returns:
-            AgentExecutionConfig instance created from the state store runtime configuration.
+            AgentExecutionConfig instance created from state store runtime configuration.
         """
         runtime_config = runtime_config or {}
         config_field_map = {
@@ -604,6 +662,7 @@ class AgentExecutionConfig:
                 getter=lambda: runtime_config.get("TOOL_CHOICE"),
                 validator=validate_tool_choice,
             ),
+            # TODO: support orchestration mode
         }
 
         config = cls._template_config()
@@ -634,15 +693,15 @@ class AgentExecutionConfig:
         env_config = AgentExecutionConfig.from_env()
         logger.debug(f"Environment variable execution config: {env_config}")
 
-        config = config or cls._template_config()
-        logger.debug(f"Instantiated execution config: {config}")
+        instantiated_config = AgentExecutionConfig.from_instantiation(config)
+        logger.debug(f"Instantiated execution config: {instantiated_config}")
 
         statestore_config = AgentExecutionConfig.from_statestore(runtime_config)
         logger.debug(f"State store runtime execution config: {statestore_config}")
 
         resolved_config = functools.reduce(
             merge_models,
-            [cls._base_config(), env_config, config, statestore_config],
+            [cls._base_config(), env_config, instantiated_config, statestore_config],
         )
 
         logger.debug(f"Final execution config: {resolved_config}")
@@ -806,7 +865,7 @@ class AgentObservabilityConfig:
 
     @classmethod
     def from_env(cls) -> "AgentObservabilityConfig":
-        """Create observability config from standard OTEL environment variables.
+        """Validate and create observability config from standard OTEL environment variables.
 
         Uses standard OpenTelemetry env var names where available:
         - OTEL_SDK_DISABLED (inverted: disabled != "true" means enabled)
@@ -878,17 +937,87 @@ class AgentObservabilityConfig:
         return config
 
     @classmethod
+    def from_instantiation(cls, instantiated_config: Optional["AgentObservabilityConfig"]) -> "AgentObservabilityConfig":
+        """
+        Validate and create observability configuration from an instantiated configuration.
+
+        Args:
+            config: Optional user-instantiated configuration.
+        
+        Returns:
+            AgentObservabilityConfig instance created from the instantiated configuration.
+        """
+        instantiated_config = instantiated_config or cls._template_config()
+        config_field_map = {
+            "enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "enabled", v),
+                getter=lambda: instantiated_config.enabled,
+            ),
+            "headers": ConfigFieldDescriptor(
+                target_type=dict[str, str],
+                setter=lambda obj, v: setattr(obj, "headers", v),
+                getter=lambda: instantiated_config.headers,
+            ),
+            "auth_token": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "auth_token", v),
+                getter=lambda: instantiated_config.auth_token,
+                validator=validate_non_empty_string,
+            ),
+            "endpoint": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "endpoint", v),
+                getter=lambda: instantiated_config.endpoint,
+                validator=validate_non_empty_string,
+            ),
+            "service_name": ConfigFieldDescriptor(
+                target_type=Optional[str],
+                setter=lambda obj, v: setattr(obj, "service_name", v),
+                getter=lambda: instantiated_config.service_name,
+                validator=validate_non_empty_string,
+            ),
+            "logging_enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "logging_enabled", v),
+                getter=lambda: instantiated_config.logging_enabled,
+            ),
+            "logging_exporter": ConfigFieldDescriptor(
+                target_type=Optional[AgentLoggingExporter],
+                setter=lambda obj, v: setattr(obj, "logging_exporter", v),
+                getter=lambda: instantiated_config.logging_exporter,
+                validator=validate_otel_exporter_logging,
+            ),
+            "tracing_enabled": ConfigFieldDescriptor(
+                target_type=Optional[bool],
+                setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
+                getter=lambda: instantiated_config.tracing_enabled,
+            ),
+            "tracing_exporter": ConfigFieldDescriptor(
+                target_type=Optional[AgentTracingExporter],
+                setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
+                getter=lambda: instantiated_config.tracing_exporter,
+                validator=validate_otel_exporter_tracing,
+            ),
+        }
+
+        config = cls._template_config()
+        apply_config_map(config, config_field_map)
+
+        return config
+
+    @classmethod
     def from_statestore(
         cls, runtime_config: Optional[Dict[str, Any]]
     ) -> "AgentObservabilityConfig":
         """
-        Create observability configuration from the state store runtime configuration.
+        Validate and create observability configuration from state store runtime configuration.
 
         Args:
             runtime_config: Optional state store runtime configuration.
 
         Returns:
-            AgentObservabilityConfig instance created from the state store runtime configuration.
+            AgentObservabilityConfig instance created from state store runtime configuration.
         """
         runtime_config = runtime_config or {}
         config_field_map = {
@@ -905,6 +1034,7 @@ class AgentObservabilityConfig:
                 # Target the auth_token field as runtime secrets may contain an access token
                 setter=lambda obj, v: setattr(obj, "auth_token", v),
                 getter=lambda: runtime_config.get("OTEL_EXPORTER_OTLP_HEADERS"),
+                validator=validate_non_empty_string,
             ),
             RuntimeConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -967,17 +1097,17 @@ class AgentObservabilityConfig:
             Resolved AgentObservabilityConfig instance.
         """
         statestore_config = AgentObservabilityConfig.from_statestore(runtime_config)
-        logger.debug(f"State store observability config: {statestore_config}")
+        logger.debug(f"State store runtime observability config: {statestore_config}")
 
         env_config = AgentObservabilityConfig.from_env()
         logger.debug(f"Environment variable observability config: {env_config}")
 
-        config = config or cls._template_config()
-        logger.debug(f"Instantiated observability config: {config}")
+        instantiated_config = AgentObservabilityConfig.from_instantiation(config)
+        logger.debug(f"Instantiated observability config: {instantiated_config}")
 
         resolved_config = functools.reduce(
             merge_models,
-            [cls._base_config(), statestore_config, env_config, config],
+            [cls._base_config(), statestore_config, env_config, instantiated_config],
         )
 
         logger.debug(f"Final observability config: {resolved_config}")
