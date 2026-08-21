@@ -535,14 +535,17 @@ class AgentExecutionConfig:
     Dials to configure the agent execution.
 
     Attributes:
-        max_iterations: Maximum number of turns allowed for the agent to produce a final response.
-        tool_choice: Tool choice strategy for the agent.
-        tool_execution_mode: Tool execution mode for the agent.
-        orchestration_mode: Orchestration strategy for the agent.
         max_iterations: Cap on LLM/tool iterations per turn.
         tool_choice: Pass-through for provider ``tool_choice`` parameter.
         tool_execution_mode: Parallel vs. sequential execution of tool calls.
         orchestration_mode: Enable orchestrator strategy (agent/random/roundrobin).
+        approval: Human-in-the-loop configuration for the agent.
+        max_grpc_inbound_message_size_bytes: Optional gRPC inbound message size
+            limit in bytes. When set, takes precedence over
+            ``DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES`` for this agent only —
+            two agents in the same process can run with independent limits.
+            The value is plumbed through a per-agent client factory shared by
+            the agent's memory, state, registry, and LLM collaborators.
         streaming: Opt in to streaming responses. When False, non-streaming path is
             byte-for-byte unchanged. When True, the agent emits ``AgentStreamChunk``
             events through a ``StreamListener`` resolved from ``stream_listener``
@@ -567,13 +570,6 @@ class AgentExecutionConfig:
             (``{"type": "pubsub" | "in_process" | "webhook" | "composite" | "custom",
             ...}``). See ``dapr_agents.streaming.listeners`` for accepted shapes. When
             ``None``, the runner/server picks a topology-safe default per mode.
-        max_grpc_inbound_message_size_bytes: Optional gRPC inbound message size
-            limit in bytes. When set, takes precedence over
-            ``DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES`` for this agent only —
-            two agents in the same process can run with independent limits.
-            The value is plumbed through a per-agent client factory shared by
-            the agent's memory, state, registry, and LLM collaborators.
-        approval: Human-in-the-loop configuration for the agent.
     """
 
     # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
@@ -582,12 +578,15 @@ class AgentExecutionConfig:
     tool_choice: Optional[ToolChoice] = AGENT_DEFAULT_TOOL_CHOICE
     tool_execution_mode: Optional[ToolExecutionMode] = AGENT_DEFAULT_TOOL_EXECUTION_MODE
     orchestration_mode: Optional[OrchestrationMode] = None
+    approval: Optional[AgentApprovalConfig] = field(default_factory=AgentApprovalConfig)
     max_grpc_inbound_message_size_bytes: Optional[int] = None
+
     # ALPHA: streaming emits AgentStreamChunk (schema "1-alpha") and may change
     # in shape/semantics in future 1.x releases. Enabling it logs a one-time
     # alpha warning; consumers should branch on AgentStreamChunk.schema_version.
     streaming: bool = False
     stream_listener: Optional[Dict[str, Any]] = None
+
     # Built-in tools are opt-in. Default is an empty list to preserve strict
     # backwards compatibility — upgrading agents do not suddenly see new tools
     # in their LLM tool schema. To enable ``ask_user``, set
@@ -613,7 +612,6 @@ class AgentExecutionConfig:
                 )
             normalized.append(value)
         self.builtin_tools = normalized
-    approval: Optional[AgentApprovalConfig] = field(default_factory=AgentApprovalConfig)
 
     @classmethod
     def from_env(cls) -> "AgentExecutionConfig":
@@ -711,18 +709,18 @@ class AgentExecutionConfig:
                 getter=lambda: instantiated_config.orchestration_mode,
                 validator=validate_orchestration_mode,
             ),
+            # TODO: validate approval config fields
+            "approval": ConfigFieldDescriptor(
+                target_type=Optional[AgentApprovalConfig],
+                setter=lambda obj, v: setattr(obj, "approval", v),
+                getter=lambda: instantiated_config.approval,
+            ),
             "max_grpc_inbound_message_size_bytes": ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
                 getter=lambda: instantiated_config.max_grpc_inbound_message_size_bytes,
-            ),
-            # TODO: validate approval config fields
-            "approval": ConfigFieldDescriptor(
-                target_type=Optional[AgentApprovalConfig],
-                setter=lambda obj, v: setattr(obj, "approval", v),
-                getter=lambda: instantiated_config.approval,
             ),
         }
 
