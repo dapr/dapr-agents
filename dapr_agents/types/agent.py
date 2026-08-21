@@ -20,7 +20,7 @@ import uuid
 
 class ToolChoice(StrEnum):
     """
-    Enumeration of supported tool choice strategies for durable agents.
+    Enumeration of **standard** tool choice strategies for durable agents.
 
     AUTO: The agent decides when to use tools based on the prompt and context.
         This is the default and recommended choice for most use cases,

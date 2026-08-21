@@ -645,13 +645,6 @@ class AgentExecutionConfig:
                 validator=validate_tool_execution_mode,
                 should_raise=False,
             ),
-            EnvConfigKey.ORCHESTRATION_MODE: ConfigFieldDescriptor(
-                target_type=Optional[OrchestrationMode],
-                setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
-                getter=lambda: getenv("ORCHESTRATION_MODE"),
-                validator=validate_orchestration_mode,
-                should_raise=False,
-            ),
             EnvConfigKey.MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES: ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(
@@ -660,6 +653,7 @@ class AgentExecutionConfig:
                 getter=lambda: getenv("DAPR_MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES"),
                 should_raise=False,
             ),
+            # TODO: support orchestration_mode from env
         }
 
         config = cls._template_config()
@@ -758,7 +752,7 @@ class AgentExecutionConfig:
                 getter=lambda: runtime_config.get("TOOL_CHOICE"),
                 validator=validate_tool_choice,
             ),
-            # TODO: support orchestration mode
+            # TODO: support orchestration mode from runtime config
         }
 
         config = cls._template_config()
