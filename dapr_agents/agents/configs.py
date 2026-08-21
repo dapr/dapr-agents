@@ -617,7 +617,7 @@ class AgentExecutionConfig:
     def from_env(cls) -> "AgentExecutionConfig":
         """
         Validate and create execution configuration from environment variables.
-        Invalid values are ignored, and the corresponding fields are left unset.
+        Only **resolvable** fields are validated; invalid values are ignored and left unset.
 
         Returns:
             AgentExecutionConfig instance created from environment variables.
@@ -663,13 +663,13 @@ class AgentExecutionConfig:
 
     @classmethod
     def from_instantiation(
-        cls, instantiated_config: Optional["AgentExecutionConfig"]
+        cls, config: Optional["AgentExecutionConfig"]
     ) -> "AgentExecutionConfig":
         """
-        Validate and create execution configuration from an instantiated configuration.
+        Validate and create execution configuration from direct instantiation.
 
         Args:
-            config: Optional user-instantiated configuration.
+            config: Optional instantiated configuration.
 
         Returns:
             AgentExecutionConfig instance created from the instantiated configuration.
@@ -677,48 +677,40 @@ class AgentExecutionConfig:
         Raises:
             ValueError: If any field in the instantiated configuration is invalid.
         """
-        instantiated_config = instantiated_config or cls._template_config()
+        config = config or cls._template_config()
         config_field_map = {
             "max_iterations": ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
-                getter=lambda: instantiated_config.max_iterations,
+                getter=lambda: config.max_iterations,
                 validator=validate_max_iterations,
             ),
             "tool_choice": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
-                getter=lambda: instantiated_config.tool_choice,
+                getter=lambda: config.tool_choice,
                 validator=validate_tool_choice,
             ),
             "tool_execution_mode": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
-                getter=lambda: instantiated_config.tool_execution_mode,
+                getter=lambda: config.tool_execution_mode,
                 validator=validate_tool_execution_mode,
             ),
-            "orchestration_mode": ConfigFieldDescriptor(
-                target_type=Optional[str],
-                setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
-                getter=lambda: instantiated_config.orchestration_mode,
-                validator=validate_orchestration_mode,
-            ),
-            # TODO: validate approval config fields
             "approval": ConfigFieldDescriptor(
                 target_type=Optional[AgentApprovalConfig],
                 setter=lambda obj, v: setattr(obj, "approval", v),
-                getter=lambda: instantiated_config.approval,
+                getter=lambda: config.approval,
             ),
             "max_grpc_inbound_message_size_bytes": ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
-                getter=lambda: instantiated_config.max_grpc_inbound_message_size_bytes,
+                getter=lambda: config.max_grpc_inbound_message_size_bytes,
             ),
         }
 
-        config = cls._template_config()
         apply_config_map(config, config_field_map)
 
         return config
@@ -729,7 +721,7 @@ class AgentExecutionConfig:
     ) -> "AgentExecutionConfig":
         """
         Validate and create execution configuration from state store runtime configuration.
-        Invalid values are ignored, and the corresponding fields are left unset.
+        Only **resolvable** fields are validated; invalid values are ignored and left unset.
 
         Args:
             runtime_config: Optional state store runtime configuration.
@@ -772,15 +764,18 @@ class AgentExecutionConfig:
         2. Passed through instantiation
         3. Environment variables (lowest priority)
 
+        Only **resolvable** fields are validated; varies by source.
+        Instantiation validation is fail-fast; env and state store validation ignore invalid values.
+
         Args:
-            config: Optional user-instantiated configuration.
+            config: Optional instantiated configuration.
             runtime_config: Optional state store runtime configuration.
 
         Returns:
             Resolved AgentExecutionConfig instance.
 
         Raises:
-            ValueError: If any field in the instantiated configuration is invalid.
+            ValueError: If a **resolvable** field in the instantiated configuration is invalid.
         """
 
         env_config = AgentExecutionConfig.from_env()
@@ -818,7 +813,7 @@ class AgentExecutionConfig:
 
     @classmethod
     def _base_config(cls) -> "AgentExecutionConfig":
-        """Create a base execution configuration for resolution."""
+        """Create a base execution configuration with defaults."""
         return cls(
             max_iterations=AGENT_DEFAULT_MAX_ITERATIONS,
             tool_choice=AGENT_DEFAULT_TOOL_CHOICE,
@@ -959,7 +954,9 @@ class AgentObservabilityConfig:
 
     @classmethod
     def from_env(cls) -> "AgentObservabilityConfig":
-        """Validate and create observability config from standard OTEL environment variables.
+        """
+        Validate and create observability config from standard OTEL environment variables.
+        Only **resolvable** fields are validated; invalid values are ignored and left unset.
 
         Uses standard OpenTelemetry env var names where available:
         - OTEL_SDK_DISABLED (inverted: disabled != "true" means enabled)
@@ -970,8 +967,6 @@ class AgentObservabilityConfig:
         - OTEL_LOGS_EXPORTER
         - OTEL_TRACING_ENABLED (custom, no standard equivalent)
         - OTEL_TRACES_EXPORTER
-
-        Invalid values are ignored, and the corresponding fields are left unset.
 
         Returns:
             AgentObservabilityConfig instance created from environment variables.
@@ -1044,75 +1039,74 @@ class AgentObservabilityConfig:
 
     @classmethod
     def from_instantiation(
-        cls, instantiated_config: Optional["AgentObservabilityConfig"]
+        cls, config: Optional["AgentObservabilityConfig"]
     ) -> "AgentObservabilityConfig":
         """
-        Validate and create observability configuration from an instantiated configuration.
+        Validate and create observability configuration from direct instantiation.
 
         Args:
-            instantiated_config: Optional user-instantiated configuration.
+            config: Optional instantiated configuration.
 
         Returns:
             AgentObservabilityConfig instance created from the instantiated configuration.
 
         Raises:
-            ValueError: If any field in the instantiated configuration is invalid.
+            ValueError: If a **resolvable** field in the instantiated configuration is invalid.
         """
-        instantiated_config = instantiated_config or cls._template_config()
+        config = config or cls._template_config()
         config_field_map = {
             "enabled": ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "enabled", v),
-                getter=lambda: instantiated_config.enabled,
+                getter=lambda: config.enabled,
             ),
             "headers": ConfigFieldDescriptor(
                 target_type=dict[str, str],
                 setter=lambda obj, v: setattr(obj, "headers", v),
-                getter=lambda: instantiated_config.headers,
+                getter=lambda: config.headers,
             ),
             "auth_token": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "auth_token", v),
-                getter=lambda: instantiated_config.auth_token,
+                getter=lambda: config.auth_token,
                 validator=validate_non_empty_string,
             ),
             "endpoint": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
-                getter=lambda: instantiated_config.endpoint,
+                getter=lambda: config.endpoint,
                 validator=validate_non_empty_string,
             ),
             "service_name": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
-                getter=lambda: instantiated_config.service_name,
+                getter=lambda: config.service_name,
                 validator=validate_non_empty_string,
             ),
             "logging_enabled": ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "logging_enabled", v),
-                getter=lambda: instantiated_config.logging_enabled,
+                getter=lambda: config.logging_enabled,
             ),
             "logging_exporter": ConfigFieldDescriptor(
                 target_type=Optional[AgentLoggingExporter],
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
-                getter=lambda: instantiated_config.logging_exporter,
+                getter=lambda: config.logging_exporter,
                 validator=validate_otel_exporter_logging,
             ),
             "tracing_enabled": ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
-                getter=lambda: instantiated_config.tracing_enabled,
+                getter=lambda: config.tracing_enabled,
             ),
             "tracing_exporter": ConfigFieldDescriptor(
                 target_type=Optional[AgentTracingExporter],
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
-                getter=lambda: instantiated_config.tracing_exporter,
+                getter=lambda: config.tracing_exporter,
                 validator=validate_otel_exporter_tracing,
             ),
         }
 
-        config = cls._template_config()
         apply_config_map(config, config_field_map)
 
         return config
@@ -1123,7 +1117,7 @@ class AgentObservabilityConfig:
     ) -> "AgentObservabilityConfig":
         """
         Validate and create observability configuration from state store runtime configuration.
-        Invalid values are ignored, and the corresponding fields are left unset.
+        Only **resolvable** fields are validated; invalid values are ignored and left unset.
 
         Args:
             runtime_config: Optional state store runtime configuration.
@@ -1211,15 +1205,18 @@ class AgentObservabilityConfig:
         2. Environment variables
         3. State store runtime configuration (lowest priority)
 
+        Only **resolvable** fields are validated; varies by source.
+        Instantiation validation is fail-fast; env and state store validation ignore invalid values.
+
         Args:
-            config: Optional user-instantiated configuration.
+            config: Optional instantiated configuration.
             runtime_config: Optional state store runtime configuration.
 
         Returns:
             Resolved AgentObservabilityConfig instance.
 
         Raises:
-            ValueError: If any field in the instantiated configuration is invalid.
+            ValueError: If a **resolvable** field in the instantiated configuration is invalid.
         """
         statestore_config = AgentObservabilityConfig.from_statestore(runtime_config)
         logger.debug(f"State store runtime observability config: {statestore_config}")
@@ -1259,7 +1256,7 @@ class AgentObservabilityConfig:
 
     @classmethod
     def _base_config(cls) -> "AgentObservabilityConfig":
-        """Create a base observability configuration for resolution."""
+        """Create a base observability configuration with defaults."""
         return cls(
             enabled=False,
             headers={},
