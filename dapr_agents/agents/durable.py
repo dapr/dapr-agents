@@ -50,6 +50,7 @@ from dapr_agents.agents.orchestrators.llm.utils import (
 )
 
 from dapr_agents.agents.base import AgentBase
+from dapr_agents.agents.constants import AGENT_DEFAULT_TOOL_CHOICE
 from dapr_agents.agents.configs import (
     AgentMCPConfig,
     BuiltinTool,
@@ -390,7 +391,7 @@ class DurableAgent(AgentBase):
             # Re-enable tool_choice if AgentBase cleared it due to an empty tools list
             # but we've now registered agent-as-tool entries into the executor.
             if self._agents_as_tools and self.execution.tool_choice is None:
-                self.execution.tool_choice = "auto"
+                self.execution.tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
         # Register built-in tools (e.g., ``ask_user``) unless the caller opted
         # out via ``execution.builtin_tools``. These are lazy: streaming must
@@ -460,9 +461,8 @@ class DurableAgent(AgentBase):
 
         self._orchestration_strategy: Optional[OrchestrationStrategy] = None
         # Initialize orchestration strategy if this agent is an orchestrator
+        # Otherwise default to the standard "agent" mode
         if self.execution.orchestration_mode:
-            # Default to "agent" mode if no mode specified
-
             match self.execution.orchestration_mode:
                 case OrchestrationMode.AGENT:
                     self._orchestration_strategy = AgentOrchestrationStrategy()
@@ -3790,7 +3790,7 @@ class DurableAgent(AgentBase):
                 registered,
             )
             if self.execution.tool_choice is None:
-                self.execution.tool_choice = "auto"
+                self.execution.tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
         return registered
 
