@@ -17,12 +17,12 @@ This example demonstrates how to build change-driven agents with Drasi and Dapr 
 
 ## Why use Drasi?
 
-Many systems need to consume data from other systems to be useful. Traditional polling may either result in unnecessary load on source systems, or stale data/unacceptable delays depending on the polling frequency. Custom change data capture (CDC) pipelines can power near real-time, change-driven systems at scale, but can be expensive (if managed) or difficult to set up and maintain (if self-hosted).
+Many systems need to react to changes produced by other systems in near real-time. Traditional polling cannot detect the absence of change, or changes that occur at an extremely high frequency without unnecessary load on source systems (even without considering network delay). Raw changes are usually not actionable, requiring custom change data capture (CDC) pipelines to process changes at scale and convert them into meaningful domain events. However, these pipelines can be expensive (if managed) or difficult to set up and maintain (if self-hosted).
 
-For many use cases, [Drasi](https://drasi.io/) is a viable alternative. Drasi is a **CNCF Sandbox** project attempting to eliminate many of the tradeoffs mentioned above with a simple architecture centered around detecting and reacting to changes:
-- **Sources** to ingest data from existing systems (similar to *sources* in event processing terminology)
-- **Continuous** Queries that evaluate incoming data from different sources against user-defined, high-level "business conditions", and emit events when those conditions are satisfied
-- **Reactions** to push events to downstream consumers (similar to *sinks* in event processing terminology)
+For many use cases, [Drasi](https://drasi.io/) is a viable alternative. Drasi is a **CNCF Sandbox** project that addresses the issues mentioned above with a simple architecture centered around detecting and reacting to changes:
+- **Sources** to ingest changes from existing systems
+- **Queries** allowing high-level "business conditions" to be defined across a variety of data sources, which emit events when those conditions are satisfied
+- **Reactions** to push events to downstream consumers
 
 ## How it works (with this example)
 

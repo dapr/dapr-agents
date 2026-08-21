@@ -13,6 +13,10 @@
 
 name: Schema Compatibility Comment
 
+# pull_request_target grants a privileged token (required to comment on fork
+# PRs), so this job must never check out or execute code from the PR head.
+# Only the trusted base branch is checked out; the head's schema file is
+# fetched as inert data through git and passed to the base branch's script.
 on:
   pull_request_target:
     branches:
@@ -22,49 +26,38 @@ jobs:
   schema-compat-comment:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: write
     steps:
     - name: Checkout base branch
       uses: actions/checkout@v6
       with:
         ref: ${{ github.event.pull_request.base.sha }}
-        path: base
-    - name: Checkout PR head
-      uses: actions/checkout@v6
-      with:
-        ref: ${{ github.event.pull_request.head.sha }}
-        path: head
-    - name: Check if schema changed
+    - name: Fetch PR head schema as data
       id: schema-diff
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
-        if diff -q base/schemas/agent-metadata/latest.json head/schemas/agent-metadata/latest.json > /dev/null 2>&1; then
+        git fetch --depth=1 origin "refs/pull/${PR_NUMBER}/head"
+        if ! git show FETCH_HEAD:schemas/agent-metadata/latest.json > "$RUNNER_TEMP/head-latest.json" 2>/dev/null; then
+          echo "Schema file not present on PR head — skipping check."
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        elif diff -q schemas/agent-metadata/latest.json "$RUNNER_TEMP/head-latest.json" > /dev/null 2>&1; then
           echo "changed=false" >> "$GITHUB_OUTPUT"
         else
           echo "changed=true" >> "$GITHUB_OUTPUT"
         fi
-    - name: Set up Python 3.11
-      if: steps.schema-diff.outputs.changed == 'true'
-      uses: actions/setup-python@v6
-      with:
-        python-version: "3.11"
-    - name: Install uv
-      if: steps.schema-diff.outputs.changed == 'true'
-      uses: astral-sh/setup-uv@v3
-      with:
-        version: "latest"
-    - name: Install dependencies
-      if: steps.schema-diff.outputs.changed == 'true'
-      working-directory: head
-      run: uv sync --group test
     - name: Check for breaking schema changes
       if: steps.schema-diff.outputs.changed == 'true'
-      working-directory: head
       env:
         GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
-        REPORT=$(uv run python scripts/check_schema_compat.py --old "${{ github.workspace }}/base/schemas/agent-metadata/latest.json")
+        REPORT=$(python3 scripts/check_schema_compat.py \
+          --old schemas/agent-metadata/latest.json \
+          --new "$RUNNER_TEMP/head-latest.json")
         if echo "$REPORT" | grep -q "Breaking"; then
-          gh pr comment ${{ github.event.pull_request.number }} \
+          gh pr comment "$PR_NUMBER" \
             --body "## Metadata Schema Compatibility Report
 
         $REPORT

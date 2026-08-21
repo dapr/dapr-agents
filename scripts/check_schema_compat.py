@@ -13,10 +13,11 @@
 
 """Check for breaking changes between the latest and previous metadata schema.
 
-Compares ``latest.json`` against a baseline schema.  The baseline can be
-provided explicitly via ``--old <path>`` (used in CI to compare the base
-branch's ``latest.json`` against the PR head) or is automatically resolved
-to the most recent *previous* versioned schema from ``index.json``.
+Compares a candidate schema (``--new <path>``, defaulting to the repo's
+``latest.json``) against a baseline schema.  The baseline can be provided
+explicitly via ``--old <path>`` (used in CI to compare the base branch's
+``latest.json`` against the PR head) or is automatically resolved to the
+most recent *previous* versioned schema from ``index.json``.
 
 Always exits 0 — this script is informational and never blocks CI.
 Output is a markdown report written to stdout.
@@ -121,6 +122,12 @@ def main() -> None:
         default=None,
         help="Explicit path to the baseline schema file (e.g. base branch latest.json).",
     )
+    parser.add_argument(
+        "--new",
+        type=Path,
+        default=None,
+        help="Explicit path to the candidate schema file (defaults to the repo's latest.json).",
+    )
     args = parser.parse_args()
 
     if args.old is not None:
@@ -134,7 +141,12 @@ def main() -> None:
             print("No previous schema version found — skipping compatibility check.")
             sys.exit(0)
 
-    latest = _load_json(LATEST_FILE)
+    new_file = args.new if args.new is not None else LATEST_FILE
+    if not new_file.exists():
+        print(f"Candidate file not found: {new_file}")
+        sys.exit(0)
+
+    latest = _load_json(new_file)
     previous = _load_json(old_file)
 
     issues = check_compat(old=previous, new=latest)

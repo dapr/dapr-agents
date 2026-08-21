@@ -15,30 +15,68 @@ from dapr_agents.types.llm import DaprInferenceClientConfig
 from dapr_agents.llm.base import LLMClientBase
 from dapr_agents.utils import DaprClientFactory, default_dapr_client_factory
 from dapr.clients.grpc import conversation as dapr_conversation
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from pydantic import Field, model_validator
 from google.protobuf import json_format
 from google.protobuf.struct_pb2 import Struct as GrpcStruct
 
 import json
 import logging
+import threading
+import time
 
 logger = logging.getLogger(__name__)
 
+#: TTL on cached sidecar metadata. Component lists are near-immutable
+#: within a deployment; a minute-scale TTL keeps hot-reload observable
+#: while avoiding a 10-30 ms gRPC round-trip per ``generate()`` call.
+DEFAULT_METADATA_CACHE_TTL_SECONDS = 60.0
+
 
 class DaprInferenceClient:
-    def __init__(self, client_factory: Optional[DaprClientFactory] = None) -> None:
-        # No persistent client - use per-call context manager.
+    def __init__(
+        self,
+        client_factory: Optional[DaprClientFactory] = None,
+        metadata_cache_ttl: float = DEFAULT_METADATA_CACHE_TTL_SECONDS,
+    ) -> None:
+        # No persistent client — build per-call via the factory (lets callers
+        # inject a per-agent gRPC client, e.g. custom inbound-message limits;
+        # falls back to the process-default factory).
         self.client_factory = client_factory
+        # Cached sidecar metadata (timestamp, value). Guarded by a lock so
+        # concurrent ``generate()`` calls race safely; the TTL
+        # (``metadata_cache_ttl``) bounds staleness.
+        self._metadata_cache_ttl = metadata_cache_ttl
+        self._metadata_cache: Optional[Tuple[float, Any]] = None
+        self._metadata_cache_lock = threading.Lock()
 
     def _build_client(self):
         factory = self.client_factory or default_dapr_client_factory
         return factory()
 
     def get_metadata(self):
-        """Fetch Dapr sidecar metadata using a fresh per-call client."""
+        """Fetch Dapr sidecar metadata, reusing a TTL-scoped cache.
+
+        Uses the per-call client from ``_build_client()`` (honoring any injected
+        ``client_factory``). Previously every call opened a fresh client + gRPC
+        channel, costing 10-30 ms per ``generate()``; with the cache, the
+        second-and-later calls within the TTL window return immediately.
+
+        Note: this caches the sidecar's *metadata introspection* (which
+        conversation/state components are registered), not LLM I/O — it is
+        unrelated to Dapr's conversation prompt/response caching, which caches
+        the request/response of the inference call itself.
+        """
+        now = time.monotonic()
+        with self._metadata_cache_lock:
+            cached = self._metadata_cache
+        if cached is not None and (now - cached[0]) < self._metadata_cache_ttl:
+            return cached[1]
         with self._build_client() as client:
-            return client.get_metadata()
+            value = client.get_metadata()
+        with self._metadata_cache_lock:
+            self._metadata_cache = (time.monotonic(), value)
+        return value
 
     # ──────────────────────────────────────────────────────────────────────────
     # Alpha2 (Tool Calling) support
@@ -155,7 +193,14 @@ class DaprInferenceClient:
                             "finish_reason": getattr(choice, "finish_reason", "stop"),
                         }
                     )
-                outputs.append({"choices": choices_list})
+                output_dict: Dict[str, Any] = {"choices": choices_list}
+                model_name = getattr(output, "model", None)
+                if model_name:
+                    output_dict["model"] = model_name
+                usage = _usage_to_dict(getattr(output, "usage", None))
+                if usage is not None:
+                    output_dict["usage"] = usage
+                outputs.append(output_dict)
 
             return {
                 "context_id": getattr(response_alpha2, "context_id", None),
@@ -231,3 +276,44 @@ class DaprInferenceClientBase(LLMClientBase):
         # Build a fresh wrapper so that updates to ``self.client_factory`` are
         # observed on the next call without needing a manual refresh.
         return self.get_client()
+
+
+#: OpenAI-style usage fields mirrored from the Alpha2 SDK dataclasses
+#: (dapr.clients.grpc.conversation.ConversationResultAlpha2CompletionUsage).
+_USAGE_TOKEN_FIELDS = ("prompt_tokens", "completion_tokens", "total_tokens")
+_COMPLETION_TOKENS_DETAILS_FIELDS = (
+    "accepted_prediction_tokens",
+    "audio_tokens",
+    "reasoning_tokens",
+    "rejected_prediction_tokens",
+)
+_PROMPT_TOKENS_DETAILS_FIELDS = ("audio_tokens", "cached_tokens")
+
+
+def _int_fields(obj: Any, fields: Tuple[str, ...]) -> Dict[str, int]:
+    """Read the given attributes off ``obj`` as ints (missing/None → 0)."""
+    return {field: int(getattr(obj, field, 0) or 0) for field in fields}
+
+
+def _usage_to_dict(usage: Any) -> Optional[Dict[str, Any]]:
+    """
+    Convert an Alpha2 completion-usage object to an OpenAI-style dict.
+
+    Returns None when the runtime reported no usage (older runtimes degrade to
+    None). Token counts are coerced to int so the envelope never carries string
+    sentinels; ``*_tokens_details`` are included only when present.
+    """
+    if usage is None:
+        return None
+    result: Dict[str, Any] = _int_fields(usage, _USAGE_TOKEN_FIELDS)
+    completion_details = getattr(usage, "completion_tokens_details", None)
+    if completion_details is not None:
+        result["completion_tokens_details"] = _int_fields(
+            completion_details, _COMPLETION_TOKENS_DETAILS_FIELDS
+        )
+    prompt_details = getattr(usage, "prompt_tokens_details", None)
+    if prompt_details is not None:
+        result["prompt_tokens_details"] = _int_fields(
+            prompt_details, _PROMPT_TOKENS_DETAILS_FIELDS
+        )
+    return result
