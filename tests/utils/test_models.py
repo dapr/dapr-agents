@@ -136,6 +136,22 @@ class TestGetModelFactory:
 class TestMergeModels:
     """Tests for merge_models across supported model types."""
 
+    def test_merge_models_dict_returns_shallow_merged(self):
+        base = {
+            "name": "base",
+            "metadata": {"shared": "base", "base_only": "yes"},
+        }
+        override = {
+            "metadata": {"override_only": "override"},
+        }
+
+        merged = merge_models(base, override)
+
+        assert merged == {
+            "name": "base",  # Base wins
+            "metadata": {"override_only": "override"},  # Override wins
+        }
+
     def test_merge_models_dataclass_returns_merged(self):
         base = ExampleDataclass(
             name="base",
@@ -145,18 +161,19 @@ class TestMergeModels:
         override = ExampleDataclass(
             name="override",
             metadata={"shared": "override", "override_only": "yes"},
-            description=None,
+            description="override-description",
         )
 
         merged = merge_models(base, override)
 
+        # Override wins for all shared fields
         assert merged.name == "override"
         assert merged.metadata == {
             "shared": "override",
             "base_only": "yes",
             "override_only": "yes",
         }
-        assert merged.description == "base-description"
+        assert merged.description == "override-description"
 
     def test_merge_models_pydantic_returns_merged(self):
         base = ExampleModel(
@@ -167,18 +184,19 @@ class TestMergeModels:
         override = ExampleModel(
             name="override",
             metadata={"shared": "override", "override_only": "yes"},
-            description=None,
+            description="override-description",
         )
 
         merged = merge_models(base, override)
 
+        # Override wins for all shared fields
         assert merged.name == "override"
         assert merged.metadata == {
             "shared": "override",
             "base_only": "yes",
             "override_only": "yes",
         }
-        assert merged.description == "base-description"
+        assert merged.description == "override-description"
 
     def test_merge_models_returns_base_for_mismatched_types(self):
         base = ExampleDataclass(name="base")
@@ -204,26 +222,11 @@ class TestMergeModels:
 
         assert merged is override
 
-    def test_merge_models_dicts_shallow_merge(self):
-        base = {
-            "name": "base",
-            "metadata": {"shared": "base", "base_only": "yes"},
-        }
-        override = {
-            "metadata": {"override_only": "override"},
-        }
-
-        merged = merge_models(base, override)
-
-        assert merged == {
-            "name": "base",
-            "metadata": {"override_only": "override"},
-        }
-
-    def test_merge_models_keeps_falsy_values_and_ignores_only_none(self):
+    def test_merge_models_merges_falsy_values_except_for_none(self):
         @dataclass
         class FalsyDataclass:
             enabled: bool
+            verified: bool
             count: int
             label: str
             tags: list[str]
@@ -231,6 +234,7 @@ class TestMergeModels:
 
         base = FalsyDataclass(
             enabled=True,
+            verified=False,
             count=1,
             label="base",
             tags=["base"],
@@ -238,6 +242,7 @@ class TestMergeModels:
         )
         override = FalsyDataclass(
             enabled=False,
+            verified=True,
             count=0,
             label="",
             tags=[],
@@ -246,7 +251,9 @@ class TestMergeModels:
 
         merged = merge_models(base, override)
 
+        # Override wins for all values except description (None is ignored)
         assert merged.enabled is False
+        assert merged.verified is True
         assert merged.count == 0
         assert merged.label == ""
         assert merged.tags == []
