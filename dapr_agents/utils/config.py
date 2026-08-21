@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 import logging
 import json
 from dataclasses import dataclass
@@ -33,6 +34,9 @@ class ConfigFieldDescriptor:
         setter: Callable ``(obj, value) -> None`` that applies the value after coercion and validation.
         getter: Optional callable ``() -> Any`` that retrieves the value before coercion.
         validator: Optional idempotent callable ``(value) -> Any`` to validate/transform the coerced value.
+        should_raise: If ``True``, raises an exception on failure to process or apply a value.
+            If ``False``, logs a warning and uses the fallback value.
+            Defaults to ``True`` (raise).
         fallback: Value to use if mapping fails or when a default baseline value is needed. Defaults to None.
         sensitive: If ``True``, the value is redacted in log output.
         rebuilds_prompt: If ``True``, the prompt template is rebuilt after update.
@@ -43,6 +47,7 @@ class ConfigFieldDescriptor:
     setter: Callable[..., None]
     getter: Callable[[], Any] | None = None
     validator: Callable[..., Any] | None = None
+    should_raise: bool = True
     fallback: Any = None
     sensitive: bool = False
     rebuilds_prompt: bool = False
@@ -54,15 +59,16 @@ def normalize_config_key(key: str) -> str:
     return key.lower().replace("-", "_")
 
 
-def apply_config_map(target_obj: Any, config_field_map: dict[str, Any]) -> None:
+def apply_config_map(target_obj: Any, config_field_map: dict[str, ConfigFieldDescriptor]) -> None:
     """
     Apply a map of configuration field names to field descriptors onto a target object.
+
+    Raises:
+        ValueError: If a config key is unrecognized or processing fails.
+        RuntimeError: If a value cannot be applied to the target object.
     """
     for key, descriptor in config_field_map.items():
-        try:
-            apply_config_update(target_obj=target_obj, key=key, descriptor=descriptor)
-        except (ValueError, RuntimeError) as e:
-            logger.debug(f"Failed to apply config update for {key}: {e}")
+        apply_config_update(target_obj=target_obj, key=key, descriptor=descriptor)
 
 
 def apply_config_update(
@@ -90,17 +96,37 @@ def apply_config_update(
         ValueError: If no value can be retrieved or processing fails.
         RuntimeError: If the value cannot be applied.
     """
-    processed_value = process_config_update(key=key, value=value, descriptor=descriptor)
-
-    # Apply via setter callback
     try:
-        descriptor.setter(target_obj, processed_value)
-    except (AttributeError, TypeError):
-        raise RuntimeError(
-            f"Could not apply setter for key '{key}' (likely read-only)."
+        processed_value = process_config_update(
+            key=key, value=value, descriptor=descriptor
         )
 
-    return processed_value
+        # Apply via setter callback
+        try:
+            descriptor.setter(target_obj, processed_value)
+        except (AttributeError, TypeError):
+            raise RuntimeError(
+                f"Could not apply setter for key '{key}' (likely read-only)."
+            )
+        return processed_value
+    except (ValueError, RuntimeError, AttributeError, TypeError) as exc:
+        if descriptor.should_raise:
+            raise
+
+        if descriptor.fallback is None:
+            logger.debug(f"Ignoring failed config update for key '{key}': {exc}")
+            return None
+
+        logger.debug(
+            f"Using fallback value for key '{key}': {descriptor.fallback!r}"
+        )
+        try:
+            descriptor.setter(target_obj, descriptor.fallback)
+        except (AttributeError, TypeError, RuntimeError):
+            logger.debug(
+                f"Failed to apply fallback for key '{key}', continuing without update."
+            )
+        return descriptor.fallback
 
 
 def process_config_update(
@@ -127,37 +153,29 @@ def process_config_update(
     if not descriptor:
         raise ValueError(f"Unrecognized config key: {key}.")
 
-    try:
-        # Retrieve value using getter callback as a fallback
-        if value is None and descriptor.getter:
-            try:
-                value = descriptor.getter()
-            except Exception as e:
-                raise ValueError(f"Unable to retrieve value for key '{key}': {e}.")
-
-        # Type coercion
+    # Retrieve value using getter callback as a fallback
+    if value is None and descriptor.getter:
         try:
-            if value is None:
-                # Pass through unset `None` values
-                processed_value = None
-            else:
-                processed_value = coerce_config_value(value, descriptor.target_type)
-        except (ValueError, TypeError) as e:
-            raise ValueError(f"Invalid value for key '{key}': {e}.")
+            value = descriptor.getter()
+        except Exception as e:
+            raise ValueError(f"Unable to retrieve value for key '{key}': {e}.")
 
-        # Validation/transformation
-        if descriptor.validator:
-            try:
-                processed_value = descriptor.validator(processed_value)
-            except Exception as e:
-                raise ValueError(f"Validation failed for key '{key}': {e}.")
-    except Exception:
-        if descriptor.fallback:
-            logger.debug(
-                f"Using fallback value for key '{key}': {descriptor.fallback!r}"
-            )
-            return descriptor.fallback
-        raise
+    # Type coercion
+    try:
+        if value is None:
+            # Pass through unset `None` values
+            processed_value = None
+        else:
+            processed_value = coerce_config_value(value, descriptor.target_type)
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Invalid value for key '{key}': {e}.")
+
+    # Validation/transformation
+    if processed_value is not None and descriptor.validator:
+        try:
+            processed_value = descriptor.validator(processed_value)
+        except Exception as e:
+            raise ValueError(f"Validation failed for key '{key}': {e}.")
 
     return processed_value
 
@@ -171,7 +189,7 @@ def coerce_config_value(value: Any, target_type: type) -> Any:
         for arg in get_args(target_type):
             try:
                 return coerce_config_value(value, arg)
-            except ValueError:
+            except (ValueError, TypeError):
                 continue
         raise ValueError(f"Cannot coerce {value!r} to any type in {target_type}")
 
@@ -222,5 +240,13 @@ def coerce_config_value(value: Any, target_type: type) -> Any:
         if isinstance(value, dict):
             return value
         raise ValueError(f"Cannot coerce {type(value).__name__} to dict")
+
+    if isinstance(target_type, type) and issubclass(target_type, Enum):
+        try:
+            return target_type(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Cannot coerce {value!r} to {target_type.__name__}"
+            ) from exc
 
     raise ValueError(f"Unsupported target type: {target_type}")

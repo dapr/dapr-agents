@@ -15,7 +15,6 @@
 
 from unittest.mock import Mock
 
-from pydantic import ValidationError
 import pytest
 
 from dapr_agents.agents.constants import (
@@ -53,9 +52,16 @@ class ExecutionConfigTestBase:
             monkeypatch.delenv(key, raising=False)
 
         monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
+
+        # Mock the observability config resolution and setup
+        monkeypatch.setattr(
+            "dapr_agents.agents.base.AgentObservabilityConfig.resolve_config",
+            lambda config, runtime_config: Mock(),
+        )
         monkeypatch.setattr(
             "dapr_agents.agents.base.AgentBase._setup_agent_observability", Mock()
         )
+
         yield
 
     @pytest.fixture
@@ -159,38 +165,45 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode == OrchestrationMode.AGENT
         assert agent.execution.max_grpc_inbound_message_size_bytes == 123456
 
-    def test_execution_config_from_instantiation_invalid_values_ignored(
-        self, mock_llm, mock_tool, monkeypatch
+    @pytest.mark.parametrize(
+        ("execution_config", "expected_match"),
+        [
+            (
+                AgentExecutionConfig(max_iterations="invalid"),
+                "max_iterations",
+            ),
+            (
+                AgentExecutionConfig(tool_execution_mode="yes"),
+                "tool_execution_mode",
+            ),
+            (
+                AgentExecutionConfig(orchestration_mode=True),
+                "orchestration_mode",
+            ),
+            (
+                AgentExecutionConfig(max_grpc_inbound_message_size_bytes="large"),
+                "max_grpc_inbound_message_size_bytes",
+            ),
+        ],
+    )
+    def test_execution_config_from_instantiation_raises_for_invalid_values(
+        self, mock_llm, mock_tool, monkeypatch, execution_config, expected_match
     ):
-        """Test that an invalid max iterations value raises an exception."""
+        """Test that invalid instantiated config values raise for strict fields."""
         mock_client = MockDaprClient()
         self._patch_dapr_client(monkeypatch, mock_client)
 
-        execution_config = AgentExecutionConfig(
-            max_iterations="invalid",
-            tool_choice=42,
-            tool_execution_mode="yes",
-            orchestration_mode=True,
-            max_grpc_inbound_message_size_bytes="large",
-        )
+        with pytest.raises(ValueError, match=expected_match):
+            self._make_agent(
+                mock_llm,
+                execution_config=execution_config,
+                tools=[mock_tool],
+            )
 
-        agent = self._make_agent(
-            mock_llm,
-            execution_config=execution_config,
-            tools=[mock_tool],
-        )
-
-        assert agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
-        assert agent.execution.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
-        assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
-        assert agent.execution.orchestration_mode is None
-        assert agent.execution.max_grpc_inbound_message_size_bytes is None
-
-
-    def test_execution_config_from_instantiation_permissive_tool_choice(
+    def test_execution_config_from_instantiation_allows_non_standard_tool_choice(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Specifically test that a non-standard instantiated tool choice is preserved."""
+        """Specifically test that a non-standard instantiated tool choice is permitted."""
         mock_client = MockDaprClient()
         self._patch_dapr_client(monkeypatch, mock_client)
 
@@ -236,7 +249,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode == OrchestrationMode.AGENT
         assert agent.execution.max_grpc_inbound_message_size_bytes == 654321
 
-    def test_execution_config_from_env_invalid_values_ignored(
+    def test_execution_config_from_env_ignores_invalid_values(
         self, mock_llm, mock_tool, monkeypatch
     ):
         """Test invalid environment variable values are ignored."""
@@ -259,10 +272,10 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_from_env_permissive_tool_choice(
+    def test_execution_config_from_env_allows_non_standard_tool_choice(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Specifically test that a non-standard environment variable tool choice is preserved."""
+        """Specifically test that a non-standard environment variable tool choice is permitted."""
         monkeypatch.setenv("TOOL_CHOICE", "tool")
 
         mock_client = MockDaprClient()
@@ -301,7 +314,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_from_statestore_invalid_values_ignored(
+    def test_execution_config_from_statestore_ignores_invalid_values(
         self, mock_llm, mock_tool, monkeypatch
     ):
         """Test invalid runtime values are ignored."""
@@ -320,10 +333,10 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_from_statestore_permissive_tool_choice(
+    def test_execution_config_from_statestore_allows_non_standard_tool_choice(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Specifically test that a non-standard runtime tool choice is preserved."""
+        """Specifically test that a non-standard runtime tool choice is permitted."""
         runtime_config = {
             "TOOL_CHOICE": "no",
         }

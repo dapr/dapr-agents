@@ -544,24 +544,27 @@ class AgentExecutionConfig:
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: getenv("MAX_ITERATIONS"),
                 validator=validate_max_iterations,
+                should_raise=False,
             ),
             EnvConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
-                target_type=Optional[str],
+                target_type=Optional[str],  # Allow any string as tool choices are permissive
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
                 getter=lambda: getenv("TOOL_CHOICE"),
                 validator=validate_tool_choice,
             ),
             EnvConfigKey.TOOL_EXECUTION_MODE: ConfigFieldDescriptor(
-                target_type=Optional[str],
+                target_type=Optional[ToolExecutionMode],
                 setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
                 getter=lambda: getenv("TOOL_EXECUTION_MODE"),
                 validator=validate_tool_execution_mode,
+                should_raise=False,
             ),
             EnvConfigKey.ORCHESTRATION_MODE: ConfigFieldDescriptor(
-                target_type=Optional[str],
+                target_type=Optional[OrchestrationMode],
                 setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
                 getter=lambda: getenv("ORCHESTRATION_MODE"),
                 validator=validate_orchestration_mode,
+                should_raise=False,
             ),
             EnvConfigKey.MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES: ConfigFieldDescriptor(
                 target_type=Optional[int],
@@ -569,6 +572,7 @@ class AgentExecutionConfig:
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
                 getter=lambda: getenv("MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES"),
+                should_raise=False,
             ),
         }
 
@@ -655,6 +659,7 @@ class AgentExecutionConfig:
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: runtime_config.get("MAX_ITERATIONS"),
                 validator=validate_max_iterations,
+                should_raise=False,
             ),
             RuntimeConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -913,10 +918,12 @@ class AgentObservabilityConfig:
                 getter=lambda: getenv("OTEL_LOGGING_ENABLED"),
             ),
             EnvConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
-                target_type=Optional[str],
+                target_type=Optional[AgentLoggingExporter],
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
                 getter=lambda: getenv("OTEL_LOGS_EXPORTER"),
                 validator=validate_otel_exporter_logging,
+                should_raise=False,
+                fallback=AgentLoggingExporter.CONSOLE,
             ),
             EnvConfigKey.OTEL_TRACING_ENABLED: ConfigFieldDescriptor(
                 target_type=Optional[bool],
@@ -924,10 +931,12 @@ class AgentObservabilityConfig:
                 getter=lambda: getenv("OTEL_TRACING_ENABLED"),
             ),
             EnvConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
-                target_type=Optional[str],
+                target_type=Optional[AgentTracingExporter],
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
                 getter=lambda: getenv("OTEL_TRACES_EXPORTER"),
                 validator=validate_otel_exporter_tracing,
+                should_raise=False,
+                fallback=AgentTracingExporter.CONSOLE,
             ),
         }
 
@@ -1054,10 +1063,12 @@ class AgentObservabilityConfig:
                 getter=lambda: runtime_config.get("OTEL_LOGGING_ENABLED"),
             ),
             RuntimeConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
-                target_type=Optional[str],
+                target_type=Optional[AgentLoggingExporter],
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
                 getter=lambda: runtime_config.get("OTEL_LOGS_EXPORTER"),
                 validator=validate_otel_exporter_logging,
+                should_raise=False,
+                fallback=AgentLoggingExporter.CONSOLE,
             ),
             RuntimeConfigKey.OTEL_TRACING_ENABLED: ConfigFieldDescriptor(
                 target_type=Optional[bool],
@@ -1065,10 +1076,12 @@ class AgentObservabilityConfig:
                 getter=lambda: runtime_config.get("OTEL_TRACING_ENABLED"),
             ),
             RuntimeConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
-                target_type=Optional[str],
+                target_type=Optional[AgentTracingExporter],
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
                 getter=lambda: runtime_config.get("OTEL_TRACES_EXPORTER"),
                 validator=validate_otel_exporter_tracing,
+                should_raise=False,
+                fallback=AgentTracingExporter.CONSOLE,
             ),
         }
 

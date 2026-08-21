@@ -15,7 +15,7 @@
 
 import os
 import pytest
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 from tests.conftest import MockDaprClient
 from dapr_agents.agents.durable import DurableAgent
@@ -53,6 +53,14 @@ class TestObservabilityConfigFromInstantiation:
         monkeypatch.setattr(
             "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
             lambda: mock_client,
+        )
+
+        # Mock the execution config resolution
+        mock_execution_config = MagicMock()
+        mock_execution_config.orchestration_mode = None
+        monkeypatch.setattr(
+            "dapr_agents.agents.base.AgentExecutionConfig.resolve_config",
+            lambda config, runtime_config: mock_execution_config,
         )
 
         # Mock the observability setup to avoid actual OTel initialization
