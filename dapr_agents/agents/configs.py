@@ -657,7 +657,7 @@ class AgentExecutionConfig:
                 setter=lambda obj, v: setattr(
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
-                getter=lambda: getenv("MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES"),
+                getter=lambda: getenv("DAPR_MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES"),
                 should_raise=False,
             ),
         }
