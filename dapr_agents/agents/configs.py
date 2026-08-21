@@ -533,7 +533,8 @@ class AgentExecutionConfig:
     @classmethod
     def from_env(cls) -> "AgentExecutionConfig":
         """
-        Create execution configuration from environment variables.
+        Validate and create execution configuration from environment variables.
+        Invalid values are ignored, and the corresponding fields are left unset.
 
         Returns:
             AgentExecutionConfig instance created from environment variables.
@@ -548,8 +549,8 @@ class AgentExecutionConfig:
             ),
             EnvConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
                 target_type=Optional[
-                    str
-                ],  # Allow any string as tool choices are permissive
+                    str  # Allow any string as tool choices are permissive
+                ],
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
                 getter=lambda: getenv("TOOL_CHOICE"),
                 validator=validate_tool_choice,
@@ -588,13 +589,16 @@ class AgentExecutionConfig:
         cls, instantiated_config: Optional["AgentExecutionConfig"]
     ) -> "AgentExecutionConfig":
         """
-        Create execution configuration from an instantiated configuration.
+        Validate and create execution configuration from an instantiated configuration.
 
         Args:
             config: Optional user-instantiated configuration.
 
         Returns:
             AgentExecutionConfig instance created from the instantiated configuration.
+        
+        Raises:
+            ValueError: If any field in the instantiated configuration is invalid.
         """
         instantiated_config = instantiated_config or cls._template_config()
         config_field_map = {
@@ -648,6 +652,7 @@ class AgentExecutionConfig:
     ) -> "AgentExecutionConfig":
         """
         Validate and create execution configuration from state store runtime configuration.
+        Invalid values are ignored, and the corresponding fields are left unset.
 
         Args:
             runtime_config: Optional state store runtime configuration.
@@ -696,6 +701,9 @@ class AgentExecutionConfig:
 
         Returns:
             Resolved AgentExecutionConfig instance.
+
+        Raises:
+            ValueError: If any field in the instantiated configuration is invalid.
         """
 
         env_config = AgentExecutionConfig.from_env()
@@ -717,7 +725,8 @@ class AgentExecutionConfig:
 
     @classmethod
     def _template_config(cls) -> "AgentExecutionConfig":
-        """Create an execution configuration with defaults cleared.
+        """
+        Create an execution configuration with defaults cleared.
         Used by environment variable and state store resolution, and as a fallback for instantiated configuration
         so that unset fields with default values do not bleed into the merged configuration.
         """
@@ -885,6 +894,8 @@ class AgentObservabilityConfig:
         - OTEL_TRACING_ENABLED (custom, no standard equivalent)
         - OTEL_TRACES_EXPORTER
 
+        Invalid values are ignored, and the corresponding fields are left unset.
+
         Returns:
             AgentObservabilityConfig instance created from environment variables.
         """
@@ -896,29 +907,34 @@ class AgentObservabilityConfig:
                 validator=lambda v: (
                     v if v is None else not v
                 ),  # Invert the disabled flag to set enabled
+                should_raise=False,
             ),
             EnvConfigKey.OTEL_EXPORTER_OTLP_HEADERS: ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "headers", v),
                 getter=lambda: getenv("OTEL_EXPORTER_OTLP_HEADERS"),
                 validator=parse_header_string,
+                should_raise=False,
             ),
             EnvConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
                 getter=lambda: getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
                 validator=validate_non_empty_string,
+                should_raise=False,
             ),
             EnvConfigKey.OTEL_SERVICE_NAME: ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
                 getter=lambda: getenv("OTEL_SERVICE_NAME"),
                 validator=validate_non_empty_string,
+                should_raise=False,
             ),
             EnvConfigKey.OTEL_LOGGING_ENABLED: ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "logging_enabled", v),
                 getter=lambda: getenv("OTEL_LOGGING_ENABLED"),
+                should_raise=False,
             ),
             EnvConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
                 target_type=Optional[AgentLoggingExporter],
@@ -932,6 +948,7 @@ class AgentObservabilityConfig:
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
                 getter=lambda: getenv("OTEL_TRACING_ENABLED"),
+                should_raise=False,
             ),
             EnvConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
                 target_type=Optional[AgentTracingExporter],
@@ -956,10 +973,13 @@ class AgentObservabilityConfig:
         Validate and create observability configuration from an instantiated configuration.
 
         Args:
-            config: Optional user-instantiated configuration.
+            instantiated_config: Optional user-instantiated configuration.
 
         Returns:
             AgentObservabilityConfig instance created from the instantiated configuration.
+
+        Raises:
+            ValueError: If any field in the instantiated configuration is invalid.
         """
         instantiated_config = instantiated_config or cls._template_config()
         config_field_map = {
@@ -1026,6 +1046,7 @@ class AgentObservabilityConfig:
     ) -> "AgentObservabilityConfig":
         """
         Validate and create observability configuration from state store runtime configuration.
+        Invalid values are ignored, and the corresponding fields are left unset.
 
         Args:
             runtime_config: Optional state store runtime configuration.
@@ -1042,6 +1063,7 @@ class AgentObservabilityConfig:
                 validator=lambda v: (
                     v if v is None else not v
                 ),  # Invert the disabled flag to set enabled
+                should_raise=False,
             ),
             RuntimeConfigKey.OTEL_EXPORTER_OTLP_HEADERS: ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -1049,23 +1071,27 @@ class AgentObservabilityConfig:
                 setter=lambda obj, v: setattr(obj, "auth_token", v),
                 getter=lambda: runtime_config.get("OTEL_EXPORTER_OTLP_HEADERS"),
                 validator=validate_non_empty_string,
+                should_raise=False,
             ),
             RuntimeConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
                 getter=lambda: runtime_config.get("OTEL_EXPORTER_OTLP_ENDPOINT"),
                 validator=validate_non_empty_string,
+                should_raise=False,
             ),
             RuntimeConfigKey.OTEL_SERVICE_NAME: ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
                 getter=lambda: runtime_config.get("OTEL_SERVICE_NAME"),
                 validator=validate_non_empty_string,
+                should_raise=False,
             ),
             RuntimeConfigKey.OTEL_LOGGING_ENABLED: ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "logging_enabled", v),
                 getter=lambda: runtime_config.get("OTEL_LOGGING_ENABLED"),
+                should_raise=False,
             ),
             RuntimeConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
                 target_type=Optional[AgentLoggingExporter],
@@ -1079,6 +1105,7 @@ class AgentObservabilityConfig:
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
                 getter=lambda: runtime_config.get("OTEL_TRACING_ENABLED"),
+                should_raise=False,
             ),
             RuntimeConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
                 target_type=Optional[AgentTracingExporter],
@@ -1113,6 +1140,9 @@ class AgentObservabilityConfig:
 
         Returns:
             Resolved AgentObservabilityConfig instance.
+
+        Raises:
+            ValueError: If any field in the instantiated configuration is invalid.
         """
         statestore_config = AgentObservabilityConfig.from_statestore(runtime_config)
         logger.debug(f"State store runtime observability config: {statestore_config}")
@@ -1133,7 +1163,8 @@ class AgentObservabilityConfig:
 
     @classmethod
     def _template_config(cls) -> "AgentObservabilityConfig":
-        """Create an observability configuration with defaults cleared.
+        """
+        Create an observability configuration with defaults cleared.
         Used by environment variable and state store resolution, and as a fallback for instantiated configuration
         so that unset fields with default values do not bleed into the merged configuration.
         """
