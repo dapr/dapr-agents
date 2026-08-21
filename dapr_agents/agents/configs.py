@@ -679,7 +679,7 @@ class AgentExecutionConfig:
 
         Returns:
             AgentExecutionConfig instance created from the instantiated configuration.
-        
+
         Raises:
             ValueError: If any field in the instantiated configuration is invalid.
         """
