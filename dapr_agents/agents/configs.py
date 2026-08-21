@@ -547,7 +547,9 @@ class AgentExecutionConfig:
                 should_raise=False,
             ),
             EnvConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
-                target_type=Optional[str],  # Allow any string as tool choices are permissive
+                target_type=Optional[
+                    str
+                ],  # Allow any string as tool choices are permissive
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
                 getter=lambda: getenv("TOOL_CHOICE"),
                 validator=validate_tool_choice,
@@ -582,7 +584,9 @@ class AgentExecutionConfig:
         return config
 
     @classmethod
-    def from_instantiation(cls, instantiated_config: Optional["AgentExecutionConfig"]) -> "AgentExecutionConfig":
+    def from_instantiation(
+        cls, instantiated_config: Optional["AgentExecutionConfig"]
+    ) -> "AgentExecutionConfig":
         """
         Create execution configuration from an instantiated configuration.
 
@@ -637,7 +641,6 @@ class AgentExecutionConfig:
         apply_config_map(config, config_field_map)
 
         return config
-
 
     @classmethod
     def from_statestore(
@@ -946,13 +949,15 @@ class AgentObservabilityConfig:
         return config
 
     @classmethod
-    def from_instantiation(cls, instantiated_config: Optional["AgentObservabilityConfig"]) -> "AgentObservabilityConfig":
+    def from_instantiation(
+        cls, instantiated_config: Optional["AgentObservabilityConfig"]
+    ) -> "AgentObservabilityConfig":
         """
         Validate and create observability configuration from an instantiated configuration.
 
         Args:
             config: Optional user-instantiated configuration.
-        
+
         Returns:
             AgentObservabilityConfig instance created from the instantiated configuration.
         """

@@ -240,7 +240,9 @@ class TestApplyConfigUpdate:
             should_raise=False,
         )
 
-        result = apply_config_update(target_obj=target, key="value", descriptor=descriptor)
+        result = apply_config_update(
+            target_obj=target, key="value", descriptor=descriptor
+        )
 
         assert result == 99
         assert target.value == 99
@@ -259,7 +261,9 @@ class TestApplyConfigUpdate:
             should_raise=False,
         )
 
-        result = apply_config_update(target_obj=target, key="value", descriptor=descriptor)
+        result = apply_config_update(
+            target_obj=target, key="value", descriptor=descriptor
+        )
 
         assert result == 77
         assert target.value is None

@@ -261,7 +261,11 @@ class TestMergeModels:
 
             @model_validator(mode="after")
             def check_order(self) -> "DateRange":
-                if self.start_date and self.end_date and self.start_date > self.end_date:
+                if (
+                    self.start_date
+                    and self.end_date
+                    and self.start_date > self.end_date
+                ):
                     raise ValueError("start_date must be before end_date")
                 return self
 

@@ -67,7 +67,7 @@ def get_model_factory(model: Any) -> Callable[..., Any]:
         return lambda vals: dict(**vals)
 
     if is_dataclass(model):
-        return lambda vals: type(model)(**vals)
+        return lambda vals: type(model)(**vals)  # type: ignore[misc]
 
     if hasattr(model, "model_validate"):
         # Pydantic v2
@@ -109,7 +109,7 @@ def merge_models(base: T, override: T) -> T:
 
     # If both models are dictionaries, perform a direct shallow merge (more performant)
     if isinstance(base, dict) and isinstance(override, dict):
-        return {**base, **override}
+        return {**base, **override}  # type: ignore[return-value]
 
     try:
         # Infer model type from the base model
@@ -139,5 +139,5 @@ def merge_models(base: T, override: T) -> T:
         logger.debug(f"Merged model: {model!r}")
         return model
     except Exception:
-        logger.warning(f"Failed to merge models", exc_info=True)
+        logger.warning("Failed to merge models", exc_info=True)
         return base

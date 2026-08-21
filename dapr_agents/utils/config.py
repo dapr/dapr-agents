@@ -59,7 +59,9 @@ def normalize_config_key(key: str) -> str:
     return key.lower().replace("-", "_")
 
 
-def apply_config_map(target_obj: Any, config_field_map: dict[str, ConfigFieldDescriptor]) -> None:
+def apply_config_map(
+    target_obj: Any, config_field_map: dict[str, ConfigFieldDescriptor]
+) -> None:
     """
     Apply a map of configuration field names to field descriptors onto a target object.
 
@@ -117,9 +119,7 @@ def apply_config_update(
             logger.debug(f"Ignoring failed config update for key '{key}': {exc}")
             return None
 
-        logger.debug(
-            f"Using fallback value for key '{key}': {descriptor.fallback!r}"
-        )
+        logger.debug(f"Using fallback value for key '{key}': {descriptor.fallback!r}")
         try:
             descriptor.setter(target_obj, descriptor.fallback)
         except (AttributeError, TypeError, RuntimeError):
