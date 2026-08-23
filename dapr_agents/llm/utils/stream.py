@@ -60,10 +60,18 @@ class StreamHandler:
                 enrich_metadata={"provider": llm_provider},
                 on_chunk=on_chunk,
             )
-        elif llm_provider == "huggingface":
+        elif llm_provider in ("huggingface",):
             from dapr_agents.llm.huggingface.utils import process_hf_stream
 
             yield from process_hf_stream(
+                raw_stream=stream,
+                enrich_metadata={"provider": llm_provider},
+                on_chunk=on_chunk,
+            )
+        elif llm_provider in ("anthropic", "claude"):
+            from dapr_agents.llm.anthropic.utils import process_anthropic_stream
+
+            yield from process_anthropic_stream(
                 raw_stream=stream,
                 enrich_metadata={"provider": llm_provider},
                 on_chunk=on_chunk,

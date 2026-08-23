@@ -13,7 +13,7 @@
 import functools
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from anthropic import Anthropic
@@ -40,6 +40,61 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # dapr-agents message dicts -> Anthropic request format
 # ---------------------------------------------------------------------------
+
+
+def _normalize_content_blocks(content: Any) -> Any:
+    """Translate OpenAI-style content blocks into Anthropic content blocks."""
+    if not isinstance(content, list):
+        return content
+
+    blocks: list[dict[str, Any]] = []
+    for item in content:
+        if isinstance(item, str):
+            blocks.append({"type": "text", "text": item})
+        elif isinstance(item, dict):
+            item_type = item.get("type")
+            if item_type == "text":
+                blocks.append(item)
+            elif item_type == "image_url":
+                image_url_dict = item.get("image_url", {})
+                url = (
+                    image_url_dict.get("url", "")
+                    if isinstance(image_url_dict, dict)
+                    else str(image_url_dict)
+                )
+                if url.startswith("data:"):
+                    try:
+                        header, base64_data = url.split(",", 1)
+                        mime_type = header.split(";")[0].split(":")[1]
+                        blocks.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": mime_type,
+                                    "data": base64_data,
+                                },
+                            }
+                        )
+                    except Exception:
+                        blocks.append(item)
+                elif url.startswith(("http://", "https://")):
+                    blocks.append(
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "url",
+                                "url": url,
+                            },
+                        }
+                    )
+                else:
+                    blocks.append(item)
+            else:
+                blocks.append(item)
+        else:
+            blocks.append(item)
+    return blocks
 
 
 def split_messages(
@@ -76,6 +131,8 @@ def split_messages(
             # `tool_call_id`, etc.) that would otherwise trigger request validation errors.
             anthropic_keys = ("role", "content")
             msg_clean = {k: v for k, v in msg.items() if k in anthropic_keys}
+            if "content" in msg_clean:
+                msg_clean["content"] = _normalize_content_blocks(msg_clean["content"])
             out.append(msg_clean)
 
     if has_structured_system:
@@ -307,82 +364,117 @@ def to_llm_chat_response(resp: Any) -> LLMChatResponse:
     return LLMChatResponse(results=[candidate], metadata=metadata)
 
 
-def iter_stream(
-    client: Anthropic, params: dict[str, Any]
+def process_anthropic_stream(
+    raw_stream: Any,
+    *,
+    enrich_metadata: dict[str, Any] | None = None,
+    on_chunk: Callable[[LLMChatResponseChunk], None] | None = None,
 ) -> Iterator[LLMChatResponseChunk]:
     """Translate Anthropic SSE events into `LLMChatResponseChunk`s.
 
     Each yield gets a `dict(meta)` snapshot so buffered consumers don't all
     see the post-stream state.
     """
-    meta: dict[str, Any] = {"provider": PROVIDER}
+    meta: dict[str, Any] = {"provider": PROVIDER, **(enrich_metadata or {})}
 
+    stream_iter = (
+        raw_stream.__enter__() if hasattr(raw_stream, "__enter__") else raw_stream
+    )
     try:
-        with client.messages.create(stream=True, **params) as raw_stream:
-            for event in raw_stream:
-                if event.type == "message_start":
-                    meta["id"] = event.message.id
-                    meta["model"] = event.message.model
+        for event in stream_iter:
+            if event.type == "message_start":
+                meta["id"] = event.message.id
+                meta["model"] = event.message.model
+                if getattr(event.message, "usage", None) is not None:
+                    meta["usage"] = event.message.usage.model_dump()
 
-                elif event.type == "content_block_start":
-                    # Text blocks only yield on the first `text_delta`; tool_use
-                    # blocks must yield here because id/name only arrive on start.
-                    block = event.content_block
-                    if block.type == "tool_use":
-                        function_chunk = FunctionCallChunk(
-                            name=block.name, arguments=""
-                        )
-                        tool_call_chunk = ToolCallChunk(
-                            index=event.index,
-                            id=block.id,
-                            type="function",
-                            function=function_chunk,
-                        )
-                        candidate = LLMChatCandidateChunk(
-                            role="assistant",
-                            index=0,
-                            tool_calls=[tool_call_chunk],
-                        )
-                        yield LLMChatResponseChunk(
-                            result=candidate, metadata=dict(meta)
-                        )
+            elif event.type == "content_block_start":
+                # Text blocks only yield on the first `text_delta`; tool_use
+                # blocks must yield here because id/name only arrive on start.
+                block = event.content_block
+                if block.type == "tool_use":
+                    function_chunk = FunctionCallChunk(name=block.name, arguments="")
+                    tool_call_chunk = ToolCallChunk(
+                        index=event.index,
+                        id=block.id,
+                        type="function",
+                        function=function_chunk,
+                    )
+                    candidate = LLMChatCandidateChunk(
+                        role="assistant",
+                        index=0,
+                        tool_calls=[tool_call_chunk],
+                    )
+                    chunk = LLMChatResponseChunk(result=candidate, metadata=dict(meta))
+                    if on_chunk:
+                        on_chunk(chunk)
+                    yield chunk
+                elif block.type == "thinking":
+                    meta.setdefault("thinking_blocks", []).append(
+                        getattr(block, "thinking", "")
+                    )
 
-                elif event.type == "content_block_delta":
-                    delta = event.delta
-                    if delta.type == "text_delta":
-                        candidate = LLMChatCandidateChunk(
-                            role="assistant",
-                            content=delta.text,
-                            index=0,
-                        )
-                        yield LLMChatResponseChunk(
-                            result=candidate, metadata=dict(meta)
-                        )
-                    elif delta.type == "input_json_delta":
-                        function_chunk = FunctionCallChunk(arguments=delta.partial_json)
-                        tool_call_chunk = ToolCallChunk(
-                            index=event.index, function=function_chunk
-                        )
-                        candidate = LLMChatCandidateChunk(
-                            role="assistant",
-                            index=0,
-                            tool_calls=[tool_call_chunk],
-                        )
-                        yield LLMChatResponseChunk(
-                            result=candidate, metadata=dict(meta)
-                        )
+            elif event.type == "content_block_delta":
+                delta = event.delta
+                if delta.type == "text_delta":
+                    candidate = LLMChatCandidateChunk(
+                        role="assistant",
+                        content=delta.text,
+                        index=0,
+                    )
+                    chunk = LLMChatResponseChunk(result=candidate, metadata=dict(meta))
+                    if on_chunk:
+                        on_chunk(chunk)
+                    yield chunk
+                elif delta.type == "input_json_delta":
+                    function_chunk = FunctionCallChunk(arguments=delta.partial_json)
+                    tool_call_chunk = ToolCallChunk(
+                        index=event.index, function=function_chunk
+                    )
+                    candidate = LLMChatCandidateChunk(
+                        role="assistant",
+                        index=0,
+                        tool_calls=[tool_call_chunk],
+                    )
+                    chunk = LLMChatResponseChunk(result=candidate, metadata=dict(meta))
+                    if on_chunk:
+                        on_chunk(chunk)
+                    yield chunk
+                elif delta.type == "thinking_delta":
+                    meta.setdefault("thinking_deltas", []).append(delta.thinking)
+                elif delta.type == "signature_delta":
+                    meta["thinking_signature"] = delta.signature
 
-                elif event.type == "message_delta":
-                    if event.usage is not None:
-                        meta["usage"] = event.usage.model_dump()
-                    if event.delta.stop_reason:
-                        candidate = LLMChatCandidateChunk(
-                            finish_reason=event.delta.stop_reason
-                        )
-                        yield LLMChatResponseChunk(
-                            result=candidate, metadata=dict(meta)
-                        )
-                # message_stop / content_block_stop / ping: ignored
+            elif event.type == "message_delta":
+                if event.usage is not None:
+                    meta["usage"] = event.usage.model_dump()
+                if event.delta.stop_reason:
+                    candidate = LLMChatCandidateChunk(
+                        finish_reason=event.delta.stop_reason
+                    )
+                    chunk = LLMChatResponseChunk(result=candidate, metadata=dict(meta))
+                    if on_chunk:
+                        on_chunk(chunk)
+                    yield chunk
+            # message_stop / content_block_stop / ping: ignored
+    finally:
+        if hasattr(raw_stream, "__exit__"):
+            raw_stream.__exit__(None, None, None)
+
+
+def iter_stream(
+    client: Anthropic,
+    params: dict[str, Any],
+    on_chunk: Callable[[LLMChatResponseChunk], None] | None = None,
+) -> Iterator[LLMChatResponseChunk]:
+    """Translate Anthropic SSE events into `LLMChatResponseChunk`s."""
+    try:
+        raw_stream = client.messages.create(stream=True, **params)
+        yield from process_anthropic_stream(
+            raw_stream,
+            enrich_metadata={"provider": PROVIDER},
+            on_chunk=on_chunk,
+        )
     except Exception:
         logger.exception("Anthropic Messages API streaming call failed")
         raise

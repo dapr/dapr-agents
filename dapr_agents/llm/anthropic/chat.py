@@ -14,7 +14,7 @@
 
 import logging
 import os
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, Literal
 
@@ -106,6 +106,7 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         response_format: type[BaseModel] | None = None,
         structured_mode: Literal["json", "function_call"] = "json",
         stream: bool = False,
+        on_chunk: Callable[[LLMChatResponseChunk], None] | None = None,
         **kwargs: Any,
     ) -> Iterator[LLMChatResponseChunk] | LLMChatResponse | BaseModel | list[BaseModel]:
         """Run one chat turn against the Anthropic Messages API.
@@ -131,6 +132,8 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         messages_normalized = RequestHandler.normalize_chat_messages(messages)
         system, messages_anthropic = split_messages(messages_normalized)
 
+        on_chunk_callback = on_chunk or kwargs.pop("on_chunk", None)
+
         prompty_params = (
             self.prompty.model.parameters.model_dump(exclude_none=True)
             if self.prompty
@@ -139,7 +142,10 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         extras = prompty_params | kwargs
         tools_effective = tools if tools is not None else extras.get("tools")
         tools_formatted = (
-            [ToolHelper.format_tool(t, tool_format="claude") for t in tools_effective]
+            [
+                ToolHelper.format_tool(t, tool_format=self.provider)
+                for t in tools_effective
+            ]
             if tools_effective
             else None
         )
@@ -164,7 +170,7 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         logger.info("Calling Anthropic Messages API...")
         logger.debug(f"Anthropic request params: {params}")
         if stream:
-            return iter_stream(self.client, params)
+            return iter_stream(self.client, params, on_chunk=on_chunk_callback)
         try:
             raw_resp = self.client.messages.create(**params)
         except Exception:

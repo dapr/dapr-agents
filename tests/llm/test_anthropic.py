@@ -970,3 +970,271 @@ def test_anthropic_generate_requires_messages_or_input_data(mock_anthropic_class
     client = AnthropicChatClient(api_key="fake-key")
     with pytest.raises(ValueError, match="Either messages or input_data"):
         client.generate()
+
+
+# ---------------------------------------------------------------------------
+# Feature Parity Tests (#732)
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_tool_formatting_aliases():
+    """format_type='anthropic' is accepted as an alias for 'claude' across tool formatting utilities."""
+    from pydantic import BaseModel
+    from dapr_agents.tool import AgentTool
+    from dapr_agents.tool.utils.function_calling import (
+        to_function_call_definition,
+        validate_and_format_tool,
+    )
+    from dapr_agents.tool.utils.tool import ToolHelper
+
+    class DummyArgs(BaseModel):
+        query: str
+
+    definition = to_function_call_definition(
+        name="search",
+        description="Search docs",
+        args_schema=DummyArgs,
+        format_type="anthropic",
+    )
+    assert definition["name"] == "search"
+    assert definition["description"] == "Search docs"
+    assert "input_schema" in definition
+
+    raw_tool = {
+        "name": "search",
+        "description": "Search docs",
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    }
+    validated = validate_and_format_tool(raw_tool, tool_format="anthropic")
+    assert validated["name"] == "search"
+    assert "input_schema" in validated
+
+    def dummy_func(q: str) -> str:
+        """Search tool."""
+        return q
+
+    tool = AgentTool.from_func(dummy_func)
+    formatted = ToolHelper.format_tool(tool, tool_format="anthropic")
+    assert formatted["name"] == "dummy_func"
+    assert "input_schema" in formatted
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_stream_handler_integration(mock_anthropic_class):
+    """StreamHandler.process_stream handles llm_provider='anthropic' and fires on_chunk."""
+    from dapr_agents.llm.utils.stream import StreamHandler
+
+    events = [
+        SimpleNamespace(
+            type="message_start",
+            message=SimpleNamespace(id="msg_sh", model="claude-sonnet-4-6"),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            index=0,
+            delta=SimpleNamespace(type="text_delta", text="Hello"),
+        ),
+        SimpleNamespace(
+            type="message_delta",
+            delta=SimpleNamespace(stop_reason="end_turn"),
+            usage=SimpleNamespace(
+                model_dump=lambda: {"input_tokens": 1, "output_tokens": 1}
+            ),
+        ),
+    ]
+
+    received_chunks = []
+
+    def on_chunk(chunk):
+        received_chunks.append(chunk)
+
+    chunks = list(
+        StreamHandler.process_stream(
+            stream=events,
+            llm_provider="anthropic",
+            on_chunk=on_chunk,
+        )
+    )
+
+    assert len(chunks) == 2  # text_delta + message_delta
+    assert len(received_chunks) == 2
+    assert chunks[0].result.content == "Hello"
+    assert chunks[1].result.finish_reason == "end_turn"
+    assert chunks[1].metadata["provider"] == "anthropic"
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_response_handler_integration(mock_anthropic_class):
+    """ResponseHandler.process_response normalizes Anthropic responses for both raw and structured modes."""
+    from pydantic import BaseModel
+    from dapr_agents.llm.utils.response import ResponseHandler
+
+    class ResultModel(BaseModel):
+        count: int
+
+    fake_raw = _fake_anthropic_response("raw text")
+    resp = ResponseHandler.process_response(fake_raw, llm_provider="anthropic")
+    assert isinstance(resp, LLMChatResponse)
+    assert resp.get_message().content == "raw text"
+
+    fake_structured = SimpleNamespace(
+        id="msg_struct",
+        model="claude-opus-4-7",
+        content=[
+            SimpleNamespace(type="text", text='{"count": 42}'),
+        ],
+        stop_reason="end_turn",
+        stop_sequence=None,
+        usage=SimpleNamespace(
+            model_dump=lambda: {"input_tokens": 1, "output_tokens": 1}
+        ),
+    )
+    validated = ResponseHandler.process_response(
+        fake_structured,
+        llm_provider="anthropic",
+        response_format=ResultModel,
+    )
+    assert isinstance(validated, ResultModel)
+    assert validated.count == 42
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_generate_passes_on_chunk_callback(mock_anthropic_class):
+    """AnthropicChatClient.generate(stream=True) fires the on_chunk callback on every delta."""
+    events = [
+        SimpleNamespace(
+            type="message_start",
+            message=SimpleNamespace(id="msg_cb", model="claude-sonnet-4-6"),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            index=0,
+            delta=SimpleNamespace(type="text_delta", text="chunk1"),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            index=0,
+            delta=SimpleNamespace(type="text_delta", text="chunk2"),
+        ),
+        SimpleNamespace(
+            type="message_delta",
+            delta=SimpleNamespace(stop_reason="end_turn"),
+            usage=SimpleNamespace(
+                model_dump=lambda: {"input_tokens": 1, "output_tokens": 2}
+            ),
+        ),
+    ]
+    sdk = MagicMock()
+    sdk.messages.create.return_value = _stream_cm(events)
+    mock_anthropic_class.return_value = sdk
+
+    client = AnthropicChatClient(api_key="fake-key")
+    captured = []
+    chunks = list(
+        client.generate(
+            "hi", stream=True, on_chunk=lambda chunk: captured.append(chunk)
+        )
+    )
+
+    assert len(chunks) == 3
+    assert len(captured) == 3
+    assert captured[0].result.content == "chunk1"
+    assert captured[1].result.content == "chunk2"
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_streaming_thinking_events_captured_in_metadata(mock_anthropic_class):
+    """Streaming thinking_delta and signature_delta events are collected in stream metadata."""
+    events = [
+        SimpleNamespace(
+            type="message_start",
+            message=SimpleNamespace(id="msg_think", model="claude-sonnet-4-6"),
+        ),
+        SimpleNamespace(
+            type="content_block_start",
+            index=0,
+            content_block=SimpleNamespace(type="thinking", thinking="Initial thought"),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            index=0,
+            delta=SimpleNamespace(type="thinking_delta", thinking="... reasoning step"),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            index=0,
+            delta=SimpleNamespace(type="signature_delta", signature="sig123"),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            index=1,
+            delta=SimpleNamespace(type="text_delta", text="Final answer"),
+        ),
+        SimpleNamespace(
+            type="message_delta",
+            delta=SimpleNamespace(stop_reason="end_turn"),
+            usage=SimpleNamespace(
+                model_dump=lambda: {"input_tokens": 5, "output_tokens": 10}
+            ),
+        ),
+    ]
+    sdk = MagicMock()
+    sdk.messages.create.return_value = _stream_cm(events)
+    mock_anthropic_class.return_value = sdk
+
+    client = AnthropicChatClient(api_key="fake-key")
+    chunks = list(client.generate("solve puzzle", stream=True))
+
+    last_chunk = chunks[-1]
+    assert last_chunk.metadata.get("thinking_blocks") == ["Initial thought"]
+    assert last_chunk.metadata.get("thinking_deltas") == ["... reasoning step"]
+    assert last_chunk.metadata.get("thinking_signature") == "sig123"
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_multimodal_image_url_conversion(mock_anthropic_class):
+    """OpenAI-style image_url content blocks are converted to Anthropic image blocks."""
+    sdk = MagicMock()
+    sdk.messages.create.return_value = _fake_anthropic_response("I see the image")
+    mock_anthropic_class.return_value = sdk
+
+    client = AnthropicChatClient(api_key="fake-key")
+    client.generate(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this:"},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                        },
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "https://example.com/sample.jpg"},
+                    },
+                ],
+            }
+        ]
+    )
+
+    sent_messages = sdk.messages.create.call_args.kwargs["messages"]
+    assert len(sent_messages) == 1
+    content_blocks = sent_messages[0]["content"]
+    assert len(content_blocks) == 3
+
+    assert content_blocks[0] == {"type": "text", "text": "Describe this:"}
+    assert content_blocks[1]["type"] == "image"
+    assert content_blocks[1]["source"]["type"] == "base64"
+    assert content_blocks[1]["source"]["media_type"] == "image/png"
+    assert content_blocks[1]["source"]["data"].startswith("iVBORw0KGgo")
+
+    assert content_blocks[2]["type"] == "image"
+    assert content_blocks[2]["source"]["type"] == "url"
+    assert content_blocks[2]["source"]["url"] == "https://example.com/sample.jpg"
