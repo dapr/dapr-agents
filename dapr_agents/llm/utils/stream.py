@@ -12,17 +12,17 @@
 #
 
 from typing import (
+    Any,
     Callable,
     Iterator,
     Optional,
     TypeVar,
+    Union,
 )
 
-from openai.types.chat import ChatCompletionChunk
 from pydantic import BaseModel
 
-from dapr_agents.llm.utils.providers import PROVIDERS_WITH_STREAMING
-from dapr_agents.types.message import LLMChatCandidateChunk
+from dapr_agents.types.message import LLMChatCandidateChunk, LLMChatResponseChunk
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -36,20 +36,20 @@ class StreamHandler:
 
     @staticmethod
     def process_stream(
-        stream: Iterator[ChatCompletionChunk],
+        stream: Any,
         llm_provider: str,
-        on_chunk: Optional[Callable],
-    ) -> Iterator[LLMChatCandidateChunk]:
+        on_chunk: Optional[Callable] = None,
+    ) -> Iterator[Union[LLMChatCandidateChunk, LLMChatResponseChunk]]:
         """
         Process a streaming chat completion.
 
         Args:
-            stream:           Iterator of ChatCompletionChunk from OpenAI SDK.
-            llm_provider:     Name of the LLM provider (e.g., "openai").
-            on_chunk:         Callback fired on every partial LLMChatCandidateChunk.
+            stream:           Raw stream object or iterator from the provider SDK.
+            llm_provider:     Name of the LLM provider (e.g., "openai", "anthropic").
+            on_chunk:         Callback fired on every partial chunk.
 
         Yields:
-            LLMChatCandidateChunk: fully-typed chunks, partial and final.
+            LLMChatCandidateChunk | LLMChatResponseChunk: fully-typed chunks, partial and final.
         """
 
         if llm_provider in ("openai", "nvidia", "litellm", "iflytek"):
@@ -60,7 +60,7 @@ class StreamHandler:
                 enrich_metadata={"provider": llm_provider},
                 on_chunk=on_chunk,
             )
-        elif llm_provider in ("huggingface",):
+        elif llm_provider == "huggingface":
             from dapr_agents.llm.huggingface.utils import process_hf_stream
 
             yield from process_hf_stream(

@@ -132,8 +132,6 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         messages_normalized = RequestHandler.normalize_chat_messages(messages)
         system, messages_anthropic = split_messages(messages_normalized)
 
-        on_chunk_callback = on_chunk or kwargs.pop("on_chunk", None)
-
         prompty_params = (
             self.prompty.model.parameters.model_dump(exclude_none=True)
             if self.prompty
@@ -170,7 +168,7 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         logger.info("Calling Anthropic Messages API...")
         logger.debug(f"Anthropic request params: {params}")
         if stream:
-            return iter_stream(self.client, params, on_chunk=on_chunk_callback)
+            return iter_stream(self.client, params, on_chunk=on_chunk)
         try:
             raw_resp = self.client.messages.create(**params)
         except Exception:

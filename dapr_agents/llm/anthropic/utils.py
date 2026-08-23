@@ -76,7 +76,11 @@ def _normalize_content_blocks(content: Any) -> Any:
                                 },
                             }
                         )
-                    except Exception:
+                    except Exception as exc:
+                        logger.warning(
+                            f"Failed to parse base64 data URI in content block; "
+                            f"passing block through unchanged: {exc}"
+                        )
                         blocks.append(item)
                 elif url.startswith(("http://", "https://")):
                     blocks.append(
@@ -364,6 +368,16 @@ def to_llm_chat_response(resp: Any) -> LLMChatResponse:
     return LLMChatResponse(results=[candidate], metadata=metadata)
 
 
+def _snapshot_stream_meta(meta: dict[str, Any]) -> dict[str, Any]:
+    """Create an isolated snapshot of stream metadata, making copies of mutable containers."""
+    snapshot = dict(meta)
+    if "thinking_blocks" in snapshot:
+        snapshot["thinking_blocks"] = list(snapshot["thinking_blocks"])
+    if "thinking_deltas" in snapshot:
+        snapshot["thinking_deltas"] = list(snapshot["thinking_deltas"])
+    return snapshot
+
+
 def process_anthropic_stream(
     raw_stream: Any,
     *,
@@ -372,10 +386,10 @@ def process_anthropic_stream(
 ) -> Iterator[LLMChatResponseChunk]:
     """Translate Anthropic SSE events into `LLMChatResponseChunk`s.
 
-    Each yield gets a `dict(meta)` snapshot so buffered consumers don't all
+    Each yield gets an isolated snapshot so buffered consumers don't all
     see the post-stream state.
     """
-    meta: dict[str, Any] = {"provider": PROVIDER, **(enrich_metadata or {})}
+    meta: dict[str, Any] = {**(enrich_metadata or {"provider": PROVIDER})}
 
     stream_iter = (
         raw_stream.__enter__() if hasattr(raw_stream, "__enter__") else raw_stream
@@ -405,7 +419,9 @@ def process_anthropic_stream(
                         index=0,
                         tool_calls=[tool_call_chunk],
                     )
-                    chunk = LLMChatResponseChunk(result=candidate, metadata=dict(meta))
+                    chunk = LLMChatResponseChunk(
+                        result=candidate, metadata=_snapshot_stream_meta(meta)
+                    )
                     if on_chunk:
                         on_chunk(chunk)
                     yield chunk
@@ -422,7 +438,9 @@ def process_anthropic_stream(
                         content=delta.text,
                         index=0,
                     )
-                    chunk = LLMChatResponseChunk(result=candidate, metadata=dict(meta))
+                    chunk = LLMChatResponseChunk(
+                        result=candidate, metadata=_snapshot_stream_meta(meta)
+                    )
                     if on_chunk:
                         on_chunk(chunk)
                     yield chunk
@@ -436,7 +454,9 @@ def process_anthropic_stream(
                         index=0,
                         tool_calls=[tool_call_chunk],
                     )
-                    chunk = LLMChatResponseChunk(result=candidate, metadata=dict(meta))
+                    chunk = LLMChatResponseChunk(
+                        result=candidate, metadata=_snapshot_stream_meta(meta)
+                    )
                     if on_chunk:
                         on_chunk(chunk)
                     yield chunk
@@ -452,7 +472,9 @@ def process_anthropic_stream(
                     candidate = LLMChatCandidateChunk(
                         finish_reason=event.delta.stop_reason
                     )
-                    chunk = LLMChatResponseChunk(result=candidate, metadata=dict(meta))
+                    chunk = LLMChatResponseChunk(
+                        result=candidate, metadata=_snapshot_stream_meta(meta)
+                    )
                     if on_chunk:
                         on_chunk(chunk)
                     yield chunk

@@ -1023,8 +1023,7 @@ def test_anthropic_tool_formatting_aliases():
     assert "input_schema" in formatted
 
 
-@patch("dapr_agents.llm.anthropic.client.Anthropic")
-def test_anthropic_stream_handler_integration(mock_anthropic_class):
+def test_anthropic_stream_handler_integration():
     """StreamHandler.process_stream handles llm_provider='anthropic' and fires on_chunk."""
     from dapr_agents.llm.utils.stream import StreamHandler
 
@@ -1148,7 +1147,7 @@ def test_anthropic_generate_passes_on_chunk_callback(mock_anthropic_class):
 
 @patch("dapr_agents.llm.anthropic.client.Anthropic")
 def test_anthropic_streaming_thinking_events_captured_in_metadata(mock_anthropic_class):
-    """Streaming thinking_delta and signature_delta events are collected in stream metadata."""
+    """Streaming thinking_delta and signature_delta events are collected in stream metadata with isolated snapshots."""
     events = [
         SimpleNamespace(
             type="message_start",
@@ -1162,7 +1161,17 @@ def test_anthropic_streaming_thinking_events_captured_in_metadata(mock_anthropic
         SimpleNamespace(
             type="content_block_delta",
             index=0,
-            delta=SimpleNamespace(type="thinking_delta", thinking="... reasoning step"),
+            delta=SimpleNamespace(type="thinking_delta", thinking="step 1"),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            index=1,
+            delta=SimpleNamespace(type="text_delta", text="Partial answer 1"),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            index=0,
+            delta=SimpleNamespace(type="thinking_delta", thinking="step 2"),
         ),
         SimpleNamespace(
             type="content_block_delta",
@@ -1189,10 +1198,53 @@ def test_anthropic_streaming_thinking_events_captured_in_metadata(mock_anthropic
     client = AnthropicChatClient(api_key="fake-key")
     chunks = list(client.generate("solve puzzle", stream=True))
 
+    assert len(chunks) == 3  # Partial answer 1, Final answer, message_delta
+    first_chunk = chunks[0]
     last_chunk = chunks[-1]
+
+    # Snapshot isolation: first chunk only saw "step 1", while final chunk has both
+    assert first_chunk.metadata.get("thinking_deltas") == ["step 1"]
     assert last_chunk.metadata.get("thinking_blocks") == ["Initial thought"]
-    assert last_chunk.metadata.get("thinking_deltas") == ["... reasoning step"]
+    assert last_chunk.metadata.get("thinking_deltas") == ["step 1", "step 2"]
     assert last_chunk.metadata.get("thinking_signature") == "sig123"
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_generate_structured_repairs_fenced_json(mock_anthropic_class):
+    """AnthropicChatClient.generate repairs markdown code fences in structured output mode."""
+    from pydantic import BaseModel
+
+    class CountOutput(BaseModel):
+        count: int
+        label: str
+
+    fenced_text = 'Here is your JSON response:\n```json\n{\n  "count": 10,\n  "label": "widgets"\n}\n```'
+    sdk = MagicMock()
+    sdk.models.retrieve.return_value = SimpleNamespace(
+        capabilities=SimpleNamespace(structured_outputs=SimpleNamespace(supported=True))
+    )
+    sdk.messages.create.return_value = SimpleNamespace(
+        id="msg_fenced",
+        model="claude-sonnet-4-6",
+        content=[SimpleNamespace(type="text", text=fenced_text)],
+        stop_reason="end_turn",
+        stop_sequence=None,
+        usage=SimpleNamespace(
+            model_dump=lambda: {"input_tokens": 10, "output_tokens": 15}
+        ),
+    )
+    mock_anthropic_class.return_value = sdk
+
+    client = AnthropicChatClient(api_key="fake-key")
+    result = client.generate(
+        messages="Extract data",
+        response_format=CountOutput,
+        structured_mode="json",
+    )
+
+    assert isinstance(result, CountOutput)
+    assert result.count == 10
+    assert result.label == "widgets"
 
 
 @patch("dapr_agents.llm.anthropic.client.Anthropic")
