@@ -1290,3 +1290,191 @@ def test_anthropic_multimodal_image_url_conversion(mock_anthropic_class):
     assert content_blocks[2]["type"] == "image"
     assert content_blocks[2]["source"]["type"] == "url"
     assert content_blocks[2]["source"]["url"] == "https://example.com/sample.jpg"
+
+
+def test_anthropic_to_llm_chat_response_with_dict_coercion():
+    """to_llm_chat_response handles plain dictionaries as well as SDK objects."""
+    from dapr_agents.llm.anthropic.utils import to_llm_chat_response
+
+    resp_dict = {
+        "id": "msg_dict_123",
+        "model": "claude-sonnet-4-6",
+        "stop_reason": "tool_use",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 12, "output_tokens": 8},
+        "content": [
+            {"type": "text", "text": "Let me query that for you."},
+            {
+                "type": "tool_use",
+                "id": "tool_call_1",
+                "name": "lookup_weather",
+                "input": {"city": "Seattle"},
+            },
+            {"type": "thinking", "thinking": "Let's check the forecast."},
+        ],
+    }
+
+    resp = to_llm_chat_response(resp_dict)
+    assert isinstance(resp, LLMChatResponse)
+    assert resp.metadata["id"] == "msg_dict_123"
+    assert resp.metadata["model"] == "claude-sonnet-4-6"
+    assert resp.metadata["stop_reason"] == "tool_use"
+    assert resp.metadata["usage"] == {"input_tokens": 12, "output_tokens": 8}
+    assert len(resp.metadata["raw_content"]) == 3
+
+    msg = resp.get_message()
+    assert isinstance(msg, AssistantMessage)
+    assert msg.content == "Let me query that for you."
+    assert msg.tool_calls is not None
+    assert len(msg.tool_calls) == 1
+    assert msg.tool_calls[0].id == "tool_call_1"
+    assert msg.tool_calls[0].function.name == "lookup_weather"
+    assert json.loads(msg.tool_calls[0].function.arguments) == {"city": "Seattle"}
+
+
+def test_anthropic_process_stream_with_dict_events():
+    """process_anthropic_stream handles plain dict event streams."""
+    from dapr_agents.llm.anthropic.utils import process_anthropic_stream
+
+    dict_events = [
+        {
+            "type": "message_start",
+            "message": {
+                "id": "msg_stream_dict",
+                "model": "claude-3-7-sonnet",
+                "usage": {"input_tokens": 5},
+            },
+        },
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": "Reasoning..."},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": " more thought"},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": "sig_xyz"},
+        },
+        {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {
+                "type": "tool_use",
+                "id": "toolu_abc",
+                "name": "calc",
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "input_json_delta", "partial_json": '{"x":'},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "input_json_delta", "partial_json": " 10}"},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 2,
+            "delta": {"type": "text_delta", "text": "Done!"},
+        },
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"output_tokens": 20},
+        },
+    ]
+
+    chunks = list(process_anthropic_stream(dict_events))
+    assert (
+        len(chunks) == 5
+    )  # tool_use start, 2 partial JSONs, text delta, message_delta
+
+    first_chunk = chunks[0]
+    assert first_chunk.metadata["id"] == "msg_stream_dict"
+    assert first_chunk.metadata["model"] == "claude-3-7-sonnet"
+    assert first_chunk.result.tool_calls[0].function.name == "calc"
+    assert first_chunk.result.tool_calls[0].id == "toolu_abc"
+
+    # Text chunk
+    text_chunk = chunks[3]
+    assert text_chunk.result.content == "Done!"
+
+    # Final chunk
+    final_chunk = chunks[4]
+    assert final_chunk.result.finish_reason == "end_turn"
+    assert final_chunk.metadata["usage"] == {"output_tokens": 20}
+    assert final_chunk.metadata["thinking_blocks"] == ["Reasoning..."]
+    assert final_chunk.metadata["thinking_deltas"] == [" more thought"]
+    assert final_chunk.metadata["thinking_signature"] == "sig_xyz"
+
+
+def test_anthropic_normalize_content_blocks_match_cases_and_error_handling(caplog):
+    """_normalize_content_blocks correctly parses strings, dicts, malformed data URIs, and unknowns."""
+    import logging
+    from dapr_agents.llm.anthropic.utils import _normalize_content_blocks
+
+    malformed_block = {
+        "type": "image_url",
+        "image_url": {"url": "data:not_a_valid_data_uri"},
+    }
+    blocks_input = [
+        "plain text string",
+        {"type": "text", "text": "dict text"},
+        malformed_block,
+        {"type": "custom_extension_block", "custom_key": 42},
+        12345,  # non-dict, non-string item
+    ]
+
+    with caplog.at_level(logging.WARNING):
+        normalized = _normalize_content_blocks(blocks_input)
+
+    assert len(normalized) == 5
+    assert normalized[0] == {"type": "text", "text": "plain text string"}
+    assert normalized[1] == {"type": "text", "text": "dict text"}
+    # Malformed data URI is passed through unchanged and logged with warning
+    assert normalized[2] == malformed_block
+    assert any(
+        "Failed to parse base64 data URI" in record.message for record in caplog.records
+    )
+    # Unknown dict and non-dict items are preserved
+    assert normalized[3] == {"type": "custom_extension_block", "custom_key": 42}
+    assert normalized[4] == 12345
+
+
+def test_anthropic_structured_parsers_with_dict_responses():
+    """parse_json_response and parse_function_call_response accept dictionary envelopes."""
+    from pydantic import BaseModel
+    from dapr_agents.llm.anthropic.utils import (
+        parse_function_call_response,
+        parse_json_response,
+    )
+
+    class SampleModel(BaseModel):
+        val: int
+
+    dict_json_resp = {
+        "content": [{"type": "text", "text": '{"val": 99}'}],
+    }
+    json_result = parse_json_response(dict_json_resp, SampleModel)
+    assert isinstance(json_result, SampleModel)
+    assert json_result.val == 99
+
+    dict_fn_resp = {
+        "content": [
+            {
+                "type": "tool_use",
+                "name": "SampleModel",
+                "input": {"val": 42},
+            }
+        ],
+    }
+    fn_result = parse_function_call_response(dict_fn_resp, SampleModel)
+    assert isinstance(fn_result, SampleModel)
+    assert fn_result.val == 42
