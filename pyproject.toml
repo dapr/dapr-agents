@@ -61,7 +61,7 @@ dependencies = [
     "openinference-instrumentation>=0.1.0,<1.0.0",
     "openinference-semantic-conventions>=0.1.0,<1.0.0",
     "mistralai>=2.2.0",
-    "anthropic>=0.98.0,<2.0.0",
+    "anthropic>=0.98.0,<1.0.0",
     "opentelemetry-instrumentation-grpc>=0.60b1,<0.61",
     "opentelemetry-exporter-zipkin-json>=1.36.0",
     "opentelemetry-instrumentation-httpx>=0.60b1,<0.61",
@@ -131,7 +131,6 @@ dapr = "2026-05-21T00:00:00Z"
 dapr-ext-fastapi = "2026-05-21T00:00:00Z"
 dapr-ext-workflow = "2026-05-21T00:00:00Z"
 durabletask-dapr = "2026-05-21T00:00:00Z"
-anthropic = "2026-08-23T00:00:00Z"
 
 [project.urls]
 Documentation = "https://github.com/dapr/docs"
