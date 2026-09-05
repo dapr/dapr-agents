@@ -731,6 +731,7 @@ class DurableAgent(AgentBase):
                                     source=getattr(tool_obj_check, "source", "local"),
                                     payload=hook_payload,
                                     tool_call_id=tc["id"],
+                                    agent=self,
                                 )
                                 decision = None
                                 for hook in self._hooks.before_tool_call:
@@ -2332,7 +2333,7 @@ class DurableAgent(AgentBase):
             hook_payload: Dict[str, Any] = dict(generate_kwargs)
             if "messages" in hook_payload:
                 hook_payload["messages"] = list(hook_payload["messages"])
-            before_ctx = LLMHookContext(payload=hook_payload)
+            before_ctx = LLMHookContext(payload=hook_payload, agent=self)
             for hook in self._hooks.before_llm_call:
                 result = hook(before_ctx)
                 if result is not None and not isinstance(result, Proceed):
@@ -2478,7 +2479,7 @@ class DurableAgent(AgentBase):
             after_payload: Dict[str, Any] = dict(generate_kwargs)
             if "messages" in after_payload:
                 after_payload["messages"] = list(after_payload["messages"])
-            after_ctx = LLMHookContext(payload=after_payload)
+            after_ctx = LLMHookContext(payload=after_payload, agent=self)
             for hook in self._hooks.after_llm_call:
                 result = hook(after_ctx, dict(assistant_message))
                 if isinstance(result, Mutate) and result.payload is not None:

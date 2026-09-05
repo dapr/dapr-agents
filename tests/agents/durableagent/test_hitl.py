@@ -14,6 +14,7 @@
 """Unit tests for the hook-based human-in-the-loop (HITL) system."""
 
 from datetime import timezone
+from unittest.mock import MagicMock
 
 from dapr_agents.agents.schemas import ApprovalRequiredEvent, ApprovalResponseEvent
 from dapr_agents.agents.configs import AgentApprovalConfig, AgentExecutionConfig
@@ -316,6 +317,7 @@ class TestHooksContainer:
             source="local",
             payload={"table": "users"},
             tool_call_id="call-123",
+            agent=MagicMock(),
         )
         decision = h.before_tool_call[0](ctx)
         assert len(received) == 1
@@ -330,7 +332,11 @@ class TestHooksContainer:
         h = Hooks(before_tool_call=[passthrough])
         result = h.before_tool_call[0](
             ToolHookContext(
-                step_name="tool", source="local", payload={}, tool_call_id="id"
+                step_name="tool",
+                source="local",
+                payload={},
+                tool_call_id="id",
+                agent=MagicMock(),
             )
         )
         assert result is None  # workflow code handles the None → Proceed coercion

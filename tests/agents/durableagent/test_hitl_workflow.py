@@ -746,6 +746,7 @@ class TestHookWorkflowDispatch:
             source="local",
             payload={"table": "users"},
             tool_call_id="c-1",
+            agent=MagicMock(),
         )
         ctx2 = HookContext(
             step_name="DropTable",
@@ -753,6 +754,7 @@ class TestHookWorkflowDispatch:
             source="local",
             payload={"table": "users"},
             tool_call_id="c-1",
+            agent=MagicMock(),
         )
 
         d1 = stateless_hook(ctx1)
@@ -770,7 +772,11 @@ class TestHookWorkflowDispatch:
             return Proceed()
 
         ctx = ToolHookContext(
-            step_name="AnyTool", source="local", payload={}, tool_call_id="c-1"
+            step_name="AnyTool",
+            source="local",
+            payload={},
+            tool_call_id="c-1",
+            agent=MagicMock(),
         )
         d1 = passthrough(ctx)
         d2 = passthrough(ctx)

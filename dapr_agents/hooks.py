@@ -12,30 +12,36 @@
 #
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from dapr_agents.agents.durable import DurableAgent
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=True, kw_only=True)
 class HookContext:
-    """all the information available to a hook when a step is about to run."""
+    """All the information available to a hook when a step is about to run."""
 
     step_name: str
-    """name of the tool about to run, or 'llm' for llm calls."""
+    """Name of the tool about to run, or 'llm' for LLM calls."""
 
     step_kind: str
-    """'tool' for tool calls, 'llm' for llm calls."""
+    """'tool' for tool calls, 'llm' for LLM calls."""
 
     source: str
-    """where this tool came from: 'local', 'mcp', 'openapi', etc."""
+    """Where this tool came from: 'local', 'mcp', 'openapi', etc."""
 
     payload: Dict[str, Any]
-    """arguments the llm wants to pass to the tool (or llm call params)."""
+    """Arguments the LLM wants to pass to the tool (or LLM call params)."""
 
     tool_call_id: str = ""
-    """llm-assigned id for this specific call. empty for llm-level hooks."""
+    """LLM-assigned ID for this specific call. Empty for LLM-level hooks."""
+
+    agent: "DurableAgent"
+    """The agent that is executing the step."""
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=True, kw_only=True)
 class LLMHookContext(HookContext):
     """Context for ``before_llm_call`` / ``after_llm_call`` hooks.
 
@@ -49,7 +55,7 @@ class LLMHookContext(HookContext):
     payload: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=True, kw_only=True)
 class ToolHookContext(HookContext):
     """Context for ``before_tool_call`` / ``after_tool_call`` hooks.
 
@@ -60,14 +66,14 @@ class ToolHookContext(HookContext):
 
 
 class HookDecision:
-    """base class — you never instantiate this directly, use the subclasses."""
+    """Base class — you never instantiate this directly, use the subclasses."""
 
     pass
 
 
 @dataclass
 class Proceed(HookDecision):
-    """run the step normally. returning None from a hook coerces to this."""
+    """Run the step normally. Returning ``None`` from a hook coerces to this."""
 
     pass
 
@@ -75,8 +81,8 @@ class Proceed(HookDecision):
 @dataclass
 class Skip(HookDecision):
     """
-    skip execution entirely and use `result` as the step output instead.
-    useful for returning cached results or safe defaults on policy checks.
+    Skip execution entirely and use `result` as the step output instead.
+    Useful for returning cached results or safe defaults on policy checks.
     """
 
     result: Any = None
@@ -85,12 +91,12 @@ class Skip(HookDecision):
 @dataclass
 class Mutate(HookDecision):
     """
-    run the step but adjust the incoming payload first. semantics vary by slot:
+    Run the step but adjust the incoming payload first. Semantics vary by slot:
 
     * ``before_tool_call`` — ``payload`` *replaces* the tool's arguments dict.
-      the tool sees exactly what's in ``payload`` and nothing else.
+      The tool sees exactly what's in ``payload`` and nothing else.
     * ``before_llm_call`` — ``payload`` is *shallow-merged* into the existing
-      llm generate kwargs. return only the keys you want to change
+      LLM generate kwargs. Return only the keys you want to change
       (e.g. ``Mutate(payload={"messages": enriched})``); other kwargs like
       ``tools`` / ``response_format`` / ``tool_choice`` are preserved.
     * ``after_llm_call`` — ``payload`` *replaces* the assistant message dict
@@ -103,29 +109,29 @@ class Mutate(HookDecision):
 @dataclass
 class RequireApproval(HookDecision):
     """
-    pause the workflow and wait for a human decision before running the step.
-    if no human responds within `timeout_seconds`, the step is auto-denied.
+    Pause the workflow and wait for a human decision before running the step.
+    If no human responds within `timeout_seconds`, the step is auto-denied.
 
-    this is the hook decision that drives the HITL flow — it triggers the same
-    publish → wait_for_external_event → timer-race plumbing as before, but now
-    any tool (local, mcp, openapi) can trigger it, not just ones with a decorator.
+    This is the hook decision that drives the HITL flow — it triggers the same
+    publish → wait for external event → timer-race plumbing as before, but now
+    any tool (`"local"`, `"mcp"`, `"openapi"`) can trigger it, not just ones with a decorator.
     """
 
     timeout_seconds: Optional[int] = None
-    """per-call timeout override. falls back to AgentApprovalConfig.default_timeout_seconds."""
+    """Per-call timeout override. Falls back to ``AgentApprovalConfig.default_timeout_seconds``."""
 
     instructions: Optional[str] = None
-    """message shown to the approver explaining what needs a decision."""
+    """Message shown to the approver explaining what needs a decision."""
 
     reason: Optional[str] = None
-    """optional context about why this step needs a human decision."""
+    """Optional context about why this step needs a human decision."""
 
 
 @dataclass
 class Deny(HookDecision):
     """
-    block the step without involving a human. the workflow synthesizes a
-    ToolMessage so the llm knows the call was blocked and can respond.
+    Block the step without involving a human. The workflow synthesizes a
+    ``ToolMessage`` so the LLM knows the call was blocked and can respond.
     """
 
     reason: Optional[str] = None
@@ -155,8 +161,8 @@ AfterToolHook = Callable[[ToolHookContext, Any], Optional[HookDecision]]
 @dataclass
 class Hooks:
     """
-    container for all hook callbacks you want to register on a DurableAgent.
-    each slot holds a list of callables so multiple hooks can be chained.
+    Container for all hook callbacks you want to register on a ``DurableAgent``.
+    Each slot holds a list of callables so multiple hooks can be chained.
 
     ``before_tool_call`` fires in the workflow body and must be deterministic;
     the non-deterministic tool side-effect runs in its own activity.
@@ -196,7 +202,7 @@ class Hooks:
             hooks=Hooks(before_tool_call=[before_tool]),
         )
 
-    llm-hook example (RAG via hook — inject fresh web context on every turn).
+    LLM-hook example (RAG via hook — inject fresh web context on every turn).
     Note that Tavily / search results are *untrusted* — wrap them in a
     delimited block and tell the model not to follow any instructions inside,
     or you create a prompt-injection surface::
@@ -231,7 +237,7 @@ class Hooks:
                 },
                 messages[-1],
             ]
-            # before_llm_call merges payload into the existing generate kwargs,
+            # ``before_llm_call`` merges payload into the existing generate kwargs,
             # so we only need to return the keys we're changing.
             return Mutate(payload={"messages": enriched})
 
@@ -242,22 +248,22 @@ class Hooks:
     """
 
     before_tool_call: List[BeforeToolHook] = field(default_factory=list)
-    """called before every tool dispatch. return a HookDecision to control execution.
-    runs in the deterministic workflow body. supports Proceed / Skip / Mutate /
-    RequireApproval / Deny."""
+    """Called before every tool dispatch. Return a ``HookDecision`` to control execution.
+    Runs in the deterministic workflow body. Supports ``Proceed`` / ``Skip`` / ``Mutate`` /
+    ``RequireApproval`` / ``Deny``."""
 
     after_tool_call: List[AfterToolHook] = field(default_factory=list)
-    """reserved for forward compatibility — the slot exists on this dataclass but
-    is not yet dispatched by the agent runtime. registering a callback here is a
+    """Reserved for forward compatibility — the slot exists on this dataclass but
+    is not yet dispatched by the agent runtime. Registering a callback here is a
     no-op as of this release."""
 
     before_llm_call: List[BeforeLLMHook] = field(default_factory=list)
-    """called before every llm call from inside the call_llm activity. supports
-    Proceed / Skip / Mutate / Deny. RequireApproval is NOT supported because the
-    activity boundary cannot yield for external events — use before_tool_call
+    """Called before every LLM call from inside the ``call_llm`` activity. Supports
+    ``Proceed`` / ``Skip`` / ``Mutate`` / ``Deny``. ``RequireApproval`` is NOT supported because the
+    activity boundary cannot yield for external events — use ``before_tool_call``
     for HITL flows."""
 
     after_llm_call: List[AfterLLMHook] = field(default_factory=list)
-    """called after every llm response. return Mutate(payload=<assistant_message dict>)
-    to replace the message that gets persisted and returned. Skip / Deny / RequireApproval
+    """Called after every LLM response. Return ``Mutate(payload=<assistant_message dict>)``
+    to replace the message that gets persisted and returned. ``Skip`` / ``Deny`` / ``RequireApproval``
     are no-ops on this slot (the LLM has already produced output)."""
