@@ -66,7 +66,7 @@ def drasi_write_subscription(
 
     # TODO: remove hardcoded subscription ID once agent ID is available in the tool hook context
     subscription_id = "inventory-agent"
-    # subscription_id = str(uuid.uuid5(uuid.NAMESPACE_URL, ctx.metadata.get("source_agent")))
+    # subscription_id = str(uuid.uuid5(uuid.NAMESPACE_URL, ctx.agent.name))
 
     key = build_subscription_key(query_id, TEST_AGENT_ID, subscription_id)
 
@@ -75,7 +75,7 @@ def drasi_write_subscription(
         f"instructions: {instructions} (key={key})"
     )
 
-    # TODO: get the agent memory component name from hook context metadata
+    # TODO: get the agent memory component from hook context metadata? Or is durable state component better?
     write_state_value(
         AGENT_MEMORY_COMPONENT,
         key,
@@ -113,7 +113,7 @@ def drasi_read_subscription(ctx: LLMHookContext) -> HookDecision:
         TEST_AGENT_ID,
         _TEST_SUBSCRIPTION_ID,
     )
-    # TODO: get the agent memory component name from hook context metadata
+    # TODO: get the agent memory (or durable state) component from hook context metadata
     state = read_state_value(AGENT_MEMORY_COMPONENT, key)
     subscription_instructions = (
         state.get("instructions") if isinstance(state, dict) else state

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import os
-import uuid
 from copy import deepcopy
 from typing import Any, Callable
 
@@ -75,6 +74,7 @@ def _wrap_subscription_func(
 
         key = build_subscription_key(query_id, TEST_AGENT_ID, subscription_id)
         try:
+            # TODO: should this be the agent memory or durable state component?
             state = read_state_value(AGENT_MEMORY_COMPONENT, key)
             if not isinstance(state, dict):
                 logger.warning(
