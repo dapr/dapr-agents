@@ -221,8 +221,10 @@ class DrasiWorkflowTool(WorkflowContextInjectedTool):
         """Strip LLM-only arguments, then inject the runtime/infra arguments the MCP tool expects."""
         cleaned_kwargs = self._clean_kwargs(kwargs)
 
-        # NOTE: this is not the workflow instance ID, but the user-facing agent ID
+        # NOTE: this is the user-configured agent name (e.g. "InventoryAgent")
         # injected for all ``WorkflowContextInjectedTool`` tool calls.
+        # Trying to match ``AgentWorkflowTool`` which uses it for OBO flows,
+        # but is this even unique enough in the first place?
         agent_id = cleaned_kwargs.get("_source_agent")
         assert agent_id is not None, (
             "Drasi workflow tool requires '_source_agent' in kwargs"
