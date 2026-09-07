@@ -165,6 +165,11 @@ class AgentRunner(WorkflowRunner):
             client_factory=client_factory,
         )
         self._default_http_paths: set[str] = set()
+        # (pubsub_name, topic) pairs already registered via _wire_pubsub_routes,
+        # so a later call with additional specs (e.g. a broadcast topic added
+        # after the first wiring) still registers what's new instead of being
+        # skipped entirely by the instance-wide `_wired_pubsub` guard.
+        self._wired_pubsub_topics: set[tuple[str, str]] = set()
 
         # In-memory store of managed agents - used for handling shutdown
         self._managed_agents: List[DurableAgent] = []
@@ -802,7 +807,15 @@ class AgentRunner(WorkflowRunner):
             return
 
         self._ensure_dapr_client()
-        if self._wired_pubsub or self._dapr_client is None:
+        if self._dapr_client is None:
+            return
+
+        new_specs = [
+            spec
+            for spec in specs
+            if (spec.pubsub_name, spec.topic) not in self._wired_pubsub_topics
+        ]
+        if not new_specs:
             return
 
         try:
@@ -815,7 +828,7 @@ class AgentRunner(WorkflowRunner):
             deduper = None
 
         closers = register_message_routes(
-            routes=specs,
+            routes=new_specs,
             dapr_client=self._dapr_client,
             delivery_mode=delivery_mode,
             queue_maxsize=queue_maxsize,
@@ -828,7 +841,15 @@ class AgentRunner(WorkflowRunner):
             client_factory=self._client_factory,
         )
         self._pubsub_closers.extend(closers)
+        self._wired_pubsub_topics.update(
+            (spec.pubsub_name, spec.topic) for spec in new_specs
+        )
         self._wired_pubsub = True
+
+    def unwire_pubsub(self) -> None:
+        """Unsubscribe all pub/sub handlers and forget which topics were wired."""
+        super().unwire_pubsub()
+        self._wired_pubsub_topics.clear()
 
     def _wire_http_routes(
         self,
