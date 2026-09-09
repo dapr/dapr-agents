@@ -13,6 +13,7 @@
 
 """Unit tests for ``LocalCodeExecutor``."""
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -20,20 +21,27 @@ import pytest
 
 from dapr_agents.executors.local import LocalCodeExecutor
 
+PROBE_TIMEOUT = 5
+
 
 class TestGetMissingPackages:
     @pytest.mark.asyncio
     async def test_installed_package_is_not_reported_missing(self):
         executor = LocalCodeExecutor()
         env_path = Path(sys.executable).parent.parent
-        missing = await executor._get_missing_packages(["sys"], env_path)
+        missing = await asyncio.wait_for(
+            executor._get_missing_packages(["sys"], env_path), PROBE_TIMEOUT
+        )
         assert missing == []
 
     @pytest.mark.asyncio
     async def test_uninstalled_package_is_reported_missing(self):
         executor = LocalCodeExecutor()
         env_path = Path(sys.executable).parent.parent
-        missing = await executor._get_missing_packages(
-            ["definitely_not_a_real_package_xyz"], env_path
+        missing = await asyncio.wait_for(
+            executor._get_missing_packages(
+                ["definitely_not_a_real_package_xyz"], env_path
+            ),
+            PROBE_TIMEOUT,
         )
         assert missing == ["definitely_not_a_real_package_xyz"]
