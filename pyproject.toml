@@ -191,6 +191,7 @@ members = [
     "examples/10-mcpserver",
     "examples/11-expert-agent-tavily",
     "examples/ext-drasi-change-driven-agents-k8s",
+    "examples/ext-drasi-ambient-agents-k8s",
     "ext/*",
 ]
 

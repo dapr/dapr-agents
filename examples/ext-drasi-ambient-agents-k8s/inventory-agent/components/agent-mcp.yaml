@@ -1,0 +1,8 @@
+apiVersion: dapr.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: agent-mcp
+spec:
+  endpoint:
+    streamableHTTP:
+      url: http://inventory-events-publisher.drasi-system.svc.cluster.local:80/mcp

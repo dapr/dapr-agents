@@ -13,12 +13,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import TriggerAction
+from dapr_agents.prompt.chat import ChatPromptTemplate
 from dapr_agents.types.activation import ActivationContext
 from dapr_agents.types.workflow import PubSubRouteSpec
 from dapr_agents.workflow.utils.core import is_supported_model
@@ -30,6 +32,7 @@ from dapr_agents.workflow.utils.subscription import (
 )
 
 from dapr_agents.ext.drasi.types import DrasiOperation, DrasiChangeEvent
+from dapr_agents.ext.drasi.tools import DrasiWorkflowTool
 from dapr_agents.ext.drasi.utils.validation import (
     is_supported_operation,
     maybe_coerce_operation,
@@ -64,6 +67,26 @@ class _DrasiTriggerConfig:
     task_mapper: Callable[[DrasiChangeEvent, MessageContext], TriggerAction] | None
     operations: list[DrasiOperation]
     change_model: type[Any] | None
+
+
+@dataclass(frozen=True)
+class _EnableDrasiConfig:
+    """Immutable configuration resolved for one ``enable_drasi`` activation.
+
+    The configuration is created after the MCP tools are loaded and when the
+    activation is attached to a runner. Keeping the resolved values together
+    prevents nested activation helpers from independently closing over the
+    public function arguments.
+
+    Attributes:
+        mcpserver: Name of the MCPServer resource declaring the Drasi agent router MCP server.
+        pubsub: Resolved Dapr pub/sub component name.
+        topic: Resolved topic receiving Drasi events.
+    """
+
+    mcpserver: str
+    pubsub: str | None
+    topic: str
 
 
 def _passes_filter(
@@ -411,6 +434,237 @@ def drasi_trigger(
                     logger.exception(
                         f"[drasi-trigger]: Error while closing subscription for agent '{agent_name}'"
                     )
+
+        return _close
+
+    agent.add_activation(_activate)
+
+
+def enable_drasi(
+    agent: DurableAgent,
+    *,
+    mcpserver: str,  # TODO: do we still need this?
+    pubsub: str | None = None,
+    topic: str | None = None,
+    load_queries: bool = True,
+) -> None:
+    """Enable dynamic Drasi subscriptions for an agent.
+
+    Args:
+        agent: The target agent.
+        mcpserver: Name of the MCPServer resource declaring the Drasi agent router MCP server.
+        pubsub: Optional Dapr pub/sub component. Invalid or empty values fall
+            back to the agent's configured pub/sub component.
+        topic: Optional topic for Drasi events. Empty values fall back to
+            ``"drasi-events"``.
+        load_queries: Whether to load the available Drasi queries and add them
+            to the agent's system messages during activation. Defaults to ``True``.
+
+    Returns:
+        ``None``. The pub/sub subscription is created when the agent is hosted.
+
+    Raises:
+        RuntimeError: If the MCP server cannot be loaded or no pub/sub
+            component can be resolved during activation.
+    """
+
+    def _make_task(event: DrasiChangeEvent, ctx: MessageContext) -> TriggerAction:
+        """Serialize a Drasi event as the task message for the agent."""
+        return TriggerAction(task=event.model_dump_json())
+
+    # TODO: fix error messages
+    def _add_drasi_queries_to_system_messages(
+        ctx: ActivationContext, config: _EnableDrasiConfig
+    ) -> None:
+        """Load Drasi queries and expose them as an agent system message.
+
+        The MCP ``list_drasi_queries`` workflow is addressed by name. A callable
+        shim is used because :meth:`WorkflowRunner.run_workflow` requires a
+        callable and derives the registered workflow name from ``__name__``.
+
+        Args:
+            ctx: Activation context containing the workflow runner and agent.
+            config: Resolved ``enable_drasi`` configuration.
+
+        Raises:
+            RuntimeError: If the workflow does not complete successfully or
+                returns an invalid JSON response.
+        """
+        workflow_name = (
+            f"dapr.internal.mcp.{config.mcpserver}.CallTool.list_drasi_queries"
+        )
+
+        def list_drasi_queries_workflow(*_: Any) -> None:
+            """Stub handler targeting the registered Dapr workflow used to list Drasi queries."""
+
+        list_drasi_queries_workflow.__name__ = workflow_name
+
+        try:
+            # NOTE: we can only use sync methods here
+            instance_id = ctx.runner.run_workflow(
+                workflow=list_drasi_queries_workflow,
+                payload={"arguments": {}},
+            )
+            state = ctx.runner.wait_for_workflow_completion(
+                instance_id,
+                fetch_payloads=True,
+            )
+        except Exception as exc:
+            logger.exception(
+                f"Failed to retrieve Drasi queries using workflow '{workflow_name}'"
+            )
+            raise RuntimeError(
+                f"Could not retrieve Drasi queries using workflow '{workflow_name}'"
+            ) from exc
+
+        if state is None:
+            raise RuntimeError(
+                f"Drasi query workflow '{workflow_name}' returned no workflow state"
+            )
+
+        runtime_status = getattr(state.runtime_status, "name", state.runtime_status)
+        if runtime_status != "COMPLETED":  # TODO: should we use enum here?
+            raise RuntimeError(
+                f"Drasi query workflow '{workflow_name}' completed with status "
+                f"'{runtime_status}'"
+            )
+
+        serialized_output = getattr(state, "serialized_output", None)
+        if not isinstance(serialized_output, str):
+            raise RuntimeError(
+                f"Drasi query workflow '{workflow_name}' returned no serialized output"
+            )
+
+        try:
+            result = json.loads(serialized_output)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Drasi query workflow '{workflow_name}' returned invalid JSON"
+            ) from exc
+
+        # Parse ``CallToolResult`` structure
+        structured_content = result.get("structuredContent")
+
+        if not isinstance(structured_content, dict) or not isinstance(
+            structured_content.get("queries"), list
+        ):
+            raise RuntimeError(
+                f"Drasi query workflow '{workflow_name}' returned a response "
+                "without a valid 'queries' list"
+            )
+
+        queries = structured_content.get("queries", [])
+
+        if not queries:
+            logger.warning(
+                f"Drasi query workflow '{workflow_name}' returned no queries"
+            )
+            return
+
+        queries_message = {
+            "role": "system",
+            "content": (
+                "**Available Drasi Queries**:\n\n"  # TODO: add guardrails?
+                f"{json.dumps(queries)}"
+            ),
+        }
+
+        # PromptTemplateBase does not expose messages, so ensure the configured
+        # template supports the chat-message mutation required here.
+        # TODO: is this a reasonable assumption?
+        prompt_template = ctx.agent.prompting_helper.prompt_template
+        if not isinstance(prompt_template, ChatPromptTemplate):
+            raise RuntimeError("Agent prompt template is not a chat prompt template")
+
+        # The prompting helper owns the template consumed by
+        # build_initial_messages(), so adding the message there includes it in
+        # future LLM calls via the ``call_llm`` activity.
+        # The standard prompt factory places the existing system prompt at index 0,
+        # so index 1 inserts the Drasi context directly below it,
+        # before chat history and the current user task. It is persisted
+        # to workflow state when the next ``call_llm`` activity synchronizes its
+        # rendered system messages.
+        prompt_template.messages.insert(1, queries_message)
+
+    def _resolve_config(ctx: ActivationContext) -> _EnableDrasiConfig:
+        """Lazily resolve configuration with runtime fallbacks."""
+        resolved_pubsub = (
+            pubsub
+            if isinstance(pubsub, str) and pubsub
+            else (ctx.agent.pubsub.pubsub_name if ctx.agent.pubsub else None)
+        )
+        resolved_topic = topic if isinstance(topic, str) and topic else "drasi-events"
+        return _EnableDrasiConfig(
+            mcpserver=mcpserver,
+            pubsub=resolved_pubsub,
+            topic=resolved_topic,
+        )
+
+    def _validate_config(ctx: ActivationContext, config: _EnableDrasiConfig) -> None:
+        """Lazily validate the resolved configuration."""
+        if config.pubsub is None:
+            raise RuntimeError(
+                "No pub/sub component provided and the agent has no pub/sub "
+                "configuration; please set `pubsub=` explicitly or configure "
+                "pub/sub on the agent."
+            )
+
+    # TODO: this is a bit hacky
+    def _set_drasi_tool_topics(agent: DurableAgent, topic: str) -> None:
+        """Set the resolved topic on ``DrasiWorkflowTool`` instances registered with an agent."""
+        for tool in agent.tools:
+            if "drasi" in tool.name.lower() and isinstance(tool, DrasiWorkflowTool):
+                tool._topic = topic
+
+    def _activate(ctx: ActivationContext) -> Callable[[], None]:
+        """Resolve, validate, and register the Drasi event subscription."""
+        config = _resolve_config(ctx)
+        _validate_config(ctx, config)
+
+        _set_drasi_tool_topics(ctx.agent, config.topic)
+        if load_queries:
+            _add_drasi_queries_to_system_messages(ctx, config)
+
+        agent_name = ctx.agent.name or ctx.agent
+
+        def handler_fn(*_) -> None:
+            """Stub handler targeting the agent's workflow."""
+
+        handler_fn.__name__ = ctx.agent.agent_workflow_name
+        specs = [
+            PubSubRouteSpec(
+                pubsub_name=config.pubsub,  # type: ignore[arg-type]
+                topic=config.topic,
+                handler_fn=handler_fn,
+                message_model=DrasiChangeEvent,
+                mapper=_make_task,
+            )
+        ]
+        client_factory = getattr(ctx.runner, "_client_factory", None)
+        closers = register_message_routes(
+            dapr_client=ctx.dapr_client,
+            routes=specs,
+            deduper=TTLDedupeBackend(),
+            wf_client=ctx.wf_client,
+            client_factory=client_factory,
+        )
+        logger.info(
+            f"Enabled Drasi subscription for agent '{agent_name}' on "
+            f"{config.pubsub}:{config.topic}"
+        )
+
+        closed = False
+
+        def _close() -> None:
+            nonlocal closed
+            if closed:
+                return
+            closed = True
+            for closer in closers:
+                try:
+                    closer()
+                except Exception:
+                    logger.exception("Error closing Drasi subscription")
 
         return _close
 

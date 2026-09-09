@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-events-publisher
+  namespace: drasi-system
+  labels:
+    drasi/resource: inventory-events-publisher
+    drasi/service: reaction
+    drasi/type: reaction
+spec:
+  type: ClusterIP
+  selector:
+    drasi/resource: inventory-events-publisher
+    drasi/service: reaction
+    drasi/type: reaction
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
