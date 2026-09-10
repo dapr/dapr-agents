@@ -225,7 +225,7 @@ def process_hf_chat_response(response: ChatCompletionOutput) -> LLMChatResponse:
                         )
                     )
                 except Exception:
-                    logger.exception("Invalid HF tool_call entry: %s", tc)
+                    logger.exception(f"Invalid HF tool_call entry: {tc}")
 
         # 2b) handle the single‑ID shortcut
         if msg.tool_call_id and not tool_calls:

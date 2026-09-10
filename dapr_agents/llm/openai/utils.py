@@ -236,7 +236,7 @@ def process_openai_chat_response(openai_response: ChatCompletion) -> LLMChatResp
                         )
                     )
                 except Exception as e:
-                    logger.warning("Invalid tool_call entry %s: %s", tc, e)
+                    logger.warning(f"Invalid tool_call entry {tc}: {e}")
 
         # 3) Build function_call if present
         # OpenAI's legacy ``function_call`` field is retained for compatibility
