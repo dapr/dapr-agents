@@ -260,4 +260,6 @@ class Hooks:
     after_llm_call: List[AfterLLMHook] = field(default_factory=list)
     """called after every llm response. return Mutate(payload=<assistant_message dict>)
     to replace the message that gets persisted and returned. Skip / Deny / RequireApproval
-    are no-ops on this slot (the LLM has already produced output)."""
+    are no-ops on this slot (the LLM has already produced output). ctx.payload includes
+    "response_metadata" (the provider's LLMChatResponse.metadata, e.g. token usage) when
+    the call produced one."""
