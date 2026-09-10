@@ -87,6 +87,7 @@ class HFHubInferenceClientBase(LLMClientBase):
 
         # Normalize `token` to `api_key`
         if token is not None:
+            api_key = token
             values["api_key"] = token
             values.pop("token", None)  # Remove `token` for consistency
 
