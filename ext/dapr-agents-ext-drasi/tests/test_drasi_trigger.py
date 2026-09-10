@@ -840,7 +840,7 @@ async def test_drasi_trigger_defaults_to_derived_topic(setup_deps):
     agent_pubsub_name = "testpubsub"
     agent_topic = "testtopic"
     drasi_pubsub_name = "goalspubsub"
-    drasi_topic = f"{_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{query_id}"
+    drasi_topic = f"{_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}{query_id}"
     events = [
         _make_cloudevent(
             data={
