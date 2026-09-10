@@ -241,8 +241,8 @@ class LocalCodeExecutor(CodeExecutorBase):
         async def probe(pkg: str) -> str | None:
             proc = await asyncio.create_subprocess_exec(
                 str(python),
-                "- <<PY\nimport importlib.util, sys;"
-                f"sys.exit(importlib.util.find_spec('{pkg}') is None)\nPY",
+                "-c",
+                f"import importlib.util, sys; sys.exit(importlib.util.find_spec('{pkg}') is None)",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )

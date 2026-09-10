@@ -20,9 +20,14 @@ is a one-line change in one place.
 
 from __future__ import annotations
 
-#: Providers with first-class streaming chunk processing (real token deltas).
-#: Each provider has a dedicated stream processor.
-PROVIDERS_WITH_STREAMING = ("openai", "nvidia", "iflytek", "litellm", "huggingface")
+PROVIDERS_WITH_STREAMING = (
+    "openai",
+    "nvidia",
+    "litellm",
+    "anthropic",
+    "claude",
+    "huggingface",
+)
 
 #: OpenAI-compatible providers that honor ``stream_options={"include_usage": True}``
 #: to report token usage on the terminal streaming chunk. Harmless for providers

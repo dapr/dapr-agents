@@ -107,6 +107,10 @@ class ResponseHandler:
                 from dapr_agents.llm.dapr.utils import process_dapr_chat_response
 
                 llm_resp = process_dapr_chat_response(response)
+            elif provider in ("anthropic", "claude"):
+                from dapr_agents.llm.anthropic.utils import to_llm_chat_response
+
+                llm_resp = to_llm_chat_response(response)
             else:
                 # if you add more providers, handle them here
                 llm_resp = response

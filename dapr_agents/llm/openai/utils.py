@@ -153,9 +153,9 @@ def process_openai_stream(
     *,
     enrich_metadata: Optional[Dict[str, Any]] = None,
     on_chunk: Optional[Callable],
-) -> Iterator[LLMChatCandidateChunk]:
+) -> Iterator[LLMChatResponseChunk]:
     """
-    Normalize OpenAI streaming chat into LLMChatCandidateChunk objects,
+    Normalize OpenAI streaming chat into LLMChatResponseChunk objects,
     accumulating buffers per choice and yielding both partial and final chunks.
 
     Args:
@@ -164,7 +164,7 @@ def process_openai_stream(
         on_chunk:   Callback fired on every partial delta (token, function, tool)
 
     Yields:
-        LLMChatCandidateChunk for every partial and final piece, in stream order
+        LLMChatResponseChunk for every partial and final piece, in stream order
     """
     enrich_metadata = enrich_metadata or {}
     overall_meta: Dict[str, Any] = {}

@@ -11,10 +11,15 @@
 # limitations under the License.
 #
 
-from typing import Any, Callable, Iterator, Optional
+from typing import (
+    Any,
+    Callable,
+    Iterator,
+    Optional,
+)
 
 from dapr_agents.llm.utils.providers import PROVIDERS_WITH_STREAMING
-from dapr_agents.types.message import LLMChatCandidateChunk
+from dapr_agents.types.message import LLMChatResponseChunk
 
 
 class StreamHandler:
@@ -28,21 +33,18 @@ class StreamHandler:
     def process_stream(
         stream: Iterator[Any],
         llm_provider: str,
-        on_chunk: Optional[Callable],
-    ) -> Iterator[LLMChatCandidateChunk]:
+        on_chunk: Optional[Callable] = None,
+    ) -> Iterator[LLMChatResponseChunk]:
         """
         Process a streaming chat completion.
 
         Args:
             stream:           Raw stream object or iterator from the provider SDK.
-            llm_provider:     Name of the LLM provider (e.g., "openai").
+            llm_provider:     Name of the LLM provider (e.g., "openai", "anthropic").
             on_chunk:         Callback fired on every partial chunk.
 
         Yields:
-            LLMChatCandidateChunk: fully-typed chunks, partial and final.
-
-        Raises:
-            ValueError: If the provider does not support streaming.
+            LLMChatResponseChunk: fully-typed chunks, partial and final.
         """
 
         llm_provider = llm_provider.lower()
@@ -69,6 +71,14 @@ class StreamHandler:
             from dapr_agents.llm.huggingface.utils import process_hf_stream
 
             yield from process_hf_stream(
+                raw_stream=stream,
+                enrich_metadata={"provider": llm_provider},
+                on_chunk=on_chunk,
+            )
+        elif llm_provider in ("anthropic", "claude"):
+            from dapr_agents.llm.anthropic.utils import process_anthropic_stream
+
+            yield from process_anthropic_stream(
                 raw_stream=stream,
                 enrich_metadata={"provider": llm_provider},
                 on_chunk=on_chunk,
