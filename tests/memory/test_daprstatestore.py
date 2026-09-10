@@ -80,3 +80,21 @@ def test_get_messages_returns_most_recent_when_over_limit():
     messages = memory.get_messages("wf-1", limit=2)
 
     assert [m["content"] for m in messages] == ["message-3", "message-4"]
+
+
+def test_get_messages_with_limit_zero_returns_empty():
+    """get_messages(limit=0) must return no messages.
+
+    raw_messages[-0:] is raw_messages[0:], the entire list, since -0 == 0 in
+    Python slicing. Without an explicit guard, limit=0 silently returns
+    everything instead of nothing.
+    """
+    memory = _make_memory()
+    stored = [{"role": "user", "content": f"message-{i}"} for i in range(5)]
+    memory.dapr_store.get_state.return_value = MagicMock(
+        data=json.dumps(stored), etag="etag-1"
+    )
+
+    messages = memory.get_messages("wf-1", limit=0)
+
+    assert messages == []
