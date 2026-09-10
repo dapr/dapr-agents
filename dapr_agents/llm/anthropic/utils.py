@@ -10,13 +10,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+import dataclasses
 import functools
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
-from anthropic import Anthropic
+from anthropic import Anthropic, Stream
+from anthropic.types import (
+    ContentBlockParam,
+    ImageBlockParam,
+    InputJSONDelta,
+    Message,
+    MessageParam,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawMessageDeltaEvent,
+    RawMessageStartEvent,
+    RawMessageStreamEvent,
+    RedactedThinkingBlock,
+    SignatureDelta,
+    TextBlock,
+    TextBlockParam,
+    TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
+    ToolResultBlockParam,
+    ToolUseBlock,
+    ToolUseBlockParam,
+)
 from pydantic import BaseModel
 
 from dapr_agents.llm.anthropic.client import PROVIDER
@@ -40,6 +63,83 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # dapr-agents message dicts -> Anthropic request format
 # ---------------------------------------------------------------------------
+
+
+SUPPORTED_IMAGE_MEDIA_TYPES = frozenset(
+    {"image/jpeg", "image/png", "image/gif", "image/webp"}
+)
+
+
+def _normalize_content_blocks(content: Any) -> Any:
+    """Translate OpenAI-style content blocks into Anthropic content blocks."""
+    if not isinstance(content, list):
+        return content
+
+    blocks: list[ContentBlockParam | dict[str, Any]] = []
+    for block in content:
+        if isinstance(block, str):
+            text_block: TextBlockParam = {"type": "text", "text": block}
+            blocks.append(text_block)
+            continue
+
+        if not isinstance(block, dict):
+            blocks.append(block)
+            continue
+
+        block_type = block.get("type")
+        normalized_block: ContentBlockParam | dict[str, Any] = block
+
+        match block_type:
+            case "image_url":
+                image_url_dict = block.get("image_url", {})
+                url = (
+                    image_url_dict.get("url", "")
+                    if isinstance(image_url_dict, dict)
+                    else str(image_url_dict)
+                )
+                if url.startswith("data:"):
+                    try:
+                        header, base64_data = url.split(",", 1)
+                        if ";base64" not in header:
+                            logger.warning(
+                                "Data URI is missing ';base64' encoding; "
+                                "passing block through unchanged"
+                            )
+                        else:
+                            mime_type = header.split(";")[0].split(":")[1]
+                            if mime_type not in SUPPORTED_IMAGE_MEDIA_TYPES:
+                                logger.warning(
+                                    f"Unsupported image media type '{mime_type}' for Anthropic; "
+                                    "passing block through unchanged"
+                                )
+                            else:
+                                normalized_block = {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": mime_type,  # type: ignore[typeddict-item]
+                                        "data": base64_data,
+                                    },
+                                }
+                    except Exception:
+                        logger.warning(
+                            "Failed to parse base64 data URI in content block; "
+                            "passing block through unchanged",
+                            exc_info=True,
+                        )
+                elif url.startswith(("http://", "https://")):
+                    normalized_block = {
+                        "type": "image",
+                        "source": {
+                            "type": "url",
+                            "url": url,
+                        },
+                    }
+            case _:
+                pass  # Pass through unknown block types unchanged
+
+        blocks.append(normalized_block)
+    return blocks
 
 
 def split_messages(
@@ -76,6 +176,8 @@ def split_messages(
             # `tool_call_id`, etc.) that would otherwise trigger request validation errors.
             anthropic_keys = ("role", "content")
             msg_clean = {k: v for k, v in msg.items() if k in anthropic_keys}
+            if "content" in msg_clean:
+                msg_clean["content"] = _normalize_content_blocks(msg_clean["content"])
             out.append(msg_clean)
 
     if has_structured_system:
@@ -94,15 +196,14 @@ def as_tool_result(msg: dict[str, Any]) -> dict[str, Any]:
         )
     content = msg.get("content")
     content_str = content if isinstance(content, str) else json.dumps(content)
+    tool_result_block: ToolResultBlockParam = {
+        "type": "tool_result",
+        "tool_use_id": tool_call_id,
+        "content": content_str,
+    }
     return {
         "role": "user",
-        "content": [
-            {
-                "type": "tool_result",
-                "tool_use_id": tool_call_id,
-                "content": content_str,
-            }
-        ],
+        "content": [tool_result_block],
     }
 
 
@@ -112,7 +213,8 @@ def as_assistant_with_tool_use(msg: dict[str, Any]) -> dict[str, Any]:
 
     content = msg.get("content")
     if isinstance(content, str) and content:
-        blocks.append({"type": "text", "text": content})
+        text_block: TextBlockParam = {"type": "text", "text": content}
+        blocks.append(text_block)
 
     for tool_call in msg["tool_calls"]:
         function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
@@ -138,14 +240,13 @@ def as_assistant_with_tool_use(msg: dict[str, Any]) -> dict[str, Any]:
                 f"Cannot translate tool_call {tool_call_id!r} ({function_name!r}) "
                 f"to Anthropic: arguments must decode to a JSON object, got {type(args_parsed).__name__}."
             )
-        blocks.append(
-            {
-                "type": "tool_use",
-                "id": tool_call_id,
-                "name": function_name,
-                "input": args_parsed,
-            }
-        )
+        tool_use_block: ToolUseBlockParam = {
+            "type": "tool_use",
+            "id": tool_call_id,
+            "name": function_name,
+            "input": args_parsed,
+        }
+        blocks.append(tool_use_block)
     return {"role": "assistant", "content": blocks}
 
 
@@ -186,14 +287,47 @@ def inject_function_call_request(
     params["tool_choice"] = {"type": "tool", "name": target_model.__name__}
 
 
+def _dump_obj(obj: Any) -> dict[str, Any]:
+    """Serialize SDK model, dataclass, or object to dictionary without silent failure."""
+    if isinstance(obj, dict):
+        return obj
+    if hasattr(obj, "model_dump") and callable(obj.model_dump):
+        return obj.model_dump()
+    if dataclasses.is_dataclass(obj):
+        return dataclasses.asdict(obj)
+    if hasattr(obj, "__dict__"):
+        return vars(obj)
+    return dict(obj)
+
+
 def parse_function_call_response(
-    resp: Any, response_format: type[BaseModel]
+    resp: Message | Any, response_format: type[BaseModel]
 ) -> BaseModel | list[BaseModel]:
     """Read the forced `tool_use` block back into the Pydantic model"""
     target_format, target_model = resolve_target_model(response_format)
-    for block in resp.content or []:
-        if block.type == "tool_use" and block.name == target_model.__name__:
-            return StructureHandler.validate_response(block.input, target_format)
+    content = (
+        resp.get("content", [])
+        if isinstance(resp, dict)
+        else getattr(resp, "content", [])
+    )
+    for block in content or []:
+        block_type = (
+            block.get("type")
+            if isinstance(block, dict)
+            else getattr(block, "type", None)
+        )
+        block_name = (
+            block.get("name")
+            if isinstance(block, dict)
+            else getattr(block, "name", None)
+        )
+        if block_type == "tool_use" and block_name == target_model.__name__:
+            block_input = (
+                block.get("input")
+                if isinstance(block, dict)
+                else getattr(block, "input", None)
+            )
+            return StructureHandler.validate_response(block_input, target_format)
     raise ValueError(
         f"No tool_use block for {target_model.__name__!r} in Anthropic response."
     )
@@ -245,13 +379,28 @@ def inject_json_request(
 
 
 def parse_json_response(
-    resp: Any, response_format: type[BaseModel]
+    resp: Message | Any, response_format: type[BaseModel]
 ) -> BaseModel | list[BaseModel]:
     """Validate the text-block JSON against the Pydantic model."""
     target_format, _ = resolve_target_model(response_format)
-    for block in resp.content or []:
-        if block.type == "text" and block.text:
-            return StructureHandler.validate_response(block.text, target_format)
+    content = (
+        resp.get("content", [])
+        if isinstance(resp, dict)
+        else getattr(resp, "content", [])
+    )
+    for block in content or []:
+        block_type = (
+            block.get("type")
+            if isinstance(block, dict)
+            else getattr(block, "type", None)
+        )
+        text = (
+            block.get("text")
+            if isinstance(block, dict)
+            else getattr(block, "text", None)
+        )
+        if block_type == "text" and text:
+            return StructureHandler.validate_response(text, target_format)
     raise ValueError("No text block carrying structured JSON in Anthropic response.")
 
 
@@ -270,119 +419,344 @@ STRUCTURED_PARSERS = {
 # ---------------------------------------------------------------------------
 
 
-def to_llm_chat_response(resp: Any) -> LLMChatResponse:
-    """Note: Non-text/tool_use blocks (e.g. `thinking`) are stored in `metadata['raw_content']`"""
+def to_llm_chat_response(resp: Message | Any) -> LLMChatResponse:
+    """Translate an Anthropic Message or SDK-compatible response to LLMChatResponse.
+
+    Note: Non-text/tool_use blocks (e.g. `thinking`) are stored in `metadata['raw_content']`.
+    """
     text_parts: list[str] = []
     tool_calls: list[ToolCall] = []
     raw_content: list[dict[str, Any]] = []
 
-    for block in resp.content or []:
-        raw_content.append(
-            block.model_dump() if hasattr(block, "model_dump") else vars(block)
+    content = (
+        resp.get("content", [])
+        if isinstance(resp, dict)
+        else getattr(resp, "content", [])
+    )
+
+    for block in content or []:
+        raw_content.append(_dump_obj(block))
+
+        block_type = (
+            block.get("type")
+            if isinstance(block, dict)
+            else getattr(block, "type", None)
         )
-        if block.type == "text":
-            text_parts.append(block.text)
-        elif block.type == "tool_use":
-            function = FunctionCall(
-                name=block.name,
-                arguments=json.dumps(block.input or {}),
+        if block_type == "text":
+            text = (
+                block.get("text", "")
+                if isinstance(block, dict)
+                else getattr(block, "text", "")
             )
-            tool_calls.append(ToolCall(id=block.id, type="function", function=function))
+            if text:
+                text_parts.append(str(text))
+        elif block_type == "tool_use":
+            block_input = (
+                block.get("input", {})
+                if isinstance(block, dict)
+                else getattr(block, "input", {})
+            )
+            block_input = block_input or {}
+            args_str = (
+                json.dumps(block_input)
+                if isinstance(block_input, (dict, list))
+                else str(block_input)
+            )
+            function = FunctionCall(
+                name=(
+                    block.get("name", "")
+                    if isinstance(block, dict)
+                    else getattr(block, "name", "")
+                ),
+                arguments=args_str,
+            )
+            tool_calls.append(
+                ToolCall(
+                    id=(
+                        block.get("id", "")
+                        if isinstance(block, dict)
+                        else getattr(block, "id", "")
+                    ),
+                    type="function",
+                    function=function,
+                )
+            )
 
     assistant = AssistantMessage(
         content="".join(text_parts) if text_parts else None,
         tool_calls=tool_calls or None,
     )
-    usage = resp.usage.model_dump() if resp.usage is not None else None
+    usage_raw = (
+        resp.get("usage") if isinstance(resp, dict) else getattr(resp, "usage", None)
+    )
+    usage: dict[str, Any] | None = (
+        _dump_obj(usage_raw) if usage_raw is not None else None
+    )
+
+    stop_reason = (
+        resp.get("stop_reason")
+        if isinstance(resp, dict)
+        else getattr(resp, "stop_reason", None)
+    )
+    stop_sequence = (
+        resp.get("stop_sequence")
+        if isinstance(resp, dict)
+        else getattr(resp, "stop_sequence", None)
+    )
+    resp_id = resp.get("id") if isinstance(resp, dict) else getattr(resp, "id", None)
+    model = (
+        resp.get("model") if isinstance(resp, dict) else getattr(resp, "model", None)
+    )
+
     metadata: dict[str, Any] = {
         "provider": PROVIDER,
-        "id": resp.id,
-        "model": resp.model,
-        "stop_reason": resp.stop_reason,
-        "stop_sequence": resp.stop_sequence,
+        "id": resp_id,
+        "model": model,
+        "stop_reason": stop_reason,
+        "stop_sequence": stop_sequence,
         "usage": usage,
         "raw_content": raw_content,
     }
-    candidate = LLMChatCandidate(message=assistant, finish_reason=resp.stop_reason)
+    candidate = LLMChatCandidate(message=assistant, finish_reason=stop_reason)
     return LLMChatResponse(results=[candidate], metadata=metadata)
 
 
-def iter_stream(
-    client: Anthropic, params: dict[str, Any]
+def _snapshot_stream_meta(meta: dict[str, Any]) -> dict[str, Any]:
+    """Create an isolated snapshot of stream metadata, making copies of mutable containers."""
+    snapshot = dict(meta)
+    if "thinking_blocks" in snapshot:
+        snapshot["thinking_blocks"] = list(snapshot["thinking_blocks"])
+    if "thinking_deltas" in snapshot:
+        snapshot["thinking_deltas"] = list(snapshot["thinking_deltas"])
+    if "thinking_signatures" in snapshot:
+        snapshot["thinking_signatures"] = list(snapshot["thinking_signatures"])
+    return snapshot
+
+
+def process_anthropic_stream(
+    raw_stream: Iterable[RawMessageStreamEvent] | Stream[RawMessageStreamEvent] | Any,
+    *,
+    enrich_metadata: dict[str, Any] | None = None,
+    on_chunk: Callable[[LLMChatResponseChunk], None] | None = None,
 ) -> Iterator[LLMChatResponseChunk]:
     """Translate Anthropic SSE events into `LLMChatResponseChunk`s.
 
-    Each yield gets a `dict(meta)` snapshot so buffered consumers don't all
+    Each yield gets an isolated snapshot so buffered consumers don't all
     see the post-stream state.
     """
-    meta: dict[str, Any] = {"provider": PROVIDER}
+    meta: dict[str, Any] = {"provider": PROVIDER, **(enrich_metadata or {})}
 
+    stream_iter = (
+        raw_stream.__enter__() if hasattr(raw_stream, "__enter__") else raw_stream
+    )
     try:
-        with client.messages.create(stream=True, **params) as raw_stream:
-            for event in raw_stream:
-                if event.type == "message_start":
-                    meta["id"] = event.message.id
-                    meta["model"] = event.message.model
+        for event in stream_iter:
+            event_type = (
+                event.get("type")
+                if isinstance(event, dict)
+                else getattr(event, "type", None)
+            )
 
-                elif event.type == "content_block_start":
-                    # Text blocks only yield on the first `text_delta`; tool_use
-                    # blocks must yield here because id/name only arrive on start.
-                    block = event.content_block
-                    if block.type == "tool_use":
-                        function_chunk = FunctionCallChunk(
-                            name=block.name, arguments=""
-                        )
-                        tool_call_chunk = ToolCallChunk(
-                            index=event.index,
-                            id=block.id,
-                            type="function",
-                            function=function_chunk,
-                        )
-                        candidate = LLMChatCandidateChunk(
-                            role="assistant",
-                            index=0,
-                            tool_calls=[tool_call_chunk],
-                        )
-                        yield LLMChatResponseChunk(
-                            result=candidate, metadata=dict(meta)
-                        )
+            if event_type == "message_start":
+                msg = (
+                    event.get("message")
+                    if isinstance(event, dict)
+                    else getattr(event, "message", None)
+                )
+                if msg is not None:
+                    meta["id"] = (
+                        msg.get("id")
+                        if isinstance(msg, dict)
+                        else getattr(msg, "id", None)
+                    )
+                    meta["model"] = (
+                        msg.get("model")
+                        if isinstance(msg, dict)
+                        else getattr(msg, "model", None)
+                    )
+                    usage_raw = (
+                        msg.get("usage")
+                        if isinstance(msg, dict)
+                        else getattr(msg, "usage", None)
+                    )
+                    if usage_raw is not None:
+                        meta["usage"] = _dump_obj(usage_raw)
 
-                elif event.type == "content_block_delta":
-                    delta = event.delta
-                    if delta.type == "text_delta":
-                        candidate = LLMChatCandidateChunk(
-                            role="assistant",
-                            content=delta.text,
-                            index=0,
-                        )
-                        yield LLMChatResponseChunk(
-                            result=candidate, metadata=dict(meta)
-                        )
-                    elif delta.type == "input_json_delta":
-                        function_chunk = FunctionCallChunk(arguments=delta.partial_json)
-                        tool_call_chunk = ToolCallChunk(
-                            index=event.index, function=function_chunk
-                        )
-                        candidate = LLMChatCandidateChunk(
-                            role="assistant",
-                            index=0,
-                            tool_calls=[tool_call_chunk],
-                        )
-                        yield LLMChatResponseChunk(
-                            result=candidate, metadata=dict(meta)
-                        )
+            elif event_type == "content_block_start":
+                block = (
+                    event.get("content_block")
+                    if isinstance(event, dict)
+                    else getattr(event, "content_block", None)
+                )
+                block_type = (
+                    block.get("type")
+                    if isinstance(block, dict)
+                    else getattr(block, "type", None)
+                )
+                idx = (
+                    event.get("index", 0)
+                    if isinstance(event, dict)
+                    else getattr(event, "index", 0)
+                )
 
-                elif event.type == "message_delta":
-                    if event.usage is not None:
-                        meta["usage"] = event.usage.model_dump()
-                    if event.delta.stop_reason:
-                        candidate = LLMChatCandidateChunk(
-                            finish_reason=event.delta.stop_reason
+                if block_type == "tool_use":
+                    function_chunk = FunctionCallChunk(
+                        name=(
+                            block.get("name", "")
+                            if isinstance(block, dict)
+                            else getattr(block, "name", "")
+                        ),
+                        arguments="",
+                    )
+                    tool_call_chunk = ToolCallChunk(
+                        index=idx,
+                        id=(
+                            block.get("id")
+                            if isinstance(block, dict)
+                            else getattr(block, "id", None)
+                        ),
+                        type="function",
+                        function=function_chunk,
+                    )
+                    candidate = LLMChatCandidateChunk(
+                        role="assistant",
+                        index=0,
+                        tool_calls=[tool_call_chunk],
+                    )
+                    chunk = LLMChatResponseChunk(
+                        result=candidate, metadata=_snapshot_stream_meta(meta)
+                    )
+                    if on_chunk:
+                        on_chunk(chunk)
+                    yield chunk
+                elif block_type in ("thinking", "redacted_thinking"):
+                    thinking_text = (
+                        block.get("thinking")
+                        if isinstance(block, dict)
+                        else getattr(block, "thinking", None)
+                    )
+                    if thinking_text is None:
+                        thinking_text = (
+                            block.get("data", "")
+                            if isinstance(block, dict)
+                            else getattr(block, "data", "")
                         )
-                        yield LLMChatResponseChunk(
-                            result=candidate, metadata=dict(meta)
-                        )
-                # message_stop / content_block_stop / ping: ignored
+                    meta.setdefault("thinking_blocks", []).append(thinking_text)
+
+            elif event_type == "content_block_delta":
+                delta = (
+                    event.get("delta")
+                    if isinstance(event, dict)
+                    else getattr(event, "delta", None)
+                )
+                delta_type = (
+                    delta.get("type")
+                    if isinstance(delta, dict)
+                    else getattr(delta, "type", None)
+                )
+                idx = (
+                    event.get("index", 0)
+                    if isinstance(event, dict)
+                    else getattr(event, "index", 0)
+                )
+
+                if delta_type == "text_delta":
+                    text = (
+                        delta.get("text", "")
+                        if isinstance(delta, dict)
+                        else getattr(delta, "text", "")
+                    )
+                    candidate = LLMChatCandidateChunk(
+                        role="assistant",
+                        content=text or "",
+                        index=0,
+                    )
+                    chunk = LLMChatResponseChunk(
+                        result=candidate, metadata=_snapshot_stream_meta(meta)
+                    )
+                    if on_chunk:
+                        on_chunk(chunk)
+                    yield chunk
+                elif delta_type == "input_json_delta":
+                    partial_json = (
+                        delta.get("partial_json", "")
+                        if isinstance(delta, dict)
+                        else getattr(delta, "partial_json", "")
+                    )
+                    function_chunk = FunctionCallChunk(arguments=partial_json or "")
+                    tool_call_chunk = ToolCallChunk(index=idx, function=function_chunk)
+                    candidate = LLMChatCandidateChunk(
+                        role="assistant",
+                        index=0,
+                        tool_calls=[tool_call_chunk],
+                    )
+                    chunk = LLMChatResponseChunk(
+                        result=candidate, metadata=_snapshot_stream_meta(meta)
+                    )
+                    if on_chunk:
+                        on_chunk(chunk)
+                    yield chunk
+                elif delta_type == "thinking_delta":
+                    thinking_val = (
+                        delta.get("thinking", "")
+                        if isinstance(delta, dict)
+                        else getattr(delta, "thinking", "")
+                    )
+                    meta.setdefault("thinking_deltas", []).append(thinking_val or "")
+                elif delta_type == "signature_delta":
+                    sig_val = (
+                        delta.get("signature")
+                        if isinstance(delta, dict)
+                        else getattr(delta, "signature", None)
+                    )
+                    meta["thinking_signature"] = sig_val
+                    meta.setdefault("thinking_signatures", []).append(sig_val)
+
+            elif event_type == "message_delta":
+                usage_raw = (
+                    event.get("usage")
+                    if isinstance(event, dict)
+                    else getattr(event, "usage", None)
+                )
+                if usage_raw is not None:
+                    meta["usage"] = _dump_obj(usage_raw)
+                delta = (
+                    event.get("delta")
+                    if isinstance(event, dict)
+                    else getattr(event, "delta", None)
+                )
+                stop_reason = (
+                    delta.get("stop_reason")
+                    if isinstance(delta, dict)
+                    else getattr(delta, "stop_reason", None)
+                )
+                if stop_reason:
+                    candidate = LLMChatCandidateChunk(finish_reason=stop_reason)
+                    chunk = LLMChatResponseChunk(
+                        result=candidate, metadata=_snapshot_stream_meta(meta)
+                    )
+                    if on_chunk:
+                        on_chunk(chunk)
+                    yield chunk
+            # message_stop / content_block_stop / ping: ignored
+    finally:
+        if hasattr(raw_stream, "__exit__"):
+            raw_stream.__exit__(None, None, None)
+
+
+def iter_stream(
+    client: Anthropic,
+    params: dict[str, Any],
+    on_chunk: Callable[[LLMChatResponseChunk], None] | None = None,
+) -> Iterator[LLMChatResponseChunk]:
+    """Translate Anthropic SSE events into `LLMChatResponseChunk`s."""
+    try:
+        raw_stream = client.messages.create(stream=True, **params)
+        yield from process_anthropic_stream(
+            raw_stream,
+            enrich_metadata={"provider": PROVIDER},
+            on_chunk=on_chunk,
+        )
     except Exception:
         logger.exception("Anthropic Messages API streaming call failed")
         raise
