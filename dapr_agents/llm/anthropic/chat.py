@@ -23,14 +23,12 @@ from pydantic import BaseModel, Field, model_validator
 from dapr_agents.llm.anthropic.client import PROVIDER, AnthropicClientBase
 from dapr_agents.llm.anthropic.utils import (
     STRUCTURED_INJECTORS,
-    STRUCTURED_PARSERS,
     assert_json_output_supported,
-    iter_stream,
     split_messages,
-    to_llm_chat_response,
 )
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.utils import RequestHandler
+from dapr_agents.llm.utils.response import ResponseHandler
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.tool import AgentTool
@@ -168,14 +166,34 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         logger.info("Calling Anthropic Messages API...")
         logger.debug(f"Anthropic request params: {params}")
         if stream:
-            return iter_stream(self.client, params, on_chunk=on_chunk)
+
+            def _stream_gen() -> Iterator[LLMChatResponseChunk]:
+                try:
+                    raw_stream = self.client.messages.create(stream=True, **params)
+                except Exception:
+                    logger.exception("Anthropic Messages API streaming call failed")
+                    raise
+                yield from ResponseHandler.process_response(
+                    response=raw_stream,
+                    llm_provider=self.provider,
+                    response_format=response_format,
+                    structured_mode=structured_mode,
+                    stream=True,
+                    on_chunk=on_chunk,
+                )
+
+            return _stream_gen()
+
         try:
             raw_resp = self.client.messages.create(**params)
         except Exception:
             logger.exception("Anthropic Messages API call failed")
             raise
 
-        if response_format is not None:
-            parse_structured_response = STRUCTURED_PARSERS[structured_mode]
-            return parse_structured_response(raw_resp, response_format)
-        return to_llm_chat_response(raw_resp)
+        return ResponseHandler.process_response(
+            response=raw_resp,
+            llm_provider=self.provider,
+            response_format=response_format,
+            structured_mode=structured_mode,
+            stream=False,
+        )

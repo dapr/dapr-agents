@@ -17,12 +17,11 @@ from typing import (
     Iterator,
     Optional,
     TypeVar,
-    Union,
 )
 
 from pydantic import BaseModel
 
-from dapr_agents.types.message import LLMChatCandidateChunk, LLMChatResponseChunk
+from dapr_agents.types.message import LLMChatResponseChunk
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -36,10 +35,10 @@ class StreamHandler:
 
     @staticmethod
     def process_stream(
-        stream: Any,
+        stream: Iterator[Any],
         llm_provider: str,
         on_chunk: Optional[Callable] = None,
-    ) -> Iterator[Union[LLMChatCandidateChunk, LLMChatResponseChunk]]:
+    ) -> Iterator[LLMChatResponseChunk]:
         """
         Process a streaming chat completion.
 
@@ -49,7 +48,7 @@ class StreamHandler:
             on_chunk:         Callback fired on every partial chunk.
 
         Yields:
-            LLMChatCandidateChunk | LLMChatResponseChunk: fully-typed chunks, partial and final.
+            LLMChatResponseChunk: fully-typed chunks, partial and final.
         """
 
         if llm_provider in ("openai", "nvidia", "litellm", "iflytek"):
