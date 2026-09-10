@@ -134,7 +134,7 @@ def process_litellm_stream(
     enrich_metadata: Optional[Dict[str, Any]] = None,
     on_chunk: Optional[Callable],
 ) -> Iterator[LLMChatCandidateChunk]:
-    """Normalize a native LiteLLM stream into Dapr response chunks.
+    """Normalize a native LiteLLM stream into ``LLMChatCandidateChunk`` objects.
 
     Args:
         raw_stream: Native LiteLLM ``ModelResponseStream`` packets.
@@ -142,7 +142,7 @@ def process_litellm_stream(
         on_chunk: Optional callback invoked for each choice delta.
 
     Yields:
-        Normalized response chunks, including empty usage-only chunks.
+        ``LLMChatCandidateChunk``: Normalized response chunks, including empty usage-only chunks.
     """
     enrich_metadata = enrich_metadata or {}
     first_chunk_flag = True
@@ -163,13 +163,13 @@ def process_litellm_stream(
 
 
 def process_litellm_chat_response(response: ModelResponse) -> LLMChatResponse:
-    """Normalize a native LiteLLM ``ModelResponse``.
+    """Normalize a native LiteLLM ``ModelResponse`` into a unified ``LLMChatResponse``.
 
     Args:
         response: Native LiteLLM response returned for a non-streaming call.
 
     Returns:
-        A normalized Dapr response containing candidates and provider metadata.
+        ``LLMChatResponse``: A normalized response containing candidates and provider metadata.
     """
     candidates = []
     for choice in response.choices:
