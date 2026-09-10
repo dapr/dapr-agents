@@ -155,7 +155,7 @@ def process_litellm_stream(
             )
             first_chunk_flag = False
         else:
-            logger.debug("Yielding final LiteLLM usage-only packet: %s", packet)
+            logger.debug(f"Yielding final LiteLLM usage-only packet: {packet}")
             yield LLMChatResponseChunk(
                 result=LLMChatCandidateChunk(),
                 metadata=metadata,

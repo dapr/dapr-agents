@@ -187,7 +187,7 @@ def process_openai_stream(
             first_chunk_flag = False
         else:
             logger.debug(
-                "Yielding final packet without 'choices' (usage-only): %s", packet
+                f"Yielding final packet without 'choices' (usage-only): {packet}"
             )
             # Final usage-only packet (empty ``choices``) sent by OpenAI when
             # ``stream_options.include_usage`` is on. ``result`` is required on

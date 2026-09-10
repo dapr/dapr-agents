@@ -177,7 +177,7 @@ def process_hf_stream(
             first_chunk_flag = False
         else:
             logger.debug(
-                "Yielding final packet without 'choices' (usage-only): %s", packet
+                f"Yielding final packet without 'choices' (usage-only): {packet}"
             )
             # Final usage-only packet (empty ``choices``). ``result`` is required
             # on LLMChatResponseChunk, so carry an empty candidate; usage data
