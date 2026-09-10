@@ -11,20 +11,10 @@
 # limitations under the License.
 #
 
-from typing import (
-    Any,
-    Callable,
-    Iterator,
-    Optional,
-    TypeVar,
-)
+from typing import Any, Callable, Iterator, Optional
 
-from openai.types.chat import ChatCompletionChunk
-from pydantic import BaseModel
-
+from dapr_agents.llm.utils.providers import PROVIDERS_WITH_STREAMING
 from dapr_agents.types.message import LLMChatCandidateChunk
-
-T = TypeVar("T", bound=BaseModel)
 
 
 class StreamHandler:
@@ -50,7 +40,14 @@ class StreamHandler:
 
         Yields:
             LLMChatCandidateChunk: fully-typed chunks, partial and final.
+
+        Raises:
+            ValueError: If the provider does not support streaming.
         """
+
+        llm_provider = llm_provider.lower()
+        if llm_provider not in PROVIDERS_WITH_STREAMING:
+            raise ValueError(f"Streaming not supported for provider: {llm_provider}")
 
         if llm_provider in ("openai", "nvidia", "iflytek"):
             from dapr_agents.llm.openai.utils import process_openai_stream
