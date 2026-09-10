@@ -15,7 +15,6 @@ import os
 from unittest.mock import patch
 
 from litellm.types.utils import ModelResponse, ModelResponseStream
-from openai.types.chat import ChatCompletion, ChatCompletionChunk
 import pytest
 
 from dapr_agents.llm.litellm.chat import LiteLLMChatClient
@@ -27,7 +26,7 @@ from dapr_agents.types.message import (
 
 
 # ---------------------------------------------------------------------------
-# Helpers - fake LiteLLM responses (OpenAI-compatible format)
+# Helpers - native LiteLLM responses
 # ---------------------------------------------------------------------------
 
 
@@ -36,7 +35,7 @@ def _fake_completion_response(
     model="anthropic/claude-sonnet-4-6",
     tool_calls=None,
 ):
-    msg = {"role": "assistant", "content": content, "refusal": None}
+    msg = {"role": "assistant", "content": content}
     if tool_calls:
         msg["tool_calls"] = tool_calls
         msg["content"] = None
@@ -46,10 +45,9 @@ def _fake_completion_response(
         "finish_reason": "tool_calls" if tool_calls else "stop",
         "logprobs": None,
     }
-    return ChatCompletion(
-        id="chatcmpl-test-123",
+    return ModelResponse(
+        id="litellm-test-123",
         model=model,
-        object="chat.completion",
         choices=[choice],
         usage={
             "prompt_tokens": 10,
@@ -62,10 +60,9 @@ def _fake_completion_response(
 
 def _fake_stream_chunks(texts=("Hel", "lo")):
     for i, text in enumerate(texts):
-        yield ChatCompletionChunk(
-            id="chatcmpl-stream-123",
+        yield ModelResponseStream(
+            id="litellm-stream-123",
             model="openai/gpt-4o",
-            object="chat.completion.chunk",
             choices=[
                 {
                     "index": 0,
@@ -79,10 +76,9 @@ def _fake_stream_chunks(texts=("Hel", "lo")):
             ],
             created=1700000000,
         )
-    yield ChatCompletionChunk(
-        id="chatcmpl-stream-123",
+    yield ModelResponseStream(
+        id="litellm-stream-123",
         model="openai/gpt-4o",
-        object="chat.completion.chunk",
         choices=[
             {
                 "index": 0,
@@ -228,8 +224,8 @@ def test_litellm_generate_tool_call_response(mock_completion):
 
 
 @patch("litellm.completion")
-def test_litellm_generate_translates_native_completion(mock_completion):
-    """The client translates LiteLLM's native non-stream response before dispatch."""
+def test_litellm_generate_passes_native_completion(mock_completion):
+    """The client passes LiteLLM's native non-stream response to dispatch."""
     mock_completion.return_value = ModelResponse(
         id="litellm-completion",
         created=1,

@@ -29,7 +29,6 @@ from typing import (
 )
 
 import litellm
-from openai.types.chat import ChatCompletion, ChatCompletionChunk
 from pydantic import BaseModel, Field, model_validator
 
 from dapr_agents.llm.chat import ChatClientBase
@@ -45,140 +44,6 @@ from dapr_agents.types.message import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _translate_tool_call(tool_call: Any) -> Dict[str, Any]:
-    """Map a LiteLLM tool-call object to an OpenAI chunk payload."""
-    function = tool_call.function
-    return {
-        "index": tool_call.index,
-        "id": tool_call.id,
-        "type": tool_call.type,
-        "function": {
-            "name": function.name,
-            "arguments": function.arguments,
-        },
-    }
-
-
-def _translate_stream_packet(packet: Any) -> ChatCompletionChunk:
-    """Convert one LiteLLM stream packet to an OpenAI SDK chunk."""
-    choices = []
-    for choice in packet.choices:
-        delta = choice.delta
-        function_call = delta.function_call
-        choices.append(
-            {
-                "index": choice.index,
-                "finish_reason": choice.finish_reason,
-                "logprobs": getattr(choice, "logprobs", None),
-                "delta": {
-                    "content": delta.content,
-                    "role": delta.role,
-                    "refusal": getattr(delta, "refusal", None),
-                    "function_call": (
-                        {
-                            "name": function_call.name,
-                            "arguments": function_call.arguments,
-                        }
-                        if function_call
-                        else None
-                    ),
-                    "tool_calls": [
-                        _translate_tool_call(tool_call)
-                        for tool_call in (delta.tool_calls or [])
-                    ]
-                    or None,
-                },
-            }
-        )
-
-    usage = getattr(packet, "usage", None)
-    if usage is not None and hasattr(usage, "model_dump"):
-        usage = usage.model_dump()
-
-    return ChatCompletionChunk(
-        id=packet.id,
-        created=packet.created,
-        model=packet.model,
-        object="chat.completion.chunk",
-        choices=choices,
-        service_tier=getattr(packet, "service_tier", None),
-        system_fingerprint=getattr(packet, "system_fingerprint", None),
-        usage=usage,
-    )
-
-
-def _translate_completion(response: Any) -> ChatCompletion:
-    """Convert a LiteLLM completion response to an OpenAI SDK response."""
-    choices = []
-    for choice in response.choices:
-        message = choice.message
-        function_call = message.function_call
-        choices.append(
-            {
-                "index": choice.index,
-                "finish_reason": choice.finish_reason,
-                "logprobs": getattr(choice, "logprobs", None),
-                "message": {
-                    "role": message.role,
-                    "content": message.content,
-                    "refusal": getattr(message, "refusal", None),
-                    "function_call": (
-                        {
-                            "name": function_call.name,
-                            "arguments": function_call.arguments,
-                        }
-                        if function_call
-                        else None
-                    ),
-                    "tool_calls": [
-                        _translate_tool_call(tool_call)
-                        for tool_call in (message.tool_calls or [])
-                    ]
-                    or None,
-                },
-            }
-        )
-
-    usage = getattr(response, "usage", None)
-    if usage is not None and hasattr(usage, "model_dump"):
-        usage = usage.model_dump()
-
-    return ChatCompletion(
-        id=response.id,
-        created=response.created,
-        model=response.model,
-        object="chat.completion",
-        choices=choices,
-        system_fingerprint=getattr(response, "system_fingerprint", None),
-        usage=usage,
-    )
-
-
-def _translate_stream_response(response: Any) -> Iterator[ChatCompletionChunk]:
-    """Translate LiteLLM's streaming response to OpenAI SDK chunks.
-
-    LiteLLM returns ``CustomStreamWrapper`` when ``stream=True``. Its packets
-    are LiteLLM ``ModelResponseStream`` objects rather than OpenAI SDK
-    ``ChatCompletionChunk`` instances, despite their compatible shape.
-    """
-    for packet in response:
-        if isinstance(packet, ChatCompletionChunk):
-            yield packet
-        else:
-            yield _translate_stream_packet(packet)
-
-
-def _translate_response(
-    response: Any, *, stream: bool
-) -> Union[ChatCompletion, Iterator[ChatCompletionChunk]]:
-    """Translate either LiteLLM response form to the corresponding SDK type."""
-    if stream:
-        return _translate_stream_response(response)
-    if isinstance(response, ChatCompletion):
-        return response
-    return _translate_completion(response)
 
 
 class LiteLLMChatClient(LiteLLMClientBase, ChatClientBase):
@@ -297,7 +162,9 @@ class LiteLLMChatClient(LiteLLMClientBase, ChatClientBase):
             logger.debug(f"LiteLLM request params: {params}")
             resp = litellm.completion(**params)
             logger.info("LiteLLM response received.")
-            resp = _translate_response(resp, stream=stream)
+
+            # LiteLLM's ModelResponse is already typed for its provider
+            # processor, so pass it through without copying.
             return ResponseHandler.process_response(
                 response=resp,
                 llm_provider=self.provider,

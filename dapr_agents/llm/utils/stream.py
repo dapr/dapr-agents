@@ -12,6 +12,7 @@
 #
 
 from typing import (
+    Any,
     Callable,
     Iterator,
     Optional,
@@ -35,7 +36,7 @@ class StreamHandler:
 
     @staticmethod
     def process_stream(
-        stream: Iterator[ChatCompletionChunk],
+        stream: Iterator[Any],
         llm_provider: str,
         on_chunk: Optional[Callable],
     ) -> Iterator[LLMChatCandidateChunk]:
@@ -43,18 +44,26 @@ class StreamHandler:
         Process a streaming chat completion.
 
         Args:
-            stream:           Iterator of ChatCompletionChunk from OpenAI SDK.
+            stream:           Raw stream object or iterator from the provider SDK.
             llm_provider:     Name of the LLM provider (e.g., "openai").
-            on_chunk:         Callback fired on every partial LLMChatCandidateChunk.
+            on_chunk:         Callback fired on every partial chunk.
 
         Yields:
             LLMChatCandidateChunk: fully-typed chunks, partial and final.
         """
 
-        if llm_provider in ("openai", "nvidia", "litellm", "iflytek"):
+        if llm_provider in ("openai", "nvidia", "iflytek"):
             from dapr_agents.llm.openai.utils import process_openai_stream
 
             yield from process_openai_stream(
+                raw_stream=stream,
+                enrich_metadata={"provider": llm_provider},
+                on_chunk=on_chunk,
+            )
+        elif llm_provider == "litellm":
+            from dapr_agents.llm.litellm.utils import process_litellm_stream
+
+            yield from process_litellm_stream(
                 raw_stream=stream,
                 enrich_metadata={"provider": llm_provider},
                 on_chunk=on_chunk,
