@@ -14,6 +14,7 @@
 import os
 from unittest.mock import patch
 
+from litellm.types.utils import ModelResponse, ModelResponseStream
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 import pytest
 
@@ -226,6 +227,27 @@ def test_litellm_generate_tool_call_response(mock_completion):
     assert resp.results[0].finish_reason == "tool_calls"
 
 
+@patch("litellm.completion")
+def test_litellm_generate_translates_native_completion(mock_completion):
+    """The client translates LiteLLM's native non-stream response before dispatch."""
+    mock_completion.return_value = ModelResponse(
+        id="litellm-completion",
+        created=1,
+        model="openai/gpt-4o",
+        choices=[
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "Hello"},
+                "finish_reason": "stop",
+            }
+        ],
+    )
+
+    response = LiteLLMChatClient(model="openai/gpt-4o").generate("hello")
+
+    assert response.get_message().content == "Hello"
+
+
 # ---------------------------------------------------------------------------
 # Streaming
 # ---------------------------------------------------------------------------
@@ -247,6 +269,34 @@ def test_litellm_generate_streaming(mock_completion):
 
     call_kwargs = mock_completion.call_args.kwargs
     assert call_kwargs["stream"] is True
+
+
+@patch("litellm.completion")
+def test_litellm_generate_translates_native_stream(mock_completion):
+    """The client translates LiteLLM's native stream packets before dispatch."""
+    mock_completion.return_value = iter(
+        [
+            ModelResponseStream(
+                id="litellm-stream",
+                created=1,
+                model="openai/gpt-4o",
+                choices=[
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": "Hello"},
+                        "finish_reason": None,
+                    }
+                ],
+            )
+        ]
+    )
+
+    chunks = list(
+        LiteLLMChatClient(model="openai/gpt-4o").generate("hello", stream=True)
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].result.content == "Hello"
 
 
 # ---------------------------------------------------------------------------
