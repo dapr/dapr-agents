@@ -33,20 +33,21 @@ logger = logging.getLogger(__name__)
 def make_task(event: DrasiChangeEvent, ctx: Any) -> TriggerAction:
     return TriggerAction(
         task=(
-            f"You are an inventory agent that creates purchase orders, calculating the order quantity dynamically.\n"
-            f"Create a purchase order for this '{event.payload.source.queryId}' event.\n"
-            f"Use the following data: {event.payload.after.model_dump_json()}.\n\n"
-            "Respond with exactly the following format, and nothing else:\n\n"
-            "Product ID: <productId>\n"
-            "Product Name: <productName>\n"
-            "Product Description: <productDescription>\n"
-            "Order Quantity: <quantity>\n\n"
-            "Rules:\n"
-            "- Output exactly these 4 lines, in this exact order.\n"
-            "- Do not add, remove, rename, or reorder any fields.\n"
-            "- Do not include any explanation, preamble, or extra text.\n"
-            "- Do not wrap the output in code blocks or markdown formatting.\n"
-            "- Replace each <placeholder> with the actual value only — do not include the angle brackets."
+            f"You are an inventory agent that creates purchase orders in response to stock events, "
+            "calculating the order quantity dynamically.\n\n"
+            f"## Event Data\n"
+            f"{event.payload.after.model_dump_json() if event.payload.after else 'N/A'}\n\n"
+            f"## Response Format\n"
+            "Product ID: <productId from Event Data>\n"
+            "Product Name: <productName from Event Data>\n"
+            "Product Description: <productDescription from Event Data>\n"
+            "Order Quantity: <quantity to be calculated>\n\n"
+            "## Rules\n"
+            "- Respond EXACTLY in the given response format, and nothing else.\n"
+            "- Do NOT add, remove, rename, or reorder any fields.\n"
+            "- Do NOT include any explanation, preamble, or extra text.\n"
+            "- Do NOT wrap the output in code blocks (no ``` fences) or markdown formatting.\n"
+            "- Replace each <placeholder> with the actual value only — do NOT include the angle brackets."
         )
     )
 
