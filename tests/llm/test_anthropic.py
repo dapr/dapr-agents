@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dapr_agents.llm.anthropic.chat import AnthropicChatClient
+from dapr_agents.types.exceptions import StructureError
 from dapr_agents.types.message import (
     AssistantMessage,
     LLMChatResponse,
@@ -632,9 +633,9 @@ def test_anthropic_function_call_preserves_user_tools(mock_anthropic_class):
         (
             "function_call",
             [SimpleNamespace(type="text", text="I refuse")],
-            "No tool_use block",
+            "No tool_calls found",
         ),
-        ("json", [], "No text block"),
+        ("json", [], "No content found"),
     ],
     ids=["function_call-missing-tool_use", "json-missing-text-block"],
 )
@@ -662,7 +663,7 @@ def test_anthropic_structured_parse_raises_when_block_missing(
     mock_anthropic_class.return_value = sdk
 
     client = AnthropicChatClient(api_key="fake-key")
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(StructureError, match=match):
         client.generate("?", response_format=Out, structured_mode=structured_mode)
 
 
