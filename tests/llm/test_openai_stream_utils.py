@@ -20,20 +20,20 @@ That packet must still produce a valid ``LLMChatResponseChunk`` (whose
 inside the workflow's ``call_llm`` activity.
 """
 
-from unittest.mock import MagicMock
+from openai.types.chat import ChatCompletionChunk
 
 from dapr_agents.llm.openai.utils import process_openai_stream
 from dapr_agents.types.message import LLMChatResponseChunk
 
 
-def _packet(data: dict) -> MagicMock:
-    """Wrap a dict as an OpenAI SDK chunk exposing ``model_dump``."""
-    pkt = MagicMock()
-    pkt.model_dump.return_value = data
-    return pkt
+def _packet(data: dict) -> ChatCompletionChunk:
+    """Build an actual typed OpenAI SDK chunk."""
+    return ChatCompletionChunk(**data)
 
 
-def _content_packet(content: str, *, finish_reason=None, role=None) -> MagicMock:
+def _content_packet(
+    content: str, *, finish_reason=None, role=None
+) -> ChatCompletionChunk:
     delta: dict = {"content": content}
     if role:
         delta["role"] = role
@@ -48,7 +48,7 @@ def _content_packet(content: str, *, finish_reason=None, role=None) -> MagicMock
     )
 
 
-def _usage_only_packet() -> MagicMock:
+def _usage_only_packet() -> ChatCompletionChunk:
     # OpenAI's terminal packet when include_usage is on: empty choices + usage.
     return _packet(
         {

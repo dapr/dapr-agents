@@ -12,9 +12,9 @@
 #
 
 import os
-from types import SimpleNamespace
 from unittest.mock import patch
 
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
 import pytest
 
 from dapr_agents.llm.litellm.chat import LiteLLMChatClient
@@ -45,58 +45,52 @@ def _fake_completion_response(
         "finish_reason": "tool_calls" if tool_calls else "stop",
         "logprobs": None,
     }
-    return SimpleNamespace(
-        model_dump=lambda: {
-            "id": "chatcmpl-test-123",
-            "model": model,
-            "object": "chat.completion",
-            "choices": [choice],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-            },
-            "created": 1700000000,
-        }
+    return ChatCompletion(
+        id="chatcmpl-test-123",
+        model=model,
+        object="chat.completion",
+        choices=[choice],
+        usage={
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        },
+        created=1700000000,
     )
 
 
 def _fake_stream_chunks(texts=("Hel", "lo")):
     for i, text in enumerate(texts):
-        yield SimpleNamespace(
-            model_dump=lambda t=text, idx=i: {
-                "id": "chatcmpl-stream-123",
-                "model": "openai/gpt-4o",
-                "object": "chat.completion.chunk",
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {
-                            "role": "assistant" if idx == 0 else None,
-                            "content": t,
-                        },
-                        "finish_reason": None,
-                        "logprobs": None,
-                    }
-                ],
-                "created": 1700000000,
-            }
-        )
-    yield SimpleNamespace(
-        model_dump=lambda: {
-            "id": "chatcmpl-stream-123",
-            "model": "openai/gpt-4o",
-            "object": "chat.completion.chunk",
-            "choices": [
+        yield ChatCompletionChunk(
+            id="chatcmpl-stream-123",
+            model="openai/gpt-4o",
+            object="chat.completion.chunk",
+            choices=[
                 {
                     "index": 0,
-                    "delta": {},
-                    "finish_reason": "stop",
+                    "delta": {
+                        "role": "assistant" if i == 0 else None,
+                        "content": text,
+                    },
+                    "finish_reason": None,
                     "logprobs": None,
                 }
             ],
-            "created": 1700000000,
-        }
+            created=1700000000,
+        )
+    yield ChatCompletionChunk(
+        id="chatcmpl-stream-123",
+        model="openai/gpt-4o",
+        object="chat.completion.chunk",
+        choices=[
+            {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop",
+                "logprobs": None,
+            }
+        ],
+        created=1700000000,
     )
 
 
