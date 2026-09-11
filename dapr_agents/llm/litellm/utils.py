@@ -14,7 +14,13 @@
 import logging
 from typing import Any, Callable, Dict, Iterator, Optional
 
-from litellm.types.utils import ModelResponse, ModelResponseStream
+from litellm.types.utils import (
+    ChatCompletionDeltaToolCall,
+    Message,
+    ModelResponse,
+    ModelResponseStream,
+    StreamingChoices,
+)
 
 from dapr_agents.types.message import (
     AssistantMessage,
@@ -31,8 +37,15 @@ from dapr_agents.types.message import (
 logger = logging.getLogger(__name__)
 
 
-def _translate_tool_calls(message: Any) -> Optional[list[ToolCall]]:
-    """Convert LiteLLM message tool calls to normalized tool-call models."""
+def _translate_tool_calls(message: Message) -> Optional[list[ToolCall]]:
+    """Convert LiteLLM message tool calls to normalized tool-call models.
+
+    Args:
+        message: LiteLLM message containing zero or more tool calls.
+
+    Returns:
+        A list of normalized tool calls, or ``None`` when no tool calls are present.
+    """
     if not message.tool_calls:
         return None
 
@@ -54,8 +67,15 @@ def _translate_tool_calls(message: Any) -> Optional[list[ToolCall]]:
     return tool_calls or None
 
 
-def _translate_tool_call(tool_call: Any) -> ToolCallChunk:
-    """Convert a LiteLLM tool-call object to a normalized chunk model."""
+def _translate_tool_call(tool_call: ChatCompletionDeltaToolCall) -> ToolCallChunk:
+    """Convert a LiteLLM streaming tool call to a normalized chunk model.
+
+    Args:
+        tool_call: LiteLLM's typed streaming tool-call delta.
+
+    Returns:
+        A normalized tool-call chunk.
+    """
     function = tool_call.function
     return ToolCallChunk(
         index=tool_call.index,
@@ -69,28 +89,48 @@ def _translate_tool_call(tool_call: Any) -> ToolCallChunk:
 
 
 def _get_packet_metadata(
-    packet: Any, enrich_metadata: Optional[Dict[str, Any]]
+    packet: ModelResponseStream, enrich_metadata: Optional[Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """Extract LiteLLM packet metadata and merge provider metadata."""
+    """Extract LiteLLM packet metadata and merge additional metadata.
+
+    Args:
+        packet: LiteLLM streaming response packet containing provider metadata.
+        enrich_metadata: Optional metadata that is added to the packet metadata.
+            Enrichment values take precedence when keys overlap.
+
+    Returns:
+        A dictionary containing normalized packet metadata.
+    """
     return {
         "id": packet.id,
         "created": packet.created,
         "model": packet.model,
-        "object": getattr(packet, "object", None),
+        "object": packet.object,
         "service_tier": getattr(packet, "service_tier", None),
-        "system_fingerprint": getattr(packet, "system_fingerprint", None),
+        "system_fingerprint": packet.system_fingerprint,
         "usage": getattr(packet, "usage", None),
         **(enrich_metadata or {}),
     }
 
 
 def _process_choice_delta(
-    choice: Any,
+    choice: StreamingChoices,
     overall_meta: Dict[str, Any],
     on_chunk: Optional[Callable],
     first_chunk_flag: bool,
 ) -> Iterator[LLMChatResponseChunk]:
-    """Normalize one LiteLLM stream choice."""
+    """Process one LiteLLM streaming choice and yield its normalized chunk.
+
+    Args:
+        choice: A typed choice from a LiteLLM ``ModelResponseStream``.
+        overall_meta: Overall metadata to include in the chunk.
+        on_chunk: Optional callback invoked with the normalized chunk.
+        first_chunk_flag: Whether this is the first choice chunk in the stream.
+
+    Yields:
+        LLMChatResponseChunk: The normalized chunk containing content, function call,
+            tool calls, finish reason, and metadata.
+    """
     meta = {**overall_meta}
     if first_chunk_flag and "first_chunk" not in meta:
         meta["first_chunk"] = True
@@ -100,10 +140,10 @@ def _process_choice_delta(
     if finish_reason in ("stop", "tool_calls"):
         meta["last_chunk"] = True
 
-    function_call = getattr(delta, "function_call", None)
+    function_call = delta.function_call
     response_chunk = LLMChatResponseChunk(
         result=LLMChatCandidateChunk(
-            content=getattr(delta, "content", None),
+            content=delta.content,
             function_call=(
                 {
                     "name": function_call.name,
@@ -113,14 +153,14 @@ def _process_choice_delta(
                 else None
             ),
             refusal=getattr(delta, "refusal", None),
-            role=getattr(delta, "role", None),
+            role=delta.role,
             tool_calls=[
                 _translate_tool_call(tool_call)
-                for tool_call in (getattr(delta, "tool_calls", None) or [])
+                for tool_call in (delta.tool_calls or [])
             ],
             finish_reason=finish_reason,
             index=choice.index,
-            logprobs=getattr(choice, "logprobs", None),
+            logprobs=choice.logprobs,
         ),
         metadata=meta,
     )
@@ -176,7 +216,7 @@ def process_litellm_chat_response(response: ModelResponse) -> LLMChatResponse:
     for choice in response.choices:
         message = choice.message
         tool_calls = _translate_tool_calls(message)
-        function_call = getattr(message, "function_call", None)
+        function_call = message.function_call
         candidates.append(
             LLMChatCandidate(
                 message=AssistantMessage(
@@ -193,8 +233,6 @@ def process_litellm_chat_response(response: ModelResponse) -> LLMChatResponse:
                     ),
                 ),
                 finish_reason=choice.finish_reason,
-                index=choice.index,
-                logprobs=getattr(choice, "logprobs", None),
             )
         )
 
@@ -204,10 +242,10 @@ def process_litellm_chat_response(response: ModelResponse) -> LLMChatResponse:
             "provider": "litellm",
             "id": response.id,
             "model": response.model,
-            "object": getattr(response, "object", None),
+            "object": response.object,
             "usage": getattr(response, "usage", None),
             "created": response.created,
             "service_tier": getattr(response, "service_tier", None),
-            "system_fingerprint": getattr(response, "system_fingerprint", None),
+            "system_fingerprint": response.system_fingerprint,
         },
     )
