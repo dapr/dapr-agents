@@ -23,7 +23,7 @@ from typing import Any, Optional, Tuple, Type, Union, get_args, get_origin
 from dapr.common.pubsub.subscription import SubscriptionMessage
 
 from dapr_agents.types.message import EventMessageMetadata
-from dapr_agents.workflow.utils.core import is_supported_model
+from dapr_agents.utils.models import is_supported_model
 
 logger = logging.getLogger(__name__)
 

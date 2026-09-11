@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import is_dataclass
 from typing import Any, TypeVar
 
-from dapr_agents.workflow.utils.core import is_supported_model
+from dapr_agents.utils.models import is_supported_model
 
 from dapr_agents.ext.drasi.types import DrasiOperation
 

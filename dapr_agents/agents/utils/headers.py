@@ -61,3 +61,22 @@ def construct_auth_headers(auth_url, grant_type="client_credentials", **kwargs):
         raise ValueError("No access token found in the response")
 
     return {"Authorization": f"Bearer {access_token}"}
+
+
+def parse_header_string(raw_headers: str) -> dict:
+    """
+    Parse a header string in the form "Key1=Value1,Key2=Value2,..." into a dictionary.
+
+    :param raw_headers: The raw header string.
+
+    :return: A dictionary containing the parsed headers.
+    """
+    headers: dict[str, str] = {}
+
+    for pair in raw_headers.split(","):
+        pair = pair.strip()
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            headers[k.strip()] = v.strip()
+
+    return headers
