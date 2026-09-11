@@ -23,6 +23,7 @@ from __future__ import annotations
 PROVIDERS_WITH_STREAMING = (
     "openai",
     "nvidia",
+    "iflytek",
     "litellm",
     "anthropic",
     "claude",
@@ -32,7 +33,7 @@ PROVIDERS_WITH_STREAMING = (
 #: OpenAI-compatible providers that honor ``stream_options={"include_usage": True}``
 #: to report token usage on the terminal streaming chunk. Harmless for providers
 #: that ignore the flag; only set for those we know accept it.
-PROVIDERS_WITH_STREAM_OPTIONS = ("openai", "nvidia", "litellm")
+PROVIDERS_WITH_STREAM_OPTIONS = ("openai", "nvidia", "iflytek", "litellm")
 
 __all__ = [
     "PROVIDERS_WITH_STREAMING",

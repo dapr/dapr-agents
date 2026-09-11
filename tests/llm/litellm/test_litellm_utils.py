@@ -85,7 +85,7 @@ def test_process_litellm_stream_preserves_metadata_callbacks_and_usage_packets()
     assert chunks[0].metadata["first_chunk"] is True
     assert chunks[0].metadata["last_chunk"] is True
     assert chunks[1].result.content is None
-    assert chunks[1].metadata["usage"]["total_tokens"] == 2
+    assert chunks[1].metadata["usage"].total_tokens == 2
 
 
 def test_process_litellm_chat_response_normalizes_tool_calls_and_metadata():
@@ -120,5 +120,5 @@ def test_process_litellm_chat_response_normalizes_tool_calls_and_metadata():
 
     assert isinstance(result, LLMChatResponse)
     assert result.metadata["id"] == "litellm-response"
-    assert result.metadata["usage"]["total_tokens"] == 3
+    assert result.metadata["usage"].total_tokens == 3
     assert result.get_message().tool_calls[0].function.name == "get_weather"
