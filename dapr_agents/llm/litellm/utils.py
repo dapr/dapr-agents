@@ -19,6 +19,7 @@ from litellm.types.utils import ModelResponse, ModelResponseStream
 from dapr_agents.types.message import (
     AssistantMessage,
     FunctionCall,
+    FunctionCallChunk,
     LLMChatCandidate,
     LLMChatCandidateChunk,
     LLMChatResponse,
@@ -60,10 +61,10 @@ def _translate_tool_call(tool_call: Any) -> ToolCallChunk:
         index=tool_call.index,
         id=tool_call.id,
         type=tool_call.type,
-        function={
-            "name": function.name,
-            "arguments": function.arguments,
-        },
+        function=FunctionCallChunk(
+            name=function.name,
+            arguments=function.arguments,
+        ),
     )
 
 
@@ -104,10 +105,10 @@ def _process_choice_delta(
         result=LLMChatCandidateChunk(
             content=getattr(delta, "content", None),
             function_call=(
-                FunctionCall(
-                    name=function_call.name or "",
-                    arguments=function_call.arguments or "",
-                )
+                {
+                    "name": function_call.name,
+                    "arguments": function_call.arguments,
+                }
                 if function_call
                 else None
             ),
