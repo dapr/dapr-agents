@@ -14,7 +14,11 @@
 import logging
 from typing import Any, Callable, Dict, Iterator, Optional
 
-from huggingface_hub import ChatCompletionOutput, ChatCompletionStreamOutput
+from huggingface_hub import (
+    ChatCompletionOutput,
+    ChatCompletionStreamOutput,
+    ChatCompletionStreamOutputChoice,
+)
 
 from dapr_agents.types.message import (
     AssistantMessage,
@@ -63,22 +67,22 @@ def _get_packet_metadata(
 
 # Helper function to process each choice delta (content, function call, tool call, finish reason)
 def _process_choice_delta(
-    choice: Any,
+    choice: ChatCompletionStreamOutputChoice,
     overall_meta: Dict[str, Any],
     on_chunk: Optional[Callable],
     first_chunk_flag: bool,
 ) -> Iterator[LLMChatResponseChunk]:
-    """
-    Process each choice delta and yield corresponding chunks.
+    """Process one Hugging Face streaming choice and yield its normalized chunk.
 
     Args:
-        choice (Dict[str, Any]): The choice delta from HuggingFace response.
+        choice: A typed choice from a Hugging Face ``ChatCompletionStreamOutput``.
         overall_meta (Dict[str, Any]): Overall metadata to include in chunks.
         on_chunk (Optional[Callable]): Callback for each chunk.
         first_chunk_flag (bool): Flag indicating if this is the first chunk.
 
     Yields:
-        LLMChatResponseChunk: The processed chunk with content, function call, tool calls,
+        LLMChatResponseChunk: The normalized chunk containing content, tool calls,
+            finish reason, and metadata.
     """
     # Make an immutable snapshot for this single chunk
     meta = {**overall_meta}
