@@ -16,14 +16,10 @@ from typing import (
     Callable,
     Iterator,
     Optional,
-    TypeVar,
 )
 
-from pydantic import BaseModel
-
+from dapr_agents.llm.utils.providers import PROVIDERS_WITH_STREAMING
 from dapr_agents.types.message import LLMChatResponseChunk
-
-T = TypeVar("T", bound=BaseModel)
 
 
 class StreamHandler:
@@ -51,10 +47,22 @@ class StreamHandler:
             LLMChatResponseChunk: fully-typed chunks, partial and final.
         """
 
-        if llm_provider in ("openai", "nvidia", "litellm", "iflytek"):
+        llm_provider = llm_provider.lower()
+        if llm_provider not in PROVIDERS_WITH_STREAMING:
+            raise ValueError(f"Streaming not supported for provider: {llm_provider}")
+
+        if llm_provider in ("openai", "nvidia", "iflytek"):
             from dapr_agents.llm.openai.utils import process_openai_stream
 
             yield from process_openai_stream(
+                raw_stream=stream,
+                enrich_metadata={"provider": llm_provider},
+                on_chunk=on_chunk,
+            )
+        elif llm_provider == "litellm":
+            from dapr_agents.llm.litellm.utils import process_litellm_stream
+
+            yield from process_litellm_stream(
                 raw_stream=stream,
                 enrich_metadata={"provider": llm_provider},
                 on_chunk=on_chunk,

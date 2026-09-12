@@ -91,10 +91,14 @@ class ResponseHandler:
         else:
             # ─── Non‑streaming ─────────────────────────────────────────────────────
             # 1) Normalize full response → LLMChatResponse
-            if provider in ("openai", "nvidia", "litellm", "iflytek"):
+            if provider in ("openai", "nvidia", "iflytek"):
                 from dapr_agents.llm.openai.utils import process_openai_chat_response
 
                 llm_resp: LLMChatResponse = process_openai_chat_response(response)
+            elif provider == "litellm":
+                from dapr_agents.llm.litellm.utils import process_litellm_chat_response
+
+                llm_resp = process_litellm_chat_response(response)
             elif provider == "huggingface":
                 from dapr_agents.llm.huggingface.utils import process_hf_chat_response
 

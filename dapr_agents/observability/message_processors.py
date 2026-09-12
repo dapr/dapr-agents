@@ -436,19 +436,41 @@ def extract_token_usage(metadata: Any) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Token usage attributes
     """
+    values = extract_usage_values(metadata)
     attributes = {}
-
-    try:
-        if isinstance(metadata, dict) and "usage" in metadata:
-            usage = metadata["usage"]
-            attributes.update(extract_usage_from_dict(usage))
-        elif hasattr(metadata, "usage"):
-            usage = metadata.usage
-            attributes.update(extract_usage_from_object(usage))
-    except Exception as e:
-        logger.debug(f"Could not extract token counts: {e}")
-
+    if "prompt_tokens" in values:
+        attributes[LLM_TOKEN_COUNT_PROMPT] = values["prompt_tokens"]
+    if "completion_tokens" in values:
+        attributes[LLM_TOKEN_COUNT_COMPLETION] = values["completion_tokens"]
+    if "total_tokens" in values:
+        attributes[LLM_TOKEN_COUNT_TOTAL] = values["total_tokens"]
     return attributes
+
+
+def extract_usage_values(metadata: Any) -> Dict[str, Any]:
+    """Extract provider usage fields from dictionary or typed metadata."""
+    try:
+        usage = (
+            metadata.get("usage")
+            if isinstance(metadata, dict)
+            else getattr(metadata, "usage", None)
+        )
+        if usage is None:
+            return {}
+        if isinstance(usage, dict):
+            return {
+                field: usage[field]
+                for field in ("prompt_tokens", "completion_tokens", "total_tokens")
+                if field in usage
+            }
+        return {
+            field: getattr(usage, field)
+            for field in ("prompt_tokens", "completion_tokens", "total_tokens")
+            if hasattr(usage, field)
+        }
+    except Exception:
+        logger.debug("Could not extract token counts", exc_info=True)
+        return {}
 
 
 def extract_usage_from_dict(usage: Dict[str, Any]) -> Dict[str, Any]:
@@ -552,6 +574,7 @@ __all__ = [
     "get_output_message_attributes",
     "get_fallback_output_attributes",
     "extract_token_usage",
+    "extract_usage_values",
     "extract_usage_from_dict",
     "extract_usage_from_object",
     "convert_messages_to_genai_format",

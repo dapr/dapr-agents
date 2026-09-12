@@ -12,9 +12,9 @@
 #
 
 import os
-from types import SimpleNamespace
 from unittest.mock import patch
 
+from litellm.types.utils import ModelResponse, ModelResponseStream
 import pytest
 
 from dapr_agents.llm.litellm.chat import LiteLLMChatClient
@@ -26,7 +26,7 @@ from dapr_agents.types.message import (
 
 
 # ---------------------------------------------------------------------------
-# Helpers - fake LiteLLM responses (OpenAI-compatible format)
+# Helpers - native LiteLLM responses
 # ---------------------------------------------------------------------------
 
 
@@ -35,7 +35,7 @@ def _fake_completion_response(
     model="anthropic/claude-sonnet-4-6",
     tool_calls=None,
 ):
-    msg = {"role": "assistant", "content": content, "refusal": None}
+    msg = {"role": "assistant", "content": content}
     if tool_calls:
         msg["tool_calls"] = tool_calls
         msg["content"] = None
@@ -45,58 +45,49 @@ def _fake_completion_response(
         "finish_reason": "tool_calls" if tool_calls else "stop",
         "logprobs": None,
     }
-    return SimpleNamespace(
-        model_dump=lambda: {
-            "id": "chatcmpl-test-123",
-            "model": model,
-            "object": "chat.completion",
-            "choices": [choice],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-            },
-            "created": 1700000000,
-        }
+    return ModelResponse(
+        id="litellm-test-123",
+        model=model,
+        choices=[choice],
+        usage={
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        },
+        created=1700000000,
     )
 
 
 def _fake_stream_chunks(texts=("Hel", "lo")):
     for i, text in enumerate(texts):
-        yield SimpleNamespace(
-            model_dump=lambda t=text, idx=i: {
-                "id": "chatcmpl-stream-123",
-                "model": "openai/gpt-4o",
-                "object": "chat.completion.chunk",
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {
-                            "role": "assistant" if idx == 0 else None,
-                            "content": t,
-                        },
-                        "finish_reason": None,
-                        "logprobs": None,
-                    }
-                ],
-                "created": 1700000000,
-            }
-        )
-    yield SimpleNamespace(
-        model_dump=lambda: {
-            "id": "chatcmpl-stream-123",
-            "model": "openai/gpt-4o",
-            "object": "chat.completion.chunk",
-            "choices": [
+        yield ModelResponseStream(
+            id="litellm-stream-123",
+            model="openai/gpt-4o",
+            choices=[
                 {
                     "index": 0,
-                    "delta": {},
-                    "finish_reason": "stop",
+                    "delta": {
+                        "role": "assistant" if i == 0 else None,
+                        "content": text,
+                    },
+                    "finish_reason": None,
                     "logprobs": None,
                 }
             ],
-            "created": 1700000000,
-        }
+            created=1700000000,
+        )
+    yield ModelResponseStream(
+        id="litellm-stream-123",
+        model="openai/gpt-4o",
+        choices=[
+            {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop",
+                "logprobs": None,
+            }
+        ],
+        created=1700000000,
     )
 
 
@@ -232,6 +223,27 @@ def test_litellm_generate_tool_call_response(mock_completion):
     assert resp.results[0].finish_reason == "tool_calls"
 
 
+@patch("litellm.completion")
+def test_litellm_generate_passes_native_completion(mock_completion):
+    """The client passes LiteLLM's native non-stream response to dispatch."""
+    mock_completion.return_value = ModelResponse(
+        id="litellm-completion",
+        created=1,
+        model="openai/gpt-4o",
+        choices=[
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "Hello"},
+                "finish_reason": "stop",
+            }
+        ],
+    )
+
+    response = LiteLLMChatClient(model="openai/gpt-4o").generate("hello")
+
+    assert response.get_message().content == "Hello"
+
+
 # ---------------------------------------------------------------------------
 # Streaming
 # ---------------------------------------------------------------------------
@@ -253,6 +265,34 @@ def test_litellm_generate_streaming(mock_completion):
 
     call_kwargs = mock_completion.call_args.kwargs
     assert call_kwargs["stream"] is True
+
+
+@patch("litellm.completion")
+def test_litellm_generate_translates_native_stream(mock_completion):
+    """The client translates LiteLLM's native stream packets before dispatch."""
+    mock_completion.return_value = iter(
+        [
+            ModelResponseStream(
+                id="litellm-stream",
+                created=1,
+                model="openai/gpt-4o",
+                choices=[
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": "Hello"},
+                        "finish_reason": None,
+                    }
+                ],
+            )
+        ]
+    )
+
+    chunks = list(
+        LiteLLMChatClient(model="openai/gpt-4o").generate("hello", stream=True)
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].result.content == "Hello"
 
 
 # ---------------------------------------------------------------------------

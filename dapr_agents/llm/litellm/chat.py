@@ -162,6 +162,9 @@ class LiteLLMChatClient(LiteLLMClientBase, ChatClientBase):
             logger.debug(f"LiteLLM request params: {params}")
             resp = litellm.completion(**params)
             logger.info("LiteLLM response received.")
+
+            # LiteLLM's ModelResponse is already typed for its provider
+            # processor, so pass it through without copying.
             return ResponseHandler.process_response(
                 response=resp,
                 llm_provider=self.provider,
