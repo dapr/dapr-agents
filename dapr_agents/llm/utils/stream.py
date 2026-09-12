@@ -17,6 +17,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Iterable,
     Iterator,
     Optional,
     TypeVar,
@@ -48,15 +49,19 @@ def extract_packet_metadata(
         Dict[str, Any]: The merged metadata dictionary.
     """
     try:
-        return {
+        meta: Dict[str, Any] = {
             "id": pkt.get("id"),
             "created": pkt.get("created"),
             "model": pkt.get("model"),
             "object": pkt.get("object"),
             "service_tier": pkt.get("service_tier"),
             "system_fingerprint": pkt.get("system_fingerprint"),
-            **(enrich_metadata or {}),
         }
+        if "usage" in pkt and pkt["usage"] is not None:
+            meta["usage"] = pkt["usage"]
+        if enrich_metadata:
+            meta.update(enrich_metadata)
+        return meta
     except Exception as e:
         logger.error(f"Failed to parse packet: {e}", exc_info=True)
         return {}
@@ -91,10 +96,13 @@ def process_choice_delta(
         meta["first_chunk"] = True
 
     # Extract initial properties from choice
-    delta: dict = choice.get("delta") or {}
-    idx = choice.get("index")
-    finish_reason = choice.get("finish_reason", None)
-    logprobs = choice.get("logprobs", None)
+    choice_dict = choice or {}
+    delta: dict = choice_dict.get("delta") or {}
+    if not isinstance(delta, dict):
+        delta = {}
+    idx = choice_dict.get("index")
+    finish_reason = choice_dict.get("finish_reason", None)
+    logprobs = choice_dict.get("logprobs", None)
 
     # Set additional metadata
     if finish_reason in ("stop", "tool_calls"):
@@ -106,8 +114,13 @@ def process_choice_delta(
     refusal = delta.get("refusal", None)
     role = delta.get("role", None)
 
-    # Process tool calls
-    chunk_tool_calls = [ToolCallChunk(**tc) for tc in (delta.get("tool_calls") or [])]
+    # Process tool calls defensively
+    chunk_tool_calls = []
+    for tc in delta.get("tool_calls") or []:
+        try:
+            chunk_tool_calls.append(ToolCallChunk(**tc))
+        except Exception as e:
+            logger.warning(f"Invalid tool_call entry in delta {tc}: {e}")
 
     # Initialize LLMChatResponseChunk
     response_chunk = LLMChatResponseChunk(
@@ -135,7 +148,7 @@ _process_choice_delta = process_choice_delta
 
 
 def process_choice_delta_stream(
-    raw_stream: Iterator[Any],
+    raw_stream: Iterable[Any],
     *,
     enrich_metadata: Optional[Dict[str, Any]] = None,
     on_chunk: Optional[Callable] = None,
@@ -155,45 +168,54 @@ def process_choice_delta_stream(
         LLMChatResponseChunk for every partial and final piece, in stream order.
     """
     enrich_metadata = enrich_metadata or {}
-    overall_meta: Dict[str, Any] = {}
-
     first_chunk_flag = True
 
-    for packet in raw_stream:
-        # Convert Pydantic / SDK object -> plain dict
-        if hasattr(packet, "model_dump"):
-            pkt = packet.model_dump()
-        elif hasattr(packet, "to_dict"):
-            pkt = packet.to_dict()
-        elif dataclasses.is_dataclass(packet):
-            pkt = dataclasses.asdict(packet)
-        else:
-            raise TypeError(f"Cannot serialize packet of type {type(packet)}")
+    try:
+        for packet in raw_stream:
+            # Convert Pydantic / SDK object -> plain dict
+            if hasattr(packet, "model_dump"):
+                pkt = packet.model_dump()
+            elif hasattr(packet, "to_dict"):
+                pkt = packet.to_dict()
+            elif dataclasses.is_dataclass(packet):
+                pkt = dataclasses.asdict(packet)
+            else:
+                raise TypeError(f"Cannot serialize packet of type {type(packet)}")
 
-        overall_meta = extract_packet_metadata(pkt, enrich_metadata)
+            overall_meta = extract_packet_metadata(pkt, enrich_metadata)
 
-        choices = pkt.get("choices")
-        if choices:
-            choice = choices[0]
-            yield from process_choice_delta(
-                choice, overall_meta, on_chunk, first_chunk_flag
-            )
-            first_chunk_flag = False
-        else:
-            logger.debug(
-                "Yielding final packet without 'choices' (usage-only): %s", pkt
-            )
-            # Final usage-only packet (empty ``choices``) sent when usage reporting
-            # is enabled. ``result`` is required on LLMChatResponseChunk, so carry
-            # an empty candidate; usage data rides along in ``metadata`` and is
-            # folded into TURN_COMPLETE.
-            final_response_chunk = LLMChatResponseChunk(
-                result=LLMChatCandidateChunk(),
-                metadata=overall_meta,
-            )
-            if on_chunk:
-                on_chunk(final_response_chunk)
-            yield final_response_chunk
+            choices = pkt.get("choices")
+            if choices:
+                for choice in choices:
+                    if not choice:
+                        continue
+                    yield from process_choice_delta(
+                        choice, overall_meta, on_chunk, first_chunk_flag
+                    )
+                    first_chunk_flag = False
+            else:
+                logger.debug(
+                    "Yielding final packet without 'choices' (usage-only): %s", pkt
+                )
+                # Final usage-only packet (empty ``choices``) sent when usage reporting
+                # is enabled. ``result`` is required on LLMChatResponseChunk, so carry
+                # an empty candidate; usage data rides along in ``metadata`` and is
+                # folded into TURN_COMPLETE.
+                final_response_chunk = LLMChatResponseChunk(
+                    result=LLMChatCandidateChunk(),
+                    metadata={**overall_meta},
+                )
+                if on_chunk:
+                    on_chunk(final_response_chunk)
+                yield final_response_chunk
+    finally:
+        if hasattr(raw_stream, "__exit__"):
+            raw_stream.__exit__(None, None, None)
+        elif hasattr(raw_stream, "close"):
+            try:
+                raw_stream.close()
+            except Exception:
+                pass
 
 
 class StreamHandler:
@@ -204,7 +226,7 @@ class StreamHandler:
 
     @staticmethod
     def process_stream(
-        stream: Iterator[Any],
+        stream: Iterable[Any],
         llm_provider: str,
         on_chunk: Optional[Callable] = None,
     ) -> Iterator[LLMChatResponseChunk]:
@@ -218,7 +240,8 @@ class StreamHandler:
         Yields:
             LLMChatResponseChunk: fully-typed chunks, partial and final.
         """
-        if llm_provider in (
+        provider = llm_provider.lower() if llm_provider else ""
+        if provider in (
             "openai",
             "nvidia",
             "litellm",
@@ -227,15 +250,15 @@ class StreamHandler:
         ):
             yield from process_choice_delta_stream(
                 raw_stream=stream,
-                enrich_metadata={"provider": llm_provider},
+                enrich_metadata={"provider": provider},
                 on_chunk=on_chunk,
             )
-        elif llm_provider in ("anthropic", "claude"):
+        elif provider in ("anthropic", "claude"):
             from dapr_agents.llm.anthropic.utils import process_anthropic_stream
 
             yield from process_anthropic_stream(
                 raw_stream=stream,
-                enrich_metadata={"provider": llm_provider},
+                enrich_metadata={"provider": provider},
                 on_chunk=on_chunk,
             )
         else:

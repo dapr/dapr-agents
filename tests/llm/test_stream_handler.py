@@ -195,3 +195,121 @@ def test_extract_packet_metadata_error_handling():
 
     res = extract_packet_metadata(bad_packet)
     assert res == {}
+
+
+def test_extract_packet_metadata_with_usage():
+    """extract_packet_metadata preserves usage when present in packet."""
+    pkt = {
+        "id": "test-usage-1",
+        "model": "test-model",
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+    }
+    meta = extract_packet_metadata(pkt, {"provider": "openai"})
+    assert meta["id"] == "test-usage-1"
+    assert meta["provider"] == "openai"
+    assert meta["usage"] == {
+        "prompt_tokens": 10,
+        "completion_tokens": 20,
+        "total_tokens": 30,
+    }
+
+
+def test_stream_handler_case_insensitivity():
+    """StreamHandler routes providers regardless of string casing."""
+    raw = [
+        _mock_packet(
+            {
+                "id": "test-case-1",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "Test case"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+        )
+    ]
+    chunks = list(StreamHandler.process_stream(iter(raw), llm_provider="OpenAI"))
+    assert len(chunks) == 1
+    assert chunks[0].metadata.get("provider") == "openai"
+
+    dummy_chunk = MagicMock(spec=LLMChatResponseChunk)
+    with patch(
+        "dapr_agents.llm.anthropic.utils.process_anthropic_stream",
+        return_value=iter([dummy_chunk]),
+    ) as mock_proc:
+        chunks_anthropic = list(
+            StreamHandler.process_stream(iter([]), llm_provider="Anthropic")
+        )
+        assert chunks_anthropic == [dummy_chunk]
+        assert mock_proc.call_args[1]["enrich_metadata"] == {"provider": "anthropic"}
+
+
+def test_process_choice_delta_stream_multiple_choices_in_packet():
+    """process_choice_delta_stream yields chunks for all choices in a packet."""
+    raw = [
+        _mock_packet(
+            {
+                "id": "multi-choice-1",
+                "choices": [
+                    {"index": 0, "delta": {"content": "Candidate 0"}},
+                    {"index": 1, "delta": {"content": "Candidate 1"}},
+                ],
+            }
+        )
+    ]
+    chunks = list(process_choice_delta_stream(iter(raw)))
+    assert len(chunks) == 2
+    assert chunks[0].result.index == 0
+    assert chunks[0].result.content == "Candidate 0"
+    assert chunks[0].metadata.get("first_chunk") is True
+
+    assert chunks[1].result.index == 1
+    assert chunks[1].result.content == "Candidate 1"
+    assert "first_chunk" not in chunks[1].metadata
+
+
+def test_process_choice_delta_stream_closes_raw_stream():
+    """process_choice_delta_stream closes raw_stream on normal exit and early break."""
+    close_mock = MagicMock()
+
+    class ClosableStream:
+        def __iter__(self):
+            yield _mock_packet(
+                {"id": "c1", "choices": [{"index": 0, "delta": {"content": "1"}}]}
+            )
+            yield _mock_packet(
+                {"id": "c2", "choices": [{"index": 0, "delta": {"content": "2"}}]}
+            )
+
+        def close(self):
+            close_mock()
+
+    # Normal completion
+    list(process_choice_delta_stream(ClosableStream()))
+    assert close_mock.call_count == 1
+
+    # Early break
+    close_mock.reset_mock()
+    for chunk in process_choice_delta_stream(ClosableStream()):
+        if chunk.result.content == "1":
+            break
+    assert close_mock.call_count == 1
+
+
+def test_process_choice_delta_malformed_tool_call():
+    """process_choice_delta safely ignores malformed tool_call entries without crashing."""
+    choice = {
+        "index": 0,
+        "delta": {
+            "tool_calls": [
+                "not-a-dict-tool-call",
+                {"index": 0, "function": {"name": "valid_fn", "arguments": "{}"}},
+            ]
+        },
+    }
+    chunks = list(process_choice_delta(choice, overall_meta={}))
+    assert len(chunks) == 1
+    assert len(chunks[0].result.tool_calls) == 1
+    assert chunks[0].result.tool_calls[0].function.name == "valid_fn"

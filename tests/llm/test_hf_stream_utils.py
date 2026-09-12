@@ -98,6 +98,11 @@ def test_hf_stream_content_reconstructs_message():
     assert final.result.finish_reason is None
     assert final.metadata is not None
     assert final.metadata.get("model") == "meta-llama/Llama-3.1-8B-Instruct"
+    assert final.metadata.get("usage") == {
+        "completion_tokens": 12,
+        "prompt_tokens": 30,
+        "total_tokens": 42,
+    }
 
 
 def test_hf_stream_tool_calls_reconstruct():

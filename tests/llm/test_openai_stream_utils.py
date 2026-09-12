@@ -103,6 +103,11 @@ def test_usage_only_final_packet_yields_valid_chunk():
     assert final.result.finish_reason is None
     assert final.metadata is not None
     assert final.metadata.get("model") == "gpt-4o-mini"
+    assert final.metadata.get("usage") == {
+        "completion_tokens": 238,
+        "prompt_tokens": 638,
+        "total_tokens": 876,
+    }
 
 
 def test_content_chunks_reconstruct_full_message():
