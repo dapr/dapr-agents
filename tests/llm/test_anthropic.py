@@ -29,6 +29,7 @@ from dapr_agents.types.message import (
     ToolCall,
     UserMessage,
 )
+from tests.llm.streaming_test_harness import StreamingComplianceHarness
 
 
 def _stream_cm(events: Iterable):
@@ -385,14 +386,14 @@ def test_anthropic_generate_streaming(mock_anthropic_class):
     client = AnthropicChatClient(api_key="fake-key")
     chunks = list(client.generate("hi", stream=True))
 
-    assert chunks and all(isinstance(c, LLMChatResponseChunk) for c in chunks)
-    text = "".join(c.result.content or "" for c in chunks if c.result.content)
-    assert text == "Hello"
-    finish = [c.result.finish_reason for c in chunks if c.result.finish_reason]
-    assert finish == ["end_turn"]
+    StreamingComplianceHarness.assert_valid_stream_contract(chunks, "anthropic")
+    StreamingComplianceHarness.assert_reconstructs_text(
+        chunks, expected_text="Hello", expected_finish_reason="end_turn"
+    )
+    StreamingComplianceHarness.assert_snapshot_isolation(chunks)
+
     # metadata is enriched mid-stream from message_start + message_delta.usage
     last_meta = chunks[-1].metadata
-    assert last_meta["provider"] == "anthropic"
     assert last_meta["id"] == "msg_s"
     assert last_meta["model"] == "claude-opus-4-5"
     assert last_meta["usage"] == {"input_tokens": 2, "output_tokens": 2}
@@ -437,18 +438,19 @@ def test_anthropic_generate_streaming_tool_use(mock_anthropic_class):
     client = AnthropicChatClient(api_key="fake-key")
     chunks = list(client.generate("ask", stream=True))
 
-    tool_chunks = [tc for c in chunks for tc in (c.result.tool_calls or [])]
-    assert len(tool_chunks) == 3  # block_start + 2 json deltas
+    StreamingComplianceHarness.assert_valid_stream_contract(chunks, "anthropic")
+    StreamingComplianceHarness.assert_reconstructs_tool_calls(
+        chunks,
+        expected_tools=[{"name": "lookup", "arguments": {"q": "weather"}}],
+        expected_finish_reason="tool_use",
+    )
+    StreamingComplianceHarness.assert_snapshot_isolation(chunks)
 
-    start_chunk = tool_chunks[0]
-    assert start_chunk.id == "tu_1"
-    assert start_chunk.function.name == "lookup"
-    assert start_chunk.function.arguments == ""
-
-    args_concat = "".join(tc.function.arguments for tc in tool_chunks[1:])
-    assert json.loads(args_concat) == {"q": "weather"}
-
-    assert chunks[-1].result.finish_reason == "tool_use"
+    # Initial chunk carries tool id and name
+    first_tool_chunk = next(
+        tc for c in chunks for tc in (c.result.tool_calls or []) if tc.id
+    )
+    assert first_tool_chunk.id == "tu_1"
     assert chunks[-1].metadata["usage"] == {"input_tokens": 5, "output_tokens": 8}
 
 
@@ -1047,24 +1049,19 @@ def test_anthropic_stream_handler_integration():
         ),
     ]
 
-    received_chunks = []
-
-    def on_chunk(chunk):
-        received_chunks.append(chunk)
-
-    chunks = list(
-        StreamHandler.process_stream(
+    chunks = StreamingComplianceHarness.assert_on_chunk_callback_lifecycle(
+        lambda on_chunk: StreamHandler.process_stream(
             stream=events,
             llm_provider="anthropic",
             on_chunk=on_chunk,
         )
     )
 
-    assert len(chunks) == 2  # text_delta + message_delta
-    assert len(received_chunks) == 2
-    assert chunks[0].result.content == "Hello"
-    assert chunks[1].result.finish_reason == "end_turn"
-    assert chunks[1].metadata["provider"] == "anthropic"
+    StreamingComplianceHarness.assert_valid_stream_contract(chunks, "anthropic")
+    StreamingComplianceHarness.assert_reconstructs_text(
+        chunks, expected_text="Hello", expected_finish_reason="end_turn"
+    )
+    StreamingComplianceHarness.assert_snapshot_isolation(chunks)
 
 
 @patch("dapr_agents.llm.anthropic.client.Anthropic")
@@ -1133,17 +1130,14 @@ def test_anthropic_generate_passes_on_chunk_callback(mock_anthropic_class):
     mock_anthropic_class.return_value = sdk
 
     client = AnthropicChatClient(api_key="fake-key")
-    captured = []
-    chunks = list(
-        client.generate(
-            "hi", stream=True, on_chunk=lambda chunk: captured.append(chunk)
-        )
+    chunks = StreamingComplianceHarness.assert_on_chunk_callback_lifecycle(
+        lambda on_chunk: client.generate("hi", stream=True, on_chunk=on_chunk)
     )
 
-    assert len(chunks) == 3
-    assert len(captured) == 3
-    assert captured[0].result.content == "chunk1"
-    assert captured[1].result.content == "chunk2"
+    StreamingComplianceHarness.assert_valid_stream_contract(chunks, "anthropic")
+    StreamingComplianceHarness.assert_reconstructs_text(
+        chunks, expected_text="chunk1chunk2", expected_finish_reason="end_turn"
+    )
 
 
 @patch("dapr_agents.llm.anthropic.client.Anthropic")
@@ -1199,7 +1193,16 @@ def test_anthropic_streaming_thinking_events_captured_in_metadata(mock_anthropic
     client = AnthropicChatClient(api_key="fake-key")
     chunks = list(client.generate("solve puzzle", stream=True))
 
-    assert len(chunks) == 3  # Partial answer 1, Final answer, message_delta
+    StreamingComplianceHarness.assert_valid_stream_contract(
+        chunks, "anthropic", expected_min_chunks=3
+    )
+    StreamingComplianceHarness.assert_reconstructs_text(
+        chunks,
+        expected_text="Partial answer 1Final answer",
+        expected_finish_reason="end_turn",
+    )
+    StreamingComplianceHarness.assert_snapshot_isolation(chunks)
+
     first_chunk = chunks[0]
     last_chunk = chunks[-1]
 
@@ -1393,23 +1396,26 @@ def test_anthropic_process_stream_with_dict_events():
     ]
 
     chunks = list(process_anthropic_stream(dict_events))
-    assert (
-        len(chunks) == 5
-    )  # tool_use start, 2 partial JSONs, text delta, message_delta
+
+    StreamingComplianceHarness.assert_valid_stream_contract(
+        chunks, expected_provider="anthropic", expected_min_chunks=5
+    )
+    StreamingComplianceHarness.assert_reconstructs_text(
+        chunks, expected_text="Done!", expected_finish_reason="end_turn"
+    )
+    StreamingComplianceHarness.assert_reconstructs_tool_calls(
+        chunks,
+        expected_tools=[{"name": "calc", "arguments": {"x": 10}}],
+        expected_finish_reason="end_turn",
+    )
+    StreamingComplianceHarness.assert_snapshot_isolation(chunks)
 
     first_chunk = chunks[0]
     assert first_chunk.metadata["id"] == "msg_stream_dict"
     assert first_chunk.metadata["model"] == "claude-3-7-sonnet"
-    assert first_chunk.result.tool_calls[0].function.name == "calc"
     assert first_chunk.result.tool_calls[0].id == "toolu_abc"
 
-    # Text chunk
-    text_chunk = chunks[3]
-    assert text_chunk.result.content == "Done!"
-
-    # Final chunk
     final_chunk = chunks[4]
-    assert final_chunk.result.finish_reason == "end_turn"
     assert final_chunk.metadata["usage"] == {"output_tokens": 20}
     assert final_chunk.metadata["thinking_blocks"] == ["Reasoning..."]
     assert final_chunk.metadata["thinking_deltas"] == [" more thought"]
