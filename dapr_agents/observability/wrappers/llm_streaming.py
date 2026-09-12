@@ -35,6 +35,7 @@ from ..constants import (
     StatusCode,
     safe_json_dumps,
 )
+from ..message_processors import extract_usage_values
 from dapr_agents.types.message import LLMChatResponse
 from dapr_agents.types.streaming import AssistantMessageAccumulator
 
@@ -315,15 +316,14 @@ class LLMStreamingMixin:
                     GEN_AI_RESPONSE_FINISH_REASONS,
                     safe_json_dumps([str(finish_reason)]),
                 )
-            usage = metadata.get("usage") if metadata else None
-            if isinstance(usage, dict):
-                if "prompt_tokens" in usage:
-                    span.set_attribute(
-                        GEN_AI_USAGE_INPUT_TOKENS, int(usage["prompt_tokens"])
-                    )
-                if "completion_tokens" in usage:
-                    span.set_attribute(
-                        GEN_AI_USAGE_OUTPUT_TOKENS, int(usage["completion_tokens"])
-                    )
+            usage_values = extract_usage_values(metadata)
+            if "prompt_tokens" in usage_values:
+                span.set_attribute(
+                    GEN_AI_USAGE_INPUT_TOKENS, int(usage_values["prompt_tokens"])
+                )
+            if "completion_tokens" in usage_values:
+                span.set_attribute(
+                    GEN_AI_USAGE_OUTPUT_TOKENS, int(usage_values["completion_tokens"])
+                )
         except Exception as exc:  # noqa: BLE001 - never break the stream
             logger.debug("LLMWrapper streaming attribute set failed: %s", exc)

@@ -44,6 +44,7 @@ from ..message_processors import (
     convert_messages_to_genai_format,
     convert_messages_to_openinference,
     extract_token_usage,
+    extract_usage_values,
     extract_tool_schemas,
     get_input_message_attributes,
     get_output_message_attributes,
@@ -502,28 +503,20 @@ class LLMWrapper(LLMStreamingMixin):
             span.set_attribute(attr_key, attr_value)
 
         # GenAI semconv token attributes
-        usage = None
-        if isinstance(metadata, dict) and "usage" in metadata:
-            usage = metadata["usage"]
-        elif hasattr(metadata, "usage"):
-            usage = metadata.usage
+        usage_values = extract_usage_values(metadata)
+        if "prompt_tokens" in usage_values:
+            span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, usage_values["prompt_tokens"])
+        if "completion_tokens" in usage_values:
+            span.set_attribute(
+                GEN_AI_USAGE_OUTPUT_TOKENS, usage_values["completion_tokens"]
+            )
 
+        usage = (
+            metadata.get("usage")
+            if isinstance(metadata, dict)
+            else getattr(metadata, "usage", None)
+        )
         if usage is not None:
-            input_tokens = (
-                usage.get("prompt_tokens")
-                if isinstance(usage, dict)
-                else getattr(usage, "prompt_tokens", None)
-            )
-            output_tokens = (
-                usage.get("completion_tokens")
-                if isinstance(usage, dict)
-                else getattr(usage, "completion_tokens", None)
-            )
-            if input_tokens is not None:
-                span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, input_tokens)
-            if output_tokens is not None:
-                span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, output_tokens)
-
             # Cache token details (spec-defined, not yet in Python semconv pkg)
             prompt_details = (
                 usage.get("prompt_tokens_details")
