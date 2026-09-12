@@ -17,125 +17,30 @@ from typing import Any, Callable, Dict, Iterator, Optional
 
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
+from dapr_agents.llm.utils.stream import (
+    extract_packet_metadata as _get_packet_metadata,
+    process_choice_delta as _process_choice_delta,
+    process_choice_delta_stream,
+)
 from dapr_agents.types.message import (
     AssistantMessage,
     FunctionCall,
     LLMChatCandidate,
-    LLMChatCandidateChunk,
-    LLMChatResponseChunk,
     LLMChatResponse,
+    LLMChatResponseChunk,
     ToolCall,
-    ToolCallChunk,
 )
 
 logger = logging.getLogger(__name__)
 
 
-# Helper function to handle metadata extraction
-def _get_packet_metadata(
-    pkt: Dict[str, Any], enrich_metadata: Optional[Dict[str, Any]]
-) -> Dict[str, Any]:
-    """
-    Extract metadata from OpenAI packet and merge with enrich_metadata.
-
-    Args:
-        pkt (Dict[str, Any]): The OpenAI packet from which to extract metadata.
-        enrich_metadata (Optional[Dict[str, Any]]): Additional metadata to merge with the extracted metadata.
-
-    Returns:
-        Dict[str, Any]: The merged metadata dictionary.
-    """
-
-    try:
-        return {
-            "id": pkt.get("id"),
-            "created": pkt.get("created"),
-            "model": pkt.get("model"),
-            "object": pkt.get("object"),
-            "service_tier": pkt.get("service_tier"),
-            "system_fingerprint": pkt.get("system_fingerprint"),
-            **(enrich_metadata or {}),
-        }
-    except Exception as e:
-        logger.error(f"Failed to parse packet: {e}", exc_info=True)
-        return {}
-
-
-# Helper function to process each choice delta (content, function call, tool call, finish reason)
-def _process_choice_delta(
-    choice: Dict[str, Any],
-    overall_meta: Dict[str, Any],
-    on_chunk: Optional[Callable],
-    first_chunk_flag: bool,
-) -> Iterator[LLMChatResponseChunk]:
-    """
-    Process each choice delta and yield corresponding chunks.
-
-    Args:
-        choice (Dict[str, Any]): The choice delta from OpenAI response.
-        overall_meta (Dict[str, Any]): Overall metadata to include in chunks.
-        on_chunk (Optional[Callable]): Callback for each chunk.
-        first_chunk_flag (bool): Flag indicating if this is the first chunk.
-
-    Yields:
-        LLMChatResponseChunk: The processed chunk with content, function call, tool calls,
-    """
-    # Make an immutable snapshot for this single chunk
-    meta = {**overall_meta}
-
-    # mark first_chunk exactly once
-    if first_chunk_flag and "first_chunk" not in meta:
-        meta["first_chunk"] = True
-
-    # Extract initial properties from choice
-    delta: dict = choice.get("delta", {})
-    idx = choice.get("index")
-    finish_reason = choice.get("finish_reason", None)
-    logprobs = choice.get("logprobs", None)
-
-    # Set additional metadata
-    if finish_reason in ("stop", "tool_calls"):
-        meta["last_chunk"] = True
-
-    # Process content delta
-    content = delta.get("content", None)
-    function_call = delta.get("function_call", None)
-    refusal = delta.get("refusal", None)
-    role = delta.get("role", None)
-
-    # Process tool calls
-    chunk_tool_calls = [ToolCallChunk(**tc) for tc in (delta.get("tool_calls") or [])]
-
-    # Initialize LLMChatResponseChunk
-    response_chunk = LLMChatResponseChunk(
-        result=LLMChatCandidateChunk(
-            content=content,
-            function_call=function_call,
-            refusal=refusal,
-            role=role,
-            tool_calls=chunk_tool_calls,
-            finish_reason=finish_reason,
-            index=idx,
-            logprobs=logprobs,
-        ),
-        metadata=meta,
-    )
-    # Process chunk with on_chunk callback
-    if on_chunk:
-        on_chunk(response_chunk)
-    # Yield LLMChatResponseChunk
-    yield response_chunk
-
-
-# Main function to process OpenAI streaming response
 def process_openai_stream(
     raw_stream: Iterator[ChatCompletionChunk],
     *,
     enrich_metadata: Optional[Dict[str, Any]] = None,
-    on_chunk: Optional[Callable],
+    on_chunk: Optional[Callable] = None,
 ) -> Iterator[LLMChatResponseChunk]:
-    """
-    Normalize OpenAI streaming chat into LLMChatResponseChunk objects,
+    """Normalize OpenAI streaming chat into LLMChatResponseChunk objects,
     accumulating buffers per choice and yielding both partial and final chunks.
 
     Args:
@@ -146,53 +51,11 @@ def process_openai_stream(
     Yields:
         LLMChatResponseChunk for every partial and final piece, in stream order
     """
-    enrich_metadata = enrich_metadata or {}
-    overall_meta: Dict[str, Any] = {}
-
-    # Track if we are in the first chunk
-    first_chunk_flag = True
-
-    for packet in raw_stream:
-        # Convert Pydantic / OpenAIObject → plain dict
-        if hasattr(packet, "model_dump"):
-            pkt = packet.model_dump()
-        elif hasattr(packet, "to_dict"):
-            pkt = packet.to_dict()
-        elif dataclasses.is_dataclass(packet):
-            pkt = dataclasses.asdict(packet)
-        else:
-            raise TypeError(f"Cannot serialize packet of type {type(packet)}")
-
-        # Capture overall metadata from the packet
-        overall_meta = _get_packet_metadata(pkt, enrich_metadata)
-
-        # Process each choice in this packet
-        if choices := pkt.get("choices"):
-            if len(choices) == 0:
-                logger.warning("Received empty 'choices' in OpenAI packet, skipping.")
-                continue
-            # Process the first choice in the packet
-            choice = choices[0]
-            yield from _process_choice_delta(
-                choice, overall_meta, on_chunk, first_chunk_flag
-            )
-            # Set first_chunk_flag to False after processing the first choice
-            first_chunk_flag = False
-        else:
-            logger.debug(
-                "Yielding final packet without 'choices' (usage-only): %s", pkt
-            )
-            # Final usage-only packet (empty ``choices``) sent by OpenAI when
-            # ``stream_options.include_usage`` is on. ``result`` is required on
-            # LLMChatResponseChunk, so carry an empty candidate; the usage data
-            # rides along in ``metadata`` and is folded into TURN_COMPLETE.
-            final_response_chunk = LLMChatResponseChunk(
-                result=LLMChatCandidateChunk(),
-                metadata=overall_meta,
-            )
-            if on_chunk:
-                on_chunk(final_response_chunk)
-            yield final_response_chunk
+    yield from process_choice_delta_stream(
+        raw_stream=raw_stream,
+        enrich_metadata=enrich_metadata,
+        on_chunk=on_chunk,
+    )
 
 
 def process_openai_chat_response(openai_response: ChatCompletion) -> LLMChatResponse:
@@ -287,3 +150,11 @@ def process_openai_chat_response(openai_response: ChatCompletion) -> LLMChatResp
     }
 
     return LLMChatResponse(results=candidates, metadata=metadata)
+
+
+__all__ = [
+    "process_openai_stream",
+    "process_openai_chat_response",
+    "_get_packet_metadata",
+    "_process_choice_delta",
+]
