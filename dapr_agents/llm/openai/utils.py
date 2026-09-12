@@ -190,6 +190,8 @@ def process_openai_stream(
                 result=LLMChatCandidateChunk(),
                 metadata=overall_meta,
             )
+            if on_chunk:
+                on_chunk(final_response_chunk)
             yield final_response_chunk
 
 

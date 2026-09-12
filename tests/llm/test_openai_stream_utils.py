@@ -11,19 +11,13 @@
 # limitations under the License.
 #
 
-"""Regression tests for OpenAI streaming chunk normalization.
-
-Focus: the final usage-only packet OpenAI emits when
-``stream_options.include_usage`` is enabled carries an empty ``choices`` list.
-That packet must still produce a valid ``LLMChatResponseChunk`` (whose
-``result`` field is required) rather than raising a Pydantic validation error
-inside the workflow's ``call_llm`` activity.
-"""
+"""Regression and compliance tests for OpenAI streaming chunk normalization."""
 
 from unittest.mock import MagicMock
 
 from dapr_agents.llm.openai.utils import process_openai_stream
 from dapr_agents.types.message import LLMChatResponseChunk
+from tests.llm.streaming_test_harness import StreamingComplianceHarness
 
 
 def _packet(data: dict) -> MagicMock:
@@ -35,6 +29,23 @@ def _packet(data: dict) -> MagicMock:
 
 def _content_packet(content: str, *, finish_reason=None, role=None) -> MagicMock:
     delta: dict = {"content": content}
+    if role:
+        delta["role"] = role
+    return _packet(
+        {
+            "id": "chatcmpl-1",
+            "created": 1,
+            "model": "gpt-4o-mini",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+        }
+    )
+
+
+def _tool_call_packet(
+    tool_calls: list[dict], *, finish_reason=None, role=None
+) -> MagicMock:
+    delta: dict = {"tool_calls": tool_calls}
     if role:
         delta["role"] = role
     return _packet(
@@ -74,12 +85,16 @@ def test_usage_only_final_packet_yields_valid_chunk():
         _usage_only_packet(),
     ]
 
-    chunks = list(process_openai_stream(iter(raw), on_chunk=None))
+    chunks = list(
+        process_openai_stream(
+            iter(raw), enrich_metadata={"provider": "openai"}, on_chunk=None
+        )
+    )
 
-    # Every yielded item is a valid response chunk with a populated result.
-    assert len(chunks) == 3
-    assert all(isinstance(c, LLMChatResponseChunk) for c in chunks)
-    assert all(c.result is not None for c in chunks)
+    # Validate against compliance harness contract
+    StreamingComplianceHarness.assert_valid_stream_contract(
+        chunks, expected_provider="openai", expected_min_chunks=3
+    )
 
     # The terminal usage packet carries an empty candidate (no content/finish)
     # but preserves provider metadata for downstream TURN_COMPLETE attribution.
@@ -98,6 +113,86 @@ def test_content_chunks_reconstruct_full_message():
         _usage_only_packet(),
     ]
 
-    chunks = list(process_openai_stream(iter(raw), on_chunk=None))
-    text = "".join(c.result.content or "" for c in chunks)
-    assert text == "Hello"
+    chunks = list(
+        process_openai_stream(
+            iter(raw), enrich_metadata={"provider": "openai"}, on_chunk=None
+        )
+    )
+    StreamingComplianceHarness.assert_valid_stream_contract(
+        chunks, expected_provider="openai"
+    )
+    StreamingComplianceHarness.assert_reconstructs_text(chunks, expected_text="Hello")
+
+
+def test_tool_call_chunks_reconstruct_tool_call():
+    """Tool call deltas reconstruct into complete ToolCall with arguments."""
+    raw = [
+        _tool_call_packet(
+            [
+                {
+                    "index": 0,
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "get_weather", "arguments": ""},
+                }
+            ],
+            role="assistant",
+        ),
+        _tool_call_packet(
+            [
+                {
+                    "index": 0,
+                    "function": {"arguments": '{"location": "San Francisco"}'},
+                }
+            ],
+            finish_reason="tool_calls",
+        ),
+        _usage_only_packet(),
+    ]
+
+    chunks = list(
+        process_openai_stream(
+            iter(raw), enrich_metadata={"provider": "openai"}, on_chunk=None
+        )
+    )
+    StreamingComplianceHarness.assert_valid_stream_contract(
+        chunks, expected_provider="openai"
+    )
+    StreamingComplianceHarness.assert_reconstructs_tool_calls(
+        chunks,
+        expected_tools=[
+            {"name": "get_weather", "arguments": {"location": "San Francisco"}}
+        ],
+        expected_finish_reason="tool_calls",
+    )
+
+
+def test_openai_stream_on_chunk_callback_lifecycle():
+    """Verify on_chunk callback receives every yielded chunk in order."""
+    raw = [
+        _content_packet("Hi", role="assistant"),
+        _content_packet(" there", finish_reason="stop"),
+        _usage_only_packet(),
+    ]
+
+    StreamingComplianceHarness.assert_on_chunk_callback_lifecycle(
+        lambda on_chunk: process_openai_stream(
+            iter(raw), enrich_metadata={"provider": "openai"}, on_chunk=on_chunk
+        )
+    )
+
+
+def test_openai_stream_snapshot_isolation():
+    """Verify earlier chunk metadata dicts are not mutated by later events."""
+    raw = [
+        _content_packet("One", role="assistant"),
+        _content_packet(" Two", finish_reason="stop"),
+        _usage_only_packet(),
+    ]
+
+    chunks = list(
+        process_openai_stream(
+            iter(raw), enrich_metadata={"provider": "openai"}, on_chunk=None
+        )
+    )
+    StreamingComplianceHarness.assert_snapshot_isolation(chunks)
