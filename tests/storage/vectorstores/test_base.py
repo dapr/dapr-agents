@@ -51,7 +51,7 @@ class TestVectorStoreBaseAddDocuments:
 
         store.add_documents(documents)
 
-        assert store.last_metadatas == [None, {"source": "file2"}]
+        assert store.last_metadatas == [{}, {"source": "file2"}]
 
     def test_passes_none_when_no_document_has_metadata(self):
         store = RecordingVectorStore()
@@ -70,4 +70,4 @@ class TestVectorStoreBaseAddDocuments:
 
         store.add_documents(documents)
 
-        assert store.last_metadatas == [{"source": "file1"}, None]
+        assert store.last_metadatas == [{"source": "file1"}, {}]
