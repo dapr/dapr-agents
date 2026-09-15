@@ -94,12 +94,12 @@ class ToolHelper:
         fields = {}
         has_type_hints = False
 
-        for name, param in sig.parameters.items():
+        for param_name, param in sig.parameters.items():
             field_type = (
                 param.annotation if param.annotation != Parameter.empty else str
             )
             has_type_hints = has_type_hints or param.annotation != Parameter.empty
-            fields[name] = (
+            fields[param_name] = (
                 field_type,
                 Field(default=param.default)
                 if param.default != Parameter.empty
