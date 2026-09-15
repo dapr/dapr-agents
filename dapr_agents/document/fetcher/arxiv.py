@@ -301,7 +301,7 @@ class ArxivFetcher(FetcherBase):
             except ValueError as e:
                 raise ValueError(f"Invalid date value: {date}. {str(e)}")
 
-            return date
+            return date if len(date) == 12 else date + "0000"
         elif isinstance(date, datetime):
             return date.strftime("%Y%m%d%H%M")
         else:

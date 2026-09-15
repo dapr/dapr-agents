@@ -48,8 +48,12 @@ class StringPromptTemplate(PromptTemplateBase):
             self.template, self.template_format
         )
 
-        # Check for missing variables
-        missing_vars = [var for var in input_variables if var not in kwargs]
+        # Merge pre-filled variables in before validating what's missing, or a
+        # variable pre-filled via pre_fill_variables() would wrongly be
+        # reported as missing when it's not also re-passed here.
+        all_variables = self.prepare_variables_for_formatting(**kwargs)
+
+        missing_vars = [var for var in input_variables if var not in all_variables]
         if missing_vars:
             raise ValueError(f"Missing required variables in template: {missing_vars}")
 
@@ -58,12 +62,9 @@ class StringPromptTemplate(PromptTemplateBase):
         if extra_variables:
             raise ValueError(f"Undeclared variables were passed: {extra_variables}")
 
-        # Prepare the variables for formatting
-        kwargs = self.prepare_variables_for_formatting(**kwargs)
-
         # Use the helper to format the content
         return StringPromptHelper.format_content(
-            self.template, self.template_format, **kwargs
+            self.template, self.template_format, **all_variables
         )
 
     @classmethod
