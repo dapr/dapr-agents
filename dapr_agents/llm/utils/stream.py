@@ -14,6 +14,7 @@
 import dataclasses
 import logging
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import (
     Any,
     Callable,
@@ -142,7 +143,9 @@ def process_choice_delta(
     yield response_chunk
 
 
-_active_managed_streams: set[int] = set()
+_active_managed_streams: ContextVar[frozenset[int]] = ContextVar(
+    "_active_managed_streams", default=frozenset()
+)
 
 
 @contextmanager
@@ -156,13 +159,17 @@ def managed_stream(stream: Any) -> Iterator[Any]:
     Cleanup failures are logged and then re-raised. If the body itself
     raised, the cleanup exception propagates with the original exception
     attached as `__context__`.
+
+    Tracks active managed stream IDs in task/thread-isolated ContextVar
+    to ensure idempotency when stream helpers are composed or nested.
     """
     stream_id = id(stream)
-    if stream_id in _active_managed_streams:
+    active = _active_managed_streams.get()
+    if stream_id in active:
         yield stream
         return
 
-    _active_managed_streams.add(stream_id)
+    token = _active_managed_streams.set(active | {stream_id})
     try:
         enter = getattr(stream, "__enter__", None)
         exit_ = getattr(stream, "__exit__", None)
@@ -183,7 +190,7 @@ def managed_stream(stream: Any) -> Iterator[Any]:
         else:
             yield stream
     finally:
-        _active_managed_streams.discard(stream_id)
+        _active_managed_streams.reset(token)
 
 
 def process_choice_delta_stream(
@@ -298,6 +305,10 @@ class StreamHandler:
                     raw_stream=s,
                     enrich_metadata={"provider": provider},
                     on_chunk=on_chunk,
+                )
+            else:
+                raise ValueError(
+                    f"Streaming not supported for provider: {llm_provider}"
                 )
 
 

@@ -401,6 +401,79 @@ def test_stream_handler_closes_raw_stream():
     assert close_mock.call_count == 1
 
 
+def test_stream_handler_exits_context_manager():
+    """StreamHandler.process_stream exits context manager stream on normal exit and early break."""
+    exit_mock = MagicMock()
+
+    class CMStream:
+        def __enter__(self):
+            return [
+                _mock_packet(
+                    {"id": "c1", "choices": [{"index": 0, "delta": {"content": "1"}}]}
+                ),
+                _mock_packet(
+                    {"id": "c2", "choices": [{"index": 0, "delta": {"content": "2"}}]}
+                ),
+            ]
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            exit_mock()
+
+    # Normal completion
+    list(StreamHandler.process_stream(CMStream(), llm_provider="openai"))
+    assert exit_mock.call_count == 1
+
+    # Early break
+    exit_mock.reset_mock()
+    for chunk in StreamHandler.process_stream(CMStream(), llm_provider="openai"):
+        if chunk.result.content == "1":
+            break
+    assert exit_mock.call_count == 1
+
+
+def test_stream_handler_closes_anthropic_stream():
+    """StreamHandler.process_stream closes raw stream for Anthropic provider."""
+    close_mock = MagicMock()
+
+    class ClosableAnthropicStream:
+        def __iter__(self):
+            yield {
+                "type": "message_start",
+                "message": {
+                    "id": "msg-1",
+                    "role": "assistant",
+                    "usage": {"input_tokens": 5, "output_tokens": 1},
+                },
+            }
+
+        def close(self):
+            close_mock()
+
+    list(
+        StreamHandler.process_stream(
+            ClosableAnthropicStream(), llm_provider="anthropic"
+        )
+    )
+    assert close_mock.call_count == 1
+
+
+def test_stream_handler_unhandled_streaming_provider():
+    """StreamHandler raises ValueError defensively if a provider in PROVIDERS_WITH_STREAMING is unhandled."""
+    with patch(
+        "dapr_agents.llm.utils.stream.PROVIDERS_WITH_STREAMING",
+        ("mock_future_provider",),
+    ):
+        with pytest.raises(
+            ValueError,
+            match="Streaming not supported for provider: mock_future_provider",
+        ):
+            list(
+                StreamHandler.process_stream(
+                    iter([]), llm_provider="mock_future_provider"
+                )
+            )
+
+
 def test_process_choice_delta_malformed_tool_call():
     """process_choice_delta safely ignores malformed tool_call entries without crashing."""
     choice = {
