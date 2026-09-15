@@ -17,19 +17,13 @@ from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 import pytest
 
-from dapr_agents.llm.huggingface.utils import (
-    _get_packet_metadata as hf_get_packet_metadata,
-    _process_choice_delta as hf_process_choice_delta,
-    process_hf_stream,
-)
-from dapr_agents.llm.openai.utils import (
-    _get_packet_metadata as openai_get_packet_metadata,
-    _process_choice_delta as openai_process_choice_delta,
-    process_openai_stream,
-)
+from dapr_agents.llm.huggingface.utils import process_hf_stream
+from dapr_agents.llm.openai.utils import process_openai_stream
+from dapr_agents.llm.utils.providers import PROVIDERS_WITH_STREAMING
 from dapr_agents.llm.utils.stream import (
     StreamHandler,
     extract_packet_metadata,
+    managed_stream,
     process_choice_delta,
     process_choice_delta_stream,
 )
@@ -58,18 +52,99 @@ class _ToDictPacket:
         return self._data
 
 
-def test_backward_compatible_shims():
-    """Verify backward-compatible shims match centralized helpers."""
-    assert openai_get_packet_metadata is extract_packet_metadata
-    assert hf_get_packet_metadata is extract_packet_metadata
-    assert openai_process_choice_delta is process_choice_delta
-    assert hf_process_choice_delta is process_choice_delta
+def test_managed_stream_with_context_manager():
+    """managed_stream enters and exits context managers cleanly."""
+    entered = False
+    exited = False
 
-    pkt = {"id": "test-1", "model": "gpt-4o", "created": 123}
-    meta = openai_get_packet_metadata(pkt, {"extra": "val"})
-    assert meta["id"] == "test-1"
-    assert meta["model"] == "gpt-4o"
-    assert meta["extra"] == "val"
+    class CM:
+        def __enter__(self):
+            nonlocal entered
+            entered = True
+            return ["chunk1", "chunk2"]
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            nonlocal exited
+            exited = True
+
+    cm = CM()
+    with managed_stream(cm) as s:
+        assert entered is True
+        assert exited is False
+        assert list(s) == ["chunk1", "chunk2"]
+    assert exited is True
+
+
+def test_managed_stream_with_closable():
+    """managed_stream closes streams that have a close() method."""
+    close_called = False
+
+    class Closable:
+        def __iter__(self):
+            yield 1
+            yield 2
+
+        def close(self):
+            nonlocal close_called
+            close_called = True
+
+    closable = Closable()
+    with managed_stream(closable) as s:
+        assert list(s) == [1, 2]
+        assert close_called is False
+    assert close_called is True
+
+
+def test_managed_stream_plain_iterator():
+    """managed_stream yields plain iterators unchanged without error."""
+    plain = [1, 2, 3]
+    with managed_stream(iter(plain)) as s:
+        assert list(s) == [1, 2, 3]
+
+
+def test_managed_stream_reraises_close_failure():
+    """managed_stream logs and re-raises exceptions from close()."""
+
+    class BadClose:
+        def close(self):
+            raise RuntimeError("close failed")
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        with managed_stream(BadClose()):
+            pass
+
+
+def test_managed_stream_nested_idempotency():
+    """Nested managed_stream contexts avoid double entering or double closing."""
+    close_mock = MagicMock()
+
+    class Closable:
+        def close(self):
+            close_mock()
+
+    closable = Closable()
+    with managed_stream(closable) as s1:
+        with managed_stream(s1) as s2:
+            assert s1 is s2
+            assert close_mock.call_count == 0
+        # Inner exit did not close early
+        assert close_mock.call_count == 0
+    # Outer exit closes once
+    assert close_mock.call_count == 1
+
+
+def test_providers_with_streaming_contains_all_supported():
+    """PROVIDERS_WITH_STREAMING contains all providers supported by StreamHandler."""
+    expected = {
+        "openai",
+        "nvidia",
+        "litellm",
+        "anthropic",
+        "claude",
+        "huggingface",
+        "iflytek",
+    }
+    assert set(PROVIDERS_WITH_STREAMING) == expected
 
 
 @pytest.mark.parametrize(
@@ -293,6 +368,34 @@ def test_process_choice_delta_stream_closes_raw_stream():
     # Early break
     close_mock.reset_mock()
     for chunk in process_choice_delta_stream(ClosableStream()):
+        if chunk.result.content == "1":
+            break
+    assert close_mock.call_count == 1
+
+
+def test_stream_handler_closes_raw_stream():
+    """StreamHandler.process_stream closes raw_stream on normal exit and early break."""
+    close_mock = MagicMock()
+
+    class ClosableStream:
+        def __iter__(self):
+            yield _mock_packet(
+                {"id": "c1", "choices": [{"index": 0, "delta": {"content": "1"}}]}
+            )
+            yield _mock_packet(
+                {"id": "c2", "choices": [{"index": 0, "delta": {"content": "2"}}]}
+            )
+
+        def close(self):
+            close_mock()
+
+    # Normal completion
+    list(StreamHandler.process_stream(ClosableStream(), llm_provider="openai"))
+    assert close_mock.call_count == 1
+
+    # Early break
+    close_mock.reset_mock()
+    for chunk in StreamHandler.process_stream(ClosableStream(), llm_provider="openai"):
         if chunk.result.content == "1":
             break
     assert close_mock.call_count == 1

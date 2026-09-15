@@ -17,11 +17,7 @@ from typing import Any, Callable, Dict, Iterator, Optional
 
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
-from dapr_agents.llm.utils.stream import (
-    extract_packet_metadata as _get_packet_metadata,
-    process_choice_delta as _process_choice_delta,
-    process_choice_delta_stream,
-)
+from dapr_agents.llm.utils.stream import process_choice_delta_stream
 from dapr_agents.types.message import (
     AssistantMessage,
     FunctionCall,
@@ -155,6 +151,4 @@ def process_openai_chat_response(openai_response: ChatCompletion) -> LLMChatResp
 __all__ = [
     "process_openai_stream",
     "process_openai_chat_response",
-    "_get_packet_metadata",
-    "_process_choice_delta",
 ]

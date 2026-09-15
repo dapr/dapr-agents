@@ -13,6 +13,7 @@
 
 import dataclasses
 import logging
+from contextlib import contextmanager
 from typing import (
     Any,
     Callable,
@@ -24,6 +25,8 @@ from typing import (
 )
 
 from pydantic import BaseModel
+
+from dapr_agents.llm.utils.providers import PROVIDERS_WITH_STREAMING
 
 from dapr_agents.types.message import (
     LLMChatCandidateChunk,
@@ -65,10 +68,6 @@ def extract_packet_metadata(
     except Exception as e:
         logger.error(f"Failed to parse packet: {e}", exc_info=True)
         return {}
-
-
-# Backward-compatible alias
-_get_packet_metadata = extract_packet_metadata
 
 
 def process_choice_delta(
@@ -119,8 +118,8 @@ def process_choice_delta(
     for tc in delta.get("tool_calls") or []:
         try:
             chunk_tool_calls.append(ToolCallChunk(**tc))
-        except Exception as e:
-            logger.warning(f"Invalid tool_call entry in delta {tc}: {e}")
+        except Exception:
+            logger.warning(f"Invalid tool_call entry in delta {tc}", exc_info=True)
 
     # Initialize LLMChatResponseChunk
     response_chunk = LLMChatResponseChunk(
@@ -143,8 +142,48 @@ def process_choice_delta(
     yield response_chunk
 
 
-# Backward-compatible alias
-_process_choice_delta = process_choice_delta
+_active_managed_streams: set[int] = set()
+
+
+@contextmanager
+def managed_stream(stream: Any) -> Iterator[Any]:
+    """Normalize a stream-like object into a context manager.
+
+    - If `stream` is already a context manager, use it as-is.
+    - Otherwise, if it has `.close()`, call that on exit.
+    - Otherwise, yield it unchanged with no cleanup.
+
+    Cleanup failures are logged and then re-raised. If the body itself
+    raised, the cleanup exception propagates with the original exception
+    attached as `__context__`.
+    """
+    stream_id = id(stream)
+    if stream_id in _active_managed_streams:
+        yield stream
+        return
+
+    _active_managed_streams.add(stream_id)
+    try:
+        enter = getattr(stream, "__enter__", None)
+        exit_ = getattr(stream, "__exit__", None)
+        close = getattr(stream, "close", None)
+
+        if callable(enter) and callable(exit_):
+            with stream as s:
+                yield s if s is not None else stream
+        elif callable(close):
+            try:
+                yield stream
+            finally:
+                try:
+                    close()
+                except Exception:
+                    logger.debug("Failed to close streaming response", exc_info=True)
+                    raise
+        else:
+            yield stream
+    finally:
+        _active_managed_streams.discard(stream_id)
 
 
 def process_choice_delta_stream(
@@ -170,8 +209,8 @@ def process_choice_delta_stream(
     enrich_metadata = enrich_metadata or {}
     first_chunk_flag = True
 
-    try:
-        for packet in raw_stream:
+    with managed_stream(raw_stream) as stream:
+        for packet in stream:
             # Convert Pydantic / SDK object -> plain dict
             if hasattr(packet, "model_dump"):
                 pkt = packet.model_dump()
@@ -195,7 +234,7 @@ def process_choice_delta_stream(
                     first_chunk_flag = False
             else:
                 logger.debug(
-                    "Yielding final packet without 'choices' (usage-only): %s", pkt
+                    f"Yielding final packet without 'choices' (usage-only): {pkt}"
                 )
                 # Final usage-only packet (empty ``choices``) sent when usage reporting
                 # is enabled. ``result`` is required on LLMChatResponseChunk, so carry
@@ -208,14 +247,6 @@ def process_choice_delta_stream(
                 if on_chunk:
                     on_chunk(final_response_chunk)
                 yield final_response_chunk
-    finally:
-        if hasattr(raw_stream, "__exit__"):
-            raw_stream.__exit__(None, None, None)
-        elif hasattr(raw_stream, "close"):
-            try:
-                raw_stream.close()
-            except Exception:
-                pass
 
 
 class StreamHandler:
@@ -232,6 +263,9 @@ class StreamHandler:
     ) -> Iterator[LLMChatResponseChunk]:
         """Process a streaming chat completion.
 
+        Owns stream lifecycle and cleanup: ensures the underlying stream is
+        closed or context-exited upon completion, error, or consumer early break.
+
         Args:
             stream:           Raw stream object or iterator from the provider SDK.
             llm_provider:     Name of the LLM provider (e.g., "openai", "anthropic").
@@ -241,35 +275,36 @@ class StreamHandler:
             LLMChatResponseChunk: fully-typed chunks, partial and final.
         """
         provider = llm_provider.lower() if llm_provider else ""
-        if provider in (
-            "openai",
-            "nvidia",
-            "litellm",
-            "iflytek",
-            "huggingface",
-        ):
-            yield from process_choice_delta_stream(
-                raw_stream=stream,
-                enrich_metadata={"provider": provider},
-                on_chunk=on_chunk,
-            )
-        elif provider in ("anthropic", "claude"):
-            from dapr_agents.llm.anthropic.utils import process_anthropic_stream
-
-            yield from process_anthropic_stream(
-                raw_stream=stream,
-                enrich_metadata={"provider": provider},
-                on_chunk=on_chunk,
-            )
-        else:
+        if provider not in PROVIDERS_WITH_STREAMING:
             raise ValueError(f"Streaming not supported for provider: {llm_provider}")
+
+        with managed_stream(stream) as s:
+            if provider in (
+                "openai",
+                "nvidia",
+                "litellm",
+                "iflytek",
+                "huggingface",
+            ):
+                yield from process_choice_delta_stream(
+                    raw_stream=s,
+                    enrich_metadata={"provider": provider},
+                    on_chunk=on_chunk,
+                )
+            elif provider in ("anthropic", "claude"):
+                from dapr_agents.llm.anthropic.utils import process_anthropic_stream
+
+                yield from process_anthropic_stream(
+                    raw_stream=s,
+                    enrich_metadata={"provider": provider},
+                    on_chunk=on_chunk,
+                )
 
 
 __all__ = [
     "StreamHandler",
     "extract_packet_metadata",
+    "managed_stream",
     "process_choice_delta",
     "process_choice_delta_stream",
-    "_get_packet_metadata",
-    "_process_choice_delta",
 ]

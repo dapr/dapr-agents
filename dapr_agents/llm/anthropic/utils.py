@@ -44,6 +44,7 @@ from pydantic import BaseModel
 
 from dapr_agents.llm.anthropic.client import PROVIDER
 from dapr_agents.llm.utils import StructureHandler
+from dapr_agents.llm.utils.stream import managed_stream
 from dapr_agents.tool.utils.function_calling import to_claude_function_call_definition
 from dapr_agents.types.message import (
     AssistantMessage,
@@ -546,10 +547,7 @@ def process_anthropic_stream(
     """
     meta: dict[str, Any] = {"provider": PROVIDER, **(enrich_metadata or {})}
 
-    stream_iter = (
-        raw_stream.__enter__() if hasattr(raw_stream, "__enter__") else raw_stream
-    )
-    try:
+    with managed_stream(raw_stream) as stream_iter:
         for event in stream_iter:
             event_type = (
                 event.get("type")
@@ -739,9 +737,6 @@ def process_anthropic_stream(
                         on_chunk(chunk)
                     yield chunk
             # message_stop / content_block_stop / ping: ignored
-    finally:
-        if hasattr(raw_stream, "__exit__"):
-            raw_stream.__exit__(None, None, None)
 
 
 def iter_stream(

@@ -17,11 +17,7 @@ from typing import Any, Callable, Dict, Iterator, Optional
 
 from huggingface_hub import ChatCompletionOutput, ChatCompletionStreamOutput
 
-from dapr_agents.llm.utils.stream import (
-    extract_packet_metadata as _get_packet_metadata,
-    process_choice_delta as _process_choice_delta,
-    process_choice_delta_stream,
-)
+from dapr_agents.llm.utils.stream import process_choice_delta_stream
 from dapr_agents.types.message import (
     AssistantMessage,
     FunctionCall,
@@ -147,6 +143,4 @@ def process_hf_chat_response(response: ChatCompletionOutput) -> LLMChatResponse:
 __all__ = [
     "process_hf_stream",
     "process_hf_chat_response",
-    "_get_packet_metadata",
-    "_process_choice_delta",
 ]
