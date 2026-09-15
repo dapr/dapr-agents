@@ -43,8 +43,8 @@ from anthropic.types import (
 from pydantic import BaseModel
 
 from dapr_agents.llm.anthropic.client import PROVIDER
-from dapr_agents.llm.utils import StructureHandler
-from dapr_agents.llm.utils.stream import managed_stream
+from dapr_agents.llm.utils.structure import StructureHandler
+from dapr_agents.llm.utils.stream import _dump_obj, managed_stream
 from dapr_agents.tool.utils.function_calling import to_claude_function_call_definition
 from dapr_agents.types.message import (
     AssistantMessage,
@@ -286,19 +286,6 @@ def inject_function_call_request(
     tools_existing = params.get("tools") or []
     params["tools"] = tools_existing + [tool]
     params["tool_choice"] = {"type": "tool", "name": target_model.__name__}
-
-
-def _dump_obj(obj: Any) -> dict[str, Any]:
-    """Serialize SDK model, dataclass, or object to dictionary without silent failure."""
-    if isinstance(obj, dict):
-        return obj
-    if hasattr(obj, "model_dump") and callable(obj.model_dump):
-        return obj.model_dump()
-    if dataclasses.is_dataclass(obj):
-        return dataclasses.asdict(obj)
-    if hasattr(obj, "__dict__"):
-        return vars(obj)
-    return dict(obj)
 
 
 def parse_function_call_response(

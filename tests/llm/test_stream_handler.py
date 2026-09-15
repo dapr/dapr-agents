@@ -489,3 +489,131 @@ def test_process_choice_delta_malformed_tool_call():
     assert len(chunks) == 1
     assert len(chunks[0].result.tool_calls) == 1
     assert chunks[0].result.tool_calls[0].function.name == "valid_fn"
+
+
+def test_process_choice_delta_stream_avoids_model_dump_on_sdk_objects():
+    """process_choice_delta_stream uses SDK objects directly without calling model_dump on chunks."""
+    model_dump_called = False
+
+    class _SDKDelta:
+        def __init__(self, content: str):
+            self.content = content
+            self.role = "assistant"
+            self.tool_calls = None
+            self.function_call = None
+            self.refusal = None
+
+    class _SDKChoice:
+        def __init__(self, content: str, finish_reason: str | None = None):
+            self.index = 0
+            self.delta = _SDKDelta(content)
+            self.finish_reason = finish_reason
+            self.logprobs = None
+
+    class _SDKSampleChunk:
+        def __init__(self, content: str, finish_reason: str | None = None):
+            self.id = "chunk-sdk-1"
+            self.model = "gpt-4o"
+            self.created = 12345
+            self.object = "chat.completion.chunk"
+            self.choices = [_SDKChoice(content, finish_reason)]
+            self.usage = None
+
+        def model_dump(self):
+            nonlocal model_dump_called
+            model_dump_called = True
+            return {"id": self.id, "choices": []}
+
+    raw = [_SDKSampleChunk("Hello "), _SDKSampleChunk("world!", finish_reason="stop")]
+    chunks = list(process_choice_delta_stream(iter(raw)))
+
+    assert model_dump_called is False, (
+        "model_dump() should not be called on the hot path!"
+    )
+    assert len(chunks) == 2
+    StreamingComplianceHarness.assert_reconstructs_text(
+        chunks, expected_text="Hello world!"
+    )
+    assert chunks[0].metadata["model"] == "gpt-4o"
+    assert chunks[0].metadata["id"] == "chunk-sdk-1"
+
+
+def test_process_choice_delta_stream_serializes_usage_object():
+    """process_choice_delta_stream serializes SDK usage objects to dict for span attributes."""
+
+    class _SDKUsage:
+        def __init__(self, prompt: int, completion: int):
+            self.prompt_tokens = prompt
+            self.completion_tokens = completion
+            self.total_tokens = prompt + completion
+
+        def model_dump(self):
+            return {
+                "prompt_tokens": self.prompt_tokens,
+                "completion_tokens": self.completion_tokens,
+                "total_tokens": self.total_tokens,
+            }
+
+    class _SDKUsageChunk:
+        def __init__(self):
+            self.id = "chunk-usage-1"
+            self.model = "gpt-4o"
+            self.choices = []
+            self.usage = _SDKUsage(15, 25)
+
+    raw = [_SDKUsageChunk()]
+    chunks = list(process_choice_delta_stream(iter(raw)))
+
+    assert len(chunks) == 1
+    usage = chunks[0].metadata.get("usage")
+    assert isinstance(usage, dict), (
+        f"Usage must be a dict for observability, got {type(usage)}"
+    )
+    assert usage["prompt_tokens"] == 15
+    assert usage["completion_tokens"] == 25
+    assert usage["total_tokens"] == 40
+
+
+def test_process_choice_delta_with_sdk_tool_calls():
+    """process_choice_delta parses SDK-like tool_call objects without requiring dicts."""
+
+    class _SDKFunction:
+        def __init__(self, name: str, args: str):
+            self.name = name
+            self.arguments = args
+
+    class _SDKToolCall:
+        def __init__(self, idx: int, call_id: str, name: str, args: str):
+            self.index = idx
+            self.id = call_id
+            self.type = "function"
+            self.function = _SDKFunction(name, args)
+
+    class _SDKDeltaWithTools:
+        def __init__(self):
+            self.content = None
+            self.role = None
+            self.function_call = None
+            self.refusal = None
+            self.tool_calls = [
+                _SDKToolCall(0, "call_123", "search_db", '{"q": "test"}')
+            ]
+
+    class _SDKChoiceWithTools:
+        def __init__(self):
+            self.index = 0
+            self.delta = _SDKDeltaWithTools()
+            self.finish_reason = "tool_calls"
+            self.logprobs = None
+
+    chunks = list(
+        process_choice_delta(_SDKChoiceWithTools(), overall_meta={"provider": "openai"})
+    )
+    assert len(chunks) == 1
+    assert chunks[0].metadata.get("last_chunk") is True
+    tool_calls = chunks[0].result.tool_calls
+    assert len(tool_calls) == 1
+    assert tool_calls[0].index == 0
+    assert tool_calls[0].id == "call_123"
+    assert tool_calls[0].function.name == "search_db"
+    assert tool_calls[0].function.arguments == '{"q": "test"}'
