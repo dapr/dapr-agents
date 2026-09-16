@@ -30,6 +30,8 @@ This example focuses on an inventory agent that automatically generates purchase
 
 Data lives in a Postgres instance — when a product's stock level dips below its threshold (or reaches zero), it emits a low-level change event that is tracked by two Drasi queries: one for "low" and one for "critical". All of the low-level changes are transparent to downstream consumers, as queries **only** emit change events when their conditions are satisfied. The inventory agent does not have to do any additional processing.
 
+The setup script installs a demo application Redis and creates namespace-local Dapr pub/sub components for the `PostDaprPubSub` reaction and inventory agent. Both components point to this broker, which is separate from Drasi's internal pub/sub infrastructure.
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-started/get-docker/)

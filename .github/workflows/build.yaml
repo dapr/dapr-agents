@@ -106,3 +106,31 @@ jobs:
     - name: Run tests
       run: |
         uv run pytest tests ext -m "not integration"
+
+  package:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.11"
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    - name: Install dependencies
+      run: uv sync --frozen --group test
+    - name: Build packages
+      run: |
+        uv build --wheel --out-dir dist/core
+        uv build --package dapr-agents-ext-drasi --wheel --out-dir dist/drasi
+    - name: Verify Drasi extension wheel
+      run: |
+        uv pip install --target .wheel-test --no-deps dist/core/*.whl dist/drasi/*.whl
+        cd /tmp
+        PYTHONPATH="$GITHUB_WORKSPACE/.wheel-test" "$GITHUB_WORKSPACE/.venv/bin/python" \
+          -c "from dapr_agents.ext.drasi import DrasiChangeEvent, DrasiOperation, drasi_trigger"

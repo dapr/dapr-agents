@@ -14,7 +14,7 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: drasi-pubsub
+  name: inventory-agent-pubsub
   namespace: drasi-system
 spec:
   type: pubsub.redis

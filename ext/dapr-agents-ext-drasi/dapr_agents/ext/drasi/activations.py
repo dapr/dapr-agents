@@ -43,7 +43,7 @@ _DRASI_TRIGGER_DEFAULT_TASK = (
     "Return the exact JSON payload below, unmodified. "
     "Output ONLY a JSON object; no explanation, no markdown, no extra text:\n\n"
 )
-_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX = "drasi-events"
+_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX = "drasi-events-"
 
 
 @dataclass(frozen=True)
@@ -318,9 +318,9 @@ def drasi_trigger(
         operations: Optional Drasi operation(s) to filter change events by.
             Accepts `DrasiOperation` or equivalent string literals:
 
-            - `DrasiOperation.i` / `"i"` - Insert
-            - `DrasiOperation.u` / `"u"` - Update
-            - `DrasiOperation.d` / `"d"` - Delete
+            - `DrasiOperation.i` / `"i"` - A record was added to the result set tracked by the Drasi query.
+            - `DrasiOperation.u` / `"u"` - A record was updated in the result set tracked by the Drasi query.
+            - `DrasiOperation.d` / `"d"` - A record was deleted from the result set tracked by the Drasi query.
 
             Events that are filtered out will not trigger the agent. Defaults to `None` (all operations are allowed).
         change_model: Optional model to use to validate the change data in Drasi change events.
@@ -338,7 +338,7 @@ def drasi_trigger(
         resolved_pubsub = pubsub or (
             ctx.agent.pubsub.pubsub_name if ctx.agent.pubsub else None
         )
-        resolved_topic = topic or f"{_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}-{query_id}"
+        resolved_topic = topic or f"{_DRASI_TRIGGER_DEFAULT_TOPIC_PREFIX}{query_id}"
 
         if task_mapper is None:
             logger.warning(
