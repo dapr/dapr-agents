@@ -61,16 +61,18 @@ class PromptTemplateBase(ABC, BaseModel):
         Returns:
             PromptTemplateBase: A new instance of the prompt template with the pre-filled variables set.
         """
-        # Directly access the attributes without calling model_dump()
         input_variables = list(set(self.input_variables) - set(kwargs.keys()))
         pre_filled_variables = {**self.pre_filled_variables, **kwargs}
 
-        # Directly construct a new instance to retain MessagePlaceHolder objects
-        return self.__class__(
-            input_variables=input_variables,
-            pre_filled_variables=pre_filled_variables,
-            messages=self.messages,  # Preserve MessagePlaceHolder without transforming it
-            template_format=self.template_format,
+        # model_copy carries over every other field (messages, template,
+        # template_format, ...) as-is without re-validating them, so this
+        # works for every subclass instead of only ones with a `messages`
+        # field, and without risking re-normalizing MessagePlaceHolder.
+        return self.model_copy(
+            update={
+                "input_variables": input_variables,
+                "pre_filled_variables": pre_filled_variables,
+            }
         )
 
     def prepare_variables_for_formatting(self, **kwargs: Any) -> Dict[str, Any]:

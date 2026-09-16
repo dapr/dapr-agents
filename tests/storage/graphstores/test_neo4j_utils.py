@@ -11,7 +11,13 @@
 # limitations under the License.
 #
 
-from dapr_agents.storage.graphstores.neo4j.utils import LIST_LIMIT, value_sanitize
+import pytest
+
+from dapr_agents.storage.graphstores.neo4j.utils import (
+    LIST_LIMIT,
+    validate_cypher_identifier,
+    value_sanitize,
+)
 
 
 class TestValueSanitize:
@@ -47,3 +53,29 @@ class TestValueSanitize:
         result = value_sanitize({"_id": 1, "keep": "value", "drop": object()})
 
         assert result == {"_id": 1, "keep": "value"}
+
+
+class TestValidateCypherIdentifier:
+    """Test cases for validate_cypher_identifier."""
+
+    @pytest.mark.parametrize("name", ["Person", "_private", "Node123", "a"])
+    def test_accepts_plain_identifiers(self, name):
+        assert validate_cypher_identifier(name, "label") == name
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Foo`) DETACH DELETE (n) //",
+            "Foo Bar",
+            "Foo-Bar",
+            "1Foo",
+            "",
+        ],
+    )
+    def test_rejects_unsafe_identifiers(self, name):
+        with pytest.raises(ValueError, match="label"):
+            validate_cypher_identifier(name, "label")
+
+    def test_rejects_non_string(self):
+        with pytest.raises(ValueError):
+            validate_cypher_identifier(None, "label")

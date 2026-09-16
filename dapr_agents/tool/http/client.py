@@ -199,13 +199,13 @@ class DaprHTTPClient(BaseModel):
                     self.dapr_http_endpoint = self.dapr_http_endpoint[:-1]
                 url = f"{self._base_url}/{self.dapr_http_endpoint}/method/{self.path if path == '' else path}"
             elif self.http_endpoint != "":
-                # FQDN URL
+                # FQDN URL, requested directly rather than through the Dapr sidecar
                 if isinstance(self.http_endpoint, str) and self.http_endpoint.endswith(
                     "/"
                 ):
                     # Remove trailing slash
                     self.http_endpoint = self.http_endpoint[:-1]
-                url = f"{self._base_url}/{self.http_endpoint}/method/{self.path if path == '' else path}"
+                url = f"{self.http_endpoint}/{self.path if path == '' else path}"
             elif endpoint != "":
                 # Fallback to default
                 if isinstance(endpoint, str) and endpoint.endswith("/"):
