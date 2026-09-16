@@ -14,10 +14,42 @@
 from typing import Any
 import datetime
 import logging
+import re
 
 LIST_LIMIT = 100  # Maximum number of elements in a list to be processed
 
 logger = logging.getLogger(__name__)
+
+# Neo4j does not support parameterizing labels, relationship types, or
+# property names, so callers must interpolate them into the Cypher query
+# text directly. This matches a safe, unquoted Cypher identifier.
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def validate_cypher_identifier(name: str, kind: str) -> str:
+    """Validate a label/relationship-type/property name before it is
+    interpolated into a Cypher query string.
+
+    Without this check, a value containing a backtick or Cypher syntax
+    (plausible when labels/types come from LLM-extracted entities rather
+    than a fixed schema) could break out of the intended query structure.
+
+    Args:
+        name: The identifier to validate.
+        kind: Human-readable identifier kind, used in the error message
+            (e.g. "label", "relationship type", "property").
+
+    Returns:
+        The validated name, unchanged.
+
+    Raises:
+        ValueError: If `name` is not a safe Cypher identifier.
+    """
+    if not isinstance(name, str) or not _IDENTIFIER_RE.match(name):
+        raise ValueError(
+            f"Invalid Neo4j {kind} {name!r}: must match {_IDENTIFIER_RE.pattern}."
+        )
+    return name
 
 
 def value_sanitize(data: Any) -> Any:

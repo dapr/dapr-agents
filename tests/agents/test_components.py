@@ -121,3 +121,14 @@ def test_paired_get_then_save_drains_cached_etag(
 
         infra.save_state("paired", entry=entry)
         assert _cache_key(infra, "paired") not in infra._etag_cache
+
+
+def test_sync_system_messages_calls_get_state_once_when_entry_omitted(
+    infra: DaprInfra, mock_load_with_etag: Mock
+) -> None:
+    """sync_system_messages must fetch state exactly once when entry is not
+    passed in, not twice, since get_state never returns None."""
+    with patch.object(infra, "get_state", wraps=infra.get_state) as spied_get_state:
+        infra.sync_system_messages("no-entry", [], entry=None)
+
+    assert spied_get_state.call_count == 1
