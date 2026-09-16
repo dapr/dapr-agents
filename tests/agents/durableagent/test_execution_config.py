@@ -46,8 +46,7 @@ class ExecutionConfigTestBase:
             "MAX_ITERATIONS",
             "TOOL_CHOICE",
             "TOOL_EXECUTION_MODE",
-            "MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES",
-            "DAPR_MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES",
+            "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES",
         ):
             monkeypatch.delenv(key, raising=False)
 
@@ -184,6 +183,14 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
                 AgentExecutionConfig(max_grpc_inbound_message_size_bytes="large"),
                 "max_grpc_inbound_message_size_bytes",
             ),
+            (
+                AgentExecutionConfig(max_grpc_inbound_message_size_bytes=0),
+                "max_grpc_inbound_message_size_bytes",
+            ),
+            (
+                AgentExecutionConfig(max_grpc_inbound_message_size_bytes=-1),
+                "max_grpc_inbound_message_size_bytes",
+            ),
         ],
     )
     def test_execution_config_from_instantiation_raises_for_invalid_values(
@@ -235,7 +242,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         monkeypatch.setenv("MAX_ITERATIONS", "7")
         monkeypatch.setenv("TOOL_CHOICE", "required")
         monkeypatch.setenv("TOOL_EXECUTION_MODE", "sequential")
-        monkeypatch.setenv("DAPR_MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES", "654321")
+        monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "654321")
 
         mock_client = MockDaprClient()
         self._patch_dapr_client(monkeypatch, mock_client)
@@ -257,7 +264,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         """Test invalid environment variable values are ignored."""
         monkeypatch.setenv("MAX_ITERATIONS", "zero")
         monkeypatch.setenv("TOOL_EXECUTION_MODE", "sideways")
-        monkeypatch.setenv("MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES", "abc")
+        monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "abc")
 
         mock_client = MockDaprClient()
         self._patch_dapr_client(monkeypatch, mock_client)
@@ -443,7 +450,7 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         monkeypatch.setenv("MAX_ITERATIONS", "3")
         monkeypatch.setenv("TOOL_CHOICE", "required")
         monkeypatch.setenv("TOOL_EXECUTION_MODE", "sequential")
-        monkeypatch.setenv("DAPR_MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES", "604")
+        monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "604")
 
         runtime_config = {
             "MAX_ITERATIONS": "6",
@@ -475,7 +482,7 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         monkeypatch.setenv("MAX_ITERATIONS", "1")
         monkeypatch.setenv("TOOL_CHOICE", "none")
         monkeypatch.setenv("TOOL_EXECUTION_MODE", "sequential")
-        monkeypatch.setenv("DAPR_MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES", "604")
+        monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "604")
 
         runtime_config = {
             "MAX_ITERATIONS": "2",
@@ -517,7 +524,7 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         """Test partial overlap where each source contributes different fields."""
         monkeypatch.setenv("MAX_ITERATIONS", "4")
         monkeypatch.setenv("TOOL_CHOICE", "none")
-        monkeypatch.setenv("DAPR_MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES", "111111")
+        monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "111111")
 
         runtime_config = {
             "MAX_ITERATIONS": "8",

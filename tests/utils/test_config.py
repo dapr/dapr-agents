@@ -59,6 +59,10 @@ class TestCoerceConfigValue:
     def test_coerce_config_value_int_already_int(self):
         assert coerce_config_value(7, int) == 7
 
+    def test_coerce_config_value_bool_to_int_raises(self):
+        with pytest.raises(ValueError):
+            coerce_config_value(True, int)
+
     def test_coerce_config_value_int_invalid_raises(self):
         with pytest.raises((ValueError, TypeError)):
             coerce_config_value("not_a_number", int)

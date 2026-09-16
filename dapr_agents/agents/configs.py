@@ -280,10 +280,10 @@ def validate_non_empty_string(v: str) -> str:
     return v.strip()
 
 
-def validate_max_iterations(v: int) -> int:
-    """Ensure max_iterations is at least 1."""
-    if v < 1:
-        raise ValueError(f"max_iterations must be >= 1, got {v}")
+def validate_positive_int(v: int) -> int:
+    """Ensure an integer is greater than zero."""
+    if v <= 0:
+        raise ValueError(f"Value must be greater than 0, got {v}")
     return v
 
 
@@ -575,7 +575,7 @@ class AgentExecutionConfig:
     # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
     # TODO: add stop_at_tokens
     max_iterations: Optional[int] = AGENT_DEFAULT_MAX_ITERATIONS
-    tool_choice: Optional[ToolChoice] = AGENT_DEFAULT_TOOL_CHOICE
+    tool_choice: Optional[str] = AGENT_DEFAULT_TOOL_CHOICE
     tool_execution_mode: Optional[ToolExecutionMode] = AGENT_DEFAULT_TOOL_EXECUTION_MODE
     orchestration_mode: Optional[OrchestrationMode] = None
     approval: Optional[AgentApprovalConfig] = field(default_factory=AgentApprovalConfig)
@@ -629,7 +629,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: getenv("MAX_ITERATIONS"),
-                validator=validate_max_iterations,
+                validator=validate_positive_int,
                 raise_on_error=False,
             ),
             EnvConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
@@ -652,7 +652,8 @@ class AgentExecutionConfig:
                 setter=lambda obj, v: setattr(
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
-                getter=lambda: getenv("DAPR_MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES"),
+                getter=lambda: getenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES"),
+                validator=validate_positive_int,
                 raise_on_error=False,
             ),
             # TODO: support orchestration_mode from env
@@ -686,7 +687,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: instantiated_config.max_iterations,
-                validator=validate_max_iterations,
+                validator=validate_positive_int,
             ),
             "tool_choice": ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -706,8 +707,14 @@ class AgentExecutionConfig:
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
                 getter=lambda: instantiated_config.max_grpc_inbound_message_size_bytes,
+                validator=validate_positive_int,
             ),
             # Non-resolvable instantiated execution fields are structurally validated
+            "orchestration_mode": ConfigFieldDescriptor(
+                target_type=Optional[OrchestrationMode],
+                setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
+                getter=lambda: instantiated_config.orchestration_mode,
+            ),
             "approval": ConfigFieldDescriptor(
                 target_type=Optional[AgentApprovalConfig],
                 setter=lambda obj, v: setattr(obj, "approval", v),
@@ -754,7 +761,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: runtime_config.get("MAX_ITERATIONS"),
-                validator=validate_max_iterations,
+                validator=validate_positive_int,
                 raise_on_error=False,
             ),
             RuntimeConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(

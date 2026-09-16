@@ -183,11 +183,21 @@ def process_config_update(
 
 
 def coerce_config_value(value: Any, target_type: type) -> Any:
-    """Coerce a configuration value (usually a string) to the target Python type."""
+    """
+    Coerce a configuration value to the target Python type.
+    Coercion explicitly enforces the requested target type; subtypes are not accepted.
+
+    Args:
+        value: The configuration value to coerce.
+        target_type: The target Python type for the coerced value.
+
+    Returns:
+        The value coerced to ``target_type``.
+    """
     origin = get_origin(target_type)
 
     if origin in (Union, UnionType):
-        # Handle PEP 604 / typing.Union types by trying each branch in order
+        # Handle PEP 604 / ``typing.Union`` types by trying each branch in order
         for arg in get_args(target_type):
             try:
                 return coerce_config_value(value, arg)
@@ -196,9 +206,13 @@ def coerce_config_value(value: Any, target_type: type) -> Any:
         raise ValueError(f"Cannot coerce {value!r} to any type in {target_type}")
 
     if origin is not None:
-        # Unwrap parameterized generics such as dict[str, str] / list[int]
-        # to their runtime container type before `isinstance`
+        # Unwrap parameterized generics such as ``dict[str, str]`` / ``list[int]``
+        # to their runtime container type before ``isinstance``
         target_type = origin
+
+    # Explicit check for ``bool`` with target type ``int`` as it subclasses ``int``
+    if target_type is int and isinstance(value, bool):
+        raise ValueError(f"Cannot coerce {value!r} to int")
 
     if isinstance(value, target_type):
         return value
