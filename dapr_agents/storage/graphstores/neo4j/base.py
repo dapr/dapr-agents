@@ -13,7 +13,11 @@
 
 from dapr_agents.storage.graphstores import GraphStoreBase
 from dapr_agents.storage.graphstores.neo4j.client import Neo4jClient
-from dapr_agents.storage.graphstores.neo4j.utils import value_sanitize, get_current_time
+from dapr_agents.storage.graphstores.neo4j.utils import (
+    value_sanitize,
+    get_current_time,
+    validate_cypher_identifier,
+)
 from dapr_agents.types import Node, Relationship
 from pydantic import BaseModel, ValidationError, Field
 from typing import Any, Dict, Optional, List, Literal
@@ -121,6 +125,7 @@ class Neo4jGraphStore(GraphStoreBase):
             nodes_by_label[node.label].append(node)
 
         for label, grouped_nodes in nodes_by_label.items():
+            validate_cypher_identifier(label, "node label")
             query = f"""
             UNWIND $data AS node
             MERGE (n:`{label}` {{id: node.id}})
@@ -186,6 +191,7 @@ class Neo4jGraphStore(GraphStoreBase):
 
         # Process each relationship type separately
         for rel_type, rel_group in relationships_by_type.items():
+            validate_cypher_identifier(rel_type, "relationship type")
             query = f"""
             UNWIND $data AS rel
             MATCH (a {{id: rel.source_node_id}}), (b {{id: rel.target_node_id}})
@@ -420,9 +426,19 @@ class Neo4jGraphStore(GraphStoreBase):
         """
         from neo4j.exceptions import Neo4jError
 
-        # Ensure label and property are non-empty strings
-        if not all([label, property]):
-            raise ValueError("Both `label` and `property` must be non-empty strings.")
+        # `similarity_function` is typed as a Literal for IDE/static-checking
+        # purposes only; Python does not enforce Literal at runtime, so a
+        # caller (or dynamically-typed code) can still pass an arbitrary
+        # string through to the f-string below.
+        allowed_similarity_functions = {"cosine", "dot", "euclidean"}
+        if similarity_function not in allowed_similarity_functions:
+            raise ValueError(
+                f"`similarity_function` must be one of {sorted(allowed_similarity_functions)}, "
+                f"got {similarity_function!r}."
+            )
+
+        validate_cypher_identifier(label, "node label")
+        validate_cypher_identifier(property, "property")
 
         # Ensure dimensions is valid
         if not isinstance(dimensions, int) or dimensions <= 0:

@@ -121,7 +121,9 @@ class VectorStoreBase(BaseModel, ABC):
         """
         texts = [doc.text for doc in documents]
         metadatas = (
-            [doc.metadata for doc in documents] if documents[0].metadata else None
+            metas
+            if any(metas := [doc.metadata if doc.metadata else {} for doc in documents])
+            else None
         )
         ids = [str(uuid.uuid4()) for _ in documents]
         result = self.add(
