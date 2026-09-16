@@ -195,6 +195,21 @@ class TestDaprHTTPClient:
         assert "_base_url" not in data
 
     @patch.dict(os.environ, {"DAPR_AGENTS_OTEL_ENABLED": "false"}, clear=False)
+    def test_validate_endpoint_type_with_dapr_app_id_uses_sidecar_invoke(self):
+        """dapr_app_id should route through the local Dapr sidecar's invoke API."""
+        client = DaprHTTPClient(dapr_app_id="my-app")
+        url = client._validate_endpoint_type(endpoint="", path="/users")
+        assert url == "http://localhost:3500/v1.0/invoke/my-app/method/users"
+
+    @patch.dict(os.environ, {"DAPR_AGENTS_OTEL_ENABLED": "false"}, clear=False)
+    def test_validate_endpoint_type_with_http_endpoint_requests_fqdn_directly(self):
+        """http_endpoint is documented as an FQDN URL, so it must be requested
+        directly rather than through the Dapr sidecar's invoke API."""
+        client = DaprHTTPClient(http_endpoint="https://api.example.com")
+        url = client._validate_endpoint_type(endpoint="", path="/users")
+        assert url == "https://api.example.com/users"
+
+    @patch.dict(os.environ, {"DAPR_AGENTS_OTEL_ENABLED": "false"}, clear=False)
     def test_otel_parse_bool_variations(self):
         """Test that _parse_bool_env handles various boolean representations."""
         # Test that the parsing logic works for different true/false values

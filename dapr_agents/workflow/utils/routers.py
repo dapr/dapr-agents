@@ -245,7 +245,7 @@ def parse_http_json(
     model: Optional[Type[Any]] = None,
     *,
     attach_metadata: bool = False,
-) -> Tuple[Any, dict]:
+) -> Tuple[Any, Optional[dict]]:
     """
     Parse a plain JSON HTTP body and validate against model (no CloudEvent semantics).
 
@@ -258,7 +258,8 @@ def parse_http_json(
             Whether to attach empty metadata dict. Defaults to False.
 
     Returns:
-        Tuple[Any, dict]: A tuple containing the validated message and its metadata.
+        Tuple[Any, Optional[dict]]: A tuple containing the validated message and
+            its metadata, or None for metadata when attach_metadata is False.
     """
     if model is None:
         raise ValueError("Message validation failed: No model provided.")
@@ -270,7 +271,7 @@ def parse_http_json(
         event_data = {"data": payload}
 
     validated = validate_message_model(model, event_data)
-    metadata: dict = {} if attach_metadata else {}
+    metadata: Optional[dict] = {} if attach_metadata else None
     logger.info("HTTP JSON successfully parsed and validated (no CloudEvent semantics)")
     logger.debug("Data: %r", validated)
     return validated, metadata
