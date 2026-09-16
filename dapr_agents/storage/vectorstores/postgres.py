@@ -262,18 +262,21 @@ class PostgresVectorStore(VectorStoreBase):
                         update_fields = []
                         params = []
 
-                        if embeddings and embeddings[i]:
+                        # `is not None` rather than truthiness: an empty
+                        # embedding/document/metadata is a legitimate value
+                        # to write, not a signal to skip the field.
+                        if embeddings is not None and embeddings[i] is not None:
                             dimension = len(embeddings[i])
                             if not self.embedding_dim:
                                 self._ensure_partial_index(dimension)
                             update_fields.append("embedding = %s")
                             params.append(embeddings[i])
 
-                        if documents and documents[i]:
+                        if documents is not None and documents[i] is not None:
                             update_fields.append("document = %s")
                             params.append(documents[i])
 
-                        if metadatas and metadatas[i]:
+                        if metadatas is not None and metadatas[i] is not None:
                             update_fields.append("metadata = %s")
                             params.append(Jsonb(metadatas[i]))
 
@@ -418,32 +421,41 @@ class PostgresVectorStore(VectorStoreBase):
                 "l2": "<->",  # Euclidean distance
                 "inner_product": "<#>",  # Inner product
             }
-            operator = operator_map.get(distance_metric, "<=>")
+            if distance_metric not in operator_map:
+                raise ValueError(
+                    f"Unsupported distance_metric {distance_metric!r}. "
+                    f"Must be one of {sorted(operator_map)}."
+                )
+            operator = operator_map[distance_metric]
 
             results = []
             with self.pool.connection() as conn:
                 # Use a compatible row factory or default cursor
                 with conn.cursor() as cursor:
                     for embedding in query_embeddings:
-                        # Convert the embedding to a PostgreSQL-compatible vector format
-                        embedding_vector = f"ARRAY{embedding}::vector"
-
-                        # Base query
+                        # Bind the embedding as a query parameter (register_vector,
+                        # called in model_post_init, adapts it to pgvector's type)
+                        # rather than formatting it into the query text: floats
+                        # like nan/inf don't round-trip through repr() as valid
+                        # SQL, and add()/update() already bind embeddings this way.
                         query = f"""
-                        SELECT id, document, metadata, 1 - (embedding {operator} {embedding_vector}) AS similarity
+                        SELECT id, document, metadata, 1 - (embedding {operator} %s) AS similarity
                         FROM {self.table_name}
                         """
+                        params = [embedding]
 
                         # Add metadata filtering conditions if provided
-                        params = []
                         if metadata_filter:
                             filter_conditions = " AND ".join(
                                 ["metadata ->> %s = %s" for _ in metadata_filter]
                             )
                             query += f" WHERE {filter_conditions}"
-                            params.extend(
-                                sum(([k, v] for k, v in metadata_filter.items()), [])
-                            )
+                            for filter_key, filter_value in metadata_filter.items():
+                                # `->>` always returns text; comparing it to a
+                                # non-string param (e.g. an int/bool metadata
+                                # value) raises "operator does not exist" in
+                                # Postgres, so match on the string form.
+                                params.extend([filter_key, str(filter_value)])
 
                         # Add ordering and limit
                         query += " ORDER BY similarity DESC LIMIT %s"
