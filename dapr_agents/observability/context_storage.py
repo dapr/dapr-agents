@@ -34,7 +34,18 @@ import logging
 import threading
 from typing import Dict, Optional, Any
 
+from cachetools import TTLCache
+
 logger = logging.getLogger(__name__)
+
+# Nothing in this module's call sites (wrappers/workflow.py stores one entry
+# per scheduled workflow instance; wrappers/workflow_task.py only reads)
+# ever calls cleanup_context() for a completed workflow, so a plain dict
+# here would leak one entry per workflow run for the life of the process.
+# These bounds are the actual "automatic cleanup" the class docstring
+# describes.
+DEFAULT_MAX_STORED_CONTEXTS = 10_000
+DEFAULT_CONTEXT_TTL_SECONDS = 3600.0
 
 
 class WorkflowContextStorage:
@@ -58,14 +69,27 @@ class WorkflowContextStorage:
     3. Clean up context when workflow completes to prevent memory leaks
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        maxsize: int = DEFAULT_MAX_STORED_CONTEXTS,
+        ttl: float = DEFAULT_CONTEXT_TTL_SECONDS,
+    ):
         """
         Initialize the workflow context storage.
 
         Creates thread-safe storage using RLock to handle concurrent access
-        from multiple workflow instances executing simultaneously.
+        from multiple workflow instances executing simultaneously. Backed by
+        a TTL cache rather than a plain dict, since callers are not required
+        to invoke cleanup_context() (e.g. after a crash or a workflow whose
+        completion path this instrumentation doesn't observe).
+
+        Args:
+            maxsize: Maximum number of contexts retained; least-recently-used
+                entries are evicted once exceeded.
+            ttl: Seconds a stored context remains valid before automatic
+                expiry.
         """
-        self._storage: Dict[str, Dict[str, Any]] = {}
+        self._storage: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
         self._lock = threading.RLock()
 
     def store_context(self, instance_id: str, otel_context: Dict[str, Any]) -> None:
