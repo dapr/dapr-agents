@@ -17,10 +17,10 @@ import logging
 from copy import deepcopy
 from typing import Any, Callable, List, Literal, Optional, Type, TypeVar, get_type_hints
 
-from dapr_agents.workflow.utils.core import is_supported_model
 from dapr_agents.workflow.utils.routers import extract_message_models
 from dapr_agents.workflow.utils.subscription import MessageContext, validate_hook
 from dapr_agents.utils.logger import with_logger_context
+from dapr_agents.utils.models import is_supported_model
 
 logger = logging.getLogger(__name__)
 
