@@ -60,12 +60,12 @@ dependencies = [
     "wrapt>=1.14.0,<2.0.0",
     "openinference-instrumentation>=0.1.0,<1.0.0",
     "openinference-semantic-conventions>=0.1.0,<1.0.0",
-    "mistralai>=2.2.0",
+    "mistralai>=2.9.2",
     "anthropic>=0.98.0,<2.0.0",
-    "opentelemetry-instrumentation-grpc>=0.60b1,<0.61",
+    "opentelemetry-instrumentation-grpc>=0.60b1,<1.0.0",
     "opentelemetry-exporter-zipkin-json>=1.36.0",
-    "opentelemetry-instrumentation-httpx>=0.60b1,<0.61",
-    "opentelemetry-semantic-conventions>=0.60b1,<0.61",
+    "opentelemetry-instrumentation-httpx>=0.60b1,<1.0.0",
+    "opentelemetry-semantic-conventions>=0.60b1,<1.0.0",
     "litellm>=1.80,<1.87",
 ]
 classifiers = [
