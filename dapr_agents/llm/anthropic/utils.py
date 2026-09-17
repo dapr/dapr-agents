@@ -43,7 +43,8 @@ from anthropic.types import (
 from pydantic import BaseModel
 
 from dapr_agents.llm.anthropic.client import PROVIDER
-from dapr_agents.llm.utils import StructureHandler
+from dapr_agents.llm.utils.structure import StructureHandler
+from dapr_agents.llm.utils.stream import _dump_obj, managed_stream
 from dapr_agents.tool.utils.function_calling import to_claude_function_call_definition
 from dapr_agents.types.message import (
     AssistantMessage,
@@ -304,19 +305,6 @@ def inject_function_call_request(
     params["tool_choice"] = {"type": "tool", "name": target_model.__name__}
 
 
-def _dump_obj(obj: Any) -> dict[str, Any]:
-    """Serialize SDK model, dataclass, or object to dictionary without silent failure."""
-    if isinstance(obj, dict):
-        return obj
-    if hasattr(obj, "model_dump") and callable(obj.model_dump):
-        return obj.model_dump()
-    if dataclasses.is_dataclass(obj):
-        return dataclasses.asdict(obj)
-    if hasattr(obj, "__dict__"):
-        return vars(obj)
-    return dict(obj)
-
-
 def parse_function_call_response(
     resp: Message | Any, response_format: type[BaseModel]
 ) -> BaseModel | list[BaseModel]:
@@ -563,10 +551,7 @@ def process_anthropic_stream(
     """
     meta: dict[str, Any] = {"provider": PROVIDER, **(enrich_metadata or {})}
 
-    stream_iter = (
-        raw_stream.__enter__() if hasattr(raw_stream, "__enter__") else raw_stream
-    )
-    try:
+    with managed_stream(raw_stream) as stream_iter:
         for event in stream_iter:
             event_type = (
                 event.get("type")
@@ -756,9 +741,6 @@ def process_anthropic_stream(
                         on_chunk(chunk)
                     yield chunk
             # message_stop / content_block_stop / ping: ignored
-    finally:
-        if hasattr(raw_stream, "__exit__"):
-            raw_stream.__exit__(None, None, None)
 
 
 def iter_stream(

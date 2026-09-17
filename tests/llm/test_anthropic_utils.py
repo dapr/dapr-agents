@@ -63,6 +63,7 @@ from dapr_agents.types.message import (
     LLMChatResponse,
     LLMChatResponseChunk,
 )
+from tests.llm.streaming_test_harness import StreamingComplianceHarness
 
 
 def _stream_cm(events: Iterable[Any]) -> Any:
@@ -491,6 +492,22 @@ class TestRealSDKModelFixtures:
         final_chunk = chunks[2]
         assert final_chunk.result.finish_reason == "end_turn"
         assert final_chunk.metadata.get("usage", {}).get("output_tokens") == 25
+
+        # Validate with StreamingComplianceHarness
+        StreamingComplianceHarness.assert_valid_stream_contract(
+            chunks, expected_provider="anthropic", expected_min_chunks=3
+        )
+        StreamingComplianceHarness.assert_reconstructs_text(
+            chunks,
+            expected_text="Computing answer...",
+            expected_finish_reason="end_turn",
+        )
+        StreamingComplianceHarness.assert_reconstructs_tool_calls(
+            chunks,
+            expected_tools=[{"name": "calculate"}],
+            expected_finish_reason="end_turn",
+        )
+        StreamingComplianceHarness.assert_snapshot_isolation(chunks)
 
     def test_response_handler_with_real_sdk_structured_response(self) -> None:
         class CityWeather(BaseModel):
