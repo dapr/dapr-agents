@@ -201,7 +201,7 @@ class ConversationDaprStateMemory(MemoryBase):
         if response and hasattr(response, "data") and response.data:
             raw_messages = json.loads(response.data)
             if raw_messages:
-                messages = raw_messages[:limit]
+                messages = raw_messages[-limit:] if limit > 0 else []
                 logger.info(
                     f"Retrieved {len(messages)} messages for workflow instance {workflow_instance_id}",
                 )
