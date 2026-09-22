@@ -272,6 +272,23 @@ def resolve_target_model(
     return target_format, target_model
 
 
+def normalize_tool_choice(tool_choice: Any) -> Any:
+    """Translate dapr-agents' internal `tool_choice` representation into the
+    object shape Anthropic's Messages API requires.
+
+    dapr-agents' agent execution config (and the OpenAI-style providers)
+    represent `tool_choice` as a bare string (`"auto"`, `"any"`, `"none"`),
+    but Anthropic always requires an object: `{"type": "auto"}`,
+    `{"type": "any"}`, `{"type": "none"}`, or `{"type": "tool", "name": ...}`.
+    Dict values (e.g. from structured-output injection or a caller forcing a
+    specific tool) are already in Anthropic's shape and are passed through
+    unchanged.
+    """
+    if isinstance(tool_choice, str):
+        return {"type": tool_choice}
+    return tool_choice
+
+
 def inject_function_call_request(
     params: dict[str, Any], response_format: type[BaseModel]
 ) -> None:

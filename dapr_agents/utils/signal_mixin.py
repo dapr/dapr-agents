@@ -39,6 +39,7 @@ class SignalHandlingMixin:
         super().__init__(*args, **kwargs)
         self._shutdown_event: Optional[asyncio.Event] = None
         self._signal_handlers_setup = False
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def setup_signal_handlers(self) -> None:
         """
@@ -81,6 +82,7 @@ class SignalHandlingMixin:
             # Set up signal handlers
             add_signal_handlers_cross_platform(loop, self._handle_shutdown_signal)
 
+            self._loop = loop
             self._signal_handlers_setup = True
             logger.debug("Signal handlers set up for graceful shutdown")
         except Exception as e:
@@ -103,11 +105,18 @@ class SignalHandlingMixin:
         # Call the graceful shutdown method if it exists
         if hasattr(self, "graceful_shutdown"):
             try:
-                # Call synchronously since we're in a signal handler
-                import asyncio
-
                 if asyncio.iscoroutinefunction(self.graceful_shutdown):
-                    logger.debug("Async graceful shutdown - shutdown event set")
+                    # We're in a signal handler, so the coroutine can't be
+                    # awaited directly. Schedule it on the loop captured at
+                    # setup time instead, or it would silently never run.
+                    if self._loop is not None:
+                        self._loop.call_soon_threadsafe(
+                            lambda: asyncio.ensure_future(self.graceful_shutdown())
+                        )
+                    else:
+                        logger.debug(
+                            "No event loop captured; cannot schedule async graceful_shutdown()"
+                        )
                 else:
                     self.graceful_shutdown()  # type: ignore[unused-coroutine]
             except Exception as e:
