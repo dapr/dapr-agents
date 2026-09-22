@@ -14,7 +14,7 @@
 
 import logging
 import os
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,14 +23,13 @@ from pydantic import BaseModel, Field, model_validator
 from dapr_agents.llm.anthropic.client import PROVIDER, AnthropicClientBase
 from dapr_agents.llm.anthropic.utils import (
     STRUCTURED_INJECTORS,
-    STRUCTURED_PARSERS,
     assert_json_output_supported,
-    iter_stream,
+    normalize_tool_choice,
     split_messages,
-    to_llm_chat_response,
 )
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.llm.utils import RequestHandler
+from dapr_agents.llm.utils.response import ResponseHandler
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.prompty import Prompty
 from dapr_agents.tool import AgentTool
@@ -106,6 +105,7 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         response_format: type[BaseModel] | None = None,
         structured_mode: Literal["json", "function_call"] = "json",
         stream: bool = False,
+        on_chunk: Callable[[LLMChatResponseChunk], None] | None = None,
         **kwargs: Any,
     ) -> Iterator[LLMChatResponseChunk] | LLMChatResponse | BaseModel | list[BaseModel]:
         """Run one chat turn against the Anthropic Messages API.
@@ -139,7 +139,10 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         extras = prompty_params | kwargs
         tools_effective = tools if tools is not None else extras.get("tools")
         tools_formatted = (
-            [ToolHelper.format_tool(t, tool_format="claude") for t in tools_effective]
+            [
+                ToolHelper.format_tool(t, tool_format=self.provider)
+                for t in tools_effective
+            ]
             if tools_effective
             else None
         )
@@ -154,6 +157,8 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
             params["system"] = system
         if tools_formatted:
             params["tools"] = tools_formatted
+        if "tool_choice" in params:
+            params["tool_choice"] = normalize_tool_choice(params["tool_choice"])
         if response_format is not None:
             if structured_mode == "json":
                 assert_json_output_supported(self.client, params["model"])
@@ -164,14 +169,34 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
         logger.info("Calling Anthropic Messages API...")
         logger.debug(f"Anthropic request params: {params}")
         if stream:
-            return iter_stream(self.client, params)
+
+            def _stream_gen() -> Iterator[LLMChatResponseChunk]:
+                try:
+                    raw_stream = self.client.messages.create(stream=True, **params)
+                except Exception:
+                    logger.exception("Anthropic Messages API streaming call failed")
+                    raise
+                yield from ResponseHandler.process_response(
+                    response=raw_stream,
+                    llm_provider=self.provider,
+                    response_format=response_format,
+                    structured_mode=structured_mode,
+                    stream=True,
+                    on_chunk=on_chunk,
+                )
+
+            return _stream_gen()
+
         try:
             raw_resp = self.client.messages.create(**params)
         except Exception:
             logger.exception("Anthropic Messages API call failed")
             raise
 
-        if response_format is not None:
-            parse_structured_response = STRUCTURED_PARSERS[structured_mode]
-            return parse_structured_response(raw_resp, response_format)
-        return to_llm_chat_response(raw_resp)
+        return ResponseHandler.process_response(
+            response=raw_resp,
+            llm_provider=self.provider,
+            response_format=response_format,
+            structured_mode=structured_mode,
+            stream=False,
+        )

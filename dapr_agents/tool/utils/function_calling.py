@@ -257,7 +257,7 @@ def to_function_call_definition(
         )
 
     # Anthropic Claude needs its own input_schema property
-    if fmt == "claude":
+    if fmt in ("claude", "anthropic"):
         if use_deprecated:
             logger.warning(
                 f"'use_deprecated' flag is ignored for the '{format_type}' format."
@@ -275,15 +275,15 @@ def validate_and_format_tool(
     """
     Validates and formats a tool definition dict for the specified API style.
 
-    - For tool_format in ("openai", "azure_openai", "nvidia", "huggingface"),
+    - For tool_format in ("openai", "azure_openai", "nvidia", "huggingface", "litellm", "iflytek"),
       uses OAIToolDefinition (or OAIFunctionDefinition if use_deprecated=True).
-    - For "claude", uses ClaudeToolDefinition.
+    - For "claude" or "anthropic", uses ClaudeToolDefinition.
     - For "llama", treats as an OAIFunctionDefinition.
 
     Args:
         tool (Dict[str, Any]): The raw tool definition.
         tool_format (str): Which API schema to validate against:
-            "openai", "azure_openai", "nvidia", "huggingface", "claude", "llama".
+            "openai", "azure_openai", "nvidia", "huggingface", "claude", "anthropic", "llama".
         use_deprecated (bool): If True and using OpenAI-style, expects an OAIFunctionDefinition.
 
     Returns:
@@ -308,7 +308,7 @@ def validate_and_format_tool(
                 if use_deprecated
                 else OAIToolDefinition(**tool)
             )
-        elif fmt == "claude":
+        elif fmt in ("claude", "anthropic"):
             validated = ClaudeToolDefinition(**tool)
         elif fmt == "llama":
             validated = OAIFunctionDefinition(**tool)

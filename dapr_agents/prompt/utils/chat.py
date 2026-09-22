@@ -153,7 +153,13 @@ class ChatPromptHelper:
         """
         role, content = cls.extract_role_and_content(message)
         content = cls.format_content(content, template_format=template_format, **kwargs)
-        return cls.create_message(role, content, message)
+        if isinstance(message, BaseMessage):
+            message_data = message.model_dump()
+        elif isinstance(message, dict):
+            message_data = message
+        else:
+            message_data = {}
+        return cls.create_message(role, content, message_data)
 
     @staticmethod
     def format_content(content: str, template_format: str, **kwargs: Any) -> str:
