@@ -38,6 +38,7 @@ from dapr_agents.hooks import (
 )
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
+from dapr_agents.types import AssistantMessage, LLMChatCandidate, LLMChatResponse
 
 
 @pytest.fixture(autouse=True)
@@ -460,6 +461,53 @@ class TestAfterLLMCallHook:
         result = _run_call_llm(agent, mock_activity_ctx)
 
         assert result == {"role": "assistant", "content": "from-llm"}
+
+
+class TestAfterLLMCallResponseMetadata:
+    """Regression tests for issue #731: LLMChatResponse.metadata (token usage,
+    etc.) must reach after_llm_call hooks instead of being silently dropped."""
+
+    def test_response_metadata_is_forwarded_to_after_hook(
+        self, mock_llm, mock_activity_ctx
+    ):
+        usage = {"input_tokens": 12, "output_tokens": 34}
+        mock_llm.generate = Mock(
+            return_value=LLMChatResponse(
+                results=[
+                    LLMChatCandidate(
+                        message=AssistantMessage(content="from-llm"),
+                        finish_reason="end_turn",
+                    )
+                ],
+                metadata={"usage": usage},
+            )
+        )
+        captured: list = []
+
+        def hook(ctx, _msg):
+            captured.append(ctx.payload.get("response_metadata"))
+            return None
+
+        agent = _make_agent(mock_llm, Hooks(after_llm_call=[hook]))
+        _run_call_llm(agent, mock_activity_ctx)
+
+        assert captured == [{"usage": usage}]
+
+    def test_no_response_metadata_key_when_llm_returns_plain_mock(
+        self, mock_llm, mock_activity_ctx
+    ):
+        """The default mock_llm fixture returns a bare Mock, not an
+        LLMChatResponse — the payload must not gain the key in that case."""
+        captured: list = []
+
+        def hook(ctx, _msg):
+            captured.append(ctx.payload)
+            return None
+
+        agent = _make_agent(mock_llm, Hooks(after_llm_call=[hook]))
+        _run_call_llm(agent, mock_activity_ctx)
+
+        assert "response_metadata" not in captured[0]
 
 
 class TestBeforeAfterCombined:

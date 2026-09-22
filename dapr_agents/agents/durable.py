@@ -2372,6 +2372,7 @@ class DurableAgent(AgentBase):
             # `response_format`, or `tool_choice` from generate_kwargs.
             generate_kwargs = {**generate_kwargs, **before_llm_decision.payload}
 
+        response: Any = None
         if synthesized_message is not None:
             assistant_message = synthesized_message
         else:
@@ -2478,6 +2479,11 @@ class DurableAgent(AgentBase):
             after_payload: Dict[str, Any] = dict(generate_kwargs)
             if "messages" in after_payload:
                 after_payload["messages"] = list(after_payload["messages"])
+            # Surface provider response metadata (token usage, finish_reason, …)
+            # so hooks can do per-call usage accounting without having to
+            # wrap/monkeypatch the LLM client themselves.
+            if isinstance(response, LLMChatResponse) and response.metadata:
+                after_payload["response_metadata"] = dict(response.metadata)
             after_ctx = LLMHookContext(payload=after_payload)
             for hook in self._hooks.after_llm_call:
                 result = hook(after_ctx, dict(assistant_message))

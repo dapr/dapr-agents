@@ -13,12 +13,13 @@
 
 """Unit tests for AgentToolExecutor.register_tool()"""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from dapr_agents.tool.executor import AgentToolExecutor
+
 from dapr_agents.tool.base import AgentTool
-from dapr_agents.types import AgentToolExecutorError
+from dapr_agents.tool.executor import AgentToolExecutor
+from dapr_agents.types import AgentToolExecutorError, ToolResult
 
 
 class TestAgentToolExecutorRegisterTool:
@@ -215,3 +216,73 @@ class TestAgentToolExecutorRegisterTool:
         assert tool1 in tools
         assert tool2 in tools
         assert tool3 in tools
+
+
+class TestAgentToolExecutorRunTool:
+    """Test suite for AgentToolExecutor.run_tool() method."""
+
+    @pytest.mark.asyncio
+    async def test_run_tool_not_found_raises(self):
+        """Running an unregistered tool raises AgentToolExecutorError."""
+        executor = AgentToolExecutor()
+        with pytest.raises(AgentToolExecutorError, match="not found"):
+            await executor.run_tool("Missing")
+
+    @pytest.mark.asyncio
+    async def test_run_tool_sync_success(self):
+        """A sync tool is called directly and its result returned."""
+        executor = AgentToolExecutor()
+
+        def add(a: int, b: int) -> int:
+            """Adds two numbers."""
+            return a + b
+
+        executor.register_tool(add)
+        result = await executor.run_tool("add", a=2, b=3)
+        assert result == 5
+
+    @pytest.mark.asyncio
+    async def test_run_tool_async_success(self):
+        """An async tool is awaited and its result returned."""
+        executor = AgentToolExecutor()
+
+        async def greet(name: str) -> str:
+            """Greets someone."""
+            return f"hello {name}"
+
+        executor.register_tool(greet)
+        result = await executor.run_tool("greet", name="world")
+        assert result == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_run_tool_error_returns_tool_result(self):
+        """A tool that raises is caught as ToolError and returned as an error ToolResult."""
+        executor = AgentToolExecutor()
+
+        def failing(x: int) -> int:
+            """Always fails."""
+            raise ValueError("bad input")
+
+        executor.register_tool(failing)
+        result = await executor.run_tool("failing", x=1)
+        assert isinstance(result, ToolResult)
+        assert result.isError is True
+        assert "bad input" in result.content[0].text
+
+    @pytest.mark.asyncio
+    async def test_run_tool_unexpected_error_wrapped(self):
+        """A non-ToolError raised outside the tool's own error handling is wrapped."""
+        executor = AgentToolExecutor()
+
+        async def noop() -> None:
+            """Does nothing."""
+            return
+
+        executor.register_tool(noop)
+        with (
+            patch.object(
+                AgentTool, "arun", AsyncMock(side_effect=RuntimeError("boom"))
+            ),
+            pytest.raises(AgentToolExecutorError, match="Unexpected error"),
+        ):
+            await executor.run_tool("noop")

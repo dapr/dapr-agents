@@ -48,3 +48,35 @@ class TestStringPromptTemplateFormatPrompt:
         template = StringPromptTemplate.from_template("Hello {name}")
         with pytest.raises(ValueError, match="Missing required variables"):
             template.format_prompt()
+
+    def test_pre_fill_variables_does_not_raise(self):
+        """pre_fill_variables must not crash: the base implementation used to
+        unconditionally reference a `messages` field that only
+        ChatPromptTemplate has."""
+        template = StringPromptTemplate.from_template(
+            "Hello {name}, welcome to {place}"
+        )
+        prefilled = template.pre_fill_variables(place="Wonderland")
+        assert prefilled.input_variables == ["name"]
+        assert prefilled.template == template.template
+
+    def test_format_prompt_honors_prefilled_variable(self):
+        """A pre-filled variable must be usable without re-passing it, and
+        must not be reported as missing."""
+        template = StringPromptTemplate.from_template(
+            "Hello {name}, welcome to {place}"
+        )
+        prefilled = template.pre_fill_variables(place="Wonderland")
+        assert (
+            prefilled.format_prompt(name="Alice")
+            == "Hello Alice, welcome to Wonderland"
+        )
+
+    def test_format_prompt_still_raises_when_neither_passed_nor_prefilled(self):
+        """A variable that is neither pre-filled nor passed is still missing."""
+        template = StringPromptTemplate.from_template(
+            "Hello {name}, welcome to {place}"
+        )
+        prefilled = template.pre_fill_variables(place="Wonderland")
+        with pytest.raises(ValueError, match="Missing required variables"):
+            prefilled.format_prompt()
