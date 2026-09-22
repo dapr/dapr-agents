@@ -26,6 +26,7 @@ from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
     validate_message_model,
     parse_cloudevent,
+    parse_http_json,
 )
 from dapr_agents.workflow.utils.registration import register_message_routes
 from dapr_agents.workflow.utils.subscription import (
@@ -528,6 +529,31 @@ def test_parse_cloudevent_from_bytes():
     assert isinstance(validated, OrderCreated)
     assert validated.order_id == "123"
     assert validated.customer == "Bob"
+
+
+def test_parse_http_json_attach_metadata_false_returns_none():
+    """attach_metadata=False must produce no metadata dict for
+    _attach_metadata_to_payload to skip, not an empty one it would attach."""
+    body = {"order_id": "123", "amount": 99.99, "customer": "Bob"}
+
+    validated, metadata = parse_http_json(
+        body, model=OrderCreated, attach_metadata=False
+    )
+
+    assert isinstance(validated, OrderCreated)
+    assert metadata is None
+
+
+def test_parse_http_json_attach_metadata_true_returns_dict():
+    """attach_metadata=True must produce an attachable metadata dict."""
+    body = {"order_id": "123", "amount": 99.99, "customer": "Bob"}
+
+    validated, metadata = parse_http_json(
+        body, model=OrderCreated, attach_metadata=True
+    )
+
+    assert isinstance(validated, OrderCreated)
+    assert metadata == {}
 
 
 # Integration tests
