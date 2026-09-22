@@ -343,6 +343,73 @@ def test_anthropic_generate_formats_tools_for_claude(mock_anthropic_class):
 
 
 # ---------------------------------------------------------------------------
+# tool_choice normalization
+# ---------------------------------------------------------------------------
+
+_WEATHER_TOOL = {
+    "name": "get_weather",
+    "description": "Return the current weather.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"city": {"type": "string"}},
+        "required": ["city"],
+    },
+}
+
+
+@pytest.mark.parametrize(
+    "internal_value,expected",
+    [
+        ("auto", {"type": "auto"}),
+        ("any", {"type": "any"}),
+        ("none", {"type": "none"}),
+    ],
+)
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_generate_normalizes_string_tool_choice(
+    mock_anthropic_class, internal_value, expected
+):
+    """dapr-agents' internal bare-string `tool_choice` (as produced by the
+    agent execution config, e.g. `"auto"`) must be translated into the
+    object shape the Anthropic Messages API requires
+    (`{"type": "auto"}`, etc.); a bare string is rejected by the API with
+    `tool_choice: Input should be an object`.
+    """
+    sdk = MagicMock()
+    sdk.messages.create.return_value = _fake_anthropic_response("ok")
+    mock_anthropic_class.return_value = sdk
+
+    client = AnthropicChatClient(api_key="fake-key")
+    client.generate(
+        "what is the weather?",
+        tools=[_WEATHER_TOOL],
+        tool_choice=internal_value,
+    )
+
+    kwargs = sdk.messages.create.call_args.kwargs
+    assert kwargs["tool_choice"] == expected
+
+
+@patch("dapr_agents.llm.anthropic.client.Anthropic")
+def test_anthropic_generate_passes_through_object_tool_choice(mock_anthropic_class):
+    """A caller-supplied object-shaped `tool_choice` (e.g. forcing a specific
+    tool) is left untouched."""
+    sdk = MagicMock()
+    sdk.messages.create.return_value = _fake_anthropic_response("ok")
+    mock_anthropic_class.return_value = sdk
+
+    client = AnthropicChatClient(api_key="fake-key")
+    client.generate(
+        "what is the weather?",
+        tools=[_WEATHER_TOOL],
+        tool_choice={"type": "tool", "name": "get_weather"},
+    )
+
+    kwargs = sdk.messages.create.call_args.kwargs
+    assert kwargs["tool_choice"] == {"type": "tool", "name": "get_weather"}
+
+
+# ---------------------------------------------------------------------------
 # Streaming
 # ---------------------------------------------------------------------------
 

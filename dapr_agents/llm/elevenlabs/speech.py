@@ -109,7 +109,9 @@ class ElevenLabsSpeechClient(ElevenLabsClientBase):
         model = model or self.model
         output_format = output_format or self.output_format
         optimize_streaming_latency = (
-            optimize_streaming_latency or self.optimize_streaming_latency
+            optimize_streaming_latency
+            if optimize_streaming_latency is not None
+            else self.optimize_streaming_latency
         )
         voice_settings = voice_settings or self.voice_settings
 

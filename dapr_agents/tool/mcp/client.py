@@ -202,7 +202,7 @@ class MCPClient(BaseModel):
         config = dict(config)
         server_name = config.pop("server_name", None)
         transport = config.pop("transport", None)
-        if server_name in self._sessions:
+        if server_name in self._server_configs:
             raise RuntimeError(f"Server '{server_name}' is already connected")
         try:
             self._task_locals[server_name] = asyncio.current_task()
@@ -745,6 +745,8 @@ class MCPClient(BaseModel):
             await self._exit_stack.aclose()
             self._sessions.clear()
             self._server_tools.clear()
+            self._server_prompts.clear()
+            self._server_configs.clear()
             self._task_locals.clear()
             logger.info("MCP client successfully closed")
         except Exception as e:
