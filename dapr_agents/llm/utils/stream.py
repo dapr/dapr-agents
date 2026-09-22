@@ -116,7 +116,7 @@ def process_choice_delta(
     Yields:
         LLMChatResponseChunk: The processed chunk with content, function call, tool calls.
     """
-    # Make an immutable snapshot for this single chunk
+    # Make an isolated snapshot (shallow-copied) for this single chunk
     meta = {**overall_meta}
 
     # mark first_chunk exactly once
