@@ -49,7 +49,7 @@ dependencies = [
     "mcp>=1.26.0,<2.0.0",
     "websockets>=15.0.0,<17.0.0",
     "posthog<8.0.0",
-    "protobuf>=6.33.5,<7.0.0",
+    "protobuf>=6.33.5,<8.0.0",
     "docker>=7.1.0",
     "toolbox-core>=0.5.3",
     "opentelemetry-api>=1.35.0,<2.0.0",
