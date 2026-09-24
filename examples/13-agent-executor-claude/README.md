@@ -207,7 +207,6 @@ executor = ClaudeAgentExecutor(
     ClaudeAgentExecutorConfig(
         model="claude-haiku-4-5",
         max_budget_usd=0.50,
-        cwd=str(Path(__file__).resolve().parent),
     )
 )
 
@@ -230,8 +229,8 @@ Before every run, `DurableAgent` binds the executor to the agent:
 * `max_iterations` as Claude's `max_turns`,
 * the agent's tools (served to Claude as `mcp__dapr__<tool>`),
 * `hooks.before_tool_call`, evaluated in Claude's `PreToolUse` hook,
-* a `DaprSessionStore` on the agent's state store, so Claude transcripts
-  are durable.
+* a `DaprSessionStore` on the agent's state store, scoped by agent name,
+  so Claude transcripts are durable and resume on any host.
 
 Anything you set explicitly in `ClaudeAgentExecutorConfig` (for example
 `system_prompt`, `max_turns` or `session_store`) wins over the agent's value.
@@ -242,9 +241,6 @@ A few settings matter:
   Claude Code's own tools (`Bash`, `Read`, `Edit`, ...) and does not load
   settings files from the host. Claude can only use the tools you give it.
   Use `builtin_tools` and `allowed_tools` in the config to opt in.
-* **`cwd` must be stable.** The session store key is derived from the
-  executor's working directory. Every host that resumes a session must use
-  the same `cwd`.
 * **One tool call at a time for gated tools.** Claude only pauses a tool
   call cleanly when it is the only call in its message, so the agent's
   instructions ask for one tool at a time. If Claude still batches calls, the

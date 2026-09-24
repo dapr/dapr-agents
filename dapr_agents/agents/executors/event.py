@@ -43,6 +43,8 @@ This is additive: executors that never pause keep the original
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Mapping, Optional
 
@@ -70,6 +72,10 @@ EVENT_COMPLETE: AgentEventType = "complete"
 EVENT_ERROR: AgentEventType = "error"
 EVENT_PAUSED: AgentEventType = "paused"
 
+# ``error`` event metadata key: ``False`` marks a failure that repeats on
+# every retry (limits, invalid request, auth), so hosts fail fast.
+METADATA_RETRYABLE = "retryable"
+
 # Terminal event types: a run's stream ends with exactly one of these.
 TERMINAL_EVENT_TYPES = frozenset({EVENT_COMPLETE, EVENT_ERROR, EVENT_PAUSED})
 
@@ -94,7 +100,8 @@ class AgentEvent:
               ``dapr_agents.types.message.MessageContent``.
             * ``session`` — opaque checkpoint payload (provider-defined).
             * ``complete`` — the final assistant message ``dict``.
-            * ``error`` — error message (``str``) or ``Exception``.
+            * ``error`` — error message (``str``) or ``Exception``;
+              ``metadata[METADATA_RETRYABLE] = False`` marks it terminal.
             * ``paused`` — ``dict`` with ``tool_call_id``, ``name``,
               ``arguments`` and optional ``approval`` describing the
               deferred tool call awaiting a decision (see module docs).
@@ -118,15 +125,23 @@ class ToolCallDecision:
         approved: ``True`` runs the tool; ``False`` rejects it and the model
             is told the call was blocked.
         reason: Optional explanation, shown to the model on rejection.
+        arguments_digest: ``arguments_digest()`` of the arguments the
+            approver saw; an executor rejects the call if the arguments it
+            is about to run with differ.
     """
 
     tool_call_id: str
     approved: bool
     reason: Optional[str] = None
+    arguments_digest: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a JSON-safe dict (workflow activity inputs must be JSON)."""
-        return {"approved": self.approved, "reason": self.reason}
+        return {
+            "approved": self.approved,
+            "reason": self.reason,
+            "arguments_digest": self.arguments_digest,
+        }
 
     @classmethod
     def from_dict(
@@ -134,11 +149,19 @@ class ToolCallDecision:
     ) -> "ToolCallDecision":
         """Build a decision from the dict produced by ``to_dict``."""
         reason = data.get("reason")
+        digest = data.get("arguments_digest")
         return cls(
             tool_call_id=tool_call_id,
             approved=data.get("approved") is True,
             reason=str(reason) if reason is not None else None,
+            arguments_digest=str(digest) if digest else None,
         )
+
+
+def arguments_digest(arguments: Mapping[str, Any]) -> str:
+    """Stable SHA-256 of tool-call arguments."""
+    canonical = json.dumps(dict(arguments), sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def tool_decisions_from_context(

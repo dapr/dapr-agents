@@ -231,6 +231,43 @@ class TestConsumeExecutor:
         assert "user" in roles
         assert "assistant" in roles
 
+    def test_repeated_answer_from_an_earlier_turn_is_still_saved(self):
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "Done."},
+                    session_id="s",
+                ),
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+        agent._save_assistant_message(
+            "inst-1",
+            {"role": "assistant", "content": "Done."},
+            entry=entry,
+            skip_save=True,
+        )
+
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+        ):
+            asyncio.run(
+                agent._consume_executor(
+                    {"task": "again", "instance_id": "inst-1", "source": "test"}
+                )
+            )
+
+        answers = [
+            m
+            for m in entry.messages
+            if getattr(m, "role", None) == "assistant"
+            and getattr(m, "content", None) == "Done."
+        ]
+        assert len(answers) == 2
+
     def test_session_event_triggers_save(self):
         executor = _ScriptedExecutor(
             [

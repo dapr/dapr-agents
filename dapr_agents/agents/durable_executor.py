@@ -28,14 +28,17 @@ and the ``run_executor`` activity:
   timeout) and calls ``run_executor`` again with the decision under
   ``context[CONTEXT_TOOL_DECISIONS]``, repeating until the run completes.
   A rejection passes the approver's reason on to the executor.
-* After ``execution.max_iterations`` approval rounds, a further paused call
-  is rejected without asking a human, so the session never keeps an
-  unanswered tool call, and the run gets one last chance to finish.
+* After ``execution.max_approval_rounds`` (default ``max_iterations``)
+  approval rounds, a further paused call is rejected without asking a human
+  and the run gets one last chance to finish. A call left paused after that,
+  or by a workflow terminated while waiting, is rejected by the executor on
+  the next run of the same session, before the new task is sent.
 
 Delivery semantics: ``run_executor`` is an activity, so it runs at least
 once. A retried attempt resumes the executor session saved by the previous
 attempt (the task prompt is sent again), and tools that ran inside the
-failed attempt may run again. Workflow-backed tools reuse the child
+failed attempt may run again. Failures an executor marks as not retryable
+(``METADATA_RETRYABLE``) fail the workflow instead of being retried. Workflow-backed tools reuse the child
 workflow of the earlier attempt (their instance ids are deterministic).
 """
 
@@ -46,11 +49,17 @@ from typing import Any, Dict, Optional
 
 import dapr.ext.workflow as wf
 
-from dapr_agents.agents.executor_run import ExecutorRunRecorder, PausedExecutorRun
+from dapr_agents.agents.executor_run import (
+    ExecutorRunRecorder,
+    PausedExecutorRun,
+    executor_failure,
+)
 from dapr_agents.agents.executors import (
     CONTEXT_TOOL_DECISIONS,
     AgentExecutorBase,
+    arguments_digest,
     DaprSessionStore,
+    DaprSessionStoreConfig,
     ToolCallDecision,
 )
 from dapr_agents.agents.executors.binding import ExecutorBinding
@@ -86,6 +95,7 @@ def _resume_input(
         tool_call_id=paused.tool_call_id,
         approved=approved,
         reason=None if approved else (reason or _DENIED_REASON),
+        arguments_digest=arguments_digest(paused.arguments),
     )
     context = dict(first_input.get("context") or {})
     context[CONTEXT_TOOL_DECISIONS] = {paused.tool_call_id: decision.to_dict()}
@@ -121,8 +131,8 @@ class DurableExecutorMixin:
 
         Every round is a recorded activity and approvals use deterministic
         ids, so the loop is replay-safe. Approval rounds are capped at
-        ``execution.max_iterations``; past the cap, one more paused call is
-        rejected automatically.
+        ``execution.max_approval_rounds``; past the cap, one more paused call
+        is rejected automatically.
 
         Returns:
             The final assistant message dict.
@@ -146,7 +156,11 @@ class DurableExecutorMixin:
         if isinstance(message.get("context"), dict):
             first_input["context"] = message["context"]
 
-        max_approvals = self.execution.max_iterations
+        max_approvals = (
+            self.execution.max_approval_rounds
+            if self.execution.max_approval_rounds is not None
+            else self.execution.max_iterations
+        )
         payload = first_input
         round_ = 0
         while True:
@@ -155,6 +169,9 @@ class DurableExecutorMixin:
                 input=payload,
                 retry_policy=self._retry_policy,
             )
+            error = executor_failure(result)
+            if error is not None:
+                raise AgentError(error)
             paused = PausedExecutorRun.from_activity_result(result)
             if paused is None:
                 return result
@@ -273,6 +290,8 @@ class DurableExecutorMixin:
             async for event in stream:
                 if recorder.handle(event):
                     break
+            if recorder.terminal_error is not None:
+                failure = AgentError(recorder.terminal_error)
             return recorder.result()
         except AgentError as exc:
             failure = exc
@@ -356,7 +375,9 @@ class DurableExecutorMixin:
             return None
         store = getattr(self, "_executor_store", None)
         if store is None:
-            store = DaprSessionStore(self.state_store)
+            store = DaprSessionStore(
+                self.state_store, config=DaprSessionStoreConfig(project_key=self.name)
+            )
             self._executor_store = store
         return store
 

@@ -50,24 +50,28 @@ class FakeClaudeClient:
 
     ``script`` holds SDK messages to yield from ``receive_response``; an
     ``Exception`` in the script is raised at that point. ``stderr_lines``
-    are fed to the options' stderr callback on connect. Each instance
-    records the options it was built with and the prompt it was sent.
+    are fed to the options' stderr callback on connect. ``responses``
+    queues earlier ``receive_response`` calls ahead of ``script``. Each
+    instance records its options and the prompts it was sent.
     """
 
     instances: List["FakeClaudeClient"] = []
     script: List[Any] = []
+    responses: List[List[Any]] = []
     enter_error: Optional[BaseException] = None
     stderr_lines: List[str] = []
 
     def __init__(self, options: Any) -> None:
         self.options = options
         self.prompt: Optional[str] = None
+        self.prompts: List[str] = []
         FakeClaudeClient.instances.append(self)
 
     @classmethod
     def reset(cls, script: Optional[List[Any]] = None) -> None:
         cls.instances = []
         cls.script = list(script or [])
+        cls.responses = []
         cls.enter_error = None
         cls.stderr_lines = []
 
@@ -87,9 +91,12 @@ class FakeClaudeClient:
 
     async def query(self, prompt: str) -> None:
         self.prompt = prompt
+        self.prompts.append(prompt)
 
     async def receive_response(self):
-        for message in list(FakeClaudeClient.script):
+        queued = FakeClaudeClient.responses
+        messages = queued.pop(0) if queued else list(FakeClaudeClient.script)
+        for message in messages:
             if isinstance(message, BaseException):
                 raise message
             yield message

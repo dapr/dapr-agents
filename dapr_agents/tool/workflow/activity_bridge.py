@@ -26,6 +26,15 @@ Child instance ids are derived from the parent instance, the run round, the
 tool name, its arguments and how often that exact call was made in the run.
 A retried activity therefore re-attaches to the child workflow a previous
 attempt started instead of starting a second one.
+
+Trade-offs:
+
+* The tool workflows are top-level instances, not child workflows:
+  terminating or purging the parent does not cascade to them, and one keeps
+  running after the caller gives up waiting and raises ``ToolError``.
+* Because ids are deterministic, a tool workflow that ended ``FAILED`` or
+  ``TERMINATED`` is re-attached on every retry of the same call, so that
+  call keeps failing until the parent run moves on.
 """
 
 from __future__ import annotations

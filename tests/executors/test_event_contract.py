@@ -21,6 +21,7 @@ from dapr_agents.agents.executors import (
     EchoAgentExecutor,
     ExecutorBinding,
     ToolCallDecision,
+    arguments_digest,
     tool_decisions_from_context,
 )
 from dapr_agents.agents.executors.event import (
@@ -41,7 +42,14 @@ class TestToolCallDecision:
         assert ToolCallDecision("t1", True).to_dict() == {
             "approved": True,
             "reason": None,
+            "arguments_digest": None,
         }
+
+    def test_arguments_digest_round_trips_and_ignores_key_order(self):
+        digest = arguments_digest({"to": "a", "amount": 5})
+        assert digest == arguments_digest({"amount": 5, "to": "a"})
+        decision = ToolCallDecision("t1", True, arguments_digest=digest)
+        assert ToolCallDecision.from_dict("t1", decision.to_dict()) == decision
 
     @pytest.mark.parametrize("value", ["yes", 1, None])
     def test_only_literal_true_approves(self, value):

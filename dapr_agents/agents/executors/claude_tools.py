@@ -26,15 +26,19 @@ Only import this module after ``claude_agent_sdk`` is known to be installed.
 
 from __future__ import annotations
 
+import collections
 import inspect
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Deque, Dict, Mapping, Optional, Sequence, Tuple
 
 from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server
 
-from dapr_agents.agents.executors.event import ToolCallDecision
+from dapr_agents.agents.executors.event import (
+    ToolCallDecision,
+    arguments_digest,
+)
 from dapr_agents.hooks import (
     BeforeToolHook,
     Deny,
@@ -61,6 +65,10 @@ def _input_schema(agent_tool: AgentTool) -> Dict[str, Any]:
     return schema
 
 
+def _args_key(args: Mapping[str, Any]) -> str:
+    return json.dumps(dict(args), sort_keys=True, default=str)
+
+
 def _result_text(result: Any) -> str:
     if isinstance(result, str):
         return result
@@ -70,8 +78,16 @@ def _result_text(result: Any) -> str:
         return str(result)
 
 
-def _to_sdk_tool(agent_tool: AgentTool) -> SdkMcpTool[Any]:
+SkipLookup = Callable[[str, Mapping[str, Any]], Optional[str]]
+
+
+def _to_sdk_tool(
+    agent_tool: AgentTool, skipped: Optional[SkipLookup] = None
+) -> SdkMcpTool[Any]:
     async def handler(args: Dict[str, Any]) -> Dict[str, Any]:
+        recorded = skipped(agent_tool.name, args or {}) if skipped else None
+        if recorded is not None:
+            return {"content": [{"type": "text", "text": recorded}]}
         try:
             result = await agent_tool.arun(**(args or {}))
         except Exception as exc:  # noqa: BLE001 - reported to the model
@@ -87,10 +103,18 @@ def _to_sdk_tool(agent_tool: AgentTool) -> SdkMcpTool[Any]:
     )
 
 
-def build_tool_server(name: str, tools: Sequence[AgentTool]) -> Any:
-    """Return an SDK MCP server config exposing ``tools`` under ``name``."""
+def build_tool_server(
+    name: str, tools: Sequence[AgentTool], skipped: Optional[SkipLookup] = None
+) -> Any:
+    """Return an SDK MCP server config exposing ``tools`` under ``name``.
+
+    ``skipped`` returns the result a ``Skip`` hook recorded for a call, which
+    is then returned instead of running the tool.
+    """
     return create_sdk_mcp_server(
-        name=name, version="1.0.0", tools=[_to_sdk_tool(t) for t in tools]
+        name=name,
+        version="1.0.0",
+        tools=[_to_sdk_tool(t, skipped) for t in tools],
     )
 
 
@@ -157,6 +181,8 @@ class ToolGate:
         decisions: Decisions supplied to resume a paused run.
         tool_prefix: ``mcp__<server>__`` prefix of the dapr-agents tools,
             stripped so hooks see the original tool names.
+        tool_sources: ``AgentTool.source`` of each dapr-agents tool by name,
+            so hooks see the same ``source`` as on the LLM path.
     """
 
     def __init__(
@@ -165,11 +191,14 @@ class ToolGate:
         hooks: Sequence[BeforeToolHook],
         decisions: Mapping[str, ToolCallDecision],
         tool_prefix: str,
+        tool_sources: Optional[Mapping[str, str]] = None,
     ) -> None:
         self._hooks = tuple(hooks)
+        self._tool_sources = dict(tool_sources or {})
         self._decisions = dict(decisions)
         self._tool_prefix = tool_prefix
         self._deferred: Dict[str, PendingApproval] = {}
+        self._skipped: Dict[Tuple[str, str], Deque[str]] = {}
 
     @property
     def enabled(self) -> bool:
@@ -182,11 +211,20 @@ class ToolGate:
 
     def display_name(self, tool_name: str) -> Tuple[str, str]:
         """Return ``(name, source)`` for hooks and events."""
-        if self._tool_prefix and tool_name.startswith(self._tool_prefix):
-            return tool_name[len(self._tool_prefix) :], "local"
+        if self._is_bound(tool_name):
+            name = tool_name[len(self._tool_prefix) :]
+            return name, self._tool_sources.get(name, "local")
         if tool_name.startswith("mcp__"):
             return tool_name, "mcp"
         return tool_name, "claude"
+
+    def take_skipped(self, name: str, args: Mapping[str, Any]) -> Optional[str]:
+        """Pop the ``Skip`` result recorded for a call to ``name`` with ``args``."""
+        queue = self._skipped.get((name, _args_key(args)))
+        return queue.popleft() if queue else None
+
+    def _is_bound(self, tool_name: str) -> bool:
+        return bool(self._tool_prefix) and tool_name.startswith(self._tool_prefix)
 
     async def __call__(
         self, input_data: Mapping[str, Any], tool_use_id: Optional[str], _ctx: Any
@@ -194,11 +232,24 @@ class ToolGate:
         call_id = str(tool_use_id or input_data.get("tool_use_id") or "")
         decision = self._decisions.get(call_id) if call_id else None
         if decision is not None:
+            tool_input = input_data.get("tool_input")
+            if (
+                decision.approved
+                and decision.arguments_digest
+                and (
+                    arguments_digest(
+                        tool_input if isinstance(tool_input, Mapping) else {}
+                    )
+                    != decision.arguments_digest
+                )
+            ):
+                return _deny("Tool arguments changed after approval")
             if decision.approved:
                 return _allow()
             return _deny(decision.reason or "Rejected by human approver")
 
-        name, source = self.display_name(str(input_data.get("tool_name", "")))
+        tool_name = str(input_data.get("tool_name", ""))
+        name, source = self.display_name(tool_name)
         tool_input = input_data.get("tool_input")
         context = ToolHookContext(
             step_name=name,
@@ -211,8 +262,14 @@ class ToolGate:
         except Exception as exc:  # noqa: BLE001 - fail closed on hook errors
             logger.exception("before_tool_call hook failed for %s", name)
             return _deny(f"Tool call blocked: policy hook failed ({exc})")
+        if isinstance(outcome, Skip) and self._is_bound(tool_name):
+            key = (name, _args_key(context.payload))
+            self._skipped.setdefault(key, collections.deque()).append(
+                _result_text(outcome.result)
+            )
+            return _allow()
         output = self._to_output(call_id, outcome)
-        if not output and source == "local":
+        if not output and self._is_bound(tool_name):
             # dapr-agents tools are not pre-allowed while the gate is active
             # (see ``ClaudeAgentExecutor``), so they are allowed here. If the
             # CLI ever ignores a ``defer`` it then falls back to its normal

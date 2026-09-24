@@ -20,6 +20,10 @@ type-checked) without the optional ``claude`` extra installed.
 
 from __future__ import annotations
 
+import logging
+import os
+import re
+import tempfile
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
@@ -27,6 +31,8 @@ from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 from dapr_agents.agents.executors.binding import ExecutorBinding
 from dapr_agents.hooks import BeforeToolHook
 from dapr_agents.tool.base import AgentTool
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TOOL_SERVER_NAME = "dapr"
 
@@ -87,15 +93,18 @@ class ClaudeAgentExecutorConfig:
             ``http`` / ``sdk`` dicts as accepted by the SDK).
         before_tool_call: dapr-agents ``before_tool_call`` hooks, evaluated
             in a Claude ``PreToolUse`` hook for every tool call. ``Proceed``
-            allows, ``Mutate`` rewrites the arguments, ``Deny`` and ``Skip``
-            block the call, and ``RequireApproval`` pauses the run (see
-            ``AgentExecutorBase.supports_tool_approval``).
+            allows, ``Mutate`` rewrites the arguments, ``Deny`` blocks the
+            call, and ``RequireApproval`` pauses the run (see
+            ``AgentExecutorBase.supports_tool_approval``). ``Skip`` returns
+            its result as the tool result for dapr-agents tools, as on the
+            LLM path; other tools can only be blocked, so it acts as a deny.
         hooks: Extra raw SDK hooks (``{"PreToolUse": [HookMatcher, ...]}``),
             merged with the executor's own hooks.
-        cwd: Working directory for the Claude CLI. The session store key is
-            derived from it, so it must be identical on every host that
-            resumes a session. ``None`` resolves to the process working
-            directory when the executor is created.
+        cwd: Working directory for the Claude CLI. ``None`` uses a
+            per-agent directory under the system temp dir when bound to a
+            ``DurableAgent``, and the process working directory otherwise.
+            Without a scoped ``session_store`` the session is found by
+            ``cwd``, so it must then be identical on every host.
         env: Extra environment for the CLI process. Use it to pass
             ``ANTHROPIC_API_KEY`` or ``CLAUDE_CODE_OAUTH_TOKEN`` in pods.
         include_partial_messages: Emit ``text_delta`` events from streamed
@@ -182,13 +191,15 @@ class ClaudeAgentExecutorConfig:
         """
         Return a copy filled in from the hosting agent's ``binding``.
 
-        Explicit settings win: ``system_prompt``, ``max_turns`` and
-        ``session_store`` come from the binding only when unset here. The
+        Explicit settings win: ``system_prompt``, ``max_turns``, ``cwd``
+        and ``session_store`` come from the binding only when unset here. The
         binding's tools and ``before_tool_call`` hooks are added after this
         config's own, skipping tools whose name is already configured.
         """
         own_names = {t.name for t in self.tools}
         extra_tools = tuple(t for t in binding.tools if t.name not in own_names)
+        for dropped in (t.name for t in binding.tools if t.name in own_names):
+            logger.debug("Agent tool %r is replaced by the executor's own", dropped)
         extra_hooks = tuple(
             h for h in binding.before_tool_call if h not in self.before_tool_call
         )
@@ -199,7 +210,14 @@ class ClaudeAgentExecutorConfig:
             tools=self.tools + extra_tools,
             before_tool_call=self.before_tool_call + extra_hooks,
             session_store=_first_set(self.session_store, binding.session_store),
+            cwd=self.cwd or agent_work_dir(binding.agent_name),
         )
+
+
+def agent_work_dir(agent_name: str) -> str:
+    """Per-agent CLI working directory, outside any project checkout."""
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", agent_name) or "agent"
+    return os.path.join(tempfile.gettempdir(), "dapr-agents", safe)
 
 
 def _first_set(value: Any, fallback: Any) -> Any:

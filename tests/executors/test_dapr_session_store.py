@@ -293,3 +293,39 @@ class TestSubkeysAndDelete:
 
     async def test_delete_missing_is_noop(self):
         await _store(FakeEtagStateStore()).delete(KEY)
+
+
+class TestReadsDuringAppends:
+    async def test_load_retries_when_a_listed_chunk_vanishes(self):
+        state = FakeEtagStateStore()
+        store = _store(state)
+        await store.append(KEY, [{"uuid": "a"}])
+        real_load_many = state.load_many
+        calls = []
+
+        def racing_load_many(keys, **kwargs):
+            calls.append(keys)
+            docs = real_load_many(keys, **kwargs)
+            return {} if len(calls) == 1 else docs
+
+        state.load_many = racing_load_many
+        assert _uuids(await store.load(KEY)) == ["a"]
+        assert len(calls) == 2
+
+    async def test_load_gives_up_after_repeated_missing_chunks(self):
+        state = FakeEtagStateStore()
+        store = _store(state)
+        await store.append(KEY, [{"uuid": "a"}])
+        state.load_many = lambda keys, **kwargs: {}
+        with pytest.raises(StateStoreError, match="missing"):
+            await store.load(KEY)
+
+
+class TestProjectKeyScope:
+    async def test_fixed_project_key_ignores_the_sdk_project_key(self):
+        state = FakeEtagStateStore()
+        store = _store(state, project_key="agent-a")
+        laptop = {"project_key": "-Users-me-src-app", "session_id": "s1"}
+        pod = {"project_key": "-app", "session_id": "s1"}
+        await store.append(laptop, [{"uuid": "a"}])
+        assert _uuids(await store.load(pod)) == ["a"]

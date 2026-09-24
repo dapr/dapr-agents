@@ -95,17 +95,23 @@ class DaprSessionStoreConfig:
             accepts (for example DynamoDB caps items at 400 KB).
         dedupe_window: Number of most recent entry uuids remembered per key
             to make re-delivered appends idempotent. Each one adds roughly
-            40 bytes to the manifest, which every append rewrites.
+            40 bytes to the manifest, which every append rewrites. Appends
+            arrive in order, so a re-delivered batch is always recent.
         max_commit_attempts: Manifest commit attempts under contention.
         ttl_in_seconds: Optional sliding TTL: a session expires this many
             seconds after its last append. The state store must support TTL.
+        project_key: Scope for every key, replacing the SDK's
+            ``project_key`` (derived from the CLI ``cwd``) so a session is
+            found regardless of the working directory on each host.
+            ``DurableAgent`` sets it to the agent name.
     """
 
     key_prefix: str = "claude-session:"
     max_chunk_bytes: int = 256 * 1024
-    dedupe_window: int = 2048
+    dedupe_window: int = 256
     max_commit_attempts: int = 10
     ttl_in_seconds: Optional[int] = None
+    project_key: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.max_chunk_bytes <= 0:
@@ -116,6 +122,13 @@ class DaprSessionStoreConfig:
             raise ValueError("max_commit_attempts must be positive")
         if self.ttl_in_seconds is not None and self.ttl_in_seconds <= 0:
             raise ValueError("ttl_in_seconds must be positive")
+
+
+_LOAD_ATTEMPTS = 3
+
+
+class _MissingChunkError(StateStoreError):
+    """A chunk listed in the manifest was not found."""
 
 
 @dataclass(frozen=True)
@@ -271,6 +284,8 @@ class DaprSessionStore:
     # ------------------------------------------------------------------
 
     def _manifest_key(self, key: Mapping[str, Any]) -> str:
+        if self._config.project_key:
+            key = {**key, "project_key": self._config.project_key}
         return f"{self._config.key_prefix}{_session_key_string(key)}"
 
     @staticmethod
@@ -351,7 +366,7 @@ class DaprSessionStore:
         for chunk_key in keys:
             doc = docs.get(chunk_key)
             if not isinstance(doc, Mapping):
-                raise StateStoreError(
+                raise _MissingChunkError(
                     f"Session transcript chunk '{chunk_key}' is missing; "
                     "refusing to return a transcript with a gap."
                 )
@@ -492,11 +507,20 @@ class DaprSessionStore:
                 _backoff(attempt)
 
     def _load_sync(self, manifest_key: str) -> Optional[List[Any]]:
-        manifest, _ = self._read_manifest(manifest_key)
-        if manifest is None:
-            return None
-        chunks = self._load_chunks(manifest_key, manifest.chunks)
-        return [entry for chunk in chunks for entry in chunk]
+        # A concurrent append can delete a folded chunk right after this
+        # manifest was read; the next manifest no longer lists it.
+        for attempt in range(1, _LOAD_ATTEMPTS + 1):
+            manifest, _ = self._read_manifest(manifest_key)
+            if manifest is None:
+                return None
+            try:
+                chunks = self._load_chunks(manifest_key, manifest.chunks)
+            except _MissingChunkError:
+                if attempt == _LOAD_ATTEMPTS:
+                    raise
+                continue
+            return [entry for chunk in chunks for entry in chunk]
+        return None
 
     def _delete_chunks(self, manifest_key: str, chunk_ids: Sequence[str]) -> None:
         for chunk_id in chunk_ids:

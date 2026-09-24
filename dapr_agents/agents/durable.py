@@ -429,6 +429,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         approvals_possible = bool(hooks and hooks.before_tool_call) or bool(
             executor is not None and executor.supports_tool_approval
         )
+        self._approvals_possible = approvals_possible
         self._wf_client: Optional[wf.DaprWorkflowClient] = (
             wf.DaprWorkflowClient() if approvals_possible else None
         )
@@ -3153,9 +3154,9 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         """
         Write the current _pending_approvals dict to Dapr State Store so it
         survives process crashes.  No-op when no state store is configured or
-        the agent cannot wait for approvals (it then has no approval client).
+        the agent cannot wait for approvals.
         """
-        if self._wf_client is None:
+        if not self._approvals_possible:
             return
         if not self.state_store:
             return
@@ -3173,9 +3174,9 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         _pending_approvals on agent startup.  Entries whose workflow is no longer
         RUNNING are dropped so stale requests from already-finished workflows are
         not surfaced.  No-op when no state store is configured or the agent
-        cannot wait for approvals (it then has no approval client).
+        cannot wait for approvals.
         """
-        if self._wf_client is None:
+        if not self._approvals_possible:
             return
         if not self.state_store:
             return
@@ -3183,7 +3184,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             data = self.state_store.load(key=self._pending_approvals_key(), default={})
             if not data:
                 return
-            wf_client = self._wf_client
+            wf_client = self._get_wf_client()
             _ACTIVE = {wf.WorkflowStatus.RUNNING, wf.WorkflowStatus.SUSPENDED}
             for approval_request_id, event_data in data.items():
                 instance_id = event_data.get("instance_id", "")

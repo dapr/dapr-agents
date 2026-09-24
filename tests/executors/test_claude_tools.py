@@ -17,7 +17,7 @@ import pytest
 
 pytest.importorskip("claude_agent_sdk")
 
-from dapr_agents.agents.executors import ToolCallDecision  # noqa: E402
+from dapr_agents.agents.executors import ToolCallDecision, arguments_digest  # noqa: E402
 from dapr_agents.agents.executors.claude_tools import (  # noqa: E402
     PendingApproval,
     ToolGate,
@@ -90,6 +90,13 @@ class TestToolServer:
         out = await _to_sdk_tool(forecast).handler({"days": 2})
         assert out["content"][0]["text"] == '{"days": 2}'
 
+    async def test_handler_returns_recorded_skip_result(self):
+        def skipped(name, args):
+            return "cached" if (name, args) == ("broken", {}) else None
+
+        out = await _to_sdk_tool(broken, skipped).handler({})
+        assert out == {"content": [{"type": "text", "text": "cached"}]}
+
     async def test_handler_reports_errors_to_the_model(self):
         out = await _to_sdk_tool(broken).handler({})
         assert out["is_error"] is True
@@ -97,8 +104,13 @@ class TestToolServer:
 
 
 class TestToolGate:
-    def _gate(self, *hooks, decisions=None):
-        return ToolGate(hooks=hooks, decisions=decisions or {}, tool_prefix=PREFIX)
+    def _gate(self, *hooks, decisions=None, sources=None):
+        return ToolGate(
+            hooks=hooks,
+            decisions=decisions or {},
+            tool_prefix=PREFIX,
+            tool_sources=sources,
+        )
 
     def test_enabled_only_with_hooks_or_decisions(self):
         assert not self._gate().enabled
@@ -110,6 +122,26 @@ class TestToolGate:
         assert gate.display_name(f"{PREFIX}pay") == ("pay", "local")
         assert gate.display_name("mcp__github__issue") == ("mcp__github__issue", "mcp")
         assert gate.display_name("Bash") == ("Bash", "claude")
+
+    def test_bound_tools_report_their_own_source(self):
+        gate = self._gate(sources={"delete_repo": "mcp"})
+        assert gate.display_name(f"{PREFIX}delete_repo") == ("delete_repo", "mcp")
+        assert gate.display_name(f"{PREFIX}pay") == ("pay", "local")
+
+    async def test_source_keyed_hook_gates_bound_mcp_tool(self):
+        def gate_mcp_deletes(ctx):
+            if ctx.source == "mcp" and ctx.step_name.startswith("delete_"):
+                return RequireApproval()
+            return Proceed()
+
+        gate = self._gate(gate_mcp_deletes, sources={"delete_repo": "mcp"})
+        out = await gate(_input(f"{PREFIX}delete_repo"), "t1", None)
+        assert _decision(out) == "defer"
+
+    async def test_bound_mcp_tool_is_allowed_when_hooks_proceed(self):
+        gate = self._gate(lambda c: Proceed(), sources={"lookup": "mcp"})
+        out = await gate(_input(f"{PREFIX}lookup"), "t1", None)
+        assert _decision(out) == "allow"
 
     async def test_proceed_allows_local_tools(self):
         gate = self._gate(lambda c: Proceed())
@@ -170,14 +202,23 @@ class TestToolGate:
         assert _decision(await gate(payload, None, None)) == "defer"
         assert gate.deferred_approval("t7") is not None
 
-    async def test_deny_and_skip_block(self):
+    async def test_deny_blocks(self):
         out = await self._gate(lambda c: Deny())(_input(f"{PREFIX}x"), "1", None)
+        assert _decision(out) == "deny"
         assert out["hookSpecificOutput"]["permissionDecisionReason"] == (
             "Blocked by policy"
         )
-        out = await self._gate(lambda c: Skip(result={"cached": 1}))(
-            _input(f"{PREFIX}x"), "2", None
-        )
+
+    async def test_skip_on_bound_tool_returns_its_result(self):
+        gate = self._gate(lambda c: Skip(result={"cached": 1}))
+        out = await gate(_input(f"{PREFIX}x", a=1), "2", None)
+        assert _decision(out) == "allow"
+        assert gate.take_skipped("x", {"a": 1}) == '{"cached": 1}'
+        assert gate.take_skipped("x", {"a": 1}) is None
+
+    async def test_skip_on_other_tool_denies(self):
+        gate = self._gate(lambda c: Skip(result="cached"))
+        out = await gate(_input("mcp__github__issue"), "3", None)
         assert _decision(out) == "deny"
         assert "cached" in out["hookSpecificOutput"]["permissionDecisionReason"]
 
@@ -215,3 +256,20 @@ class TestToolGate:
         # Decided calls skip the hooks; a re-issued call is evaluated again.
         assert calls == []
         assert _decision(await gate(_input(f"{PREFIX}pay"), "t4", None)) == "defer"
+
+
+class TestApprovedArguments:
+    def _gate(self, digest):
+        decision = ToolCallDecision("t1", True, arguments_digest=digest)
+        return ToolGate(hooks=(), decisions={"t1": decision}, tool_prefix=PREFIX)
+
+    async def test_matching_arguments_are_allowed(self):
+        gate = self._gate(arguments_digest({"to": "a"}))
+        assert _decision(await gate(_input(f"{PREFIX}pay", to="a"), "t1", None)) == (
+            "allow"
+        )
+
+    async def test_changed_arguments_are_denied(self):
+        gate = self._gate(arguments_digest({"to": "a"}))
+        out = await gate(_input(f"{PREFIX}pay", to="mallory"), "t1", None)
+        assert _decision(out) == "deny"

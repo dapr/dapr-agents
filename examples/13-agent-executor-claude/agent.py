@@ -25,7 +25,6 @@ Builds a DurableAgent whose reasoning loop runs in the Claude Agent SDK.
 """
 
 import os
-from pathlib import Path
 
 from dapr_agents import DurableAgent, tool
 from dapr_agents.agents.configs import AgentExecutionConfig, AgentStateConfig
@@ -107,9 +106,6 @@ def build_executor() -> ClaudeAgentExecutor:
         ClaudeAgentExecutorConfig(
             model=os.getenv("CLAUDE_MODEL", DEFAULT_MODEL),
             max_budget_usd=0.50,
-            # The session store key is derived from cwd, so keep it identical
-            # on every host that resumes a session.
-            cwd=str(Path(__file__).resolve().parent),
         )
     )
 

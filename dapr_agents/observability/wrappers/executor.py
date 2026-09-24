@@ -165,6 +165,11 @@ class TracingExecutorObserver(ExecutorRunObserver):
 
     def _end_tool(self, result: Mapping[str, Any]) -> None:
         call_id = str(result.get("tool_call_id") or result.get("tool_use_id") or "")
+        if call_id and call_id not in self._tool_spans:
+            # A resumed run reports the approved call's result without its
+            # tool_use block, which was emitted by the run that paused.
+            self._start_tool({"id": call_id, "name": result.get("name")})
+            self._tool_spans[call_id].set_attribute("tool.resumed", True)
         span = self._tool_spans.pop(call_id, None)
         if span is None:
             return

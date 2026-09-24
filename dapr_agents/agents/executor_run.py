@@ -27,7 +27,7 @@ import json
 import logging
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from dapr_agents.agents.executors import event as ev
 from dapr_agents.agents.executors.event import AgentEvent
@@ -44,6 +44,15 @@ logger = logging.getLogger(__name__)
 # results must be JSON, and a completed run returns the plain final message,
 # so a paused run is a dict carrying only this key.
 EXECUTOR_PAUSED_KEY = "_executor_paused"
+EXECUTOR_FAILED_KEY = "_executor_failed"
+
+
+def executor_failure(result: Any) -> Optional[str]:
+    """The terminal error in a ``run_executor`` result, if it is one."""
+    if isinstance(result, Mapping) and EXECUTOR_FAILED_KEY in result:
+        return str(result[EXECUTOR_FAILED_KEY])
+    return None
+
 
 _USAGE_FIELDS = (
     "cost_usd",
@@ -102,6 +111,8 @@ class PausedExecutorRun:
         data = result.get(EXECUTOR_PAUSED_KEY)
         if not isinstance(data, Mapping):
             return None
+        if not data.get("tool_call_id"):
+            raise AgentError("Paused executor result has no tool_call_id.")
         return cls(
             tool_call_id=str(data["tool_call_id"]),
             name=str(data.get("name") or ""),
@@ -199,6 +210,8 @@ class ExecutorRunRecorder:
         self.session_id: Optional[str] = getattr(entry, "session_id", None)
         self.final_message: Optional[Dict[str, Any]] = None
         self.paused: Optional[PausedExecutorRun] = None
+        self.terminal_error: Optional[str] = None
+        self._saved_texts: List[Any] = []
 
     # ------------------------------------------------------------------
     def set_session_id(self, session_id: Optional[str]) -> None:
@@ -233,7 +246,10 @@ class ExecutorRunRecorder:
             case ev.EVENT_PAUSED:
                 self._on_paused(event)
             case ev.EVENT_ERROR:
-                raise AgentError(f"AgentExecutor emitted error: {event.content}")
+                message = f"AgentExecutor emitted error: {event.content}"
+                if event.metadata.get(ev.METADATA_RETRYABLE) is not False:
+                    raise AgentError(message)
+                self.terminal_error = message
         return event.type in ev.TERMINAL_EVENT_TYPES
 
     # ------------------------------------------------------------------
@@ -243,6 +259,7 @@ class ExecutorRunRecorder:
         self._agent._save_assistant_message(
             self._instance_id, dict(message), entry=self.entry, skip_save=True
         )
+        self._saved_texts.append(message.get("content"))
         if not self._agent.orchestrator:
             self._agent.text_formatter.print_message(message)
 
@@ -357,12 +374,7 @@ class ExecutorRunRecorder:
         """Persist the entry, adding the final message if not yet recorded."""
         final = self.final_message
         if final is not None:
-            already_persisted = any(
-                getattr(m, "role", None) == "assistant"
-                and getattr(m, "content", None) == final.get("content")
-                for m in self.entry.messages
-            )
-            if not already_persisted:
+            if final.get("content") not in self._saved_texts:
                 self._agent._save_assistant_message(
                     self._instance_id, dict(final), entry=self.entry, skip_save=True
                 )
@@ -374,6 +386,8 @@ class ExecutorRunRecorder:
         Raises:
             AgentError: If the run ended without a terminal event.
         """
+        if self.terminal_error is not None:
+            return {EXECUTOR_FAILED_KEY: self.terminal_error}
         if self.paused is not None:
             return self.paused.to_activity_result()
         if self.final_message is None:
@@ -382,7 +396,9 @@ class ExecutorRunRecorder:
 
 
 __all__ = [
+    "EXECUTOR_FAILED_KEY",
     "EXECUTOR_PAUSED_KEY",
+    "executor_failure",
     "ExecutorRunRecorder",
     "PausedExecutorRun",
 ]

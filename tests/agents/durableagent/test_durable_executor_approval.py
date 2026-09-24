@@ -24,12 +24,19 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from dapr_agents.agents.executor_run import EXECUTOR_PAUSED_KEY, PausedExecutorRun
+from dapr_agents.agents.executor_run import (
+    EXECUTOR_FAILED_KEY,
+    EXECUTOR_PAUSED_KEY,
+    ExecutorRunRecorder,
+    PausedExecutorRun,
+)
 from dapr_agents.agents.executors import (
     AgentEvent,
     DaprSessionStore,
     EchoAgentExecutor,
     ExecutorBinding,
+    METADATA_RETRYABLE,
+    arguments_digest,
 )
 from dapr_agents.agents.executors.observer import ExecutorRunObserver
 from dapr_agents.agents.schemas import AgentWorkflowEntry
@@ -207,7 +214,13 @@ class TestApprovalLoop:
         assert resume["session_id"] == SESSION
         assert resume["context"] == {
             "tenant": "t",
-            "tool_decisions": {"t1": {"approved": True, "reason": None}},
+            "tool_decisions": {
+                "t1": {
+                    "approved": True,
+                    "reason": None,
+                    "arguments_digest": arguments_digest({"to": "alice"}),
+                }
+            },
         }
         (event,) = driver.published()
         assert event["tool_call_id"] == "t1"
@@ -233,7 +246,8 @@ class TestApprovalLoop:
         )
         driver.run({"task": "pay"})
         decision = driver.run_inputs()[1]["context"]["tool_decisions"]["t1"]
-        assert decision == {"approved": False, "reason": reason}
+        assert decision["approved"] is False
+        assert decision["reason"] == reason
 
     def test_approval_event_carries_the_executor_source(self):
         agent = _approval_agent()
@@ -696,3 +710,36 @@ class TestClaudeInDurableAgent:
         options = client.last().options
         assert options.resume == SESSION
         assert options.session_id is None
+
+
+def _recorder(agent):
+    return ExecutorRunRecorder(
+        agent,
+        instance_id="wf-1",
+        entry=_entry(),
+        round=0,
+        emitter=None,
+        observer=MagicMock(),
+    )
+
+
+class TestTerminalExecutorErrors:
+    def test_terminal_failure_fails_the_workflow_without_another_run(self):
+        agent = _approval_agent()
+        driver = _WorkflowDriver(agent, [{EXECUTOR_FAILED_KEY: "max turns"}])
+        with pytest.raises(AgentError, match="max turns"):
+            driver.run({"task": "pay"})
+        assert len(driver.run_inputs()) == 1
+
+    def test_recorder_returns_terminal_errors_and_raises_retryable_ones(self):
+        agent = _approval_agent()
+        recorder = _recorder(agent)
+        terminal = AgentEvent(
+            type="error", content="limit", metadata={METADATA_RETRYABLE: False}
+        )
+        assert recorder.handle(terminal) is True
+        assert recorder.result() == {
+            EXECUTOR_FAILED_KEY: "AgentExecutor emitted error: limit"
+        }
+        with pytest.raises(AgentError):
+            _recorder(agent).handle(AgentEvent(type="error", content="flaky"))

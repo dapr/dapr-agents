@@ -36,7 +36,7 @@ Only import this module after ``claude_agent_sdk`` is known to be installed.
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -60,6 +60,7 @@ from dapr_agents.agents.executors.event import (
     EVENT_TEXT_DELTA,
     EVENT_TOOL_CALL,
     EVENT_TOOL_RESULT,
+    METADATA_RETRYABLE,
     AgentEvent,
 )
 
@@ -67,6 +68,21 @@ DisplayName = Callable[[str], Tuple[str, str]]
 ApprovalLookup = Callable[[str], Optional[Dict[str, Any]]]
 
 _ERROR_FIELDS = ("subtype", "terminal_reason", "stop_reason", "api_error_status")
+# Failures that repeat on every retry of the same run.
+_TERMINAL_SUBTYPES = frozenset(
+    {"error_max_turns", "error_max_budget_usd", "error_max_structured_output_retries"}
+)
+_TERMINAL_REASONS = frozenset({"prompt_too_long"})
+_TERMINAL_API_STATUSES = frozenset({400, 401, 403, 404, 413})
+
+
+def is_retryable_result(message: ResultMessage) -> bool:
+    """Whether a failed ``ResultMessage`` may succeed if the run is retried."""
+    return not (
+        message.subtype in _TERMINAL_SUBTYPES
+        or message.terminal_reason in _TERMINAL_REASONS
+        or message.api_error_status in _TERMINAL_API_STATUSES
+    )
 
 
 def tool_result_text(content: Any) -> str:
@@ -111,13 +127,14 @@ class ClaudeEventMapper:
         approval_for: ApprovalLookup,
         include_text_deltas: bool,
         prior_cost_usd: Optional[float] = None,
+        tool_names: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.session_id = session_id
         self._display_name = display_name
         self._approval_for = approval_for
         self._include_text_deltas = include_text_deltas
         self._prior_cost = prior_cost_usd
-        self._tool_names: Dict[str, str] = {}
+        self._tool_names: Dict[str, str] = dict(tool_names or {})
         self._last_text: Optional[str] = None
         self.terminal: Optional[AgentEvent] = None
 
@@ -283,7 +300,7 @@ class ClaudeEventMapper:
             EVENT_ERROR,
             f"Claude run failed ({summary}): {reason}",
             errors=errors,
-            **{**metadata, **details},
+            **{**metadata, **details, METADATA_RETRYABLE: is_retryable_result(message)},
         )
 
     def error(self, text: str, **metadata: Any) -> AgentEvent:

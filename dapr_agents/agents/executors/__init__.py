@@ -23,9 +23,11 @@ from dapr_agents.agents.executors.dapr_session_store import (
 from dapr_agents.agents.executors.echo import EchoAgentExecutor
 from dapr_agents.agents.executors.event import (
     CONTEXT_TOOL_DECISIONS,
+    METADATA_RETRYABLE,
     AgentEvent,
     AgentEventType,
     ToolCallDecision,
+    arguments_digest,
     tool_decisions_from_context,
 )
 
@@ -42,11 +44,13 @@ __all__ = [
     "AgentExecutorBase",
     "CONTEXT_TOOL_DECISIONS",
     "ClaudeAgentExecutorConfig",
+    "METADATA_RETRYABLE",
     "DaprSessionStore",
     "DaprSessionStoreConfig",
     "EchoAgentExecutor",
     "ExecutorBinding",
     "ToolCallDecision",
+    "arguments_digest",
     "tool_decisions_from_context",
 ]
 

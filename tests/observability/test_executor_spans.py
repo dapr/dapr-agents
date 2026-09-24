@@ -74,6 +74,19 @@ def _tool_result(call_id, is_error=False):
 
 
 class TestTracingObserver:
+    def test_resumed_result_without_call_gets_tool_span(self, tracer, exporter):
+        observer = TracingExecutorObserver(tracer, INFO)
+        result = _tool_result("t9")
+        observer.on_event(
+            AgentEvent(type="tool_result", content={**result.content, "name": "pay"})
+        )
+        observer.finish(None)
+
+        span = _spans(exporter)["execute_tool pay"]
+        assert span.attributes["gen_ai.tool.call.id"] == "t9"
+        assert span.attributes["tool.resumed"] is True
+        assert span.status.status_code == StatusCode.OK
+
     def test_agent_span_with_tool_children_and_usage(self, tracer, exporter):
         observer = TracingExecutorObserver(tracer, INFO)
         observer.on_event(_tool_call("t1"))

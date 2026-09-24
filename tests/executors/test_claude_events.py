@@ -310,3 +310,33 @@ class TestResultMapping:
             "boom",
             {"hint": "x"},
         )
+
+
+class TestErrorClassification:
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"subtype": "error_max_turns"},
+            {"subtype": "error_max_budget_usd"},
+            {"subtype": "success", "terminal_reason": "prompt_too_long"},
+            {"subtype": "success", "api_error_status": 401},
+            {"subtype": "success", "api_error_status": 400},
+        ],
+    )
+    def test_repeatable_failures_are_not_retryable(self, fields):
+        mapper = _mapper()
+        mapper.map(result_message(is_error=True, **fields))
+        assert mapper.terminal.metadata["retryable"] is False
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"subtype": "error_during_execution"},
+            {"subtype": "success", "api_error_status": 529},
+            {"subtype": "success", "api_error_status": 429},
+        ],
+    )
+    def test_transient_failures_are_retryable(self, fields):
+        mapper = _mapper()
+        mapper.map(result_message(is_error=True, **fields))
+        assert mapper.terminal.metadata["retryable"] is True

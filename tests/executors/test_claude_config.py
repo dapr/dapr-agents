@@ -13,9 +13,12 @@
 
 """Tests for ``ClaudeAgentExecutorConfig`` (importable without the SDK)."""
 
+import os
+
 import pytest
 
 from dapr_agents.agents.executors import ClaudeAgentExecutorConfig, ExecutorBinding
+from dapr_agents.agents.executors.claude_config import agent_work_dir
 from dapr_agents.tool import tool
 
 
@@ -136,3 +139,16 @@ class TestBoundTo:
         config = ClaudeAgentExecutorConfig()
         config.bound_to(ExecutorBinding(agent_name="a", system_prompt="S"))
         assert config.system_prompt is None
+
+
+class TestBoundWorkingDirectory:
+    def test_bound_config_defaults_to_a_per_agent_directory(self):
+        bound = ClaudeAgentExecutorConfig().bound_to(
+            ExecutorBinding(agent_name="Pay Bot")
+        )
+        assert bound.cwd == agent_work_dir("Pay Bot")
+        assert bound.cwd.endswith(os.path.join("dapr-agents", "Pay_Bot"))
+
+    def test_explicit_cwd_wins(self):
+        config = ClaudeAgentExecutorConfig(cwd="/srv/claude")
+        assert config.bound_to(ExecutorBinding(agent_name="a")).cwd == "/srv/claude"

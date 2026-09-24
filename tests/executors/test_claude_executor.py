@@ -43,6 +43,8 @@ from dapr_agents.agents.executors import (  # noqa: E402
     ToolCallDecision,
 )
 from dapr_agents.agents.executors.claude import (  # noqa: E402
+    CONTINUE_PROMPT,
+    STALE_CALL_REASON,
     ClaudeAgentExecutor,
     session_uuid,
 )
@@ -398,9 +400,9 @@ class TestResume:
         assert events[0].content == {"role": "assistant", "content": "Sent."}
         assert events[0].metadata == {"replayed": True, "cost_usd": 0.0}
 
-    async def test_retry_after_crash_mid_resume_is_an_error(self, cwd):
-        # The approved tool ran but no final answer was written: replaying
-        # the pre-tool text would be wrong, so the run fails instead.
+    async def test_retry_after_crash_mid_resume_continues(self, cwd):
+        # The approved tool ran but no final answer was written; a resume
+        # without a prompt would wait for input, so the turn is continued.
         store = InMemorySessionStore()
         executor = _executor(cwd, session_store=store)
         await _seed(
@@ -418,11 +420,33 @@ class TestResume:
                 "message": {"content": [{"type": "tool_result", "tool_use_id": "t9"}]},
             },
         )
+        FakeClaudeClient.reset([result_message(result="Sent")])
         events = await _collect(
             executor, session_id=SESSION_ID, context=_decisions("t9")
         )
-        assert [e.type for e in events] == ["error"]
-        assert "no paused tool call" in events[0].content
+        client = FakeClaudeClient.last()
+        assert client.options.resume == SESSION_ID
+        assert client.prompts == [CONTINUE_PROMPT]
+        assert events[-1].type == "complete"
+
+    async def test_stale_deferred_call_is_denied_before_new_task(self, cwd):
+        store = InMemorySessionStore()
+        executor = _executor(cwd, session_store=store, tools=[transfer])
+        await _seed(store, executor, _deferred_entry())
+        FakeClaudeClient.reset([result_message(result="Hello")])
+        FakeClaudeClient.responses = [[result_message(result="denied")]]
+
+        events = await _collect(executor, "next task", session_id=SESSION_ID)
+
+        client = FakeClaudeClient.last()
+        assert client.options.resume == SESSION_ID
+        assert client.prompts == ["next task"]
+        assert events[-1].content["content"] == "Hello"
+        gate = client.options.hooks["PreToolUse"][0].hooks[0]
+        output = await gate({"tool_name": TOOL_NAME, "tool_input": {}}, "t9", None)
+        decision = output["hookSpecificOutput"]
+        assert decision["permissionDecision"] == "deny"
+        assert decision["permissionDecisionReason"] == STALE_CALL_REASON
 
     async def test_decisions_without_session_id_is_an_error(self, cwd):
         events = await _collect(_executor(cwd), context=_decisions("t9"))

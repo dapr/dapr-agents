@@ -22,8 +22,9 @@ into ``AgentEvent`` values. Requires the optional ``claude`` extra::
 
 Sessions: every run uses a UUID session id. When a ``session_store`` is
 configured the transcript is mirrored into it, and a later run with the
-same ``session_id`` resumes from the store, on any host, as long as the
-executor's ``cwd`` is the same (the store key derives from it).
+same ``session_id`` resumes from the store on any host. Inside a
+``DurableAgent`` the store is scoped by agent name, so the CLI's ``cwd``
+does not affect which session is found.
 
 Tool approval: ``before_tool_call`` hooks that return ``RequireApproval``
 defer the call. The run then ends with a ``paused`` event and is resumed
@@ -74,6 +75,7 @@ from dapr_agents.agents.executors.claude_transcript import (
 from dapr_agents.agents.executors.event import (
     EVENT_COMPLETE,
     EVENT_ERROR,
+    METADATA_RETRYABLE,
     AgentEvent,
     ToolCallDecision,
     tool_decisions_from_context,
@@ -85,6 +87,10 @@ logger = logging.getLogger(__name__)
 # (the Claude CLI only accepts UUIDs).
 _SESSION_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "dapr-agents/claude-session")
 _STDERR_TAIL_LINES = 20
+# Sent to continue a session that stopped after a tool result; a resume
+# without a prompt waits for input. Matches the CLI's own wording.
+CONTINUE_PROMPT = "Continue from where you left off."
+STALE_CALL_REASON = "No decision was made before a new task started"
 _CLI_MISSING_HINT = (
     "Claude Code CLI not found. The claude-agent-sdk wheel bundles it on "
     "macOS, glibc Linux and Windows; on other platforms (e.g. Alpine/musl) "
@@ -110,6 +116,9 @@ class _RunPlan:
     prior_cost_usd: Optional[float] = None
     replay_text: Optional[str] = None
     error: Optional[str] = None
+    prompt: Optional[str] = None
+    stale_call_id: Optional[str] = None
+    paused_call_name: Optional[Mapping[str, str]] = None
 
 
 class ClaudeAgentExecutor(AgentExecutorBase):
@@ -142,10 +151,11 @@ class ClaudeAgentExecutor(AgentExecutorBase):
     supports_tool_approval = True
 
     def __init__(self, config: Optional[ClaudeAgentExecutorConfig] = None) -> None:
-        resolved = config or ClaudeAgentExecutorConfig()
-        if resolved.cwd is None:
-            resolved = dataclasses.replace(resolved, cwd=os.getcwd())
-        self._config = resolved
+        given = config or ClaudeAgentExecutorConfig()
+        self._given_config = given
+        self._config = (
+            given if given.cwd else dataclasses.replace(given, cwd=os.getcwd())
+        )
 
     @property
     def config(self) -> ClaudeAgentExecutorConfig:
@@ -173,7 +183,7 @@ class ClaudeAgentExecutor(AgentExecutorBase):
         Settings made explicitly on this executor's config win; see
         ``ClaudeAgentExecutorConfig.bound_to``.
         """
-        return ClaudeAgentExecutor(self._config.bound_to(binding))
+        return ClaudeAgentExecutor(self._given_config.bound_to(binding))
 
     async def run(
         self,
@@ -215,10 +225,20 @@ class ClaudeAgentExecutor(AgentExecutorBase):
         plan: _RunPlan,
         decisions: Mapping[str, ToolCallDecision],
     ) -> AsyncGenerator[AgentEvent, None]:
+        if plan.stale_call_id:
+            decisions = {
+                **decisions,
+                plan.stale_call_id: ToolCallDecision(
+                    tool_call_id=plan.stale_call_id,
+                    approved=False,
+                    reason=STALE_CALL_REASON,
+                ),
+            }
         gate = ToolGate(
             hooks=self._config.before_tool_call,
             decisions=decisions,
             tool_prefix=f"mcp__{self._config.tool_server_name}__",
+            tool_sources={t.name: t.source for t in self._config.tools},
         )
         mapper = ClaudeEventMapper(
             session_id=plan.session_id,
@@ -226,14 +246,23 @@ class ClaudeAgentExecutor(AgentExecutorBase):
             approval_for=lambda call_id: _approval_dict(gate, call_id),
             include_text_deltas=self._config.include_partial_messages,
             prior_cost_usd=plan.prior_cost_usd,
+            tool_names={
+                call_id: gate.display_name(name)[0]
+                for call_id, name in (plan.paused_call_name or {}).items()
+            },
         )
         stderr_tail: Deque[str] = collections.deque(maxlen=_STDERR_TAIL_LINES)
         failure: Optional[AgentEvent] = None
         try:
             options = self._options(plan, gate, stderr_tail)
             async with ClaudeSDKClient(options=options) as client:
+                if plan.stale_call_id:
+                    # The CLI replays the stale deferred call on connect; the
+                    # gate denies it before the new task is sent.
+                    async for _ in client.receive_response():
+                        pass
                 if plan.send_prompt:
-                    await client.query(prompt)
+                    await client.query(plan.prompt or prompt)
                 # Drain to the end: the session store gets its final append
                 # while the client shuts down, so terminal events are only
                 # yielded after the ``async with`` block exits.
@@ -241,7 +270,9 @@ class ClaudeAgentExecutor(AgentExecutorBase):
                     for event in mapper.map(message):
                         yield event
         except CLINotFoundError as exc:
-            failure = mapper.error(f"{_CLI_MISSING_HINT} ({exc})")
+            failure = mapper.error(
+                f"{_CLI_MISSING_HINT} ({exc})", **{METADATA_RETRYABLE: False}
+            )
         except Exception as exc:  # noqa: BLE001 - SDK, CLI and store failures
             # An is_error ResultMessage is followed by a ResultError; the
             # mapper already built the richer error event from the result.
@@ -325,28 +356,40 @@ class ClaudeAgentExecutor(AgentExecutorBase):
         exists = await self._session_exists(sid, entries)
         prior_cost = last_total_cost(entries) if entries else None
         if not decisions:
+            if not exists:
+                logger.info("Starting Claude session %s", sid)
+            stale = pending_deferred_call(entries) if entries else None
             return _RunPlan(
                 session_id=sid,
                 resume=exists,
                 send_prompt=True,
                 prior_cost_usd=prior_cost,
+                stale_call_id=stale.tool_call_id if stale else None,
             )
         if not exists:
             return _RunPlan(session_id=sid, error=f"No Claude session {sid} to resume")
         if entries is not None and pending_deferred_call(entries) is None:
-            # Nothing is waiting for a decision: a previous attempt already
-            # resumed and finished (e.g. the activity is being retried), so
-            # replay its answer instead of re-running the task.
+            # A previous attempt already applied the decision: replay its
+            # answer, or continue the turn if it stopped before answering.
             text = final_assistant_text(entries)
-            if text is None:
-                return _RunPlan(
-                    session_id=sid,
-                    error=f"Claude session {sid} has no paused tool call",
-                )
-            return _RunPlan(session_id=sid, replay_text=text)
+            if text is not None:
+                return _RunPlan(session_id=sid, replay_text=text)
+            return _RunPlan(
+                session_id=sid,
+                resume=True,
+                send_prompt=True,
+                prompt=CONTINUE_PROMPT,
+                prior_cost_usd=prior_cost,
+            )
         # Resume without a prompt: the CLI re-runs the deferred call through
         # PreToolUse, where the ToolGate applies the decision.
-        return _RunPlan(session_id=sid, resume=True, prior_cost_usd=prior_cost)
+        pending = pending_deferred_call(entries) if entries else None
+        return _RunPlan(
+            session_id=sid,
+            resume=True,
+            prior_cost_usd=prior_cost,
+            paused_call_name={pending.tool_call_id: pending.name} if pending else None,
+        )
 
     @staticmethod
     def _short_circuit(plan: _RunPlan) -> AgentEvent:
@@ -376,11 +419,13 @@ class ClaudeAgentExecutor(AgentExecutorBase):
             ]
         return hooks or None
 
-    def _mcp_servers(self) -> Dict[str, Any]:
+    def _mcp_servers(self, gate: ToolGate) -> Dict[str, Any]:
         servers = dict(self._config.mcp_servers)
         if self._config.tools:
             servers[self._config.tool_server_name] = build_tool_server(
-                self._config.tool_server_name, self._config.tools
+                self._config.tool_server_name,
+                self._config.tools,
+                skipped=gate.take_skipped,
             )
         return servers
 
@@ -409,7 +454,7 @@ class ClaudeAgentExecutor(AgentExecutorBase):
                 *cfg.allowed_tools,
             ],
             disallowed_tools=list(cfg.disallowed_tools),
-            mcp_servers=self._mcp_servers(),
+            mcp_servers=self._mcp_servers(gate),
             hooks=cast(Any, self._hooks(gate)),
             cwd=self.cwd,
             env=cfg.cli_env(),
