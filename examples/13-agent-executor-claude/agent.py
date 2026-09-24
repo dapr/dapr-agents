@@ -56,6 +56,10 @@ INSTRUCTIONS = (
     # message, so ask for one call at a time.
     "Call at most one tool at a time.",
     "Never retry a transfer that a human rejected.",
+    # Without this, Claude tends to ask for confirmation in chat instead of
+    # calling the tool, and the durable approval step never starts.
+    "Do not ask the user to confirm a transfer. Call transfer_money directly;"
+    " the system asks a human approver before any money moves.",
 )
 
 WEATHER = {

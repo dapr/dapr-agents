@@ -46,6 +46,7 @@ from dapr_agents.workflow.runners import AgentRunner
 RUN_TIMEOUT_SECONDS = 180
 APPROVAL_WAIT_SECONDS = 120
 APPROVAL_MODES = ("approve", "deny", "manual")
+FINISHED_STATUSES = ("COMPLETED", "FAILED", "TERMINATED")
 
 
 def print_result(title: str, result: Any) -> None:
@@ -57,12 +58,20 @@ def print_result(title: str, result: Any) -> None:
 async def wait_for_approval_request(
     agent: DurableAgent, instance_id: str
 ) -> Optional[Dict[str, Any]]:
-    """Poll the agent until the workflow publishes its approval request."""
+    """Poll until the workflow publishes its approval request.
+
+    Returns ``None`` once the workflow finishes without asking for one, or
+    when ``APPROVAL_WAIT_SECONDS`` passes.
+    """
+    client = DaprWorkflowClient()
     deadline = time.monotonic() + APPROVAL_WAIT_SECONDS
     while time.monotonic() < deadline:
         for pending in agent.list_pending_approvals():
             if pending.get("instance_id") == instance_id:
                 return pending
+        state = client.get_workflow_state(instance_id, fetch_payloads=False)
+        if state is not None and state.runtime_status.name in FINISHED_STATUSES:
+            return None
         await asyncio.sleep(1)
     return None
 
@@ -91,8 +100,9 @@ async def run_approval_turn(
     )
     request = await wait_for_approval_request(agent, instance_id)
     if request is None:
-        print("No approval request appeared; did Claude call transfer_money?")
-        return
+        raise SystemExit(
+            "No approval request appeared; Claude did not call transfer_money."
+        )
 
     request_id = request["approval_request_id"]
     print("\n=== Approval required ===", flush=True)
