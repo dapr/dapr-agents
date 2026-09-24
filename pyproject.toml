@@ -138,6 +138,10 @@ dapr-ext-fastapi = "2026-05-21T00:00:00Z"
 dapr-ext-workflow = "2026-05-21T00:00:00Z"
 durabletask-dapr = "2026-05-21T00:00:00Z"
 anthropic = "2026-08-23T00:00:00Z"
+# claude-agent-sdk 0.2.159 (the minimum the claude extra needs) is newer than
+# the 7-day cooldown. This fixed date admits nothing released after it; drop
+# the override once 0.2.159 is older than 7 days (after 2026-09-30) so the
+# package falls back under the repo-wide cooldown.
 claude-agent-sdk = "2026-09-24T00:00:00Z"
 
 [project.urls]

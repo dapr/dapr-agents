@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import dataclasses
 import inspect
 import json
 import logging
@@ -170,30 +171,65 @@ def _run_child_workflow(
     return json.loads(output) if output else None
 
 
+def _accepted_kwargs(tool: AgentTool, hidden: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep the hidden kwargs the tool's function can take.
+
+    Tools built directly on ``WorkflowContextInjectedTool`` (for example
+    ``make_mcp_gateway_via_child_workflow_tool``) may accept only ``ctx``.
+    """
+    try:
+        params = inspect.signature(tool.func).parameters if tool.func else {}
+    except (TypeError, ValueError):
+        return hidden
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return hidden
+    return {k: v for k, v in hidden.items() if k == "ctx" or k in params}
+
+
+def _record_request(
+    tool: WorkflowContextInjectedTool,
+    context: ActivityToolContext,
+    child_id: str,
+    arguments: Dict[str, Any],
+) -> ChildWorkflowRequest:
+    """Run ``tool`` against a recorder and return the child workflow it asked for."""
+    hidden: Dict[str, Any] = {
+        "ctx": _RequestRecorder(),
+        "_source_agent": context.source_agent,
+        "_child_instance_id": child_id,
+    }
+    stream_context = _child_stream_context(context)
+    if isinstance(tool, AgentWorkflowTool) and stream_context:
+        hidden["_stream_context"] = stream_context
+    request = tool.run(**_accepted_kwargs(tool, hidden), **arguments)
+    if not isinstance(request, ChildWorkflowRequest):
+        if inspect.isgenerator(request):
+            request.close()
+        raise ToolError(
+            f"Tool '{tool.name}' cannot run inside an activity: it does not "
+            "schedule a single child workflow."
+        )
+    if request.app_id:
+        # DaprWorkflowClient schedules workflows on this app only, so a
+        # cross-app child would start locally, where it is not registered.
+        raise ToolError(
+            f"Tool '{tool.name}' cannot run inside an activity: it targets "
+            f"workflow '{request.workflow}' on app '{request.app_id}', and "
+            "cross-app child workflows need the workflow body."
+        )
+    if request.instance_id is None:
+        return dataclasses.replace(request, instance_id=child_id)
+    return request
+
+
 def _bridge(
     tool: WorkflowContextInjectedTool,
     context: ActivityToolContext,
     child_ids: _ChildIds,
 ) -> AgentTool:
-    is_agent_tool = isinstance(tool, AgentWorkflowTool)
-
     async def call(**arguments: Any) -> str:
-        hidden: Dict[str, Any] = {
-            "ctx": _RequestRecorder(),
-            "_source_agent": context.source_agent,
-            "_child_instance_id": child_ids.next(tool.name, arguments),
-        }
-        stream_context = _child_stream_context(context)
-        if is_agent_tool and stream_context:
-            hidden["_stream_context"] = stream_context
-        request = tool.run(**hidden, **arguments)
-        if not isinstance(request, ChildWorkflowRequest):
-            if inspect.isgenerator(request):
-                request.close()
-            raise ToolError(
-                f"Tool '{tool.name}' cannot run inside an activity: it does not "
-                "schedule a single child workflow."
-            )
+        child_id = child_ids.next(tool.name, arguments)
+        request = _record_request(tool, context, child_id, arguments)
         output = await asyncio.to_thread(
             _run_child_workflow,
             context.client_factory(),
@@ -238,7 +274,10 @@ def bridge_workflow_tools(
     Plain ``AgentTool`` instances are returned as-is. Workflow-backed tools
     are wrapped so they schedule their child workflow through a workflow
     client. Tools that need the workflow body (``ask_user``) and cross-app
-    agents are left out.
+    agents are left out. Other tools that schedule their child workflow on
+    another app (for example ``make_mcp_gateway_via_child_workflow_tool``)
+    raise a ``ToolError`` when called, because the workflow client can only
+    schedule on this app.
 
     Args:
         tools: The agent's tools.

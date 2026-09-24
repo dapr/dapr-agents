@@ -30,7 +30,11 @@ from dapr_agents.agents.executors.event import (
 )
 
 if TYPE_CHECKING:
-    from dapr_agents.agents.executors.claude import ClaudeAgentExecutor
+    # Redundant alias: an explicit re-export, so type checkers resolve the
+    # lazily loaded name without it joining ``__all__``.
+    from dapr_agents.agents.executors.claude import (
+        ClaudeAgentExecutor as ClaudeAgentExecutor,
+    )
 
 __all__ = [
     "AgentEvent",

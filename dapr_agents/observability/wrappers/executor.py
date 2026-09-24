@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Mapping, Optional
 
+from dapr_agents.agents.executors import event as ev
 from dapr_agents.agents.executors.event import AgentEvent
 from dapr_agents.agents.executors.observer import ExecutorRunInfo, ExecutorRunObserver
 
@@ -125,22 +126,22 @@ class TracingExecutorObserver(ExecutorRunObserver):
             self._span.set_attribute(SESSION_ID, event.session_id)
         content = event.content if isinstance(event.content, Mapping) else {}
         match event.type:
-            case "tool_call":
+            case ev.EVENT_TOOL_CALL:
                 self._start_tool(content)
-            case "tool_result":
+            case ev.EVENT_TOOL_RESULT:
                 self._end_tool(content)
-            case "complete":
+            case ev.EVENT_COMPLETE:
                 self._span.set_attribute(
                     OUTPUT_VALUE, safe_json_dumps(content.get("content", ""))
                 )
                 self._span.set_attribute(OUTPUT_MIME_TYPE, "application/json")
                 self._span.set_attributes(_usage_attributes(event.metadata))
-            case "paused":
+            case ev.EVENT_PAUSED:
                 self._span.set_attribute(
                     "executor.paused_tool_call_id", str(content.get("tool_call_id"))
                 )
                 self._span.set_attributes(_usage_attributes(event.metadata))
-            case "error":
+            case ev.EVENT_ERROR:
                 self._error = str(event.content)
 
     def _start_tool(self, call: Mapping[str, Any]) -> None:

@@ -38,7 +38,7 @@ from dapr_agents.tool import tool
 from dapr_agents.tool.mcp.dapr_workflow_client import mcp_tool_def_to_workflow_tool
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 from dapr_agents.types import AgentError
-from dapr_agents.types.tools import ToolExecutionStatus
+from dapr_agents.types.tools import ToolExecutionRecord, ToolExecutionStatus
 from dapr.ext.workflow import MCPToolDef
 from tests.agents.durableagent.test_durable_executor import (  # noqa: F401
     _make_agent,
@@ -125,6 +125,7 @@ class _WorkflowDriver:
         self.event_task.get_result.return_value = {
             "approval_request_id": "x",
             "approved": outcome == "approve",
+            "reason": "not today" if outcome == "deny" else None,
         }
         self.timer_task = Mock(name="timer_task")
         self.ctx = self._context()
@@ -216,8 +217,14 @@ class TestApprovalLoop:
         assert event["instructions"] == "Check it"
         driver.ctx.create_timer.assert_called_once()
 
-    @pytest.mark.parametrize("outcome", ["deny", "timeout"])
-    def test_denied_or_timed_out_call_is_rejected(self, outcome):
+    @pytest.mark.parametrize(
+        ("outcome", "reason"),
+        [
+            ("deny", "not today"),
+            ("timeout", "approval was not granted or timed out"),
+        ],
+    )
+    def test_denied_or_timed_out_call_is_rejected(self, outcome, reason):
         agent = _approval_agent()
         driver = _WorkflowDriver(
             agent,
@@ -226,10 +233,18 @@ class TestApprovalLoop:
         )
         driver.run({"task": "pay"})
         decision = driver.run_inputs()[1]["context"]["tool_decisions"]["t1"]
-        assert decision == {
-            "approved": False,
-            "reason": "approval was not granted or timed out",
-        }
+        assert decision == {"approved": False, "reason": reason}
+
+    def test_approval_event_carries_the_executor_source(self):
+        agent = _approval_agent()
+        paused = PausedExecutorRun(
+            tool_call_id="t1", name="mcp__github__create_issue", source="mcp"
+        ).to_activity_result()
+        driver = _WorkflowDriver(
+            agent, [paused, {"role": "assistant", "content": "ok"}]
+        )
+        driver.run({"task": "file it"})
+        assert driver.published()[0]["source"] == "mcp"
 
     def test_default_timeout_applies_without_hook_details(self):
         agent = _approval_agent()
@@ -260,11 +275,26 @@ class TestApprovalLoop:
             published[0]["approval_request_id"] != published[1]["approval_request_id"]
         )
 
+    def test_call_past_the_cap_is_rejected_without_asking(self):
+        agent = _approval_agent(max_iterations=1)
+        driver = _WorkflowDriver(
+            agent,
+            [_paused("t1"), _paused("t2"), {"role": "assistant", "content": "done"}],
+        )
+        assert driver.run({"task": "pay"}) == {"role": "assistant", "content": "done"}
+        inputs = driver.run_inputs()
+        assert len(inputs) == 3
+        decision = inputs[2]["context"]["tool_decisions"]["t2"]
+        assert decision["approved"] is False
+        assert "approval limit" in decision["reason"]
+        # Only the first call was put to a human.
+        assert [e["tool_call_id"] for e in driver.published()] == ["t1"]
+
     def test_approval_rounds_are_capped(self):
         agent = _approval_agent(max_iterations=1)
-        driver = _WorkflowDriver(agent, [_paused("t1"), _paused("t2")])
+        driver = _WorkflowDriver(agent, [_paused("t1"), _paused("t2"), _paused("t3")])
         result = driver.run({"task": "pay"})
-        assert len(driver.run_inputs()) == 2
+        assert len(driver.run_inputs()) == 3
         assert "maximum number of tool approvals" in result["content"]
 
     def test_session_falls_back_to_caller_session(self):
@@ -443,6 +473,36 @@ class TestConsumePaused:
         assert call["prompt"] == ""
         assert call["session_id"] == SESSION
         assert call["context"]["tool_decisions"] == {"t1": {"approved": True}}
+
+    def test_resume_updates_the_pending_record_without_a_checkpoint(self):
+        executor = _ApprovalExecutor(
+            [
+                AgentEvent(
+                    type="tool_result",
+                    content={"tool_call_id": "t1", "result": "sent"},
+                ),
+                AgentEvent(
+                    type="complete", content={"role": "assistant", "content": "ok"}
+                ),
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = _entry()
+        entry.tool_history.append(
+            ToolExecutionRecord(
+                tool_call_id="t1",
+                tool_name="transfer",
+                status=ToolExecutionStatus.PENDING,
+            )
+        )
+        _consume(
+            agent,
+            {"task": None, "instance_id": "i", "session_id": SESSION, "round": 1},
+            entry=entry,
+        )
+        (record,) = entry.tool_history
+        assert record.status == ToolExecutionStatus.COMPLETED
+        assert record.execution_result == "sent"
 
     def test_failed_tool_result_is_recorded_as_failed(self):
         executor = _ApprovalExecutor(

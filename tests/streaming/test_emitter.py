@@ -452,3 +452,14 @@ class TestStreamEmitterExecutorHelpers:
         (chunk,) = listener.chunks
         assert chunk.type is StreamChunkType.ERROR
         assert chunk.error == {"type": "AgentError", "message": "boom"}
+
+    def test_start_from_consume_is_not_repeated(self) -> None:
+        listener = _CapturingListener()
+        emitter = _make_emitter(listener)
+        emitter.consume_non_streaming({"role": "assistant", "content": "a"})
+        emitter.complete_turn({"role": "assistant", "content": "b"})
+        assert [c.type for c in listener.chunks] == [
+            StreamChunkType.START,
+            StreamChunkType.TURN_COMPLETE,
+            StreamChunkType.TURN_COMPLETE,
+        ]

@@ -67,6 +67,12 @@ class TestValidation:
                 "mcp_servers already defines",
             ),
             ({"extra_options": {"resume": "x", "hooks": {}}}, "hooks, resume"),
+            ({"extra_options": {"model": "x"}}, r"model \(use model\)"),
+            ({"extra_options": {"tools": []}}, r"tools \(use builtin_tools\)"),
+            (
+                {"extra_options": {"session_store": object()}},
+                r"session_store \(use session_store\)",
+            ),
         ],
     )
     def test_rejects_invalid(self, kwargs, match):

@@ -135,7 +135,8 @@ Claude session_id: 6f1c2a0e-...
 ```
 
 Set `APPROVAL_MODE=deny` to reject the transfer instead. Claude receives the
-rejection as the tool result and explains that the transfer did not happen.
+rejection, with the approver's reason ("rejected in app.py"), as the tool
+result and explains that the transfer did not happen.
 
 ## Send the approval yourself
 

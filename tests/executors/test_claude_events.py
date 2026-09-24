@@ -276,6 +276,7 @@ class TestResultMapping:
             "name": "pay",
             "arguments": {"to": "a"},
             "approval": {"reason": "approve t1"},
+            "source": "local",
         }
         assert terminal.metadata["stop_reason"] == "tool_deferred"
 

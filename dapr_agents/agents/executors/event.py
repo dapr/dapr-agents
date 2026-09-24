@@ -24,9 +24,10 @@ Paused runs (tool-call approval)
 Executors that set ``AgentExecutorBase.supports_tool_approval`` may end a
 run with a ``paused`` event instead of ``complete``/``error``. A paused run
 is waiting for a decision on one deferred tool call; the event content is a
-``dict`` with ``tool_call_id``, ``name``, ``arguments`` and an optional
+``dict`` with ``tool_call_id``, ``name``, ``arguments``, an optional
 ``approval`` dict (``timeout_seconds``, ``instructions``, ``reason``) taken
-from the ``RequireApproval`` hook decision that paused it.
+from the ``RequireApproval`` hook decision that paused it, and an optional
+``source`` naming where the tool comes from (``local``, ``mcp``, ...).
 
 The caller resumes the run by calling ``run`` again with the same
 ``session_id`` and the decision under ``context[CONTEXT_TOOL_DECISIONS]``,
@@ -56,10 +57,10 @@ AgentEventType = Literal[
     "paused",
 ]
 
-# Typed event-name constants for use by executor consumers (e.g. the
-# DurableAgent ``_consume_executor`` dispatch). Match the ``AgentEventType``
-# literal so that ``match``/``case`` blocks can reference them without
-# magic strings.
+# Typed event-name constants for executors and their consumers. They match
+# the ``AgentEventType`` literal, so ``match``/``case`` blocks can use them
+# as value patterns (``case event.EVENT_COMPLETE:``, as in
+# ``ExecutorRunRecorder.handle``) instead of magic strings.
 EVENT_TEXT_DELTA: AgentEventType = "text_delta"
 EVENT_TOOL_CALL: AgentEventType = "tool_call"
 EVENT_TOOL_RESULT: AgentEventType = "tool_result"

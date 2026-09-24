@@ -46,6 +46,10 @@ from dapr_agents.agents.executors.claude import (  # noqa: E402
     ClaudeAgentExecutor,
     session_uuid,
 )
+from dapr_agents.agents.executors.claude_config import (  # noqa: E402
+    FIELD_OPTION_KEYS,
+    RESERVED_OPTION_KEYS,
+)
 from dapr_agents.hooks import RequireApproval  # noqa: E402
 from dapr_agents.tool import tool  # noqa: E402
 from tests.executors.claude_fakes import (  # noqa: E402
@@ -208,6 +212,22 @@ class TestFreshRun:
         assert options.resume is None
         assert uuid.UUID(options.session_id)
 
+    async def test_every_explicit_option_is_protected_from_extra_options(
+        self, cwd, monkeypatch
+    ):
+        passed = {}
+        real_options = claude_module.ClaudeAgentOptions
+
+        def recording_options(**kwargs):
+            passed.update(kwargs)
+            return real_options(**kwargs)
+
+        monkeypatch.setattr(claude_module, "ClaudeAgentOptions", recording_options)
+        FakeClaudeClient.reset([result_message()])
+        await _collect(_executor(cwd))
+        protected = RESERVED_OPTION_KEYS | set(FIELD_OPTION_KEYS)
+        assert set(passed) <= protected
+
     async def test_builtin_tools_none_keeps_cli_default(self, cwd):
         FakeClaudeClient.reset([result_message()])
         await _collect(_executor(cwd, builtin_tools=None))
@@ -270,6 +290,7 @@ class TestPause:
                 "instructions": None,
                 "reason": "money",
             },
+            "source": "local",
         }
 
 

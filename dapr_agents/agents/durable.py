@@ -1190,6 +1190,28 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         """
         Pause the workflow and wait for a human to approve or deny a tool call.
 
+        Called with ``yield from``; see ``_await_approval`` for the flow.
+
+        Returns:
+            True if the human approved, False if not approved or the timeout elapsed.
+        """
+        approved, _ = yield from self._await_approval(
+            ctx, instance_id, tool_call, decision
+        )
+        return approved
+
+    def _await_approval(
+        self,
+        ctx: wf.DaprWorkflowContext,
+        instance_id: str,
+        tool_call: Dict[str, Any],
+        decision: RequireApproval,
+        *,
+        source: Optional[str] = None,
+    ):
+        """
+        Pause the workflow and wait for a human to approve or deny a tool call.
+
         Called with ``yield from`` from agent_workflow when a before_tool_call hook
         returns RequireApproval. Publishes an ApprovalRequiredEvent the first time it
         runs for a given tool_call_id, then suspends via wait_for_external_event. On
@@ -1200,9 +1222,12 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             instance_id: Running workflow instance ID.
             tool_call: Tool call dict with 'id' and 'function' keys.
             decision: The RequireApproval decision returned by the hook.
+            source: Where the tool comes from ('local', 'mcp', ...); looked up
+                in the agent's tool executor when omitted.
 
         Returns:
-            True if the human approved, False if not approved or the timeout elapsed.
+            ``(approved, reason)``: ``approved`` is False when not approved or
+            the timeout elapsed; ``reason`` is the approver's reason, if any.
         """
         approval_config = self.execution.approval
         fn_name = tool_call.get("function", {}).get("name", "unknown")
@@ -1226,13 +1251,15 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         except json.JSONDecodeError:
             tool_args = {}
 
-        tool_obj = self.tool_executor.get_tool(fn_name)
+        if source is None:
+            tool_obj = self.tool_executor.get_tool(fn_name)
+            source = getattr(tool_obj, "source", "local")
         approval_event = ApprovalRequiredEvent(
             approval_request_id=approval_request_id,
             instance_id=instance_id,
             step_name=fn_name,
             step_kind="tool",
-            source=getattr(tool_obj, "source", "local"),
+            source=source,
             tool_call_id=tool_call_id,
             tool_arguments=tool_args,
             timeout_seconds=timeout_seconds,
@@ -1274,7 +1301,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 logger.warning(
                     f"Approval request {approval_request_id} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
                 )
-                return False
+                return False, None
 
         # event won the race — read the human decision
         try:
@@ -1284,13 +1311,13 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             logger.warning(
                 f"Could not parse approval response for request {approval_request_id}: {exc} — auto-denying"
             )
-            return False
+            return False, None
 
         logger.info(
             f"Approval decision for request {approval_request_id}, tool '{fn_name}': {'approved' if response.approved else 'not approved'} (instance={instance_id})"
         )
 
-        return response.approved
+        return response.approved, response.reason
 
     def orchestration_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
         """Dedicated orchestration workflow using strategy pattern.

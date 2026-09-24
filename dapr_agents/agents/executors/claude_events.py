@@ -98,6 +98,9 @@ class ClaudeEventMapper:
         include_text_deltas: Emit ``text_delta`` events.
         prior_cost_usd: Session cost before this run, used to report the
             per-run cost delta (``total_cost_usd`` is session-cumulative).
+            It is read from the session store transcript; without a store
+            it is ``None`` and a resumed run's ``cost_usd`` is the session
+            total.
     """
 
     def __init__(
@@ -253,12 +256,13 @@ class ClaudeEventMapper:
         if message.is_error:
             self.terminal = self._error_event(message, metadata)
         elif deferred is not None:
-            display, _ = self._display_name(deferred.name)
+            display, source = self._display_name(deferred.name)
             content = {
                 "tool_call_id": deferred.id,
                 "name": display,
                 "arguments": dict(deferred.input or {}),
                 "approval": self._approval_for(deferred.id),
+                "source": source,
             }
             self.terminal = self._event(EVENT_PAUSED, content, **metadata)
         else:

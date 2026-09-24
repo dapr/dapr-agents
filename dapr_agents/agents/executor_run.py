@@ -29,6 +29,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Optional
 
+from dapr_agents.agents.executors import event as ev
 from dapr_agents.agents.executors.event import AgentEvent
 from dapr_agents.agents.executors.observer import ExecutorRunObserver
 from dapr_agents.hooks import RequireApproval
@@ -67,6 +68,8 @@ class PausedExecutorRun:
         approval: ``RequireApproval`` details (``timeout_seconds``,
             ``instructions``, ``reason``); empty when the executor paused
             without them.
+        source: Where the tool comes from (``local``, ``mcp``, ...), when
+            the executor reported it.
     """
 
     tool_call_id: str
@@ -74,6 +77,7 @@ class PausedExecutorRun:
     arguments: Dict[str, Any] = field(default_factory=dict)
     session_id: Optional[str] = None
     approval: Dict[str, Any] = field(default_factory=dict)
+    source: Optional[str] = None
 
     @classmethod
     def from_event(cls, event: AgentEvent) -> "PausedExecutorRun":
@@ -87,6 +91,7 @@ class PausedExecutorRun:
             arguments=dict(content.get("arguments") or {}),
             session_id=event.session_id,
             approval=dict(content.get("approval") or {}),
+            source=_optional_str(content.get("source")),
         )
 
     @classmethod
@@ -103,6 +108,7 @@ class PausedExecutorRun:
             arguments=dict(data.get("arguments") or {}),
             session_id=data.get("session_id"),
             approval=dict(data.get("approval") or {}),
+            source=_optional_str(data.get("source")),
         )
 
     def to_activity_result(self) -> Dict[str, Any]:
@@ -113,6 +119,7 @@ class PausedExecutorRun:
                 "arguments": dict(self.arguments),
                 "session_id": self.session_id,
                 "approval": dict(self.approval),
+                "source": self.source,
             }
         }
 
@@ -133,6 +140,18 @@ class PausedExecutorRun:
             instructions=self.approval.get("instructions"),
             reason=self.approval.get("reason"),
         )
+
+
+def _optional_str(value: Any) -> Optional[str]:
+    return str(value) if value else None
+
+
+def _index_records(tool_history: Any) -> Dict[str, ToolExecutionRecord]:
+    return {
+        record.tool_call_id: record
+        for record in tool_history or ()
+        if record.tool_call_id
+    }
 
 
 def _as_message(content: Any) -> Dict[str, Any]:
@@ -174,7 +193,9 @@ class ExecutorRunRecorder:
         self._round = round
         self._emitter = emitter
         self._observer = observer
-        self._tool_records: Dict[str, ToolExecutionRecord] = {}
+        # Seeded from the entry so a resumed run updates the record of the
+        # call it paused on instead of appending a duplicate.
+        self._tool_records = _index_records(getattr(entry, "tool_history", None))
         self.session_id: Optional[str] = getattr(entry, "session_id", None)
         self.final_message: Optional[Dict[str, Any]] = None
         self.paused: Optional[PausedExecutorRun] = None
@@ -195,28 +216,25 @@ class ExecutorRunRecorder:
         """
         self._observer.on_event(event)
         self.set_session_id(event.session_id)
-        # Event names are the ``AgentEventType`` literal values.
         match event.type:
-            case "text_delta":
+            case ev.EVENT_TEXT_DELTA:
                 if self._emitter is not None and isinstance(event.content, str):
                     self._emitter.emit_text_delta(event.content)
-            case "message":
+            case ev.EVENT_MESSAGE:
                 self._on_message(_as_message(event.content))
-            case "tool_call":
+            case ev.EVENT_TOOL_CALL:
                 self._on_tool_call(event.content)
-            case "tool_result":
+            case ev.EVENT_TOOL_RESULT:
                 self._on_tool_result(event.content)
-            case "session":
+            case ev.EVENT_SESSION:
                 self._checkpoint()
-            case "complete":
+            case ev.EVENT_COMPLETE:
                 self._on_complete(event)
-                return True
-            case "paused":
+            case ev.EVENT_PAUSED:
                 self._on_paused(event)
-                return True
-            case "error":
+            case ev.EVENT_ERROR:
                 raise AgentError(f"AgentExecutor emitted error: {event.content}")
-        return False
+        return event.type in ev.TERMINAL_EVENT_TYPES
 
     # ------------------------------------------------------------------
     def _on_message(self, message: Dict[str, Any]) -> None:
@@ -294,11 +312,7 @@ class ExecutorRunRecorder:
         # get_state validates into new objects, so rebuild the record index
         # to keep later tool_result events updating persisted records.
         self.entry = self._agent._infra.get_state(self._instance_id)
-        self._tool_records = {
-            record.tool_call_id: record
-            for record in self.entry.tool_history
-            if record.tool_call_id
-        }
+        self._tool_records = _index_records(self.entry.tool_history)
 
     def _record_usage(self, event: AgentEvent) -> Dict[str, Any]:
         usage = {k: event.metadata[k] for k in _USAGE_FIELDS if k in event.metadata}

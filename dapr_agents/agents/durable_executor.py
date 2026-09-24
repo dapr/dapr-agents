@@ -24,9 +24,13 @@ and the ``run_executor`` activity:
   the agent's state store.
 * A run that pauses on a tool call awaiting approval returns a
   ``PausedExecutorRun``. The workflow body then runs the normal approval
-  flow (``_request_approval``: publish, wait for the external event or the
+  flow (``_await_approval``: publish, wait for the external event or the
   timeout) and calls ``run_executor`` again with the decision under
   ``context[CONTEXT_TOOL_DECISIONS]``, repeating until the run completes.
+  A rejection passes the approver's reason on to the executor.
+* After ``execution.max_iterations`` approval rounds, a further paused call
+  is rejected without asking a human, so the session never keeps an
+  unanswered tool call, and the run gets one last chance to finish.
 
 Delivery semantics: ``run_executor`` is an activity, so it runs at least
 once. A retried attempt resumes the executor session saved by the previous
@@ -60,6 +64,10 @@ from dapr_agents.types import AgentError
 logger = logging.getLogger(__name__)
 
 _DENIED_REASON = "approval was not granted or timed out"
+_LIMIT_REASON = (
+    "the approval limit for this task was reached; do not request more tool "
+    "calls that need approval"
+)
 _APPROVAL_LIMIT_MESSAGE = (
     "I reached the maximum number of tool approvals for this task before I "
     "could finish. Please try again with a narrower request."
@@ -71,12 +79,13 @@ def _resume_input(
     paused: PausedExecutorRun,
     approved: bool,
     round_: int,
+    reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build the ``run_executor`` input that resumes ``paused`` with a decision."""
     decision = ToolCallDecision(
         tool_call_id=paused.tool_call_id,
         approved=approved,
-        reason=None if approved else _DENIED_REASON,
+        reason=None if approved else (reason or _DENIED_REASON),
     )
     context = dict(first_input.get("context") or {})
     context[CONTEXT_TOOL_DECISIONS] = {paused.tool_call_id: decision.to_dict()}
@@ -112,7 +121,8 @@ class DurableExecutorMixin:
 
         Every round is a recorded activity and approvals use deterministic
         ids, so the loop is replay-safe. Approval rounds are capped at
-        ``execution.max_iterations``.
+        ``execution.max_iterations``; past the cap, one more paused call is
+        rejected automatically.
 
         Returns:
             The final assistant message dict.
@@ -148,21 +158,35 @@ class DurableExecutorMixin:
             paused = PausedExecutorRun.from_activity_result(result)
             if paused is None:
                 return result
-            if round_ >= max_approvals:
+            if round_ > max_approvals:
                 break
-            approved = yield from self._request_approval(
-                ctx, ctx.instance_id, paused.tool_call(), paused.require_approval()
-            )
             round_ += 1
-            payload = _resume_input(first_input, paused, approved, round_)
+            if round_ > max_approvals:
+                self._log_approval_limit(ctx, max_approvals)
+                payload = _resume_input(
+                    first_input, paused, False, round_, _LIMIT_REASON
+                )
+                continue
+            approved, reason = yield from self._await_approval(
+                ctx,
+                ctx.instance_id,
+                paused.tool_call(),
+                paused.require_approval(),
+                source=paused.source,
+            )
+            payload = _resume_input(first_input, paused, approved, round_, reason)
 
-        logger.warning(
-            "Agent %s hit max approval rounds (%d) (instance=%s)",
-            self.name,
-            max_approvals,
-            ctx.instance_id,
-        )
         return {"role": "assistant", "content": _APPROVAL_LIMIT_MESSAGE}
+
+    def _log_approval_limit(self, ctx: wf.DaprWorkflowContext, limit: int) -> None:
+        if not ctx.is_replaying:
+            logger.warning(
+                "Agent %s hit max approval rounds (%d); rejecting further "
+                "calls (instance=%s)",
+                self.name,
+                limit,
+                ctx.instance_id,
+            )
 
     # ------------------------------------------------------------------
     # Activity

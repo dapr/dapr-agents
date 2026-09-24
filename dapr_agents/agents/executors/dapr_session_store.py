@@ -34,12 +34,27 @@ Storage layout, per session key ``{project_key}/{session_id}[/{subpath}]``:
 An append writes new chunks under fresh ids first and then commits the
 manifest with its ETag (first-write concurrency). A writer that loses the
 race retries against the new manifest and its orphaned chunks are deleted,
-so readers never observe a partial append.
+so readers never observe a partial append. A failed commit is checked
+against the stored manifest before anything is deleted: when the save
+landed but its reply was lost, the append counts as committed.
+
+While the last chunk is smaller than half of ``max_chunk_bytes``, the next
+append rewrites it together with the new entries under a fresh id, so the
+number of chunks grows with the transcript size rather than with the number
+of appends. Every append still rewrites the manifest, whose size is bounded
+by ``dedupe_window`` (roughly 40 bytes per remembered uuid) plus one id per
+chunk.
+
+With ``ttl_in_seconds`` set, the manifest expires ``ttl_in_seconds`` after
+the last append. Chunks are written with twice that TTL and are rewritten
+once they are older than ``ttl_in_seconds``, so they always outlive the
+manifest that points at them and expire at most one TTL after it.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import random
@@ -79,10 +94,11 @@ class DaprSessionStoreConfig:
             document. Keep it below the smallest value size your state store
             accepts (for example DynamoDB caps items at 400 KB).
         dedupe_window: Number of most recent entry uuids remembered per key
-            to make re-delivered appends idempotent.
+            to make re-delivered appends idempotent. Each one adds roughly
+            40 bytes to the manifest, which every append rewrites.
         max_commit_attempts: Manifest commit attempts under contention.
-        ttl_in_seconds: Optional TTL applied to every document written. The
-            state store must support TTL.
+        ttl_in_seconds: Optional sliding TTL: a session expires this many
+            seconds after its last append. The state store must support TTL.
     """
 
     key_prefix: str = "claude-session:"
@@ -98,6 +114,8 @@ class DaprSessionStoreConfig:
             raise ValueError("dedupe_window must not be negative")
         if self.max_commit_attempts <= 0:
             raise ValueError("max_commit_attempts must be positive")
+        if self.ttl_in_seconds is not None and self.ttl_in_seconds <= 0:
+            raise ValueError("ttl_in_seconds must be positive")
 
 
 @dataclass(frozen=True)
@@ -108,6 +126,10 @@ class _Manifest:
     recent_uuids: Tuple[str, ...] = ()
     subkeys: Tuple[str, ...] = ()
     mtime: int = 0
+    # Serialized size of the last chunk (0 when unknown).
+    tail_bytes: int = 0
+    # Every listed chunk was (re)written at or after this time (ms).
+    chunks_written_ms: int = 0
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "_Manifest":
@@ -116,6 +138,8 @@ class _Manifest:
             recent_uuids=tuple(str(u) for u in data.get("recent_uuids", ())),
             subkeys=tuple(str(s) for s in data.get("subkeys", ())),
             mtime=int(data.get("mtime", 0) or 0),
+            tail_bytes=int(data.get("tail_bytes", 0) or 0),
+            chunks_written_ms=int(data.get("chunks_written_ms", 0) or 0),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -125,7 +149,19 @@ class _Manifest:
             "recent_uuids": list(self.recent_uuids),
             "subkeys": list(self.subkeys),
             "mtime": self.mtime,
+            "tail_bytes": self.tail_bytes,
+            "chunks_written_ms": self.chunks_written_ms,
         }
+
+
+@dataclass(frozen=True)
+class _AppendPlan:
+    """What one append attempt writes and which listed chunks it replaces."""
+
+    entries: Tuple[Any, ...]
+    kept_chunks: Tuple[str, ...]
+    superseded: Tuple[str, ...]
+    chunks_written_ms: int
 
 
 def _session_key_string(key: Mapping[str, Any]) -> str:
@@ -146,21 +182,21 @@ def _entry_uuid(entry: Mapping[str, Any]) -> Optional[str]:
 
 
 def _chunk_entries(
-    entries: Sequence[Mapping[str, Any]], max_bytes: int
-) -> List[List[Mapping[str, Any]]]:
-    """Split entries into ordered slices of at most ``max_bytes`` each."""
-    chunks: List[List[Mapping[str, Any]]] = []
-    current: List[Mapping[str, Any]] = []
+    entries: Sequence[Any], max_bytes: int
+) -> List[Tuple[List[Any], int]]:
+    """Split entries into ordered ``(slice, bytes)`` of at most ``max_bytes``."""
+    chunks: List[Tuple[List[Any], int]] = []
+    current: List[Any] = []
     size = 0
     for entry in entries:
         entry_size = len(json.dumps(entry, default=str).encode("utf-8"))
         if current and size + entry_size > max_bytes:
-            chunks.append(current)
+            chunks.append((current, size))
             current, size = [], 0
         current.append(entry)
         size += entry_size
     if current:
-        chunks.append(current)
+        chunks.append((current, size))
     return chunks
 
 
@@ -251,31 +287,30 @@ class DaprSessionStore:
             return None, None
         return _Manifest.from_dict(data if isinstance(data, Mapping) else {}), etag
 
-    def _write(self, key: str, value: Dict[str, Any], etag: Optional[str]) -> None:
-        self._state.save(
-            key=key,
-            value=value,
-            etag=etag,
-            state_metadata=_STATE_METADATA,
-            state_options=_SAVE_OPTIONS if etag is not None else None,
-            ttl_in_seconds=self._config.ttl_in_seconds,
-        )
-
     def _commit_manifest(
         self, manifest_key: str, manifest: _Manifest, etag: Optional[str]
     ) -> None:
-        if etag is None:
-            # First write: first-write concurrency without an ETag only
-            # succeeds when the key does not exist yet.
-            self._state.save(
-                key=manifest_key,
-                value=manifest.to_dict(),
-                state_metadata=_STATE_METADATA,
-                state_options=_SAVE_OPTIONS,
-                ttl_in_seconds=self._config.ttl_in_seconds,
-            )
-            return
-        self._write(manifest_key, manifest.to_dict(), etag)
+        # Without an ETag, first-write concurrency only succeeds when the key
+        # does not exist yet.
+        self._state.save(
+            key=manifest_key,
+            value=manifest.to_dict(),
+            etag=etag,
+            state_metadata=_STATE_METADATA,
+            state_options=_SAVE_OPTIONS,
+            ttl_in_seconds=self._config.ttl_in_seconds,
+        )
+
+    def _write_chunk(self, chunk_key: str, entries: Sequence[Any]) -> None:
+        ttl = self._config.ttl_in_seconds
+        self._state.save(
+            key=chunk_key,
+            value={"entries": list(entries)},
+            state_metadata=_STATE_METADATA,
+            # Twice the manifest TTL, so a chunk outlives the manifest that
+            # lists it (see ``_ttl_refresh_due``).
+            ttl_in_seconds=ttl * 2 if ttl is not None else None,
+        )
 
     def _new_entries(
         self, manifest: Optional[_Manifest], entries: Sequence[Any]
@@ -291,64 +326,150 @@ class DaprSessionStore:
             fresh.append(entry)
         return fresh
 
-    def _write_chunks(self, manifest_key: str, entries: Sequence[Any]) -> List[str]:
+    def _write_chunks(
+        self, manifest_key: str, entries: Sequence[Any]
+    ) -> Tuple[List[str], int]:
+        """Write ``entries`` as new chunks; return their ids and the tail size."""
         chunk_ids: List[str] = []
-        for chunk in _chunk_entries(entries, self._config.max_chunk_bytes):
+        tail_bytes = 0
+        for chunk, size in _chunk_entries(entries, self._config.max_chunk_bytes):
             chunk_id = uuid.uuid4().hex
-            self._write(
-                self._chunk_key(manifest_key, chunk_id),
-                {"entries": list(chunk)},
-                None,
-            )
+            self._write_chunk(self._chunk_key(manifest_key, chunk_id), chunk)
             chunk_ids.append(chunk_id)
-        return chunk_ids
+            tail_bytes = size
+        return chunk_ids, tail_bytes
+
+    def _load_chunks(
+        self, manifest_key: str, chunk_ids: Sequence[str]
+    ) -> List[List[Any]]:
+        """Load chunk entry lists in order; a missing chunk is an error."""
+        if not chunk_ids:
+            return []
+        keys = [self._chunk_key(manifest_key, c) for c in chunk_ids]
+        docs = self._state.load_many(keys, state_metadata=_STATE_METADATA)
+        loaded: List[List[Any]] = []
+        for chunk_key in keys:
+            doc = docs.get(chunk_key)
+            if not isinstance(doc, Mapping):
+                raise StateStoreError(
+                    f"Session transcript chunk '{chunk_key}' is missing; "
+                    "refusing to return a transcript with a gap."
+                )
+            loaded.append(list(doc.get("entries", ())))
+        return loaded
+
+    def _ttl_refresh_due(self, manifest: _Manifest, now_ms: int) -> bool:
+        """True when listed chunks may expire before a manifest written now.
+
+        Chunks carry ``2 * ttl``. Renewing them once they are ``ttl`` old
+        keeps ``written + 2 * ttl`` past the manifest's ``now + ttl``.
+        """
+        ttl = self._config.ttl_in_seconds
+        if ttl is None or not manifest.chunks:
+            return False
+        return now_ms - manifest.chunks_written_ms >= ttl * 1000
+
+    def _refresh_chunks(self, manifest_key: str, chunk_ids: Sequence[str]) -> None:
+        """Rewrite chunks in place to renew their TTL."""
+        loaded = self._load_chunks(manifest_key, chunk_ids)
+        for chunk_id, entries in zip(chunk_ids, loaded):
+            self._write_chunk(self._chunk_key(manifest_key, chunk_id), entries)
+
+    def _plan_append(
+        self, manifest_key: str, manifest: Optional[_Manifest], fresh: List[Any]
+    ) -> _AppendPlan:
+        """Decide which listed chunks to renew or fold into this append."""
+        now = _now_ms()
+        if manifest is None:
+            return _AppendPlan(tuple(fresh), (), (), now)
+        kept, written_ms = manifest.chunks, manifest.chunks_written_ms
+        superseded: Tuple[str, ...] = ()
+        pending = list(fresh)
+        if kept and manifest.tail_bytes < self._config.max_chunk_bytes // 2:
+            superseded, kept = kept[-1:], kept[:-1]
+            (tail,) = self._load_chunks(manifest_key, superseded)
+            pending = [*tail, *pending]
+        if self._ttl_refresh_due(manifest, now):
+            self._refresh_chunks(manifest_key, kept)
+            written_ms = now
+        return _AppendPlan(tuple(pending), kept, superseded, written_ms)
 
     def _next_manifest(
         self,
         manifest: Optional[_Manifest],
-        chunk_ids: Sequence[str],
-        entries: Sequence[Any],
+        plan: _AppendPlan,
+        written: Tuple[List[str], int],
+        fresh: Sequence[Any],
     ) -> _Manifest:
         base = manifest or _Manifest()
+        chunk_ids, tail_bytes = written
         new_uuids = [
             u
-            for u in (_entry_uuid(e) for e in entries if isinstance(e, Mapping))
+            for u in (_entry_uuid(e) for e in fresh if isinstance(e, Mapping))
             if u is not None
         ]
         window = self._config.dedupe_window
         recent = (*base.recent_uuids, *new_uuids)
-        return _Manifest(
-            chunks=(*base.chunks, *chunk_ids),
+        return dataclasses.replace(
+            base,
+            chunks=(*plan.kept_chunks, *chunk_ids),
             recent_uuids=tuple(recent[-window:]) if window else (),
-            subkeys=base.subkeys,
             mtime=max(_now_ms(), base.mtime + 1),
+            tail_bytes=tail_bytes,
+            chunks_written_ms=plan.chunks_written_ms,
         )
+
+    def _committed(self, manifest_key: str, chunk_ids: Sequence[str]) -> bool:
+        """True when the stored manifest already lists ``chunk_ids``.
+
+        ``StateStoreService`` retries failed saves. When the first attempt of
+        a commit landed but its reply was lost, the retry carries a stale
+        ETag and fails, although the append is in fact committed.
+        """
+        try:
+            manifest, _ = self._read_manifest(manifest_key)
+        except StateStoreError:
+            logger.warning(
+                "Could not verify the session manifest commit for %s; "
+                "keeping its chunks.",
+                manifest_key,
+                exc_info=True,
+            )
+            raise
+        return manifest is not None and set(chunk_ids) <= set(manifest.chunks)
+
+    def _try_append(self, manifest_key: str, entries: List[Any]) -> bool:
+        """Run one append attempt; False when the commit lost a race."""
+        manifest, etag = self._read_manifest(manifest_key)
+        fresh = self._new_entries(manifest, entries)
+        if not fresh:
+            return True
+        plan = self._plan_append(manifest_key, manifest, fresh)
+        written = self._write_chunks(manifest_key, plan.entries)
+        updated = self._next_manifest(manifest, plan, written, fresh)
+        try:
+            self._commit_manifest(manifest_key, updated, etag)
+        except StateStoreError as exc:
+            if not self._committed(manifest_key, written[0]):
+                self._delete_chunks(manifest_key, written[0])
+                logger.debug(
+                    "Session manifest commit conflict for %s: %s", manifest_key, exc
+                )
+                return False
+        self._delete_chunks(manifest_key, plan.superseded)
+        return True
 
     def _append_sync(self, manifest_key: str, entries: List[Any]) -> None:
         attempts = self._config.max_commit_attempts
         for attempt in range(1, attempts + 1):
-            manifest, etag = self._read_manifest(manifest_key)
-            fresh = self._new_entries(manifest, entries)
-            if not fresh:
+            if self._try_append(manifest_key, entries):
                 return
-            chunk_ids = self._write_chunks(manifest_key, fresh)
-            try:
-                self._commit_manifest(
-                    manifest_key, self._next_manifest(manifest, chunk_ids, fresh), etag
-                )
-                return
-            except StateStoreError as exc:
-                self._delete_chunks(manifest_key, chunk_ids)
-                if attempt == attempts:
-                    raise
-                logger.debug(
-                    "Session manifest commit conflict for %s (attempt %d/%d): %s",
-                    manifest_key,
-                    attempt,
-                    attempts,
-                    exc,
-                )
+            if attempt < attempts:
                 _backoff(attempt)
+        raise StateStoreError(
+            f"Could not commit session transcript '{manifest_key}' after "
+            f"{attempts} attempts (concurrent writers)."
+        )
 
     def _register_subkey_sync(self, main_key: str, subpath: str) -> None:
         attempts = self._config.max_commit_attempts
@@ -357,9 +478,8 @@ class DaprSessionStore:
             base = manifest or _Manifest()
             if subpath in base.subkeys:
                 return
-            updated = _Manifest(
-                chunks=base.chunks,
-                recent_uuids=base.recent_uuids,
+            updated = dataclasses.replace(
+                base,
                 subkeys=(*base.subkeys, subpath),
                 mtime=max(_now_ms(), base.mtime + 1),
             )
@@ -375,20 +495,8 @@ class DaprSessionStore:
         manifest, _ = self._read_manifest(manifest_key)
         if manifest is None:
             return None
-        if not manifest.chunks:
-            return []
-        chunk_keys = [self._chunk_key(manifest_key, c) for c in manifest.chunks]
-        docs = self._state.load_many(chunk_keys, state_metadata=_STATE_METADATA)
-        entries: List[Any] = []
-        for chunk_key in chunk_keys:
-            doc = docs.get(chunk_key)
-            if not isinstance(doc, Mapping):
-                raise StateStoreError(
-                    f"Session transcript chunk '{chunk_key}' is missing; "
-                    "refusing to return a transcript with a gap."
-                )
-            entries.extend(doc.get("entries", ()))
-        return entries
+        chunks = self._load_chunks(manifest_key, manifest.chunks)
+        return [entry for chunk in chunks for entry in chunk]
 
     def _delete_chunks(self, manifest_key: str, chunk_ids: Sequence[str]) -> None:
         for chunk_id in chunk_ids:

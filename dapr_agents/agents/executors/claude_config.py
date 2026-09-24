@@ -21,6 +21,7 @@ type-checked) without the optional ``claude`` extra installed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from types import MappingProxyType
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
 from dapr_agents.agents.executors.binding import ExecutorBinding
@@ -95,8 +96,10 @@ class ClaudeAgentExecutorConfig:
             one bundled with the SDK wheel.
         extra_options: Additional ``ClaudeAgentOptions`` keyword arguments
             (``thinking``, ``effort``, ``agents``, ``sandbox``, ...). Keys
-            that the executor manages (``resume``, ``session_id``,
-            ``session_store``, ``hooks``, ``stderr``) are rejected.
+            the executor manages (``resume``, ``session_id``, ``hooks``,
+            ``stderr``, ``continue_conversation``, ``fork_session``) and
+            keys that have their own field here (``model``, ``cwd``,
+            ``tools`` for ``builtin_tools``, ...) are rejected.
     """
 
     model: Optional[str] = None
@@ -135,12 +138,7 @@ class ClaudeAgentExecutorConfig:
                 f"mcp_servers already defines {self.tool_server_name!r}; "
                 "pick another tool_server_name for the dapr-agents tools."
             )
-        reserved = RESERVED_OPTION_KEYS.intersection(self.extra_options)
-        if reserved:
-            raise ValueError(
-                "extra_options must not set executor-managed options: "
-                + ", ".join(sorted(reserved))
-            )
+        _check_extra_options(self.extra_options)
 
     def tool_names(self) -> Tuple[str, ...]:
         """Names Claude uses for the ``tools`` (``mcp__<server>__<name>``)."""
@@ -175,6 +173,21 @@ def _first_set(value: Any, fallback: Any) -> Any:
     return value if value is not None else fallback
 
 
+def _check_extra_options(extra_options: Mapping[str, Any]) -> None:
+    reserved = RESERVED_OPTION_KEYS.intersection(extra_options)
+    if reserved:
+        raise ValueError(
+            "extra_options must not set executor-managed options: "
+            + ", ".join(sorted(reserved))
+        )
+    own = sorted(k for k in extra_options if k in FIELD_OPTION_KEYS)
+    if own:
+        raise ValueError(
+            "extra_options must not set options that have their own config "
+            "field: " + ", ".join(f"{k} (use {FIELD_OPTION_KEYS[k]})" for k in own)
+        )
+
+
 _TUPLE_FIELDS = (
     "builtin_tools",
     "allowed_tools",
@@ -188,11 +201,31 @@ RESERVED_OPTION_KEYS = frozenset(
     {
         "resume",
         "session_id",
-        "session_store",
         "hooks",
         "stderr",
         "continue_conversation",
         "fork_session",
-        "include_partial_messages",
+    }
+)
+
+# ``ClaudeAgentOptions`` keywords the executor fills from a config field,
+# mapped to that field.
+FIELD_OPTION_KEYS: Mapping[str, str] = MappingProxyType(
+    {
+        "model": "model",
+        "system_prompt": "system_prompt",
+        "max_turns": "max_turns",
+        "max_budget_usd": "max_budget_usd",
+        "permission_mode": "permission_mode",
+        "tools": "builtin_tools",
+        "allowed_tools": "allowed_tools",
+        "disallowed_tools": "disallowed_tools",
+        "mcp_servers": "mcp_servers",
+        "cwd": "cwd",
+        "env": "env",
+        "include_partial_messages": "include_partial_messages",
+        "session_store": "session_store",
+        "setting_sources": "setting_sources",
+        "cli_path": "cli_path",
     }
 )

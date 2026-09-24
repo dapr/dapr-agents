@@ -28,6 +28,9 @@ from dapr_agents.tool.workflow.activity_bridge import (
     bridge_workflow_tools,
 )
 from dapr_agents.tool.workflow.ask_user_tool import build_ask_user_tool
+from dapr_agents.tool.workflow.mcp_workflow_gateway import (
+    make_mcp_gateway_via_child_workflow_tool,
+)
 from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 from dapr_agents.types import ToolError
 
@@ -247,3 +250,30 @@ class TestBridgedCalls:
         (bridged,) = bridge_workflow_tools([odd], _context(FakeWorkflowClient()))
         with pytest.raises(ToolError, match="cannot run inside an activity"):
             await bridged.arun()
+
+    async def test_cross_app_child_workflow_is_rejected(self):
+        client = FakeWorkflowClient()
+        gateway = make_mcp_gateway_via_child_workflow_tool(
+            target_app_id="mcp-gateway", gateway_workflow_name="GatewayCall"
+        )
+        (bridged,) = bridge_workflow_tools([gateway], _context(client))
+        with pytest.raises(ToolError, match="on app 'mcp-gateway'"):
+            await bridged.arun(tool="search", arguments={"q": "dapr"})
+        assert client.scheduled == []
+
+    async def test_ctx_only_tool_gets_deterministic_child_id(self):
+        def local_child(ctx):
+            return ctx.call_child_workflow(workflow="LocalWorkflow", input={"x": 1})
+
+        local = WorkflowContextInjectedTool(
+            name="local", description="Local child.", func=local_child
+        )
+        client = FakeWorkflowClient()
+        context = _context(client)
+        (first,) = bridge_workflow_tools([local], context)
+        await first.arun()
+        (retry,) = bridge_workflow_tools([local], context)
+        await retry.arun()
+        ((workflow, _, instance_id),) = client.scheduled
+        assert workflow == "LocalWorkflow"
+        assert instance_id not in (None, "None")
