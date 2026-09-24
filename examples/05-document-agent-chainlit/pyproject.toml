@@ -19,7 +19,7 @@ dependencies = [
     "chainlit==2.12.0",
     "dapr-agents",
     "python-dotenv>=1.2.1",
-    "unstructured[all-docs]==0.18.18",
+    "unstructured[all-docs]==0.27.6",
 ]
 
 [tool.uv.sources]
