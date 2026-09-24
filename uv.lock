@@ -22,6 +22,7 @@ exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
 anthropic = "2026-08-23T00:00:00Z"
+claude-agent-sdk = "2026-09-24T00:00:00Z"
 dapr = "2026-05-21T00:00:00Z"
 dapr-ext-fastapi = "2026-05-21T00:00:00Z"
 dapr-ext-workflow = "2026-05-21T00:00:00Z"
@@ -1372,6 +1373,25 @@ wheels = [
 ]
 
 [[package]]
+name = "claude-agent-sdk"
+version = "0.2.159"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "jsonschema" },
+    { name = "mcp" },
+    { name = "sniffio" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/db/b2/81eb389ace55434f0119b99b62c10a7ac206def6c92ee0768eb389b0c900/claude_agent_sdk-0.2.159.tar.gz", hash = "sha256:e1905e2637b27971bb561bb6ad317aeb3d50619be5261bfa7ff2e9c2be0f0fd1", size = 354571, upload-time = "2026-09-23T20:26:37.386Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/06/87d76aced98f7b71cede2ebf4ae7808e52df9d3819c7f4c7b8c3d2a225b6/claude_agent_sdk-0.2.159-py3-none-macosx_11_0_arm64.whl", hash = "sha256:ba7f152560dca5001a0bc46ed13b7da14eb14b419faed25bb1af821bfa95d3de", size = 91937244, upload-time = "2026-09-23T20:26:41.375Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/cf/c65a1f2419fa4b2085a53e91cef41569fde4910057c3709b8ab4303be1fd/claude_agent_sdk-0.2.159-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:87f553fda74e2f57e00f2bcb1705ab9311a937f97571f4f9eceea2bd411b6e32", size = 96294436, upload-time = "2026-09-23T20:26:45.117Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/20/f01e211524f3d8edfe7c2ea26ac595d21afab443810cbedeca5c76f7ead0/claude_agent_sdk-0.2.159-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:b03683d12d217b0b6c189c88a3d260a045171e7fdc9f23e2d0dfb05ff3276834", size = 101405973, upload-time = "2026-09-23T20:26:48.799Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/d5/de876f9b05c2a94c1d03222b6a5908b1d27f695cf862b237f04d92008d62/claude_agent_sdk-0.2.159-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:d3ba57c187b07c87702b94e2b62dd7c61ed874899defcbb35bb5cef4cb94ace1", size = 101764831, upload-time = "2026-09-23T20:26:53.25Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/f2/b315c307a4199cb698a6b6f9e0e90cb8da4b0c8b3d00c68e9007c4a778d1/claude_agent_sdk-0.2.159-py3-none-win_amd64.whl", hash = "sha256:cc1b92ae56f42ade2d083ef2d2e5edb4aa8c7a6d856818a9b8f60cf6ae746f3a", size = 104353298, upload-time = "2026-09-23T20:26:57.913Z" },
+]
+
+[[package]]
 name = "click"
 version = "8.4.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1824,6 +1844,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+claude = [
+    { name = "claude-agent-sdk" },
+]
 drasi = [
     { name = "dapr-agents-ext-drasi" },
 ]
@@ -1868,6 +1891,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.21.0,<2.0.0" },
     { name = "cachetools", specifier = ">=6.1.0,<8.0.0" },
     { name = "chromadb", marker = "extra == 'vectorstore'", specifier = ">=0.4.22,<2.0.0" },
+    { name = "claude-agent-sdk", marker = "extra == 'claude'", specifier = ">=0.2.159,<0.3.0" },
     { name = "cloudevents", specifier = ">=1.11.0,<3.0.0" },
     { name = "colorama", specifier = ">=0.4.6,<1.0.0" },
     { name = "dapr", specifier = ">=1.18.0rc0,<1.19.0" },
@@ -1909,7 +1933,7 @@ requires-dist = [
     { name = "websockets", specifier = ">=15.0.0,<17.0.0" },
     { name = "wrapt", specifier = ">=1.14.0,<3.0.0" },
 ]
-provides-extras = ["drasi", "vectorstore"]
+provides-extras = ["drasi", "claude", "vectorstore"]
 
 [package.metadata.requires-dev]
 dev = [
