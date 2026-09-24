@@ -673,7 +673,7 @@ class DurableAgent(AgentBase):
                     executor_input["context"] = caller_context
 
                 final_message = yield ctx.call_activity(
-                    self.run_executor,
+                    self._activity_name(self.run_executor),
                     input=executor_input,
                     retry_policy=self._retry_policy,
                 )
