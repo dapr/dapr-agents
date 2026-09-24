@@ -35,9 +35,9 @@ uv add dapr-agents[drasi]
 
 ```python
 from dapr_agents.ext.drasi import (
-    drasi_trigger,                  # Register Drasi query subscriptions for agents
-    DrasiChangeEvent,               # Type for Drasi change events
-    DrasiOperation,                 # Operation type for Drasi change events
+    drasi_trigger,  # Register Drasi query subscriptions for agents
+    DrasiChangeEvent,  # Type for Drasi change events
+    DrasiOperation,  # Operation type for Drasi change events
 )
 ```
 
@@ -51,7 +51,7 @@ agent = DurableAgent(...)
 drasi_trigger(
     agent,
     query_id="<YOUR_DRASI_QUERY_ID>",
-    task_mapper=lambda event, ctx: TriggerAction(task="<AGENT_TASK_MESSAGE>")
+    task_mapper=lambda event, ctx: TriggerAction(task="<AGENT_TASK_MESSAGE>"),
 )
 
 runner = AgentRunner()
