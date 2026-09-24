@@ -196,7 +196,42 @@ class StreamEmitter:
         self._emit_turn_complete(assistant_message, metadata=metadata or {})
         return assistant_message
 
+    def emit_text_delta(self, text: str) -> None:
+        """Emit one ``CONTENT_DELTA`` for text produced outside a chunk stream.
+
+        Used by agent executors, which yield plain text deltas instead of
+        provider chunks. The first call also emits ``START``.
+        """
+        if not text:
+            return
+        self._ensure_started()
+        self._emit(
+            StreamChunkType.CONTENT_DELTA,
+            delta=StreamDelta(content=text, role="assistant"),
+        )
+
+    def complete_turn(
+        self,
+        assistant_message: Dict[str, Any],
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Emit ``TURN_COMPLETE`` (preceded by ``START`` if nothing was emitted)."""
+        self._ensure_started()
+        self._emit_turn_complete(assistant_message, metadata=metadata or {})
+
+    def emit_error(self, error_type: str, message: str) -> None:
+        """Emit an ``ERROR`` chunk for a failure outside a chunk stream."""
+        self._emit(
+            StreamChunkType.ERROR, error={"type": error_type, "message": message}
+        )
+
     # -- emission helpers -------------------------------------------------
+
+    def _ensure_started(self) -> None:
+        if not self._started:
+            self._started = True
+            self._emit(StreamChunkType.START)
 
     def _emit_delta(self, candidate: LLMChatCandidateChunk) -> None:
         has_content = bool(candidate.content)
