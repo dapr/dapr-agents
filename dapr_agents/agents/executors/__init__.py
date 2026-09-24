@@ -11,13 +11,49 @@
 # limitations under the License.
 #
 
+from typing import TYPE_CHECKING, Any
+
 from dapr_agents.agents.executors.base import AgentExecutorBase
+from dapr_agents.agents.executors.binding import ExecutorBinding
+from dapr_agents.agents.executors.claude_config import ClaudeAgentExecutorConfig
+from dapr_agents.agents.executors.dapr_session_store import (
+    DaprSessionStore,
+    DaprSessionStoreConfig,
+)
 from dapr_agents.agents.executors.echo import EchoAgentExecutor
-from dapr_agents.agents.executors.event import AgentEvent, AgentEventType
+from dapr_agents.agents.executors.event import (
+    CONTEXT_TOOL_DECISIONS,
+    AgentEvent,
+    AgentEventType,
+    ToolCallDecision,
+    tool_decisions_from_context,
+)
+
+if TYPE_CHECKING:
+    from dapr_agents.agents.executors.claude import ClaudeAgentExecutor
 
 __all__ = [
     "AgentEvent",
     "AgentEventType",
     "AgentExecutorBase",
+    "CONTEXT_TOOL_DECISIONS",
+    "ClaudeAgentExecutorConfig",
+    "DaprSessionStore",
+    "DaprSessionStoreConfig",
     "EchoAgentExecutor",
+    "ExecutorBinding",
+    "ToolCallDecision",
+    "tool_decisions_from_context",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    # ClaudeAgentExecutor needs the optional ``claude`` extra
+    # (claude-agent-sdk, ~100 MB with its bundled CLI). Import it on first
+    # access so ``import dapr_agents`` works without the extra installed. It
+    # is kept out of ``__all__`` so star imports do not require the extra.
+    if name == "ClaudeAgentExecutor":
+        from dapr_agents.agents.executors import claude
+
+        return claude.ClaudeAgentExecutor
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
