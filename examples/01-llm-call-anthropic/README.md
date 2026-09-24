@@ -86,11 +86,13 @@ Pass a Pydantic model as `response_format` and the client returns a validated in
 from pydantic import BaseModel
 from dapr_agents.llm.anthropic.chat import AnthropicChatClient
 
+
 class Contact(BaseModel):
     name: str
     email: str
     plan_interest: str
     demo_requested: bool
+
 
 client = AnthropicChatClient()
 contact = client.generate(
