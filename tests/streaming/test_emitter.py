@@ -410,3 +410,45 @@ class TestStreamEmitterAttribution:
         assert first.call_path == ["alice", "bob"]
         assert first.phase == "routing"
         assert first.trace_parent == "00-trace-span-01"
+
+
+# ---------------------------------------------------------------------------
+# Executor-facing helpers (plain text deltas, no provider chunks)
+# ---------------------------------------------------------------------------
+
+
+class TestStreamEmitterExecutorHelpers:
+    def test_text_deltas_then_complete(self) -> None:
+        listener = _CapturingListener()
+        emitter = _make_emitter(listener)
+        emitter.emit_text_delta("Hi ")
+        emitter.emit_text_delta("")
+        emitter.emit_text_delta("there")
+        emitter.complete_turn(
+            {"role": "assistant", "content": "Hi there"}, metadata={"cost_usd": 1}
+        )
+        types = [c.type for c in listener.chunks]
+        assert types == [
+            StreamChunkType.START,
+            StreamChunkType.CONTENT_DELTA,
+            StreamChunkType.CONTENT_DELTA,
+            StreamChunkType.TURN_COMPLETE,
+        ]
+        assert [c.delta.content for c in listener.chunks[1:3]] == ["Hi ", "there"]
+
+    def test_complete_without_deltas_still_starts(self) -> None:
+        listener = _CapturingListener()
+        emitter = _make_emitter(listener)
+        emitter.complete_turn({"role": "assistant", "content": "done"})
+        assert [c.type for c in listener.chunks] == [
+            StreamChunkType.START,
+            StreamChunkType.TURN_COMPLETE,
+        ]
+
+    def test_emit_error(self) -> None:
+        listener = _CapturingListener()
+        emitter = _make_emitter(listener)
+        emitter.emit_error("AgentError", "boom")
+        (chunk,) = listener.chunks
+        assert chunk.type is StreamChunkType.ERROR
+        assert chunk.error == {"type": "AgentError", "message": "boom"}
