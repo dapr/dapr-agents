@@ -22,13 +22,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import Any, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 from dapr_agents.agents.executors.binding import ExecutorBinding
 from dapr_agents.hooks import BeforeToolHook
 from dapr_agents.tool.base import AgentTool
 
 DEFAULT_TOOL_SERVER_NAME = "dapr"
+
+# CLI switches that keep the host user's Claude Code context (claude.ai
+# connectors, auto memory) out of agent runs when ``isolate_host_config``
+# is on.
+HOST_ISOLATION_ENV: Mapping[str, str] = MappingProxyType(
+    {
+        "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+    }
+)
+# Only applied when no ``setting_sources`` are loaded: opting into project
+# settings is also opting into that project's CLAUDE.md files.
+CLAUDE_MD_ISOLATION_ENV: Mapping[str, str] = MappingProxyType(
+    {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1"}
+)
 
 
 @dataclass(frozen=True)
@@ -92,6 +107,14 @@ class ClaudeAgentExecutorConfig:
         setting_sources: Claude settings files to load (``"user"``,
             ``"project"``, ``"local"``). Defaults to none so host settings
             do not leak into agent runs.
+        isolate_host_config: Keep the host user's Claude Code context out of
+            agent runs (default ``True``). The CLI then uses only the MCP
+            servers configured here (``strict_mcp_config``), skips claude.ai
+            connectors and auto memory, and skips ``CLAUDE.md`` files unless
+            ``setting_sources`` is set. Without this, a CLI logged in with a
+            claude.ai account can load that account's connectors and the
+            memory of any git repository ``cwd`` belongs to. Values in
+            ``env`` override the variables this sets.
         cli_path: Optional path to a ``claude`` CLI binary, overriding the
             one bundled with the SDK wheel.
         extra_options: Additional ``ClaudeAgentOptions`` keyword arguments
@@ -120,6 +143,7 @@ class ClaudeAgentExecutorConfig:
     include_partial_messages: bool = True
     session_store: Optional[Any] = None
     setting_sources: Tuple[str, ...] = ()
+    isolate_host_config: bool = True
     cli_path: Optional[str] = None
     extra_options: Mapping[str, Any] = field(default_factory=dict)
 
@@ -144,6 +168,15 @@ class ClaudeAgentExecutorConfig:
         """Names Claude uses for the ``tools`` (``mcp__<server>__<name>``)."""
         prefix = f"mcp__{self.tool_server_name}__"
         return tuple(f"{prefix}{t.name}" for t in self.tools)
+
+    def cli_env(self) -> Dict[str, str]:
+        """Environment for the CLI process: host isolation, then ``env``."""
+        if not self.isolate_host_config:
+            return dict(self.env)
+        isolation = dict(HOST_ISOLATION_ENV)
+        if not self.setting_sources:
+            isolation.update(CLAUDE_MD_ISOLATION_ENV)
+        return {**isolation, **self.env}
 
     def bound_to(self, binding: ExecutorBinding) -> "ClaudeAgentExecutorConfig":
         """
@@ -226,6 +259,7 @@ FIELD_OPTION_KEYS: Mapping[str, str] = MappingProxyType(
         "include_partial_messages": "include_partial_messages",
         "session_store": "session_store",
         "setting_sources": "setting_sources",
+        "strict_mcp_config": "isolate_host_config",
         "cli_path": "cli_path",
     }
 )

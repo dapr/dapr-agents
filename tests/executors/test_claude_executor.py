@@ -205,7 +205,7 @@ class TestFreshRun:
         assert options.disallowed_tools == ["Bash"]
         assert set(options.mcp_servers) == {"dapr"}
         assert options.hooks is None
-        assert options.env == {"ANTHROPIC_API_KEY": "k"}
+        assert options.env["ANTHROPIC_API_KEY"] == "k"
         assert options.permission_mode == "default"
         assert options.effort == "low"
         assert options.cwd == cwd and os.path.isdir(cwd)
@@ -260,6 +260,45 @@ class TestFreshRun:
         assert options.resume is None
         assert options.session_id == session_uuid("chat-1")
         assert options.session_store is store
+
+
+class TestHostIsolation:
+    """The CLI must not load the host user's Claude Code context."""
+
+    async def test_isolated_by_default(self, cwd):
+        FakeClaudeClient.reset([result_message()])
+        await _collect(_executor(cwd, env={"ANTHROPIC_API_KEY": "k"}))
+        options = FakeClaudeClient.last().options
+        assert options.strict_mcp_config is True
+        assert options.env == {
+            "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+            "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+            "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
+            "ANTHROPIC_API_KEY": "k",
+        }
+
+    async def test_explicit_env_overrides_isolation(self, cwd):
+        FakeClaudeClient.reset([result_message()])
+        await _collect(_executor(cwd, env={"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "0"}))
+        env = FakeClaudeClient.last().options.env
+        assert env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "0"
+        assert env["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false"
+
+    async def test_setting_sources_keep_claude_md_files(self, cwd):
+        FakeClaudeClient.reset([result_message()])
+        await _collect(_executor(cwd, setting_sources=["project"]))
+        env = FakeClaudeClient.last().options.env
+        assert "CLAUDE_CODE_DISABLE_CLAUDE_MDS" not in env
+        assert env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+
+    async def test_opt_out_passes_env_through(self, cwd):
+        FakeClaudeClient.reset([result_message()])
+        await _collect(
+            _executor(cwd, isolate_host_config=False, env={"ANTHROPIC_API_KEY": "k"})
+        )
+        options = FakeClaudeClient.last().options
+        assert options.strict_mcp_config is False
+        assert options.env == {"ANTHROPIC_API_KEY": "k"}
 
 
 class TestPause:
