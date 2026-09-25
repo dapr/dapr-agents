@@ -49,7 +49,7 @@ dependencies = [
     "mcp>=1.26.0,<2.0.0",
     "websockets>=15.0.0,<17.0.0",
     "posthog<8.0.0",
-    "protobuf>=6.33.5,<7.0.0",
+    "protobuf>=6.33.5,<8.0.0",
     "docker>=7.1.0",
     "toolbox-core>=0.5.3",
     "opentelemetry-api>=1.35.0,<2.0.0",
@@ -57,16 +57,16 @@ dependencies = [
     "opentelemetry-proto>=1.35.0,<2.0.0",
     "tiktoken>=0.9.0",
     "cachetools>=6.1.0,<8.0.0",
-    "wrapt>=1.14.0,<2.0.0",
+    "wrapt>=1.14.0,<3.0.0",
     "openinference-instrumentation>=0.1.0,<1.0.0",
     "openinference-semantic-conventions>=0.1.0,<1.0.0",
-    "mistralai>=2.2.0",
+    "mistralai>=2.9.2",
     "anthropic>=0.98.0,<2.0.0",
-    "opentelemetry-instrumentation-grpc>=0.60b1,<0.61",
+    "opentelemetry-instrumentation-grpc>=0.60b1,<1.0.0",
     "opentelemetry-exporter-zipkin-json>=1.36.0",
-    "opentelemetry-instrumentation-httpx>=0.60b1,<0.61",
-    "opentelemetry-semantic-conventions>=0.60b1,<0.61",
-    "litellm>=1.80,<1.87",
+    "opentelemetry-instrumentation-httpx>=0.60b1,<1.0.0",
+    "opentelemetry-semantic-conventions>=0.60b1,<1.0.0",
+    "litellm>=1.80,<1.102",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -86,14 +86,14 @@ drasi = [
 ]
 vectorstore = [
     "torch>=2.7.0",
-    "sentence-transformers>=4.1.0,<6.0.0",
+    "sentence-transformers>=4.1.0,<7.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.9.3,<4.0.0",
 ]
 
 [dependency-groups]
 dev = [
-    "mypy>=1.15.0,<2.0.0",
+    "mypy>=1.15.0,<3.0.0",
     "pip-tools>=7.4.1,<8.0.0",
     "flake8>=7.3.0",
     "ruff>=0.14.11",
@@ -112,7 +112,7 @@ test = [
 ]
 vectorstore = [
     "torch>=2.7.0",
-    "sentence-transformers>=4.1.0,<6.0.0",
+    "sentence-transformers>=4.1.0,<7.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.8.0,<4.0.0",
     "redisvl>=0.4.0,<1.0.0",

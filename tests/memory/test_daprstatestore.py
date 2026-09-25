@@ -61,3 +61,40 @@ def test_add_message_records_created_at_in_utc(monkeypatch):
     assert parsed == true_utc
     # And must NOT be the naive local wall clock mislabeled as UTC.
     assert parsed != naive_local.replace(tzinfo=timezone.utc)
+
+
+def test_get_messages_returns_most_recent_when_over_limit():
+    """get_messages(limit=N) must return the N most recently added messages, not
+    the N oldest.
+
+    add_message always appends, so stored messages are ordered oldest to newest;
+    slicing from the front returns the same first N messages forever once a
+    conversation grows past the limit, never surfacing anything new.
+    """
+    memory = _make_memory()
+    stored = [{"role": "user", "content": f"message-{i}"} for i in range(5)]
+    memory.dapr_store.get_state.return_value = MagicMock(
+        data=json.dumps(stored), etag="etag-1"
+    )
+
+    messages = memory.get_messages("wf-1", limit=2)
+
+    assert [m["content"] for m in messages] == ["message-3", "message-4"]
+
+
+def test_get_messages_with_limit_zero_returns_empty():
+    """get_messages(limit=0) must return no messages.
+
+    raw_messages[-0:] is raw_messages[0:], the entire list, since -0 == 0 in
+    Python slicing. Without an explicit guard, limit=0 silently returns
+    everything instead of nothing.
+    """
+    memory = _make_memory()
+    stored = [{"role": "user", "content": f"message-{i}"} for i in range(5)]
+    memory.dapr_store.get_state.return_value = MagicMock(
+        data=json.dumps(stored), etag="etag-1"
+    )
+
+    messages = memory.get_messages("wf-1", limit=0)
+
+    assert messages == []

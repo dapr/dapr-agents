@@ -14,11 +14,20 @@
 """Tests for MCPClient prompt loading and accessors."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
+import pytest
 from mcp.types import Prompt
 
 from dapr_agents.tool.mcp import MCPClient
+
+
+def _make_session():
+    return SimpleNamespace(
+        initialize=AsyncMock(),
+        list_tools=AsyncMock(return_value=SimpleNamespace(tools=[])),
+        list_prompts=AsyncMock(return_value=SimpleNamespace(prompts=[])),
+    )
 
 
 async def test_load_prompts_failure_leaves_accessors_usable():
@@ -59,3 +68,48 @@ async def test_load_prompts_success_populates_accessors():
     assert client.get_server_prompts("srv") == [prompt]
     assert client.get_prompt_metadata("srv", "greet") is prompt
     assert client.get_all_prompts() == {"srv": [prompt]}
+
+
+async def test_connect_ephemeral_rejects_duplicate_server_name():
+    """The duplicate-connection guard must fire in ephemeral mode too.
+
+    Ephemeral sessions (the default, ``persistent_connections=False``) never
+    populate ``_sessions``, so a guard keyed on ``_sessions`` can never catch
+    a duplicate ``connect()`` call in the common case. It must key on
+    ``_server_configs``, which both modes populate.
+    """
+    client = MCPClient()
+    with patch(
+        "dapr_agents.tool.mcp.client.start_transport_session",
+        AsyncMock(return_value=_make_session()),
+    ):
+        await client.connect(
+            {"server_name": "srv", "transport": "stdio", "command": "python"}
+        )
+
+        with pytest.raises(RuntimeError, match="already connected"):
+            await client.connect(
+                {"server_name": "srv", "transport": "stdio", "command": "python"}
+            )
+
+
+async def test_close_allows_reconnecting_to_the_same_server():
+    """close() must fully release a server so it can be connected to again."""
+    client = MCPClient()
+    with patch(
+        "dapr_agents.tool.mcp.client.start_transport_session",
+        AsyncMock(return_value=_make_session()),
+    ):
+        await client.connect(
+            {"server_name": "srv", "transport": "stdio", "command": "python"}
+        )
+        await client.close()
+
+        assert client.get_connected_servers() == []
+        assert client.get_all_prompts() == {}
+
+        await client.connect(
+            {"server_name": "srv", "transport": "stdio", "command": "python"}
+        )
+
+    assert client.get_connected_servers() == ["srv"]

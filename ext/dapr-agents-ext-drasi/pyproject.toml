@@ -42,10 +42,10 @@ classifiers = [
 
 [dependency-groups]
 dev = [
-    "mypy>=1.15.0,<2.0.0",
+    "mypy>=1.15.0,<3.0.0",
     "flake8>=7.3.0",
     "ruff>=0.14.11",
-    "datamodel-code-generator==0.64.0",
+    "datamodel-code-generator==0.76.2",
 ]
 test = [
     "pytest>=8.0.0,<10.0.0",
