@@ -1901,7 +1901,7 @@ requires-dist = [
     { name = "regex", specifier = ">=2024.0.0,<2027.0.0" },
     { name = "requests", specifier = ">=2.32.4,<3.0.0" },
     { name = "rich", specifier = ">=13.9.4,<15.0.0" },
-    { name = "sentence-transformers", marker = "extra == 'vectorstore'", specifier = ">=4.1.0,<6.0.0" },
+    { name = "sentence-transformers", marker = "extra == 'vectorstore'", specifier = ">=4.1.0,<7.0.0" },
     { name = "tiktoken", specifier = ">=0.9.0" },
     { name = "toolbox-core", specifier = ">=0.5.3" },
     { name = "torch", marker = "extra == 'vectorstore'", specifier = ">=2.7.0" },
@@ -1934,7 +1934,7 @@ vectorstore = [
     { name = "chromadb", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=0.4.22,<2.0.0" },
     { name = "nltk", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=3.8.0,<4.0.0" },
     { name = "redisvl", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=0.4.0,<1.0.0" },
-    { name = "sentence-transformers", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=4.1.0,<6.0.0" },
+    { name = "sentence-transformers", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=4.1.0,<7.0.0" },
     { name = "torch", marker = "python_full_version >= '3.11' and python_full_version < '3.14'", specifier = ">=2.7.0" },
 ]
 
@@ -3827,7 +3827,7 @@ wheels = [
 
 [[package]]
 name = "mistralai"
-version = "2.9.3"
+version = "2.10.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "eval-type-backport" },
@@ -3839,9 +3839,9 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/be/fa/c6580ed6747c675546e4117eb959d06732e14c0da51bbe3ae4524677e1a3/mistralai-2.9.3.tar.gz", hash = "sha256:aa1bc946cc845a72f4a491ac366498151acae300a2d143a76d73e581609bac4a", size = 542867, upload-time = "2026-08-13T15:47:56.944Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/db/a80c4ab96b1fec9529115dafaa3f14b28d0407fe1cb9b051ec2df9336fb7/mistralai-2.10.1.tar.gz", hash = "sha256:43b61643ba4f120463e5faf7305a6f40eb29f8e3a21321893969e56c20ed3fbc", size = 590127, upload-time = "2026-09-15T08:12:30.79Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/e7/467fd42d1c2f1ee0a6e117d79795b86a06668ec7ec875632ecdd5514dc68/mistralai-2.9.3-py3-none-any.whl", hash = "sha256:e5c401caa6e862528ec41ceda4b551c9483081dd7bdb2a1ed73d8e9d0db3d6d0", size = 1297009, upload-time = "2026-08-13T15:47:55.253Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/98/f64b54166a607ece4e5c8494c843ac1f9c7c0af6f1014272cc420fe1d519/mistralai-2.10.1-py3-none-any.whl", hash = "sha256:443b306392ae1e86edaec39dbafcf79deb735799a00abef4611531004e22b1b2", size = 1392946, upload-time = "2026-09-15T08:12:28.704Z" },
 ]
 
 [[package]]
@@ -5741,7 +5741,7 @@ wheels = [
 
 [[package]]
 name = "pip-tools"
-version = "7.5.2"
+version = "7.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build" },
@@ -5751,9 +5751,9 @@ dependencies = [
     { name = "setuptools" },
     { name = "wheel" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/79/d149fb40bc425ad9defcb8ff73c65088bbc36a84b1825e035397d1c40624/pip_tools-7.5.2.tar.gz", hash = "sha256:2d64d72da6a044da1110257d333960563d7a4743637e8617dd2610ae7b82d60f", size = 164815, upload-time = "2025-11-12T22:46:12.627Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/07/a0e89bfdb5ec55b8d6ae28c3edf22a2331909325c9b01c364acc4448f6df/pip_tools-7.6.1.tar.gz", hash = "sha256:695556edeb647eb94ee8345cc7108657fdb7fb16b3876623a399b4f61bbede01", size = 187948, upload-time = "2026-08-12T00:04:08.937Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/98/c1/61aef9517201b43cc20f4a5c9339a072644cbaf0e9ce4e4970c2a105f766/pip_tools-7.5.2-py3-none-any.whl", hash = "sha256:2fe16db727bbe5bf28765aeb581e792e61be51fc275545ef6725374ad720a1ce", size = 66905, upload-time = "2025-11-12T22:46:11.374Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/88/3b050c2b3948e8a090cfbd4f04a43359566f9974d66692826d42f4fe5357/pip_tools-7.6.1-py3-none-any.whl", hash = "sha256:6111c8b4b07fd14b7223ca921485b0e96cf66e20bf94da95eeed9845f510cb8f", size = 74661, upload-time = "2026-08-12T00:04:07.367Z" },
 ]
 
 [[package]]
@@ -7473,7 +7473,7 @@ wheels = [
 
 [[package]]
 name = "sentence-transformers"
-version = "5.6.0"
+version = "6.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -7482,14 +7482,15 @@ dependencies = [
     { name = "scipy", version = "1.16.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version != '3.12.*' and sys_platform == 'win32'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform != 'win32'" },
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform != 'win32') or (python_full_version == '3.12.*' and sys_platform == 'win32')" },
+    { name = "tokenizers" },
     { name = "torch" },
     { name = "tqdm" },
     { name = "transformers" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f9/56/d2cb00765a6b15c994a7fccf20f9032f16e8193ca49147cb5155166ad744/sentence_transformers-5.6.0.tar.gz", hash = "sha256:0e7164d051e416c1853ade7c274ff52af3f9da0f4be7f0b83d734c27699e1057", size = 453194, upload-time = "2026-06-16T14:01:56.42Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/ef/87681678d0aa91a1e77f0ffdd2e5d900aaf358aac644dd14bead8d95ec4c/sentence_transformers-6.0.1.tar.gz", hash = "sha256:1c3b8d9403f87ad0c879638554f36cc85744f38a6a70d150fd7e964ca0e9935b", size = 575395, upload-time = "2026-08-31T07:50:43.518Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/c1/dc1582b79e9a2eb0cddf9559cd9bcdff084f541d6fe881fdd9d98630dba7/sentence_transformers-5.6.0-py3-none-any.whl", hash = "sha256:d2075b5e687a1611005e20ab04a6846994d51adfcf39610aed066af3c0c0b81f", size = 596411, upload-time = "2026-06-16T14:01:55.103Z" },
+    { url = "https://files.pythonhosted.org/packages/31/ab/dc6031faf1b6bba08076fbf457b21a5c51ba7928a77916915e093c16b8c7/sentence_transformers-6.0.1-py3-none-any.whl", hash = "sha256:b8888d72c707ba33c63aa30845850702dd5acadf1dd0d051436380bcebe4fd0f", size = 739832, upload-time = "2026-08-31T07:50:41.635Z" },
 ]
 
 [[package]]
@@ -8344,15 +8345,15 @@ wheels = [
 
 [[package]]
 name = "uvicorn"
-version = "0.52.4"
+version = "0.53.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "h11" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f2/0f/3f86e61397dd33bf2ccf28188c40db6a740658aeebbbf6e7dbc101a1f487/uvicorn-0.52.4.tar.gz", hash = "sha256:73acfee47a0b133c5de13d219492d62d8a31e935f4fe6e41a232451a15379f86", size = 100627, upload-time = "2026-08-19T06:27:41.821Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5d/ad/04bbb797c84fc1f26cb171f7394716f4865ffb8d8c5e1eef42565c2dfa6b/uvicorn-0.53.0.tar.gz", hash = "sha256:a9356f0cb89b3b8621529c5d5eebd69bfe154f4c3f68b4cf2de47e45fa855c2e", size = 110881, upload-time = "2026-09-14T07:44:23.815Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f1/79/4a20b54ab0491485ccd8c077db2d39187c7f12b3e15485d38a7be37c81b4/uvicorn-0.52.4-py3-none-any.whl", hash = "sha256:f86e41a149d7d05a9969337e3946a9c171c06a5d42680896daaba624aeac8da1", size = 79871, upload-time = "2026-08-19T06:27:40.36Z" },
+    { url = "https://files.pythonhosted.org/packages/76/18/0eea75741ee812e9f598b687619ce2454f6c3a1c5cd21ea990ec6bd26f45/uvicorn-0.53.0-py3-none-any.whl", hash = "sha256:e8dca71ec86dce5f04e333f0d56cdedf942446e6643b9cea1af0d6d3a02cb03e", size = 87081, upload-time = "2026-09-14T07:44:22.179Z" },
 ]
 
 [package.optional-dependencies]
