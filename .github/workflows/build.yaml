@@ -120,7 +120,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Lowest OTel line in practical downstream use.
+          # Install floor: pyproject's semconv>=0.60b1 pins opentelemetry-api==1.39.1.
           - otel_core: "1.39.1"
             otel_contrib: "0.60b1"
           # Current google-adk ceiling.
@@ -141,29 +141,31 @@ jobs:
       run: uv sync --frozen --group test
     - name: Pin OpenTelemetry to ${{ matrix.otel_core }} / ${{ matrix.otel_contrib }}
       env:
-        C: ${{ matrix.otel_core }}
-        B: ${{ matrix.otel_contrib }}
+        OTEL_CORE: ${{ matrix.otel_core }}
+        OTEL_CONTRIB: ${{ matrix.otel_contrib }}
       run: |
         uv pip install \
-          "opentelemetry-api==$C" \
-          "opentelemetry-sdk==$C" \
-          "opentelemetry-proto==$C" \
-          "opentelemetry-exporter-otlp==$C" \
-          "opentelemetry-exporter-otlp-proto-common==$C" \
-          "opentelemetry-exporter-otlp-proto-grpc==$C" \
-          "opentelemetry-exporter-otlp-proto-http==$C" \
-          "opentelemetry-exporter-zipkin-json==$C" \
-          "opentelemetry-semantic-conventions==$B" \
-          "opentelemetry-instrumentation==$B" \
-          "opentelemetry-instrumentation-grpc==$B" \
-          "opentelemetry-instrumentation-httpx==$B" \
-          "opentelemetry-instrumentation-logging==$B" \
-          "opentelemetry-instrumentation-redis==$B" \
-          "opentelemetry-instrumentation-requests==$B" \
-          "opentelemetry-instrumentation-sqlalchemy==$B" \
-          "opentelemetry-instrumentation-threading==$B" \
-          "opentelemetry-instrumentation-urllib3==$B" \
-          "opentelemetry-util-http==$B"
+          "opentelemetry-api==$OTEL_CORE" \
+          "opentelemetry-sdk==$OTEL_CORE" \
+          "opentelemetry-proto==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp-proto-common==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp-proto-grpc==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp-proto-http==$OTEL_CORE" \
+          "opentelemetry-exporter-zipkin-json==$OTEL_CORE" \
+          "opentelemetry-semantic-conventions==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-grpc==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-httpx==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-logging==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-redis==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-requests==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-sqlalchemy==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-threading==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-urllib3==$OTEL_CONTRIB" \
+          "opentelemetry-util-http==$OTEL_CONTRIB"
+        # Fail if any package left out of the list above conflicts with the pins.
+        uv pip check
     # Every `uv run` below uses --no-sync: a plain `uv run` re-syncs the venv
     # to uv.lock and silently puts the latest OTel back.
     - name: Show installed OpenTelemetry versions
