@@ -34,6 +34,10 @@ Known race: the workflow can finish between the state check and the raise.
 The runtime then discards the event while the message is acknowledged
 (SUCCESS). Nothing can wait for that event anymore, so no workflow is harmed,
 but the message is not dead-lettered.
+
+Each sidecar call runs with the route's ``call_timeout_seconds`` deadline. A
+timeout answers RETRY, but the call may still complete in the background, so
+the event can still be raised; dedupe makes the redelivery safe.
 """
 
 from __future__ import annotations
@@ -50,7 +54,18 @@ import grpc
 from cachetools import TTLCache
 from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 
-from dapr_agents.types.workflow import FieldResolver, NotFoundRetryPolicy
+from dapr_agents.streaming.keys import (
+    APPROVAL_RESPONSE_EVENT_PREFIX,
+    USER_INPUT_EVENT_PREFIX,
+)
+from dapr_agents.types.workflow import (
+    DEFAULT_EVENT_CALL_TIMEOUT_SECONDS,
+    DEFAULT_EVENT_DEDUPE_MAX_ENTRIES,
+    DEFAULT_EVENT_MAX_DATA_BYTES,
+    FieldResolver,
+    NotFoundRetryPolicy,
+)
+from dapr_agents.workflow.utils.call_deadline import DeadlineCaller
 
 if TYPE_CHECKING:
     from dapr_agents.workflow.utils.subscription import DedupeBackend, MessageContext
@@ -68,6 +83,16 @@ TERMINAL_WORKFLOW_STATUSES: frozenset[WorkflowStatus] = frozenset(
     {WorkflowStatus.COMPLETED, WorkflowStatus.FAILED, WorkflowStatus.TERMINATED}
 )
 
+# Longest resolved instance id / event name accepted from a message.
+MAX_EVENT_IDENTIFIER_LENGTH = 512
+
+# Event names the SDK itself waits on; lowercase because Dapr matches event
+# names case-insensitively.
+RESERVED_EVENT_NAME_PREFIXES: tuple[str, ...] = (
+    APPROVAL_RESPONSE_EVENT_PREFIX.lower(),
+    f"{USER_INPUT_EVENT_PREFIX}:".lower(),
+)
+
 _NOT_FOUND_DETAILS = "no such instance exists"
 _TRACKER_MAXSIZE = 4096
 _TRACKER_MIN_TTL_SECONDS = 60.0
@@ -77,7 +102,8 @@ class EventRouteResolutionError(Exception):
     """A message could not be turned into (instance_id, event_name, data).
 
     Attributes:
-        field: The field that failed (``instance_id``, ``event_name`` or ``data``).
+        field: The field that failed (``instance_id``, ``event_name``,
+            ``data``, or ``message`` for an unexpected error).
         reason: Human-readable reason.
     """
 
@@ -98,6 +124,10 @@ class EventRouteTarget:
     dedupe: bool
     deduper: DedupeBackend | None
     not_found_retry: NotFoundRetryPolicy
+    max_data_bytes: int = DEFAULT_EVENT_MAX_DATA_BYTES
+    call_timeout_seconds: float = DEFAULT_EVENT_CALL_TIMEOUT_SECONDS
+    dedupe_max_entries: int = DEFAULT_EVENT_DEDUPE_MAX_ENTRIES
+    allow_reserved_event_names: bool = False
 
 
 @dataclass(frozen=True)
@@ -108,6 +138,11 @@ class _ResolvedEvent:
 
 
 # ---- resolvers ---------------------------------------------------------------
+
+
+def is_reserved_event_name(name: str) -> bool:
+    """True when ``name`` starts with an event-name prefix the SDK waits on."""
+    return name.lower().startswith(RESERVED_EVENT_NAME_PREFIXES)
 
 
 def parse_field_path(path: str) -> tuple[str, ...]:
@@ -178,14 +213,21 @@ def coerce_identifier(value: Any, *, field: str) -> str:
     """Coerce a resolved instance id / event name to a non-empty string.
 
     Raises:
-        EventRouteResolutionError: If the value is None, empty, or not str/int.
+        EventRouteResolutionError: If the value is None, empty, not str/int, or
+            longer than ``MAX_EVENT_IDENTIFIER_LENGTH``.
     """
+    if isinstance(value, int) and not isinstance(value, bool):
+        value = str(value)
     if isinstance(value, str):
         if not value.strip():
             raise EventRouteResolutionError(field, "resolved to an empty string")
+        if len(value) > MAX_EVENT_IDENTIFIER_LENGTH:
+            raise EventRouteResolutionError(
+                field,
+                f"resolved to {len(value)} characters "
+                f"(limit {MAX_EVENT_IDENTIFIER_LENGTH})",
+            )
         return value
-    if isinstance(value, int) and not isinstance(value, bool):
-        return str(value)
     if value is None:
         raise EventRouteResolutionError(field, "resolved to None")
     raise EventRouteResolutionError(
@@ -199,30 +241,49 @@ def serialize_event_data(
     msg_ctx: MessageContext,
     *,
     default_serializer: Callable[[Any], Any],
+    max_bytes: int | None = None,
 ) -> Any:
     """Build the JSON-safe event payload.
 
     Raises:
-        EventRouteResolutionError: If resolution fails or the result is not
-            JSON-serializable (a poison message must not loop in the SDK).
+        EventRouteResolutionError: If resolution or serialization fails in any
+            way (including recursion errors), the result is not
+            JSON-serializable, or it is larger than ``max_bytes`` once encoded.
+            A poison message must be dropped, never retried.
     """
     if resolver is None:
-        result = default_serializer(message)
+        try:
+            result = default_serializer(message)
+        except EventRouteResolutionError:
+            raise
+        except Exception as exc:
+            raise EventRouteResolutionError(
+                "data", f"serialization failed: {type(exc).__name__}: {exc}"
+            ) from exc
     else:
-        value = resolve_field(resolver, message, msg_ctx, field="data")
-        if hasattr(value, "model_dump"):
-            result = value.model_dump(mode="json")
-        elif is_dataclass(value) and not isinstance(value, type):
-            result = asdict(value)
-        else:
-            result = value
+        result = resolve_field(resolver, message, msg_ctx, field="data")
     try:
-        json.dumps(result)
-    except (TypeError, ValueError) as exc:
+        result = _to_json_value(result)
+        encoded = json.dumps(result)
+    except Exception as exc:
         raise EventRouteResolutionError(
-            "data", f"not JSON-serializable: {exc}"
+            "data", f"not JSON-serializable: {type(exc).__name__}: {exc}"
         ) from exc
+    size = len(encoded.encode("utf-8"))
+    if max_bytes is not None and size > max_bytes:
+        raise EventRouteResolutionError(
+            "data", f"serialized payload is {size} bytes (limit {max_bytes})"
+        )
     return result
+
+
+def _to_json_value(value: Any) -> Any:
+    """Dump a resolved Pydantic model / dataclass; other values pass through."""
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
+    return value
 
 
 def is_instance_not_found_error(exc: BaseException) -> bool:
@@ -285,7 +346,9 @@ class _DispatchContext:
 class WorkflowEventDispatcher:
     """Raise one external event per message and decide the broker response.
 
-    Runs synchronously on the calling (consumer) thread.
+    Runs on the calling (consumer) thread. Each sidecar call runs on a
+    ``DeadlineCaller`` worker with the route's ``call_timeout_seconds``; call
+    :meth:`close` when the subscriber shuts down.
     """
 
     def __init__(
@@ -294,12 +357,18 @@ class WorkflowEventDispatcher:
         wf_client: Any,
         default_serializer: Callable[[Any], Any],
         clock: Callable[[], float] = time.monotonic,
+        caller: DeadlineCaller | None = None,
     ) -> None:
         self._wf_client = wf_client
         self._default_serializer = default_serializer
         self._clock = clock
+        self._caller = caller or DeadlineCaller(thread_name_prefix="event-route-call")
         self._trackers: dict[tuple[str, str], _NotFoundTracker] = {}
         self._trackers_lock = threading.Lock()
+
+    def close(self) -> None:
+        """Release the call workers without waiting for in-flight calls."""
+        self._caller.close()
 
     def dispatch(
         self,
@@ -325,7 +394,7 @@ class WorkflowEventDispatcher:
             resolved = self._resolve(target, message, msg_ctx)
         except EventRouteResolutionError as exc:
             logger.warning(
-                "Event route %r could not resolve %s (%s) for message id=%s on topic %r; dropping.",
+                "Event route %r could not resolve %s (%s) for message id=%r on topic %r; dropping.",
                 route_name,
                 exc.field,
                 exc.reason,
@@ -333,31 +402,27 @@ class WorkflowEventDispatcher:
                 topic,
             )
             return _DROP
-
         key = ctx.event_id or f"{resolved.instance_id}\x1f{resolved.event_name}"
-        try:
-            state = self._check_state(resolved.instance_id)
-        except Exception as exc:
-            # The SDK only maps "no such instance exists" to None; a NOT_FOUND
-            # with other wording must still use the bounded not-found budget.
-            if is_instance_not_found_error(exc):
-                return self._on_not_found(ctx, resolved, key)
-            logger.exception(
-                "Event route %r: fetching state of workflow %s failed (event %r); retrying.",
-                route_name,
-                resolved.instance_id,
-                resolved.event_name,
-            )
-            return _RETRY
-        if state is None:
-            return self._on_not_found(ctx, resolved, key)
-        status = state.runtime_status
-        if status in TERMINAL_WORKFLOW_STATUSES:
-            self._tracker(ctx).clear(key)
-            return self._give_up(ctx, resolved, reason=f"workflow is {status.name}")
-        return self._raise(ctx, resolved, key)
+        return self._deliver(ctx, resolved, key)
 
     def _resolve(
+        self, target: EventRouteTarget, message: Any, msg_ctx: MessageContext
+    ) -> _ResolvedEvent:
+        """Resolve the event; any failure becomes an ``EventRouteResolutionError``.
+
+        Nothing unexpected may escape to the subscriber, which would RETRY a
+        poison message forever.
+        """
+        try:
+            return self._resolve_fields(target, message, msg_ctx)
+        except EventRouteResolutionError:
+            raise
+        except Exception as exc:
+            raise EventRouteResolutionError(
+                "message", f"unexpected {type(exc).__name__}: {exc}"
+            ) from exc
+
+    def _resolve_fields(
         self, target: EventRouteTarget, message: Any, msg_ctx: MessageContext
     ) -> _ResolvedEvent:
         instance_id = coerce_identifier(
@@ -375,16 +440,76 @@ class WorkflowEventDispatcher:
                 ),
                 field="event_name",
             )
+            if not target.allow_reserved_event_names and is_reserved_event_name(
+                event_name
+            ):
+                raise EventRouteResolutionError(
+                    "event_name", f"resolved to reserved event name {event_name!r}"
+                )
         data = serialize_event_data(
             target.data_from,
             message,
             msg_ctx,
             default_serializer=self._default_serializer,
+            max_bytes=target.max_data_bytes,
         )
         return _ResolvedEvent(instance_id=instance_id, event_name=event_name, data=data)
 
-    def _check_state(self, instance_id: str) -> WorkflowState | None:
-        return self._wf_client.get_workflow_state(instance_id, fetch_payloads=False)
+    def _call(
+        self,
+        ctx: _DispatchContext,
+        fn: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        return self._caller.call(fn, ctx.target.call_timeout_seconds, *args, **kwargs)
+
+    def _deliver(
+        self, ctx: _DispatchContext, resolved: _ResolvedEvent, key: str
+    ) -> EventDispatchStatus:
+        try:
+            state: WorkflowState | None = self._call(
+                ctx,
+                self._wf_client.get_workflow_state,
+                resolved.instance_id,
+                fetch_payloads=False,
+            )
+        except TimeoutError:
+            return self._on_timeout(ctx, resolved, "fetching the workflow state")
+        except Exception as exc:
+            # The SDK only maps "no such instance exists" to None; a NOT_FOUND
+            # with other wording must still use the bounded not-found budget.
+            if is_instance_not_found_error(exc):
+                return self._on_not_found(ctx, resolved, key)
+            logger.exception(
+                "Event route %r: fetching state of workflow %r failed (event %r); retrying.",
+                ctx.route_name,
+                resolved.instance_id,
+                resolved.event_name,
+            )
+            return _RETRY
+        if state is None:
+            return self._on_not_found(ctx, resolved, key)
+        status = state.runtime_status
+        if status in TERMINAL_WORKFLOW_STATUSES:
+            self._tracker(ctx).clear(key)
+            return self._give_up(ctx, resolved, reason=f"workflow is {status.name}")
+        return self._raise(ctx, resolved, key)
+
+    def _on_timeout(
+        self, ctx: _DispatchContext, resolved: _ResolvedEvent, what: str
+    ) -> EventDispatchStatus:
+        logger.warning(
+            "Event route %r: %s for event %r on workflow %r (message id=%r) timed out "
+            "after %gs; retrying. The call may still complete in the background.",
+            ctx.route_name,
+            what,
+            resolved.event_name,
+            resolved.instance_id,
+            ctx.event_id,
+            ctx.target.call_timeout_seconds,
+        )
+        return _RETRY
 
     def _tracker(self, ctx: _DispatchContext) -> _NotFoundTracker:
         key = (ctx.pubsub, ctx.topic)
@@ -405,7 +530,7 @@ class WorkflowEventDispatcher:
         elapsed = now - first_seen
         if attempts < policy.max_attempts and elapsed < policy.window_seconds:
             logger.info(
-                "Event route %r: workflow %s not found yet for event %r (attempt %d/%d); retrying.",
+                "Event route %r: workflow %r not found yet for event %r (attempt %d/%d); retrying.",
                 ctx.route_name,
                 resolved.instance_id,
                 resolved.event_name,
@@ -429,8 +554,8 @@ class WorkflowEventDispatcher:
         else:
             action = "dropping (no dead_letter_topic configured)"
         logger.warning(
-            "Event route %r on topic %r: cannot raise event %r on workflow %s "
-            "(message id=%s): %s; %s.",
+            "Event route %r on topic %r: cannot raise event %r on workflow %r "
+            "(message id=%r): %s; %s.",
             ctx.route_name,
             ctx.topic,
             resolved.event_name,
@@ -445,16 +570,20 @@ class WorkflowEventDispatcher:
         self, ctx: _DispatchContext, resolved: _ResolvedEvent, key: str
     ) -> EventDispatchStatus:
         try:
-            self._wf_client.raise_workflow_event(
+            self._call(
+                ctx,
+                self._wf_client.raise_workflow_event,
                 instance_id=resolved.instance_id,
                 event_name=resolved.event_name,
                 data=resolved.data,
             )
+        except TimeoutError:
+            return self._on_timeout(ctx, resolved, "raising the event")
         except Exception as exc:
             if is_instance_not_found_error(exc):
                 return self._on_not_found(ctx, resolved, key)
             logger.exception(
-                "Event route %r: raising event %r on workflow %s failed; retrying.",
+                "Event route %r: raising event %r on workflow %r failed; retrying.",
                 ctx.route_name,
                 resolved.event_name,
                 resolved.instance_id,
@@ -462,7 +591,7 @@ class WorkflowEventDispatcher:
             return _RETRY
         self._tracker(ctx).clear(key)
         logger.debug(
-            "Event route %r raised event %r on workflow %s.",
+            "Event route %r raised event %r on workflow %r.",
             ctx.route_name,
             resolved.event_name,
             resolved.instance_id,
@@ -472,12 +601,15 @@ class WorkflowEventDispatcher:
 
 __all__ = [
     "EventDispatchStatus",
+    "MAX_EVENT_IDENTIFIER_LENGTH",
+    "RESERVED_EVENT_NAME_PREFIXES",
     "EventRouteResolutionError",
     "EventRouteTarget",
     "TERMINAL_WORKFLOW_STATUSES",
     "WorkflowEventDispatcher",
     "coerce_identifier",
     "is_instance_not_found_error",
+    "is_reserved_event_name",
     "parse_field_path",
     "resolve_field",
     "serialize_event_data",

@@ -46,35 +46,14 @@ from tests.workflow.test_message_router import (
     _FakeTopicEventResponse,
     create_mock_dapr_client,
 )
-
-_PATCH_TARGET = "dapr_agents.workflow.utils.registration.default_dapr_client_factory"
-
-
-class _JobRef(BaseModel):
-    workflow_id: str
-
-
-class _JobFinished(BaseModel):
-    job: _JobRef
-    status: str
-
-
-class _FakeRpcError(grpc.RpcError):
-    def __init__(self, code: Any) -> None:
-        super().__init__("rpc")
-        self._code = code
-
-    def code(self) -> Any:
-        return self._code
-
-    def details(self) -> str:
-        return ""
-
-
-def _state(status: Any) -> MagicMock:
-    state = MagicMock()
-    state.runtime_status = status
-    return state
+from tests.workflow._event_route_helpers import (
+    PATCH_TARGET,
+    FakeRpcError,
+    JobFinished,
+    JobRef,
+    make_spec,
+    workflow_state,
+)
 
 
 def _event(data: dict, *, event_id: Optional[str] = "evt-1", topic: str = "t") -> dict:
@@ -96,15 +75,14 @@ def _job(workflow_id: str = "wf-1", status: str = "done") -> dict:
 
 
 def _spec(**overrides: Any) -> WorkflowEventRouteSpec:
-    values: dict[str, Any] = dict(
-        pubsub_name="messagepubsub",
-        topic="t",
-        event_name="job_finished",
-        instance_id_from="job.workflow_id",
-        message_model=_JobFinished,
+    return make_spec(
+        dict(
+            event_name="job_finished",
+            instance_id_from="job.workflow_id",
+            message_model=JobFinished,
+        ),
+        **overrides,
     )
-    values.update(overrides)
-    return WorkflowEventRouteSpec(**values)
 
 
 @pytest.fixture
@@ -115,7 +93,7 @@ def env(monkeypatch):
     )
     mock_dapr = create_mock_dapr_client(["messagepubsub"])
     mock_wf = MagicMock()
-    mock_wf.get_workflow_state.return_value = _state(WorkflowStatus.RUNNING)
+    mock_wf.get_workflow_state.return_value = workflow_state(WorkflowStatus.RUNNING)
     mock_wf.schedule_new_workflow.return_value = "new-instance"
     return mock_dapr, mock_wf
 
@@ -125,7 +103,7 @@ def _run(
 ):
     sub = mock_dapr.subscribe.return_value
     sub.__iter__.return_value = iter(messages)
-    with patch(_PATCH_TARGET, return_value=mock_dapr):
+    with patch(PATCH_TARGET, return_value=mock_dapr):
         closers = register_message_routes(
             dapr_client=mock_dapr,
             routes=routes,
@@ -149,7 +127,7 @@ def _per_topic_subs(mock_dapr, messages_by_topic: dict[str, list[dict]]) -> dict
 
 
 def _run_multi(mock_dapr, mock_wf, **kwargs) -> None:
-    with patch(_PATCH_TARGET, return_value=mock_dapr):
+    with patch(PATCH_TARGET, return_value=mock_dapr):
         closers = register_message_routes(
             dapr_client=mock_dapr, wf_client=mock_wf, **kwargs
         )
@@ -208,7 +186,7 @@ def test_all_callable_resolvers(env):
 
 def test_terminal_state_dead_letters(env):
     mock_dapr, mock_wf = env
-    mock_wf.get_workflow_state.return_value = _state(WorkflowStatus.COMPLETED)
+    mock_wf.get_workflow_state.return_value = workflow_state(WorkflowStatus.COMPLETED)
     sub = _run(
         mock_dapr,
         mock_wf,
@@ -308,11 +286,48 @@ def test_spec_deduper_wins_over_subscriber_deduper(env):
     assert not sub_backend.seen("evt-1")
 
 
-def test_subscriber_deduper_used_without_spec_deduper(env):
+def test_subscriber_deduper_not_used_for_event_routes(env):
+    # A subscriber-wide deduper may be sized for schedule routes; event routes
+    # use spec.deduper or their own default backend instead.
     mock_dapr, mock_wf = env
     sub_backend = TTLDedupeBackend()
-    _run(mock_dapr, mock_wf, [_event(_job())], routes=[_spec()], deduper=sub_backend)
-    assert sub_backend.seen("evt-1")
+    _run(
+        mock_dapr,
+        mock_wf,
+        [_event(_job()), _event(_job())],
+        routes=[_spec()],
+        deduper=sub_backend,
+    )
+    assert not sub_backend.seen("evt-1")
+    assert mock_wf.raise_workflow_event.call_count == 1
+
+
+def test_default_event_deduper_uses_dedupe_max_entries(env, monkeypatch):
+    mock_dapr, mock_wf = env
+    sizes: list[int] = []
+    real_backend = TTLDedupeBackend
+
+    def _capture(*args: Any, **kwargs: Any) -> TTLDedupeBackend:
+        sizes.append(kwargs["maxsize"])
+        return real_backend(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "dapr_agents.workflow.utils.subscription.TTLDedupeBackend", _capture
+    )
+    _run(mock_dapr, mock_wf, [_event(_job())], routes=[_spec(dedupe_max_entries=7)])
+    _run(mock_dapr, mock_wf, [_event(_job())], routes=[_spec()])
+    assert sizes == [7, 65_536]
+
+
+def test_closers_close_the_event_dispatcher(env, monkeypatch):
+    mock_dapr, mock_wf = env
+    closed: list[bool] = []
+    monkeypatch.setattr(
+        "dapr_agents.workflow.utils.event_routes.WorkflowEventDispatcher.close",
+        lambda self: closed.append(True),
+    )
+    _run(mock_dapr, mock_wf, [_event(_job())], routes=[_spec()])
+    assert closed == [True]
 
 
 def test_schedule_topic_dedupe_unchanged_next_to_event_topic(env):
@@ -349,7 +364,7 @@ def test_retry_does_not_mark_but_terminal_drop_does(env):
     mock_dapr, mock_wf = env
     backend = TTLDedupeBackend()
     mock_wf.raise_workflow_event.side_effect = [
-        _FakeRpcError(grpc.StatusCode.UNAVAILABLE),
+        FakeRpcError(grpc.StatusCode.UNAVAILABLE),
         None,
     ]
     sub = _run(
@@ -362,7 +377,7 @@ def test_retry_does_not_mark_but_terminal_drop_does(env):
     assert sub.respond_success.call_count == 1
     assert mock_wf.raise_workflow_event.call_count == 2
 
-    mock_wf.get_workflow_state.return_value = _state(WorkflowStatus.TERMINATED)
+    mock_wf.get_workflow_state.return_value = workflow_state(WorkflowStatus.TERMINATED)
     mock_dapr.subscribe.return_value = MagicMock()
     sub = _run(
         mock_dapr,
@@ -379,7 +394,7 @@ async def test_async_delivery_still_handles_event_routes_synchronously(env):
     mock_wf.get_workflow_state.return_value = None
     sub = mock_dapr.subscribe.return_value
     sub.__iter__.return_value = iter([_event(_job())])
-    with patch(_PATCH_TARGET, return_value=mock_dapr):
+    with patch(PATCH_TARGET, return_value=mock_dapr):
         closers = register_message_routes(
             dapr_client=mock_dapr,
             routes=[_spec()],

@@ -277,6 +277,9 @@ class WorkflowRunner(SignalMixin):
             routes: Explicit route specs to wire. (Explicit mode)
             delivery_mode: "sync" blocks Dapr thread; "async" enqueues to a worker.
             deduper: Optional idempotency backend with `seen(key)` / `mark(key)`.
+                Applies to schedule routes only; a `WorkflowEventRouteSpec` uses its
+                own `deduper` or a per-topic in-memory default. To share dedupe
+                across replicas for an event route, set `spec.deduper`.
             await_result: If True (sync only), wait for completion and ACK/NACK accordingly.
             await_timeout: Timeout (seconds) for completion wait when `await_result=True`.
             fetch_payloads: Include payloads when waiting for completion.

@@ -58,24 +58,16 @@ from dapr_agents.workflow.utils.subscription import (
     _serialize_workflow_input,
     _validate_event_bindings,
 )
-
-_PATCH_TARGET = "dapr_agents.workflow.utils.registration.default_dapr_client_factory"
-
+from tests.workflow._event_route_helpers import (
+    PATCH_TARGET,
+    FakeRpcError,
+    JobFinished,
+    JobRef,
+    make_spec,
+    workflow_state,
+)
 
 # ---- helpers ----------------------------------------------------------------
-
-
-class _FakeRpcError(grpc.RpcError):
-    def __init__(self, code: Any, details: str = "") -> None:
-        super().__init__(details)
-        self._code = code
-        self._details = details
-
-    def code(self) -> Any:
-        return self._code
-
-    def details(self) -> str:
-        return self._details
 
 
 class _BrokenRpcError(grpc.RpcError):
@@ -84,15 +76,6 @@ class _BrokenRpcError(grpc.RpcError):
 
     def details(self) -> str:
         raise RuntimeError("boom")
-
-
-class _JobRef(BaseModel):
-    workflow_id: str
-
-
-class _JobFinished(BaseModel):
-    job: _JobRef
-    status: str
 
 
 class _Other(BaseModel):
@@ -120,21 +103,8 @@ def _ctx(event_id: Optional[str] = "evt-1", name: str = "route") -> MessageConte
     )
 
 
-def _state(status: WorkflowStatus) -> MagicMock:
-    state = MagicMock()
-    state.runtime_status = status
-    return state
-
-
 def _spec(**overrides: Any) -> WorkflowEventRouteSpec:
-    values: dict[str, Any] = dict(
-        pubsub_name="messagepubsub",
-        topic="t",
-        event_name="evt",
-        instance_id_from="wf_id",
-    )
-    values.update(overrides)
-    return WorkflowEventRouteSpec(**values)
+    return make_spec(dict(event_name="evt", instance_id_from="wf_id"), **overrides)
 
 
 def _target(**overrides: Any) -> EventRouteTarget:
@@ -174,7 +144,7 @@ def _dispatch(dispatcher, target=None, message=None, ctx=None, dlq=None) -> str:
 def _wf(status: Optional[WorkflowStatus] = WorkflowStatus.RUNNING) -> MagicMock:
     wf_client = MagicMock()
     wf_client.get_workflow_state.return_value = (
-        _state(status) if status is not None else None
+        workflow_state(status) if status is not None else None
     )
     return wf_client
 
@@ -269,9 +239,9 @@ def test_unsupported_message_model_rejected():
 
 def test_union_message_model_gives_both_schemas():
     bindings = _collect_message_bindings(
-        targets=None, routes=[_spec(message_model=Union[_JobFinished, _Other])]
+        targets=None, routes=[_spec(message_model=Union[JobFinished, _Other])]
     )
-    assert bindings[0].schemas == [_JobFinished, _Other]
+    assert bindings[0].schemas == [JobFinished, _Other]
 
 
 def test_collect_mixed_routes():
@@ -353,7 +323,7 @@ def test_register_event_route_on_unknown_pubsub_raises():
     from tests.workflow.test_message_router import create_mock_dapr_client
 
     mock_dapr = create_mock_dapr_client(["otherpubsub"])
-    with patch(_PATCH_TARGET, return_value=mock_dapr):
+    with patch(PATCH_TARGET, return_value=mock_dapr):
         with pytest.raises(PubSubNotAvailableError):
             register_message_routes(
                 dapr_client=mock_dapr, routes=[_spec()], wf_client=MagicMock()
@@ -368,7 +338,7 @@ def test_register_event_route_on_unknown_pubsub_raises():
     [
         ({"a": {"b": "v"}}, "a.b", "v"),
         (
-            _JobFinished(job=_JobRef(workflow_id="w"), status="ok"),
+            JobFinished(job=JobRef(workflow_id="w"), status="ok"),
             "job.workflow_id",
             "w",
         ),
@@ -445,7 +415,7 @@ def test_serialize_default_matches_workflow_input():
 
 def test_serialize_resolved_values():
     ser = lambda p: pytest.fail("default serializer must not run")  # noqa: E731
-    model = _JobRef(workflow_id="w")
+    model = JobRef(workflow_id="w")
     assert serialize_event_data(
         lambda m, c: model, {}, _ctx(), default_serializer=ser
     ) == {"workflow_id": "w"}
@@ -467,11 +437,11 @@ def test_serialize_rejects_non_json():
 
 
 def test_is_instance_not_found_error():
-    assert is_instance_not_found_error(_FakeRpcError(grpc.StatusCode.NOT_FOUND))
+    assert is_instance_not_found_error(FakeRpcError(grpc.StatusCode.NOT_FOUND))
     assert is_instance_not_found_error(
-        _FakeRpcError(grpc.StatusCode.UNKNOWN, "error: no such instance exists")
+        FakeRpcError(grpc.StatusCode.UNKNOWN, "error: no such instance exists")
     )
-    assert not is_instance_not_found_error(_FakeRpcError(grpc.StatusCode.UNAVAILABLE))
+    assert not is_instance_not_found_error(FakeRpcError(grpc.StatusCode.UNAVAILABLE))
     assert not is_instance_not_found_error(RuntimeError("no such instance exists"))
     assert not is_instance_not_found_error(_BrokenRpcError())
 
@@ -499,20 +469,26 @@ def test_dispatch_raises_event_for_live_workflow(status):
 
 
 @pytest.mark.parametrize(
-    "status",
-    [WorkflowStatus.COMPLETED, WorkflowStatus.FAILED, WorkflowStatus.TERMINATED],
+    "status,expected_name",
+    [
+        (WorkflowStatus.COMPLETED, "COMPLETED"),
+        (WorkflowStatus.FAILED, "FAILED"),
+        (WorkflowStatus.TERMINATED, "TERMINATED"),
+    ],
 )
 @pytest.mark.parametrize("dlq,wording", [("t_DEAD", "dead-letter"), (None, "dropping")])
-def test_dispatch_terminal_state_drops(status, dlq, wording, caplog):
+def test_dispatch_terminal_state_drops(
+    status, expected_name, dlq, wording, caplog, monkeypatch
+):
+    # conftest mocks `dapr`, so pin the member name the log renders.
+    monkeypatch.setattr(status, "name", expected_name, raising=False)
     wf_client = _wf(status)
     with caplog.at_level(logging.WARNING):
         assert _dispatch(_dispatcher(wf_client), dlq=dlq) == "drop"
     wf_client.raise_workflow_event.assert_not_called()
     text = caplog.text
-    assert "wf-1" in text and "'evt'" in text and "workflow is" in text
-    # conftest mocks `dapr`, so WorkflowStatus members may be mocks here.
-    if isinstance(status.name, str):
-        assert status.name in text
+    assert "'wf-1'" in text and "'evt'" in text and "'evt-1'" in text
+    assert f"workflow is {expected_name}" in text
     assert wording in text
 
 
@@ -542,7 +518,7 @@ def test_dispatch_not_found_then_found_resets_tracker():
     target = _target(not_found_retry=NotFoundRetryPolicy(max_attempts=2))
     dispatcher = _dispatcher(wf_client)
     assert _dispatch(dispatcher, target=target) == "retry"
-    wf_client.get_workflow_state.return_value = _state(WorkflowStatus.RUNNING)
+    wf_client.get_workflow_state.return_value = workflow_state(WorkflowStatus.RUNNING)
     assert _dispatch(dispatcher, target=target) == "success"
     wf_client.get_workflow_state.return_value = None
     # Counting restarted: attempt 1 of 2 again.
@@ -563,9 +539,7 @@ def test_dispatch_state_error_retries():
 
 def test_dispatch_raise_not_found_goes_through_not_found_branch():
     wf_client = _wf()
-    wf_client.raise_workflow_event.side_effect = _FakeRpcError(
-        grpc.StatusCode.NOT_FOUND
-    )
+    wf_client.raise_workflow_event.side_effect = FakeRpcError(grpc.StatusCode.NOT_FOUND)
     target = _target(not_found_retry=NotFoundRetryPolicy(max_attempts=2))
     dispatcher = _dispatcher(wf_client)
     assert _dispatch(dispatcher, target=target) == "retry"
@@ -574,7 +548,7 @@ def test_dispatch_raise_not_found_goes_through_not_found_branch():
 
 def test_dispatch_raise_transient_error_always_retries():
     wf_client = _wf()
-    wf_client.raise_workflow_event.side_effect = _FakeRpcError(
+    wf_client.raise_workflow_event.side_effect = FakeRpcError(
         grpc.StatusCode.UNAVAILABLE
     )
     target = _target(not_found_retry=NotFoundRetryPolicy(max_attempts=1))
@@ -612,7 +586,7 @@ def test_dispatch_state_check_not_found_error_is_bounded():
     # The SDK only returns None for "no such instance exists"; a NOT_FOUND with
     # other wording is re-raised and must still use the not-found budget.
     wf_client = _wf()
-    wf_client.get_workflow_state.side_effect = _FakeRpcError(
+    wf_client.get_workflow_state.side_effect = FakeRpcError(
         grpc.StatusCode.NOT_FOUND, "workflow instance 'x' not found"
     )
     target = _target(not_found_retry=NotFoundRetryPolicy(max_attempts=2))
@@ -693,7 +667,7 @@ def test_default_event_data_leaves_non_json_values_for_dispatcher():
 
 
 def test_default_event_data_keeps_metadata_on_pydantic_models():
-    message = _JobFinished(job=_JobRef(workflow_id="wf-1"), status="done")
+    message = JobFinished(job=JobRef(workflow_id="wf-1"), status="done")
     object.__setattr__(message, METADATA_KEY, {"id": "evt-7"})
     data = _serialize_event_default_data(message)
     assert data[METADATA_KEY] == {"id": "evt-7"}
