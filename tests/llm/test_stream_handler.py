@@ -114,23 +114,22 @@ def test_managed_stream_reraises_close_failure():
             pass
 
 
-def test_managed_stream_nested_idempotency():
-    """Nested managed_stream contexts avoid double entering or double closing."""
-    close_mock = MagicMock()
+def test_managed_stream_enter_returns_different_iterator():
+    """managed_stream yields iterator returned by __enter__() and exits outer CM."""
+    exit_mock = MagicMock()
+    iter_obj = iter([1, 2, 3])
 
-    class Closable:
-        def close(self):
-            close_mock()
+    class CustomCM:
+        def __enter__(self):
+            return iter_obj
 
-    closable = Closable()
-    with managed_stream(closable) as s1:
-        with managed_stream(s1) as s2:
-            assert s1 is s2
-            assert close_mock.call_count == 0
-        # Inner exit did not close early
-        assert close_mock.call_count == 0
-    # Outer exit closes once
-    assert close_mock.call_count == 1
+        def __exit__(self, *args):
+            exit_mock()
+
+    with managed_stream(CustomCM()) as s:
+        assert s is iter_obj
+        assert list(s) == [1, 2, 3]
+    assert exit_mock.call_count == 1
 
 
 def test_providers_with_streaming_contains_all_supported():
@@ -265,7 +264,7 @@ def test_process_choice_delta_stream_invalid_packet_type():
 
 def test_extract_packet_metadata_error_handling():
     """extract_packet_metadata safely falls back to empty dict on malformed packets."""
-    bad_packet = MagicMock()
+    bad_packet = MagicMock(spec=dict)
     bad_packet.get.side_effect = RuntimeError("Extraction failed")
 
     res = extract_packet_metadata(bad_packet)
@@ -345,31 +344,29 @@ def test_process_choice_delta_stream_multiple_choices_in_packet():
     assert "first_chunk" not in chunks[1].metadata
 
 
-def test_process_choice_delta_stream_closes_raw_stream():
-    """process_choice_delta_stream closes raw_stream on normal exit and early break."""
+def test_managed_stream_closes_raw_stream():
+    """managed_stream closes raw_stream on normal exit and early break."""
     close_mock = MagicMock()
 
     class ClosableStream:
         def __iter__(self):
-            yield _mock_packet(
-                {"id": "c1", "choices": [{"index": 0, "delta": {"content": "1"}}]}
-            )
-            yield _mock_packet(
-                {"id": "c2", "choices": [{"index": 0, "delta": {"content": "2"}}]}
-            )
+            yield 1
+            yield 2
 
         def close(self):
             close_mock()
 
     # Normal completion
-    list(process_choice_delta_stream(ClosableStream()))
+    with managed_stream(ClosableStream()) as s:
+        list(s)
     assert close_mock.call_count == 1
 
     # Early break
     close_mock.reset_mock()
-    for chunk in process_choice_delta_stream(ClosableStream()):
-        if chunk.result.content == "1":
-            break
+    with managed_stream(ClosableStream()) as s:
+        for item in s:
+            if item == 1:
+                break
     assert close_mock.call_count == 1
 
 

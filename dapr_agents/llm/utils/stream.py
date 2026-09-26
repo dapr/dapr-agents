@@ -11,14 +11,15 @@
 # limitations under the License.
 #
 
+from collections.abc import Mapping
 import dataclasses
 import logging
 from contextlib import contextmanager
-from contextvars import ContextVar
 from typing import (
     Any,
     Callable,
     Dict,
+    Generator,
     Iterable,
     Iterator,
     Optional,
@@ -44,10 +45,12 @@ T = TypeVar("T", bound=BaseModel)
 
 def _dump_obj(obj: Any) -> Dict[str, Any]:
     """Serialize SDK model, dataclass, or object to dictionary without silent failure."""
-    if isinstance(obj, dict):
-        return obj
+    if isinstance(obj, Mapping):
+        return dict(obj)
     if hasattr(obj, "model_dump") and callable(obj.model_dump):
         return obj.model_dump()
+    if hasattr(obj, "to_dict") and callable(obj.to_dict):
+        return obj.to_dict()
     if dataclasses.is_dataclass(obj):
         return dataclasses.asdict(obj)
     if hasattr(obj, "__dict__"):
@@ -67,9 +70,11 @@ def extract_packet_metadata(
     Returns:
         Dict[str, Any]: The merged metadata dictionary.
     """
+    meta: Dict[str, Any] = {}
+    usage_raw = None
     try:
-        if hasattr(pkt, "get") and callable(pkt.get):
-            meta: Dict[str, Any] = {
+        if isinstance(pkt, Mapping):
+            meta = {
                 "id": pkt.get("id"),
                 "created": pkt.get("created"),
                 "model": pkt.get("model"),
@@ -88,15 +93,20 @@ def extract_packet_metadata(
                 "system_fingerprint": getattr(pkt, "system_fingerprint", None),
             }
             usage_raw = getattr(pkt, "usage", None)
-
-        if usage_raw is not None:
-            meta["usage"] = _dump_obj(usage_raw)
-        if enrich_metadata:
-            meta.update(enrich_metadata)
-        return meta
     except Exception as e:
-        logger.error(f"Failed to parse packet: {e}", exc_info=True)
-        return {}
+        logger.warning(
+            f"Failed to extract metadata fields from packet: {e}", exc_info=True
+        )
+
+    if usage_raw is not None:
+        try:
+            meta["usage"] = _dump_obj(usage_raw)
+        except Exception as e:
+            logger.warning(f"Failed to serialize usage object: {e}", exc_info=True)
+
+    if enrich_metadata:
+        meta.update(enrich_metadata)
+    return meta
 
 
 def process_choice_delta(
@@ -111,7 +121,7 @@ def process_choice_delta(
         choice (Any): The choice delta (dict or SDK object) from LLM response packet.
         overall_meta (Dict[str, Any]): Overall metadata to include in chunks.
         on_chunk (Optional[Callable]): Callback for each chunk.
-        first_chunk_flag (bool): Flag indicating if this is the first chunk.
+        first_chunk_flag (bool): Flag indicating if this is the first choice-containing chunk in the stream.
 
     Yields:
         LLMChatResponseChunk: The processed chunk with content, function call, tool calls.
@@ -124,7 +134,7 @@ def process_choice_delta(
         meta["first_chunk"] = True
 
     # Extract initial properties from choice
-    if hasattr(choice, "get") and callable(choice.get):
+    if isinstance(choice, Mapping):
         delta = choice.get("delta") or {}
         idx = choice.get("index")
         finish_reason = choice.get("finish_reason", None)
@@ -136,11 +146,11 @@ def process_choice_delta(
         logprobs = getattr(choice, "logprobs", None)
 
     # Set additional metadata
-    if finish_reason in ("stop", "tool_calls"):
+    if finish_reason is not None:
         meta["last_chunk"] = True
 
     # Process content delta
-    if hasattr(delta, "get") and callable(delta.get):
+    if isinstance(delta, Mapping):
         content = delta.get("content", None)
         function_call = delta.get("function_call", None)
         refusal = delta.get("refusal", None)
@@ -153,13 +163,11 @@ def process_choice_delta(
         role = getattr(delta, "role", None)
         tool_calls_raw = getattr(delta, "tool_calls", None) or []
 
-    if function_call is not None and not isinstance(
-        function_call, (FunctionCall, dict)
-    ):
-        function_call = FunctionCall(
-            name=getattr(function_call, "name", None),
-            arguments=getattr(function_call, "arguments", None),
-        )
+    if function_call is not None and not isinstance(function_call, dict):
+        function_call = {
+            "name": getattr(function_call, "name", None),
+            "arguments": getattr(function_call, "arguments", None),
+        }
 
     # Process tool calls defensively
     chunk_tool_calls = []
@@ -218,13 +226,8 @@ def process_choice_delta(
     yield response_chunk
 
 
-_active_managed_streams: ContextVar[frozenset[int]] = ContextVar(
-    "_active_managed_streams", default=frozenset()
-)
-
-
 @contextmanager
-def managed_stream(stream: Any) -> Iterator[Any]:
+def managed_stream(stream: Any) -> Generator[Any, None, None]:
     """Normalize a stream-like object into a context manager.
 
     - If `stream` is already a context manager, use it as-is.
@@ -234,38 +237,49 @@ def managed_stream(stream: Any) -> Iterator[Any]:
     Cleanup failures are logged and then re-raised. If the body itself
     raised, the cleanup exception propagates with the original exception
     attached as `__context__`.
-
-    Tracks active managed stream IDs in task/thread-isolated ContextVar
-    to ensure idempotency when stream helpers are composed or nested.
     """
-    stream_id = id(stream)
-    active = _active_managed_streams.get()
-    if stream_id in active:
-        yield stream
-        return
+    enter = getattr(stream, "__enter__", None)
+    exit_ = getattr(stream, "__exit__", None)
+    close = getattr(stream, "close", None)
 
-    token = _active_managed_streams.set(active | {stream_id})
-    try:
-        enter = getattr(stream, "__enter__", None)
-        exit_ = getattr(stream, "__exit__", None)
-        close = getattr(stream, "close", None)
-
-        if callable(enter) and callable(exit_):
-            with stream as s:
-                yield s if s is not None else stream
-        elif callable(close):
-            try:
-                yield stream
-            finally:
-                try:
-                    close()
-                except Exception:
-                    logger.debug("Failed to close streaming response", exc_info=True)
-                    raise
-        else:
+    if callable(enter) and callable(exit_):
+        with stream as s:
+            yield s if s is not None else stream
+    elif callable(close):
+        try:
             yield stream
-    finally:
-        _active_managed_streams.reset(token)
+        finally:
+            try:
+                close()
+            except Exception:
+                logger.debug("Failed to close streaming response", exc_info=True)
+                raise
+    else:
+        yield stream
+
+
+def _extract_choices_and_metadata(
+    packet: Any, enrich_metadata: Optional[Dict[str, Any]]
+) -> tuple[Any, Dict[str, Any]]:
+    """Extract choices iterable and overall metadata from packet (dict, SDK object, or wrapper)."""
+    if isinstance(packet, Mapping):
+        return packet.get("choices"), extract_packet_metadata(packet, enrich_metadata)
+
+    choices = getattr(packet, "choices", None)
+    if isinstance(choices, (list, tuple)):
+        return choices, extract_packet_metadata(packet, enrich_metadata)
+
+    # Fallback for wrapper objects that serialize via model_dump or to_dict
+    if hasattr(packet, "model_dump") and callable(packet.model_dump):
+        d = packet.model_dump()
+        if isinstance(d, Mapping):
+            return d.get("choices"), extract_packet_metadata(d, enrich_metadata)
+    elif hasattr(packet, "to_dict") and callable(packet.to_dict):
+        d = packet.to_dict()
+        if isinstance(d, Mapping):
+            return d.get("choices"), extract_packet_metadata(d, enrich_metadata)
+
+    return None, extract_packet_metadata(packet, enrich_metadata)
 
 
 def process_choice_delta_stream(
@@ -291,57 +305,35 @@ def process_choice_delta_stream(
     enrich_metadata = enrich_metadata or {}
     first_chunk_flag = True
 
-    with managed_stream(raw_stream) as stream:
-        for packet in stream:
-            if isinstance(packet, (str, bytes, int, float, bool, list, set, tuple)):
-                raise TypeError(f"Cannot serialize packet of type {type(packet)}")
+    for packet in raw_stream:
+        if isinstance(packet, (str, bytes, int, float, bool, list, set, tuple)):
+            raise TypeError(f"Cannot serialize packet of type {type(packet)}")
 
-            overall_meta = extract_packet_metadata(packet, enrich_metadata)
+        choices, overall_meta = _extract_choices_and_metadata(packet, enrich_metadata)
 
-            choices = (
-                packet.get("choices")
-                if (hasattr(packet, "get") and callable(packet.get))
-                else getattr(packet, "choices", None)
+        if choices:
+            for choice in choices:
+                if not choice:
+                    continue
+                yield from process_choice_delta(
+                    choice, overall_meta, on_chunk, first_chunk_flag
+                )
+                first_chunk_flag = False
+        else:
+            logger.debug(
+                f"Yielding final packet without 'choices' (usage-only): {packet}"
             )
-
-            # Fallback if packet is a mock or wrapper that only provides model_dump / to_dict
-            if choices is None or hasattr(choices, "_mock_return_value"):
-                if hasattr(packet, "model_dump") and callable(packet.model_dump):
-                    d = packet.model_dump()
-                    if isinstance(d, dict):
-                        packet = d
-                        choices = d.get("choices")
-                        overall_meta = extract_packet_metadata(d, enrich_metadata)
-                elif hasattr(packet, "to_dict") and callable(packet.to_dict):
-                    d = packet.to_dict()
-                    if isinstance(d, dict):
-                        packet = d
-                        choices = d.get("choices")
-                        overall_meta = extract_packet_metadata(d, enrich_metadata)
-
-            if choices:
-                for choice in choices:
-                    if not choice:
-                        continue
-                    yield from process_choice_delta(
-                        choice, overall_meta, on_chunk, first_chunk_flag
-                    )
-                    first_chunk_flag = False
-            else:
-                logger.debug(
-                    f"Yielding final packet without 'choices' (usage-only): {packet}"
-                )
-                # Final usage-only packet (empty ``choices``) sent when usage reporting
-                # is enabled. ``result`` is required on LLMChatResponseChunk, so carry
-                # an empty candidate; usage data rides along in ``metadata`` and is
-                # folded into TURN_COMPLETE.
-                final_response_chunk = LLMChatResponseChunk(
-                    result=LLMChatCandidateChunk(),
-                    metadata={**overall_meta},
-                )
-                if on_chunk:
-                    on_chunk(final_response_chunk)
-                yield final_response_chunk
+            # Final usage-only packet (empty ``choices``) sent when usage reporting
+            # is enabled. ``result`` is required on LLMChatResponseChunk, so carry
+            # an empty candidate; usage data rides along in ``metadata`` and is
+            # folded into TURN_COMPLETE.
+            final_response_chunk = LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(),
+                metadata={**overall_meta},
+            )
+            if on_chunk:
+                on_chunk(final_response_chunk)
+            yield final_response_chunk
 
 
 class StreamHandler:

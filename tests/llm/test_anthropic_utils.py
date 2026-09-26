@@ -66,9 +66,23 @@ from dapr_agents.types.message import (
 from tests.llm.streaming_test_harness import StreamingComplianceHarness
 
 
+class _MockStreamCM:
+    def __init__(self, events: Iterable[Any]):
+        self._events = list(events)
+
+    def __enter__(self):
+        return iter(self._events)
+
+    def __exit__(self, *args):
+        pass
+
+    def __iter__(self):
+        return iter(self._events)
+
+
 def _stream_cm(events: Iterable[Any]) -> Any:
     """Wrap an event iterable so it behaves like the SDK's Stream context manager."""
-    return nullcontext(iter(events))
+    return _MockStreamCM(events)
 
 
 class TestNormalizeContentBlocks:
