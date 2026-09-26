@@ -153,23 +153,74 @@ def test_returning_stuck_worker_retires_when_surplus(hang):
     caller.close()
 
 
+def _occupy_backlog(caller: DeadlineCaller) -> threading.Thread:
+    """A call that waits in the queue (all workers stuck) until they free up."""
+    waiter = threading.Thread(target=caller.call, args=(lambda: None, _WAIT))
+    waiter.start()
+    _wait_until(lambda: caller._queued == 1)
+    return waiter
+
+
 def test_full_backlog_fails_fast_without_running_the_call(hang, caplog):
     clock = _Clock()
     caller = _caller(clock, max_threads=1, max_backlog=1)
     ran: list[str] = []
     _time_out(caller, hang)
-    with pytest.raises(TimeoutError):
-        caller.call(lambda: ran.append("queued"), _TINY)  # stays queued, cancelled
+    waiter = _occupy_backlog(caller)
     with caplog.at_level(logging.WARNING):
         for _ in range(2):
             with pytest.raises(DeadlineCallerBusyError):
                 caller.call(lambda: ran.append("rejected"), _WAIT)
-    assert caplog.text.count("wait for a worker") == 1  # logged once
+    assert caplog.text.count("wait for a worker") == 1  # rate limited
     hang.set()
-    _wait_until(lambda: caller._queued == 0)  # the worker skips the cancelled job
+    waiter.join(_WAIT)
     assert caller.call(lambda: "drained", _WAIT) == "drained"
     assert ran == []
-    assert caller._backlog_reported is False
+    caller.close()
+
+
+def test_calls_cancelled_while_queued_leave_the_backlog(hang):
+    clock = _Clock()
+    caller = _caller(clock, max_threads=1, max_backlog=1)
+    _time_out(caller, hang)
+    for _ in range(3):  # each one times out while queued and is cancelled
+        with pytest.raises(TimeoutError) as info:
+            caller.call(lambda: None, _TINY)
+        assert not isinstance(info.value, DeadlineCallerBusyError)
+    assert caller._queued == 0
+    caller.close()
+
+
+def test_dead_backlog_does_not_block_stuck_worker_replacement(hang):
+    # Regression: timed-out-while-queued calls filled the backlog, and the
+    # busy check ran before replacement, so no replacement ever started.
+    clock = _Clock()
+    caller = _caller(clock, max_workers=2, max_threads=8, max_backlog=4)
+    _time_out(caller, hang)
+    _time_out(caller, hang)
+    for _ in range(6):
+        with pytest.raises(TimeoutError):
+            caller.call(lambda: None, _TINY)
+    clock.now = 10.0  # both workers are now presumed stuck
+    assert caller.call(lambda: "ok", _WAIT) == "ok"
+    assert len(caller._threads) == 3
+    caller.close()
+
+
+def test_busy_warning_is_repeated_after_the_interval(hang, caplog):
+    clock = _Clock()
+    caller = _caller(clock, max_threads=1, max_backlog=1)
+    _time_out(caller, hang)
+    waiter = _occupy_backlog(caller)
+    with caplog.at_level(logging.WARNING):
+        for step in (0.0, 1.0, 61.0):
+            clock.now = step
+            with pytest.raises(DeadlineCallerBusyError):
+                caller.call(lambda: None, _WAIT)
+    assert caplog.text.count("wait for a worker") == 2
+    assert "1 similar warnings suppressed" in caplog.text
+    hang.set()
+    waiter.join(_WAIT)
     caller.close()
 
 
@@ -214,24 +265,38 @@ def test_hung_hook_does_not_block_sidecar_calls(hang):
     hung = make_target(
         authorize=lambda *_: hang.wait(_WAIT), hook_timeout_seconds=_TINY
     )
-    assert run_dispatch(dispatcher, target=hung) == "drop"
-    assert run_dispatch(dispatcher, target=hung) == "drop"  # queued behind it
+    assert run_dispatch(dispatcher, target=hung) == "retry"
+    assert run_dispatch(dispatcher, target=hung) == "retry"  # queued behind it
     assert run_dispatch(dispatcher) == "success"  # no authorize: sidecar only
     wf.raise_workflow_event.assert_called_once()
     dispatcher.close()
 
 
-def test_saturated_hook_pool_denies(hang, caplog):
+def test_saturated_hook_pool_retries_legitimate_messages(hang, caplog):
+    # Regression: a hanging hook for attacker input made later, legitimate
+    # messages time out or hit the full pool and get dropped.
     hooks = DeadlineCaller(max_workers=1, max_threads=1, max_backlog=1)
-    dispatcher = make_dispatcher(make_wf(), hook_caller=hooks)
-    hung = make_target(
-        authorize=lambda *_: hang.wait(_WAIT), hook_timeout_seconds=_TINY
-    )
-    for _ in range(2):
-        assert run_dispatch(dispatcher, target=hung) == "drop"
+    wf = make_wf()
+    dispatcher = make_dispatcher(wf, hook_caller=hooks)
+
+    def authorize(msg: Any, ctx: Any, target: Any) -> bool:
+        if msg["wf_id"] == "evil":
+            hang.wait(_WAIT)
+        return True
+
+    target = make_target(authorize=authorize, hook_timeout_seconds=_TINY)
+    evil = {"wf_id": "evil"}
+    assert run_dispatch(dispatcher, target=target, message=evil) == "retry"
+    waiter = _occupy_backlog(hooks)
     with caplog.at_level(logging.WARNING):
-        assert run_dispatch(dispatcher, target=hung) == "drop"
+        assert run_dispatch(dispatcher, target=target) == "retry"  # not dropped
     assert "hook pool is saturated" in caplog.text
+    hang.set()
+    waiter.join(_WAIT)
+    assert run_dispatch(dispatcher, target=target) == "success"
+    assert [
+        c.kwargs["instance_id"] for c in wf.raise_workflow_event.call_args_list
+    ] == ["wf-1"]
     dispatcher.close()
 
 

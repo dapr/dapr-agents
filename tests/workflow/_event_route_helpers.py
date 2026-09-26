@@ -144,8 +144,12 @@ def run_dispatch(
     ctx: Optional[MessageContext] = None,
     dlq: Optional[str] = None,
     dedupe_key: Optional[str] = None,
+    deduper: Any = None,
 ) -> str:
-    """Dispatch on ``messagepubsub`` / ``t``; the message defaults to ``wf-1``."""
+    """Dispatch on ``messagepubsub`` / ``t``; the message defaults to ``wf-1``.
+
+    ``dedupe_key`` is the message key (CloudEvent id or payload digest).
+    """
     return dispatcher.dispatch(
         target=target or make_target(),
         route_name="route",
@@ -154,5 +158,14 @@ def run_dispatch(
         dead_letter_topic=dlq,
         message=message if message is not None else {"wf_id": "wf-1"},
         msg_ctx=ctx or make_ctx(),
-        dedupe_key=dedupe_key,
+        message_key=dedupe_key,
+        deduper=deduper,
     )
+
+
+def only_tracked_raise(dispatcher: WorkflowEventDispatcher) -> Any:
+    """The single timed-out raise tracked on ``messagepubsub`` / ``t``."""
+    timed_out = dispatcher._topic_states[("messagepubsub", "t")].timed_out
+    tracked = [*timed_out._running.values(), *timed_out._settled.values()]
+    assert len(tracked) == 1, tracked
+    return tracked[0]

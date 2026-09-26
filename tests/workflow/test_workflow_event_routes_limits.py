@@ -34,7 +34,7 @@ from dapr_agents.workflow.utils.event_routes import (
     is_reserved_event_name,
     serialize_event_data,
 )
-from dapr_agents.workflow.utils.event_route_state import NotFoundTracker
+from dapr_agents.workflow.utils.event_route_state import AttemptTracker
 from dapr_agents.workflow.utils.registration import _collect_message_bindings
 from dapr_agents.workflow.utils.subscription import (
     _serialize_event_default_data,
@@ -387,7 +387,7 @@ def test_model_default_data_skips_second_jsonable_pass(monkeypatch):
 
 
 def test_not_found_tracker_is_thread_safe():
-    tracker = NotFoundTracker()
+    tracker = AttemptTracker()
     threads_n, per_thread = 8, 200
     barrier = threading.Barrier(threads_n + 1)
     seen: list[list[int]] = [[] for _ in range(threads_n)]

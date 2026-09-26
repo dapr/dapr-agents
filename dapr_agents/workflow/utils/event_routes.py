@@ -37,17 +37,26 @@ The runtime then discards the event while the message is acknowledged
 (SUCCESS). Nothing can wait for that event anymore, so no workflow is harmed,
 but the message is not dead-lettered.
 
+Deduplication and the per-message state are keyed by a composite key
+computed after resolution: a SHA-256 of the CloudEvent id (or payload digest),
+the target instance, the event name and a digest of the data. A message that
+reuses an id for another target or other data never collides with the
+original; a redelivery of the identical message is still recognized.
+
 Each sidecar call runs with the route's ``call_timeout_seconds`` deadline. A
 timeout answers RETRY, but the call may still complete in the background. A
-timed-out raise still running is remembered by the message's dedupe key,
-together with its target instance, event name and a digest of its data (in
-process memory). A redelivery of the exact same message to the same process
-answers SUCCESS once it succeeded, RETRY while it runs, and follows the normal
-error rules if it failed; a message that only reuses the key is delivered as
-a new one. A restart, ``dedupe=False``, a crash before the ack or a redelivery
-to another replica without a shared ``spec.deduper`` can still raise twice.
-Errors with a code in ``PERMANENT_SIDECAR_ERROR_CODES`` are dropped like a
-terminal workflow; other errors answer RETRY.
+timed-out raise still running is remembered by the composite key (in process
+memory), so a redelivery of the same message to the same process answers
+SUCCESS once it succeeded, RETRY while it runs, and follows the normal error
+rules if it failed. A restart, ``dedupe=False``, a crash before the ack or a
+redelivery to another replica without a shared ``spec.deduper`` can still
+raise twice. Errors with a code in ``PERMANENT_SIDECAR_ERROR_CODES`` are
+dropped like a terminal workflow; other errors answer RETRY.
+
+Hooks are tri-state (see ``HookVerdict``): an exact ``True`` allows, an
+explicit ``False``, a non-bool or an exception drops, and a timeout or a
+saturated hook pool answers RETRY within the route's ``not_found_retry``
+budget, then gives up like a terminal workflow.
 """
 
 from __future__ import annotations
@@ -75,6 +84,7 @@ from dapr_agents.workflow.utils.call_deadline import DeadlineCaller
 from dapr_agents.workflow.utils.core import stable_json_sha256
 from dapr_agents.workflow.utils.event_route_calls import (
     PERMANENT_SIDECAR_ERROR_CODES,
+    HookVerdict,
     is_instance_not_found_error,
     permanent_error_code,
     run_strict_hook,
@@ -90,10 +100,12 @@ from dapr_agents.workflow.utils.event_route_resolvers import (
     serialize_event_data,
 )
 from dapr_agents.workflow.utils.event_route_state import (
+    AttemptTracker,
     EventRouteTopicState,
     RaiseIdentity,
     TrackedRaise,
 )
+from dapr_agents.workflow.utils.log_throttle import WarningThrottle
 
 if TYPE_CHECKING:
     from dapr_agents.workflow.utils.subscription import DedupeBackend, MessageContext
@@ -154,8 +166,32 @@ class _ResolvedEvent:
             data_sha256=stable_json_sha256(self.data),
         )
 
+    def dedupe_key(self, message_key: str) -> str:
+        """Composite key: the message key, target, event name and data digest."""
+        identity = self.identity()
+        parts = (message_key, identity.instance_id, identity.event_name)
+        digest = stable_json_sha256([*parts, identity.data_sha256])
+        return f"event-route:{digest}"
 
-# ---- resolvers ---------------------------------------------------------------
+
+def _key_for_log(key: str) -> str:
+    """A short, payload-free prefix of a key for WARNING logs."""
+    return f"{key[:24]}..." if len(key) > 24 else key
+
+
+def _backend_seen(deduper: DedupeBackend, key: str) -> bool:
+    try:
+        return deduper.seen(key)
+    except Exception:
+        logger.debug("Dedupe backend seen() error; continuing.", exc_info=True)
+        return False
+
+
+def _backend_mark(deduper: DedupeBackend, key: str) -> None:
+    try:
+        deduper.mark(key)
+    except Exception:
+        logger.debug("Dedupe backend mark() error; continuing.", exc_info=True)
 
 
 # ---- dispatcher --------------------------------------------------------------
@@ -168,7 +204,8 @@ class _DispatchContext:
     topic: str
     dead_letter_topic: str | None
     event_id: str | None
-    dedupe_key: str | None
+    message_key: str
+    deduper: DedupeBackend | None
     state: EventRouteTopicState
 
 
@@ -213,6 +250,7 @@ class WorkflowEventDispatcher:
         )
         self._topic_states: dict[tuple[str, str], EventRouteTopicState] = {}
         self._topic_state_creation_lock = threading.Lock()
+        self._warnings = WarningThrottle(clock=clock)
 
     def close(self) -> None:
         """Release both pools without waiting for in-flight calls."""
@@ -229,18 +267,16 @@ class WorkflowEventDispatcher:
         dead_letter_topic: str | None,
         message: Any,
         msg_ctx: MessageContext,
-        dedupe_key: str | None = None,
+        message_key: str | None = None,
+        deduper: DedupeBackend | None = None,
     ) -> EventDispatchStatus:
-        """Resolve, authorize, check the workflow state and raise the event.
-
-        An earlier timed-out raise of the exact same message (dedupe key,
-        target and data) is checked before ``authorize``, which that message
-        already passed, so a redelivery does not run the hook again.
+        """Resolve, dedupe, authorize, check the workflow state and raise the event.
 
         Args:
-            dedupe_key: The subscriber's dedupe key for this message, or None
-                when the route does not dedupe. Used to recognize a redelivery
-                of a message whose raise timed out.
+            message_key: CloudEvent id, or a payload digest when there is none.
+                Defaults to the CloudEvent id from ``msg_ctx``.
+            deduper: The route's dedupe backend, or None when it does not
+                dedupe. Checked and marked with the composite key.
         """
         ctx = _DispatchContext(
             target=target,
@@ -248,7 +284,8 @@ class WorkflowEventDispatcher:
             topic=topic,
             dead_letter_topic=dead_letter_topic,
             event_id=msg_ctx.event.id,
-            dedupe_key=dedupe_key,
+            message_key=message_key or msg_ctx.event.id or "",
+            deduper=deduper,
             state=self._topic_state(pubsub, topic, target),
         )
         try:
@@ -263,15 +300,40 @@ class WorkflowEventDispatcher:
                 topic,
             )
             return _DROP
-        key = ctx.event_id or f"{resolved.instance_id}\x1f{resolved.event_name}"
+        key = resolved.dedupe_key(ctx.message_key)
+        status = self._dispatch_resolved(ctx, resolved, key, message, msg_ctx)
+        if ctx.deduper is not None and status != _RETRY:
+            _backend_mark(ctx.deduper, key)
+        return status
+
+    def _dispatch_resolved(
+        self,
+        ctx: _DispatchContext,
+        resolved: _ResolvedEvent,
+        key: str,
+        message: Any,
+        msg_ctx: MessageContext,
+    ) -> EventDispatchStatus:
+        """Dedupe, then an earlier timed-out raise, authorize and delivery.
+
+        An earlier timed-out raise of this message is checked before
+        ``authorize``, which the message already passed.
+        """
+        if ctx.deduper is not None and _backend_seen(ctx.deduper, key):
+            logger.debug(
+                "Event route %r: duplicate of message id=%r; acknowledging.",
+                ctx.route_name,
+                ctx.event_id,
+            )
+            return _SUCCESS
         status = self._earlier_timed_out_raise(ctx, resolved, key)
         if status is None:
-            status = self._authorize(ctx, resolved, message, msg_ctx)
+            status = self._authorize(ctx, resolved, key, message, msg_ctx)
         if status is None:
             status = self._deliver(ctx, resolved, key)
         return status
 
-    def hook_accepts(
+    def filter_verdict(
         self,
         target: EventRouteTarget,
         hook: Callable[[Any, MessageContext], Any] | None,
@@ -280,13 +342,13 @@ class WorkflowEventDispatcher:
         *,
         kind: str,
         route_name: str,
-    ) -> bool:
+    ) -> HookVerdict:
         """Run an event route filter with the route's hook deadline.
 
-        True only when there is no filter or it returned exactly ``True``.
+        ALLOW when there is no filter or it returned exactly ``True``.
         """
         if hook is None:
-            return True
+            return HookVerdict.ALLOW
         return run_strict_hook(
             self._hook_caller,
             hook,
@@ -296,6 +358,31 @@ class WorkflowEventDispatcher:
             kind=kind,
             route_name=route_name,
         )
+
+    def on_filter_undecided(
+        self,
+        *,
+        target: EventRouteTarget,
+        route_name: str,
+        pubsub: str,
+        topic: str,
+        dead_letter_topic: str | None,
+        msg_ctx: MessageContext,
+        message_key: str | None,
+        kind: str,
+    ) -> EventDispatchStatus:
+        """RETRY for a filter that did not answer, within the retry budget."""
+        ctx = _DispatchContext(
+            target=target,
+            route_name=route_name,
+            topic=topic,
+            dead_letter_topic=dead_letter_topic,
+            event_id=msg_ctx.event.id,
+            message_key=message_key or msg_ctx.event.id or "",
+            deduper=None,
+            state=self._topic_state(pubsub, topic, target),
+        )
+        return self._on_undecided(ctx, None, f"{kind}:{ctx.message_key}", kind)
 
     def _topic_state(
         self, pubsub: str, topic: str, target: EventRouteTarget
@@ -316,16 +403,17 @@ class WorkflowEventDispatcher:
         self,
         ctx: _DispatchContext,
         resolved: _ResolvedEvent,
+        key: str,
         message: Any,
         msg_ctx: MessageContext,
     ) -> EventDispatchStatus | None:
-        """DROP when ``authorize`` denies the message; None to go on."""
+        """None when ``authorize`` allows (or is unset); otherwise the status."""
         if ctx.target.authorize is None:
             return None
         event_target = WorkflowEventTarget(
             instance_id=resolved.instance_id, event_name=resolved.event_name
         )
-        if run_strict_hook(
+        verdict = run_strict_hook(
             self._hook_caller,
             ctx.target.authorize,
             ctx.target.hook_timeout_seconds,
@@ -334,9 +422,61 @@ class WorkflowEventDispatcher:
             event_target,
             kind="authorize",
             route_name=ctx.route_name,
-        ):
+        )
+        if verdict is HookVerdict.UNDECIDED:
+            return self._on_undecided(ctx, resolved, key, "authorize")
+        ctx.state.undecided.clear(key)
+        if verdict is HookVerdict.ALLOW:
             return None
         return self._give_up(ctx, resolved, reason="authorize denied the message")
+
+    def _on_undecided(
+        self,
+        ctx: _DispatchContext,
+        resolved: _ResolvedEvent | None,
+        key: str,
+        kind: str,
+    ) -> EventDispatchStatus:
+        """RETRY within the ``not_found_retry`` budget, then give up."""
+        attempts, elapsed = self._record_attempt(ctx, ctx.state.undecided, key)
+        if attempts is None:
+            logger.info(
+                "Event route %r: %s did not decide for message id=%r; retrying.",
+                ctx.route_name,
+                kind,
+                ctx.event_id,
+            )
+            return _RETRY
+        reason = f"{kind} did not decide after {attempts} attempts / {elapsed:.0f}s"
+        if ctx.dead_letter_topic:
+            return self._give_up(ctx, resolved, reason=reason)
+        self._warnings.warn(
+            logger,
+            ("undecided", ctx.route_name),
+            "Event route %r on topic %r: %s (message key %s); dropping (no "
+            "dead_letter_topic configured).",
+            ctx.route_name,
+            ctx.topic,
+            reason,
+            _key_for_log(key),
+        )
+        return _DROP
+
+    def _record_attempt(
+        self, ctx: _DispatchContext, tracker: AttemptTracker, key: str
+    ) -> tuple[int | None, float]:
+        """Count an attempt; (None, elapsed) while within budget, else (attempts, elapsed).
+
+        The entry is cleared once the budget is used up.
+        """
+        policy = ctx.target.not_found_retry
+        now = self._clock()
+        attempts, first_seen = tracker.record(key, now)
+        elapsed = now - first_seen
+        if attempts < policy.max_attempts and elapsed < policy.window_seconds:
+            return None, elapsed
+        tracker.clear(key)
+        return attempts, elapsed
 
     def _resolve(
         self, target: EventRouteTarget, message: Any, msg_ctx: MessageContext
@@ -447,19 +587,17 @@ class WorkflowEventDispatcher:
     ) -> EventDispatchStatus | None:
         """Status decided by an earlier timed-out raise of this exact message, if any.
 
-        The earlier raise counts only when it had the same target and data; a
-        message that merely reuses the key is delivered normally. None means
-        deliver normally (nothing tracked, a different message, or the earlier
-        raise failed with a transient error).
+        ``key`` is the composite key, so only the same message id with the same
+        target and data can match. None means deliver normally (nothing
+        tracked, or the earlier raise failed with a transient error).
         """
-        if ctx.dedupe_key is None:
+        if not ctx.target.dedupe:
             return None
-        tracked = ctx.state.timed_out.peek(ctx.dedupe_key)
+        tracked = ctx.state.timed_out.peek(key)
         if tracked is None:
             return None
-        if tracked.identity != resolved.identity():
-            self._log_key_reuse(ctx, tracked.identity, resolved.identity())
-            return None
+        # The composite key includes the identity, so a match is the same message.
+        assert tracked.identity == resolved.identity(), "composite key collision"
         if not tracked.future.done():
             logger.info(
                 "Event route %r: an earlier raise of event %r on workflow %r for "
@@ -470,7 +608,7 @@ class WorkflowEventDispatcher:
                 ctx.event_id,
             )
             return _RETRY
-        ctx.state.timed_out.discard(ctx.dedupe_key, tracked)
+        ctx.state.timed_out.discard(key, tracked)
         exc = tracked.future.exception()
         if exc is not None:
             return self._sidecar_error_status(
@@ -486,23 +624,6 @@ class WorkflowEventDispatcher:
             ctx.event_id,
         )
         return _SUCCESS
-
-    @staticmethod
-    def _log_key_reuse(
-        ctx: _DispatchContext, earlier: RaiseIdentity, current: RaiseIdentity
-    ) -> None:
-        """WARNING for a key reused by a different message; never logs the payload."""
-        logger.warning(
-            "Event route %r: message key %r matches an earlier timed-out raise for "
-            "%r, but this message resolves to %r%s; treating it as a new delivery.",
-            ctx.route_name,
-            ctx.dedupe_key,
-            (earlier.instance_id, earlier.event_name),
-            (current.instance_id, current.event_name),
-            " with different data"
-            if earlier.data_sha256 != current.data_sha256
-            else "",
-        )
 
     def _on_timeout(
         self, ctx: _DispatchContext, resolved: _ResolvedEvent, what: str
@@ -522,21 +643,15 @@ class WorkflowEventDispatcher:
     def _on_not_found(
         self, ctx: _DispatchContext, resolved: _ResolvedEvent, key: str
     ) -> EventDispatchStatus:
-        policy = ctx.target.not_found_retry
-        now = self._clock()
-        attempts, first_seen = ctx.state.not_found.record(key, now)
-        elapsed = now - first_seen
-        if attempts < policy.max_attempts and elapsed < policy.window_seconds:
+        attempts, elapsed = self._record_attempt(ctx, ctx.state.not_found, key)
+        if attempts is None:
             logger.info(
-                "Event route %r: workflow %r not found yet for event %r (attempt %d/%d); retrying.",
+                "Event route %r: workflow %r not found yet for event %r; retrying.",
                 ctx.route_name,
                 resolved.instance_id,
                 resolved.event_name,
-                attempts,
-                policy.max_attempts,
             )
             return _RETRY
-        ctx.state.not_found.clear(key)
         return self._give_up(
             ctx,
             resolved,
@@ -544,20 +659,23 @@ class WorkflowEventDispatcher:
         )
 
     def _give_up(
-        self, ctx: _DispatchContext, resolved: _ResolvedEvent, *, reason: str
+        self, ctx: _DispatchContext, resolved: _ResolvedEvent | None, *, reason: str
     ) -> EventDispatchStatus:
         if ctx.dead_letter_topic:
             # daprd publishes DROPped messages to the subscription's DLQ.
             action = f"dropping; daprd dead-letters it to {ctx.dead_letter_topic!r}"
         else:
             action = "dropping (no dead_letter_topic configured)"
+        what = (
+            ""
+            if resolved is None
+            else f" event {resolved.event_name!r} on workflow {resolved.instance_id!r}"
+        )
         logger.warning(
-            "Event route %r on topic %r: cannot raise event %r on workflow %r "
-            "(message id=%r): %s; %s.",
+            "Event route %r on topic %r: cannot raise%s (message id=%r): %s; %s.",
             ctx.route_name,
             ctx.topic,
-            resolved.event_name,
-            resolved.instance_id,
+            what,
             ctx.event_id,
             reason,
             action,
@@ -568,7 +686,7 @@ class WorkflowEventDispatcher:
         self, ctx: _DispatchContext, resolved: _ResolvedEvent, key: str
     ) -> EventDispatchStatus:
         try:
-            self._call_raise(ctx, resolved)
+            self._call_raise(ctx, resolved, key)
         except TimeoutError:
             return self._on_timeout(ctx, resolved, "raising the event")
         except Exception as exc:
@@ -593,7 +711,9 @@ class WorkflowEventDispatcher:
         )
         return _SUCCESS
 
-    def _call_raise(self, ctx: _DispatchContext, resolved: _ResolvedEvent) -> None:
+    def _call_raise(
+        self, ctx: _DispatchContext, resolved: _ResolvedEvent, key: str
+    ) -> None:
         """Raise with the call deadline; remember a timed-out raise that is still running."""
         timeout = ctx.target.call_timeout_seconds
         future = self._sidecar_caller.start(
@@ -607,22 +727,24 @@ class WorkflowEventDispatcher:
             future.result(timeout=timeout)
         except TimeoutError:
             # cancel() fails once a worker runs the call: it may still raise.
-            if not future.cancel() and ctx.dedupe_key is not None:
-                self._track_timed_out_raise(ctx, resolved, future)
+            if not future.cancel() and ctx.target.dedupe:
+                self._track_timed_out_raise(ctx, resolved, key, future)
             raise
 
     def _track_timed_out_raise(
-        self, ctx: _DispatchContext, resolved: _ResolvedEvent, future: Future[Any]
+        self,
+        ctx: _DispatchContext,
+        resolved: _ResolvedEvent,
+        key: str,
+        future: Future[Any],
     ) -> None:
-        assert ctx.dedupe_key is not None
         tracked = TrackedRaise(identity=resolved.identity(), future=future)
-        if ctx.state.timed_out.add(ctx.dedupe_key, tracked):
+        if ctx.state.timed_out.add(key, tracked):
             return
         logger.warning(
             "Event route %r: cannot track the timed-out raise of event %r on "
-            "workflow %r (message id=%r): too many raises are still running, or "
-            "the key belongs to another running raise. A redelivery may raise "
-            "the event again.",
+            "workflow %r (message id=%r): too many raises are still running. A "
+            "redelivery may raise the event again.",
             ctx.route_name,
             resolved.event_name,
             resolved.instance_id,
@@ -639,6 +761,7 @@ __all__ = [
     "RESERVED_EVENT_NAME_PREFIXES",
     "EventRouteResolutionError",
     "EventRouteTarget",
+    "HookVerdict",
     "TERMINAL_WORKFLOW_STATUSES",
     "WorkflowEventDispatcher",
     "coerce_identifier",

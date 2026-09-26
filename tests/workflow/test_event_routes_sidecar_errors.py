@@ -52,6 +52,7 @@ from tests.workflow._event_route_helpers import (
     make_dispatcher,
     make_target,
     make_wf,
+    only_tracked_raise,
     run_dispatch,
 )
 
@@ -118,8 +119,7 @@ def _time_out_first_raise(outcome: Optional[BaseException] = None):
 def _finish(gate: _GatedRaise, dispatcher: WorkflowEventDispatcher) -> None:
     gate.release.set()
     assert gate.finished.wait(_WAIT)
-    tracked = _state(dispatcher).timed_out.peek(_KEY)
-    assert tracked is not None
+    tracked = only_tracked_raise(dispatcher)
     # The future settles just after the call returns.
     tracked.future.exception(timeout=_WAIT)
 
@@ -170,14 +170,15 @@ def test_redelivery_after_permanent_failure_drops_without_raising(caplog):
 
 
 def test_timed_out_raise_without_dedupe_key_is_not_tracked():
-    # dedupe=False: no key, so a timed-out raise can be raised again (documented).
+    # dedupe=False: not tracked, so a timed-out raise can be raised again (documented).
     gate = _GatedRaise()
     wf = _wf()
     wf.raise_workflow_event.side_effect = gate
     dispatcher = _dispatcher(wf)
     try:
-        assert _dispatch(dispatcher, dedupe_key=None) == "retry"
-        assert _dispatch(dispatcher, dedupe_key=None) == "success"
+        target = _target(dedupe=False)
+        assert _dispatch(dispatcher, target=target) == "retry"
+        assert _dispatch(dispatcher, target=target) == "success"
         assert len(gate.calls) == 2
         assert len(_state(dispatcher).timed_out) == 0
     finally:

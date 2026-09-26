@@ -281,8 +281,9 @@ def test_spec_deduper_wins_over_subscriber_deduper(env):
         routes=[_spec(deduper=spec_backend)],
         deduper=sub_backend,
     )
-    assert spec_backend.seen("evt-1")
-    assert not sub_backend.seen("evt-1")
+    # Event routes mark a composite key (id, target, event name, data digest).
+    assert [k.startswith("event-route:") for k in spec_backend._cache] == [True]
+    assert len(sub_backend._cache) == 0
 
 
 def test_subscriber_deduper_not_used_for_event_routes(env):
@@ -385,7 +386,7 @@ def test_retry_does_not_mark_but_terminal_drop_does(env):
         routes=[_spec(deduper=backend)],
     )
     sub.respond_drop.assert_called_once()
-    assert backend.seen("evt-2")
+    assert len(backend._cache) == 2  # the success and the terminal drop
 
 
 async def test_async_delivery_still_handles_event_routes_synchronously(env):
