@@ -48,7 +48,8 @@ class TestAgentEvent:
         assert "k" not in b.metadata
 
     def test_accepts_all_event_types(self):
-        """AgentEventType Literal must include the full RFC-defined set."""
+        """AgentEventType Literal must include the full RFC-defined set,
+        plus ``paused`` for runs awaiting a tool-call decision."""
         expected = {
             "text_delta",
             "tool_call",
@@ -57,6 +58,7 @@ class TestAgentEvent:
             "session",
             "complete",
             "error",
+            "paused",
         }
         # AgentEventType is a typing.Literal; pull its arg set.
         assert set(AgentEventType.__args__) == expected  # type: ignore[attr-defined]

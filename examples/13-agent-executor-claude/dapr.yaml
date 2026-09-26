@@ -11,20 +11,18 @@
 # limitations under the License.
 #
 
-from .executor import ExecutorObserverWrapper
-from .llm import LLMWrapper
-from .tool import RunToolWrapper
-from .workflow import (
-    WorkflowMonitorWrapper,
-    WorkflowRunWrapper,
-)
-from .workflow_task import WorkflowActivityRegistrationWrapper
+version: 1
+common:
+  resourcesPath: ./resources
+  logLevel: info
+  appLogDestination: console
+  daprdLogDestination: console
 
-__all__ = [
-    "ExecutorObserverWrapper",
-    "LLMWrapper",
-    "RunToolWrapper",
-    "WorkflowMonitorWrapper",
-    "WorkflowRunWrapper",
-    "WorkflowActivityRegistrationWrapper",
-]
+apps:
+  - appID: claude-executor-app
+    appDirPath: ./
+    command: ["python3", "app.py"]
+    # Fixed sidecar ports so approval_sender.py (gRPC) and curl (HTTP) can
+    # reach the sidecar when APPROVAL_MODE=manual.
+    daprHTTPPort: 3500
+    daprGRPCPort: 50001

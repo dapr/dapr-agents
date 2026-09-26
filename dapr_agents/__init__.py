@@ -29,7 +29,11 @@ from dapr_agents.agents.executors import (
     AgentEvent,
     AgentEventType,
     AgentExecutorBase,
+    ClaudeAgentExecutorConfig,
+    DaprSessionStore,
+    DaprSessionStoreConfig,
     EchoAgentExecutor,
+    ToolCallDecision,
 )
 from dapr_agents.agents.schemas import ApprovalRequiredEvent, ApprovalResponseEvent
 from dapr_agents.types import ActivationCallback, ActivationContext
@@ -72,6 +76,10 @@ __all__ = [
     "AgentEventType",
     "AgentExecutorBase",
     "EchoAgentExecutor",
+    "ClaudeAgentExecutorConfig",
+    "DaprSessionStore",
+    "DaprSessionStoreConfig",
+    "ToolCallDecision",
     "DockerCodeExecutor",
     "LocalCodeExecutor",
     "AnthropicChatClient",
@@ -120,6 +128,11 @@ __all__ = [
 ]
 
 if TYPE_CHECKING:
+    # Redundant alias: an explicit re-export, so type checkers resolve the
+    # lazily loaded name without it joining ``__all__``.
+    from dapr_agents.agents.executors.claude import (
+        ClaudeAgentExecutor as ClaudeAgentExecutor,
+    )
     from dapr_agents.llm.litellm import LiteLLMChatClient
 
 
@@ -133,6 +146,13 @@ def __getattr__(name: str) -> Any:
         from dapr_agents.llm.litellm import LiteLLMChatClient
 
         return LiteLLMChatClient
+    # ClaudeAgentExecutor needs the optional ``claude`` extra; import it on
+    # first access so ``import dapr_agents`` works without it. It is kept out
+    # of ``__all__`` so ``from dapr_agents import *`` does not require it.
+    if name == "ClaudeAgentExecutor":
+        from dapr_agents.agents.executors import claude
+
+        return claude.ClaudeAgentExecutor
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

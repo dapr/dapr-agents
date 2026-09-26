@@ -73,6 +73,7 @@ from dapr_agents.agents.schemas import (
     BroadcastMessage,
     TriggerAction,
 )
+from dapr_agents.agents.durable_executor import DurableExecutorMixin
 from dapr_agents.agents.executors import AgentExecutorBase
 from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.prompt.base import PromptTemplateBase
@@ -256,7 +257,7 @@ def _warn_streaming_alpha() -> None:
     )
 
 
-class DurableAgent(AgentBase):
+class DurableAgent(DurableExecutorMixin, AgentBase):
     """
     Workflow-native durable agent runtime on top of AgentBase.
 
@@ -327,6 +328,10 @@ class DurableAgent(AgentBase):
                 When provided the workflow dispatches a ``run_executor`` activity
                 that drives the executor's async event stream,
                 and persists state at session granularity instead of message granularity.
+                Each run is bound (``AgentExecutorBase.bind``) to this agent's system
+                prompt, ``max_iterations``, tools, ``hooks.before_tool_call`` and a
+                durable session store on ``state``; runs that pause on a tool call
+                go through the same approval flow as ``RequireApproval`` hooks.
             tools: Optional tool callables or ``AgentTool`` instances.
                 All agents sharing the same registry are auto-discovered as
                 tools at workflow start via ``load_tools``.
@@ -417,11 +422,18 @@ class DurableAgent(AgentBase):
         # Only populated when HITL (before_tool_call) hooks are configured.
         self._pending_approvals: Dict[str, Dict[str, Any]] = {}
         # Shared workflow client for HITL operations (_restore_pending_approvals and
-        # submit_approval_response). Created once here instead of per-call, and only
-        # when HITL hooks are actually configured — the only execution path that needs it.
-        self._wf_client: Optional[wf.DaprWorkflowClient] = (
-            wf.DaprWorkflowClient() if (hooks and hooks.before_tool_call) else None
+        # submit_approval_response). Created once here, and only when a run can
+        # wait for a human approval: HITL hooks are configured or the executor
+        # can pause on a tool call. Workflow-backed tools called from
+        # run_executor create it on first use via _get_wf_client.
+        approvals_possible = bool(hooks and hooks.before_tool_call) or bool(
+            executor is not None and executor.supports_tool_approval
         )
+        self._approvals_possible = approvals_possible
+        self._wf_client: Optional[wf.DaprWorkflowClient] = (
+            wf.DaprWorkflowClient() if approvals_possible else None
+        )
+        self._wf_client_lock = threading.Lock()
 
         # Per-session listener cache, keyed by (instance_id, cfg_hash).
         # Only cacheable listener types (pub/sub + webhook) land here —
@@ -647,35 +659,11 @@ class DurableAgent(AgentBase):
                 )
 
             # Delegate to an AgentExecutorBase (stateful agent runtime) if one is
-            # attached. The executor owns the tool/reasoning loop; we only drive
-            # its async event stream and checkpoint at session granularity.
+            # attached. The executor owns the tool/reasoning loop; we drive its
+            # event stream in run_executor and run tool approvals here.
             elif self.executor is not None:
-                if not ctx.is_replaying:
-                    logger.debug(
-                        "Agent %s delegating to executor %s (instance=%s)",
-                        self.name,
-                        type(self.executor).__name__,
-                        ctx.instance_id,
-                    )
-
-                executor_input: Dict[str, Any] = {
-                    "task": task,
-                    "instance_id": ctx.instance_id,
-                    "source": source,
-                }
-                # Caller-supplied session_id resumes a prior executor session;
-                # omitting it lets the executor auto-assign per its contract.
-                caller_session_id = message.get("session_id")
-                if caller_session_id:
-                    executor_input["session_id"] = caller_session_id
-                caller_context = message.get("context")
-                if isinstance(caller_context, dict):
-                    executor_input["context"] = caller_context
-
-                final_message = yield ctx.call_activity(
-                    self._activity_name(self.run_executor),
-                    input=executor_input,
-                    retry_policy=self._retry_policy,
+                final_message = yield from self._executor_workflow(
+                    ctx, task=task, source=source, message=message
                 )
 
             # Standard agent execution loop
@@ -1203,6 +1191,28 @@ class DurableAgent(AgentBase):
         """
         Pause the workflow and wait for a human to approve or deny a tool call.
 
+        Called with ``yield from``; see ``_await_approval`` for the flow.
+
+        Returns:
+            True if the human approved, False if not approved or the timeout elapsed.
+        """
+        approved, _ = yield from self._await_approval(
+            ctx, instance_id, tool_call, decision
+        )
+        return approved
+
+    def _await_approval(
+        self,
+        ctx: wf.DaprWorkflowContext,
+        instance_id: str,
+        tool_call: Dict[str, Any],
+        decision: RequireApproval,
+        *,
+        source: Optional[str] = None,
+    ):
+        """
+        Pause the workflow and wait for a human to approve or deny a tool call.
+
         Called with ``yield from`` from agent_workflow when a before_tool_call hook
         returns RequireApproval. Publishes an ApprovalRequiredEvent the first time it
         runs for a given tool_call_id, then suspends via wait_for_external_event. On
@@ -1213,9 +1223,12 @@ class DurableAgent(AgentBase):
             instance_id: Running workflow instance ID.
             tool_call: Tool call dict with 'id' and 'function' keys.
             decision: The RequireApproval decision returned by the hook.
+            source: Where the tool comes from ('local', 'mcp', ...); looked up
+                in the agent's tool executor when omitted.
 
         Returns:
-            True if the human approved, False if not approved or the timeout elapsed.
+            ``(approved, reason)``: ``approved`` is False when not approved or
+            the timeout elapsed; ``reason`` is the approver's reason, if any.
         """
         approval_config = self.execution.approval
         fn_name = tool_call.get("function", {}).get("name", "unknown")
@@ -1239,13 +1252,15 @@ class DurableAgent(AgentBase):
         except json.JSONDecodeError:
             tool_args = {}
 
-        tool_obj = self.tool_executor.get_tool(fn_name)
+        if source is None:
+            tool_obj = self.tool_executor.get_tool(fn_name)
+            source = getattr(tool_obj, "source", "local")
         approval_event = ApprovalRequiredEvent(
             approval_request_id=approval_request_id,
             instance_id=instance_id,
             step_name=fn_name,
             step_kind="tool",
-            source=getattr(tool_obj, "source", "local"),
+            source=source,
             tool_call_id=tool_call_id,
             tool_arguments=tool_args,
             timeout_seconds=timeout_seconds,
@@ -1287,7 +1302,7 @@ class DurableAgent(AgentBase):
                 logger.warning(
                     f"Approval request {approval_request_id} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
                 )
-                return False
+                return False, None
 
         # event won the race — read the human decision
         try:
@@ -1297,13 +1312,13 @@ class DurableAgent(AgentBase):
             logger.warning(
                 f"Could not parse approval response for request {approval_request_id}: {exc} — auto-denying"
             )
-            return False
+            return False, None
 
         logger.info(
             f"Approval decision for request {approval_request_id}, tool '{fn_name}': {'approved' if response.approved else 'not approved'} (instance={instance_id})"
         )
 
-        return response.approved
+        return response.approved, response.reason
 
     def orchestration_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
         """Dedicated orchestration workflow using strategy pattern.
@@ -2501,266 +2516,6 @@ class DurableAgent(AgentBase):
         self.save_state(instance_id, entry=entry)
         return assistant_message
 
-    def run_executor(
-        self,
-        ctx: wf.WorkflowActivityContext,
-        payload: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Drive an `AgentExecutorBase` to completion and return the final
-        assistant message.
-
-        The executor owns the full tool/reasoning loop; this activity only
-        consumes the async event stream, mirrors selected events into Dapr
-        state (for observability), and checkpoints on ``session`` events.
-
-        Args:
-            payload: Required keys ``task``, ``instance_id``, ``source``;
-                optional ``session_id`` (caller-supplied identifier to
-                resume a prior executor session) and ``context``
-                (provider-specific extras forwarded to the executor).
-
-        Returns:
-            Final assistant message dict as emitted by the executor's
-            terminal ``complete`` event.
-
-        Raises:
-            AgentError: If the executor is not configured or yields an
-                ``error`` event, or if the stream ends without ``complete``.
-        """
-        if self.executor is None:  # Defensive; agent_workflow guards this.
-            raise AgentError(
-                "run_executor called on an agent without an AgentExecutorBase."
-            )
-
-        return AgentBase._run_asyncio_task(self._consume_executor(payload))
-
-    async def _consume_executor(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Drive an ``AgentExecutorBase`` to completion and return the final
-        assistant message.
-
-        Event handling:
-
-        * ``message`` events are appended to ``entry.messages`` for
-          observability.
-        * ``tool_call`` / ``tool_result`` events append ``ToolExecutionRecord``
-          rows to ``entry.tool_history``. Tool IDs are taken from the
-          executor (``id`` for calls, ``tool_call_id`` or ``tool_use_id``
-          for results); events without an ID are skipped with a warning.
-        * ``session`` events trigger a checkpoint save.
-        * ``complete`` captures the final assistant message and terminates
-          the loop.
-        * ``error`` raises ``AgentError`` (the activity retries per the
-          configured retry policy).
-        * ``text_delta`` is currently used only for console streaming and is
-          not persisted (avoids per-token state writes).
-
-        State is persisted in a ``finally`` block so every exit path (success,
-        explicit ``error`` event, executor exception, missing ``complete``)
-        flushes the accumulated entry exactly once before returning or raising.
-        """
-        instance_id: str = payload["instance_id"]
-        caller_session_id: Optional[str] = payload.get("session_id")
-        task: Optional[str] = payload.get("task")
-        source: Optional[str] = payload.get("source")
-        context: Optional[Dict[str, Any]] = payload.get("context")
-
-        entry = self._infra.get_state(instance_id)
-
-        # Resolve session_id in priority order:
-        #   1. Caller-supplied (explicit resume request).
-        #   2. Persisted entry.session_id (retry-safe: a previous attempt
-        #      already learned the executor session and checkpointed it,
-        #      so a re-invocation of this activity must reuse it rather
-        #      than letting the executor mint a fresh one).
-        #   3. None — first run with no prior session; the executor will
-        #      auto-assign and we capture it via event.session_id.
-        session_id: Optional[str] = caller_session_id or getattr(
-            entry, "session_id", None
-        )
-        if session_id and hasattr(entry, "session_id"):
-            entry.session_id = session_id
-        if task:
-            user_message = {"role": "user", "content": task}
-            self._process_user_message(
-                instance_id, task, user_message, entry=entry, skip_save=True
-            )
-            if not self.orchestrator:
-                self.text_formatter.print_message(
-                    self._label_message_with_source(user_message, source)
-                )
-
-        final_message: Optional[Dict[str, Any]] = None
-        tool_records: Dict[str, ToolExecutionRecord] = {}
-        prompt = task or ""
-
-        stream = self.executor.run(prompt, session_id=session_id, context=context)
-        try:
-            async for event in stream:
-                # Capture an executor-assigned/changed session_id inline so
-                # both the local variable and the persisted entry stay in sync.
-                observed_session = event.session_id
-                if observed_session and observed_session != session_id:
-                    session_id = observed_session
-                    if hasattr(entry, "session_id"):
-                        entry.session_id = observed_session
-
-                # Event names are the ``AgentEventType`` literal values; the
-                # ``EVENT_*`` constants in ``executors.base`` mirror these for
-                # callers that want named references.
-                match event.type:
-                    case "text_delta":
-                        # Intentionally not persisted; live-stream in the future.
-                        continue
-
-                    case "message":
-                        message_dict = (
-                            event.content
-                            if isinstance(event.content, dict)
-                            else {"role": "assistant", "content": str(event.content)}
-                        )
-                        if message_dict.get("role") == "assistant":
-                            self._save_assistant_message(
-                                instance_id,
-                                dict(message_dict),
-                                entry=entry,
-                                skip_save=True,
-                            )
-                            if not self.orchestrator:
-                                self.text_formatter.print_message(message_dict)
-
-                    case "tool_call":
-                        call = event.content if isinstance(event.content, dict) else {}
-                        tc_id = str(call.get("id") or "")
-                        if not tc_id:
-                            logger.warning(
-                                "Executor emitted tool_call without an 'id'; "
-                                "skipping record (tool_name=%r).",
-                                call.get("name"),
-                            )
-                            continue
-                        record = ToolExecutionRecord(
-                            tool_call_id=tc_id,
-                            tool_name=str(call.get("name", "")),
-                            tool_args=dict(call.get("arguments", {}) or {}),
-                            status=ToolExecutionStatus.RUNNING,
-                            is_agent_call=False,
-                            executing_agent=self.name,
-                            agent_workflow_instance_id=instance_id,
-                        )
-                        tool_records[tc_id] = record
-                        entry.tool_history.append(record)
-
-                    case "tool_result":
-                        result = (
-                            event.content if isinstance(event.content, dict) else {}
-                        )
-                        # Support both OpenAI-style (tool_call_id) and
-                        # Anthropic-style (tool_use_id) identifiers.
-                        tc_id = str(
-                            result.get("tool_call_id")
-                            or result.get("tool_use_id")
-                            or ""
-                        )
-                        if not tc_id:
-                            logger.warning(
-                                "Executor emitted tool_result without a "
-                                "tool_call_id/tool_use_id; skipping "
-                                "(tool_name=%r).",
-                                result.get("name"),
-                            )
-                            continue
-                        record = tool_records.get(tc_id)
-                        payload_result = result.get("result")
-                        completed_at = datetime.now(timezone.utc)
-                        execution_result = (
-                            payload_result
-                            if isinstance(payload_result, str)
-                            else json.dumps(payload_result, default=str)
-                        )
-                        if record is not None:
-                            record.status = ToolExecutionStatus.COMPLETED
-                            record.completed_at = completed_at
-                            record.execution_result = execution_result
-                        else:
-                            entry.tool_history.append(
-                                ToolExecutionRecord(
-                                    tool_call_id=tc_id,
-                                    tool_name=str(result.get("name", "")),
-                                    tool_args={},
-                                    status=ToolExecutionStatus.COMPLETED,
-                                    is_agent_call=False,
-                                    executing_agent=self.name,
-                                    agent_workflow_instance_id=instance_id,
-                                    completed_at=completed_at,
-                                    execution_result=execution_result,
-                                )
-                            )
-
-                    case "session":
-                        # Session-level checkpoint: persist what we've accumulated.
-                        self.save_state(instance_id, entry=entry)
-                        # Refresh the entry so subsequent mutations see the saved
-                        # etag, and rebuild tool_records so later tool_result
-                        # events update the records that will actually be
-                        # persisted with entry.tool_history (get_state validates
-                        # into new objects, so pre-refresh references go stale).
-                        entry = self._infra.get_state(instance_id)
-                        tool_records = {
-                            record.tool_call_id: record
-                            for record in entry.tool_history
-                            if record.tool_call_id
-                        }
-
-                    case "complete":
-                        final_message = (
-                            event.content
-                            if isinstance(event.content, dict)
-                            else {"role": "assistant", "content": str(event.content)}
-                        )
-                        break
-
-                    case "error":
-                        raise AgentError(
-                            f"AgentExecutor emitted error: {event.content}"
-                        )
-        except AgentError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            raise AgentError(
-                f"AgentExecutor {type(self.executor).__name__} raised "
-                f"{type(exc).__name__}: {exc}"
-            ) from exc
-        finally:
-            # Single flush point: every exit path (success, AgentError,
-            # generic exception, missing 'complete' below) routes through
-            # here so the accumulated entry is persisted exactly once.
-            try:
-                if final_message is not None:
-                    # Record the terminal assistant message if the executor
-                    # did not already emit it as a 'message' event.
-                    already_persisted = any(
-                        getattr(m, "role", None) == "assistant"
-                        and getattr(m, "content", None) == final_message.get("content")
-                        for m in entry.messages
-                    )
-                    if not already_persisted:
-                        self._save_assistant_message(
-                            instance_id,
-                            dict(final_message),
-                            entry=entry,
-                            skip_save=True,
-                        )
-                self.save_state(instance_id, entry=entry)
-            finally:
-                await stream.aclose()
-
-        if final_message is None:
-            raise AgentError("AgentExecutor stream ended without a 'complete' event.")
-
-        return final_message
-
     # ------------------------------------------------------------------
     # Built-in tool registration
     # ------------------------------------------------------------------
@@ -3384,6 +3139,13 @@ class DurableAgent(AgentBase):
 
         self.save_state(instance_id, entry=entry)
 
+    def _get_wf_client(self) -> wf.DaprWorkflowClient:
+        """Return the shared workflow client, creating it on first use."""
+        with self._wf_client_lock:
+            if self._wf_client is None:
+                self._wf_client = wf.DaprWorkflowClient()
+            return self._wf_client
+
     def _pending_approvals_key(self) -> str:
         """Dapr State Store key for the agent-scoped pending-approvals dict."""
         return f"{self.name}:pending_approvals".lower()
@@ -3392,9 +3154,9 @@ class DurableAgent(AgentBase):
         """
         Write the current _pending_approvals dict to Dapr State Store so it
         survives process crashes.  No-op when no state store is configured or
-        no HITL hooks are present.
+        the agent cannot wait for approvals.
         """
-        if not (self._hooks and self._hooks.before_tool_call):
+        if not self._approvals_possible:
             return
         if not self.state_store:
             return
@@ -3411,10 +3173,10 @@ class DurableAgent(AgentBase):
         Load previously persisted pending approvals from Dapr State Store into
         _pending_approvals on agent startup.  Entries whose workflow is no longer
         RUNNING are dropped so stale requests from already-finished workflows are
-        not surfaced.  No-op when no state store is configured or no HITL hooks
-        are present.
+        not surfaced.  No-op when no state store is configured or the agent
+        cannot wait for approvals.
         """
-        if not (self._hooks and self._hooks.before_tool_call):
+        if not self._approvals_possible:
             return
         if not self.state_store:
             return
@@ -3422,7 +3184,7 @@ class DurableAgent(AgentBase):
             data = self.state_store.load(key=self._pending_approvals_key(), default={})
             if not data:
                 return
-            wf_client = self._wf_client
+            wf_client = self._get_wf_client()
             _ACTIVE = {wf.WorkflowStatus.RUNNING, wf.WorkflowStatus.SUSPENDED}
             for approval_request_id, event_data in data.items():
                 instance_id = event_data.get("instance_id", "")

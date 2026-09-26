@@ -84,6 +84,12 @@ classifiers = [
 drasi = [
     "dapr-agents-ext-drasi>=0.1.0,<1.0.0",
 ]
+# Claude Agent SDK executor (ClaudeAgentExecutor). The wheels bundle the
+# Claude Code CLI (~100 MB); there is no musllinux wheel, so Alpine images
+# need the ``claude`` CLI on PATH.
+claude = [
+    "claude-agent-sdk>=0.2.159,<0.3.0",
+]
 vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<7.0.0",
@@ -132,6 +138,11 @@ dapr-ext-fastapi = "2026-05-21T00:00:00Z"
 dapr-ext-workflow = "2026-05-21T00:00:00Z"
 durabletask-dapr = "2026-05-21T00:00:00Z"
 anthropic = "2026-08-23T00:00:00Z"
+# claude-agent-sdk 0.2.159 (the minimum the claude extra needs) is newer than
+# the 7-day cooldown. This fixed date admits nothing released after it; drop
+# the override once 0.2.159 is older than 7 days (after 2026-09-30) so the
+# package falls back under the repo-wide cooldown.
+claude-agent-sdk = "2026-09-24T00:00:00Z"
 
 [project.urls]
 Documentation = "https://github.com/dapr/docs"
@@ -191,6 +202,7 @@ members = [
     "examples/09-agents-as-tools",
     "examples/10-mcpserver",
     "examples/11-expert-agent-tavily",
+    "examples/13-agent-executor-claude",
     "examples/ext-drasi-change-driven-agents-k8s",
     "ext/*",
 ]
