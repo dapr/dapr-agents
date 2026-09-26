@@ -590,7 +590,6 @@ class _StreamSubscriber:
             wf_client=wf_client,
             default_serializer=_serialize_event_default_data,
         )
-        self._default_event_dedupers: dict[TopicKey, DedupeBackend] = {}
 
         if delivery_mode == DELIVERY_MODE_ASYNC:
             if loop is None or not loop.is_running():
@@ -764,16 +763,12 @@ class _StreamSubscriber:
             return target.deduper
         if self.deduper is not None:
             return self.deduper
-        key = (topic_bindings[0].pubsub, topic_bindings[0].topic)
-        backend = self._default_event_dedupers.get(key)
-        if backend is None:
-            ttl = max(
-                EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS,
-                target.not_found_retry.window_seconds,
-            )
-            backend = TTLDedupeBackend(ttl=ttl)
-            self._default_event_dedupers[key] = backend
-        return backend
+        # subscribe_all() calls this once per topic, so each topic gets its own backend.
+        ttl = max(
+            EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS,
+            target.not_found_retry.window_seconds,
+        )
+        return TTLDedupeBackend(ttl=ttl)
 
     @staticmethod
     def _dedup_id(
