@@ -112,11 +112,14 @@ def apply_config_update(
     Process and apply a configuration update to an object.
 
     The update is applied using the value returned by the descriptor's processing logic.
-    If processing or application fails, behavior depends on the descriptor's ``raise_on_error`` setting:
+    If processing or application fails, behavior depends on the descriptor's ``raise_on_error`` field:
 
-        - If ``raise_on_error`` is ``True``, the error is propagated.
-        - If ``raise_on_error`` is ``False``, the error is logged and, when a fallback value is configured,
-          the fallback is attempted. If the fallback also fails, the error is logged and the update is skipped.
+    - If ``raise_on_error`` is ``True``, the error is propagated.
+    - If ``raise_on_error`` is ``False``, the error is logged and, when a fallback value is configured,
+      the fallback is attempted. If the fallback also fails, the error is logged and the update is skipped.
+
+    Callers **should** ensure that setters are atomic — if a setter mutates the target object before failing,
+    callers may observe a partial update.
 
     Args:
         target_obj: The object to be updated.

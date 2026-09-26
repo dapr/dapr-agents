@@ -921,7 +921,9 @@ class AgentBase:
     # ------------------------------------------------------------------
 
     def _apply_config_update(self, key: str, value: Any) -> bool:
-        """Apply a configuration update to the agent state.
+        """
+        Apply a configuration update to the agent state (best-effort).
+        Invalid values and failed updates are logged and ignored.
 
         Returns:
             True if the update triggers an OTel reload, False otherwise.
@@ -937,44 +939,27 @@ class AgentBase:
 
         logger.info(f"Agent {self.name} applying config update: {key}={safe_value!r}")
 
+        # Process and apply the configuration update to the agent
         try:
-            processed_value = process_config_update(
+            applied_value = apply_config_update(
+                target_obj=self,
                 key=normalized_key,
                 value=value,
                 descriptor=descriptor,
             )
         except Exception:
-            # Skip update for coercion/validation/transformation/other failures
-            logger.warning(f"Agent {self.name} skipping update", exc_info=True)
-            return False
-
-        try:
-            applied_value = apply_config_update(
-                target_obj=self,
-                key=normalized_key,
-                value=processed_value,
-                descriptor=descriptor,
-            )
-        except RuntimeError:
-            # Fall through if the agent could not be updated but the value is otherwise valid
             logger.warning(
-                f"Agent {self.name} value is valid but could not be applied",
+                f"Agent {self.name} skipping config update",
                 exc_info=True,
             )
-            applied_value = None
-        except Exception:
-            # Defensive check: we shouldn't get here assuming value is valid
-            logger.warning(f"Agent {self.name} skipping update.", exc_info=True)
             return False
-
-        resolved_value = applied_value or processed_value
 
         # Rebuild prompt template if a profile key changed
         if descriptor.rebuilds_prompt:
             self._rebuild_prompt_after_config_update()
 
         # Fire user callbacks
-        self._fire_config_change_callbacks(normalized_key, resolved_value)
+        self._fire_config_change_callbacks(normalized_key, applied_value)
 
         # Re-register metadata
         self._sync_metadata_after_config_update()
