@@ -161,6 +161,24 @@ def _event_route_schemas(message_model: Any) -> list[type[Any]]:
     return schemas
 
 
+def _validate_authorize(fn: Any) -> None:
+    """``authorize`` must be a sync callable taking (message, ctx, target)."""
+    validate_hook(fn, "authorize")
+    if fn is None:
+        return
+    try:
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return  # not introspectable (some builtins); a wrong arity denies at call time
+    try:
+        signature.bind(None, None, None)
+    except TypeError as exc:
+        raise TypeError(
+            "`authorize` must accept three positional arguments: "
+            "(message, MessageContext, WorkflowEventTarget)."
+        ) from exc
+
+
 def _validate_event_route_spec(spec: WorkflowEventRouteSpec) -> None:
     """Reject an invalid workflow event route spec at registration time."""
     _require_non_empty_str(spec.pubsub_name, "pubsub_name")
@@ -174,7 +192,7 @@ def _validate_event_route_spec(spec: WorkflowEventRouteSpec) -> None:
         )
     validate_hook(spec.payload_filter, "payload_filter")
     validate_hook(spec.model_filter, "model_filter")
-    validate_hook(spec.authorize, "authorize")
+    _validate_authorize(spec.authorize)
     validate_field_resolver(spec.instance_id_from, "instance_id_from")
     validate_field_resolver(spec.event_name_from, "event_name_from", optional=True)
     validate_field_resolver(spec.data_from, "data_from", optional=True)

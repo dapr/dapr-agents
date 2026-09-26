@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import functools
 import threading
 import time
 from typing import Any
@@ -23,10 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import grpc
 import pytest
-from cachetools import TTLCache
-from dapr.ext.workflow.workflow_state import WorkflowStatus
 
-from dapr_agents.workflow.utils import event_routes as er
 from dapr_agents.workflow.utils.event_routes import (
     EventRouteTarget,
     WorkflowEventDispatcher,
@@ -37,7 +33,6 @@ from dapr_agents.workflow.utils.registration import register_message_routes
 from tests.workflow._event_route_helpers import (
     PATCH_TARGET,
     FakeRpcError,
-    workflow_state,
 )
 from tests.workflow.test_workflow_event_routes_e2e_inprocess import (  # noqa: F401
     _event,
@@ -154,14 +149,9 @@ def test_permanent_sidecar_error_is_bounded(env, code):
 # ---- 4. not-found budget resets when redeliveries are slower than tracker TTL --
 
 
-def test_not_found_budget_survives_slow_redelivery(monkeypatch):
+def test_not_found_budget_survives_slow_redelivery():
     now = [0.0]
     clock = lambda: now[0]  # noqa: E731
-    # The tracker no longer uses a TTL cache; the patch (a no-op now) keeps
-    # this test reproducing the old TTL-expiry bug if one comes back.
-    monkeypatch.setattr(
-        er, "TTLCache", functools.partial(TTLCache, timer=clock), raising=False
-    )
     wf = MagicMock()
     wf.get_workflow_state.return_value = None  # instance never appears
     dispatcher = WorkflowEventDispatcher(

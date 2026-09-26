@@ -29,7 +29,6 @@ from dapr.ext.workflow.workflow_state import WorkflowStatus
 from pydantic import BaseModel
 
 from dapr_agents.types.exceptions import PubSubNotAvailableError
-from dapr_agents.types.message import EventMessageMetadata
 from dapr_agents.types.workflow import (
     NotFoundRetryPolicy,
     PubSubRouteSpec,
@@ -37,7 +36,6 @@ from dapr_agents.types.workflow import (
 )
 from dapr_agents.workflow.utils.event_routes import (
     EventRouteResolutionError,
-    EventRouteTarget,
     WorkflowEventDispatcher,
     coerce_identifier,
     is_instance_not_found_error,
@@ -51,7 +49,6 @@ from dapr_agents.workflow.utils.registration import (
 )
 from dapr_agents.workflow.utils.subscription import (
     METADATA_KEY,
-    MessageContext,
     MessageRouteBinding,
     TTLDedupeBackend,
     _serialize_event_default_data,
@@ -60,22 +57,20 @@ from dapr_agents.workflow.utils.subscription import (
 )
 from tests.workflow._event_route_helpers import (
     PATCH_TARGET,
+    BrokenRpcError,
     FakeRpcError,
     JobFinished,
     JobRef,
+    make_ctx,
+    make_dispatcher,
     make_spec,
+    make_target,
+    make_wf,
+    run_dispatch,
     workflow_state,
 )
 
 # ---- helpers ----------------------------------------------------------------
-
-
-class _BrokenRpcError(grpc.RpcError):
-    def code(self) -> Any:
-        raise RuntimeError("boom")
-
-    def details(self) -> str:
-        raise RuntimeError("boom")
 
 
 class _Other(BaseModel):
@@ -95,58 +90,22 @@ class _Clock:
         return self.now
 
 
-def _ctx(event_id: Optional[str] = "evt-1", name: str = "route") -> MessageContext:
-    fields = dict.fromkeys(EventMessageMetadata.model_fields)
-    fields.update(id=event_id, topic="t")
-    return MessageContext(
-        event=EventMessageMetadata.model_validate(fields), handler_name=name
-    )
+_ctx = make_ctx
+_target = make_target
+_wf = make_wf
+_dispatch = run_dispatch
 
 
 def _spec(**overrides: Any) -> WorkflowEventRouteSpec:
     return make_spec(dict(event_name="evt", instance_id_from="wf_id"), **overrides)
 
 
-def _target(**overrides: Any) -> EventRouteTarget:
-    values: dict[str, Any] = dict(
-        event_name="evt",
-        instance_id_from="wf_id",
-        event_name_from=None,
-        data_from=None,
-        dedupe=True,
-        deduper=None,
-        not_found_retry=NotFoundRetryPolicy(),
-    )
-    values.update(overrides)
-    return EventRouteTarget(**values)
-
-
 def _dispatcher(wf_client: MagicMock, clock: Optional[_Clock] = None):
-    return WorkflowEventDispatcher(
-        wf_client=wf_client,
-        default_serializer=lambda p: _serialize_workflow_input(p)[0],
+    return make_dispatcher(
+        wf_client,
+        serializer=lambda p: _serialize_workflow_input(p)[0],
         clock=clock or _Clock(),
     )
-
-
-def _dispatch(dispatcher, target=None, message=None, ctx=None, dlq=None) -> str:
-    return dispatcher.dispatch(
-        target=target or _target(),
-        route_name="route",
-        pubsub="messagepubsub",
-        topic="t",
-        dead_letter_topic=dlq,
-        message=message if message is not None else {"wf_id": "wf-1"},
-        msg_ctx=ctx or _ctx(),
-    )
-
-
-def _wf(status: Optional[WorkflowStatus] = WorkflowStatus.RUNNING) -> MagicMock:
-    wf_client = MagicMock()
-    wf_client.get_workflow_state.return_value = (
-        workflow_state(status) if status is not None else None
-    )
-    return wf_client
 
 
 # ---- 9.1 registration and validation ----------------------------------------
@@ -443,7 +402,7 @@ def test_is_instance_not_found_error():
     )
     assert not is_instance_not_found_error(FakeRpcError(grpc.StatusCode.UNAVAILABLE))
     assert not is_instance_not_found_error(RuntimeError("no such instance exists"))
-    assert not is_instance_not_found_error(_BrokenRpcError())
+    assert not is_instance_not_found_error(BrokenRpcError())
 
 
 # ---- 9.3 dispatcher branches ---------------------------------------------------
@@ -597,7 +556,9 @@ def test_dispatch_state_check_not_found_error_is_bounded():
 
 
 def test_not_found_tracker_evicts_beyond_bound(monkeypatch):
-    monkeypatch.setattr("dapr_agents.workflow.utils.event_routes._TRACKER_MAXSIZE", 2)
+    monkeypatch.setattr(
+        "dapr_agents.workflow.utils.event_route_state.NOT_FOUND_TRACKER_MAXSIZE", 2
+    )
     target = _target(not_found_retry=NotFoundRetryPolicy(max_attempts=2))
     dispatcher = _dispatcher(_wf(None))
     assert _dispatch(dispatcher, target=target, ctx=_ctx("a")) == "retry"

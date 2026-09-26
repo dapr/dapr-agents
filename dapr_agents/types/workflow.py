@@ -178,6 +178,19 @@ class NotFoundRetryPolicy:
 
 
 @dataclass(frozen=True)
+class WorkflowEventTarget:
+    """The workflow instance and event a message resolved to, handed to ``authorize``.
+
+    Attributes:
+        instance_id: Resolved target workflow instance id.
+        event_name: Resolved event name.
+    """
+
+    instance_id: str
+    event_name: str
+
+
+@dataclass(frozen=True)
 class WorkflowEventRouteSpec:
     """Pub/sub subscription that raises an external event on an existing workflow instance.
 
@@ -189,26 +202,37 @@ class WorkflowEventRouteSpec:
     wait with the same (case-insensitive) name, so event names must be unique
     per wait. Deduplication is on by default to stop a redelivered message
     from satisfying a later wait. It is best-effort: keyed by CloudEvent id (or
-    a SHA-256 of the payload when there is none), in process memory by default
-    and bounded by TTL and size (see ``deduper`` and ``dedupe_max_entries``).
-    A crash after the raise but before the ack, or a redelivery to another
-    replica without a shared ``deduper``, can still raise the event twice.
+    a SHA-256 of the canonical JSON payload when there is none), in process
+    memory by default and bounded by TTL and size (see ``deduper`` and
+    ``dedupe_max_entries``). A crash after the raise but before the ack, or a
+    redelivery to another replica without a shared ``deduper``, can still
+    raise the event twice. Publishers must use unique CloudEvent ids: the
+    duplicate check runs before any resolver, filter or ``authorize``, so a
+    message that reuses an id already seen is treated as a duplicate,
+    acknowledged and never evaluated.
 
-    Outcomes: a terminal workflow (COMPLETED / FAILED / TERMINATED), an
-    unresolvable or oversized message, a used-up ``not_found_retry`` budget, a
-    permanent sidecar error (gRPC ``INVALID_ARGUMENT``, ``PERMISSION_DENIED``,
+    Evaluation order: schema validation and the filters, then the resolvers
+    and limits, then ``authorize``, then the sidecar calls (state check, raise).
+
+    Outcomes, in that order: an unresolvable or oversized message, an
+    ``authorize`` denial, a terminal workflow (COMPLETED / FAILED /
+    TERMINATED), a used-up ``not_found_retry`` budget or a permanent sidecar
+    error (gRPC ``INVALID_ARGUMENT``, ``PERMISSION_DENIED``,
     ``UNAUTHENTICATED``, ``UNIMPLEMENTED``, ``OUT_OF_RANGE`` or
-    ``FAILED_PRECONDITION``) or an ``authorize`` denial is dropped; daprd
-    dead-letters it when ``dead_letter_topic`` is set, otherwise it is logged
-    at WARNING and discarded. Terminal states are never retried. Other sidecar
-    errors and timeouts are retried. If the workflow finishes between the state
-    check and the raise, the runtime discards the event and the message is
-    still acknowledged.
+    ``FAILED_PRECONDITION``) is dropped; daprd dead-letters it when
+    ``dead_letter_topic`` is set, otherwise it is logged at WARNING and
+    discarded. Terminal states are never retried. Other sidecar errors and
+    timeouts are retried. If the workflow finishes between the state check and
+    the raise, the runtime discards the event and the message is still
+    acknowledged.
 
     Security: anyone who can publish to ``topic`` can signal any workflow
     instance whose id they can guess or learn. Restrict publishers with Dapr
     pub/sub topic scoping, and use ``authorize`` to decide per message whether
-    it may signal the resolved workflow. Event names the SDK itself waits on
+    it may signal the resolved workflow. The CloudEvent ``source`` (and the
+    other CloudEvent attributes) are set by the publisher, so a check on them
+    is only as strong as topic scoping and pub/sub access control; prefer
+    checks tied to the resolved target. Event names the SDK itself waits on
     (``approval_response_*`` and ``user_input_response:*``, compared with
     Unicode case folding as Dapr does) are rejected unless
     ``allow_reserved_event_names`` is True: a static ``event_name`` at
@@ -220,7 +244,10 @@ class WorkflowEventRouteSpec:
     Hooks: ``authorize``, ``payload_filter`` and ``model_filter`` run with the
     ``hook_timeout_seconds`` deadline and must return exactly ``True`` to let
     the message through; ``False``, any other value (``"False"``, ``1``), an
-    exception or a timeout rejects it. Resolvers (``instance_id_from``,
+    exception or a timeout rejects it. Hooks fail closed by design: a timeout
+    or exception drops the message even when its cause was transient. Hooks
+    and sidecar calls run on two thread pools shared by every event-route topic
+    of the subscriber. Resolvers (``instance_id_from``,
     ``event_name_from``, ``data_from``) and payload serialization run on the
     consumer thread without a deadline, so keep them cheap.
 
@@ -236,6 +263,13 @@ class WorkflowEventRouteSpec:
         def job_event_name(msg: JobFinished, ctx: MessageContext) -> str:
             return f"job_finished_{msg.status}"
 
+        def authorize(
+            msg: JobFinished, ctx: MessageContext, target: WorkflowEventTarget
+        ) -> bool:
+            # Tied to the resolved target, not to publisher-supplied CloudEvent
+            # attributes such as ctx.event.source.
+            return target.instance_id.startswith("job-")
+
         spec = WorkflowEventRouteSpec(
             pubsub_name="messagepubsub",
             topic="jobs.finished",
@@ -244,7 +278,7 @@ class WorkflowEventRouteSpec:
             event_name_from=job_event_name,       # optional callable resolver
             message_model=JobFinished,
             dead_letter_topic="jobs.finished.dlq",
-            authorize=lambda msg, ctx: ctx.event.source == "/jobs-service",
+            authorize=authorize,
         )
         runner.subscribe(agent, event_routes=[spec])
 
@@ -274,12 +308,15 @@ class WorkflowEventRouteSpec:
             ``True`` to accept.
         model_filter: Like ``PubSubRouteSpec.model_filter``, with the same
             deadline and strict ``True`` rule as ``payload_filter``.
-        authorize: Optional sync callable ``(validated_message, MessageContext)
-            -> bool`` (the context carries the CloudEvent). It runs after schema
-            validation and the filters and before any sidecar call. Anything
-            other than exactly ``True`` (including an exception or a timeout)
-            denies the message: it is dropped with a WARNING that names the
-            route, workflow instance and message id, never the payload.
+        authorize: Optional sync callable ``(validated_message, MessageContext,
+            WorkflowEventTarget) -> bool``. The context carries the CloudEvent,
+            whose attributes are publisher-supplied; the target is the resolved
+            instance id and event name. It runs after schema validation, the
+            filters, the resolvers and the limits, and before any sidecar call.
+            Anything other than exactly ``True`` (including an exception or a
+            timeout) denies the message: it is dropped with a WARNING that
+            names the route, workflow instance and message id, never the
+            payload.
         hook_timeout_seconds: Deadline for ``authorize``, ``payload_filter``
             and ``model_filter``. Default 5.0.
         dedupe: Deduplicate redeliveries by CloudEvent id. Default True.
@@ -331,7 +368,7 @@ class WorkflowEventRouteSpec:
     call_timeout_seconds: float = DEFAULT_EVENT_CALL_TIMEOUT_SECONDS
     dedupe_max_entries: int = DEFAULT_EVENT_DEDUPE_MAX_ENTRIES
     allow_reserved_event_names: bool = False
-    authorize: Callable[[Any, MessageContext], bool] | None = None
+    authorize: Callable[[Any, MessageContext, WorkflowEventTarget], bool] | None = None
     hook_timeout_seconds: float = DEFAULT_EVENT_HOOK_TIMEOUT_SECONDS
 
     def __post_init__(self) -> None:
