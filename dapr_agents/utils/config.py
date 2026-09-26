@@ -65,7 +65,7 @@ def get_case_insensitive(mapping: Mapping[str, Any], key: str) -> Any:
         - If only ``"MY_VAR"`` is in the mapping, returns its value.
         - If only ``"my_var"`` is in the mapping, returns its value.
         - If ``"MY_VAR"`` and ``"my_var"`` are both in the mapping,
-          the value associated with the uppercase key is used.
+          the value associated with ``"MY_VAR"`` is used.
         - If neither key is in the mapping, returns ``None``.
 
     Returns:
@@ -82,7 +82,7 @@ def normalize_config_key(key: str) -> str:
     Normalize a configuration key to an attribute name.
 
     Returns:
-        The normalized attribute name, lowercased and with dashes replaced by underscores.
+        The normalized attribute name, lowercased and with hyphens replaced by underscores.
     """
     return key.lower().replace("-", "_")
 
@@ -110,16 +110,20 @@ def apply_config_update(
 ) -> Any:
     """
     Process and apply a configuration update to an object.
-    If the descriptor's ``raise_on_error`` is ``False``, failures during the configuration update
-    or fallback update are logged and swallowed, returning ``None``.
-    This function is guaranteed to be idempotent if the processing logic is idempotent.
+
+    The update is applied using the value returned by the descriptor's processing logic.
+    If processing or application fails, behavior depends on the descriptor's ``raise_on_error`` setting:
+
+        - If ``raise_on_error`` is ``True``, the error is propagated.
+        - If ``raise_on_error`` is ``False``, the error is logged and, when a fallback value is configured,
+          the fallback is attempted. If the fallback also fails, the error is logged and the update is skipped.
 
     Args:
         target_obj: The object to be updated.
         key: The configuration key.
-        value: Optional value to process and apply.
-            Falls back to the descriptor's getter if not provided (may not be idempotent).
         descriptor: An object describing how to process a value for a particular key.
+        value: Optional value to process and apply.
+            Falls back to the descriptor's getter if not provided.
 
     Returns:
         The final applied value, or ``None`` if no value can be applied and the descriptor's ``raise_on_error`` is ``False``.
@@ -151,6 +155,8 @@ def apply_config_update(
             return None
 
         logger.debug(f"Using fallback value for key '{key}': {descriptor.fallback!r}")
+
+        # Best-effort update: fall back to the configured value if available
         try:
             descriptor.setter(target_obj, descriptor.fallback)
         except Exception:
@@ -170,12 +176,11 @@ def process_config_update(
 ) -> Any:
     """
     Process a configuration update by coercing, validating, and transforming a value.
-    This function is guaranteed to be idempotent if the processing logic is idempotent.
 
     Args:
         key: The configuration key.
         value: Optional value to process.
-            Falls back to the descriptor's getter if not provided (may not be idempotent).
+            Falls back to the descriptor's getter if not provided.
         descriptor: An object describing how to process a value for a particular key.
 
     Returns:
