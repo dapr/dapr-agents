@@ -20,7 +20,7 @@ import logging
 import json
 from dataclasses import dataclass
 from types import UnionType
-from typing import Any, Callable, Union, get_origin, get_args
+from typing import Any, Callable, Mapping, Union, get_origin, get_args
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +57,33 @@ class ConfigFieldDescriptor:
     triggers_otel_reload: bool = False
 
 
+def get_case_insensitive(mapping: Mapping[str, Any], key: str) -> Any:
+    """
+    Get a value from a mapping, preferring the uppercase key variant.
+
+    Examples:
+        - If only ``"MY_VAR"`` is in the mapping, returns its value.
+        - If only ``"my_var"`` is in the mapping, returns its value.
+        - If ``"MY_VAR"`` and ``"my_var"`` are both in the mapping,
+          the value associated with the uppercase key is used.
+        - If neither key is in the mapping, returns ``None``.
+
+    Returns:
+        The value for the key, or ``None`` if neither case variant is present.
+    """
+    uppercase_key = key.upper()
+    if uppercase_key in mapping:
+        return mapping.get(uppercase_key)
+    return mapping.get(key.lower())
+
+
 def normalize_config_key(key: str) -> str:
-    """Default normalization of configuration keys to attribute names."""
+    """
+    Normalize a configuration key to an attribute name.
+
+    Returns:
+        The normalized attribute name, lowercased and with dashes replaced by underscores.
+    """
     return key.lower().replace("-", "_")
 
 

@@ -258,6 +258,19 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes == 654321
 
+    def test_execution_config_from_env_is_case_insensitive(
+        self, mock_llm, mock_tool, monkeypatch
+    ):
+        """Test execution config accepts lowercase environment variable names."""
+        monkeypatch.setenv("dapr_agents_max_iterations", "7")
+
+        mock_client = MockDaprClient()
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = self._make_agent(mock_llm, tools=[mock_tool])
+
+        assert agent.execution.max_iterations == 7
+
     def test_execution_config_from_env_ignores_invalid_values(
         self, mock_llm, mock_tool, monkeypatch
     ):

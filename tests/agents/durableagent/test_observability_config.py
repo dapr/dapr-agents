@@ -271,6 +271,30 @@ class TestObservabilityConfigFromEnvironment:
         assert resolved_config.tracing_enabled is True
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
+    def test_observability_config_from_env_is_case_insensitive(
+        self, mock_llm, monkeypatch
+    ):
+        """Test observability config accepts lowercase environment variable names."""
+        monkeypatch.setenv("otel_service_name", "lowercase-service")
+
+        agent = DurableAgent(
+            name="TestAgent",
+            role="Test Assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="TestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+        )
+
+        assert agent._agent_observability.service_name == "lowercase-service"
+
     def test_observability_config_from_env_partial_fields(self, mock_llm, monkeypatch):
         """Test observability config with only some env variables set."""
         monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
