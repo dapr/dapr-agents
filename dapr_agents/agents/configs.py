@@ -623,21 +623,27 @@ class AgentExecutionConfig:
             EnvConfigKey.MAX_ITERATIONS: ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
-                getter=lambda: get_case_insensitive(os.environ, "DAPR_AGENTS_MAX_ITERATIONS"),
+                getter=lambda: get_case_insensitive(
+                    os.environ, "DAPR_AGENTS_MAX_ITERATIONS"
+                ),
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
             EnvConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
-                getter=lambda: get_case_insensitive(os.environ, "DAPR_AGENTS_TOOL_CHOICE"),
+                getter=lambda: get_case_insensitive(
+                    os.environ, "DAPR_AGENTS_TOOL_CHOICE"
+                ),
                 validator=validate_tool_choice,
                 raise_on_error=False,
             ),
             EnvConfigKey.TOOL_EXECUTION_MODE: ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
-                getter=lambda: get_case_insensitive(os.environ, "DAPR_AGENTS_TOOL_EXECUTION_MODE"),
+                getter=lambda: get_case_insensitive(
+                    os.environ, "DAPR_AGENTS_TOOL_EXECUTION_MODE"
+                ),
                 validator=validate_tool_execution_mode,
                 raise_on_error=False,
             ),
@@ -1014,14 +1020,18 @@ class AgentObservabilityConfig:
             EnvConfigKey.OTEL_EXPORTER_OTLP_HEADERS: ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "headers", v),
-                getter=lambda: get_case_insensitive(os.environ, "OTEL_EXPORTER_OTLP_HEADERS"),
+                getter=lambda: get_case_insensitive(
+                    os.environ, "OTEL_EXPORTER_OTLP_HEADERS"
+                ),
                 validator=parse_header_string,
                 raise_on_error=False,
             ),
             EnvConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
-                getter=lambda: get_case_insensitive(os.environ, "OTEL_EXPORTER_OTLP_ENDPOINT"),
+                getter=lambda: get_case_insensitive(
+                    os.environ, "OTEL_EXPORTER_OTLP_ENDPOINT"
+                ),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
             ),
@@ -1160,7 +1170,9 @@ class AgentObservabilityConfig:
             RuntimeConfigKey.OTEL_SDK_DISABLED: ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "enabled", v),
-                getter=lambda: get_case_insensitive(runtime_config, "OTEL_SDK_DISABLED"),
+                getter=lambda: get_case_insensitive(
+                    runtime_config, "OTEL_SDK_DISABLED"
+                ),
                 validator=lambda v: (
                     v if v is None else not v
                 ),  # Invert the disabled flag to set enabled
@@ -1170,34 +1182,44 @@ class AgentObservabilityConfig:
                 target_type=Optional[str],
                 # Target the auth_token field as runtime secrets may contain an access token
                 setter=lambda obj, v: setattr(obj, "auth_token", v),
-                getter=lambda: get_case_insensitive(runtime_config, "OTEL_EXPORTER_OTLP_HEADERS"),
+                getter=lambda: get_case_insensitive(
+                    runtime_config, "OTEL_EXPORTER_OTLP_HEADERS"
+                ),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
             ),
             RuntimeConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
-                getter=lambda: get_case_insensitive(runtime_config, "OTEL_EXPORTER_OTLP_ENDPOINT"),
+                getter=lambda: get_case_insensitive(
+                    runtime_config, "OTEL_EXPORTER_OTLP_ENDPOINT"
+                ),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
             ),
             RuntimeConfigKey.OTEL_SERVICE_NAME: ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
-                getter=lambda: get_case_insensitive(runtime_config, "OTEL_SERVICE_NAME"),
+                getter=lambda: get_case_insensitive(
+                    runtime_config, "OTEL_SERVICE_NAME"
+                ),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
             ),
             RuntimeConfigKey.OTEL_LOGGING_ENABLED: ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "logging_enabled", v),
-                getter=lambda: get_case_insensitive(runtime_config, "OTEL_LOGGING_ENABLED"),
+                getter=lambda: get_case_insensitive(
+                    runtime_config, "OTEL_LOGGING_ENABLED"
+                ),
                 raise_on_error=False,
             ),
             RuntimeConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
-                getter=lambda: get_case_insensitive(runtime_config, "OTEL_LOGS_EXPORTER"),
+                getter=lambda: get_case_insensitive(
+                    runtime_config, "OTEL_LOGS_EXPORTER"
+                ),
                 validator=validate_otel_exporter_logging,
                 raise_on_error=False,
                 fallback=AgentLoggingExporter.CONSOLE,
@@ -1205,13 +1227,17 @@ class AgentObservabilityConfig:
             RuntimeConfigKey.OTEL_TRACING_ENABLED: ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
-                getter=lambda: get_case_insensitive(runtime_config, "OTEL_TRACING_ENABLED"),
+                getter=lambda: get_case_insensitive(
+                    runtime_config, "OTEL_TRACING_ENABLED"
+                ),
                 raise_on_error=False,
             ),
             RuntimeConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
-                getter=lambda: get_case_insensitive(runtime_config, "OTEL_TRACES_EXPORTER"),
+                getter=lambda: get_case_insensitive(
+                    runtime_config, "OTEL_TRACES_EXPORTER"
+                ),
                 validator=validate_otel_exporter_tracing,
                 raise_on_error=False,
                 fallback=AgentTracingExporter.CONSOLE,
