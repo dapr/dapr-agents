@@ -20,47 +20,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
-from pydantic import BaseModel
 
 from dapr_agents.agents.configs import AgentPubSubConfig
 from dapr_agents.types.workflow import HttpRouteSpec, WorkflowEventRouteSpec
-from dapr_agents.workflow.decorators.decorators import message_router
-from dapr_agents.workflow.runners.agent import AgentRunner
 from dapr_agents.workflow.runners.base import WorkflowRunner
-
-_REGISTER = "dapr_agents.workflow.runners.agent.register_message_routes"
-
-_WIRE_KWARGS: dict[str, Any] = dict(
-    delivery_mode="sync",
-    queue_maxsize=10,
-    await_result=False,
-    await_timeout=None,
-    fetch_payloads=True,
-    log_outcome=False,
+from tests.workflow.test_agent_runner_pubsub import (
+    _WIRE_KWARGS,
+    _FakeAgent,
+    _make_runner,
 )
 
-
-class _Message(BaseModel):
-    text: str
-
-
-class _FakeAgent:
-    name = "fake-agent"
-
-    @message_router(message_model=_Message)
-    def handle_direct(self, message: _Message) -> None: ...
-
-
-def _make_runner() -> AgentRunner:
-    with patch(
-        "dapr_agents.workflow.runners.base.DaprWorkflowClient",
-        return_value=MagicMock(),
-    ):
-        return AgentRunner(
-            name="test-runner",
-            wf_client=MagicMock(),
-            client_factory=lambda: MagicMock(),
-        )
+_REGISTER = "dapr_agents.workflow.runners.agent.register_message_routes"
 
 
 def _agent(pubsub: bool = True) -> _FakeAgent:
@@ -86,14 +56,50 @@ def _routes(mock_register: MagicMock) -> list[Any]:
     return list(mock_register.call_args.kwargs["routes"])
 
 
-def test_wire_registers_agent_and_event_specs_together():
+def test_wire_registers_agent_and_event_specs_separately():
     runner, spec = _make_runner(), _event_spec()
     with patch(_REGISTER, return_value=[]) as mock_register:
         runner._wire_pubsub_routes(agent=_agent(), event_routes=[spec], **_WIRE_KWARGS)
-    assert mock_register.call_count == 1
-    routes = _routes(mock_register)
-    assert {getattr(r, "topic") for r in routes} == {"direct-topic", "jobs"}
-    assert spec in routes
+    assert mock_register.call_count == 2
+    agent_call, event_call = mock_register.call_args_list
+    assert "direct-topic" in {r.topic for r in agent_call.kwargs["routes"]}
+    assert agent_call.kwargs["deduper"] is not None
+    assert list(event_call.kwargs["routes"]) == [spec]
+    # Event routes use their own default dedupe backend and sync delivery.
+    assert event_call.kwargs["deduper"] is None
+    assert event_call.kwargs["delivery_mode"] == "sync"
+
+
+def test_event_routes_register_sync_even_in_async_mode():
+    runner, spec = _make_runner(), _event_spec()
+    kwargs = {**_WIRE_KWARGS, "delivery_mode": "async"}
+    with patch(_REGISTER, return_value=[]) as mock_register:
+        runner._wire_pubsub_routes(
+            agent=_agent(pubsub=False), event_routes=[spec], **kwargs
+        )
+    assert mock_register.call_args.kwargs["delivery_mode"] == "sync"
+
+
+def test_rewiring_same_event_name_with_different_config_warns(caplog):
+    runner, agent = _make_runner(), _agent()
+    changed = WorkflowEventRouteSpec(
+        pubsub_name="pubsub",
+        topic="jobs",
+        event_name="job_finished",
+        instance_id_from="other_id",
+    )
+    with patch(_REGISTER, return_value=[]) as mock_register:
+        runner._wire_pubsub_routes(
+            agent=agent, event_routes=[_event_spec()], **_WIRE_KWARGS
+        )
+        calls = mock_register.call_count
+        with caplog.at_level("WARNING"):
+            runner._wire_pubsub_routes(
+                agent=agent, event_routes=[changed], **_WIRE_KWARGS
+            )
+    assert mock_register.call_count == calls
+    assert "different configuration" in caplog.text
+    assert runner._wired_event_routes[("pubsub", "jobs")] == _event_spec()
 
 
 def test_agent_without_pubsub_still_registers_event_routes():
@@ -109,8 +115,9 @@ def test_rewiring_same_event_route_is_noop():
     runner, agent, spec = _make_runner(), _agent(), _event_spec()
     with patch(_REGISTER, return_value=[]) as mock_register:
         runner._wire_pubsub_routes(agent=agent, event_routes=[spec], **_WIRE_KWARGS)
+        calls = mock_register.call_count
         runner._wire_pubsub_routes(agent=agent, event_routes=[spec], **_WIRE_KWARGS)
-    assert mock_register.call_count == 1
+    assert mock_register.call_count == calls
 
 
 def test_later_event_route_is_added():
@@ -189,10 +196,11 @@ def test_unwire_clears_event_routes():
     runner, agent, spec = _make_runner(), _agent(), _event_spec()
     with patch(_REGISTER, return_value=[]) as mock_register:
         runner._wire_pubsub_routes(agent=agent, event_routes=[spec], **_WIRE_KWARGS)
+        calls = mock_register.call_count
         runner.unwire_pubsub()
         assert runner._wired_event_routes == {}
         runner._wire_pubsub_routes(agent=agent, event_routes=[spec], **_WIRE_KWARGS)
-    assert mock_register.call_count == 2
+    assert mock_register.call_count == 2 * calls
 
 
 @pytest.mark.parametrize("entry", ["subscribe", "register_routes", "serve"])
@@ -235,3 +243,24 @@ def test_workflow_runner_explicit_mode_splits_event_and_http_specs():
         runner.register_routes(routes=[spec, http_spec], fastapi_app=FastAPI())
     assert mock_msg.call_args.kwargs["routes"] == [spec]
     assert mock_http.call_args.kwargs["routes"] == [http_spec]
+
+
+def test_workflow_runner_warns_when_routes_skipped_after_wiring(caplog):
+    with patch(
+        "dapr_agents.workflow.runners.base.DaprWorkflowClient",
+        return_value=MagicMock(),
+    ):
+        runner = WorkflowRunner(
+            name="wr", wf_client=MagicMock(), client_factory=lambda: MagicMock()
+        )
+    runner._dapr_client = MagicMock()
+    with patch(
+        "dapr_agents.workflow.runners.base.register_message_routes",
+        return_value=[],
+    ) as mock_msg:
+        runner.register_routes(routes=[_event_spec()])
+        with caplog.at_level("WARNING"):
+            runner.register_routes(routes=[_event_spec(topic="other")])
+    assert mock_msg.call_count == 1
+    assert "already wired" in caplog.text
+    assert "pubsub:other" in caplog.text

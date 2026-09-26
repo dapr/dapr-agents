@@ -26,6 +26,7 @@ from dapr.clients.grpc._response import TopicEventResponse, TopicEventResponseSt
 from dapr.common.pubsub.subscription import SubscriptionMessage
 from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 from cachetools import TTLCache
+from pydantic_core import PydanticSerializationError, to_jsonable_python
 
 from dapr_agents.streaming.keys import MESSAGE_METADATA as METADATA_KEY
 from dapr_agents.types.message import EventMessageMetadata
@@ -53,6 +54,11 @@ STATUS_DROP = "drop"
 
 # Thread shutdown timeout in seconds
 THREAD_SHUTDOWN_TIMEOUT_SECONDS = 10.0
+
+# Minimum TTL of the in-memory dedupe backend a workflow event route falls back
+# to. Longer than TTLDedupeBackend's 60s default because a redelivered signal can
+# satisfy a later wait; also never shorter than the route's not-found window.
+EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS = 900.0
 
 
 class DedupeBackend(Protocol):
@@ -461,6 +467,28 @@ def _serialize_workflow_input(parsed: Any) -> Tuple[dict, Optional[dict]]:
     return wf_input, metadata
 
 
+def _serialize_event_default_data(parsed: Any) -> Any:
+    """Default payload for a workflow event route: JSON-safe workflow input.
+
+    Same shape as ``_serialize_workflow_input`` (metadata key included), but
+    Pydantic models are dumped with ``mode="json"`` and other values are made
+    JSON-safe, so datetime / UUID / Decimal fields do not drop the message.
+    The schedule path keeps using ``_serialize_workflow_input`` unchanged.
+    """
+    if hasattr(parsed, "model_dump") and not isinstance(parsed, dict):
+        data = parsed.model_dump(mode="json")
+        metadata = getattr(parsed, METADATA_KEY, None)
+        if metadata:
+            data[METADATA_KEY] = dict(metadata)
+    else:
+        data = _serialize_workflow_input(parsed)[0]
+    try:
+        return to_jsonable_python(data)
+    except PydanticSerializationError:
+        # Leave it as-is; the dispatcher rejects non-JSON payloads with a clear log.
+        return data
+
+
 def _log_workflow_outcome(
     instance_id: str,
     state: Optional[WorkflowState],
@@ -560,9 +588,9 @@ class _StreamSubscriber:
         self._worker_tasks: list[asyncio.Task] = []
         self._event_dispatcher = WorkflowEventDispatcher(
             wf_client=wf_client,
-            default_serializer=lambda parsed: _serialize_workflow_input(parsed)[0],
+            default_serializer=_serialize_event_default_data,
         )
-        self._default_event_deduper: DedupeBackend | None = None
+        self._default_event_dedupers: dict[TopicKey, DedupeBackend] = {}
 
         if delivery_mode == DELIVERY_MODE_ASYNC:
             if loop is None or not loop.is_running():
@@ -720,8 +748,9 @@ class _StreamSubscriber:
         """Dedupe backend for one topic.
 
         Topics without an event route keep the subscriber-level backend. Event
-        routes dedupe by default: spec backend, then subscriber backend, then a
-        lazily created in-memory backend.
+        routes dedupe by default: spec backend, then subscriber backend, then an
+        in-memory backend for this topic with a TTL of at least
+        ``EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS`` and the route's not-found window.
         """
         target = next(
             (b.event_target for b in topic_bindings if b.event_target is not None),
@@ -735,9 +764,16 @@ class _StreamSubscriber:
             return target.deduper
         if self.deduper is not None:
             return self.deduper
-        if self._default_event_deduper is None:
-            self._default_event_deduper = TTLDedupeBackend()
-        return self._default_event_deduper
+        key = (topic_bindings[0].pubsub, topic_bindings[0].topic)
+        backend = self._default_event_dedupers.get(key)
+        if backend is None:
+            ttl = max(
+                EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS,
+                target.not_found_retry.window_seconds,
+            )
+            backend = TTLDedupeBackend(ttl=ttl)
+            self._default_event_dedupers[key] = backend
+        return backend
 
     @staticmethod
     def _dedup_id(

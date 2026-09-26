@@ -112,6 +112,15 @@ class NotFoundRetryPolicy:
     replicas the real number of deliveries can be up to replicas x
     ``max_attempts``; each replica is still bounded by ``window_seconds``. How
     quickly redeliveries arrive depends on the broker's redelivery settings.
+    Counts are kept for at most 4096 messages per route; beyond that the least
+    recently used counts are evicted and restart, so the limits hold only
+    below that bound.
+
+    Dead-letter topics: on a route with a ``dead_letter_topic``, daprd sends a
+    RETRY to the dead-letter topic as soon as the pub/sub component's inbound
+    resiliency retry policy is used up, and at once when there is none. Pair
+    such a route with a component inbound retry policy for this policy to take
+    effect.
 
     Attributes:
         max_attempts: Deliveries that may observe "not found" before giving up,
@@ -153,12 +162,45 @@ class WorkflowEventRouteSpec:
 
     Dapr buffers an event raised while nothing waits and hands it to the next
     wait with the same (case-insensitive) name, so event names must be unique
-    per wait. Deduplication is on by default so a redelivered message cannot
-    satisfy a later wait.
+    per wait. Deduplication is on by default to stop a redelivered message
+    from satisfying a later wait. It is best-effort: keyed by CloudEvent id (or
+    a hash of the payload when there is none), per process and TTL-bounded
+    (the in-memory fallback keeps ids for at least 15 minutes). With several
+    replicas, pass a shared ``deduper``.
+
+    Outcomes: a terminal workflow (COMPLETED / FAILED / TERMINATED), an
+    unresolvable message, or a used-up ``not_found_retry`` budget is dropped;
+    daprd dead-letters it when ``dead_letter_topic`` is set, otherwise it is
+    logged at WARNING and discarded. Terminal states are never retried. If the
+    workflow finishes between the state check and the raise, the runtime
+    discards the event and the message is still acknowledged.
 
     Security: anyone who can publish to ``topic`` can signal any workflow
     instance whose id they can guess or learn. Restrict publishers with Dapr
     pub/sub topic scoping.
+
+    Example::
+
+        class JobFinished(BaseModel):
+            job: JobRef  # JobRef has a ``workflow_id`` field
+            status: str
+
+        def job_event_name(msg: JobFinished, ctx: MessageContext) -> str:
+            return f"job_finished_{msg.status}"
+
+        spec = WorkflowEventRouteSpec(
+            pubsub_name="messagepubsub",
+            topic="jobs.finished",
+            event_name="job_finished",
+            instance_id_from="job.workflow_id",  # dotted path into the message
+            event_name_from=job_event_name,       # optional callable resolver
+            message_model=JobFinished,
+            dead_letter_topic="jobs.finished.dlq",
+        )
+        runner.subscribe(agent, event_routes=[spec])
+
+        # In the workflow with instance id == job.workflow_id:
+        result = yield ctx.wait_for_external_event("job_finished_done")
 
     Attributes:
         pubsub_name: Dapr pub/sub component name.

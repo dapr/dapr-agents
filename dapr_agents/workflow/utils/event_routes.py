@@ -18,6 +18,22 @@ A workflow event route turns a validated pub/sub message into
 The subscriber plumbing (CloudEvent parsing, schema validation, filters,
 dedupe, dead-letter topic) lives in ``subscription.py``; this module holds the
 per-message resolution and the dispatch decision (SUCCESS / RETRY / DROP).
+
+How daprd treats the response (Dapr 1.18 runtime, which this SDK targets):
+
+* DROP: the message is not redelivered. When the subscription has a
+  dead-letter topic, daprd publishes the dropped message there.
+* RETRY: daprd first applies the pub/sub component's inbound resiliency retry
+  policy, if any. When that is used up (at once, without a policy) the message
+  goes to the dead-letter topic if one is configured, and otherwise back to
+  the broker for redelivery. So on a route with a ``dead_letter_topic`` the
+  "not found" bounded retry only takes effect through a component inbound
+  resiliency retry policy; without one, the first RETRY dead-letters.
+
+Known race: the workflow can finish between the state check and the raise.
+The runtime then discards the event while the message is acknowledged
+(SUCCESS). Nothing can wait for that event anymore, so no workflow is harmed,
+but the message is not dead-lettered.
 """
 
 from __future__ import annotations
@@ -28,7 +44,7 @@ import threading
 import time
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, is_dataclass
-from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import grpc
 from cachetools import TTLCache
@@ -227,7 +243,13 @@ def is_instance_not_found_error(exc: BaseException) -> bool:
 
 
 class _NotFoundTracker:
-    """Per-route, per-process count of "instance not found" deliveries."""
+    """Per-route, per-process count of "instance not found" deliveries.
+
+    Bounded to ``_TRACKER_MAXSIZE`` messages. If more distinct messages than
+    that are waiting for missing instances at once, the least recently used
+    counts are evicted and those messages start counting again, so
+    ``max_attempts`` / ``window_seconds`` are only guaranteed below that bound.
+    """
 
     def __init__(self, window_seconds: float) -> None:
         ttl = max(2 * window_seconds, _TRACKER_MIN_TTL_SECONDS)
@@ -237,7 +259,7 @@ class _NotFoundTracker:
     def record(self, key: str, now: float) -> tuple[int, float]:
         """Count one more not-found delivery; return (attempts, first_seen)."""
         with self._lock:
-            previous: Optional[tuple[int, float]] = self._cache.get(key)
+            previous: tuple[int, float] | None = self._cache.get(key)
             updated = (1, now) if previous is None else (previous[0] + 1, previous[1])
             self._cache[key] = updated
             return updated
@@ -315,7 +337,11 @@ class WorkflowEventDispatcher:
         key = ctx.event_id or f"{resolved.instance_id}\x1f{resolved.event_name}"
         try:
             state = self._check_state(resolved.instance_id)
-        except Exception:
+        except Exception as exc:
+            # The SDK only maps "no such instance exists" to None; a NOT_FOUND
+            # with other wording must still use the bounded not-found budget.
+            if is_instance_not_found_error(exc):
+                return self._on_not_found(ctx, resolved, key)
             logger.exception(
                 "Event route %r: fetching state of workflow %s failed (event %r); retrying.",
                 route_name,
@@ -357,7 +383,7 @@ class WorkflowEventDispatcher:
         )
         return _ResolvedEvent(instance_id=instance_id, event_name=event_name, data=data)
 
-    def _check_state(self, instance_id: str) -> Optional[WorkflowState]:
+    def _check_state(self, instance_id: str) -> WorkflowState | None:
         return self._wf_client.get_workflow_state(instance_id, fetch_payloads=False)
 
     def _tracker(self, ctx: _DispatchContext) -> _NotFoundTracker:
@@ -398,7 +424,8 @@ class WorkflowEventDispatcher:
         self, ctx: _DispatchContext, resolved: _ResolvedEvent, *, reason: str
     ) -> EventDispatchStatus:
         if ctx.dead_letter_topic:
-            action = f"dead-lettering to {ctx.dead_letter_topic!r}"
+            # daprd publishes DROPped messages to the subscription's DLQ.
+            action = f"dropping; daprd dead-letters it to {ctx.dead_letter_topic!r}"
         else:
             action = "dropping (no dead_letter_topic configured)"
         logger.warning(
