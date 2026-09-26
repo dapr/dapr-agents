@@ -78,6 +78,7 @@ from dapr_agents.llm.chat import ChatClientBase
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.streaming.emitter import StreamEmitter
 from dapr_agents.streaming.keys import (
+    APPROVAL_RESPONSE_EVENT_PREFIX,
     INCLUDE_COMPLETE_MESSAGE,
     MESSAGE_METADATA,
     STREAM_CONTEXT,
@@ -108,6 +109,7 @@ from dapr_agents.types.streaming import (
 from dapr_agents.types.tools import ToolExecutionRecord, ToolExecutionStatus
 from dapr_agents.tool.utils.serialization import serialize_tool_result
 from dapr_agents.workflow.decorators import message_router, workflow_entry
+from dapr_agents.workflow.utils.event_routes import TERMINAL_WORKFLOW_STATUSES
 from dapr_agents.workflow.utils.grpc import apply_grpc_options
 from dapr_agents.workflow.utils.pubsub import broadcast_message, publish_message
 from dapr_agents.tool.workflow.agent_tool import (
@@ -1272,7 +1274,7 @@ class DurableAgent(AgentBase):
             f"Approval request {approval_request_id} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
         )
 
-        event_name = f"approval_response_{approval_request_id}"
+        event_name = f"{APPROVAL_RESPONSE_EVENT_PREFIX}{approval_request_id}"
         event_task = ctx.wait_for_external_event(event_name)
 
         if timeout_seconds is None:
@@ -4007,7 +4009,7 @@ class DurableAgent(AgentBase):
         Raises:
             Exception: If the Dapr workflow client cannot deliver the event.
         """
-        event_name = f"approval_response_{approval_request_id}"
+        event_name = f"{APPROVAL_RESPONSE_EVENT_PREFIX}{approval_request_id}"
         response = ApprovalResponseEvent(
             approval_request_id=approval_request_id,
             approved=approved,
@@ -4018,13 +4020,8 @@ class DurableAgent(AgentBase):
         wf_client = self._wf_client
 
         # Guard against late responses: Dapr silently drops events on finished workflows, leaving the human with no feedback. Fail explicitly instead.
-        _TERMINAL = {
-            wf.WorkflowStatus.COMPLETED,
-            wf.WorkflowStatus.FAILED,
-            wf.WorkflowStatus.TERMINATED,
-        }
         state = wf_client.get_workflow_state(instance_id, fetch_payloads=False)
-        if state is None or state.runtime_status in _TERMINAL:
+        if state is None or state.runtime_status in TERMINAL_WORKFLOW_STATUSES:
             status_label = state.runtime_status.name if state else "NOT_FOUND"
             raise RuntimeError(
                 f"Workflow '{instance_id}' is no longer waiting for approval "

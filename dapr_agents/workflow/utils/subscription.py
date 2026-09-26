@@ -17,6 +17,7 @@ from typing import (
     Literal,
     Optional,
     Protocol,
+    Sequence,
     Tuple,
 )
 
@@ -26,10 +27,21 @@ from dapr.clients.grpc._response import TopicEventResponse, TopicEventResponseSt
 from dapr.common.pubsub.subscription import SubscriptionMessage
 from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 from cachetools import TTLCache
+from pydantic_core import to_jsonable_python
 
 from dapr_agents.streaming.keys import MESSAGE_METADATA as METADATA_KEY
 from dapr_agents.types.message import EventMessageMetadata
-from dapr_agents.workflow.utils.core import is_supported_model_instance
+from dapr_agents.workflow.utils.core import (
+    is_supported_model_instance,
+    stable_json_sha256,
+)
+from dapr_agents.workflow.utils.event_routes import (
+    EventRouteResolutionError,
+    HookVerdict,
+    EventRouteTarget,
+    WorkflowEventDispatcher,
+    parse_field_path,
+)
 from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
     validate_message_model,
@@ -48,6 +60,11 @@ STATUS_DROP = "drop"
 
 # Thread shutdown timeout in seconds
 THREAD_SHUTDOWN_TIMEOUT_SECONDS = 10.0
+
+# Minimum TTL of the in-memory dedupe backend a workflow event route falls back
+# to. Longer than TTLDedupeBackend's 60s default because a redelivered signal can
+# satisfy a later wait; also never shorter than the route's not-found window.
+EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS = 900.0
 
 
 class DedupeBackend(Protocol):
@@ -106,6 +123,31 @@ def validate_hook(
         )
 
 
+def validate_field_resolver(value: Any, name: str, *, optional: bool = False) -> None:
+    """Reject invalid workflow event route resolvers at registration time.
+
+    A resolver is either a dotted field path (``str``) or a sync callable
+    ``(validated_message, MessageContext) -> value``.
+    """
+    if value is None:
+        if optional:
+            return
+        raise TypeError(f"`{name}` is required.")
+    if isinstance(value, str):
+        try:
+            parse_field_path(value)
+        except ValueError as exc:
+            raise ValueError(f"`{name}`: invalid field path {value!r}: {exc}") from exc
+        return
+    if callable(value):
+        validate_hook(value, name)
+        return
+    raise TypeError(
+        f"`{name}` must be a dotted field path (str) or a sync callable, "
+        f"got {type(value).__name__}."
+    )
+
+
 @dataclass(frozen=True)
 class MessageContext:
     """Per-message context handed to ``@message_router`` filters.
@@ -143,6 +185,10 @@ class MessageRouteBinding:
         mapper: Optional predicate on the validated message model + MessageContext.
             Transforms the input message model to an arbitrary output model.
             Runs last after schema validation and filters.
+        event_target: When set, this is a workflow event route: a validated
+            message raises an external event on an existing workflow instead of
+            scheduling a new one. ``handler`` is then a named no-op stub that is
+            never called, and ``mapper`` must be None.
     """
 
     handler: Callable[..., Any]
@@ -154,6 +200,7 @@ class MessageRouteBinding:
     payload_filter: PayloadFilter | None = None
     model_filter: ModelFilter | None = None
     mapper: Mapper | None = None
+    event_target: EventRouteTarget | None = None
 
 
 def _resolve_event_loop(
@@ -217,6 +264,46 @@ def _validate_dead_letter_topics(bindings: List[MessageRouteBinding]) -> None:
                 f"Multiple dead_letter_topics configured for {topic_key[0]}:{topic_key[1]}: "
                 f"{dead_letter_topics}. Only one dead_letter_topic is supported per topic."
             )
+
+
+def topic_has_event_route_conflict(is_event_route: Sequence[bool]) -> bool:
+    """The topic-sharing rule for workflow event routes.
+
+    Args:
+        is_event_route: One flag per route on a single (pubsub, topic): True
+            for a workflow event route, False for any other route.
+
+    Returns:
+        True when the topic carries an event route next to any other route.
+    """
+    return any(is_event_route) and len(is_event_route) > 1
+
+
+def _validate_event_bindings(bindings: List[MessageRouteBinding]) -> None:
+    """A topic with a workflow event route carries nothing else.
+
+    Raises:
+        ValueError: If an event route shares its (pubsub, topic) with another
+            route, or an event binding has a mapper.
+    """
+    for binding in bindings:
+        if binding.event_target is not None and binding.mapper is not None:
+            raise ValueError(
+                f"Workflow event route {binding.name!r} cannot have a mapper; "
+                "use `data_from` to shape the event payload."
+            )
+    for (pubsub, topic), group in _group_bindings_by_topic(bindings).items():
+        if not topic_has_event_route_conflict(
+            [b.event_target is not None for b in group]
+        ):
+            continue
+        event_binding = next(b for b in group if b.event_target is not None)
+        others = [b.name for b in group if b is not event_binding]
+        raise ValueError(
+            f"{pubsub}:{topic} carries workflow event route {event_binding.name!r}; "
+            f"a topic with an event route cannot have other routes (found: {others}). "
+            "Use one topic per event route."
+        )
 
 
 def _warn_unreachable_bindings(bindings: List[MessageRouteBinding]) -> None:
@@ -322,6 +409,11 @@ def _filter_accepts(
 ) -> bool:
     """Run an optional message filter.
 
+    Only for bindings that are not workflow event routes. Anything reachable
+    from ``_StreamSubscriber._route_to_binding`` must go through
+    ``_binding_filter_accepts``, which sends event routes to their deadline-
+    bounded, strict-``True`` hook runner instead.
+
     True means proceed, False means skip the binding.
     An exception from a user-supplied filter is logged and treated as a filter rejection
     to avoid an infinite retry loop.
@@ -378,8 +470,16 @@ def _attach_metadata_to_payload(parsed: Any, metadata: Optional[dict]) -> None:
         logger.debug(f"Could not attach {METADATA_KEY} to payload; continuing.")
 
 
-def _serialize_workflow_input(parsed: Any) -> Tuple[dict, Optional[dict]]:
-    """Convert parsed message to workflow input dict and extract metadata."""
+def _serialize_workflow_input(
+    parsed: Any, *, json_mode: bool = False
+) -> Tuple[dict, Optional[dict]]:
+    """Convert parsed message to workflow input dict and extract metadata.
+
+    Args:
+        parsed: The validated message.
+        json_mode: Dump Pydantic models with ``mode="json"`` (workflow event
+            routes). False keeps the schedule-route output unchanged.
+    """
     metadata: Optional[dict] = None
 
     if isinstance(parsed, dict):
@@ -387,7 +487,7 @@ def _serialize_workflow_input(parsed: Any) -> Tuple[dict, Optional[dict]]:
         metadata = wf_input.get(METADATA_KEY)
     elif hasattr(parsed, "model_dump"):
         metadata = getattr(parsed, METADATA_KEY, None)
-        wf_input = parsed.model_dump()
+        wf_input = parsed.model_dump(mode="json") if json_mode else parsed.model_dump()
     elif is_dataclass(parsed):
         metadata = getattr(parsed, METADATA_KEY, None)
         wf_input = asdict(parsed)
@@ -399,6 +499,32 @@ def _serialize_workflow_input(parsed: Any) -> Tuple[dict, Optional[dict]]:
         wf_input[METADATA_KEY] = dict(metadata)
 
     return wf_input, metadata
+
+
+def _serialize_event_default_data(parsed: Any) -> Any:
+    """Default payload for a workflow event route: JSON-safe workflow input.
+
+    Same shape as ``_serialize_workflow_input`` (metadata key included), but
+    Pydantic models are dumped with ``mode="json"`` and other values are made
+    JSON-safe, so datetime / UUID / Decimal fields do not drop the message.
+
+    Raises:
+        EventRouteResolutionError: If the model cannot be dumped (for example a
+            field holding an unserializable object); the message is dropped.
+    """
+    try:
+        data, _ = _serialize_workflow_input(parsed, json_mode=True)
+    except Exception as exc:
+        raise EventRouteResolutionError(
+            "data", f"serialization failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    if hasattr(parsed, "model_dump") and not isinstance(parsed, dict):
+        return data  # model_dump(mode="json") output is already JSON-safe
+    try:
+        return to_jsonable_python(data)
+    except Exception:
+        # Leave it as-is; the dispatcher rejects non-JSON payloads with a clear log.
+        return data
 
 
 def _log_workflow_outcome(
@@ -498,6 +624,10 @@ class _StreamSubscriber:
         self.log_outcome = log_outcome
         self.queue: asyncio.Queue | None = None
         self._worker_tasks: list[asyncio.Task] = []
+        self._event_dispatcher = WorkflowEventDispatcher(
+            wf_client=wf_client,
+            default_serializer=_serialize_event_default_data,
+        )
 
         if delivery_mode == DELIVERY_MODE_ASYNC:
             if loop is None or not loop.is_running():
@@ -649,30 +779,112 @@ class _StreamSubscriber:
             return self._schedule_on_loop(binding, parsed)
         return self._schedule_standalone(binding, parsed)
 
-    def _dedup_id(
-        self, metadata: dict | None, event_data: Any, topic_name: str
-    ) -> str | None:
-        """Compute the dedup key for this message, or None when dedup is disabled."""
-        if self.deduper is None:
-            return None
-        return (metadata or {}).get("id") or f"{topic_name}:{hash(str(event_data))}"
+    def _topic_deduper(
+        self, topic_bindings: list[MessageRouteBinding]
+    ) -> DedupeBackend | None:
+        """Dedupe backend for one topic.
 
-    def _is_seen(self, candidate_id: str) -> bool:
+        Topics without an event route keep the subscriber-level backend. Event
+        routes never use it (it may be sized for schedule routes): they use the
+        spec backend, else their own in-memory backend with a TTL of at least
+        ``EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS`` and the route's not-found window,
+        holding up to ``dedupe_max_entries`` ids.
+
+        Invariant: ``_validate_event_bindings`` (run by
+        ``subscribe_message_bindings`` before this) guarantees an event route
+        is the only binding on its (pubsub, topic), so its own dedupe settings
+        decide and no sibling route can override them.
+        """
+        target = next(
+            (b.event_target for b in topic_bindings if b.event_target is not None),
+            None,
+        )
+        if target is None:
+            return self.deduper
+        assert len(topic_bindings) == 1, "event route shares its topic"
+        if not target.dedupe:
+            return None
+        if target.deduper is not None:
+            return target.deduper
+        # subscribe_all() calls this once per topic, so each topic gets its own backend.
+        ttl = max(
+            EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS,
+            target.not_found_retry.window_seconds,
+        )
+        return TTLDedupeBackend(maxsize=target.dedupe_max_entries, ttl=ttl)
+
+    @staticmethod
+    def _dedup_id(
+        deduper: DedupeBackend | None,
+        metadata: dict | None,
+        event_data: Any,
+        topic_name: str,
+    ) -> str | None:
+        """Compute the dedup key for this message, or None when dedup is disabled.
+
+        Used by routes that start workflows. Workflow event routes dedupe in
+        the dispatcher, starting from ``_message_key``. Without a CloudEvent id the key is a SHA-256 of the payload
+        as canonical JSON (sorted keys, compact separators; ``str()`` when it
+        is not JSON-serializable). It is the same in every process (``hash()``
+        is randomized per process), so a shared backend matches across
+        replicas.
+        """
+        if deduper is None:
+            return None
+        return _StreamSubscriber._message_key(metadata, event_data, topic_name)
+
+    @staticmethod
+    def _message_key(metadata: dict | None, event_data: Any, topic_name: str) -> str:
+        """The CloudEvent id, or ``topic:sha256`` of the canonical JSON payload."""
+        event_id = (metadata or {}).get("id")
+        if event_id:
+            return event_id
+        return f"{topic_name}:{stable_json_sha256(event_data)}"
+
+    @staticmethod
+    def _is_seen(deduper: DedupeBackend, candidate_id: str) -> bool:
         """Best-effort check; backend errors are swallowed and reported as 'not seen'."""
-        assert self.deduper is not None
         try:
-            return self.deduper.seen(candidate_id)
+            return deduper.seen(candidate_id)
         except Exception:
             logger.debug("Dedupe backend seen() error; continuing.", exc_info=True)
             return False
 
-    def _mark_seen(self, candidate_id: str) -> None:
+    @staticmethod
+    def _mark_seen(deduper: DedupeBackend, candidate_id: str) -> None:
         """Best-effort mark; backend errors are logged but never raise."""
-        assert self.deduper is not None
         try:
-            self.deduper.mark(candidate_id)
+            deduper.mark(candidate_id)
         except Exception:
             logger.debug("Dedupe backend mark() error; continuing.", exc_info=True)
+
+    def _binding_filter_accepts(
+        self,
+        binding: MessageRouteBinding,
+        filter_fn: Callable[[Any, "MessageContext"], bool] | None,
+        value: Any,
+        msg_ctx: MessageContext,
+        kind: str,
+    ) -> HookVerdict:
+        """Run a binding filter.
+
+        Workflow event routes run it with the route's hook deadline and get a
+        tri-state verdict; other bindings keep ``_filter_accepts`` (ALLOW or
+        DENY only).
+        """
+        if binding.event_target is None:
+            accepted = _filter_accepts(
+                filter_fn, value, msg_ctx, kind=kind, binding_name=binding.name
+            )
+            return HookVerdict.ALLOW if accepted else HookVerdict.DENY
+        return self._event_dispatcher.filter_verdict(
+            binding.event_target,
+            filter_fn,
+            value,
+            msg_ctx,
+            kind=kind,
+            route_name=binding.name,
+        )
 
     def _route_to_binding(
         self,
@@ -680,14 +892,23 @@ class _StreamSubscriber:
         topic_name: str,
         event_data: Any,
         metadata: dict | None,
+        dedup_id: str | None = None,
+        event_deduper: DedupeBackend | None = None,
     ) -> TopicEventResponse:
-        """Pick the first matching binding and dispatch; DROP when nothing matches."""
+        """Pick the first matching binding and dispatch; DROP when nothing matches.
+
+        For workflow event routes ``dedup_id`` is the message key and
+        ``event_deduper`` the route's backend; the dispatcher dedupes with a
+        key computed after resolution. An event-route filter that does not
+        decide answers RETRY (bounded) instead of skipping the binding.
+        """
         ordered_pairs = _order_pairs_by_cloudevent_type(
             pairs, (metadata or {}).get("type")
         )
 
         any_hook = any(
-            b.payload_filter or b.model_filter or b.mapper for b, _ in ordered_pairs
+            b.payload_filter or b.model_filter or b.mapper or b.event_target is not None
+            for b, _ in ordered_pairs
         )
         event = (
             EventMessageMetadata.model_validate(metadata or {}) if any_hook else None
@@ -697,7 +918,7 @@ class _StreamSubscriber:
         # (binding, schema) pairs, so cache the payload_filter result and
         # remember model_filter rejections; once a binding rejects, every
         # remaining pair for that binding is skipped.
-        payload_filter_cache: dict[int, bool] = {}
+        payload_filter_cache: dict[int, HookVerdict] = {}
         model_filter_rejected: set[int] = set()
 
         # Mappers are also per-binding; once a mapper fails for a binding,
@@ -717,14 +938,19 @@ class _StreamSubscriber:
             )
 
             if msg_ctx is not None and binding_key not in payload_filter_cache:
-                payload_filter_cache[binding_key] = _filter_accepts(
+                payload_filter_cache[binding_key] = self._binding_filter_accepts(
+                    binding,
                     binding.payload_filter,
                     event_data,
                     msg_ctx,
-                    kind="payload_filter",
-                    binding_name=binding.name,
+                    "payload_filter",
                 )
-            if not payload_filter_cache.get(binding_key, True):
+            verdict = payload_filter_cache.get(binding_key, HookVerdict.ALLOW)
+            if verdict is HookVerdict.UNDECIDED:
+                return self._filter_undecided(
+                    binding, msg_ctx, dedup_id, "payload_filter"
+                )
+            if verdict is HookVerdict.DENY:
                 continue
 
             try:
@@ -738,15 +964,36 @@ class _StreamSubscriber:
                 # Validation/coercion errors, try next schema
                 continue
 
-            if msg_ctx is not None and not _filter_accepts(
-                binding.model_filter,
-                parsed,
-                msg_ctx,
-                kind="model_filter",
-                binding_name=binding.name,
-            ):
+            verdict = (
+                self._binding_filter_accepts(
+                    binding, binding.model_filter, parsed, msg_ctx, "model_filter"
+                )
+                if msg_ctx is not None
+                else HookVerdict.ALLOW
+            )
+            if verdict is HookVerdict.UNDECIDED:
+                return self._filter_undecided(
+                    binding, msg_ctx, dedup_id, "model_filter"
+                )
+            if verdict is HookVerdict.DENY:
                 model_filter_rejected.add(binding_key)
                 continue
+
+            if binding.event_target is not None:
+                # Invariant: any_hook is True for event bindings, so msg_ctx is set.
+                assert msg_ctx is not None, "event route without MessageContext"
+                status = self._event_dispatcher.dispatch(
+                    target=binding.event_target,
+                    route_name=binding.name,
+                    pubsub=binding.pubsub,
+                    topic=binding.topic,
+                    dead_letter_topic=binding.dead_letter_topic,
+                    message=parsed,
+                    msg_ctx=msg_ctx,
+                    message_key=dedup_id,
+                    deduper=event_deduper,
+                )
+                return TopicEventResponse(status)
 
             if msg_ctx is not None:
                 try:
@@ -774,15 +1021,40 @@ class _StreamSubscriber:
         )
         return TopicEventResponse(STATUS_DROP)
 
+    def _filter_undecided(
+        self,
+        binding: MessageRouteBinding,
+        msg_ctx: MessageContext | None,
+        message_key: str | None,
+        kind: str,
+    ) -> TopicEventResponse:
+        """Response for an event-route filter that timed out or could not run."""
+        # Only event-route filters are UNDECIDED, and they always have a context.
+        assert binding.event_target is not None and msg_ctx is not None
+        status = self._event_dispatcher.on_filter_undecided(
+            target=binding.event_target,
+            route_name=binding.name,
+            pubsub=binding.pubsub,
+            topic=binding.topic,
+            dead_letter_topic=binding.dead_letter_topic,
+            msg_ctx=msg_ctx,
+            message_key=message_key,
+            kind=kind,
+        )
+        return TopicEventResponse(status)
+
     def _handle_message(
         self,
         pairs: list[BindingSchemaPair],
         topic_name: str,
+        deduper: DedupeBackend | None,
         message: SubscriptionMessage,
     ) -> TopicEventResponse:
         """Route one message to the matching binding.
 
-        Dedup marks happen after a terminal outcome (SUCCESS or DROP). Marking
+        Topics with a workflow event route skip this pre-routing duplicate
+        check; the dispatcher dedupes them with a key computed after
+        resolution. Dedup marks happen after a terminal outcome (SUCCESS or DROP). Marking
         on arrival would silently neutralize RETRY: the broker redelivers, the
         retry hits the dedup cache, and the message is ack'd without ever being
         re-processed.
@@ -793,20 +1065,38 @@ class _StreamSubscriber:
             logger.debug(f"Data: {event_data!r}")
             logger.debug(f"Metadata: {metadata!r}")
 
-            dedup_id = self._dedup_id(metadata, event_data, topic_name)
-            if dedup_id is not None and self._is_seen(dedup_id):
+            if any(b.event_target is not None for b, _ in pairs):
+                # Event routes dedupe in the dispatcher, after resolution.
+                return self._route_to_binding(
+                    pairs,
+                    topic_name,
+                    event_data,
+                    metadata,
+                    self._message_key(metadata, event_data, topic_name),
+                    event_deduper=deduper,
+                )
+
+            dedup_id = self._dedup_id(deduper, metadata, event_data, topic_name)
+            if (
+                deduper is not None
+                and dedup_id is not None
+                and self._is_seen(deduper, dedup_id)
+            ):
                 logger.debug(
                     f"Duplicate detected id={dedup_id} topic={topic_name}; dropping."
                 )
                 return TopicEventResponse(STATUS_SUCCESS)
 
-            response = self._route_to_binding(pairs, topic_name, event_data, metadata)
+            response = self._route_to_binding(
+                pairs, topic_name, event_data, metadata, dedup_id
+            )
 
-            if dedup_id is not None and _normalize_status(response.status) in (
-                STATUS_SUCCESS,
-                STATUS_DROP,
+            if (
+                deduper is not None
+                and dedup_id is not None
+                and _normalize_status(response.status) in (STATUS_SUCCESS, STATUS_DROP)
             ):
-                self._mark_seen(dedup_id)
+                self._mark_seen(deduper, dedup_id)
 
             return response
         except Exception:
@@ -895,7 +1185,15 @@ class _StreamSubscriber:
                 (b.dead_letter_topic for b in topic_bindings if b.dead_letter_topic),
                 None,
             )
-            handler_fn = partial(self._handle_message, pairs, topic_name)
+            topic_deduper = self._topic_deduper(topic_bindings)
+            if self.delivery_mode == DELIVERY_MODE_ASYNC and any(
+                b.event_target is not None for b in topic_bindings
+            ):
+                logger.debug(
+                    f"{pubsub_name}:{topic_name} carries a workflow event route; "
+                    "it is handled synchronously regardless of delivery_mode='async'."
+                )
+            handler_fn = partial(self._handle_message, pairs, topic_name, topic_deduper)
 
             subscription = self.dapr_client.subscribe(
                 pubsub_name=pubsub_name,
@@ -926,6 +1224,9 @@ class _StreamSubscriber:
         if self._worker_tasks:
             tasks_snapshot = list(self._worker_tasks)
             closers.append(partial(_cancel_tasks, tasks_snapshot))
+        if any(b.event_target is not None for b in bindings):
+            # After the consumer threads stop; never waits for in-flight sidecar calls.
+            closers.append(self._event_dispatcher.close)
 
         return closers
 
@@ -961,7 +1262,7 @@ def subscribe_message_bindings(
         delivery_mode: 'sync' blocks the Dapr thread; 'async' enqueues onto workers.
         queue_maxsize: Max in-flight messages for async mode.
         deduper: Optional idempotency backend.
-        wf_client: Workflow client for scheduling workflows.
+        wf_client: Workflow client for scheduling workflows and raising events.
         await_result: If True (sync only), wait for workflow completion.
         await_timeout: Timeout in seconds when awaiting workflow completion.
         fetch_payloads: Include payloads when waiting for completion.
@@ -971,7 +1272,8 @@ def subscribe_message_bindings(
         List of closer functions to unsubscribe and cleanup resources.
 
     Raises:
-        ValueError: If delivery_mode is invalid or dead_letter_topics conflict.
+        ValueError: If delivery_mode is invalid, dead_letter_topics conflict, or a
+            workflow event route shares its topic with another route.
         RuntimeError: If async mode is used without a running event loop.
     """
     if not bindings:
@@ -979,6 +1281,7 @@ def subscribe_message_bindings(
 
     _validate_delivery_mode(delivery_mode)
     _validate_dead_letter_topics(bindings)
+    _validate_event_bindings(bindings)
     _warn_unreachable_bindings(bindings)
 
     if delivery_mode == DELIVERY_MODE_ASYNC:
