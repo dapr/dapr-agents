@@ -19,20 +19,22 @@ import functools
 import logging
 import threading
 from concurrent.futures import Future
-from typing import Any, Optional
+from typing import Any
 
 from dapr_agents.workflow.utils.event_route_state import (
     EventRouteTopicState,
-    NotFoundTracker,
+    AttemptTracker,
     RaiseIdentity,
     TimedOutRaises,
     TrackedRaise,
 )
 from dapr_agents.workflow.utils.event_routes import WorkflowEventDispatcher
+from dapr_agents.workflow.utils.subscription import TTLDedupeBackend
 from tests.workflow._event_route_helpers import (
     make_dispatcher,
     make_target,
     make_wf,
+    only_tracked_raise,
     run_dispatch,
 )
 
@@ -76,16 +78,14 @@ def _send(
 
 def _settle(gate: _FirstRaiseHangs, dispatcher: WorkflowEventDispatcher) -> None:
     gate.release.set()
-    tracked = dispatcher._topic_states[_TOPIC].timed_out.peek(_KEY)
-    assert tracked is not None
-    tracked.future.result(timeout=_WAIT)
+    only_tracked_raise(dispatcher).future.result(timeout=_WAIT)
 
 
 def _identity(instance_id: str = "wf-1", digest: str = "d") -> RaiseIdentity:
     return RaiseIdentity(instance_id=instance_id, event_name="evt", data_sha256=digest)
 
 
-# ---- C1: exact identity ------------------------------------------------------
+# ---- C1: the composite key separates messages that reuse an id -------------
 
 
 def test_reused_id_for_another_instance_is_raised(caplog):
@@ -96,8 +96,6 @@ def test_reused_id_for_another_instance_is_raised(caplog):
     with caplog.at_level(logging.WARNING):
         assert _send(dispatcher, {"wf_id": "wf-B", "note": _SECRET}) == "success"
     assert [c["instance_id"] for c in gate.calls] == ["wf-A", "wf-B"]
-    assert "matches an earlier timed-out raise" in caplog.text
-    assert "('wf-A', 'evt')" in caplog.text and "('wf-B', 'evt')" in caplog.text
     assert _SECRET not in caplog.text
     # A's outcome is still tracked for A's own redelivery.
     assert _send(dispatcher, {"wf_id": "wf-A", "note": _SECRET}) == "success"
@@ -105,14 +103,60 @@ def test_reused_id_for_another_instance_is_raised(caplog):
     dispatcher.close()
 
 
-def test_reused_id_with_same_target_and_other_data_is_raised(caplog):
+def test_reused_id_with_same_target_and_other_data_is_raised():
     gate, dispatcher = _setup()
     assert _send(dispatcher, {"wf_id": "wf-1", "v": 1}) == "retry"
     _settle(gate, dispatcher)
-    with caplog.at_level(logging.WARNING):
-        assert _send(dispatcher, {"wf_id": "wf-1", "v": 2}) == "success"
+    assert _send(dispatcher, {"wf_id": "wf-1", "v": 2}) == "success"
     assert [c["data"]["v"] for c in gate.calls] == [1, 2]
-    assert "with different data" in caplog.text
+    dispatcher.close()
+
+
+def test_deduper_keys_on_target_and_data_not_on_the_id_alone():
+    wf = make_wf()
+    dispatcher = make_dispatcher(wf)
+    backend = TTLDedupeBackend()
+
+    def send(message: dict[str, Any]) -> str:
+        return run_dispatch(
+            dispatcher, message=message, dedupe_key=_KEY, deduper=backend
+        )
+
+    assert send({"wf_id": "wf-1"}) == "success"
+    assert send({"wf_id": "wf-1"}) == "success"  # identical: deduplicated
+    assert send({"wf_id": "wf-2"}) == "success"  # same id, other target: raised
+    assert [
+        c.kwargs["instance_id"] for c in wf.raise_workflow_event.call_args_list
+    ] == [
+        "wf-1",
+        "wf-2",
+    ]
+    dispatcher.close()
+
+
+class _BrokenBackend:
+    def seen(self, key: str) -> bool:
+        raise RuntimeError("down")
+
+    def mark(self, key: str) -> None:
+        raise RuntimeError("down")
+
+
+def test_deduper_errors_are_best_effort():
+    wf = make_wf()
+    dispatcher = make_dispatcher(wf)
+    status = run_dispatch(dispatcher, dedupe_key=_KEY, deduper=_BrokenBackend())
+    assert status == "success"
+    wf.raise_workflow_event.assert_called_once()
+    dispatcher.close()
+
+
+def test_retry_is_not_marked_seen():
+    wf = make_wf(None)  # instance not found yet: RETRY
+    dispatcher = make_dispatcher(wf)
+    backend = TTLDedupeBackend()
+    assert run_dispatch(dispatcher, dedupe_key=_KEY, deduper=backend) == "retry"
+    assert len(backend._cache) == 0
     dispatcher.close()
 
 
@@ -214,7 +258,9 @@ def test_discard_removes_running_and_settled_entries():
 def test_untracked_timed_out_raise_logs_warning(caplog):
     gate, dispatcher = _setup()
     dispatcher._topic_states[_TOPIC] = EventRouteTopicState(
-        not_found=NotFoundTracker(), timed_out=TimedOutRaises(16, max_running=0)
+        not_found=AttemptTracker(),
+        undecided=AttemptTracker(),
+        timed_out=TimedOutRaises(16, max_running=0),
     )
     try:
         with caplog.at_level(logging.WARNING):
@@ -256,10 +302,7 @@ def test_tracked_raise_records_resolved_identity():
     gate, dispatcher = _setup()
     try:
         assert _send(dispatcher, {"wf_id": "wf-1"}) == "retry"
-        tracked: Optional[TrackedRaise] = dispatcher._topic_states[
-            _TOPIC
-        ].timed_out.peek(_KEY)
-        assert tracked is not None
+        tracked: TrackedRaise = only_tracked_raise(dispatcher)
         assert tracked.identity.instance_id == "wf-1"
         assert len(tracked.identity.data_sha256) == 64
     finally:

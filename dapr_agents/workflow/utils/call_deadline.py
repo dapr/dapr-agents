@@ -31,7 +31,11 @@ the damage:
 * At most ``max_backlog`` calls may wait in the queue. Beyond that a call fails
   at once with :class:`DeadlineCallerBusyError` (a ``TimeoutError``) and never
   runs, instead of the queue growing without bound. A call that timed out
-  while queued keeps its place until a worker skips it.
+  while queued no longer counts toward the backlog. Presumed-stuck workers are
+  replaced before the backlog is checked.
+
+The busy and ceiling WARNINGs are rate limited (once per minute per pool,
+with a count of the suppressed ones).
 
 A presumed-stuck worker that returns after all keeps serving calls, unless the
 pool already has ``max_workers`` healthy workers, in which case it exits.
@@ -47,6 +51,8 @@ import time
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar
+
+from dapr_agents.workflow.utils.log_throttle import WarningThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -153,10 +159,10 @@ class DeadlineCaller:
         self._threads: dict[int, threading.Thread] = {}
         self._running: dict[int, _Running] = {}
         self._reported_stuck: set[int] = set()
-        self._queued = 0  # submitted jobs no worker has taken yet
+        # Submitted jobs no worker has taken yet, not counting cancelled ones.
+        self._queued = 0
         self._ids = itertools.count()
-        self._ceiling_reported = False
-        self._backlog_reported = False
+        self._warnings = WarningThrottle(clock=clock)
         self._closed = False
         self._lock = threading.Lock()
 
@@ -219,44 +225,51 @@ class DeadlineCaller:
         with self._lock:
             if self._closed:
                 raise DeadlineCallerClosedError("DeadlineCaller is closed.")
+            # Replace stuck workers first, so a backlog behind them can drain.
+            self._grow_if_needed(incoming=1)
             if self._queued >= self._max_backlog:
-                first = not self._backlog_reported
-                self._backlog_reported = True
-                self._raise_busy(first)
+                self._raise_busy()
             self._queued += 1
-            self._grow_if_needed()
+            job.future.add_done_callback(self._forget_if_cancelled)
             self._queue.put(job)
 
-    def _raise_busy(self, log: bool) -> None:
-        if log:
-            logger.warning(
-                "%s pool: %d calls already wait for a worker (limit); failing new "
-                "calls at once until the backlog drains.",
-                self._prefix,
-                self._queued,
-            )
+    def _forget_if_cancelled(self, future: Future[Any]) -> None:
+        """A job cancelled while queued stops counting toward the backlog."""
+        if future.cancelled():
+            with self._lock:
+                self._queued -= 1
+
+    def _raise_busy(self) -> None:
+        self._warnings.warn(
+            logger,
+            "busy",
+            "%s pool: %d calls already wait for a worker (limit); failing new "
+            "calls at once until the backlog drains.",
+            self._prefix,
+            self._queued,
+        )
         raise DeadlineCallerBusyError(
             f"{self._prefix} pool backlog is full ({self._max_backlog} calls)."
         )
 
-    def _grow_if_needed(self) -> None:
-        """Start a worker when queued jobs outnumber idle workers (lock held)."""
+    def _grow_if_needed(self, incoming: int = 0) -> None:
+        """Start a worker when waiting jobs outnumber idle workers (lock held)."""
         idle = len(self._threads) - len(self._running)
-        if self._queued <= idle:
+        if self._queued + incoming <= idle:
             return
         healthy = len(self._threads) - self._count_stuck()
         if healthy >= self._max_workers:
             return
         if len(self._threads) >= self._max_threads:
-            if not self._ceiling_reported:
-                self._ceiling_reported = True
-                logger.warning(
-                    "%s pool: %d threads, the ceiling, with %d presumed stuck; not "
-                    "starting a replacement. Calls wait or fail until one returns.",
-                    self._prefix,
-                    len(self._threads),
-                    len(self._threads) - healthy,
-                )
+            self._warnings.warn(
+                logger,
+                "ceiling",
+                "%s pool: %d threads, the ceiling, with %d presumed stuck; not "
+                "starting a replacement. Calls wait or fail until one returns.",
+                self._prefix,
+                len(self._threads),
+                len(self._threads) - healthy,
+            )
             return
         self._spawn()
 
@@ -314,12 +327,14 @@ class DeadlineCaller:
                 return
 
     def _take(self, worker_id: int, job: _Job) -> bool:
-        """Dequeue bookkeeping; False when the job was cancelled while queued."""
+        """Dequeue bookkeeping; False when the job was cancelled while queued.
+
+        A cancelled job was already uncounted by its done-callback.
+        """
         with self._lock:
-            self._queued -= 1
-            self._backlog_reported = False  # the backlog has room again
             if not job.future.set_running_or_notify_cancel():
                 return False
+            self._queued -= 1
             self._running[worker_id] = _Running(self._clock(), job.timeout)
             return True
 
@@ -332,7 +347,6 @@ class DeadlineCaller:
             if healthy <= self._max_workers:
                 return False
             self._threads.pop(worker_id, None)
-            self._ceiling_reported = False
             return True
 
     def _retire(self, worker_id: int) -> None:

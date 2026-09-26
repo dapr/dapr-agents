@@ -201,18 +201,19 @@ class WorkflowEventRouteSpec:
     Dapr buffers an event raised while nothing waits and hands it to the next
     wait with the same (case-insensitive) name, so event names must be unique
     per wait. Deduplication is on by default to stop a redelivered message
-    from satisfying a later wait. It is best-effort: keyed by CloudEvent id (or
-    a SHA-256 of the canonical JSON payload when there is none), in process
-    memory by default and bounded by TTL and size (see ``deduper`` and
-    ``dedupe_max_entries``). A crash after the raise but before the ack, or a
-    redelivery to another replica without a shared ``deduper``, can still
-    raise the event twice. Publishers must use unique CloudEvent ids: the
-    duplicate check runs before any resolver, filter or ``authorize``, so a
-    message that reuses an id already seen is treated as a duplicate,
-    acknowledged and never evaluated.
+    from satisfying a later wait. It is best-effort: keyed, after resolution,
+    by a SHA-256 of the CloudEvent id (or of the canonical JSON payload when
+    there is none), the target instance, the event name and the data, in
+    process memory by default and bounded by TTL and size (see ``deduper`` and
+    ``dedupe_max_entries``). A redelivery of the identical message is
+    deduplicated; a message that reuses a CloudEvent id for another target or
+    other data is not suppressed and does not suppress the original. A crash
+    after the raise but before the ack, or a redelivery to another replica
+    without a shared ``deduper``, can still raise the event twice.
 
     Evaluation order: schema validation and the filters, then the resolvers
-    and limits, then ``authorize``, then the sidecar calls (state check, raise).
+    and limits, then the duplicate check, then ``authorize``, then the sidecar
+    calls (state check, raise).
 
     Outcomes, in that order: an unresolvable or oversized message, an
     ``authorize`` denial, a terminal workflow (COMPLETED / FAILED /
@@ -242,11 +243,15 @@ class WorkflowEventRouteSpec:
     dropped.
 
     Hooks: ``authorize``, ``payload_filter`` and ``model_filter`` run with the
-    ``hook_timeout_seconds`` deadline and must return exactly ``True`` to let
-    the message through; ``False``, any other value (``"False"``, ``1``), an
-    exception or a timeout rejects it. Hooks fail closed by design: a timeout
-    or exception drops the message even when its cause was transient. Hooks
-    and sidecar calls run on two thread pools shared by every event-route topic
+    ``hook_timeout_seconds`` deadline and have three outcomes. ALLOW: the hook
+    returned exactly ``True``. DENY: it returned ``False`` or a non-bool
+    (``"False"``, ``1``), or raised; the message is dropped (dead-lettered
+    when ``dead_letter_topic`` is set). UNDECIDED: it timed out or the hook
+    pool was saturated; the message is retried within the ``not_found_retry``
+    budget and then dead-lettered, or dropped with a rate-limited WARNING when
+    there is no dead-letter topic, so a slow hook cannot cause silent message
+    loss. Nothing is ever raised without an explicit ``True``. Hooks and
+    sidecar calls run on two thread pools shared by every event-route topic
     of the subscriber. Resolvers (``instance_id_from``,
     ``event_name_from``, ``data_from``) and payload serialization run on the
     consumer thread without a deadline, so keep them cheap.
@@ -313,13 +318,14 @@ class WorkflowEventRouteSpec:
             whose attributes are publisher-supplied; the target is the resolved
             instance id and event name. It runs after schema validation, the
             filters, the resolvers and the limits, and before any sidecar call.
-            Anything other than exactly ``True`` (including an exception or a
-            timeout) denies the message: it is dropped with a WARNING that
-            names the route, workflow instance and message id, never the
-            payload.
+            ``False``, a non-bool or an exception denies the message: it is
+            dropped with a WARNING that names the route, workflow instance and
+            message id, never the payload. A timeout or a saturated hook pool
+            retries it (bounded, see Hooks above).
         hook_timeout_seconds: Deadline for ``authorize``, ``payload_filter``
             and ``model_filter``. Default 5.0.
-        dedupe: Deduplicate redeliveries by CloudEvent id. Default True.
+        dedupe: Deduplicate redeliveries of the identical message (CloudEvent
+            id, target and data). Default True.
         deduper: Optional backend for this route. When None, the route uses its
             own in-memory backend (TTL of at least 15 minutes and the
             not-found window, ``dedupe_max_entries`` ids). A subscriber- or
@@ -330,7 +336,8 @@ class WorkflowEventRouteSpec:
             full, the oldest ids are evicted before their TTL, so a topic that
             receives more than this many messages per TTL window dedupes only
             the most recent ones. Default 65536.
-        not_found_retry: Policy for instances that do not exist yet.
+        not_found_retry: Policy for instances that do not exist yet. The same
+            budget bounds the retries of a hook that did not decide.
         max_data_bytes: Largest serialized JSON event payload accepted; larger
             payloads are dropped. Default 1 MiB.
         call_timeout_seconds: Deadline for each sidecar call (state check and

@@ -153,7 +153,7 @@ def test_authorize_exception_denies(env, caplog):
     assert "RuntimeError" in caplog.text and _SECRET not in caplog.text
 
 
-def test_authorize_timeout_denies(env, caplog):
+def test_authorize_timeout_retries(env, caplog):
     mock_dapr, mock_wf = env
     hook, release = _slow(True)
     try:
@@ -166,9 +166,11 @@ def test_authorize_timeout_denies(env, caplog):
             )
     finally:
         release.set()
-    sub.respond_drop.assert_called_once()
+    # UNDECIDED: retried within the budget, never raised, never dropped yet.
+    sub.respond_retry.assert_called_once()
+    sub.respond_drop.assert_not_called()
     mock_wf.raise_workflow_event.assert_not_called()
-    assert "timed out" in caplog.text
+    assert "timed out" in caplog.text and "retrying" in caplog.text
 
 
 def test_authorize_denial_names_the_dead_letter_topic(env, caplog):
@@ -253,7 +255,7 @@ def test_event_route_filter_true_accepts(env, kind):
 
 
 @pytest.mark.parametrize("kind", ["payload_filter", "model_filter"])
-def test_event_route_filter_timeout_rejects(env, caplog, kind):
+def test_event_route_filter_timeout_retries(env, caplog, kind):
     mock_dapr, mock_wf = env
     hook, release = _slow(True)
     try:
@@ -266,7 +268,8 @@ def test_event_route_filter_timeout_rejects(env, caplog, kind):
             )
     finally:
         release.set()
-    sub.respond_drop.assert_called_once()
+    sub.respond_retry.assert_called_once()
+    sub.respond_drop.assert_not_called()
     mock_wf.raise_workflow_event.assert_not_called()
     assert f"{kind} timed out" in caplog.text
 

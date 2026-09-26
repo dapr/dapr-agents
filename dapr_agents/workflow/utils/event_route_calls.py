@@ -16,12 +16,13 @@
 * Classifying sidecar gRPC errors: "instance not found" and permanent errors
   (never retried).
 * Running user hooks (``authorize`` and the event-route filters) with a
-  deadline and a strict ``True`` contract.
+  deadline and a strict ``True`` contract, as a tri-state verdict.
 """
 
 from __future__ import annotations
 
 import logging
+from enum import Enum
 from typing import Any, Callable
 
 import grpc
@@ -84,6 +85,14 @@ def permanent_error_code(exc: BaseException) -> grpc.StatusCode | None:
     return code if code in PERMANENT_SIDECAR_ERROR_CODES else None
 
 
+class HookVerdict(Enum):
+    """What a user hook decided about a message."""
+
+    ALLOW = "allow"  # returned exactly True
+    DENY = "deny"  # returned False or a non-bool, or raised
+    UNDECIDED = "undecided"  # timed out, or the hook pool was saturated
+
+
 def run_strict_hook(
     caller: DeadlineCaller,
     hook: Callable[..., Any],
@@ -91,31 +100,33 @@ def run_strict_hook(
     *args: Any,
     kind: str,
     route_name: str,
-) -> bool:
-    """Run ``hook(*args)`` with a deadline; True only for an exact ``True``.
+) -> HookVerdict:
+    """Run ``hook(*args)`` with a deadline and classify the outcome.
 
-    Fails closed: a timeout, an exception or any other return value
-    (``"False"``, ``1``, a mock) is a rejection, even when the cause was
-    transient. The arguments are never logged.
+    ALLOW only for an exact ``True``. ``False``, any other return value
+    (``"False"``, ``1``, a mock) or an exception is DENY: the hook answered,
+    so it fails closed. A timeout or a saturated pool is UNDECIDED: the hook
+    never answered, and the caller retries (bounded) instead of losing the
+    message. The arguments are never logged.
     """
     try:
         result = caller.call(hook, timeout, *args)
     except DeadlineCallerBusyError:
         logger.warning(
             "Event route %r: the hook pool is saturated, %s did not run; "
-            "rejecting the message.",
+            "retrying the message.",
             route_name,
             kind,
         )
-        return False
+        return HookVerdict.UNDECIDED
     except TimeoutError:
         logger.warning(
-            "Event route %r: %s timed out after %gs; rejecting the message.",
+            "Event route %r: %s timed out after %gs; retrying the message.",
             route_name,
             kind,
             timeout,
         )
-        return False
+        return HookVerdict.UNDECIDED
     except Exception as exc:
         logger.warning(
             "Event route %r: %s raised %s; rejecting the message.",
@@ -123,9 +134,9 @@ def run_strict_hook(
             kind,
             type(exc).__name__,
         )
-        return False
+        return HookVerdict.DENY
     if result is True:
-        return True
+        return HookVerdict.ALLOW
     if result is not False:
         logger.warning(
             "Event route %r: %s returned %s, not a bool; rejecting the message.",
@@ -133,11 +144,12 @@ def run_strict_hook(
             kind,
             type(result).__name__,
         )
-    return False
+    return HookVerdict.DENY
 
 
 __all__ = [
     "PERMANENT_SIDECAR_ERROR_CODES",
+    "HookVerdict",
     "is_instance_not_found_error",
     "permanent_error_code",
     "run_strict_hook",

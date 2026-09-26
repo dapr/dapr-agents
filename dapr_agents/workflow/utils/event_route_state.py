@@ -13,7 +13,8 @@
 
 """Per-topic, in-process state a workflow event route keeps between deliveries.
 
-* :class:`NotFoundTracker` counts "instance not found" deliveries per message.
+* :class:`AttemptTracker` counts deliveries per message that ended without a
+  decision: "instance not found", or a hook that did not answer.
 * :class:`TimedOutRaises` remembers raises that timed out but kept running, so
   a redelivery of the same message does not raise the event a second time.
 
@@ -32,7 +33,7 @@ from cachetools import LRUCache
 
 logger = logging.getLogger(__name__)
 
-# Messages whose "not found" count one route keeps.
+# Messages whose attempt count one tracker keeps.
 NOT_FOUND_TRACKER_MAXSIZE = 4096
 # Lower bound on how many finished timed-out raises one topic remembers.
 MIN_TIMED_OUT_RAISES_TRACKED = 4096
@@ -41,8 +42,11 @@ MIN_TIMED_OUT_RAISES_TRACKED = 4096
 MAX_RUNNING_RAISES_TRACKED = 16_384
 
 
-class NotFoundTracker:
-    """Per-route, per-process count of "instance not found" deliveries.
+class AttemptTracker:
+    """Per-route, per-process count of undecided deliveries of each message.
+
+    Used for "instance not found" deliveries and for hooks that timed out or
+    could not run.
 
     Entries never expire by time, so a message redelivered slower than any
     TTL keeps its count; they are removed when the message is raised or given
@@ -159,14 +163,16 @@ class TimedOutRaises:
 class EventRouteTopicState:
     """The in-process state of one event-route topic."""
 
-    not_found: NotFoundTracker
+    not_found: AttemptTracker
+    undecided: AttemptTracker
     timed_out: TimedOutRaises
 
     @classmethod
     def create(cls, dedupe_max_entries: int) -> EventRouteTopicState:
         """State sized from the route's ``dedupe_max_entries``."""
         return cls(
-            not_found=NotFoundTracker(),
+            not_found=AttemptTracker(),
+            undecided=AttemptTracker(),
             timed_out=TimedOutRaises(
                 max(dedupe_max_entries, MIN_TIMED_OUT_RAISES_TRACKED)
             ),
@@ -178,7 +184,7 @@ __all__ = [
     "MIN_TIMED_OUT_RAISES_TRACKED",
     "NOT_FOUND_TRACKER_MAXSIZE",
     "EventRouteTopicState",
-    "NotFoundTracker",
+    "AttemptTracker",
     "RaiseIdentity",
     "TimedOutRaises",
     "TrackedRaise",
