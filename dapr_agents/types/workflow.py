@@ -99,6 +99,37 @@ FieldResolver = Union[str, Callable[[Any, "MessageContext"], Any]]
 """Either a dotted field path into the validated message (e.g. ``"job.workflow_id"``)
 or a sync callable ``(validated_message, MessageContext) -> value``."""
 
+NOT_FOUND_MAX_ATTEMPTS_LIMIT = 100
+NOT_FOUND_WINDOW_SECONDS_LIMIT = 3600.0
+DEFAULT_EVENT_MAX_DATA_BYTES = 1_048_576
+DEFAULT_EVENT_CALL_TIMEOUT_SECONDS = 30.0
+DEFAULT_EVENT_DEDUPE_MAX_ENTRIES = 65_536
+
+
+def _check_int_range(value: Any, name: str, *, upper: int | None = None) -> None:
+    """Raise ValueError unless ``value`` is an int in ``[1, upper]``."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 1
+        or (upper is not None and value > upper)
+    ):
+        bound = f" and <= {upper}" if upper is not None else ""
+        raise ValueError(f"{name} must be an int >= 1{bound}, got {value!r}.")
+
+
+def _check_seconds(value: Any, name: str, *, upper: float | None = None) -> None:
+    """Raise ValueError unless ``value`` is a finite number in ``(0, upper]``."""
+    number = float(value) if isinstance(value, Real) else math.nan
+    if (
+        isinstance(value, bool)
+        or not math.isfinite(number)
+        or number <= 0
+        or (upper is not None and number > upper)
+    ):
+        bound = f" and <= {upper:g}" if upper is not None else ""
+        raise ValueError(f"{name} must be a finite number > 0{bound}, got {value!r}.")
+
 
 @dataclass(frozen=True)
 class NotFoundRetryPolicy:
@@ -122,34 +153,27 @@ class NotFoundRetryPolicy:
     such a route with a component inbound retry policy for this policy to take
     effect.
 
+    Frozen on purpose: value equality is used to detect an idempotent
+    re-registration of the same route.
+
     Attributes:
         max_attempts: Deliveries that may observe "not found" before giving up,
-            counting the current one. ``1`` means never retry. Default 10.
+            counting the current one. ``1`` means never retry. Default 10,
+            at most 100.
         window_seconds: Wall-clock budget measured from the first "not found"
-            delivery of this message. Default 300.0.
+            delivery of this message. Default 300.0, at most 3600.
     """
 
     max_attempts: int = 10
     window_seconds: float = 300.0
 
     def __post_init__(self) -> None:
-        if (
-            isinstance(self.max_attempts, bool)
-            or not isinstance(self.max_attempts, int)
-            or self.max_attempts < 1
-        ):
-            raise ValueError(
-                f"max_attempts must be an int >= 1, got {self.max_attempts!r}."
-            )
-        if (
-            isinstance(self.window_seconds, bool)
-            or not isinstance(self.window_seconds, Real)
-            or not math.isfinite(float(self.window_seconds))
-            or self.window_seconds <= 0
-        ):
-            raise ValueError(
-                f"window_seconds must be a finite number > 0, got {self.window_seconds!r}."
-            )
+        _check_int_range(
+            self.max_attempts, "max_attempts", upper=NOT_FOUND_MAX_ATTEMPTS_LIMIT
+        )
+        _check_seconds(
+            self.window_seconds, "window_seconds", upper=NOT_FOUND_WINDOW_SECONDS_LIMIT
+        )
 
 
 @dataclass(frozen=True)
@@ -164,20 +188,27 @@ class WorkflowEventRouteSpec:
     wait with the same (case-insensitive) name, so event names must be unique
     per wait. Deduplication is on by default to stop a redelivered message
     from satisfying a later wait. It is best-effort: keyed by CloudEvent id (or
-    a hash of the payload when there is none), per process and TTL-bounded
-    (the in-memory fallback keeps ids for at least 15 minutes). With several
-    replicas, pass a shared ``deduper``.
+    a hash of the payload when there is none), per process and bounded by TTL
+    and size (see ``deduper`` and ``dedupe_max_entries``).
 
     Outcomes: a terminal workflow (COMPLETED / FAILED / TERMINATED), an
-    unresolvable message, or a used-up ``not_found_retry`` budget is dropped;
-    daprd dead-letters it when ``dead_letter_topic`` is set, otherwise it is
-    logged at WARNING and discarded. Terminal states are never retried. If the
-    workflow finishes between the state check and the raise, the runtime
-    discards the event and the message is still acknowledged.
+    unresolvable or oversized message, or a used-up ``not_found_retry`` budget
+    is dropped; daprd dead-letters it when ``dead_letter_topic`` is set,
+    otherwise it is logged at WARNING and discarded. Terminal states are never
+    retried. If the workflow finishes between the state check and the raise,
+    the runtime discards the event and the message is still acknowledged.
 
     Security: anyone who can publish to ``topic`` can signal any workflow
     instance whose id they can guess or learn. Restrict publishers with Dapr
-    pub/sub topic scoping.
+    pub/sub topic scoping. Event names the SDK itself waits on
+    (``approval_response_*`` and ``user_input_response:*``) are rejected unless
+    ``allow_reserved_event_names`` is True: a static ``event_name`` at
+    registration, a name from ``event_name_from`` by dropping the message.
+    Resolved instance ids and event names longer than 512 characters, and
+    payloads over ``max_data_bytes``, are dropped.
+
+    Frozen on purpose: value equality is used to detect an idempotent
+    re-registration of the same route.
 
     Example::
 
@@ -209,18 +240,40 @@ class WorkflowEventRouteSpec:
         event_name: Event name to raise. Used when ``event_name_from`` is None.
         instance_id_from: Resolver for the target workflow instance id (required).
         event_name_from: Optional resolver that overrides ``event_name`` per message.
-        data_from: Optional resolver for the event payload. Default: the validated
-            message serialized the way workflow inputs are serialized (CloudEvent
-            metadata included).
+        data_from: Optional resolver for the event payload. Default: the
+            validated message serialized like workflow inputs but made
+            JSON-safe (Pydantic models are dumped with ``mode="json"``, so
+            datetime / UUID / Decimal values survive), CloudEvent metadata
+            included.
         message_model: Schema (Pydantic / dataclass / dict, or ``Union[...]``).
             Default ``dict``.
-        dead_letter_topic: Optional dead-letter topic.
+        dead_letter_topic: Optional dead-letter topic. Note that with a
+            dead-letter topic and no pub/sub inbound resiliency retry policy,
+            daprd dead-letters the first RETRY, so ``not_found_retry`` never
+            retries (see ``NotFoundRetryPolicy``).
         payload_filter: Same contract as ``PubSubRouteSpec.payload_filter``.
         model_filter: Same contract as ``PubSubRouteSpec.model_filter``.
         dedupe: Deduplicate redeliveries by CloudEvent id. Default True.
-        deduper: Optional backend for this route (e.g. a shared store when
-            running several replicas). Must be None when ``dedupe=False``.
+        deduper: Optional backend for this route. When None, the route uses its
+            own in-memory backend (TTL of at least 15 minutes and the
+            not-found window, ``dedupe_max_entries`` ids). A subscriber- or
+            runner-wide ``deduper`` is never used for event routes; to share
+            dedupe across replicas for an event route, set ``spec.deduper``.
+            Must be None when ``dedupe=False``.
+        dedupe_max_entries: Capacity of the default in-memory backend. Once
+            full, the oldest ids are evicted before their TTL, so a topic that
+            receives more than this many messages per TTL window dedupes only
+            the most recent ones. Default 65536.
         not_found_retry: Policy for instances that do not exist yet.
+        max_data_bytes: Largest serialized JSON event payload accepted; larger
+            payloads are dropped. Default 1 MiB.
+        call_timeout_seconds: Deadline for each sidecar call (state check and
+            raise). A timeout is retried; the timed-out call may still
+            complete in the background, so the event can still be raised
+            (dedupe makes the redelivery safe). Default 30.0.
+        allow_reserved_event_names: Allow event names the SDK reserves for its
+            own waits (``approval_response_*``, ``user_input_response:*``).
+            Default False.
         name: Route name for logs and ``MessageContext.handler_name``.
             Default: ``f"{event_name}@{pubsub_name}:{topic}"``.
     """
@@ -239,3 +292,12 @@ class WorkflowEventRouteSpec:
     deduper: DedupeBackend | None = None
     not_found_retry: NotFoundRetryPolicy = field(default_factory=NotFoundRetryPolicy)
     name: str | None = None
+    max_data_bytes: int = DEFAULT_EVENT_MAX_DATA_BYTES
+    call_timeout_seconds: float = DEFAULT_EVENT_CALL_TIMEOUT_SECONDS
+    dedupe_max_entries: int = DEFAULT_EVENT_DEDUPE_MAX_ENTRIES
+    allow_reserved_event_names: bool = False
+
+    def __post_init__(self) -> None:
+        _check_int_range(self.max_data_bytes, "max_data_bytes")
+        _check_seconds(self.call_timeout_seconds, "call_timeout_seconds")
+        _check_int_range(self.dedupe_max_entries, "dedupe_max_entries")

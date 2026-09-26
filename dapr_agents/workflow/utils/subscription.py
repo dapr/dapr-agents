@@ -17,6 +17,7 @@ from typing import (
     Literal,
     Optional,
     Protocol,
+    Sequence,
     Tuple,
 )
 
@@ -26,12 +27,13 @@ from dapr.clients.grpc._response import TopicEventResponse, TopicEventResponseSt
 from dapr.common.pubsub.subscription import SubscriptionMessage
 from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 from cachetools import TTLCache
-from pydantic_core import PydanticSerializationError, to_jsonable_python
+from pydantic_core import to_jsonable_python
 
 from dapr_agents.streaming.keys import MESSAGE_METADATA as METADATA_KEY
 from dapr_agents.types.message import EventMessageMetadata
 from dapr_agents.workflow.utils.core import is_supported_model_instance
 from dapr_agents.workflow.utils.event_routes import (
+    EventRouteResolutionError,
     EventRouteTarget,
     WorkflowEventDispatcher,
     parse_field_path,
@@ -260,6 +262,19 @@ def _validate_dead_letter_topics(bindings: List[MessageRouteBinding]) -> None:
             )
 
 
+def topic_has_event_route_conflict(is_event_route: Sequence[bool]) -> bool:
+    """The topic-sharing rule for workflow event routes.
+
+    Args:
+        is_event_route: One flag per route on a single (pubsub, topic): True
+            for a workflow event route, False for any other route.
+
+    Returns:
+        True when the topic carries an event route next to any other route.
+    """
+    return any(is_event_route) and len(is_event_route) > 1
+
+
 def _validate_event_bindings(bindings: List[MessageRouteBinding]) -> None:
     """A topic with a workflow event route carries nothing else.
 
@@ -274,9 +289,11 @@ def _validate_event_bindings(bindings: List[MessageRouteBinding]) -> None:
                 "use `data_from` to shape the event payload."
             )
     for (pubsub, topic), group in _group_bindings_by_topic(bindings).items():
-        event_binding = next((b for b in group if b.event_target is not None), None)
-        if event_binding is None or len(group) == 1:
+        if not topic_has_event_route_conflict(
+            [b.event_target is not None for b in group]
+        ):
             continue
+        event_binding = next(b for b in group if b.event_target is not None)
         others = [b.name for b in group if b is not event_binding]
         raise ValueError(
             f"{pubsub}:{topic} carries workflow event route {event_binding.name!r}; "
@@ -444,8 +461,16 @@ def _attach_metadata_to_payload(parsed: Any, metadata: Optional[dict]) -> None:
         logger.debug(f"Could not attach {METADATA_KEY} to payload; continuing.")
 
 
-def _serialize_workflow_input(parsed: Any) -> Tuple[dict, Optional[dict]]:
-    """Convert parsed message to workflow input dict and extract metadata."""
+def _serialize_workflow_input(
+    parsed: Any, *, json_mode: bool = False
+) -> Tuple[dict, Optional[dict]]:
+    """Convert parsed message to workflow input dict and extract metadata.
+
+    Args:
+        parsed: The validated message.
+        json_mode: Dump Pydantic models with ``mode="json"`` (workflow event
+            routes). False keeps the schedule-route output unchanged.
+    """
     metadata: Optional[dict] = None
 
     if isinstance(parsed, dict):
@@ -453,7 +478,7 @@ def _serialize_workflow_input(parsed: Any) -> Tuple[dict, Optional[dict]]:
         metadata = wf_input.get(METADATA_KEY)
     elif hasattr(parsed, "model_dump"):
         metadata = getattr(parsed, METADATA_KEY, None)
-        wf_input = parsed.model_dump()
+        wf_input = parsed.model_dump(mode="json") if json_mode else parsed.model_dump()
     elif is_dataclass(parsed):
         metadata = getattr(parsed, METADATA_KEY, None)
         wf_input = asdict(parsed)
@@ -473,18 +498,22 @@ def _serialize_event_default_data(parsed: Any) -> Any:
     Same shape as ``_serialize_workflow_input`` (metadata key included), but
     Pydantic models are dumped with ``mode="json"`` and other values are made
     JSON-safe, so datetime / UUID / Decimal fields do not drop the message.
-    The schedule path keeps using ``_serialize_workflow_input`` unchanged.
+
+    Raises:
+        EventRouteResolutionError: If the model cannot be dumped (for example a
+            field holding an unserializable object); the message is dropped.
     """
+    try:
+        data, _ = _serialize_workflow_input(parsed, json_mode=True)
+    except Exception as exc:
+        raise EventRouteResolutionError(
+            "data", f"serialization failed: {type(exc).__name__}: {exc}"
+        ) from exc
     if hasattr(parsed, "model_dump") and not isinstance(parsed, dict):
-        data = parsed.model_dump(mode="json")
-        metadata = getattr(parsed, METADATA_KEY, None)
-        if metadata:
-            data[METADATA_KEY] = dict(metadata)
-    else:
-        data = _serialize_workflow_input(parsed)[0]
+        return data  # model_dump(mode="json") output is already JSON-safe
     try:
         return to_jsonable_python(data)
-    except PydanticSerializationError:
+    except Exception:
         # Leave it as-is; the dispatcher rejects non-JSON payloads with a clear log.
         return data
 
@@ -747,9 +776,10 @@ class _StreamSubscriber:
         """Dedupe backend for one topic.
 
         Topics without an event route keep the subscriber-level backend. Event
-        routes dedupe by default: spec backend, then subscriber backend, then an
-        in-memory backend for this topic with a TTL of at least
-        ``EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS`` and the route's not-found window.
+        routes never use it (it may be sized for schedule routes): they use the
+        spec backend, else their own in-memory backend with a TTL of at least
+        ``EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS`` and the route's not-found window,
+        holding up to ``dedupe_max_entries`` ids.
         """
         target = next(
             (b.event_target for b in topic_bindings if b.event_target is not None),
@@ -761,14 +791,12 @@ class _StreamSubscriber:
             return None
         if target.deduper is not None:
             return target.deduper
-        if self.deduper is not None:
-            return self.deduper
         # subscribe_all() calls this once per topic, so each topic gets its own backend.
         ttl = max(
             EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS,
             target.not_found_retry.window_seconds,
         )
-        return TTLDedupeBackend(ttl=ttl)
+        return TTLDedupeBackend(maxsize=target.dedupe_max_entries, ttl=ttl)
 
     @staticmethod
     def _dedup_id(
@@ -874,7 +902,9 @@ class _StreamSubscriber:
                 model_filter_rejected.add(binding_key)
                 continue
 
-            if binding.event_target is not None and msg_ctx is not None:
+            if binding.event_target is not None:
+                # Invariant: any_hook is True for event bindings, so msg_ctx is set.
+                assert msg_ctx is not None, "event route without MessageContext"
                 status = self._event_dispatcher.dispatch(
                     target=binding.event_target,
                     route_name=binding.name,
@@ -1078,6 +1108,9 @@ class _StreamSubscriber:
         if self._worker_tasks:
             tasks_snapshot = list(self._worker_tasks)
             closers.append(partial(_cancel_tasks, tasks_snapshot))
+        if any(b.event_target is not None for b in bindings):
+            # After the consumer threads stop; never waits for in-flight sidecar calls.
+            closers.append(self._event_dispatcher.close)
 
         return closers
 

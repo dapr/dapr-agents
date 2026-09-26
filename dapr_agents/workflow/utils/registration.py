@@ -41,7 +41,10 @@ from dapr_agents.types.workflow import (
 )
 from dapr_agents.utils import DaprClientFactory, default_dapr_client_factory
 from dapr_agents.workflow.utils.core import named_noop_handler
-from dapr_agents.workflow.utils.event_routes import EventRouteTarget
+from dapr_agents.workflow.utils.event_routes import (
+    EventRouteTarget,
+    is_reserved_event_name,
+)
 from dapr_agents.workflow.utils.routers import (
     extract_and_validate_message_models,
     parse_http_json,
@@ -163,6 +166,12 @@ def _event_binding_from_spec(spec: WorkflowEventRouteSpec) -> MessageRouteBindin
     _require_non_empty_str(spec.pubsub_name, "pubsub_name")
     _require_non_empty_str(spec.topic, "topic")
     _require_non_empty_str(spec.event_name, "event_name")
+    if not spec.allow_reserved_event_names and is_reserved_event_name(spec.event_name):
+        raise ValueError(
+            f"WorkflowEventRouteSpec.event_name {spec.event_name!r} uses a prefix the "
+            "SDK reserves for its own waits; set allow_reserved_event_names=True "
+            "to use it anyway."
+        )
     validate_hook(spec.payload_filter, "payload_filter")
     validate_hook(spec.model_filter, "model_filter")
     validate_field_resolver(spec.instance_id_from, "instance_id_from")
@@ -182,6 +191,10 @@ def _event_binding_from_spec(spec: WorkflowEventRouteSpec) -> MessageRouteBindin
         dedupe=spec.dedupe,
         deduper=spec.deduper,
         not_found_retry=spec.not_found_retry,
+        max_data_bytes=spec.max_data_bytes,
+        call_timeout_seconds=spec.call_timeout_seconds,
+        dedupe_max_entries=spec.dedupe_max_entries,
+        allow_reserved_event_names=spec.allow_reserved_event_names,
     )
     return MessageRouteBinding(
         handler=named_noop_handler(name),
@@ -493,9 +506,10 @@ def register_message_routes(
         delivery_mode: `"sync"` blocks the Dapr thread; `"async"` enqueues onto a worker queue.
             Workflow event routes are always handled synchronously.
         queue_maxsize: Max in-flight messages when `delivery_mode="async"`.
-        deduper: Optional idempotency backend keyed by CloudEvent id/hash. Workflow
-            event routes dedupe by default: their own `deduper`, then this one,
-            then an in-memory backend.
+        deduper: Optional idempotency backend keyed by CloudEvent id/hash. Applies to
+            schedule routes only. Workflow event routes dedupe by default with their
+            own `deduper`, else a per-topic in-memory backend; to share dedupe across
+            replicas for an event route, set `spec.deduper`.
         wf_client: Reused `DaprWorkflowClient` for scheduling/waiting/raising events.
         await_result: If `True` (sync only), wait for workflow completion and request retry on failure.
         await_timeout: Optional wait timeout in seconds.
