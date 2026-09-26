@@ -13,9 +13,10 @@
 
 """Test cases for observability configuration in agents."""
 
+import logging
 import os
 import pytest
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 from tests.conftest import MockDaprClient
 from dapr_agents.agents.durable import DurableAgent
@@ -52,6 +53,14 @@ class TestObservabilityConfigFromInstantiation:
         monkeypatch.setattr(
             "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
             lambda: mock_client,
+        )
+
+        # Mock the execution config resolution
+        mock_execution_config = MagicMock()
+        mock_execution_config.orchestration_mode = None
+        monkeypatch.setattr(
+            "dapr_agents.agents.base.AgentExecutionConfig.resolve_config",
+            lambda config, runtime_config: mock_execution_config,
         )
 
         # Mock the observability setup to avoid actual OTel initialization
@@ -105,7 +114,7 @@ class TestObservabilityConfigFromInstantiation:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.headers == {"Authorization": "Bearer token123"}
@@ -142,7 +151,7 @@ class TestObservabilityConfigFromInstantiation:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.tracing_enabled is True
@@ -174,7 +183,8 @@ class TestObservabilityConfigFromInstantiation:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
+
         assert resolved_config.enabled is False
 
 
@@ -250,7 +260,7 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.headers == {"Authorization": "Bearer env-token"}
@@ -260,6 +270,30 @@ class TestObservabilityConfigFromEnvironment:
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_HTTP
         assert resolved_config.tracing_enabled is True
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
+
+    def test_observability_config_from_env_is_case_insensitive(
+        self, mock_llm, monkeypatch
+    ):
+        """Test observability config accepts lowercase environment variable names."""
+        monkeypatch.setenv("otel_service_name", "lowercase-service")
+
+        agent = DurableAgent(
+            name="TestAgent",
+            role="Test Assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="TestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+        )
+
+        assert agent._agent_observability.service_name == "lowercase-service"
 
     def test_observability_config_from_env_partial_fields(self, mock_llm, monkeypatch):
         """Test observability config with only some env variables set."""
@@ -282,7 +316,7 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.service_name == "partial-service"
@@ -311,7 +345,8 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
+
         assert resolved_config.enabled is False
 
     def test_observability_config_from_env_invalid_exporter(
@@ -337,14 +372,14 @@ class TestObservabilityConfigFromEnvironment:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Should default to CONSOLE for invalid values
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
 
 
-class TestObservabilityConfigFromStatestore:
+class TestObservabilityConfigFromStateStore:
     """Test cases for observability config from default statestore."""
 
     @pytest.fixture(autouse=True)
@@ -433,7 +468,7 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.auth_token == "statestore-token"
@@ -472,7 +507,7 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
         assert resolved_config.service_name == "partial-statestore-service"
@@ -504,7 +539,8 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
+
         assert resolved_config.enabled is False
 
     def test_observability_config_statestore_invalid_exporter(
@@ -536,7 +572,7 @@ class TestObservabilityConfigFromStatestore:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Should default to CONSOLE for invalid values
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
@@ -634,7 +670,7 @@ class TestObservabilityConfigPrecedence:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Instantiation should win
         assert resolved_config.enabled is False
@@ -677,7 +713,7 @@ class TestObservabilityConfigPrecedence:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Environment should win
         assert resolved_config.enabled is False
@@ -729,7 +765,7 @@ class TestObservabilityConfigPrecedence:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Instantiation wins for service_name and tracing_exporter
         assert resolved_config.service_name == "instantiation-service"
@@ -778,7 +814,7 @@ class TestObservabilityConfigPrecedence:
             agent_observability=obs_config,
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Headers should be merged with instantiation taking precedence
         assert "X-Custom-Header" in resolved_config.headers
@@ -807,7 +843,7 @@ class TestObservabilityConfigPrecedence:
             ),
         )
 
-        resolved_config = agent._resolve_observability_config()
+        resolved_config = agent._agent_observability
 
         # Values come from statestore defaults (False for booleans, console for exporters)
         assert resolved_config.enabled is False
@@ -821,162 +857,57 @@ class TestObservabilityConfigPrecedence:
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
 
-class TestObservabilityConfigMergeLogic:
-    """Test cases for the merge logic specifically."""
+class TestObservabilityConfigResolutionSecrets:
+    """Test that observability secrets are not exposed in logs during config resolution."""
 
-    @pytest.fixture(autouse=True)
-    def setup_env(self, monkeypatch):
-        """Set up environment variables and mocks for testing."""
-        # Clear any OTEL environment variables
-        for key in list(os.environ.keys()):
-            if key.startswith("OTEL_"):
-                monkeypatch.delenv(key, raising=False)
+    def test_auth_token_from_instantiation_is_not_exposed_in_logs(self, caplog):
+        auth_token = "instantiation-auth-token"
+        config = AgentObservabilityConfig(auth_token=auth_token)
 
-        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        with caplog.at_level(logging.DEBUG):
+            AgentObservabilityConfig.resolve_config(config=config)
 
-        # Mock DaprClient
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
+        assert auth_token not in caplog.text
 
-        # Mock the observability setup to avoid actual OTel initialization
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.AgentBase._setup_agent_observability", Mock()
+    def test_headers_from_instantiation_are_not_exposed_in_logs(self, caplog):
+        auth_token = "instantiation-auth-token"
+        custom_value = "instantiation-custom-value"
+        config = AgentObservabilityConfig(
+            headers={
+                "Authorization": f"Bearer {auth_token}",
+                "X-Custom-Header": custom_value,
+            },
         )
 
-        yield
-        if "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
+        with caplog.at_level(logging.DEBUG):
+            AgentObservabilityConfig.resolve_config(config=config)
 
-    def _patch_dapr_client(self, monkeypatch, mock_client):
-        """Helper to patch DaprClient in both locations."""
-        # Create a mock class that returns the mock_client when instantiated
-        # We need to capture mock_client in a closure
-        captured_client = mock_client
+        assert auth_token not in caplog.text
+        assert custom_value not in caplog.text
 
-        class MockDaprClientClass:
-            def __init__(self, **kwargs):
-                pass
-
-            def __enter__(self):
-                return captured_client
-
-            def __exit__(self, *args):
-                pass
-
-        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-            MockDaprClientClass,
+    def test_headers_from_env_are_not_exposed_in_logs(self, caplog, monkeypatch):
+        auth_token = "env-auth-token"
+        custom_value = "env-custom-value"
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_HEADERS",
+            f"Authorization=Bearer {auth_token},X-Custom-Header={custom_value}",
         )
 
-    @pytest.fixture
-    def mock_llm(self):
-        """Create a mock LLM client."""
-        mock = Mock(spec=OpenAIChatClient)
-        mock.prompt_template = None
-        mock.__class__.__name__ = "MockLLMClient"
-        mock.provider = "MockOpenAIProvider"
-        mock.api = "MockOpenAIAPI"
-        mock.model = "gpt-4o-mock"
-        return mock
+        with caplog.at_level(logging.DEBUG):
+            AgentObservabilityConfig.resolve_config()
 
-    def test_merge_none_values_dont_override(self, mock_llm):
-        """Test that None values in override don't override base values."""
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
+        assert auth_token not in caplog.text
+        assert custom_value not in caplog.text
 
-        base = AgentObservabilityConfig(
-            enabled=True,
-            service_name="base-service",
-            endpoint="http://base-endpoint:4317",
-        )
+    def test_headers_from_statestore_are_not_exposed_in_logs(self, caplog):
+        auth_token = "statestore-auth-token"
+        custom_value = "statestore-custom-value"
+        runtime_config = {
+            "OTEL_EXPORTER_OTLP_HEADERS": f"Authorization=Bearer {auth_token},X-Custom-Header={custom_value}"
+        }
 
-        override = AgentObservabilityConfig(
-            enabled=None,  # Should not override
-            service_name="override-service",
-            endpoint=None,  # Should not override
-        )
+        with caplog.at_level(logging.DEBUG):
+            AgentObservabilityConfig.resolve_config(runtime_config=runtime_config)
 
-        merged = agent._merge_observability_configs(base, override)
-
-        assert merged.enabled is True  # From base
-        assert merged.service_name == "override-service"  # From override
-        assert merged.endpoint == "http://base-endpoint:4317"  # From base
-
-    def test_merge_boolean_fields_correctly(self, mock_llm):
-        """Test that boolean fields merge correctly with None handling."""
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
-
-        base = AgentObservabilityConfig(
-            enabled=True,
-            logging_enabled=True,
-            tracing_enabled=False,
-        )
-
-        override = AgentObservabilityConfig(
-            enabled=False,
-            logging_enabled=None,
-            tracing_enabled=True,
-        )
-
-        merged = agent._merge_observability_configs(base, override)
-
-        assert merged.enabled is False  # Override wins
-        assert merged.logging_enabled is True  # Base wins (override is None)
-        assert merged.tracing_enabled is True  # Override wins
-
-    def test_merge_empty_configs(self, mock_llm):
-        """Test merging two empty configs."""
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
-
-        base = AgentObservabilityConfig()
-        override = AgentObservabilityConfig()
-
-        merged = agent._merge_observability_configs(base, override)
-
-        assert merged.enabled is None
-        assert merged.headers == {}
-        assert merged.auth_token is None
-        assert merged.endpoint is None
-        assert merged.service_name is None
+        assert auth_token not in caplog.text
+        assert custom_value not in caplog.text

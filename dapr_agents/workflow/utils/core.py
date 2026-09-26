@@ -233,25 +233,6 @@ def trigger_agent(
         wfr.shutdown()
 
 
-def is_pydantic_model(obj: Any) -> bool:
-    """Check if the given type is a subclass of Pydantic's BaseModel."""
-    return isinstance(obj, type) and issubclass(obj, BaseModel)
-
-
-def is_supported_model(cls: Any) -> bool:
-    """Checks if a class is a supported message schema (Pydantic, dataclass, or dict)."""
-    return cls is dict or is_dataclass(cls) or is_pydantic_model(cls)
-
-
-def is_supported_model_instance(obj: Any) -> bool:
-    """Checks if an object is an instance of a supported message schema (Pydantic, dataclass, or dict)."""
-    return isinstance(obj, dict) or is_dataclass(obj) or isinstance(obj, BaseModel)
-
-
-def is_valid_routable_model(cls: Any) -> bool:
-    return is_dataclass(cls) or is_pydantic_model(cls)
-
-
 def get_decorated_methods(instance: Any, attribute_name: str) -> Dict[str, Callable]:
     """
     Find all **public** bound methods on `instance` that carry a given decorator attribute.
