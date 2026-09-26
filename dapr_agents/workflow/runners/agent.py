@@ -24,6 +24,7 @@ from typing import (
     AsyncIterator,
     Callable,
     Dict,
+    Iterable,
     List,
     Literal,
     Mapping,
@@ -54,7 +55,7 @@ from dapr_agents.streaming.listeners import (
 from dapr_agents.tool.workflow.agent_tool import AgentWorkflowTool
 from dapr_agents.types.streaming import AgentStreamChunk, StreamChunkType
 from dapr_agents.types.activation import ActivationContext
-from dapr_agents.types.workflow import PubSubRouteSpec
+from dapr_agents.types.workflow import PubSubRouteSpec, WorkflowEventRouteSpec
 from dapr_agents.utils import DaprClientFactory
 from dapr_agents.workflow.runners.base import WorkflowRunner
 from dapr_agents.workflow.utils.core import get_decorated_methods
@@ -170,6 +171,10 @@ class AgentRunner(WorkflowRunner):
         # after the first wiring) still registers what's new instead of being
         # skipped entirely by the instance-wide `_wired_pubsub` guard.
         self._wired_pubsub_topics: set[tuple[str, str]] = set()
+        # (pubsub_name, topic) -> event_name for workflow event routes already
+        # wired, so re-wiring the same route (e.g. serve() after subscribe()) is
+        # a no-op and a conflicting route on the same topic is rejected.
+        self._wired_event_routes: dict[tuple[str, str], str] = {}
 
         # In-memory store of managed agents - used for handling shutdown
         self._managed_agents: List[DurableAgent] = []
@@ -694,6 +699,7 @@ class AgentRunner(WorkflowRunner):
         await_timeout: Optional[int] = None,
         fetch_payloads: bool = True,
         log_outcome: bool = False,
+        event_routes: Optional[Iterable[WorkflowEventRouteSpec]] = None,
     ) -> None:
         """
         Register message/HTTP routes for a single durable agent instance.
@@ -707,6 +713,9 @@ class AgentRunner(WorkflowRunner):
             await_timeout: Max time to wait for workflow results when `await_result=True`. If omitted (None), waits indefinitely.
             fetch_payloads: Whether to fetch input/output payloads for awaited workflows.
             log_outcome: Whether to log the final outcome of awaited workflows.
+            event_routes: Optional `WorkflowEventRouteSpec` entries. Each turns a
+                pub/sub message into an external event raised on an existing
+                workflow instance. Each needs its own topic.
         """
         self._ensure_mcp_connected_sync(agent)
         self._attach_agent(agent, app=fastapi_app)
@@ -719,6 +728,7 @@ class AgentRunner(WorkflowRunner):
             await_timeout=await_timeout,
             fetch_payloads=fetch_payloads,
             log_outcome=log_outcome,
+            event_routes=event_routes,
         )
 
         if fastapi_app is not None:
@@ -792,30 +802,40 @@ class AgentRunner(WorkflowRunner):
         await_timeout: Optional[int],
         fetch_payloads: bool,
         log_outcome: bool,
+        event_routes: Optional[Iterable[WorkflowEventRouteSpec]] = None,
     ) -> None:
         config = getattr(agent, "pubsub", None)
         if config is None:
             logger.debug(
-                "[%s] Agent %s has no pubsub; skipping pub/sub route registration.",
+                "[%s] Agent %s has no pubsub; skipping agent pub/sub route registration.",
                 self._name,
                 getattr(agent, "name", agent),
             )
-            return
-
-        specs = self._build_pubsub_specs(agent, config)
-        if not specs:
+            specs: list[PubSubRouteSpec] = []
+        else:
+            specs = self._build_pubsub_specs(agent, config)
+        event_specs = list(event_routes or [])
+        if not specs and not event_specs:
             return
 
         self._ensure_dapr_client()
         if self._dapr_client is None:
             return
 
+        for spec in specs:
+            wired_event = self._wired_event_routes.get((spec.pubsub_name, spec.topic))
+            if wired_event is not None:
+                raise ValueError(
+                    f"{spec.pubsub_name}:{spec.topic} already carries workflow event "
+                    f"route {wired_event!r}; the agent topic needs its own topic."
+                )
         new_specs = [
             spec
             for spec in specs
             if (spec.pubsub_name, spec.topic) not in self._wired_pubsub_topics
         ]
-        if not new_specs:
+        new_event_specs = self._select_new_event_specs(event_specs, new_specs)
+        if not new_specs and not new_event_specs:
             return
 
         try:
@@ -827,8 +847,12 @@ class AgentRunner(WorkflowRunner):
             )
             deduper = None
 
+        routes: list[PubSubRouteSpec | WorkflowEventRouteSpec] = [
+            *new_specs,
+            *new_event_specs,
+        ]
         closers = register_message_routes(
-            routes=new_specs,
+            routes=routes,
             dapr_client=self._dapr_client,
             delivery_mode=delivery_mode,
             queue_maxsize=queue_maxsize,
@@ -842,14 +866,63 @@ class AgentRunner(WorkflowRunner):
         )
         self._pubsub_closers.extend(closers)
         self._wired_pubsub_topics.update(
-            (spec.pubsub_name, spec.topic) for spec in new_specs
+            (spec.pubsub_name, spec.topic) for spec in routes
+        )
+        self._wired_event_routes.update(
+            {(s.pubsub_name, s.topic): s.event_name for s in new_event_specs}
         )
         self._wired_pubsub = True
+
+    def _select_new_event_specs(
+        self,
+        event_specs: list[WorkflowEventRouteSpec],
+        new_agent_specs: list[PubSubRouteSpec],
+    ) -> list[WorkflowEventRouteSpec]:
+        """Return event specs not wired yet; reject topic conflicts.
+
+        Raises:
+            ValueError: If two event specs share a topic, or an event spec's
+                topic is already used by another route.
+        """
+        agent_keys = {(s.pubsub_name, s.topic) for s in new_agent_specs}
+        seen: set[tuple[str, str]] = set()
+        selected: list[WorkflowEventRouteSpec] = []
+        for spec in event_specs:
+            key = (spec.pubsub_name, spec.topic)
+            if key in seen:
+                raise ValueError(
+                    f"Two workflow event routes target {key[0]}:{key[1]}; "
+                    "use one topic per event route."
+                )
+            seen.add(key)
+            wired_event = self._wired_event_routes.get(key)
+            if wired_event == spec.event_name:
+                logger.debug(
+                    "[%s] Event route %r on %s:%s already wired; skipping.",
+                    self._name,
+                    spec.event_name,
+                    key[0],
+                    key[1],
+                )
+                continue
+            if wired_event is not None:
+                raise ValueError(
+                    f"{key[0]}:{key[1]} already carries workflow event route "
+                    f"{wired_event!r}; cannot add event route {spec.event_name!r}."
+                )
+            if key in self._wired_pubsub_topics or key in agent_keys:
+                raise ValueError(
+                    f"{key[0]}:{key[1]} is an agent pub/sub topic; workflow event "
+                    f"route {spec.event_name!r} needs its own topic."
+                )
+            selected.append(spec)
+        return selected
 
     def unwire_pubsub(self) -> None:
         """Unsubscribe all pub/sub handlers and forget which topics were wired."""
         super().unwire_pubsub()
         self._wired_pubsub_topics.clear()
+        self._wired_event_routes.clear()
 
     def _wire_http_routes(
         self,
@@ -877,6 +950,7 @@ class AgentRunner(WorkflowRunner):
         await_timeout: Optional[int] = None,
         fetch_payloads: bool = True,
         log_outcome: bool = False,
+        event_routes: Optional[Iterable[WorkflowEventRouteSpec]] = None,
     ) -> "AgentRunner":
         """
         Wire the agent's pub/sub triggers without exposing HTTP routes.
@@ -889,6 +963,10 @@ class AgentRunner(WorkflowRunner):
             await_timeout: Timeout applied when awaiting workflow completion.
             fetch_payloads: Include input/output payloads when awaiting.
             log_outcome: Log workflow outcome on completion.
+            event_routes: Optional `WorkflowEventRouteSpec` entries. Each turns a
+                pub/sub message into an external event raised on an existing
+                workflow instance (always handled synchronously). Each needs
+                its own topic; the agent's pub/sub config is not required.
 
         Returns:
             The runner (to allow fluent chaining).
@@ -904,6 +982,7 @@ class AgentRunner(WorkflowRunner):
             await_timeout=await_timeout,
             fetch_payloads=fetch_payloads,
             log_outcome=log_outcome,
+            event_routes=event_routes,
         )
         return self
 
@@ -921,6 +1000,7 @@ class AgentRunner(WorkflowRunner):
         fetch_status_payloads: bool = True,
         delivery_mode: Literal["sync", "async"] = "sync",
         queue_maxsize: int = 1024,
+        event_routes: Optional[Iterable[WorkflowEventRouteSpec]] = None,
     ) -> FastAPI:
         """
         Host the agent as a service: subscribe to pub/sub triggers and expose HTTP endpoints.
@@ -938,6 +1018,8 @@ class AgentRunner(WorkflowRunner):
             fetch_status_payloads: Include payloads when fetching workflow status.
             delivery_mode: Delivery mode forwarded to `subscribe`.
             queue_maxsize: Queue size forwarded to `subscribe` for async delivery.
+            event_routes: Optional `WorkflowEventRouteSpec` entries forwarded to
+                `subscribe`; each raises an external event on an existing workflow.
 
         Returns:
             The FastAPI application with the workflow routes.
@@ -954,6 +1036,7 @@ class AgentRunner(WorkflowRunner):
             agent,
             delivery_mode=delivery_mode,
             queue_maxsize=queue_maxsize,
+            event_routes=event_routes,
         )
 
         self._wire_http_routes(agent=agent, fastapi_app=fastapi_app)
