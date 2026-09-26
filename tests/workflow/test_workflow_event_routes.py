@@ -674,3 +674,27 @@ def test_dispatch_default_path_accepts_datetime_model():
     assert _dispatch(dispatcher, message=message) == "success"
     data = wf_client.raise_workflow_event.call_args.kwargs["data"]
     assert data["at"] == "2026-01-02T00:00:00"
+
+
+@pytest.mark.parametrize("path", ["a..b", "a.__class__", " a"])
+def test_resolve_invalid_string_path_raises_resolution_error(path):
+    with pytest.raises(EventRouteResolutionError) as info:
+        resolve_field(path, {"a": {"b": 1}}, _ctx(), field="data")
+    assert info.value.field == "data"
+    assert "invalid field path" in info.value.reason
+    assert isinstance(info.value.__cause__, ValueError)
+
+
+def test_default_event_data_leaves_non_json_values_for_dispatcher():
+    opaque = object()
+    data = _serialize_event_default_data({"blob": opaque})
+    assert data == {"blob": opaque}
+    assert data["blob"] is opaque
+
+
+def test_default_event_data_keeps_metadata_on_pydantic_models():
+    message = _JobFinished(job=_JobRef(workflow_id="wf-1"), status="done")
+    object.__setattr__(message, METADATA_KEY, {"id": "evt-7"})
+    data = _serialize_event_default_data(message)
+    assert data[METADATA_KEY] == {"id": "evt-7"}
+    assert data["job"] == {"workflow_id": "wf-1"}

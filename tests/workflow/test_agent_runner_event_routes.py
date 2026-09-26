@@ -23,6 +23,7 @@ from fastapi import FastAPI
 
 from dapr_agents.agents.configs import AgentPubSubConfig
 from dapr_agents.types.workflow import HttpRouteSpec, WorkflowEventRouteSpec
+from dapr_agents.workflow.decorators import workflow_entry
 from dapr_agents.workflow.runners.base import WorkflowRunner
 from tests.workflow.test_agent_runner_pubsub import (
     _WIRE_KWARGS,
@@ -264,3 +265,76 @@ def test_workflow_runner_warns_when_routes_skipped_after_wiring(caplog):
     assert mock_msg.call_count == 1
     assert "already wired" in caplog.text
     assert "pubsub:other" in caplog.text
+
+
+def test_nothing_to_wire_skips_dapr_client_setup():
+    runner = _make_runner()
+    with (
+        patch.object(runner, "_ensure_dapr_client") as mock_ensure,
+        patch(_REGISTER) as mock_register,
+    ):
+        runner._wire_pubsub_routes(
+            agent=_agent(pubsub=False), event_routes=None, **_WIRE_KWARGS
+        )
+    mock_ensure.assert_not_called()
+    mock_register.assert_not_called()
+
+
+def test_agent_routes_register_without_dedupe_when_cachetools_missing(caplog):
+    runner = _make_runner()
+    with (
+        patch(
+            "dapr_agents.workflow.runners.agent.TTLDedupeBackend",
+            side_effect=ImportError("cachetools"),
+        ),
+        patch(_REGISTER, return_value=[]) as mock_register,
+        caplog.at_level("WARNING"),
+    ):
+        runner._wire_pubsub_routes(agent=_agent(), **_WIRE_KWARGS)
+    assert mock_register.call_args.kwargs["deduper"] is None
+    assert "direct-topic" in {r.topic for r in _routes(mock_register)}
+    assert "cachetools not installed" in caplog.text
+
+
+def test_discover_entry_uses_registered_workflow_name():
+    class _EntryAgent:
+        agent_workflow_name = "frodo_agent_workflow"
+
+        @workflow_entry
+        def run(self, ctx: Any, payload: dict) -> None: ...
+
+    entry = _make_runner().discover_entry(_EntryAgent())
+    assert entry.__name__ == "frodo_agent_workflow"
+    # The stub only carries the name; calling it has no effect.
+    assert entry(object(), {"task": "x"}) is None
+
+
+def test_workflow_runner_http_only_routes_after_pubsub_wiring_do_not_warn(caplog):
+    with patch(
+        "dapr_agents.workflow.runners.base.DaprWorkflowClient",
+        return_value=MagicMock(),
+    ):
+        runner = WorkflowRunner(
+            name="wr", wf_client=MagicMock(), client_factory=lambda: MagicMock()
+        )
+    runner._dapr_client = MagicMock()
+
+    def start(body: dict) -> dict:
+        return body
+
+    with (
+        patch(
+            "dapr_agents.workflow.runners.base.register_message_routes",
+            return_value=[],
+        ) as mock_msg,
+        patch("dapr_agents.workflow.runners.base.register_http_routes") as mock_http,
+    ):
+        runner.register_routes(routes=[_event_spec()])
+        with caplog.at_level("WARNING"):
+            runner.register_routes(
+                routes=[HttpRouteSpec(path="/start", handler_fn=start)],
+                fastapi_app=FastAPI(),
+            )
+    assert mock_msg.call_count == 1
+    mock_http.assert_called_once()
+    assert "already wired" not in caplog.text
