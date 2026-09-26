@@ -19,67 +19,46 @@ import json
 import logging
 import threading
 from datetime import datetime
-from typing import Any, Optional
-from unittest.mock import MagicMock
+from typing import Any
 
 import pytest
 from dapr.ext.workflow.workflow_state import WorkflowStatus
 from pydantic import BaseModel
 
-from dapr_agents.types.message import EventMessageMetadata
 from dapr_agents.types.workflow import NotFoundRetryPolicy
 from dapr_agents.workflow.utils.event_routes import (
     MAX_EVENT_IDENTIFIER_LENGTH,
     EventRouteResolutionError,
-    EventRouteTarget,
     WorkflowEventDispatcher,
-    _NotFoundTracker,
     coerce_identifier,
     is_reserved_event_name,
     serialize_event_data,
 )
+from dapr_agents.workflow.utils.event_route_state import NotFoundTracker
 from dapr_agents.workflow.utils.registration import _collect_message_bindings
 from dapr_agents.workflow.utils.subscription import (
-    MessageContext,
     _serialize_event_default_data,
     _serialize_workflow_input,
     topic_has_event_route_conflict,
 )
-from tests.workflow._event_route_helpers import make_spec, workflow_state
+from tests.workflow._event_route_helpers import (
+    make_ctx,
+    make_spec,
+    make_target,
+    make_wf,
+    workflow_state,
+)
 
 _WAIT = 5.0
 
 
-def _ctx(event_id: Optional[str] = "evt-1") -> MessageContext:
-    fields = dict.fromkeys(EventMessageMetadata.model_fields)
-    fields.update(id=event_id, topic="t")
-    return MessageContext(
-        event=EventMessageMetadata.model_validate(fields), handler_name="route"
-    )
+_ctx = make_ctx
+_target = make_target
+_wf = make_wf
 
 
 def _spec(**overrides: Any):
     return make_spec(dict(event_name="evt", instance_id_from="wf_id"), **overrides)
-
-
-def _target(**overrides: Any) -> EventRouteTarget:
-    values: dict[str, Any] = dict(
-        event_name="evt",
-        instance_id_from="wf_id",
-        event_name_from=None,
-        data_from=None,
-        dedupe=True,
-        deduper=None,
-        not_found_retry=NotFoundRetryPolicy(),
-    )
-    values.update(overrides)
-    return EventRouteTarget(**values)
-
-
-def _wf() -> MagicMock:
-    wf_client = MagicMock()
-    wf_client.get_workflow_state.return_value = workflow_state(WorkflowStatus.RUNNING)
-    return wf_client
 
 
 def _dispatch(wf_client: Any, message: Any, **target_overrides: Any) -> str:
@@ -408,7 +387,7 @@ def test_model_default_data_skips_second_jsonable_pass(monkeypatch):
 
 
 def test_not_found_tracker_is_thread_safe():
-    tracker = _NotFoundTracker()
+    tracker = NotFoundTracker()
     threads_n, per_thread = 8, 200
     barrier = threading.Barrier(threads_n + 1)
     seen: list[list[int]] = [[] for _ in range(threads_n)]

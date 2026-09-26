@@ -21,6 +21,7 @@ from dapr_agents.types.workflow import (
     FieldResolver,
     NotFoundRetryPolicy,
     WorkflowEventRouteSpec,
+    WorkflowEventTarget,
 )
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "workflow_entry",
     "MessageContext",
     "WorkflowEventRouteSpec",
+    "WorkflowEventTarget",
     "NotFoundRetryPolicy",
     "FieldResolver",
 ]

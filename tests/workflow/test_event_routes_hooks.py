@@ -23,6 +23,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from dapr_agents.workflow import WorkflowEventTarget
 from dapr_agents.workflow.utils.event_routes import is_reserved_event_name
 from dapr_agents.workflow.utils.registration import _collect_message_bindings
 from tests.workflow.test_workflow_event_routes_e2e_inprocess import (  # noqa: F401
@@ -44,7 +45,7 @@ def env(monkeypatch):
 def _slow(result: Any = True):
     release = threading.Event()
 
-    def hook(msg: Any, ctx: Any) -> Any:
+    def hook(*_: Any) -> Any:
         release.wait(5)
         return result
 
@@ -69,12 +70,12 @@ def test_reserved_check_is_case_insensitive():
 # ---- authorize -----------------------------------------------------------------
 
 
-def test_authorize_true_raises_event_with_message_and_cloudevent(env):
+def test_authorize_true_raises_event_with_message_cloudevent_and_target(env):
     mock_dapr, mock_wf = env
     seen: list[Any] = []
 
-    def authorize(msg: Any, ctx: Any) -> bool:
-        seen.append((msg.job.workflow_id, ctx.event.id, ctx.event.source))
+    def authorize(msg: Any, ctx: Any, target: WorkflowEventTarget) -> bool:
+        seen.append((msg.job.workflow_id, ctx.event.id, ctx.event.source, target))
         return True
 
     sub = _run(
@@ -82,7 +83,37 @@ def test_authorize_true_raises_event_with_message_and_cloudevent(env):
     )
     sub.respond_success.assert_called_once()
     mock_wf.raise_workflow_event.assert_called_once()
-    assert seen == [("wf-1", "evt-1", "/test")]
+    assert seen == [
+        (
+            "wf-1",
+            "evt-1",
+            "/test",
+            WorkflowEventTarget(instance_id="wf-1", event_name="job_finished"),
+        )
+    ]
+
+
+def test_authorize_sees_the_resolved_event_name(env):
+    mock_dapr, mock_wf = env
+    targets: list[WorkflowEventTarget] = []
+
+    def authorize(msg: Any, ctx: Any, target: WorkflowEventTarget) -> bool:
+        targets.append(target)
+        return target.instance_id.startswith("wf-")
+
+    spec = _spec(
+        event_name_from=lambda m, c: f"job_{m.status}",
+        authorize=authorize,
+    )
+    msgs = [_event(_job()), _event(_job(workflow_id="other"), event_id="evt-2")]
+    sub = _run(mock_dapr, mock_wf, msgs, routes=[spec])
+    assert targets == [
+        WorkflowEventTarget(instance_id="wf-1", event_name="job_done"),
+        WorkflowEventTarget(instance_id="other", event_name="job_done"),
+    ]
+    sub.respond_success.assert_called_once()
+    sub.respond_drop.assert_called_once()
+    mock_wf.raise_workflow_event.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -95,12 +126,13 @@ def test_authorize_denies_anything_but_true(env, caplog, result):
             mock_dapr,
             mock_wf,
             [_event(_job(status=_SECRET))],
-            routes=[_spec(authorize=lambda m, c: result, name="r1")],
+            routes=[_spec(authorize=lambda m, c, t: result, name="r1")],
         )
     sub.respond_drop.assert_called_once()
     mock_wf.get_workflow_state.assert_not_called()
     mock_wf.raise_workflow_event.assert_not_called()
     assert "authorize denied" in caplog.text
+    assert "no dead_letter_topic configured" in caplog.text
     assert "'r1'" in caplog.text and "'wf-1'" in caplog.text
     assert "'evt-1'" in caplog.text
     assert _SECRET not in caplog.text
@@ -109,7 +141,7 @@ def test_authorize_denies_anything_but_true(env, caplog, result):
 def test_authorize_exception_denies(env, caplog):
     mock_dapr, mock_wf = env
 
-    def authorize(msg: Any, ctx: Any) -> bool:
+    def authorize(msg: Any, ctx: Any, target: Any) -> bool:
         raise RuntimeError(_SECRET)
 
     with caplog.at_level(logging.WARNING):
@@ -139,12 +171,45 @@ def test_authorize_timeout_denies(env, caplog):
     assert "timed out" in caplog.text
 
 
+def test_authorize_denial_names_the_dead_letter_topic(env, caplog):
+    mock_dapr, mock_wf = env
+    with caplog.at_level(logging.WARNING):
+        sub = _run(
+            mock_dapr,
+            mock_wf,
+            [_event(_job())],
+            routes=[_spec(authorize=lambda m, c, t: False, dead_letter_topic="t.dlq")],
+        )
+    sub.respond_drop.assert_called_once()
+    assert "authorize denied" in caplog.text
+    assert "daprd dead-letters it to 't.dlq'" in caplog.text
+
+
 def test_authorize_must_be_sync():
-    async def authorize(msg: Any, ctx: Any) -> bool:
+    async def authorize(msg: Any, ctx: Any, target: Any) -> bool:
         return True
 
     with pytest.raises(TypeError, match="authorize"):
         _collect_message_bindings(targets=None, routes=[_spec(authorize=authorize)])
+
+
+def test_authorize_with_two_parameters_rejected_at_registration():
+    with pytest.raises(TypeError, match="three positional arguments"):
+        _collect_message_bindings(
+            targets=None, routes=[_spec(authorize=lambda msg, ctx: True)]
+        )
+
+
+@pytest.mark.parametrize(
+    "authorize",
+    [lambda *args: True, lambda msg, ctx, target, extra=None: True, max],
+    ids=["varargs", "extra-default", "builtin-without-signature"],
+)
+def test_authorize_signatures_accepted(authorize):
+    bindings = _collect_message_bindings(
+        targets=None, routes=[_spec(authorize=authorize)]
+    )
+    assert bindings[0].event_target.authorize is authorize
 
 
 @pytest.mark.parametrize("value", [0, -1.0, math.inf, math.nan, True, "5"])

@@ -49,7 +49,7 @@ def test_reuses_an_idle_worker():
     for _ in range(5):
         caller.call(lambda: None, _WAIT)
     assert len(caller._threads) == 1
-    assert all(t.daemon for t in caller._threads)
+    assert all(t.daemon for t in caller._threads.values())
     caller.close()
 
 
@@ -74,7 +74,7 @@ def test_timeout_raises_and_a_queued_call_never_runs():
     # The worker skips the cancelled job and serves the next one.
     assert caller.call(lambda: "next", _WAIT) == "next"
     assert ran == []
-    assert caller._pending == 0
+    assert caller._queued == 0 and caller._running == {}
     assert len(caller._threads) == 1
     caller.close()
 
@@ -93,9 +93,10 @@ def test_grows_when_all_workers_are_busy():
 def test_close_stops_workers_and_rejects_new_calls():
     caller = DeadlineCaller()
     caller.call(lambda: None, _WAIT)
+    threads = list(caller._threads.values())
     caller.close()
     caller.close()  # idempotent
-    for thread in caller._threads:
+    for thread in threads:
         thread.join(_WAIT)
         assert not thread.is_alive()
     with pytest.raises(DeadlineCallerClosedError):
@@ -105,7 +106,7 @@ def test_close_stops_workers_and_rejects_new_calls():
 def test_close_without_workers_is_a_noop():
     caller = DeadlineCaller()
     caller.close()
-    assert caller._threads == []
+    assert caller._threads == {}
 
 
 def test_rejects_non_positive_max_workers():

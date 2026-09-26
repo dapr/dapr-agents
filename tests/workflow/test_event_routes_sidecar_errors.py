@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import subprocess
@@ -22,69 +23,45 @@ import sys
 import threading
 from concurrent.futures import Future
 from typing import Any, Optional
-from unittest.mock import MagicMock
 
 import grpc
 import pytest
-from dapr.ext.workflow.workflow_state import WorkflowStatus
 
-from dapr_agents.types.message import EventMessageMetadata
-from dapr_agents.types.workflow import NotFoundRetryPolicy
 from dapr_agents.workflow.utils.call_deadline import DeadlineCaller
+from dapr_agents.workflow.utils.core import stable_json_sha256
 from dapr_agents.workflow.utils.event_route_calls import (
-    MIN_TIMED_OUT_RAISES_TRACKED,
     PERMANENT_SIDECAR_ERROR_CODES,
-    TimedOutRaises,
+    is_instance_not_found_error,
     permanent_error_code,
+)
+from dapr_agents.workflow.utils.event_route_state import (
+    MIN_TIMED_OUT_RAISES_TRACKED,
+    EventRouteTopicState,
 )
 from dapr_agents.workflow.utils.event_routes import (
     EventRouteTarget,
     WorkflowEventDispatcher,
 )
 from dapr_agents.workflow.utils.subscription import (
-    MessageContext,
     TTLDedupeBackend,
     _StreamSubscriber,
 )
-from tests.workflow._event_route_helpers import FakeRpcError, workflow_state
+from tests.workflow._event_route_helpers import (
+    BrokenRpcError,
+    FakeRpcError,
+    make_dispatcher,
+    make_target,
+    make_wf,
+    run_dispatch,
+)
 
 _KEY = "evt-1"
 _WAIT = 5.0
+_TOPIC = ("messagepubsub", "t")
 
-
-def _ctx(event_id: Optional[str] = _KEY) -> MessageContext:
-    fields = dict.fromkeys(EventMessageMetadata.model_fields)
-    fields.update(id=event_id, topic="t")
-    return MessageContext(
-        event=EventMessageMetadata.model_validate(fields), handler_name="route"
-    )
-
-
-def _target(**overrides: Any) -> EventRouteTarget:
-    values: dict[str, Any] = dict(
-        event_name="evt",
-        instance_id_from="wf_id",
-        event_name_from=None,
-        data_from=None,
-        dedupe=True,
-        deduper=None,
-        not_found_retry=NotFoundRetryPolicy(),
-        call_timeout_seconds=0.05,
-    )
-    values.update(overrides)
-    return EventRouteTarget(**values)
-
-
-def _wf() -> MagicMock:
-    wf = MagicMock()
-    wf.get_workflow_state.return_value = workflow_state(WorkflowStatus.RUNNING)
-    return wf
-
-
-def _dispatcher(wf: MagicMock, caller: Any = None) -> WorkflowEventDispatcher:
-    return WorkflowEventDispatcher(
-        wf_client=wf, default_serializer=lambda m: m, caller=caller
-    )
+_target = functools.partial(make_target, call_timeout_seconds=0.05)
+_wf = make_wf
+_dispatcher = make_dispatcher
 
 
 def _dispatch(
@@ -93,17 +70,19 @@ def _dispatch(
     dedupe_key: Optional[str] = _KEY,
     dlq: Optional[str] = None,
     target: Optional[EventRouteTarget] = None,
+    message: Any = None,
 ) -> str:
-    return dispatcher.dispatch(
+    return run_dispatch(
+        dispatcher,
         target=target or _target(),
-        route_name="route",
-        pubsub="p",
-        topic="t",
-        dead_letter_topic=dlq,
-        message={"wf_id": "wf-1"},
-        msg_ctx=_ctx(),
+        message=message,
+        dlq=dlq,
         dedupe_key=dedupe_key,
     )
+
+
+def _state(dispatcher: WorkflowEventDispatcher) -> EventRouteTopicState:
+    return dispatcher._topic_states[_TOPIC]
 
 
 class _GatedRaise:
@@ -112,12 +91,12 @@ class _GatedRaise:
     def __init__(self, outcome: Optional[BaseException] = None) -> None:
         self.release = threading.Event()
         self.finished = threading.Event()
-        self.calls = 0
+        self.calls: list[dict[str, Any]] = []
         self.outcome = outcome
 
     def __call__(self, **kwargs: Any) -> None:
-        self.calls += 1
-        if self.calls > 1:
+        self.calls.append(kwargs)
+        if len(self.calls) > 1:
             return  # redelivered raises complete at once
         try:
             self.release.wait(_WAIT)
@@ -139,11 +118,10 @@ def _time_out_first_raise(outcome: Optional[BaseException] = None):
 def _finish(gate: _GatedRaise, dispatcher: WorkflowEventDispatcher) -> None:
     gate.release.set()
     assert gate.finished.wait(_WAIT)
-    tracked = dispatcher._timed_out_raises(
-        MagicMock(pubsub="p", topic="t", target=_target())
-    )
+    tracked = _state(dispatcher).timed_out.peek(_KEY)
+    assert tracked is not None
     # The future settles just after the call returns.
-    tracked._futures[_KEY].exception(timeout=_WAIT)
+    tracked.future.exception(timeout=_WAIT)
 
 
 # ---- timed-out raise tracking ----------------------------------------------
@@ -153,7 +131,7 @@ def test_redelivery_while_timed_out_raise_runs_retries_without_raising():
     gate, wf, dispatcher = _time_out_first_raise()
     try:
         assert _dispatch(dispatcher) == "retry"
-        assert gate.calls == 1
+        assert len(gate.calls) == 1
     finally:
         gate.release.set()
         dispatcher.close()
@@ -163,9 +141,8 @@ def test_redelivery_after_timed_out_raise_succeeded_acks_without_raising():
     gate, wf, dispatcher = _time_out_first_raise()
     _finish(gate, dispatcher)
     assert _dispatch(dispatcher) == "success"
-    assert gate.calls == 1
-    tracked = dispatcher._timed_out[("p", "t")]
-    assert len(tracked) == 0  # resolved entries are removed
+    assert len(gate.calls) == 1
+    assert len(_state(dispatcher).timed_out) == 0  # resolved entries are removed
     dispatcher.close()
 
 
@@ -175,7 +152,7 @@ def test_redelivery_after_transient_failure_raises_again():
     )
     _finish(gate, dispatcher)
     assert _dispatch(dispatcher) == "success"
-    assert gate.calls == 2
+    assert len(gate.calls) == 2
     dispatcher.close()
 
 
@@ -186,7 +163,7 @@ def test_redelivery_after_permanent_failure_drops_without_raising(caplog):
     _finish(gate, dispatcher)
     with caplog.at_level(logging.WARNING):
         assert _dispatch(dispatcher, dlq="dlq") == "drop"
-    assert gate.calls == 1
+    assert len(gate.calls) == 1
     assert "PERMISSION_DENIED" in caplog.text
     assert "'dlq'" in caplog.text
     dispatcher.close()
@@ -201,8 +178,8 @@ def test_timed_out_raise_without_dedupe_key_is_not_tracked():
     try:
         assert _dispatch(dispatcher, dedupe_key=None) == "retry"
         assert _dispatch(dispatcher, dedupe_key=None) == "success"
-        assert gate.calls == 2
-        assert dispatcher._timed_out == {}
+        assert len(gate.calls) == 2
+        assert len(_state(dispatcher).timed_out) == 0
     finally:
         gate.release.set()
         dispatcher.close()
@@ -214,7 +191,7 @@ class _NeverRunsCaller:
     def call(self, fn: Any, timeout: float, *args: Any, **kwargs: Any) -> Any:
         return fn(*args, **kwargs)
 
-    def submit(self, fn: Any, *args: Any, **kwargs: Any) -> Future:
+    def start(self, fn: Any, timeout: float, *args: Any, **kwargs: Any) -> Future:
         return Future()
 
     def close(self) -> None:
@@ -223,31 +200,17 @@ class _NeverRunsCaller:
 
 def test_timed_out_raise_cancelled_while_queued_is_not_tracked():
     wf = _wf()
-    dispatcher = _dispatcher(wf, caller=_NeverRunsCaller())
+    dispatcher = _dispatcher(wf, sidecar_caller=_NeverRunsCaller())
     assert _dispatch(dispatcher) == "retry"
-    assert len(dispatcher._timed_out[("p", "t")]) == 0
+    assert len(_state(dispatcher).timed_out) == 0
     wf.raise_workflow_event.assert_not_called()
 
 
-def test_timed_out_raises_bounded_and_sized_from_dedupe_entries():
-    tracked = TimedOutRaises(maxsize=2)
-    for key in ("a", "b", "c"):
-        tracked.add(key, Future())
-    assert len(tracked) == 2
-    assert tracked.get("a") is None
-    pending = tracked.get("c")
-    assert pending is not None and len(tracked) == 2  # unfinished stays tracked
-
-    dispatcher = _dispatcher(_wf())
-    small = dispatcher._timed_out_raises(
-        MagicMock(pubsub="p", topic="t1", target=_target(dedupe_max_entries=8))
-    )
-    large = dispatcher._timed_out_raises(
-        MagicMock(pubsub="p", topic="t2", target=_target(dedupe_max_entries=10_000))
-    )
-    assert small._futures.maxsize == MIN_TIMED_OUT_RAISES_TRACKED
-    assert large._futures.maxsize == 10_000
-    dispatcher.close()
+def test_timed_out_raises_sized_from_dedupe_entries():
+    small = EventRouteTopicState.create(8).timed_out
+    large = EventRouteTopicState.create(10_000).timed_out
+    assert small._settled.maxsize == MIN_TIMED_OUT_RAISES_TRACKED
+    assert large._settled.maxsize == 10_000
 
 
 def test_deadline_caller_submit_returns_future():
@@ -270,22 +233,45 @@ def test_permanent_error_code_set():
     }
 
 
-class _BrokenRpcError(grpc.RpcError):
-    def code(self) -> Any:
-        raise RuntimeError("boom")
-
-
 @pytest.mark.parametrize(
     "exc",
     [
         ValueError("x"),
-        _BrokenRpcError(),
+        BrokenRpcError(),
         FakeRpcError(grpc.StatusCode.UNAVAILABLE),
         FakeRpcError(grpc.StatusCode.DEADLINE_EXCEEDED),
     ],
 )
 def test_non_permanent_errors(exc):
     assert permanent_error_code(exc) is None
+
+
+class _DetailsRaise(grpc.RpcError):
+    def code(self) -> Any:
+        return grpc.StatusCode.UNKNOWN
+
+    def details(self) -> str:
+        raise RuntimeError("boom")
+
+
+class _DetailsNotStr(_DetailsRaise):
+    def details(self) -> Any:
+        return None
+
+
+@pytest.mark.parametrize("exc", [_DetailsRaise(), _DetailsNotStr()])
+def test_unreadable_details_are_not_instance_not_found(exc):
+    assert not is_instance_not_found_error(exc)
+    assert permanent_error_code(exc) is None
+
+
+class _NotFoundNoDetails(_DetailsRaise):
+    def code(self) -> Any:
+        return grpc.StatusCode.NOT_FOUND
+
+
+def test_not_found_code_needs_no_details():
+    assert is_instance_not_found_error(_NotFoundNoDetails())
 
 
 def test_transient_raise_error_still_retries():
@@ -324,10 +310,28 @@ def test_transient_state_check_error_still_retries():
 # ---- stable dedupe key without a CloudEvent id -------------------------------
 
 
-def test_dedupe_key_without_id_is_sha256_of_payload():
+def test_dedupe_key_without_id_is_sha256_of_canonical_json():
     key = _StreamSubscriber._dedup_id(TTLDedupeBackend(), {}, {"a": 1}, "t")
-    # sha256("{'a': 1}"), precomputed.
-    assert key == "t:240f5ff9499fabe7952369a2a095ad1d8dedba650ea844f3fa0027e5ddc12f49"
+    # sha256('{"a":1}'), precomputed.
+    assert key == "t:015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862"
+
+
+def test_dedupe_key_ignores_key_order_and_keeps_unicode():
+    backend = TTLDedupeBackend()
+    first = _StreamSubscriber._dedup_id(backend, None, {"b": "ø", "a": 1}, "t")
+    second = _StreamSubscriber._dedup_id(backend, None, {"a": 1, "b": "ø"}, "t")
+    assert first == second == f"t:{stable_json_sha256({'a': 1, 'b': 'ø'})}"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [{1: "x", "a": "y"}, object(), {"s": "\ud800"}],
+    ids=["mixed-keys", "object", "lone-surrogate"],
+)
+def test_stable_json_sha256_falls_back_or_survives(value):
+    # Mixed key types and objects are not JSON-serializable with sort_keys:
+    # str(value) is hashed instead. A lone surrogate still encodes.
+    assert len(stable_json_sha256(value)) == 64
 
 
 def test_dedupe_key_with_id_uses_id():

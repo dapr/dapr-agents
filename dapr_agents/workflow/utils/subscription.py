@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import threading
@@ -32,7 +31,10 @@ from pydantic_core import to_jsonable_python
 
 from dapr_agents.streaming.keys import MESSAGE_METADATA as METADATA_KEY
 from dapr_agents.types.message import EventMessageMetadata
-from dapr_agents.workflow.utils.core import is_supported_model_instance
+from dapr_agents.workflow.utils.core import (
+    is_supported_model_instance,
+    stable_json_sha256,
+)
 from dapr_agents.workflow.utils.event_routes import (
     EventRouteResolutionError,
     EventRouteTarget,
@@ -405,6 +407,11 @@ def _filter_accepts(
     binding_name: str,
 ) -> bool:
     """Run an optional message filter.
+
+    Only for bindings that are not workflow event routes. Anything reachable
+    from ``_StreamSubscriber._route_to_binding`` must go through
+    ``_binding_filter_accepts``, which sends event routes to their deadline-
+    bounded, strict-``True`` hook runner instead.
 
     True means proceed, False means skip the binding.
     An exception from a user-supplied filter is logged and treated as a filter rejection
@@ -781,6 +788,11 @@ class _StreamSubscriber:
         spec backend, else their own in-memory backend with a TTL of at least
         ``EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS`` and the route's not-found window,
         holding up to ``dedupe_max_entries`` ids.
+
+        Invariant: ``_validate_event_bindings`` (run by
+        ``subscribe_message_bindings`` before this) guarantees an event route
+        is the only binding on its (pubsub, topic), so its own dedupe settings
+        decide and no sibling route can override them.
         """
         target = next(
             (b.event_target for b in topic_bindings if b.event_target is not None),
@@ -788,6 +800,7 @@ class _StreamSubscriber:
         )
         if target is None:
             return self.deduper
+        assert len(topic_bindings) == 1, "event route shares its topic"
         if not target.dedupe:
             return None
         if target.deduper is not None:
@@ -808,17 +821,19 @@ class _StreamSubscriber:
     ) -> str | None:
         """Compute the dedup key for this message, or None when dedup is disabled.
 
-        Without a CloudEvent id the key is a SHA-256 of the payload, which is
-        the same in every process (``hash()`` is randomized per process), so a
-        shared backend matches across replicas.
+        Applies to every route with a deduper (``@message_router`` routes
+        included). Without a CloudEvent id the key is a SHA-256 of the payload
+        as canonical JSON (sorted keys, compact separators; ``str()`` when it
+        is not JSON-serializable). It is the same in every process (``hash()``
+        is randomized per process), so a shared backend matches across
+        replicas.
         """
         if deduper is None:
             return None
         event_id = (metadata or {}).get("id")
         if event_id:
             return event_id
-        digest = hashlib.sha256(str(event_data).encode("utf-8")).hexdigest()
-        return f"{topic_name}:{digest}"
+        return f"{topic_name}:{stable_json_sha256(event_data)}"
 
     @staticmethod
     def _is_seen(deduper: DedupeBackend, candidate_id: str) -> bool:

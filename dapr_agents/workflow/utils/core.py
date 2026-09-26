@@ -12,7 +12,9 @@
 #
 
 import asyncio
+import hashlib
 import inspect
+import json
 import logging
 import signal
 from dataclasses import asdict, is_dataclass
@@ -264,6 +266,21 @@ def named_noop_handler(name: str) -> Callable[..., None]:
 
     _noop.__name__ = name
     return _noop
+
+
+def stable_json_sha256(value: Any) -> str:
+    """SHA-256 hex digest of ``value`` as canonical JSON, the same in every process.
+
+    Canonical JSON: sorted keys, no whitespace, non-ASCII kept as UTF-8. A value
+    that is not JSON-serializable falls back to ``str(value)``.
+    """
+    try:
+        text = json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+    except (TypeError, ValueError, RecursionError):
+        text = str(value)
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def get_decorated_methods(instance: Any, attribute_name: str) -> Dict[str, Callable]:
