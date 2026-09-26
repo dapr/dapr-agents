@@ -252,6 +252,20 @@ def is_valid_routable_model(cls: Any) -> bool:
     return is_dataclass(cls) or is_pydantic_model(cls)
 
 
+def named_noop_handler(name: str) -> Callable[..., None]:
+    """Return a no-op callable whose ``__name__`` is ``name``.
+
+    Used where a binding needs a named handler (for the registered workflow name
+    or a route name) that is never called.
+    """
+
+    def _noop(*_: Any) -> None:
+        return None
+
+    _noop.__name__ = name
+    return _noop
+
+
 def get_decorated_methods(instance: Any, attribute_name: str) -> Dict[str, Callable]:
     """
     Find all **public** bound methods on `instance` that carry a given decorator attribute.

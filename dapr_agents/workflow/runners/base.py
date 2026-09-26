@@ -354,6 +354,14 @@ class WorkflowRunner(SignalMixin):
             )
             self._pubsub_closers.extend(closers)
             self._wired_pubsub = True
+        elif pubsub_specs and self._wired_pubsub:
+            logger.warning(
+                "[%s] Pub/sub is already wired on this runner; ignoring %d route(s): %s. "
+                "Call unwire_pubsub() first to register them.",
+                self._name,
+                len(pubsub_specs),
+                [f"{r.pubsub_name}:{r.topic}" for r in pubsub_specs],
+            )
 
         if http_specs and fastapi_app is not None and not self._wired_http:
             register_http_routes(

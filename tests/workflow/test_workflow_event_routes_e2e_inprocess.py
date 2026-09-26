@@ -20,11 +20,13 @@ subscriber thread, parsing, validation, filters, dedupe and dispatch run.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
 import grpc
 import pytest
+from cachetools import TTLCache
 from dapr.ext.workflow.workflow_state import WorkflowStatus
 from pydantic import BaseModel
 
@@ -35,7 +37,11 @@ from dapr_agents.types.workflow import (
 )
 from dapr_agents.workflow.decorators.decorators import message_router
 from dapr_agents.workflow.utils.registration import register_message_routes
-from dapr_agents.workflow.utils.subscription import METADATA_KEY, TTLDedupeBackend
+from dapr_agents.workflow.utils.subscription import (
+    EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS,
+    METADATA_KEY,
+    TTLDedupeBackend,
+)
 from tests.workflow.test_message_router import (
     _FakeTopicEventResponse,
     create_mock_dapr_client,
@@ -428,3 +434,53 @@ def test_event_route_sharing_topic_with_schedule_route_rejected(env):
                 _spec(),
             ],
         )
+
+
+class _TimedJob(BaseModel):
+    workflow_id: str
+    at: datetime
+
+
+def test_default_data_serializes_pydantic_datetime(env):
+    mock_dapr, mock_wf = env
+    spec = _spec(instance_id_from="workflow_id", message_model=_TimedJob)
+    payload = {"workflow_id": "wf-1", "at": "2026-01-02T03:04:05Z"}
+    sub = _run(mock_dapr, mock_wf, [_event(payload)], routes=[spec])
+
+    sub.respond_success.assert_called_once()
+    data = mock_wf.raise_workflow_event.call_args.kwargs["data"]
+    assert data["at"].startswith("2026-01-02T03:04:05")
+    assert data[METADATA_KEY]["id"] == "evt-1"
+
+
+def test_default_event_deduper_outlives_not_found_window(env, monkeypatch):
+    mock_dapr, mock_wf = env
+    ttls: list[float] = []
+    real_backend = TTLDedupeBackend
+
+    def _capture(*args: Any, **kwargs: Any) -> TTLDedupeBackend:
+        ttls.append(kwargs.get("ttl", 60.0))
+        return real_backend(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "dapr_agents.workflow.utils.subscription.TTLDedupeBackend", _capture
+    )
+    spec = _spec(not_found_retry=NotFoundRetryPolicy(window_seconds=3600))
+    _run(mock_dapr, mock_wf, [_event(_job())], routes=[spec])
+    assert ttls == [max(EVENT_ROUTE_DEDUPE_MIN_TTL_SECONDS, 3600)]
+
+
+def test_redelivery_after_dedupe_ttl_is_raised_again(env):
+    mock_dapr, mock_wf = env
+    now = [0.0]
+    backend = TTLDedupeBackend(ttl=60)
+    backend._cache = TTLCache(maxsize=16, ttl=60, timer=lambda: now[0])
+    spec = _spec(deduper=backend)
+
+    _run(mock_dapr, mock_wf, [_event(_job())], routes=[spec])
+    _run(mock_dapr, mock_wf, [_event(_job())], routes=[spec])
+    assert mock_wf.raise_workflow_event.call_count == 1
+
+    now[0] = 61.0  # past the TTL: the id is forgotten, the redelivery goes through
+    _run(mock_dapr, mock_wf, [_event(_job())], routes=[spec])
+    assert mock_wf.raise_workflow_event.call_count == 2

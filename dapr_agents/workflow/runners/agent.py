@@ -58,7 +58,7 @@ from dapr_agents.types.activation import ActivationContext
 from dapr_agents.types.workflow import PubSubRouteSpec, WorkflowEventRouteSpec
 from dapr_agents.utils import DaprClientFactory
 from dapr_agents.workflow.runners.base import WorkflowRunner
-from dapr_agents.workflow.utils.core import get_decorated_methods
+from dapr_agents.workflow.utils.core import get_decorated_methods, named_noop_handler
 from dapr_agents.workflow.utils.registration import (
     register_http_routes,
     register_message_routes,
@@ -171,10 +171,10 @@ class AgentRunner(WorkflowRunner):
         # after the first wiring) still registers what's new instead of being
         # skipped entirely by the instance-wide `_wired_pubsub` guard.
         self._wired_pubsub_topics: set[tuple[str, str]] = set()
-        # (pubsub_name, topic) -> event_name for workflow event routes already
-        # wired, so re-wiring the same route (e.g. serve() after subscribe()) is
-        # a no-op and a conflicting route on the same topic is rejected.
-        self._wired_event_routes: dict[tuple[str, str], str] = {}
+        # (pubsub_name, topic) -> wired workflow event route spec, so re-wiring
+        # the same route (e.g. serve() after subscribe()) is a no-op and a
+        # conflicting route on the same topic is rejected or warned about.
+        self._wired_event_routes: dict[tuple[str, str], WorkflowEventRouteSpec] = {}
 
         # In-memory store of managed agents - used for handling shutdown
         self._managed_agents: List[DurableAgent] = []
@@ -643,12 +643,7 @@ class AgentRunner(WorkflowRunner):
         # schedule_new_workflow resolves to the right Dapr registration.
         registered_name: Optional[str] = getattr(agent, "agent_workflow_name", None)
         if registered_name:
-
-            def _stub(*_) -> None:
-                pass
-
-            _stub.__name__ = registered_name
-            return _stub
+            return named_noop_handler(registered_name)
 
         return candidates[0]
 
@@ -772,12 +767,7 @@ class AgentRunner(WorkflowRunner):
                 else getattr(agent, "agent_workflow_name", None)
             )
             if registered_name is not None:
-
-                def _stub(*_) -> None:
-                    pass
-
-                _stub.__name__ = registered_name
-                named_handler: Any = _stub
+                named_handler: Any = named_noop_handler(registered_name)
             else:
                 named_handler = handler
 
@@ -822,81 +812,126 @@ class AgentRunner(WorkflowRunner):
         if self._dapr_client is None:
             return
 
-        for spec in specs:
-            wired_event = self._wired_event_routes.get((spec.pubsub_name, spec.topic))
-            if wired_event is not None:
-                raise ValueError(
-                    f"{spec.pubsub_name}:{spec.topic} already carries workflow event "
-                    f"route {wired_event!r}; the agent topic needs its own topic."
-                )
+        self._check_topic_conflicts(specs, event_specs)
         new_specs = [
             spec
             for spec in specs
             if (spec.pubsub_name, spec.topic) not in self._wired_pubsub_topics
         ]
-        new_event_specs = self._select_new_event_specs(event_specs, new_specs)
+        new_event_specs = self._select_new_event_specs(event_specs)
         if not new_specs and not new_event_specs:
             return
 
-        try:
-            deduper = TTLDedupeBackend()
-        except ImportError:
-            logger.warning(
-                "cachetools not installed; disabling pub/sub message deduplication for agent %s",
-                getattr(agent, "name", agent),
-            )
-            deduper = None
-
-        routes: list[PubSubRouteSpec | WorkflowEventRouteSpec] = [
-            *new_specs,
-            *new_event_specs,
-        ]
-        closers = register_message_routes(
-            routes=routes,
+        common: Dict[str, Any] = dict(
             dapr_client=self._dapr_client,
-            delivery_mode=delivery_mode,
             queue_maxsize=queue_maxsize,
             wf_client=self._wf_client,
             await_result=await_result,
             await_timeout=await_timeout,
             fetch_payloads=fetch_payloads,
             log_outcome=log_outcome,
-            deduper=deduper,
             client_factory=self._client_factory,
         )
-        self._pubsub_closers.extend(closers)
-        self._wired_pubsub_topics.update(
-            (spec.pubsub_name, spec.topic) for spec in routes
-        )
-        self._wired_event_routes.update(
-            {(s.pubsub_name, s.topic): s.event_name for s in new_event_specs}
-        )
+        if new_specs:
+            try:
+                deduper = TTLDedupeBackend()
+            except ImportError:
+                logger.warning(
+                    "cachetools not installed; disabling pub/sub message deduplication for agent %s",
+                    getattr(agent, "name", agent),
+                )
+                deduper = None
+            self._pubsub_closers.extend(
+                register_message_routes(
+                    routes=new_specs,
+                    delivery_mode=delivery_mode,
+                    deduper=deduper,
+                    **common,
+                )
+            )
+            self._wired_pubsub_topics.update(
+                (spec.pubsub_name, spec.topic) for spec in new_specs
+            )
+        if new_event_specs:
+            # Event routes are handled synchronously and dedupe with their own
+            # (longer-lived) default backend, so they get a separate subscriber.
+            self._pubsub_closers.extend(
+                register_message_routes(
+                    routes=new_event_specs,
+                    delivery_mode="sync",
+                    deduper=None,
+                    **common,
+                )
+            )
+            self._wired_pubsub_topics.update(
+                (spec.pubsub_name, spec.topic) for spec in new_event_specs
+            )
+            self._wired_event_routes.update(
+                {(s.pubsub_name, s.topic): s for s in new_event_specs}
+            )
         self._wired_pubsub = True
 
-    def _select_new_event_specs(
+    def _check_topic_conflicts(
         self,
+        agent_specs: list[PubSubRouteSpec],
         event_specs: list[WorkflowEventRouteSpec],
-        new_agent_specs: list[PubSubRouteSpec],
-    ) -> list[WorkflowEventRouteSpec]:
-        """Return event specs not wired yet; reject topic conflicts.
+    ) -> None:
+        """Check that a workflow event route never shares a topic with another route.
+
+        Looks at both directions against everything wired so far plus this call.
 
         Raises:
-            ValueError: If two event specs share a topic, or an event spec's
-                topic is already used by another route.
+            ValueError: If two event specs in this call share a topic, an agent
+                topic already carries (or would carry) an event route, or an
+                event route targets an agent topic.
         """
-        agent_keys = {(s.pubsub_name, s.topic) for s in new_agent_specs}
-        seen: set[tuple[str, str]] = set()
-        selected: list[WorkflowEventRouteSpec] = []
+        call_events: dict[tuple[str, str], WorkflowEventRouteSpec] = {}
         for spec in event_specs:
             key = (spec.pubsub_name, spec.topic)
-            if key in seen:
+            if key in call_events:
                 raise ValueError(
                     f"Two workflow event routes target {key[0]}:{key[1]}; "
                     "use one topic per event route."
                 )
-            seen.add(key)
-            wired_event = self._wired_event_routes.get(key)
-            if wired_event == spec.event_name:
+            call_events[key] = spec
+
+        agent_keys = {(s.pubsub_name, s.topic) for s in agent_specs}
+        agent_topics = agent_keys | (
+            self._wired_pubsub_topics - set(self._wired_event_routes)
+        )
+        for key in sorted(agent_keys):
+            wired = self._wired_event_routes.get(key)
+            if wired is not None and key not in call_events:
+                raise ValueError(
+                    f"{key[0]}:{key[1]} already carries workflow event route "
+                    f"{wired.event_name!r}; the agent topic needs its own topic."
+                )
+        for key, spec in call_events.items():
+            if key in agent_topics:
+                raise ValueError(
+                    f"{key[0]}:{key[1]} is an agent pub/sub topic; workflow event "
+                    f"route {spec.event_name!r} needs its own topic."
+                )
+
+    def _select_new_event_specs(
+        self, event_specs: list[WorkflowEventRouteSpec]
+    ) -> list[WorkflowEventRouteSpec]:
+        """Return the event specs not wired yet.
+
+        A spec equal to the one already wired on its topic is skipped. A spec
+        with the same event name but a different configuration is skipped with
+        a WARNING (the wired one stays active).
+
+        Raises:
+            ValueError: If the topic already carries a different event name.
+        """
+        selected: list[WorkflowEventRouteSpec] = []
+        for spec in event_specs:
+            key = (spec.pubsub_name, spec.topic)
+            wired = self._wired_event_routes.get(key)
+            if wired is None:
+                selected.append(spec)
+            elif wired == spec:
                 logger.debug(
                     "[%s] Event route %r on %s:%s already wired; skipping.",
                     self._name,
@@ -904,18 +939,21 @@ class AgentRunner(WorkflowRunner):
                     key[0],
                     key[1],
                 )
-                continue
-            if wired_event is not None:
+            elif wired.event_name == spec.event_name:
+                logger.warning(
+                    "[%s] Event route %r on %s:%s is already wired with a different "
+                    "configuration; keeping the wired one. Call unwire_pubsub() "
+                    "first to change it.",
+                    self._name,
+                    spec.event_name,
+                    key[0],
+                    key[1],
+                )
+            else:
                 raise ValueError(
                     f"{key[0]}:{key[1]} already carries workflow event route "
-                    f"{wired_event!r}; cannot add event route {spec.event_name!r}."
+                    f"{wired.event_name!r}; cannot add event route {spec.event_name!r}."
                 )
-            if key in self._wired_pubsub_topics or key in agent_keys:
-                raise ValueError(
-                    f"{key[0]}:{key[1]} is an agent pub/sub topic; workflow event "
-                    f"route {spec.event_name!r} needs its own topic."
-                )
-            selected.append(spec)
         return selected
 
     def unwire_pubsub(self) -> None:
@@ -965,8 +1003,10 @@ class AgentRunner(WorkflowRunner):
             log_outcome: Log workflow outcome on completion.
             event_routes: Optional `WorkflowEventRouteSpec` entries. Each turns a
                 pub/sub message into an external event raised on an existing
-                workflow instance (always handled synchronously). Each needs
-                its own topic; the agent's pub/sub config is not required.
+                workflow instance. They are always handled synchronously
+                (no running loop needed, even with delivery_mode='async') and
+                dedupe with their own default backend. Each needs its own
+                topic; the agent's pub/sub config is not required.
 
         Returns:
             The runner (to allow fluent chaining).

@@ -40,9 +40,12 @@ from dapr_agents.types.workflow import (
     WorkflowEventRouteSpec,
 )
 from dapr_agents.utils import DaprClientFactory, default_dapr_client_factory
-from dapr_agents.workflow.utils.core import is_supported_model
+from dapr_agents.workflow.utils.core import named_noop_handler
 from dapr_agents.workflow.utils.event_routes import EventRouteTarget
-from dapr_agents.workflow.utils.routers import extract_message_models, parse_http_json
+from dapr_agents.workflow.utils.routers import (
+    extract_and_validate_message_models,
+    parse_http_json,
+)
 from dapr_agents.workflow.utils.subscription import (
     DedupeBackend,
     MessageRouteBinding,
@@ -139,16 +142,6 @@ def _validate_pubsub_components(
         raise
 
 
-def _named_stub(name: str) -> Callable[..., None]:
-    """No-op handler for event bindings; named after the route, never called."""
-
-    def _stub(*_: Any) -> None:
-        return None
-
-    _stub.__name__ = name
-    return _stub
-
-
 def _require_non_empty_str(value: Any, name: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(
@@ -159,12 +152,9 @@ def _require_non_empty_str(value: Any, name: str) -> None:
 def _event_route_schemas(message_model: Any) -> list[type[Any]]:
     if message_model is None:
         return [dict]
-    schemas = extract_message_models(message_model)
+    schemas = extract_and_validate_message_models(message_model)
     if not schemas:
         raise TypeError(f"Unsupported message_model: {message_model!r}")
-    for schema in schemas:
-        if not is_supported_model(schema):
-            raise TypeError(f"Unsupported model type: {schema!r}")
     return schemas
 
 
@@ -194,7 +184,7 @@ def _event_binding_from_spec(spec: WorkflowEventRouteSpec) -> MessageRouteBindin
         not_found_retry=spec.not_found_retry,
     )
     return MessageRouteBinding(
-        handler=_named_stub(name),
+        handler=named_noop_handler(name),
         schemas=schemas,
         pubsub=spec.pubsub_name,
         topic=spec.topic,
@@ -249,6 +239,9 @@ def _collect_message_bindings(
             if isinstance(spec, WorkflowEventRouteSpec):
                 bindings.append(_event_binding_from_spec(spec))
                 continue
+            # PubSubRouteSpec pubsub_name/topic are not checked here (unlike the
+            # stricter event-route validation above); kept as-is so existing
+            # explicit routes behave exactly as before.
             bound = spec.handler_fn
             meta = getattr(bound, "_message_router_data", None)
             if spec.message_model is not None:

@@ -17,8 +17,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Optional, Union
 from unittest.mock import MagicMock, patch
+from uuid import UUID
 
 import grpc
 import pytest
@@ -51,6 +54,7 @@ from dapr_agents.workflow.utils.subscription import (
     MessageContext,
     MessageRouteBinding,
     TTLDedupeBackend,
+    _serialize_event_default_data,
     _serialize_workflow_input,
     _validate_event_bindings,
 )
@@ -602,3 +606,71 @@ def test_dispatch_event_name_resolver_overrides_literal():
     wf_client.raise_workflow_event.assert_called_once_with(
         instance_id="7", event_name="k", data={"v": 1}
     )
+
+
+def test_dispatch_state_check_not_found_error_is_bounded():
+    # The SDK only returns None for "no such instance exists"; a NOT_FOUND with
+    # other wording is re-raised and must still use the not-found budget.
+    wf_client = _wf()
+    wf_client.get_workflow_state.side_effect = _FakeRpcError(
+        grpc.StatusCode.NOT_FOUND, "workflow instance 'x' not found"
+    )
+    target = _target(not_found_retry=NotFoundRetryPolicy(max_attempts=2))
+    dispatcher = _dispatcher(wf_client)
+    results = [_dispatch(dispatcher, target=target) for _ in range(2)]
+    assert results == ["retry", "drop"]
+    wf_client.raise_workflow_event.assert_not_called()
+
+
+def test_not_found_tracker_evicts_beyond_bound(monkeypatch):
+    monkeypatch.setattr("dapr_agents.workflow.utils.event_routes._TRACKER_MAXSIZE", 2)
+    target = _target(not_found_retry=NotFoundRetryPolicy(max_attempts=2))
+    dispatcher = _dispatcher(_wf(None))
+    assert _dispatch(dispatcher, target=target, ctx=_ctx("a")) == "retry"
+    assert _dispatch(dispatcher, target=target, ctx=_ctx("b")) == "retry"
+    assert _dispatch(dispatcher, target=target, ctx=_ctx("c")) == "retry"
+    # "a" was evicted (documented bound), so its count restarted.
+    assert _dispatch(dispatcher, target=target, ctx=_ctx("a")) == "retry"
+    assert _dispatch(dispatcher, target=target, ctx=_ctx("a")) == "drop"
+
+
+class _Timed(BaseModel):
+    wf_id: str
+    at: datetime
+    ref: UUID
+
+
+def test_default_event_data_is_json_safe_for_pydantic_models():
+    message = _Timed(
+        wf_id="w",
+        at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        ref=UUID(int=1),
+    )
+    data = _serialize_event_default_data(message)
+    assert data == {
+        "wf_id": "w",
+        "at": "2026-01-02T00:00:00Z",
+        "ref": "00000000-0000-0000-0000-000000000001",
+    }
+    # The schedule path is unchanged: it still dumps Python objects.
+    assert isinstance(_serialize_workflow_input(message)[0]["at"], datetime)
+
+
+def test_default_event_data_keeps_metadata_and_non_model_shapes():
+    assert _serialize_event_default_data({"a": 1, METADATA_KEY: {"id": "e"}}) == {
+        "a": 1,
+        METADATA_KEY: {"id": "e"},
+    }
+    assert _serialize_event_default_data(_DC(ref="r")) == {"ref": "r"}
+    assert _serialize_event_default_data({"d": Decimal("1.5")}) == {"d": "1.5"}
+
+
+def test_dispatch_default_path_accepts_datetime_model():
+    wf_client = _wf()
+    dispatcher = WorkflowEventDispatcher(
+        wf_client=wf_client, default_serializer=_serialize_event_default_data
+    )
+    message = _Timed(wf_id="wf-1", at=datetime(2026, 1, 2), ref=UUID(int=2))
+    assert _dispatch(dispatcher, message=message) == "success"
+    data = wf_client.raise_workflow_event.call_args.kwargs["data"]
+    assert data["at"] == "2026-01-02T00:00:00"
