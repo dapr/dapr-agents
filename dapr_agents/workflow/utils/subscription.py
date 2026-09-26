@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import threading
@@ -805,10 +806,19 @@ class _StreamSubscriber:
         event_data: Any,
         topic_name: str,
     ) -> str | None:
-        """Compute the dedup key for this message, or None when dedup is disabled."""
+        """Compute the dedup key for this message, or None when dedup is disabled.
+
+        Without a CloudEvent id the key is a SHA-256 of the payload, which is
+        the same in every process (``hash()`` is randomized per process), so a
+        shared backend matches across replicas.
+        """
         if deduper is None:
             return None
-        return (metadata or {}).get("id") or f"{topic_name}:{hash(str(event_data))}"
+        event_id = (metadata or {}).get("id")
+        if event_id:
+            return event_id
+        digest = hashlib.sha256(str(event_data).encode("utf-8")).hexdigest()
+        return f"{topic_name}:{digest}"
 
     @staticmethod
     def _is_seen(deduper: DedupeBackend, candidate_id: str) -> bool:
@@ -827,14 +837,45 @@ class _StreamSubscriber:
         except Exception:
             logger.debug("Dedupe backend mark() error; continuing.", exc_info=True)
 
+    def _binding_filter_accepts(
+        self,
+        binding: MessageRouteBinding,
+        filter_fn: Callable[[Any, "MessageContext"], bool] | None,
+        value: Any,
+        msg_ctx: MessageContext,
+        kind: str,
+    ) -> bool:
+        """Run a binding filter.
+
+        Workflow event routes run it with the route's hook deadline and accept
+        only an exact ``True``; other bindings keep ``_filter_accepts``.
+        """
+        if binding.event_target is None:
+            return _filter_accepts(
+                filter_fn, value, msg_ctx, kind=kind, binding_name=binding.name
+            )
+        return self._event_dispatcher.hook_accepts(
+            binding.event_target,
+            filter_fn,
+            value,
+            msg_ctx,
+            kind=kind,
+            route_name=binding.name,
+        )
+
     def _route_to_binding(
         self,
         pairs: list[BindingSchemaPair],
         topic_name: str,
         event_data: Any,
         metadata: dict | None,
+        dedup_id: str | None = None,
     ) -> TopicEventResponse:
-        """Pick the first matching binding and dispatch; DROP when nothing matches."""
+        """Pick the first matching binding and dispatch; DROP when nothing matches.
+
+        ``dedup_id`` is handed to workflow event routes so they can recognize a
+        redelivery of a message whose raise timed out.
+        """
         ordered_pairs = _order_pairs_by_cloudevent_type(
             pairs, (metadata or {}).get("type")
         )
@@ -871,12 +912,12 @@ class _StreamSubscriber:
             )
 
             if msg_ctx is not None and binding_key not in payload_filter_cache:
-                payload_filter_cache[binding_key] = _filter_accepts(
+                payload_filter_cache[binding_key] = self._binding_filter_accepts(
+                    binding,
                     binding.payload_filter,
                     event_data,
                     msg_ctx,
-                    kind="payload_filter",
-                    binding_name=binding.name,
+                    "payload_filter",
                 )
             if not payload_filter_cache.get(binding_key, True):
                 continue
@@ -892,12 +933,8 @@ class _StreamSubscriber:
                 # Validation/coercion errors, try next schema
                 continue
 
-            if msg_ctx is not None and not _filter_accepts(
-                binding.model_filter,
-                parsed,
-                msg_ctx,
-                kind="model_filter",
-                binding_name=binding.name,
+            if msg_ctx is not None and not self._binding_filter_accepts(
+                binding, binding.model_filter, parsed, msg_ctx, "model_filter"
             ):
                 model_filter_rejected.add(binding_key)
                 continue
@@ -913,6 +950,7 @@ class _StreamSubscriber:
                     dead_letter_topic=binding.dead_letter_topic,
                     message=parsed,
                     msg_ctx=msg_ctx,
+                    dedupe_key=dedup_id,
                 )
                 return TopicEventResponse(status)
 
@@ -973,7 +1011,9 @@ class _StreamSubscriber:
                 )
                 return TopicEventResponse(STATUS_SUCCESS)
 
-            response = self._route_to_binding(pairs, topic_name, event_data, metadata)
+            response = self._route_to_binding(
+                pairs, topic_name, event_data, metadata, dedup_id
+            )
 
             if (
                 deduper is not None

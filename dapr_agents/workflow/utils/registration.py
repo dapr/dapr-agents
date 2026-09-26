@@ -161,8 +161,8 @@ def _event_route_schemas(message_model: Any) -> list[type[Any]]:
     return schemas
 
 
-def _event_binding_from_spec(spec: WorkflowEventRouteSpec) -> MessageRouteBinding:
-    """Validate a workflow event route spec and build its binding."""
+def _validate_event_route_spec(spec: WorkflowEventRouteSpec) -> None:
+    """Reject an invalid workflow event route spec at registration time."""
     _require_non_empty_str(spec.pubsub_name, "pubsub_name")
     _require_non_empty_str(spec.topic, "topic")
     _require_non_empty_str(spec.event_name, "event_name")
@@ -174,6 +174,7 @@ def _event_binding_from_spec(spec: WorkflowEventRouteSpec) -> MessageRouteBindin
         )
     validate_hook(spec.payload_filter, "payload_filter")
     validate_hook(spec.model_filter, "model_filter")
+    validate_hook(spec.authorize, "authorize")
     validate_field_resolver(spec.instance_id_from, "instance_id_from")
     validate_field_resolver(spec.event_name_from, "event_name_from", optional=True)
     validate_field_resolver(spec.data_from, "data_from", optional=True)
@@ -181,6 +182,11 @@ def _event_binding_from_spec(spec: WorkflowEventRouteSpec) -> MessageRouteBindin
         raise ValueError(
             "WorkflowEventRouteSpec: `deduper` must be None when `dedupe=False`."
         )
+
+
+def _event_binding_from_spec(spec: WorkflowEventRouteSpec) -> MessageRouteBinding:
+    """Validate a workflow event route spec and build its binding."""
+    _validate_event_route_spec(spec)
     schemas = _event_route_schemas(spec.message_model)
     name = spec.name or f"{spec.event_name}@{spec.pubsub_name}:{spec.topic}"
     target = EventRouteTarget(
@@ -195,6 +201,8 @@ def _event_binding_from_spec(spec: WorkflowEventRouteSpec) -> MessageRouteBindin
         call_timeout_seconds=spec.call_timeout_seconds,
         dedupe_max_entries=spec.dedupe_max_entries,
         allow_reserved_event_names=spec.allow_reserved_event_names,
+        authorize=spec.authorize,
+        hook_timeout_seconds=spec.hook_timeout_seconds,
     )
     return MessageRouteBinding(
         handler=named_noop_handler(name),

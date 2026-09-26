@@ -36,8 +36,14 @@ The runtime then discards the event while the message is acknowledged
 but the message is not dead-lettered.
 
 Each sidecar call runs with the route's ``call_timeout_seconds`` deadline. A
-timeout answers RETRY, but the call may still complete in the background, so
-the event can still be raised; dedupe makes the redelivery safe.
+timeout answers RETRY, but the call may still complete in the background. A
+timed-out raise still running is remembered by the message's dedupe key (in
+process memory), so a redelivery to the same process answers SUCCESS once it
+succeeded, RETRY while it runs, and follows the normal error rules if it
+failed. A restart, ``dedupe=False``, a crash before the ack or a redelivery
+to another replica without a shared ``spec.deduper`` can still raise twice.
+Errors with a code in ``PERMANENT_SIDECAR_ERROR_CODES`` are dropped like a
+terminal workflow; other errors answer RETRY.
 """
 
 from __future__ import annotations
@@ -51,7 +57,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import grpc
-from cachetools import TTLCache
+from cachetools import LRUCache
 from dapr.ext.workflow.workflow_state import WorkflowState, WorkflowStatus
 
 from dapr_agents.streaming.keys import (
@@ -61,11 +67,19 @@ from dapr_agents.streaming.keys import (
 from dapr_agents.types.workflow import (
     DEFAULT_EVENT_CALL_TIMEOUT_SECONDS,
     DEFAULT_EVENT_DEDUPE_MAX_ENTRIES,
+    DEFAULT_EVENT_HOOK_TIMEOUT_SECONDS,
     DEFAULT_EVENT_MAX_DATA_BYTES,
     FieldResolver,
     NotFoundRetryPolicy,
 )
 from dapr_agents.workflow.utils.call_deadline import DeadlineCaller
+from dapr_agents.workflow.utils.event_route_calls import (
+    MIN_TIMED_OUT_RAISES_TRACKED,
+    PERMANENT_SIDECAR_ERROR_CODES,
+    TimedOutRaises,
+    permanent_error_code,
+    run_strict_hook,
+)
 
 if TYPE_CHECKING:
     from dapr_agents.workflow.utils.subscription import DedupeBackend, MessageContext
@@ -83,19 +97,19 @@ TERMINAL_WORKFLOW_STATUSES: frozenset[WorkflowStatus] = frozenset(
     {WorkflowStatus.COMPLETED, WorkflowStatus.FAILED, WorkflowStatus.TERMINATED}
 )
 
-# Longest resolved instance id / event name accepted from a message.
+# Longest resolved instance id / event name accepted from a message, in
+# characters (not bytes).
 MAX_EVENT_IDENTIFIER_LENGTH = 512
 
-# Event names the SDK itself waits on; lowercase because Dapr matches event
-# names case-insensitively.
+# Event names the SDK itself waits on, case-folded because the durabletask
+# worker matches event names with ``str.casefold()``.
 RESERVED_EVENT_NAME_PREFIXES: tuple[str, ...] = (
-    APPROVAL_RESPONSE_EVENT_PREFIX.lower(),
-    f"{USER_INPUT_EVENT_PREFIX}:".lower(),
+    APPROVAL_RESPONSE_EVENT_PREFIX.casefold(),
+    f"{USER_INPUT_EVENT_PREFIX}:".casefold(),
 )
 
 _NOT_FOUND_DETAILS = "no such instance exists"
 _TRACKER_MAXSIZE = 4096
-_TRACKER_MIN_TTL_SECONDS = 60.0
 
 
 class EventRouteResolutionError(Exception):
@@ -128,6 +142,8 @@ class EventRouteTarget:
     call_timeout_seconds: float = DEFAULT_EVENT_CALL_TIMEOUT_SECONDS
     dedupe_max_entries: int = DEFAULT_EVENT_DEDUPE_MAX_ENTRIES
     allow_reserved_event_names: bool = False
+    authorize: Callable[[Any, MessageContext], bool] | None = None
+    hook_timeout_seconds: float = DEFAULT_EVENT_HOOK_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -141,8 +157,12 @@ class _ResolvedEvent:
 
 
 def is_reserved_event_name(name: str) -> bool:
-    """True when ``name`` starts with an event-name prefix the SDK waits on."""
-    return name.lower().startswith(RESERVED_EVENT_NAME_PREFIXES)
+    """True when ``name`` starts with an event-name prefix the SDK waits on.
+
+    Compared case-folded, the way the durabletask worker matches event names,
+    so ``"approval_re\u017fponse_x"`` (long s) is reserved too.
+    """
+    return name.casefold().startswith(RESERVED_EVENT_NAME_PREFIXES)
 
 
 def parse_field_path(path: str) -> tuple[str, ...]:
@@ -306,15 +326,16 @@ def is_instance_not_found_error(exc: BaseException) -> bool:
 class _NotFoundTracker:
     """Per-route, per-process count of "instance not found" deliveries.
 
-    Bounded to ``_TRACKER_MAXSIZE`` messages. If more distinct messages than
-    that are waiting for missing instances at once, the least recently used
-    counts are evicted and those messages start counting again, so
+    Entries never expire by time, so a message redelivered slower than any
+    TTL keeps its count; they are removed when the message is raised or given
+    up. Bounded to ``_TRACKER_MAXSIZE`` messages: if more distinct messages
+    than that are waiting for missing instances at once, the least recently
+    used counts are evicted and those messages start counting again, so
     ``max_attempts`` / ``window_seconds`` are only guaranteed below that bound.
     """
 
-    def __init__(self, window_seconds: float) -> None:
-        ttl = max(2 * window_seconds, _TRACKER_MIN_TTL_SECONDS)
-        self._cache: TTLCache = TTLCache(maxsize=_TRACKER_MAXSIZE, ttl=ttl)
+    def __init__(self) -> None:
+        self._cache: LRUCache = LRUCache(maxsize=_TRACKER_MAXSIZE)
         self._lock = threading.Lock()
 
     def record(self, key: str, now: float) -> tuple[int, float]:
@@ -341,6 +362,7 @@ class _DispatchContext:
     topic: str
     dead_letter_topic: str | None
     event_id: str | None
+    dedupe_key: str | None
 
 
 class WorkflowEventDispatcher:
@@ -364,6 +386,7 @@ class WorkflowEventDispatcher:
         self._clock = clock
         self._caller = caller or DeadlineCaller(thread_name_prefix="event-route-call")
         self._trackers: dict[tuple[str, str], _NotFoundTracker] = {}
+        self._timed_out: dict[tuple[str, str], TimedOutRaises] = {}
         self._trackers_lock = threading.Lock()
 
     def close(self) -> None:
@@ -380,8 +403,15 @@ class WorkflowEventDispatcher:
         dead_letter_topic: str | None,
         message: Any,
         msg_ctx: MessageContext,
+        dedupe_key: str | None = None,
     ) -> EventDispatchStatus:
-        """Resolve, check the workflow state and raise the event."""
+        """Resolve, authorize, check the workflow state and raise the event.
+
+        Args:
+            dedupe_key: The subscriber's dedupe key for this message, or None
+                when the route does not dedupe. Used to recognize a redelivery
+                of a message whose raise timed out.
+        """
         ctx = _DispatchContext(
             target=target,
             route_name=route_name,
@@ -389,6 +419,7 @@ class WorkflowEventDispatcher:
             topic=topic,
             dead_letter_topic=dead_letter_topic,
             event_id=msg_ctx.event.id,
+            dedupe_key=dedupe_key,
         )
         try:
             resolved = self._resolve(target, message, msg_ctx)
@@ -402,8 +433,66 @@ class WorkflowEventDispatcher:
                 topic,
             )
             return _DROP
+        if not self._authorized(ctx, resolved, message, msg_ctx):
+            return _DROP
         key = ctx.event_id or f"{resolved.instance_id}\x1f{resolved.event_name}"
+        earlier = self._earlier_timed_out_raise(ctx, resolved, key)
+        if earlier is not None:
+            return earlier
         return self._deliver(ctx, resolved, key)
+
+    def hook_accepts(
+        self,
+        target: EventRouteTarget,
+        hook: Callable[[Any, MessageContext], Any] | None,
+        value: Any,
+        msg_ctx: MessageContext,
+        *,
+        kind: str,
+        route_name: str,
+    ) -> bool:
+        """Run an event route filter with the route's hook deadline.
+
+        True only when there is no filter or it returned exactly ``True``.
+        """
+        if hook is None:
+            return True
+        return run_strict_hook(
+            self._caller,
+            hook,
+            target.hook_timeout_seconds,
+            value,
+            msg_ctx,
+            kind=kind,
+            route_name=route_name,
+        )
+
+    def _authorized(
+        self,
+        ctx: _DispatchContext,
+        resolved: _ResolvedEvent,
+        message: Any,
+        msg_ctx: MessageContext,
+    ) -> bool:
+        if self.hook_accepts(
+            ctx.target,
+            ctx.target.authorize,
+            message,
+            msg_ctx,
+            kind="authorize",
+            route_name=ctx.route_name,
+        ):
+            return True
+        logger.warning(
+            "Event route %r on topic %r: authorize denied event %r on workflow %r "
+            "(message id=%r); dropping.",
+            ctx.route_name,
+            ctx.topic,
+            resolved.event_name,
+            resolved.instance_id,
+            ctx.event_id,
+        )
+        return False
 
     def _resolve(
         self, target: EventRouteTarget, message: Any, msg_ctx: MessageContext
@@ -479,8 +568,11 @@ class WorkflowEventDispatcher:
         except Exception as exc:
             # The SDK only maps "no such instance exists" to None; a NOT_FOUND
             # with other wording must still use the bounded not-found budget.
-            if is_instance_not_found_error(exc):
-                return self._on_not_found(ctx, resolved, key)
+            status = self._sidecar_error_status(
+                ctx, resolved, key, exc, "fetching the workflow state"
+            )
+            if status is not None:
+                return status
             logger.exception(
                 "Event route %r: fetching state of workflow %r failed (event %r); retrying.",
                 ctx.route_name,
@@ -495,6 +587,73 @@ class WorkflowEventDispatcher:
             self._tracker(ctx).clear(key)
             return self._give_up(ctx, resolved, reason=f"workflow is {status.name}")
         return self._raise(ctx, resolved, key)
+
+    def _sidecar_error_status(
+        self,
+        ctx: _DispatchContext,
+        resolved: _ResolvedEvent,
+        key: str,
+        exc: BaseException,
+        what: str,
+    ) -> EventDispatchStatus | None:
+        """Status for a not-found or permanent sidecar error; None for a transient one."""
+        if is_instance_not_found_error(exc):
+            return self._on_not_found(ctx, resolved, key)
+        code = permanent_error_code(exc)
+        if code is None:
+            return None
+        self._tracker(ctx).clear(key)
+        return self._give_up(
+            ctx, resolved, reason=f"{what} failed with permanent gRPC code {code.name}"
+        )
+
+    def _earlier_timed_out_raise(
+        self, ctx: _DispatchContext, resolved: _ResolvedEvent, key: str
+    ) -> EventDispatchStatus | None:
+        """Status decided by an earlier timed-out raise of this message, if any.
+
+        None means deliver normally (nothing tracked, or the earlier raise
+        failed with a transient error).
+        """
+        if ctx.dedupe_key is None:
+            return None
+        future = self._timed_out_raises(ctx).get(ctx.dedupe_key)
+        if future is None:
+            return None
+        if not future.done():
+            logger.info(
+                "Event route %r: an earlier raise of event %r on workflow %r for "
+                "message id=%r is still running; retrying without raising again.",
+                ctx.route_name,
+                resolved.event_name,
+                resolved.instance_id,
+                ctx.event_id,
+            )
+            return _RETRY
+        exc = future.exception()
+        if exc is None:
+            self._tracker(ctx).clear(key)
+            logger.info(
+                "Event route %r: the earlier timed-out raise of event %r on workflow %r "
+                "(message id=%r) succeeded; acknowledging without raising again.",
+                ctx.route_name,
+                resolved.event_name,
+                resolved.instance_id,
+                ctx.event_id,
+            )
+            return _SUCCESS
+        return self._sidecar_error_status(ctx, resolved, key, exc, "raising the event")
+
+    def _timed_out_raises(self, ctx: _DispatchContext) -> TimedOutRaises:
+        key = (ctx.pubsub, ctx.topic)
+        with self._trackers_lock:
+            tracked = self._timed_out.get(key)
+            if tracked is None:
+                tracked = TimedOutRaises(
+                    max(ctx.target.dedupe_max_entries, MIN_TIMED_OUT_RAISES_TRACKED)
+                )
+                self._timed_out[key] = tracked
+            return tracked
 
     def _on_timeout(
         self, ctx: _DispatchContext, resolved: _ResolvedEvent, what: str
@@ -516,7 +675,7 @@ class WorkflowEventDispatcher:
         with self._trackers_lock:
             tracker = self._trackers.get(key)
             if tracker is None:
-                tracker = _NotFoundTracker(ctx.target.not_found_retry.window_seconds)
+                tracker = _NotFoundTracker()
                 self._trackers[key] = tracker
             return tracker
 
@@ -570,18 +729,15 @@ class WorkflowEventDispatcher:
         self, ctx: _DispatchContext, resolved: _ResolvedEvent, key: str
     ) -> EventDispatchStatus:
         try:
-            self._call(
-                ctx,
-                self._wf_client.raise_workflow_event,
-                instance_id=resolved.instance_id,
-                event_name=resolved.event_name,
-                data=resolved.data,
-            )
+            self._call_raise(ctx, resolved)
         except TimeoutError:
             return self._on_timeout(ctx, resolved, "raising the event")
         except Exception as exc:
-            if is_instance_not_found_error(exc):
-                return self._on_not_found(ctx, resolved, key)
+            status = self._sidecar_error_status(
+                ctx, resolved, key, exc, "raising the event"
+            )
+            if status is not None:
+                return status
             logger.exception(
                 "Event route %r: raising event %r on workflow %r failed; retrying.",
                 ctx.route_name,
@@ -598,10 +754,27 @@ class WorkflowEventDispatcher:
         )
         return _SUCCESS
 
+    def _call_raise(self, ctx: _DispatchContext, resolved: _ResolvedEvent) -> None:
+        """Raise with the call deadline; remember a timed-out raise that is still running."""
+        future = self._caller.submit(
+            self._wf_client.raise_workflow_event,
+            instance_id=resolved.instance_id,
+            event_name=resolved.event_name,
+            data=resolved.data,
+        )
+        try:
+            future.result(timeout=ctx.target.call_timeout_seconds)
+        except TimeoutError:
+            # cancel() fails once a worker runs the call: it may still raise.
+            if not future.cancel() and ctx.dedupe_key is not None:
+                self._timed_out_raises(ctx).add(ctx.dedupe_key, future)
+            raise
+
 
 __all__ = [
     "EventDispatchStatus",
     "MAX_EVENT_IDENTIFIER_LENGTH",
+    "PERMANENT_SIDECAR_ERROR_CODES",
     "RESERVED_EVENT_NAME_PREFIXES",
     "EventRouteResolutionError",
     "EventRouteTarget",

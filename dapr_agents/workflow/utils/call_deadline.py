@@ -73,13 +73,25 @@ class DeadlineCaller:
             DeadlineCallerClosedError: If the caller was closed.
             Exception: Whatever ``fn`` raised.
         """
-        future: Future[T] = Future()
-        self._submit((future, fn, args, kwargs))
+        future = self.submit(fn, *args, **kwargs)
         try:
             return future.result(timeout=timeout)
         except TimeoutError:
             future.cancel()  # a still-queued call is skipped
             raise
+
+    def submit(self, fn: Callable[..., T], /, *args: Any, **kwargs: Any) -> Future[T]:
+        """Queue ``fn(*args, **kwargs)`` on a worker and return its future.
+
+        The caller waits on the future itself; cancelling it before a worker
+        picks it up skips the call.
+
+        Raises:
+            DeadlineCallerClosedError: If the caller was closed.
+        """
+        future: Future[T] = Future()
+        self._submit((future, fn, args, kwargs))
+        return future
 
     def close(self) -> None:
         """Stop the workers once they finish their current call. Never blocks."""
