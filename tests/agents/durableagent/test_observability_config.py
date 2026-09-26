@@ -13,6 +13,7 @@
 
 """Test cases for observability configuration in agents."""
 
+import logging
 import os
 import pytest
 from unittest.mock import MagicMock, Mock
@@ -29,7 +30,6 @@ from dapr_agents.agents.configs import (
 )
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
-from dapr_agents.utils.models import merge_models
 
 
 class TestObservabilityConfigFromInstantiation:
@@ -831,3 +831,59 @@ class TestObservabilityConfigPrecedence:
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
         assert resolved_config.tracing_enabled is False
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
+
+
+class TestObservabilityConfigResolutionSecrets:
+    """Test that observability secrets are not exposed in logs during config resolution."""
+
+    def test_auth_token_from_instantiation_is_not_exposed_in_logs(self, caplog):
+        auth_token = "instantiation-auth-token"
+        config = AgentObservabilityConfig(auth_token=auth_token)
+
+        with caplog.at_level(logging.DEBUG):
+            AgentObservabilityConfig.resolve_config(config=config)
+
+        assert auth_token not in caplog.text
+
+    def test_headers_from_instantiation_are_not_exposed_in_logs(self, caplog):
+        auth_token = "instantiation-auth-token"
+        custom_value = "instantiation-custom-value"
+        config = AgentObservabilityConfig(
+            headers={
+                "Authorization": f"Bearer {auth_token}",
+                "X-Custom-Header": custom_value,
+            },
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            AgentObservabilityConfig.resolve_config(config=config)
+
+        assert auth_token not in caplog.text
+        assert custom_value not in caplog.text
+
+    def test_headers_from_env_are_not_exposed_in_logs(self, caplog, monkeypatch):
+        auth_token = "env-auth-token"
+        custom_value = "env-custom-value"
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_HEADERS",
+            f"Authorization=Bearer {auth_token},X-Custom-Header={custom_value}",
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            AgentObservabilityConfig.resolve_config()
+
+        assert auth_token not in caplog.text
+        assert custom_value not in caplog.text
+
+    def test_headers_from_statestore_are_not_exposed_in_logs(self, caplog):
+        auth_token = "statestore-auth-token"
+        custom_value = "statestore-custom-value"
+        runtime_config = {
+            "OTEL_EXPORTER_OTLP_HEADERS": f"Authorization=Bearer {auth_token},X-Custom-Header={custom_value}"
+        }
+
+        with caplog.at_level(logging.DEBUG):
+            AgentObservabilityConfig.resolve_config(runtime_config=runtime_config)
+
+        assert auth_token not in caplog.text
+        assert custom_value not in caplog.text

@@ -35,7 +35,10 @@ from typing import (
 from pydantic import BaseModel, Field
 
 from dapr_agents.agents.utils.headers import parse_header_string
-from dapr_agents.utils.config import ConfigFieldDescriptor, apply_config_map
+from dapr_agents.utils.config import (
+    ConfigFieldDescriptor,
+    apply_config_map,
+)
 from dapr_agents.utils.models import merge_models
 from dapr_agents.types.agent import ToolChoice, ToolExecutionMode, OrchestrationMode
 from dapr_agents.agents.constants import (
@@ -270,8 +273,6 @@ class AgentStateConfig:
 # Built-in config validators for agents
 # ---------------------------------------------------------------------------
 
-_config_logger = logging.getLogger(__name__)
-
 
 def validate_non_empty_string(v: str) -> str:
     """Reject empty or whitespace-only strings."""
@@ -290,63 +291,56 @@ def validate_positive_int(v: int) -> int:
 def validate_tool_choice(v: str) -> str:
     """Warn if tool_choice is non-standard, but allow it."""
     try:
-        ToolChoice(v.lower())
+        return ToolChoice(v.lower())
     except (ValueError, KeyError):
-        _config_logger.warning(
-            f"tool_choice {v} not in standard set {set([tc.value for tc in ToolChoice])}; allowing anyway."
+        logger.warning(
+            f"tool_choice {v} not in standard set {[e.value for e in ToolChoice]}; allowing anyway."
         )
+        return v.lower()
 
-    return v
 
-
-def validate_tool_execution_mode(v: str) -> str:
+def validate_tool_execution_mode(v: str) -> ToolExecutionMode:
     """Validate that the tool execution mode is a known ToolExecutionMode value."""
     try:
-        ToolExecutionMode(v.lower())
+        return ToolExecutionMode(v.lower())
     except (ValueError, KeyError):
         raise ValueError(
             f"Unknown tool execution mode '{v}'. "
             f"Valid options: {[e.value for e in ToolExecutionMode]}"
         )
 
-    return v
 
-
-def validate_orchestration_mode(v: str) -> str:
+def validate_orchestration_mode(v: str) -> OrchestrationMode:
     """Validate that the orchestration mode is a known OrchestrationMode value."""
     try:
-        OrchestrationMode(v.lower())
+        return OrchestrationMode(v.lower())
     except (ValueError, KeyError):
         raise ValueError(
             f"Unknown orchestration mode '{v}'. "
             f"Valid options: {[e.value for e in OrchestrationMode]}"
         )
 
-    return v
 
-
-def validate_otel_exporter_tracing(v: str) -> str:
+def validate_otel_exporter_tracing(v: str) -> AgentTracingExporter:
     """Validate that the tracing exporter is a known AgentTracingExporter value."""
     try:
-        AgentTracingExporter(v)
+        return AgentTracingExporter(v.lower())
     except (ValueError, KeyError):
         raise ValueError(
             f"Unknown tracing exporter '{v}'. "
             f"Valid options: {[e.value for e in AgentTracingExporter]}"
         )
-    return v
 
 
-def validate_otel_exporter_logging(v: str) -> str:
+def validate_otel_exporter_logging(v: str) -> AgentLoggingExporter:
     """Validate that the logging exporter is a known AgentLoggingExporter value."""
     try:
-        AgentLoggingExporter(v)
+        return AgentLoggingExporter(v.lower())
     except (ValueError, KeyError):
         raise ValueError(
             f"Unknown logging exporter '{v}'. "
             f"Valid options: {[e.value for e in AgentLoggingExporter]}"
         )
-    return v
 
 
 @dataclass
@@ -628,22 +622,21 @@ class AgentExecutionConfig:
             EnvConfigKey.MAX_ITERATIONS: ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
-                getter=lambda: getenv("MAX_ITERATIONS"),
+                getter=lambda: getenv("DAPR_AGENTS_MAX_ITERATIONS"),
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
             EnvConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
-                target_type=Optional[
-                    str  # Allow any string as tool choices are permissive
-                ],
+                target_type=str,
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
-                getter=lambda: getenv("TOOL_CHOICE"),
+                getter=lambda: getenv("DAPR_AGENTS_TOOL_CHOICE"),
                 validator=validate_tool_choice,
+                raise_on_error=False,
             ),
             EnvConfigKey.TOOL_EXECUTION_MODE: ConfigFieldDescriptor(
-                target_type=Optional[ToolExecutionMode],
+                target_type=str,
                 setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
-                getter=lambda: getenv("TOOL_EXECUTION_MODE"),
+                getter=lambda: getenv("DAPR_AGENTS_TOOL_EXECUTION_MODE"),
                 validator=validate_tool_execution_mode,
                 raise_on_error=False,
             ),
@@ -760,15 +753,16 @@ class AgentExecutionConfig:
             RuntimeConfigKey.MAX_ITERATIONS: ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
-                getter=lambda: runtime_config.get("MAX_ITERATIONS"),
+                getter=lambda: runtime_config.get("max_iterations"),
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
             RuntimeConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
-                target_type=Optional[str],
+                target_type=str,
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
-                getter=lambda: runtime_config.get("TOOL_CHOICE"),
+                getter=lambda: runtime_config.get("tool_choice"),
                 validator=validate_tool_choice,
+                raise_on_error=False,
             ),
             # TODO: support orchestration mode from runtime config
         }
@@ -781,8 +775,9 @@ class AgentExecutionConfig:
     @classmethod
     def resolve_config(
         cls,
-        config: Optional["AgentExecutionConfig"],
-        runtime_config: Optional[Dict[str, Any]],
+        *,
+        config: Optional["AgentExecutionConfig"] = None,
+        runtime_config: Optional[Dict[str, Any]] = None,
     ) -> "AgentExecutionConfig":
         """
         Resolve the execution configuration for the agent in the following order:
@@ -975,8 +970,8 @@ class AgentObservabilityConfig:
     """
 
     enabled: Optional[bool] = None
-    headers: Dict[str, str] = field(default_factory=_empty_headers)
-    auth_token: Optional[str] = None
+    headers: Dict[str, str] = field(default_factory=_empty_headers, repr=False)
+    auth_token: Optional[str] = field(default=None, repr=False)
     endpoint: Optional[str] = None
     service_name: Optional[str] = None
     logging_enabled: Optional[bool] = None
@@ -1041,7 +1036,7 @@ class AgentObservabilityConfig:
                 raise_on_error=False,
             ),
             EnvConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
-                target_type=Optional[AgentLoggingExporter],
+                target_type=str,
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
                 getter=lambda: getenv("OTEL_LOGS_EXPORTER"),
                 validator=validate_otel_exporter_logging,
@@ -1055,7 +1050,7 @@ class AgentObservabilityConfig:
                 raise_on_error=False,
             ),
             EnvConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
-                target_type=Optional[AgentTracingExporter],
+                target_type=str,
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
                 getter=lambda: getenv("OTEL_TRACES_EXPORTER"),
                 validator=validate_otel_exporter_tracing,
@@ -1197,7 +1192,7 @@ class AgentObservabilityConfig:
                 raise_on_error=False,
             ),
             RuntimeConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
-                target_type=Optional[AgentLoggingExporter],
+                target_type=str,
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
                 getter=lambda: runtime_config.get("OTEL_LOGS_EXPORTER"),
                 validator=validate_otel_exporter_logging,
@@ -1211,7 +1206,7 @@ class AgentObservabilityConfig:
                 raise_on_error=False,
             ),
             RuntimeConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
-                target_type=Optional[AgentTracingExporter],
+                target_type=str,
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
                 getter=lambda: runtime_config.get("OTEL_TRACES_EXPORTER"),
                 validator=validate_otel_exporter_tracing,
@@ -1228,8 +1223,9 @@ class AgentObservabilityConfig:
     @classmethod
     def resolve_config(
         cls,
-        config: Optional["AgentObservabilityConfig"],
-        runtime_config: Optional[Dict[str, Any]],
+        *,
+        config: Optional["AgentObservabilityConfig"] = None,
+        runtime_config: Optional[Dict[str, Any]] = None,
     ) -> "AgentObservabilityConfig":
         """
         Resolve the observability configuration for the agent in the following order:

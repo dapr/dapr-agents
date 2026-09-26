@@ -28,22 +28,22 @@ T = TypeVar("T")
 
 
 def is_pydantic_model(obj: Any) -> bool:
-    """Checks if the given object is a subclass of Pydantic's BaseModel."""
+    """Check if the given object is a subclass of Pydantic's BaseModel."""
     return isinstance(obj, type) and issubclass(obj, BaseModel)
 
 
 def is_supported_model(obj: Any) -> bool:
-    """Checks if an object is a supported model (Pydantic, dataclass, or dict)."""
+    """Check if an object is a supported model (Pydantic, dataclass, or dict)."""
     return obj is dict or is_dataclass(obj) or is_pydantic_model(obj)
 
 
 def is_supported_model_instance(obj: Any) -> bool:
-    """Checks if an object is an instance of a supported model (Pydantic, dataclass, or dict)."""
+    """Check if an object is an instance of a supported model (Pydantic, dataclass, or dict)."""
     return isinstance(obj, dict) or is_dataclass(obj) or isinstance(obj, BaseModel)
 
 
 def get_model_fields(model: Any) -> Any:
-    """Returns field names for a model."""
+    """Return field names for a model."""
     if type(model) is dict:
         return model.keys()
 
@@ -62,7 +62,7 @@ def get_model_fields(model: Any) -> Any:
 
 
 def get_model_factory(model: Any) -> Callable[..., Any]:
-    """Returns a factory function that takes a dictionary of values and creates a model instance."""
+    """Return a factory function that takes a dictionary of values and creates a model instance."""
     if type(model) is dict:
         return lambda vals: dict(**vals)
 
@@ -83,8 +83,9 @@ def get_model_factory(model: Any) -> Callable[..., Any]:
 def merge_models(base: T, override: T) -> T:
     """
     Merge two models of the same type, with override taking precedence.
-    Only override if the override value is not None.
-    If merging fails, falls back to the base model if it is valid, otherwise falls back to the override model.
+    Only override a base field if the override field is not ``None``.
+    If one model is unsupported, log a warning and return the other model.
+    If models are of different types or merging fails, log a warning and fall back to the base model.
 
     Args:
         base: The base model.

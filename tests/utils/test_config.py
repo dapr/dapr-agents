@@ -14,6 +14,7 @@
 """Tests for config helper functions used by agents."""
 
 from enum import Enum
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -178,10 +179,6 @@ class TestProcessConfigUpdate:
         with pytest.raises(ValueError, match="Unable to retrieve value for key"):
             process_config_update("key", descriptor)
 
-    def test_process_config_update_invalid_key_raises(self):
-        with pytest.raises(ValueError, match="Unrecognized config key"):
-            process_config_update("missing", None)
-
 
 class TestApplyConfigUpdate:
     """Tests for apply_config_update."""
@@ -226,7 +223,7 @@ class TestApplyConfigUpdate:
             setter=lambda obj, value: setattr(obj, "value", value),
         )
 
-        with pytest.raises(ValueError, match="Invalid value for key 'name'"):
+        with pytest.raises(ValueError, match="Invalid value for key"):
             apply_config_update(
                 target_obj=target,
                 key="name",
@@ -234,7 +231,7 @@ class TestApplyConfigUpdate:
                 value="not-a-number",
             )
 
-    def test_apply_config_update_uses_fallback_when_not_raise(self):
+    def test_apply_config_update_uses_fallback_without_raise_on_error(self):
         target = SimpleNamespace(value=None)
         descriptor = ConfigFieldDescriptor(
             target_type=int,
@@ -251,7 +248,9 @@ class TestApplyConfigUpdate:
         assert result == 99
         assert target.value == 99
 
-    def test_apply_config_update_uses_fallback_when_setter_fails_and_not_raise(self):
+    def test_apply_config_update_uses_fallback_when_setter_fails_without_raise_on_error(
+        self,
+    ):
         target = SimpleNamespace(value=None)
 
         def setter(_obj, _value):
@@ -269,8 +268,56 @@ class TestApplyConfigUpdate:
             target_obj=target, key="value", descriptor=descriptor
         )
 
-        assert result == 77
+        assert result is None
         assert target.value is None
+
+    def test_apply_config_update_noop_and_warns_when_setter_fails_without_fallback(
+        self, caplog
+    ):
+        target = SimpleNamespace(value=None)
+
+        def setter(_obj, _value):
+            raise RuntimeError("write failed")
+
+        descriptor = ConfigFieldDescriptor(
+            target_type=int,
+            setter=setter,
+            fallback=None,
+            raise_on_error=False,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = apply_config_update(
+                target_obj=target, key="value", descriptor=descriptor, value=7
+            )
+
+        assert result is None
+        assert target.value is None
+        assert "Ignoring failed config update for key" in caplog.text
+
+    def test_apply_config_update_noop_and_warns_when_fallback_setter_fails(
+        self, caplog
+    ):
+        target = SimpleNamespace(value=None)
+
+        def setter(_obj, _value):
+            raise RuntimeError("write failed")
+
+        descriptor = ConfigFieldDescriptor(
+            target_type=int,
+            setter=setter,
+            fallback=77,
+            raise_on_error=False,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = apply_config_update(
+                target_obj=target, key="value", descriptor=descriptor, value=7
+            )
+
+        assert result is None
+        assert target.value is None
+        assert "Failed to apply fallback for key" in caplog.text
 
 
 class TestApplyConfigMap:
@@ -290,12 +337,18 @@ class TestApplyConfigMap:
                 setter=lambda obj, value: setattr(obj, "second", value),
                 getter=lambda: "2",
             ),
+            "third": ConfigFieldDescriptor(
+                target_type=bool,
+                setter=lambda obj, value: setattr(obj, "third", value),
+                getter=lambda: "true",
+            ),
         }
 
         apply_config_map(target, config_field_map)
 
         assert target.first == "alpha"
         assert target.second == 2
+        assert target.third is True
 
     def test_apply_config_map_raises_value_error_without_fallback(self):
         target = SimpleNamespace(value=None)
@@ -308,7 +361,7 @@ class TestApplyConfigMap:
             ),
         }
 
-        with pytest.raises(ValueError, match="Invalid value for key 'value'"):
+        with pytest.raises(ValueError, match="Invalid value for key"):
             apply_config_map(target, config_field_map)
 
     def test_apply_config_map_raises_runtime_error_without_fallback(self):
@@ -322,9 +375,7 @@ class TestApplyConfigMap:
             ),
         }
 
-        with pytest.raises(
-            RuntimeError, match="Could not apply setter for key 'value'"
-        ):
+        with pytest.raises(RuntimeError, match="Could not apply setter for key"):
             apply_config_map(target, config_field_map)
 
     def test_apply_config_map_uses_fallback_on_error(self):

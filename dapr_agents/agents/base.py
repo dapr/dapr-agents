@@ -568,9 +568,9 @@ class AgentBase:
         self.instrumentor: Optional[DaprAgentsInstrumentor] = None
         self._otel_logging_handler = None
         self._agent_observability = AgentObservabilityConfig.resolve_config(
-            agent_observability,
+            config=agent_observability,
             # OTEL_EXPORTER_OTLP_HEADERS may come from runtime config or secrets (as an access token).
-            {**self._runtime_conf, **self._runtime_secrets},
+            runtime_config={**self._runtime_conf, **self._runtime_secrets},
         )
         self._setup_agent_observability()
 
@@ -652,8 +652,8 @@ class AgentBase:
         # Execution config
         # -----------------------------
         self.execution = AgentExecutionConfig.resolve_config(
-            execution,
-            self._runtime_conf,
+            config=execution,
+            runtime_config=self._runtime_conf,
         )
 
         if not self.tools:
@@ -943,9 +943,9 @@ class AgentBase:
                 value=value,
                 descriptor=descriptor,
             )
-        except Exception as e:
+        except Exception:
             # Skip update for coercion/validation/transformation/other failures
-            logger.warning(f"Agent {self.name}: {e} Skipping update.")
+            logger.warning(f"Agent {self.name} skipping update", exc_info=True)
             return False
 
         try:
@@ -955,13 +955,16 @@ class AgentBase:
                 value=processed_value,
                 descriptor=descriptor,
             )
-        except RuntimeError as e:
+        except RuntimeError:
             # Fall through if the agent could not be updated but the value is otherwise valid
-            logger.debug(f"Agent {self.name}: {e}")
+            logger.warning(
+                f"Agent {self.name} value is valid but could not be applied",
+                exc_info=True,
+            )
             applied_value = None
-        except Exception as e:
+        except Exception:
             # Defensive check: we shouldn't get here assuming value is valid
-            logger.warning(f"Agent {self.name}: {e} Skipping update.")
+            logger.warning(f"Agent {self.name} skipping update.", exc_info=True)
             return False
 
         resolved_value = applied_value or processed_value

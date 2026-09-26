@@ -85,6 +85,8 @@ def apply_config_update(
 ) -> Any:
     """
     Process and apply a configuration update to an object.
+    If the descriptor's ``raise_on_error`` is ``False``, failures during the configuration update
+    or fallback update are logged and swallowed, returning ``None``.
     This function is guaranteed to be idempotent if the processing logic is idempotent.
 
     Args:
@@ -95,7 +97,7 @@ def apply_config_update(
         descriptor: An object describing how to process a value for a particular key.
 
     Returns:
-        The final applied value.
+        The final applied value, or ``None`` if no value can be applied and the descriptor's ``raise_on_error`` is ``False``.
 
     Raises:
         ValueError: If no value can be retrieved or processing fails.
@@ -111,23 +113,28 @@ def apply_config_update(
             descriptor.setter(target_obj, processed_value)
         except Exception as exc:
             raise RuntimeError(f"Could not apply setter for key '{key}'") from exc
+
         return processed_value
-    except (ValueError, RuntimeError) as exc:
+    except Exception:
         if descriptor.raise_on_error:
             raise
 
         if descriptor.fallback is None:
-            logger.debug(f"Ignoring failed config update for key '{key}': {exc}")
+            logger.warning(
+                f"Ignoring failed config update for key '{key}'", exc_info=True
+            )
             return None
 
         logger.debug(f"Using fallback value for key '{key}': {descriptor.fallback!r}")
         try:
             descriptor.setter(target_obj, descriptor.fallback)
         except Exception:
-            logger.debug(
+            logger.warning(
                 f"Failed to apply fallback for key '{key}', continuing without update",
                 exc_info=True,
             )
+            return None
+
         return descriptor.fallback
 
 
@@ -152,9 +159,6 @@ def process_config_update(
     Raises:
         ValueError: If no value can be retrieved or processing fails.
     """
-    if not descriptor:
-        raise ValueError(f"Unrecognized config key: {key}.")
-
     # Retrieve value using getter callback as a fallback
     if value is None and descriptor.getter:
         try:
@@ -165,7 +169,7 @@ def process_config_update(
     # Type coercion
     try:
         if value is None:
-            # Pass through unset `None` values
+            # Pass through unset ``None``` values
             processed_value = None
         else:
             processed_value = coerce_config_value(value, descriptor.target_type)

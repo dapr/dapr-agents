@@ -43,9 +43,9 @@ class ExecutionConfigTestBase:
     def setup_env(self, monkeypatch):
         """Set up environment variables and mocks for testing."""
         for key in (
-            "MAX_ITERATIONS",
-            "TOOL_CHOICE",
-            "TOOL_EXECUTION_MODE",
+            "DAPR_AGENTS_MAX_ITERATIONS",
+            "DAPR_AGENTS_TOOL_CHOICE",
+            "DAPR_AGENTS_TOOL_EXECUTION_MODE",
             "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES",
         ):
             monkeypatch.delenv(key, raising=False)
@@ -239,9 +239,9 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
 
     def test_execution_config_from_env(self, mock_llm, mock_tool, monkeypatch):
         """Test execution config loaded from environment variables."""
-        monkeypatch.setenv("MAX_ITERATIONS", "7")
-        monkeypatch.setenv("TOOL_CHOICE", "required")
-        monkeypatch.setenv("TOOL_EXECUTION_MODE", "sequential")
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "7")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "required")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sequential")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "654321")
 
         mock_client = MockDaprClient()
@@ -262,8 +262,8 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         self, mock_llm, mock_tool, monkeypatch
     ):
         """Test invalid environment variable values are ignored."""
-        monkeypatch.setenv("MAX_ITERATIONS", "zero")
-        monkeypatch.setenv("TOOL_EXECUTION_MODE", "sideways")
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "zero")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sideways")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "abc")
 
         mock_client = MockDaprClient()
@@ -285,7 +285,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         self, mock_llm, mock_tool, monkeypatch
     ):
         """Specifically test that a non-standard environment variable tool choice is permitted."""
-        monkeypatch.setenv("TOOL_CHOICE", "tool")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "tool")
 
         mock_client = MockDaprClient()
         self._patch_dapr_client(monkeypatch, mock_client)
@@ -411,9 +411,9 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         self, mock_llm, mock_tool, monkeypatch
     ):
         """Test instantiation > environment variable precedence."""
-        monkeypatch.setenv("MAX_ITERATIONS", "2")
-        monkeypatch.setenv("TOOL_CHOICE", "auto")
-        monkeypatch.setenv("TOOL_EXECUTION_MODE", "sequential")
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "2")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "auto")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sequential")
 
         mock_client = MockDaprClient()
         self._patch_dapr_client(monkeypatch, mock_client)
@@ -447,9 +447,9 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         self, mock_llm, mock_tool, monkeypatch
     ):
         """Test runtime > environment variable precedence."""
-        monkeypatch.setenv("MAX_ITERATIONS", "3")
-        monkeypatch.setenv("TOOL_CHOICE", "required")
-        monkeypatch.setenv("TOOL_EXECUTION_MODE", "sequential")
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "3")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "required")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sequential")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "604")
 
         runtime_config = {
@@ -479,9 +479,9 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
 
     def test_execution_config_full_precedence(self, mock_llm, mock_tool, monkeypatch):
         """Test runtime > instantiation > environment variable precedence."""
-        monkeypatch.setenv("MAX_ITERATIONS", "1")
-        monkeypatch.setenv("TOOL_CHOICE", "none")
-        monkeypatch.setenv("TOOL_EXECUTION_MODE", "sequential")
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "1")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "none")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sequential")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "604")
 
         runtime_config = {
@@ -522,8 +522,8 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         self, mock_llm, mock_tool, monkeypatch
     ):
         """Test partial overlap where each source contributes different fields."""
-        monkeypatch.setenv("MAX_ITERATIONS", "4")
-        monkeypatch.setenv("TOOL_CHOICE", "none")
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "4")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "none")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "111111")
 
         runtime_config = {
