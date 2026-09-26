@@ -17,10 +17,18 @@ from .decorators import (
     workflow_entry,
 )
 from .utils.subscription import MessageContext
+from dapr_agents.types.workflow import (
+    FieldResolver,
+    NotFoundRetryPolicy,
+    WorkflowEventRouteSpec,
+)
 
 __all__ = [
     "message_router",
     "http_router",
     "workflow_entry",
     "MessageContext",
+    "WorkflowEventRouteSpec",
+    "NotFoundRetryPolicy",
+    "FieldResolver",
 ]
