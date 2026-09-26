@@ -107,6 +107,75 @@ jobs:
       run: |
         uv run pytest tests ext -m "not integration"
 
+  # google-adk caps opentelemetry-api/sdk (currently at <=1.42.1), and projects
+  # that install it next to dapr-agents often pin OTel lower still. uv.lock
+  # pins the latest OTel, so the build job above never sees those versions.
+  # This job runs the unit tests against older OTel stacks so a change that
+  # needs a newer OTel than pyproject's floors fails here instead of in a
+  # downstream install.
+  otel-compat:
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Install floor: pyproject's semconv>=0.60b1 pins opentelemetry-api==1.39.1.
+          - otel_core: "1.39.1"
+            otel_contrib: "0.60b1"
+          # Current google-adk ceiling.
+          - otel_core: "1.42.1"
+            otel_contrib: "0.63b1"
+    name: otel-compat (OTel ${{ matrix.otel_core }} / ${{ matrix.otel_contrib }})
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.11"
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    - name: Install dependencies
+      run: uv sync --frozen --group test
+    - name: Pin OpenTelemetry to ${{ matrix.otel_core }} / ${{ matrix.otel_contrib }}
+      env:
+        OTEL_CORE: ${{ matrix.otel_core }}
+        OTEL_CONTRIB: ${{ matrix.otel_contrib }}
+      run: |
+        uv pip install \
+          "opentelemetry-api==$OTEL_CORE" \
+          "opentelemetry-sdk==$OTEL_CORE" \
+          "opentelemetry-proto==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp-proto-common==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp-proto-grpc==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp-proto-http==$OTEL_CORE" \
+          "opentelemetry-exporter-zipkin-json==$OTEL_CORE" \
+          "opentelemetry-semantic-conventions==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-grpc==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-httpx==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-logging==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-redis==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-requests==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-sqlalchemy==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-threading==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-urllib3==$OTEL_CONTRIB" \
+          "opentelemetry-util-http==$OTEL_CONTRIB"
+        # Fail if any package left out of the list above conflicts with the pins.
+        uv pip check
+    # Every `uv run` below uses --no-sync: a plain `uv run` re-syncs the venv
+    # to uv.lock and silently puts the latest OTel back.
+    - name: Show installed OpenTelemetry versions
+      run: |
+        uv run --no-sync python -c "import importlib.metadata as m; [print(p, m.version(p)) for p in ('opentelemetry-sdk', 'opentelemetry-semantic-conventions')]"
+        uv pip list | grep -i '^opentelemetry'
+    - name: Run tests
+      run: |
+        uv run --no-sync pytest tests -m "not integration"
+
   package:
     needs: lint
     runs-on: ubuntu-latest
