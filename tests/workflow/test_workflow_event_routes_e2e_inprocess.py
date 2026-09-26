@@ -50,7 +50,6 @@ from tests.workflow._event_route_helpers import (
     PATCH_TARGET,
     FakeRpcError,
     JobFinished,
-    JobRef,
     make_spec,
     workflow_state,
 )
