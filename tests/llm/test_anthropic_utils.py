@@ -63,11 +63,26 @@ from dapr_agents.types.message import (
     LLMChatResponse,
     LLMChatResponseChunk,
 )
+from tests.llm.streaming_test_harness import StreamingComplianceHarness
+
+
+class _MockStreamCM:
+    def __init__(self, events: Iterable[Any]):
+        self._events = list(events)
+
+    def __enter__(self):
+        return iter(self._events)
+
+    def __exit__(self, *args):
+        pass
+
+    def __iter__(self):
+        return iter(self._events)
 
 
 def _stream_cm(events: Iterable[Any]) -> Any:
     """Wrap an event iterable so it behaves like the SDK's Stream context manager."""
-    return nullcontext(iter(events))
+    return _MockStreamCM(events)
 
 
 class TestNormalizeContentBlocks:
@@ -491,6 +506,22 @@ class TestRealSDKModelFixtures:
         final_chunk = chunks[2]
         assert final_chunk.result.finish_reason == "end_turn"
         assert final_chunk.metadata.get("usage", {}).get("output_tokens") == 25
+
+        # Validate with StreamingComplianceHarness
+        StreamingComplianceHarness.assert_valid_stream_contract(
+            chunks, expected_provider="anthropic", expected_min_chunks=3
+        )
+        StreamingComplianceHarness.assert_reconstructs_text(
+            chunks,
+            expected_text="Computing answer...",
+            expected_finish_reason="end_turn",
+        )
+        StreamingComplianceHarness.assert_reconstructs_tool_calls(
+            chunks,
+            expected_tools=[{"name": "calculate"}],
+            expected_finish_reason="end_turn",
+        )
+        StreamingComplianceHarness.assert_snapshot_isolation(chunks)
 
     def test_response_handler_with_real_sdk_structured_response(self) -> None:
         class CityWeather(BaseModel):
