@@ -408,7 +408,7 @@ def test_model_default_data_skips_second_jsonable_pass(monkeypatch):
 
 
 def test_not_found_tracker_is_thread_safe():
-    tracker = _NotFoundTracker(window_seconds=60)
+    tracker = _NotFoundTracker()
     threads_n, per_thread = 8, 200
     barrier = threading.Barrier(threads_n + 1)
     seen: list[list[int]] = [[] for _ in range(threads_n)]

@@ -104,6 +104,7 @@ NOT_FOUND_WINDOW_SECONDS_LIMIT = 3600.0
 DEFAULT_EVENT_MAX_DATA_BYTES = 1_048_576
 DEFAULT_EVENT_CALL_TIMEOUT_SECONDS = 30.0
 DEFAULT_EVENT_DEDUPE_MAX_ENTRIES = 65_536
+DEFAULT_EVENT_HOOK_TIMEOUT_SECONDS = 5.0
 
 
 def _check_int_range(value: Any, name: str, *, upper: int | None = None) -> None:
@@ -188,24 +189,40 @@ class WorkflowEventRouteSpec:
     wait with the same (case-insensitive) name, so event names must be unique
     per wait. Deduplication is on by default to stop a redelivered message
     from satisfying a later wait. It is best-effort: keyed by CloudEvent id (or
-    a hash of the payload when there is none), per process and bounded by TTL
-    and size (see ``deduper`` and ``dedupe_max_entries``).
+    a SHA-256 of the payload when there is none), in process memory by default
+    and bounded by TTL and size (see ``deduper`` and ``dedupe_max_entries``).
+    A crash after the raise but before the ack, or a redelivery to another
+    replica without a shared ``deduper``, can still raise the event twice.
 
     Outcomes: a terminal workflow (COMPLETED / FAILED / TERMINATED), an
-    unresolvable or oversized message, or a used-up ``not_found_retry`` budget
-    is dropped; daprd dead-letters it when ``dead_letter_topic`` is set,
-    otherwise it is logged at WARNING and discarded. Terminal states are never
-    retried. If the workflow finishes between the state check and the raise,
-    the runtime discards the event and the message is still acknowledged.
+    unresolvable or oversized message, a used-up ``not_found_retry`` budget, a
+    permanent sidecar error (gRPC ``INVALID_ARGUMENT``, ``PERMISSION_DENIED``,
+    ``UNAUTHENTICATED``, ``UNIMPLEMENTED``, ``OUT_OF_RANGE`` or
+    ``FAILED_PRECONDITION``) or an ``authorize`` denial is dropped; daprd
+    dead-letters it when ``dead_letter_topic`` is set, otherwise it is logged
+    at WARNING and discarded. Terminal states are never retried. Other sidecar
+    errors and timeouts are retried. If the workflow finishes between the state
+    check and the raise, the runtime discards the event and the message is
+    still acknowledged.
 
     Security: anyone who can publish to ``topic`` can signal any workflow
     instance whose id they can guess or learn. Restrict publishers with Dapr
-    pub/sub topic scoping. Event names the SDK itself waits on
-    (``approval_response_*`` and ``user_input_response:*``) are rejected unless
+    pub/sub topic scoping, and use ``authorize`` to decide per message whether
+    it may signal the resolved workflow. Event names the SDK itself waits on
+    (``approval_response_*`` and ``user_input_response:*``, compared with
+    Unicode case folding as Dapr does) are rejected unless
     ``allow_reserved_event_names`` is True: a static ``event_name`` at
     registration, a name from ``event_name_from`` by dropping the message.
-    Resolved instance ids and event names longer than 512 characters, and
-    payloads over ``max_data_bytes``, are dropped.
+    Resolved instance ids and event names longer than 512 characters (counted
+    as characters, not bytes), and payloads over ``max_data_bytes``, are
+    dropped.
+
+    Hooks: ``authorize``, ``payload_filter`` and ``model_filter`` run with the
+    ``hook_timeout_seconds`` deadline and must return exactly ``True`` to let
+    the message through; ``False``, any other value (``"False"``, ``1``), an
+    exception or a timeout rejects it. Resolvers (``instance_id_from``,
+    ``event_name_from``, ``data_from``) and payload serialization run on the
+    consumer thread without a deadline, so keep them cheap.
 
     Frozen on purpose: value equality is used to detect an idempotent
     re-registration of the same route.
@@ -227,6 +244,7 @@ class WorkflowEventRouteSpec:
             event_name_from=job_event_name,       # optional callable resolver
             message_model=JobFinished,
             dead_letter_topic="jobs.finished.dlq",
+            authorize=lambda msg, ctx: ctx.event.source == "/jobs-service",
         )
         runner.subscribe(agent, event_routes=[spec])
 
@@ -251,8 +269,19 @@ class WorkflowEventRouteSpec:
             dead-letter topic and no pub/sub inbound resiliency retry policy,
             daprd dead-letters the first RETRY, so ``not_found_retry`` never
             retries (see ``NotFoundRetryPolicy``).
-        payload_filter: Same contract as ``PubSubRouteSpec.payload_filter``.
-        model_filter: Same contract as ``PubSubRouteSpec.model_filter``.
+        payload_filter: Like ``PubSubRouteSpec.payload_filter``, but it runs
+            with the ``hook_timeout_seconds`` deadline and must return exactly
+            ``True`` to accept.
+        model_filter: Like ``PubSubRouteSpec.model_filter``, with the same
+            deadline and strict ``True`` rule as ``payload_filter``.
+        authorize: Optional sync callable ``(validated_message, MessageContext)
+            -> bool`` (the context carries the CloudEvent). It runs after schema
+            validation and the filters and before any sidecar call. Anything
+            other than exactly ``True`` (including an exception or a timeout)
+            denies the message: it is dropped with a WARNING that names the
+            route, workflow instance and message id, never the payload.
+        hook_timeout_seconds: Deadline for ``authorize``, ``payload_filter``
+            and ``model_filter``. Default 5.0.
         dedupe: Deduplicate redeliveries by CloudEvent id. Default True.
         deduper: Optional backend for this route. When None, the route uses its
             own in-memory backend (TTL of at least 15 minutes and the
@@ -269,8 +298,14 @@ class WorkflowEventRouteSpec:
             payloads are dropped. Default 1 MiB.
         call_timeout_seconds: Deadline for each sidecar call (state check and
             raise). A timeout is retried; the timed-out call may still
-            complete in the background, so the event can still be raised
-            (dedupe makes the redelivery safe). Default 30.0.
+            complete in the background. While ``dedupe`` is on, a timed-out
+            raise is remembered and a redelivery of the same message to the
+            same process does not raise it again: it is acknowledged once the
+            first raise succeeded, retried while it is still running, and
+            handled like any other failed raise if it failed. That memory is
+            in process only; a restart clears it, and with ``dedupe=False``
+            there is no key to track, so a timed-out raise can then be raised
+            twice. Default 30.0.
         allow_reserved_event_names: Allow event names the SDK reserves for its
             own waits (``approval_response_*``, ``user_input_response:*``).
             Default False.
@@ -296,8 +331,11 @@ class WorkflowEventRouteSpec:
     call_timeout_seconds: float = DEFAULT_EVENT_CALL_TIMEOUT_SECONDS
     dedupe_max_entries: int = DEFAULT_EVENT_DEDUPE_MAX_ENTRIES
     allow_reserved_event_names: bool = False
+    authorize: Callable[[Any, MessageContext], bool] | None = None
+    hook_timeout_seconds: float = DEFAULT_EVENT_HOOK_TIMEOUT_SECONDS
 
     def __post_init__(self) -> None:
         _check_int_range(self.max_data_bytes, "max_data_bytes")
         _check_seconds(self.call_timeout_seconds, "call_timeout_seconds")
+        _check_seconds(self.hook_timeout_seconds, "hook_timeout_seconds")
         _check_int_range(self.dedupe_max_entries, "dedupe_max_entries")
