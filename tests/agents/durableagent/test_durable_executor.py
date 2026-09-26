@@ -776,6 +776,7 @@ class TestAgentWorkflowExecutorBranch:
             captured.append(
                 {
                     "name": _activity_method_name(activity),
+                    "raw_name": activity,
                     "input": kwargs.get("input"),
                     "retry_policy": kwargs.get("retry_policy"),
                 }
@@ -823,6 +824,19 @@ class TestAgentWorkflowExecutorBranch:
         assert payload["task"] == "hi"
         assert payload["instance_id"] == "wf-inst-42"
         assert run_calls[0]["retry_policy"] is agent._retry_policy
+
+    def test_calls_executor_activity_by_registered_name(self):
+        """The call site must use the agent-scoped name ``register_activities`` uses.
+
+        Dapr resolves activities by registered name; a bare ``run_executor``
+        reference does not match ``dapr.agents.<agent>.run_executor``.
+        """
+        agent = _make_agent(_ScriptedExecutor([]))
+
+        captured, _ = self._drive_workflow(agent, {"task": "hi"})
+
+        run_call = next(c for c in captured if c["name"] == "run_executor")
+        assert run_call["raw_name"] == agent._activity_name(agent.run_executor)
 
     def test_payload_passes_caller_session_id_and_context(self):
         """Message with session_id/context ⇒ they flow into run_executor input."""

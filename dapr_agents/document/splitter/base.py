@@ -116,43 +116,42 @@ class SplitterBase(BaseModel, ABC):
         for split in splits:
             split_size = self._get_chunk_size(split)
 
-            # If adding the current split exceeds max_size, finalize the current chunk
-            if current_size + split_size > max_size:
-                if current_chunk:
-                    # Finalize the current chunk
-                    full_chunk = "".join(current_chunk)
-                    chunks.append(full_chunk)
+            # If adding the current split exceeds max_size, finalize the current
+            # chunk first. If current_chunk is empty, there's nothing to finalize
+            # and split is simply appended below, becoming its own chunk if it
+            # alone exceeds max_size.
+            if current_size + split_size > max_size and current_chunk:
+                # Finalize the current chunk
+                full_chunk = "".join(current_chunk)
+                chunks.append(full_chunk)
 
-                    # Logging information for overlap and chunk size
-                    logger.debug(
-                        f"Chunk {len(chunks)} finalized. Size: {current_size}. Overlap size: {self.chunk_overlap}"
-                    )
+                # Logging information for overlap and chunk size
+                logger.debug(
+                    f"Chunk {len(chunks)} finalized. Size: {current_size}. Overlap size: {self.chunk_overlap}"
+                )
 
-                    # Create an overlap using sentences from the current chunk
-                    overlap = []
-                    overlap_size = 0
-                    for sentence in reversed(current_chunk):
-                        sentence_size = self._get_chunk_size(sentence)
-                        if overlap_size + sentence_size > self.chunk_overlap:
-                            break
-                        overlap.insert(0, sentence)
-                        overlap_size += sentence_size
+                # Create an overlap using sentences from the current chunk
+                overlap = []
+                overlap_size = 0
+                for sentence in reversed(current_chunk):
+                    sentence_size = self._get_chunk_size(sentence)
+                    if overlap_size + sentence_size > self.chunk_overlap:
+                        break
+                    overlap.insert(0, sentence)
+                    overlap_size += sentence_size
 
-                    # Logging information for overlap content
-                    logger.debug(f"Chunk {len(chunks)} overlap: {''.join(overlap)}")
+                # Logging information for overlap content
+                logger.debug(f"Chunk {len(chunks)} overlap: {''.join(overlap)}")
 
-                    # Start the new chunk with the overlap
-                    current_chunk = overlap
-                    current_size = overlap_size
-                else:
-                    # If a single split exceeds max_size, treat it as a standalone chunk
-                    chunks.append(split)
-                    current_chunk = []
-                    current_size = 0
-            else:
-                # Add the current split to the ongoing chunk
-                current_chunk.append(split)
-                current_size += split_size
+                # Start the new chunk with the overlap
+                current_chunk = overlap
+                current_size = overlap_size
+
+            # Add the current split to the ongoing chunk. This must happen
+            # unconditionally (not just in the size-fits branch above), or the
+            # split that triggered finalization above would be dropped entirely.
+            current_chunk.append(split)
+            current_size += split_size
 
         # Finalize the last chunk
         if current_chunk:
