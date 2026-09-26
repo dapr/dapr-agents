@@ -295,52 +295,52 @@ def validate_tool_choice(v: str) -> str:
         return ToolChoice(v.lower())
     except (ValueError, KeyError):
         logger.warning(
-            f"tool_choice {v} not in standard set {[e.value for e in ToolChoice]}; allowing anyway."
+            f"Tool choice '{v}' not in standard set {sorted([e.value for e in ToolChoice])}; allowing anyway."
         )
-        return v.lower()
+        return v
 
 
 def validate_tool_execution_mode(v: str) -> ToolExecutionMode:
-    """Validate that the tool execution mode is a known ToolExecutionMode value."""
+    """Validate that the tool execution mode is a known ``ToolExecutionMode`` value."""
     try:
         return ToolExecutionMode(v.lower())
     except (ValueError, KeyError):
         raise ValueError(
             f"Unknown tool execution mode '{v}'. "
-            f"Valid options: {[e.value for e in ToolExecutionMode]}"
+            f"Valid options: {sorted([e.value for e in ToolExecutionMode])}"
         )
 
 
 def validate_orchestration_mode(v: str) -> OrchestrationMode:
-    """Validate that the orchestration mode is a known OrchestrationMode value."""
+    """Validate that the orchestration mode is a known ``OrchestrationMode`` value."""
     try:
         return OrchestrationMode(v.lower())
     except (ValueError, KeyError):
         raise ValueError(
             f"Unknown orchestration mode '{v}'. "
-            f"Valid options: {[e.value for e in OrchestrationMode]}"
+            f"Valid options: {sorted([e.value for e in OrchestrationMode])}"
         )
 
 
 def validate_otel_exporter_tracing(v: str) -> AgentTracingExporter:
-    """Validate that the tracing exporter is a known AgentTracingExporter value."""
+    """Validate that the tracing exporter is a known ``AgentTracingExporter`` value."""
     try:
         return AgentTracingExporter(v.lower())
     except (ValueError, KeyError):
         raise ValueError(
             f"Unknown tracing exporter '{v}'. "
-            f"Valid options: {[e.value for e in AgentTracingExporter]}"
+            f"Valid options: {sorted([e.value for e in AgentTracingExporter])}"
         )
 
 
 def validate_otel_exporter_logging(v: str) -> AgentLoggingExporter:
-    """Validate that the logging exporter is a known AgentLoggingExporter value."""
+    """Validate that the logging exporter is a known ``AgentLoggingExporter`` value."""
     try:
         return AgentLoggingExporter(v.lower())
     except (ValueError, KeyError):
         raise ValueError(
             f"Unknown logging exporter '{v}'. "
-            f"Valid options: {[e.value for e in AgentLoggingExporter]}"
+            f"Valid options: {sorted([e.value for e in AgentLoggingExporter])}"
         )
 
 
