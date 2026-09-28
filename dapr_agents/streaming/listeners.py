@@ -475,9 +475,9 @@ class WebhookListener:
         # install logs from the worker thread instead of failing module import.
         try:
             import httpx
-        except ImportError as exc:  # pragma: no cover - optional dep
+        except ImportError as exc:  # pragma: no cover - broken install
             logger.error(
-                "WebhookListener requires httpx but it is not installed: %s", exc
+                "WebhookListener cannot import httpx (broken install?): %s", exc
             )
             return
         client = httpx.Client(timeout=self._timeout, headers=self._headers)
