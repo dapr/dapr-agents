@@ -20,7 +20,7 @@ limitations under the License.
 ## Quick Commands
 
 - **Setup**: `uv venv && source .venv/bin/activate && uv sync --group test --extra drasi`
-- **Before commit (REQUIRED)**: `uv run ruff format && uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"`
+- **Before commit (REQUIRED)**: `uv run ruff format && uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration" && DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"`
 - **Individual checks**:
   - Auto-format: `uv run ruff format` (rewrites files). CI fails if formatting would change anything; the read-only equivalent is `uv run ruff format --check`
   - Lint: `uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704`
@@ -101,7 +101,7 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
 ## Pull Request Rules
 
 **REQUIRED Before PR**:
-1. Run `uv run ruff format && uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"` locally - all checks must pass
+1. Run `uv run ruff format && uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration" && DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"` locally - all checks must pass
 2. Use conventional commit format for PR title
 3. Update docs in `dapr/docs` repo for: API changes, new features, breaking changes, config options
    - **Not required** for internal-only changes (bug fixes, refactors, performance, tests) that don't change the public API, features, config options, or documented/observable behavior
