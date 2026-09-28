@@ -116,6 +116,10 @@ class MCPClient(BaseModel):
     _server_prompts: Dict[str, Dict[str, Prompt]] = PrivateAttr(default_factory=dict)
     _task_locals: Dict[str, Any] = PrivateAttr(default_factory=dict)
     _server_configs: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict)
+    # Servers connected since the last close(). Kept apart from _server_configs,
+    # which must outlive close() so tools returned by get_all_tools() can still
+    # open ephemeral sessions.
+    _connected_servers: Set[str] = PrivateAttr(default_factory=set)
 
     @asynccontextmanager
     async def create_ephemeral_session(
@@ -202,8 +206,9 @@ class MCPClient(BaseModel):
         config = dict(config)
         server_name = config.pop("server_name", None)
         transport = config.pop("transport", None)
-        if server_name in self._server_configs:
+        if server_name in self._connected_servers:
             raise RuntimeError(f"Server '{server_name}' is already connected")
+        previous_config = self._server_configs.get(server_name)
         try:
             self._task_locals[server_name] = asyncio.current_task()
             stack = self._exit_stack
@@ -243,11 +248,15 @@ class MCPClient(BaseModel):
                 logger.info(
                     f"Successfully connected to MCP server '{server_name}' (ephemeral mode)"
                 )
+            self._connected_servers.add(server_name)
         except Exception as e:
             logger.error(f"Failed to connect to MCP server '{server_name}': {str(e)}")
             self._sessions.pop(server_name, None)
             self._task_locals.pop(server_name, None)
-            self._server_configs.pop(server_name, None)
+            if previous_config is None:
+                self._server_configs.pop(server_name, None)
+            else:
+                self._server_configs[server_name] = previous_config
             raise
 
     async def connect_many(self, server_configs: list) -> None:
@@ -719,7 +728,9 @@ class MCPClient(BaseModel):
             List of server names that are currently connected
         """
         if not self.persistent_connections:
-            return list(self._server_configs.keys())
+            return [
+                name for name in self._server_configs if name in self._connected_servers
+            ]
         return list(self._sessions.keys())
 
     async def close(self) -> None:
@@ -746,7 +757,7 @@ class MCPClient(BaseModel):
             self._sessions.clear()
             self._server_tools.clear()
             self._server_prompts.clear()
-            self._server_configs.clear()
+            self._connected_servers.clear()
             self._task_locals.clear()
             logger.info("MCP client successfully closed")
         except Exception as e:
