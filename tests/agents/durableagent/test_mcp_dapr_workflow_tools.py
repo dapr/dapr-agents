@@ -24,13 +24,15 @@ owned by the python-sdk ``DaprMCPClient`` and tested there.
 """
 
 import json
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 from typing import List
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from pydantic import ValidationError
 
+from dapr_agents.agents.configs import AgentExecutionConfig
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import AgentWorkflowEntry
 from dapr_agents.tool.base import AgentTool
@@ -123,7 +125,11 @@ def _make_regular_tool() -> AgentTool:
     )
 
 
-def _make_agent(tools: list, name: str = "TestAgent") -> DurableAgent:
+def _make_agent(
+    tools: list,
+    name: str = "TestAgent",
+    execution: AgentExecutionConfig | None = None,
+) -> DurableAgent:
     from dapr_agents.agents.configs import AgentPubSubConfig, AgentStateConfig
     from dapr_agents.storage.daprstores.stateservice import StateStoreService
 
@@ -133,6 +139,7 @@ def _make_agent(tools: list, name: str = "TestAgent") -> DurableAgent:
         goal="Run tests",
         instructions=["Follow test instructions"],
         tools=tools,
+        execution=execution,
         pubsub=AgentPubSubConfig(pubsub_name="testpubsub"),
         state=AgentStateConfig(store=StateStoreService(store_name="teststatestore")),
     )
@@ -302,6 +309,45 @@ class TestMCPToolConversion:
         )
         names = {t.name for t in tools}
         assert names == {"add", "multiply", "get_weather"}
+
+
+class TestMCPAutoDiscoveryToolChoice:
+    class FakeDaprMCPClient:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        async def connect(self, name: str) -> None:
+            pass
+
+        def get_all_tools(self) -> list[MCPToolDef]:
+            return [_tool_def("math-server", _MCP_TOOLS[0])]
+
+        def get_connected_servers(self) -> list[str]:
+            return ["math-server"]
+
+    def _patch_mcp_client(self, monkeypatch) -> None:
+        aio_module = ModuleType("dapr.ext.workflow.aio")
+        setattr(aio_module, "DaprMCPClient", self.FakeDaprMCPClient)
+        monkeypatch.setitem(sys.modules, "dapr.ext.workflow.aio", aio_module)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("tool_choice", "expected"),
+        [("none", "none"), ("required", "required"), (None, "auto")],
+    )
+    async def test_preserves_tool_choice(
+        self, monkeypatch, tool_choice, expected
+    ) -> None:
+        agent = _make_agent(
+            [],
+            execution=AgentExecutionConfig(tool_choice=tool_choice),
+        )
+        agent._discovered_mcpserver_names = ["math-server"]
+        self._patch_mcp_client(monkeypatch)
+
+        await agent.connect_mcpservers()
+
+        assert agent.execution.tool_choice == expected
 
 
 class TestMixedToolSet:

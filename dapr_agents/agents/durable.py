@@ -537,11 +537,11 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
 
         The callback runs exactly once the first time the agent is attached to
         an ``AgentRunner`` via any host entry point (``serve()``, ``subscribe()``,
-        ``register_routes()``, ``workflow()`` or ``run()``). It receives an
-        :class:`~dapr_agents.types.activation.ActivationContext` and may return a
-        zero-arg closer that the runner invokes on shutdown. Callbacks fire in
-        registration order. This is the supported seam for trigger extensions and
-        never modifies the agent's workflow.
+        ``register_routes()``, ``workflow()``, ``run()`` or ``run_stream()``). It
+        receives an :class:`~dapr_agents.types.activation.ActivationContext` and
+        may return a zero-arg closer that the runner invokes on shutdown.
+        Callbacks fire in registration order. This is the supported seam for
+        trigger extensions and never modifies the agent's workflow.
 
         Args:
             callback: Callable taking an ``ActivationContext`` and returning an
@@ -559,7 +559,8 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         if not self._activation_window_open:
             raise RuntimeError(
                 f"Cannot add an activation to agent {self.name!r} after it has been "
-                "hosted; register activations before serve()/subscribe()/register_routes()/workflow()/run()."
+                "hosted; register activations before serve()/subscribe()/register_routes()/"
+                "workflow()/run()/run_stream()."
             )
         self._activations.append(callback)
 
