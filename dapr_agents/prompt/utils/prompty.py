@@ -18,8 +18,10 @@ from dapr_agents.types.message import (
     ToolMessage,
     BaseMessage,
 )
-from dapr_agents.prompt.utils.fstring import extract_fstring_variables
-from dapr_agents.prompt.utils.jinja import extract_jinja_variables
+from dapr_agents.prompt.engine import (
+    extract_fstring_variables,
+    extract_jinja_variables,
+)
 from typing import Dict, Any, Tuple, Optional, Union, List, Literal
 from jinja2 import Template, TemplateError
 from pathlib import Path
