@@ -22,7 +22,7 @@ workflow instance IDs it produced.
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from dapr.ext.workflow import DaprWorkflowContext
@@ -33,6 +33,7 @@ from dapr_agents.agents.configs import (
     ToolExecutionMode,
 )
 from dapr_agents.agents.durable import DurableAgent, child_workflow_instance_id
+from dapr_agents.agents.schemas import AgentWorkflowEntry, AgentWorkflowMessage
 
 PARENT_INSTANCE_ID = "parent-wf-1"
 ORCHESTRATION_TIME = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -235,3 +236,99 @@ class TestOrchestrationReplay:
 
         assert len(first) == 1
         assert first == replay
+
+
+def _save_tool_results_payload(
+    agent: DurableAgent, tool_calls: List[Dict[str, Any]]
+) -> tuple[DaprWorkflowContext, Dict[str, Any]]:
+    """Drive a turn through its tool calls and return the save_tool_results input."""
+    ctx = _make_ctx()
+    gen = agent.agent_workflow(ctx, {"task": "ask sam"})
+    next(gen)  # record_initial_entry
+    gen.send(None)  # call_llm
+    gen.send({"role": "assistant", "content": None, "tool_calls": tool_calls})
+    for i in range(len(tool_calls) - 1):
+        gen.send(f"result {i}")  # sequential child workflows
+    gen.send(f"result {len(tool_calls) - 1}")  # yields save_tool_results
+    gen.close()
+    save_calls = [
+        c
+        for c in ctx.call_activity.call_args_list
+        if "tool_call_meta" in c.kwargs.get("input", {})
+    ]
+    assert len(save_calls) == 1
+    return ctx, save_calls[0].kwargs["input"]
+
+
+class TestToolHistoryWithSharedToolCallIds:
+    """tool_history must name the child that actually ran each call."""
+
+    @pytest.mark.parametrize("call_id", ["", "call-1"])
+    def test_payload_keeps_each_child_id(self, mock_llm, call_id):
+        frodo = _make_frodo(mock_llm)
+        calls = [_tool_call(call_id, "first"), _tool_call(call_id, "second")]
+
+        ctx, payload = _save_tool_results_payload(frodo, calls)
+
+        child_ids = _child_ids(ctx)
+        assert len(set(child_ids)) == 2
+        assert [m["child_instance_id"] for m in payload["tool_call_meta"]] == (
+            child_ids
+        )
+
+    @pytest.mark.parametrize("call_id", ["", "call-1"])
+    def test_tool_history_records_each_child_id(self, mock_llm, call_id):
+        frodo = _make_frodo(mock_llm)
+        calls = [_tool_call(call_id, "first"), _tool_call(call_id, "second")]
+        ctx, payload = _save_tool_results_payload(frodo, calls)
+        assistant = AgentWorkflowMessage(
+            role="assistant", content=None, tool_calls=calls
+        )
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[assistant],
+            tool_history=[],
+            last_message=assistant,
+        )
+
+        with (
+            patch.object(frodo, "save_state"),
+            patch.object(frodo._infra, "get_state", return_value=entry),
+        ):
+            frodo.save_tool_results(Mock(), payload)
+
+        assert [r.agent_workflow_instance_id for r in entry.tool_history] == (
+            _child_ids(ctx)
+        )
+        assert [r.tool_args["task"] for r in entry.tool_history] == [
+            "first",
+            "second",
+        ]
+
+    def test_falls_back_to_tool_calls_by_id_without_meta(self, mock_llm):
+        """Payloads scheduled before tool_call_meta existed still record."""
+        frodo = _make_frodo(mock_llm)
+        calls = [_tool_call("call-1", "first")]
+        ctx, payload = _save_tool_results_payload(frodo, calls)
+        payload = {k: v for k, v in payload.items() if k != "tool_call_meta"}
+        assistant = AgentWorkflowMessage(
+            role="assistant", content=None, tool_calls=calls
+        )
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[assistant],
+            tool_history=[],
+            last_message=assistant,
+        )
+
+        with (
+            patch.object(frodo, "save_state"),
+            patch.object(frodo._infra, "get_state", return_value=entry),
+        ):
+            frodo.save_tool_results(Mock(), payload)
+
+        assert [r.agent_workflow_instance_id for r in entry.tool_history] == (
+            _child_ids(ctx)
+        )
