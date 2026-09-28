@@ -226,6 +226,31 @@ def orchestration_workflow_id(
     return f"dapr.{sanitized_framework}.{sanitized_agent_name}.orchestration"
 
 
+def child_workflow_instance_id(
+    parent_instance_id: str,
+    dispatch_time: str,
+    *parts: Any,
+) -> str:
+    """Return a replay-stable instance ID for a child workflow.
+
+    Workflow code is replayed from history, so an ID generated with
+    ``uuid4()`` changes on every replay. The ID is a ``uuid5`` of the parent
+    instance ID, the orchestration time at dispatch, and the caller's position
+    in the workflow (e.g. turn and tool-call index), all of which are identical
+    on replay.
+
+    Args:
+        parent_instance_id: Instance ID of the workflow scheduling the child.
+        dispatch_time: ``ctx.current_utc_datetime`` at dispatch, ISO-formatted.
+        *parts: Values that identify the call site uniquely within the parent.
+
+    Returns:
+        The child workflow instance ID as a UUID string.
+    """
+    seed = ":".join(str(p) for p in (parent_instance_id, dispatch_time, *parts))
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
+
+
 # Registry of built-in tool factories, keyed by the name users list in
 # ``AgentExecutionConfig.builtin_tools``. Each factory receives the agent and
 # returns a ready tool. The indirection is required because built-ins late-bind
@@ -876,7 +901,16 @@ class DurableAgent(AgentBase):
                                     **args,
                                 }
                                 if isinstance(tool_obj, AgentWorkflowTool):
-                                    child_instance_id = str(uuid.uuid4())
+                                    # tool_call_id may be "" or repeated, so
+                                    # the turn and index keep the ID unique.
+                                    child_instance_id = child_workflow_instance_id(
+                                        ctx.instance_id,
+                                        ctx.current_utc_datetime.isoformat(),
+                                        "tool",
+                                        turn,
+                                        idx,
+                                        tc.get("id", ""),
+                                    )
                                     call_kwargs["_child_instance_id"] = (
                                         child_instance_id
                                     )
@@ -1527,8 +1561,10 @@ class DurableAgent(AgentBase):
 
             framework = agent_meta.get("framework")
 
-            child_instance_id = str(uuid.uuid4())
             dispatch_time = ctx.current_utc_datetime.isoformat()
+            child_instance_id = child_workflow_instance_id(
+                ctx.instance_id, dispatch_time, "orchestration", turn
+            )
             agent_workflow_name = (
                 agent_meta.get("metadata", {}).get("workflow_name")
                 if isinstance(agent_meta.get("metadata"), dict)
