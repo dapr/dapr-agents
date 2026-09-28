@@ -646,15 +646,14 @@ class AgentBase:
             self.execution.max_iterations = max(1, int(self.execution.max_iterations))
         except Exception:
             self.execution.max_iterations = 10
-        if not self.tools:
-            if self.execution.tool_choice is not None:
-                logger.debug(
-                    "No tools configured for agent '%s'; ignoring tool_choice=%r.",
-                    self.name,
-                    self.execution.tool_choice,
-                )
+        if not self.tools and self.execution.tool_choice == "auto":
+            logger.debug(
+                "No tools configured for agent '%s'; ignoring tool_choice=%r.",
+                self.name,
+                self.execution.tool_choice,
+            )
             self.execution.tool_choice = None
-        elif self.execution.tool_choice is None:
+        elif self.tools and self.execution.tool_choice is None:
             self.execution.tool_choice = "auto"
 
         # -----------------------------
