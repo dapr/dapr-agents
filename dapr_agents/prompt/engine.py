@@ -13,8 +13,8 @@
 
 import logging
 from string import Formatter
-from typing import Any, Callable, Dict, List, Literal, Tuple
-from jinja2 import Environment, Template
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
+from jinja2 import Environment, Template, nodes
 from jinja2.meta import find_undeclared_variables
 
 logger = logging.getLogger(__name__)
@@ -58,32 +58,49 @@ def extract_fstring_variables(template: str) -> List[str]:
     return variables
 
 
-def render_jinja(template: str, **kwargs: Any) -> str:
+def render_jinja(
+    template: str, environment: Optional[Environment] = None, **kwargs: Any
+) -> str:
     """
     Render a Jinja2 template using the provided variables.
 
     Args:
         template (str): The Jinja2 template string.
+        environment (Optional[Environment]): Optional custom Jinja2 Environment.
         **kwargs: Variables to be used in rendering the template.
 
     Returns:
         str: The rendered template string.
     """
-    return Template(template).render(**kwargs)
+    env = environment or Environment()
+    return env.from_string(template).render(**kwargs)
 
 
-def extract_jinja_variables(template: str) -> List[str]:
+def extract_jinja_variables(
+    template: str, environment: Optional[Environment] = None
+) -> List[str]:
     """
     Extract undeclared variables from a Jinja2 template.
 
     Args:
         template (str): The Jinja2 template string.
+        environment (Optional[Environment]): Optional custom Jinja2 Environment.
 
     Returns:
         List[str]: A list of undeclared variable names in the template.
     """
-    environment = Environment()
-    parsed_content = environment.parse(template)
+    env = environment or Environment()
+    parsed_content = env.parse(template)
+
+    # Register stubs for any undeclared filters or tests in the template AST
+    # so find_undeclared_variables does not fail with TemplateAssertionError.
+    for node in parsed_content.find_all(nodes.Filter):
+        if node.name not in env.filters:
+            env.filters[node.name] = lambda x, *args, **kwargs: x
+    for node in parsed_content.find_all(nodes.Test):
+        if node.name not in env.tests:
+            env.tests[node.name] = lambda x, *args, **kwargs: True
+
     undeclared_variables = find_undeclared_variables(parsed_content)
     return sorted(undeclared_variables)
 
@@ -96,7 +113,7 @@ DEFAULT_FORMATTER_MAPPING: Dict[str, Callable[..., str]] = {
     "jinja2": render_jinja,
 }
 
-DEFAULT_VARIABLE_EXTRACTOR_MAPPING: Dict[str, Callable[[str], List[str]]] = {
+DEFAULT_VARIABLE_EXTRACTOR_MAPPING: Dict[str, Callable[..., List[str]]] = {
     "f-string": extract_fstring_variables,
     "jinja2": extract_jinja_variables,
 }
@@ -112,7 +129,11 @@ class TemplateEngine:
 
     @classmethod
     def render(
-        cls, template: str, template_format: str = "f-string", **kwargs: Any
+        cls,
+        template: str,
+        template_format: str = "f-string",
+        environment: Optional[Environment] = None,
+        **kwargs: Any,
     ) -> str:
         """
         Render a template string using the specified format.
@@ -120,6 +141,7 @@ class TemplateEngine:
         Args:
             template (str): The template string to format.
             template_format (str): The template format ('f-string' or 'jinja2').
+            environment (Optional[Environment]): Optional Jinja2 environment (for jinja2 format).
             **kwargs: Variables to populate placeholders.
 
         Returns:
@@ -131,11 +153,16 @@ class TemplateEngine:
         formatter = DEFAULT_FORMATTER_MAPPING.get(template_format)
         if not formatter:
             raise ValueError(f"Unsupported template format: {template_format}")
+        if template_format == "jinja2" and environment is not None:
+            return formatter(template, environment=environment, **kwargs)
         return formatter(template, **kwargs)
 
     @classmethod
     def extract_variables(
-        cls, template: str, template_format: str = "f-string"
+        cls,
+        template: str,
+        template_format: str = "f-string",
+        environment: Optional[Environment] = None,
     ) -> List[str]:
         """
         Extract placeholder variable names from a template string.
@@ -143,6 +170,7 @@ class TemplateEngine:
         Args:
             template (str): The template string.
             template_format (str): The template format ('f-string' or 'jinja2').
+            environment (Optional[Environment]): Optional Jinja2 environment (for jinja2 format).
 
         Returns:
             List[str]: A list of extracted variable names.
@@ -153,6 +181,8 @@ class TemplateEngine:
         extractor = DEFAULT_VARIABLE_EXTRACTOR_MAPPING.get(template_format)
         if not extractor:
             raise ValueError(f"Unsupported template format: {template_format}")
+        if template_format == "jinja2" and environment is not None:
+            return extractor(template, environment=environment)
         return extractor(template)
 
 
