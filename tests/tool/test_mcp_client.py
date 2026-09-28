@@ -11,8 +11,13 @@
 # limitations under the License.
 #
 
-"""Tests for MCPClient prompt loading and accessors."""
+"""Tests for MCPClient connect/close behavior and prompt accessors."""
 
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -76,7 +81,7 @@ async def test_connect_ephemeral_rejects_duplicate_server_name():
     Ephemeral sessions (the default, ``persistent_connections=False``) never
     populate ``_sessions``, so a guard keyed on ``_sessions`` can never catch
     a duplicate ``connect()`` call in the common case. It must key on
-    ``_server_configs``, which both modes populate.
+    state that both modes populate.
     """
     client = MCPClient()
     with patch(
@@ -113,3 +118,111 @@ async def test_close_allows_reconnecting_to_the_same_server():
         )
 
     assert client.get_connected_servers() == ["srv"]
+
+
+# --- Real-server tests: the documented connect -> get_all_tools -> close ->
+# call-a-tool pattern (see examples/06-agent-mcp-client-*). ---
+
+_ECHO_SERVER = str(Path(__file__).with_name("mcp_echo_server.py"))
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+def streamable_http_url():
+    port = _free_port()
+    proc = subprocess.Popen(
+        [sys.executable, _ECHO_SERVER, "streamable-http", str(port)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while True:
+            if proc.poll() is not None:
+                pytest.fail("streamable-http MCP test server exited early")
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    break
+            except OSError:
+                if time.monotonic() > deadline:
+                    pytest.fail("streamable-http MCP test server did not start")
+                time.sleep(0.1)
+        yield f"http://127.0.0.1:{port}/mcp"
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+
+async def _close_ignoring_cancel_scope(client: MCPClient) -> None:
+    # Same tolerance as the examples: stdio teardown can trip anyio's
+    # cancel-scope check, which does not affect the stored configs.
+    try:
+        await client.close()
+    except RuntimeError as exc:
+        if "Attempted to exit cancel scope" not in str(exc):
+            raise
+
+
+def _tool_text(result) -> str:
+    assert not result.isError, result.content
+    return result.content[0].text
+
+
+async def test_stdio_tools_still_work_after_close():
+    """Tools from get_all_tools() must keep working after client.close().
+
+    Ephemeral tool calls open a new session from the stored server config, so
+    close() must not drop that config.
+    """
+    client = MCPClient()
+    await client.connect_stdio(
+        server_name="echo", command=sys.executable, args=[_ECHO_SERVER, "stdio"]
+    )
+    tools = {tool.name: tool for tool in client.get_all_tools()}
+    await _close_ignoring_cancel_scope(client)
+
+    result = await tools["echo_add"].arun(a=2, b=3)
+
+    assert _tool_text(result) == "sum=5"
+
+
+async def test_streamable_http_tools_still_work_after_close(streamable_http_url):
+    client = MCPClient()
+    await client.connect_streamable_http(server_name="echo", url=streamable_http_url)
+    tools = {tool.name: tool for tool in client.get_all_tools()}
+    await client.close()
+
+    result = await tools["echo_add"].arun(a=4, b=5)
+
+    assert _tool_text(result) == "sum=9"
+
+
+async def test_stdio_duplicate_connect_refused_until_close():
+    client = MCPClient()
+    await client.connect_stdio(
+        server_name="echo", command=sys.executable, args=[_ECHO_SERVER, "stdio"]
+    )
+    with pytest.raises(RuntimeError, match="already connected"):
+        await client.connect_stdio(
+            server_name="echo", command=sys.executable, args=[_ECHO_SERVER, "stdio"]
+        )
+
+    await _close_ignoring_cancel_scope(client)
+    assert client.get_connected_servers() == []
+
+    await client.connect_stdio(
+        server_name="echo", command=sys.executable, args=[_ECHO_SERVER, "stdio"]
+    )
+    assert client.get_connected_servers() == ["echo"]
+    tools = {tool.name: tool for tool in client.get_all_tools()}
+    assert _tool_text(await tools["echo_add"].arun(a=1, b=1)) == "sum=2"
+    await _close_ignoring_cancel_scope(client)
