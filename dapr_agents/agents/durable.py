@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 import functools
 import inspect
@@ -3251,33 +3252,10 @@ class DurableAgent(AgentBase):
             )
             raise
 
-        # Build the set of tool_call_ids already saved, so a re-run of this
-        # activity (Dapr may re-deliver it) does not save results twice.
-        existing_tool_ids: set[str] = set()
         last_message_is_assistant_with_tool_calls = False
         messages_list: list = []
-
         if entry is not None and hasattr(entry, "messages"):
             messages_list = getattr(entry, "messages")
-        if skip_messages:
-            # Orchestrator dispatches: tool_call_id is the child instance ID,
-            # which is unique per dispatch, so all of tool_history counts.
-            if entry is not None and hasattr(entry, "tool_history"):
-                for record in getattr(entry, "tool_history", []):
-                    tid = getattr(record, "tool_call_id", None)
-                    if tid:
-                        existing_tool_ids.add(tid)
-        else:
-            # Only this turn's replies count: the tool messages after the last
-            # assistant message. Providers reuse tool_call_ids across turns
-            # (e.g. "call_0" every turn), so an id from an earlier turn must
-            # not suppress this turn's result.
-            for msg in reversed(messages_list):
-                if _message_field(msg, "role") != "tool":
-                    break
-                tid = _message_field(msg, "tool_call_id")
-                if tid:
-                    existing_tool_ids.add(tid)
 
         # Check if the last non-tool message is an assistant with tool_calls.
         # Scan messages_list from the end, skipping tool messages already saved.
@@ -3287,19 +3265,13 @@ class DurableAgent(AgentBase):
         if messages_list:
             try:
                 for msg in reversed(messages_list):
-                    if isinstance(msg, dict):
-                        role = msg.get("role")
-                        tool_calls_field = msg.get("tool_calls")
-                    else:
-                        role = getattr(msg, "role", None)
-                        tool_calls_field = getattr(msg, "tool_calls", None)
+                    role = _message_field(msg, "role")
                     if role == "tool":
                         continue  # skip existing tool responses, keep scanning back
-                    if role == "assistant" and tool_calls_field:
-                        last_message_is_assistant_with_tool_calls = True
-                    else:
-                        # Last non-tool message is not an assistant+tool_calls — not safe to append
-                        last_message_is_assistant_with_tool_calls = False
+                    # Anything else means it is not safe to append.
+                    last_message_is_assistant_with_tool_calls = bool(
+                        role == "assistant" and _message_field(msg, "tool_calls")
+                    )
                     break
             except Exception:
                 logger.warning(
@@ -3308,11 +3280,35 @@ class DurableAgent(AgentBase):
                 )
                 last_message_is_assistant_with_tool_calls = True
 
+        # Count the results already saved, so a re-run of this activity (Dapr
+        # may re-deliver it) does not save them twice. Counts, not a set, so
+        # repeated ids ("" or reused) within one turn are each saved once.
+        already_saved: Counter[str] = Counter()
+        if skip_messages or not last_message_is_assistant_with_tool_calls:
+            # Orchestrator dispatches use the child instance ID, unique per
+            # dispatch. Without a message to answer, tool_history is the only
+            # record of an earlier run.
+            if entry is not None and hasattr(entry, "tool_history"):
+                for record in getattr(entry, "tool_history", []):
+                    tid = getattr(record, "tool_call_id", None)
+                    if tid:
+                        already_saved[tid] += 1
+        else:
+            # Only this turn's replies count: the tool messages after the last
+            # assistant message. Providers reuse tool_call_ids across turns
+            # (e.g. "call_0" every turn), so an id from an earlier turn must
+            # not suppress this turn's result.
+            for msg in reversed(messages_list):
+                if _message_field(msg, "role") != "tool":
+                    break
+                already_saved[_message_field(msg, "tool_call_id") or ""] += 1
+
         # Process each tool result
         for tool_result in tool_results:
             tool_call_id = tool_result.tool_call_id
 
-            if tool_call_id in existing_tool_ids:
+            if already_saved[tool_call_id or ""] > 0:
+                already_saved[tool_call_id or ""] -= 1
                 logger.debug(f"Tool result {tool_call_id} already in entry, skipping")
                 continue
 

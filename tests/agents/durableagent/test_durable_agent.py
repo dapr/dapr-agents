@@ -954,6 +954,44 @@ class TestDurableAgent:
         assert [m.role for m in entry.messages] == ["assistant", "tool"]
         assert len(entry.tool_history) == 1
 
+    def test_save_tool_results_rerun_with_empty_ids_saves_each_once(
+        self, basic_durable_agent
+    ):
+        """Two results with tool_call_id "" in one turn: both saved, neither twice."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[self._assistant_calling("")],
+            tool_history=[],
+        )
+        results = [self._tool_reply("", "a"), self._tool_reply("", "b")]
+
+        self._save_results(agent, entry, results)
+        self._save_results(agent, entry, results)
+
+        assert [m.content for m in entry.messages[1:]] == ["a", "b"]
+        assert [r.execution_result for r in entry.tool_history] == ["a", "b"]
+
+    def test_save_tool_results_rerun_without_assistant_message_saves_history_once(
+        self, basic_durable_agent
+    ):
+        """When results can't follow an assistant message, tool_history still dedupes."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[AgentWorkflowMessage(role="user", content="hi")],
+            tool_history=[],
+        )
+        results = [self._tool_reply("call_0", "a")]
+
+        self._save_results(agent, entry, results)
+        self._save_results(agent, entry, results)
+
+        assert [m.role for m in entry.messages] == ["user"]
+        assert len(entry.tool_history) == 1
+
     def test_save_tool_results_orchestrator_rerun_saves_once(self, basic_durable_agent):
         agent = basic_durable_agent
         entry = AgentWorkflowEntry(
