@@ -226,6 +226,13 @@ def orchestration_workflow_id(
     return f"dapr.{sanitized_framework}.{sanitized_agent_name}.orchestration"
 
 
+def _message_field(msg: Any, name: str) -> Any:
+    """Read a field from a stored message, which may be a dict or a model."""
+    if isinstance(msg, dict):
+        return msg.get(name)
+    return getattr(msg, name, None)
+
+
 # Registry of built-in tool factories, keyed by the name users list in
 # ``AgentExecutionConfig.builtin_tools``. Each factory receives the agent and
 # returns a ready tool. The indirection is required because built-ins late-bind
@@ -3244,31 +3251,33 @@ class DurableAgent(AgentBase):
             )
             raise
 
-        # Build the set of tool_call_ids already present in messages and tool_history
-        # so we can skip duplicates on workflow replay (Dapr may re-deliver results).
+        # Build the set of tool_call_ids already saved, so a re-run of this
+        # activity (Dapr may re-deliver it) does not save results twice.
         existing_tool_ids: set[str] = set()
         last_message_is_assistant_with_tool_calls = False
         messages_list: list = []
 
         if entry is not None and hasattr(entry, "messages"):
             messages_list = getattr(entry, "messages")
-            for msg in messages_list:
-                try:
-                    tid = getattr(msg, "tool_call_id", None)
-                    if tid:
-                        existing_tool_ids.add(tid)
-                except Exception:
-                    pass
-        # Also check tool_history for deduplication when skip_messages=True
-        # (orchestration path) or when messages are skipped
-        if entry is not None and hasattr(entry, "tool_history"):
-            for record in getattr(entry, "tool_history", []):
-                try:
+        if skip_messages:
+            # Orchestrator dispatches: tool_call_id is the child instance ID,
+            # which is unique per dispatch, so all of tool_history counts.
+            if entry is not None and hasattr(entry, "tool_history"):
+                for record in getattr(entry, "tool_history", []):
                     tid = getattr(record, "tool_call_id", None)
                     if tid:
                         existing_tool_ids.add(tid)
-                except Exception:
-                    pass
+        else:
+            # Only this turn's replies count: the tool messages after the last
+            # assistant message. Providers reuse tool_call_ids across turns
+            # (e.g. "call_0" every turn), so an id from an earlier turn must
+            # not suppress this turn's result.
+            for msg in reversed(messages_list):
+                if _message_field(msg, "role") != "tool":
+                    break
+                tid = _message_field(msg, "tool_call_id")
+                if tid:
+                    existing_tool_ids.add(tid)
 
         # Check if the last non-tool message is an assistant with tool_calls.
         # Scan messages_list from the end, skipping tool messages already saved.

@@ -17,7 +17,7 @@
 # This applies to all areas in this file where we have with patch.object()...
 from datetime import timedelta
 import os
-from typing import Optional
+from typing import Any, Dict, Optional
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 import pytest
@@ -874,6 +874,101 @@ class TestDurableAgent:
         assert (
             tool_messages[0].tool_call_id == "call_123"
         )  # Check tool_call_id, not the message UUID id
+
+    def _save_results(self, agent, entry, tool_results, **extra):
+        agent._infra._state_model = entry
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "load_state"),
+            patch.object(agent._infra, "get_state", return_value=entry),
+        ):
+            agent.save_tool_results(
+                Mock(),
+                {"tool_results": tool_results, "instance_id": "wf-1", **extra},
+            )
+
+    @staticmethod
+    def _assistant_calling(call_id: str) -> AgentWorkflowMessage:
+        return AgentWorkflowMessage(
+            role="assistant",
+            content=None,
+            tool_calls=[
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": "Lookup", "arguments": "{}"},
+                }
+            ],
+        )
+
+    @staticmethod
+    def _tool_reply(call_id: str, content: str) -> Dict[str, Any]:
+        return {
+            "role": "tool",
+            "name": "Lookup",
+            "tool_call_id": call_id,
+            "content": content,
+        }
+
+    def test_save_tool_results_keeps_tool_call_id_reused_in_later_turn(
+        self, basic_durable_agent
+    ):
+        """Providers reuse ids such as "call_0" every turn; each turn's result must be saved."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[self._assistant_calling("call_0")],
+            tool_history=[],
+        )
+        self._save_results(agent, entry, [self._tool_reply("call_0", "first")])
+
+        entry.messages.append(self._assistant_calling("call_0"))
+        self._save_results(agent, entry, [self._tool_reply("call_0", "second")])
+
+        assert [m.role for m in entry.messages] == [
+            "assistant",
+            "tool",
+            "assistant",
+            "tool",
+        ]
+        assert entry.messages[-1].content == "second"
+        assert [r.execution_result for r in entry.tool_history] == [
+            "first",
+            "second",
+        ]
+
+    def test_save_tool_results_rerun_in_same_turn_saves_once(self, basic_durable_agent):
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[self._assistant_calling("call_0")],
+            tool_history=[],
+        )
+        results = [self._tool_reply("call_0", "first")]
+
+        self._save_results(agent, entry, results)
+        self._save_results(agent, entry, results)
+
+        assert [m.role for m in entry.messages] == ["assistant", "tool"]
+        assert len(entry.tool_history) == 1
+
+    def test_save_tool_results_orchestrator_rerun_saves_once(self, basic_durable_agent):
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        results = [self._tool_reply("child-1", "done")]
+
+        self._save_results(agent, entry, results, skip_messages=True)
+        self._save_results(agent, entry, results, skip_messages=True)
+
+        assert entry.messages == []
+        assert len(entry.tool_history) == 1
 
     def test_update_agent_memory_and_history(self, basic_durable_agent):
         """Test that memory is updated via save_tool_results activity."""
