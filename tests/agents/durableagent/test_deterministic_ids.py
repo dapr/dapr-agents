@@ -29,11 +29,14 @@ from dapr.ext.workflow import DaprWorkflowContext
 
 from dapr_agents.agents.configs import (
     AgentExecutionConfig,
+    BuiltinTool,
     OrchestrationMode,
     ToolExecutionMode,
 )
 from dapr_agents.agents.durable import DurableAgent, child_workflow_instance_id
 from dapr_agents.agents.schemas import AgentWorkflowEntry, AgentWorkflowMessage
+from dapr_agents.hooks import Deny, Hooks, Mutate, Skip
+from dapr_agents.tool import tool
 
 PARENT_INSTANCE_ID = "parent-wf-1"
 ORCHESTRATION_TIME = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -332,3 +335,90 @@ class TestToolHistoryWithSharedToolCallIds:
         assert [r.agent_workflow_instance_id for r in entry.tool_history] == (
             _child_ids(ctx)
         )
+
+
+def _call(call_id: str, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": name, "arguments": json.dumps(args)},
+    }
+
+
+def test_tool_call_meta_lines_up_with_results_across_branches(mock_llm):
+    """Every dispatch branch in one turn, with shared ids, stays aligned."""
+
+    @tool
+    def lookup(q: str) -> str:
+        """Look something up."""
+        return q
+
+    def hook(ctx):
+        args = ctx.payload
+        if args.get("q") == "deny":
+            return Deny(reason="no")
+        if args.get("q") == "skip":
+            return Skip(result="skipped")
+        if args.get("task") == "mutate":
+            return Mutate(payload={"task": "mutated"})
+        return None
+
+    sam = DurableAgent(name="Sam", role="r", goal="g", llm=mock_llm)
+    frodo = DurableAgent(
+        name="Frodo",
+        role="r",
+        goal="g",
+        llm=mock_llm,
+        tools=[sam, lookup],
+        hooks=Hooks(before_tool_call=[hook]),
+        execution=AgentExecutionConfig(
+            tool_execution_mode=ToolExecutionMode.SEQUENTIAL,
+            builtin_tools=[BuiltinTool.ASK_USER],
+        ),
+    )
+    calls = [
+        _call("d", "Lookup", {"q": "deny"}),
+        _call("", "Lookup", {"q": "run"}),
+        _call("", "Sam", {"task": "first"}),
+        _call("", "ask_user", {"question": "?"}),
+        _call("m", "Sam", {"task": "mutate"}),
+        _call("s", "Lookup", {"q": "skip"}),
+    ]
+    ctx = _make_ctx()
+    gen = frodo.agent_workflow(ctx, {"task": "go"})
+    next(gen)  # record_initial_entry
+    gen.send(None)  # call_llm
+    gen.send({"role": "assistant", "content": None, "tool_calls": calls})
+    gen.send("sam first")  # child workflow for calls[2]
+    gen.send("sam mutated")  # child workflow for calls[4]
+    gen.send(  # run_tool activity for calls[1]
+        {"role": "tool", "name": "Lookup", "tool_call_id": "", "content": "run"}
+    )
+    gen.close()
+    (save,) = [
+        c.kwargs["input"]
+        for c in ctx.call_activity.call_args_list
+        if "tool_call_meta" in c.kwargs.get("input", {})
+    ]
+    results, meta = save["tool_results"], save["tool_call_meta"]
+
+    assert len(results) == len(meta) == len(calls)
+    assert [m["tool_call"]["function"]["name"] for m in meta] == [
+        c["function"]["name"] for c in calls
+    ]
+    assert [r["name"] for r in results] == [c["function"]["name"] for c in calls]
+    assert [m.get("hook_decision") for m in meta] == [
+        "denied",
+        None,
+        None,
+        None,
+        None,
+        "skipped",
+    ]
+    assert [m["child_instance_id"] for m in meta if m["is_agent_call"]] == (
+        _child_ids(ctx)
+    )
+    assert json.loads(meta[4]["tool_call"]["function"]["arguments"]) == {
+        "task": "mutated"
+    }
+    assert all(m.get("dispatch_time") for m in meta)

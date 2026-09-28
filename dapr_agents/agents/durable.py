@@ -796,6 +796,9 @@ class DurableAgent(AgentBase):
                         activity_meta: List[Dict[str, Any]] = []
                         generator_tools: List[Any] = []
                         generator_meta: List[Dict[str, Any]] = []
+                        # Calls answered inline without dispatch (ask_user with
+                        # no stream), kept for tool_history metadata.
+                        inline_meta: List[Dict[str, Any]] = []
 
                         for idx, tc in enumerate(tool_calls):
                             fn_name = tc["function"]["name"]
@@ -872,6 +875,13 @@ class DurableAgent(AgentBase):
                                     name=fn_name,
                                     tool_call_id=tc["id"],
                                 ).model_dump()
+                                inline_meta.append(
+                                    {
+                                        "order": idx,
+                                        "tool_call": tc,
+                                        "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                    }
+                                )
                                 logger.info(
                                     "Skipping ask_user for '%s': session has no stream "
                                     "channel (instance=%s)",
@@ -1134,7 +1144,7 @@ class DurableAgent(AgentBase):
                                 "child_instance_id": meta.get("child_instance_id"),
                                 "dispatch_time": meta.get("dispatch_time"),
                             }
-                        for meta in activity_meta + generator_meta:
+                        for meta in activity_meta + generator_meta + inline_meta:
                             meta_by_order[meta["order"]] = {
                                 "tool_call": meta["tool_call"],
                                 "is_agent_call": False,
