@@ -471,8 +471,8 @@ class WebhookListener:
     # -- internal ----------------------------------------------------------
 
     def _run(self) -> None:
-        # Import lazily so we don't impose httpx on users who never use the
-        # webhook listener.
+        # httpx is a runtime dependency; the import stays lazy so a broken
+        # install logs from the worker thread instead of failing module import.
         try:
             import httpx
         except ImportError as exc:  # pragma: no cover - optional dep

@@ -1845,7 +1845,6 @@ dev = [
 ]
 test = [
     { name = "docker" },
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -1923,7 +1922,6 @@ dev = [
 ]
 test = [
     { name = "docker", specifier = ">=7.0.0,<8.0.0" },
-    { name = "httpx", specifier = ">=0.27.0,<1.0.0" },
     { name = "pytest", specifier = ">=8.0.0,<10.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.23.0,<2.0.0" },
     { name = "pytest-cov", specifier = ">=4.1.0,<8.0.0" },
