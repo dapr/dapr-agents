@@ -83,7 +83,9 @@ class StringPromptTemplate(PromptTemplateBase):
         Returns:
             StringPromptTemplate: A new instance of the template with extracted input variables.
         """
-        input_variables = TemplateEngine.extract_variables(template, template_format)
+        input_variables = list(
+            dict.fromkeys(TemplateEngine.extract_variables(template, template_format))
+        )
         return cls(
             template=template,
             template_format=template_format,

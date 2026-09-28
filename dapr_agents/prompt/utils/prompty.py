@@ -19,6 +19,7 @@ from dapr_agents.types.message import (
     BaseMessage,
 )
 from dapr_agents.prompt.engine import (
+    TemplateEngine,
     extract_fstring_variables,
     extract_jinja_variables,
 )
@@ -302,12 +303,9 @@ class PromptyHelper:
         Render the Prompty content using Jinja2 with the provided inputs.
         """
         try:
-            template = Template(content)
-            rendered_content = template.render(inputs)
-        except TemplateError as e:
+            return TemplateEngine.render(content, "jinja2", **inputs)
+        except Exception as e:
             raise ValueError(f"Template rendering error: {e}")
-
-        return rendered_content
 
     @staticmethod
     def to_prompt(
@@ -426,9 +424,4 @@ class PromptyHelper:
                 - For "f-string" format: A list of variable names.
                 - For "jinja2" format: A list of undeclared variables.
         """
-        if template_format == "jinja2":
-            return extract_jinja_variables(content)
-        elif template_format == "f-string":
-            return extract_fstring_variables(content)
-        else:
-            raise ValueError(f"Unsupported template format: {template_format}")
+        return TemplateEngine.extract_variables(content, template_format)

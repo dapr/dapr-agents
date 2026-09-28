@@ -19,6 +19,7 @@ from dapr_agents.types.message import (
     UserMessage,
     SystemMessage,
     AssistantMessage,
+    ToolMessage,
     MessagePlaceHolder,
 )
 
@@ -251,3 +252,101 @@ class TestChatPromptTemplateFormatPrompt:
         assert isinstance(result[0], dict)
         assert "role" in result[0]
         assert "content" in result[0]
+
+    def test_format_prompt_with_tool_message_preserves_tool_call_id(self):
+        """Test that ToolMessage preserves tool_call_id when formatted."""
+        tool_msg = ToolMessage(content="result: {x}", tool_call_id="call_999")
+        template = ChatPromptTemplate.from_messages([tool_msg])
+        result = template.format_prompt(x="success")
+
+        assert len(result) == 1
+        assert result[0]["role"] == "tool"
+        assert result[0]["content"] == "result: success"
+        assert result[0]["tool_call_id"] == "call_999"
+
+    def test_format_prompt_with_dict_tool_message_preserves_tool_call_id(self):
+        """Test that dictionary tool message preserves tool_call_id."""
+        template = ChatPromptTemplate.from_messages(
+            [{"role": "tool", "content": "result: {x}", "tool_call_id": "call_abc"}]
+        )
+        result = template.format_prompt(x="done")
+
+        assert len(result) == 1
+        assert result[0]["role"] == "tool"
+        assert result[0]["content"] == "result: done"
+        assert result[0]["tool_call_id"] == "call_abc"
+
+    def test_format_prompt_with_assistant_tool_calls(self):
+        """Test that AssistantMessage preserves tool_calls when formatted."""
+        tool_calls = [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "search", "arguments": "{}"},
+            }
+        ]
+        template = ChatPromptTemplate.from_messages(
+            [
+                AssistantMessage(content="calling {tool_name}", tool_calls=tool_calls),
+            ]
+        )
+        result = template.format_prompt(tool_name="search")
+
+        assert len(result) == 1
+        assert result[0]["role"] == "assistant"
+        assert result[0]["content"] == "calling search"
+        assert result[0]["tool_calls"] == tool_calls
+
+    def test_format_prompt_with_assistant_none_content(self):
+        """Test that AssistantMessage with content=None renders without error."""
+        tool_calls = [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "search", "arguments": "{}"},
+            }
+        ]
+        template = ChatPromptTemplate.from_messages(
+            [
+                AssistantMessage(content=None, tool_calls=tool_calls),
+            ]
+        )
+        result = template.format_prompt()
+
+        assert len(result) == 1
+        assert result[0]["role"] == "assistant"
+        assert result[0]["content"] is None
+        assert result[0]["tool_calls"] == tool_calls
+
+    def test_format_prompt_case_insensitive_roles(self):
+        """Test that roles in varying cases (User, SYSTEM, Assistant) are handled correctly."""
+        template = ChatPromptTemplate.from_messages(
+            [
+                ("SYSTEM", "Sys prompt"),
+                ("User", "Hello {name}"),
+                {"role": "Assistant", "content": "Hi {name}"},
+            ]
+        )
+        result = template.format_prompt(name="Alice")
+
+        assert result[0]["role"] == "system"
+        assert result[1]["role"] == "user"
+        assert result[1]["content"] == "Hello Alice"
+        assert result[2]["role"] == "assistant"
+        assert result[2]["content"] == "Hi Alice"
+
+    def test_from_messages_preserves_variable_order_and_uniqueness(self):
+        """Test that input_variables in from_messages preserve appearance order and uniqueness."""
+        template = ChatPromptTemplate.from_messages(
+            [
+                ("system", "{greeting} {user_name}!"),
+                ("user", "What is {question}? Also {greeting}"),
+                ("assistant", "Answering {question} for {user_name} on {topic}"),
+            ]
+        )
+        assert template.input_variables == [
+            "greeting",
+            "user_name",
+            "question",
+            "topic",
+        ]

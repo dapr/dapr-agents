@@ -87,9 +87,21 @@ class TestTemplateEngineExtractVariables:
         )
         assert sorted(vars_found) == ["count", "user"]
 
+    def test_extract_jinja_variables_with_undeclared_custom_filter_and_test(self):
+        template = (
+            "Hello {{ name | custom_filter('arg') }}! "
+            "{% if score is passing %}Pass: {{ score }}{% endif %}"
+        )
+        vars_found = TemplateEngine.extract_variables(template, "jinja2")
+        assert vars_found == ["name", "score"]
+
     def test_extract_unsupported_format_raises(self):
         with pytest.raises(ValueError, match="Unsupported template format: mustache"):
             TemplateEngine.extract_variables("{{name}}", template_format="mustache")
+
+    def test_extract_variables_empty_string(self):
+        assert TemplateEngine.extract_variables("", "f-string") == []
+        assert TemplateEngine.extract_variables("", "jinja2") == []
 
 
 class TestDirectFunctions:
@@ -100,6 +112,20 @@ class TestDirectFunctions:
 
     def test_render_jinja_direct(self):
         assert render_jinja("{{ items | join(', ') }}", items=["a", "b"]) == "a, b"
+
+    def test_render_jinja_with_custom_environment(self):
+        from jinja2 import Environment
+
+        env = Environment()
+        env.filters["shout"] = lambda s: s.upper() + "!"
+        result = TemplateEngine.render(
+            "Hello {{ name | shout }}", "jinja2", environment=env, name="world"
+        )
+        assert result == "Hello WORLD!"
+
+    def test_render_empty_string(self):
+        assert TemplateEngine.render("", "f-string") == ""
+        assert TemplateEngine.render("", "jinja2") == ""
 
     def test_extract_fstring_variables_direct(self):
         assert extract_fstring_variables("{x} and {y}") == ["x", "y"]

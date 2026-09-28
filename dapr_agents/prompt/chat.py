@@ -68,8 +68,9 @@ class ChatPromptHelper:
         normalized_messages: List[BaseMessage] = []
 
         def validate_and_create_message(
-            role: str, content: str, message_data: dict
+            role: str, content: Optional[str], message_data: dict
         ) -> BaseMessage:
+            role = role.strip().lower()
             if role not in cls._ROLE_MAP:
                 raise ValueError(
                     f"Unrecognized role '{role}' in message: {message_data}"
@@ -87,8 +88,8 @@ class ChatPromptHelper:
                 elif isinstance(item, dict):
                     role = item.get("role", "user")
                     content = item.get("content", "")
-                    if role == "tool" or (
-                        role == "assistant" and item.get("tool_calls")
+                    if role.strip().lower() == "tool" or (
+                        role.strip().lower() == "assistant" and item.get("tool_calls")
                     ):
                         normalized_messages.append(
                             validate_and_create_message(role, content, item)
@@ -104,8 +105,8 @@ class ChatPromptHelper:
         elif isinstance(variable_value, dict):
             role = variable_value.get("role", "user")
             content = variable_value.get("content", "")
-            if role == "tool" or (
-                role == "assistant" and variable_value.get("tool_calls")
+            if role.strip().lower() == "tool" or (
+                role.strip().lower() == "assistant" and variable_value.get("tool_calls")
             ):
                 normalized_messages.append(
                     validate_and_create_message(role, content, variable_value)
@@ -138,7 +139,10 @@ class ChatPromptHelper:
             BaseMessage: The message with variables replaced as per the template format.
         """
         role, content = cls.extract_role_and_content(message)
-        content = cls.format_content(content, template_format=template_format, **kwargs)
+        if content is not None:
+            content = cls.format_content(
+                content, template_format=template_format, **kwargs
+            )
         if isinstance(message, BaseMessage):
             message_data = message.model_dump()
         elif isinstance(message, dict):
@@ -165,7 +169,7 @@ class ChatPromptHelper:
     @classmethod
     def extract_role_and_content(
         cls, message: Union[Tuple[str, str], Dict[str, Any], BaseMessage]
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, Optional[str]]:
         """
         Extract role and content from a message.
 
@@ -173,7 +177,7 @@ class ChatPromptHelper:
             message (Union[Tuple[str, str], Dict[str, Any], BaseMessage]): A message object.
 
         Returns:
-            Tuple[str, str]: Extracted role and content.
+            Tuple[str, Optional[str]]: Extracted role and content.
 
         Raises:
             ValueError: If the message is not in a supported format.
@@ -181,7 +185,7 @@ class ChatPromptHelper:
         if isinstance(message, tuple) and len(message) == 2:
             return message[0], message[1]
         elif isinstance(message, dict):
-            return message.get("role", ""), message.get("content", "")
+            return message.get("role", ""), message.get("content")
         elif isinstance(message, BaseMessage):
             return message.role, message.content
         else:
@@ -191,14 +195,14 @@ class ChatPromptHelper:
 
     @classmethod
     def create_message(
-        cls, role: str, content: str, message_data: Dict[str, Any]
+        cls, role: str, content: Optional[str], message_data: Dict[str, Any]
     ) -> BaseMessage:
         """
         Create a BaseMessage instance based on role.
 
         Args:
             role (str): Role of the message (system, user, assistant, tool).
-            content (str): Message content.
+            content (Optional[str]): Message content.
             message_data (Dict[str, Any]): Additional data.
 
         Returns:
@@ -207,6 +211,7 @@ class ChatPromptHelper:
         Raises:
             ValueError: If the role is not recognized.
         """
+        role = role.strip().lower()
         if role not in cls._ROLE_MAP:
             raise ValueError(f"Invalid message role: {role}")
 
@@ -366,33 +371,47 @@ class ChatPromptTemplate(PromptTemplateBase):
             # Process BaseMessage, Tuple, and Dict with parse_as_messages
             else:
                 role, content = ChatPromptHelper.extract_role_and_content(item)
-                formatted_content = TemplateEngine.render(
-                    content, template_format=template_format, **all_variables
-                )
-                parsed_messages, plain_text = ChatPromptHelper.parse_as_messages(
-                    formatted_content
-                )
+                if isinstance(item, BaseMessage):
+                    message_data = item.model_dump()
+                elif isinstance(item, dict):
+                    message_data = item
+                else:
+                    message_data = {}
 
-                # Add the plain text only if parsed messages are also returned
-                if plain_text and parsed_messages:
+                if content is None:
                     rendered_messages.append(
                         ChatPromptHelper.create_message(
-                            role, plain_text, {}
+                            role, None, message_data
                         ).model_dump()
-                    )
-
-                # Add parsed role-based messages if they exist
-                if parsed_messages:
-                    rendered_messages.extend(
-                        [msg.model_dump() for msg in parsed_messages]
                     )
                 else:
-                    # If only plain text is present (no parsed messages), add it as a single message
-                    rendered_messages.append(
-                        ChatPromptHelper.create_message(
-                            role, plain_text or formatted_content, {}
-                        ).model_dump()
+                    formatted_content = TemplateEngine.render(
+                        content, template_format=template_format, **all_variables
                     )
+                    parsed_messages, plain_text = ChatPromptHelper.parse_as_messages(
+                        formatted_content
+                    )
+
+                    # Add the plain text only if parsed messages are also returned
+                    if plain_text and parsed_messages:
+                        rendered_messages.append(
+                            ChatPromptHelper.create_message(
+                                role, plain_text, message_data
+                            ).model_dump()
+                        )
+
+                    # Add parsed role-based messages if they exist
+                    if parsed_messages:
+                        rendered_messages.extend(
+                            [msg.model_dump() for msg in parsed_messages]
+                        )
+                    else:
+                        # If only plain text is present (no parsed messages), add it as a single message
+                        rendered_messages.append(
+                            ChatPromptHelper.create_message(
+                                role, plain_text or formatted_content, message_data
+                            ).model_dump()
+                        )
 
         return rendered_messages
 
@@ -415,13 +434,13 @@ class ChatPromptTemplate(PromptTemplateBase):
         Returns:
             ChatPromptTemplate: A new instance of the template with extracted input variables.
         """
-        input_vars: set = set()
+        ordered_vars: Dict[str, None] = {}
 
         for msg in messages:
             content = None
 
             if isinstance(msg, MessagePlaceHolder):
-                input_vars.add(msg.variable_name)
+                ordered_vars[msg.variable_name] = None
             elif isinstance(msg, tuple) and len(msg) == 2:
                 content = msg[1]
             elif isinstance(msg, dict) and "content" in msg:
@@ -430,12 +449,11 @@ class ChatPromptTemplate(PromptTemplateBase):
                 content = msg.content
 
             if isinstance(content, str):
-                input_vars.update(
-                    TemplateEngine.extract_variables(content, template_format)
-                )
+                for var in TemplateEngine.extract_variables(content, template_format):
+                    ordered_vars[var] = None
 
         return cls(
-            input_variables=list(input_vars),
+            input_variables=list(ordered_vars.keys()),
             messages=messages,
             template_format=template_format,
         )
