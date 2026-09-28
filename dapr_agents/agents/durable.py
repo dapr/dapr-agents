@@ -3281,8 +3281,9 @@ class DurableAgent(AgentBase):
                 last_message_is_assistant_with_tool_calls = True
 
         # Count the results already saved, so a re-run of this activity (Dapr
-        # may re-deliver it) does not save them twice. Counts, not a set, so
-        # repeated ids ("" or reused) within one turn are each saved once.
+        # may re-deliver it) does not save them twice. The state is saved once
+        # at the end, so a re-run finds all of a batch or none of it; counting
+        # per id keeps that true even if the input had repeated ids.
         already_saved: Counter[str] = Counter()
         if skip_messages or not last_message_is_assistant_with_tool_calls:
             # Orchestrator dispatches use the child instance ID, unique per
