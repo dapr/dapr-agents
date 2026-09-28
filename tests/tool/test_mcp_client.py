@@ -13,6 +13,8 @@
 
 """Tests for MCPClient connect/close behavior and prompt accessors."""
 
+import asyncio
+import logging
 import socket
 import subprocess
 import sys
@@ -118,6 +120,70 @@ async def test_close_allows_reconnecting_to_the_same_server():
         )
 
     assert client.get_connected_servers() == ["srv"]
+
+
+async def test_concurrent_connect_to_same_server_is_refused():
+    """Two connects racing for one name must not both open a session."""
+    client = MCPClient()
+    release = asyncio.Event()
+
+    async def slow_session(*_args, **_kwargs):
+        await release.wait()
+        return _make_session()
+
+    config = {"server_name": "srv", "transport": "stdio", "command": "python"}
+    with patch(
+        "dapr_agents.tool.mcp.client.start_transport_session",
+        AsyncMock(side_effect=slow_session),
+    ) as start:
+        first = asyncio.create_task(client.connect(config))
+        second = asyncio.create_task(client.connect(config))
+        await asyncio.sleep(0)
+        release.set()
+        results = await asyncio.gather(first, second, return_exceptions=True)
+
+    assert results[0] is None
+    assert isinstance(results[1], RuntimeError)
+    assert "already connecting" in str(results[1])
+    assert start.await_count == 1
+    assert client.get_connected_servers() == ["srv"]
+
+
+async def test_failed_connect_can_be_retried():
+    client = MCPClient()
+    config = {"server_name": "srv", "transport": "stdio", "command": "python"}
+    with patch(
+        "dapr_agents.tool.mcp.client.start_transport_session",
+        AsyncMock(side_effect=[OSError("refused"), _make_session()]),
+    ):
+        with pytest.raises(OSError):
+            await client.connect(config)
+        assert client._server_configs == {}
+
+        await client.connect(config)
+
+    assert client.get_connected_servers() == ["srv"]
+
+
+async def test_failed_reconnect_keeps_previous_config_and_warns(caplog):
+    client = MCPClient()
+    old = {"server_name": "srv", "transport": "stdio", "command": "old"}
+    new = {"server_name": "srv", "transport": "stdio", "command": "new"}
+    with patch(
+        "dapr_agents.tool.mcp.client.start_transport_session",
+        AsyncMock(side_effect=[_make_session(), OSError("refused")]),
+    ):
+        await client.connect(old)
+        await client.close()
+        with caplog.at_level(logging.WARNING, logger="dapr_agents.tool.mcp.client"):
+            with pytest.raises(OSError):
+                await client.connect(new)
+
+    assert client._server_configs["srv"]["params"] == {"command": "old"}
+    assert client.get_connected_servers() == []
+    assert any(
+        "keeping its previous configuration" in r.getMessage() for r in caplog.records
+    )
 
 
 # --- Real-server tests: the documented connect -> get_all_tools -> close ->

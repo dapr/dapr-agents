@@ -120,6 +120,9 @@ class MCPClient(BaseModel):
     # which must outlive close() so tools returned by get_all_tools() can still
     # open ephemeral sessions.
     _connected_servers: Set[str] = PrivateAttr(default_factory=set)
+    # Servers with a connect() in progress, so concurrent connects to the same
+    # name fail instead of both opening a session.
+    _connecting: Set[str] = PrivateAttr(default_factory=set)
 
     @asynccontextmanager
     async def create_ephemeral_session(
@@ -199,6 +202,12 @@ class MCPClient(BaseModel):
         """
         Connect to an MCP server using the modular connection layer.
 
+        Raises ``RuntimeError`` if the server is already connected, or a
+        connect to it is already in progress. If connecting fails and the
+        server was connected before, its previous configuration is kept, so
+        tools returned by an earlier ``get_all_tools()`` still call the
+        previous server; a WARNING says so.
+
         Args:
             config: dict
         """
@@ -208,6 +217,9 @@ class MCPClient(BaseModel):
         transport = config.pop("transport", None)
         if server_name in self._connected_servers:
             raise RuntimeError(f"Server '{server_name}' is already connected")
+        if server_name in self._connecting:
+            raise RuntimeError(f"Server '{server_name}' is already connecting")
+        self._connecting.add(server_name)
         previous_config = self._server_configs.get(server_name)
         try:
             self._task_locals[server_name] = asyncio.current_task()
@@ -257,7 +269,14 @@ class MCPClient(BaseModel):
                 self._server_configs.pop(server_name, None)
             else:
                 self._server_configs[server_name] = previous_config
+                logger.warning(
+                    f"Reconnecting to MCP server '{server_name}' failed; keeping its "
+                    "previous configuration, so tools already returned by "
+                    "get_all_tools() still call the previous server"
+                )
             raise
+        finally:
+            self._connecting.discard(server_name)
 
     async def connect_many(self, server_configs: list) -> None:
         """
@@ -739,6 +758,11 @@ class MCPClient(BaseModel):
 
         This method should be called when the client is no longer needed to
         ensure proper cleanup of all resources and connections.
+
+        Server configurations are kept, so tools returned by ``get_all_tools()``
+        still work after ``close()``: each call opens its own short-lived
+        session, in persistent mode too. ``close()`` does not stop those calls.
+        Configurations are kept per server name for the life of the client.
         """
         logger.info("Closing MCP client and all server connections")
 
