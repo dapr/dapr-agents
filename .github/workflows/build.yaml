@@ -38,6 +38,8 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.11"
     steps:
     - uses: actions/checkout@v6
     - name: Set up Python 3.11
@@ -67,6 +69,8 @@ jobs:
   schema-validation:
     needs: lint
     runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.11"
     steps:
     - uses: actions/checkout@v6
     - name: Set up Python 3.11
@@ -110,7 +114,7 @@ jobs:
         uv sync --frozen --group test --extra drasi
     - name: Verify interpreter matches matrix version
       run: |
-        uv run python -c "import os, sys; exp = os.environ['EXPECTED_PYTHON']; got = f'{sys.version_info.major}.{sys.version_info.minor}'; assert got == exp, f'expected Python {exp}, got {got} ({sys.executable})'; print(f'Python {sys.version} at {sys.executable}')"
+        uv run python -c "import os, sys; exp = os.environ['EXPECTED_PYTHON']; got = f'{sys.version_info.major}.{sys.version_info.minor}'; print(f'Python {sys.version} at {sys.executable}'); sys.exit(0 if got == exp else f'expected Python {exp}, got {got}')"
     - name: Check typing
       run: |
         uv run mypy --config-file mypy.ini
@@ -128,6 +132,8 @@ jobs:
   package:
     needs: lint
     runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.11"
     steps:
     - uses: actions/checkout@v6
       with:
