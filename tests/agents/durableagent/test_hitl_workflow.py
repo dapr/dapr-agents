@@ -39,6 +39,7 @@ from dapr_agents.hooks import (
     Deny,
     HookContext,
     Hooks,
+    Mutate,
     Proceed,
     RequireApproval,
     Skip,
@@ -434,10 +435,19 @@ class TestHookWorkflowDispatch:
         assert tc["id"] in by_id
         assert by_id[tc["id"]]["hook_decision"] == "denied"
 
+    @pytest.mark.parametrize(
+        "other_decision, expected_runs, other_content",
+        [
+            (Proceed(), [{"table": "tmp"}], "ran"),
+            (Mutate(payload={"table": "safe"}), [{"table": "safe"}], "ran"),
+            (Skip(result="cached"), [], "cached"),
+        ],
+        ids=["proceed", "mutate", "skip"],
+    )
     def test_deny_applies_only_to_its_call_when_ids_are_shared(
-        self, mock_llm, mock_ctx
+        self, mock_llm, mock_ctx, other_decision, expected_runs, other_content
     ):
-        """A Deny for one call must not block another call with the same tool_call_id."""
+        """A decision for one call must not apply to another call with the same tool_call_id."""
         calls = [
             _tool_call(name="DropTable", args={"table": "logs"}, call_id=""),
             _tool_call(name="DropTable", args={"table": "tmp"}, call_id=""),
@@ -446,16 +456,22 @@ class TestHookWorkflowDispatch:
         def hook(ctx: HookContext):
             if ctx.payload.get("table") == "logs":
                 return Deny(reason="blocked")
-            return Proceed()
+            return other_decision
 
         agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
         gen = agent.agent_workflow(mock_ctx, {"task": "do something"})
         next(gen)  # record_initial_entry
         gen.send(None)  # call_llm
-        gen.send({"tool_calls": calls})  # -> run_tool for the second call
-        gen.send(
-            {"role": "tool", "name": "DropTable", "tool_call_id": "", "content": "ran"}
-        )  # -> save_tool_results
+        gen.send({"tool_calls": calls})  # -> run_tool, or save_tool_results
+        if expected_runs:
+            gen.send(
+                {
+                    "role": "tool",
+                    "name": "DropTable",
+                    "tool_call_id": "",
+                    "content": "ran",
+                }
+            )  # -> save_tool_results
         gen.close()
 
         run_tool_inputs = [
@@ -470,10 +486,10 @@ class TestHookWorkflowDispatch:
         ]
         assert [
             json.loads(i["tool_call"]["function"]["arguments"]) for i in run_tool_inputs
-        ] == [{"table": "tmp"}]
+        ] == expected_runs
         results = save_input["tool_results"]
         assert "not executed" in results[0]["content"]
-        assert results[1]["content"] == "ran"
+        assert results[1]["content"] == other_content
 
     # ------------------------------------------------------------------ #
     # Skip                                                                 #
