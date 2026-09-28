@@ -24,6 +24,12 @@ Set ``DAPR_AGENTS_REQUIRE_DRASI=1`` to turn that skip into a session failure.
 The check runs twice: once on the package import, and once on the collected
 tests, because a module whose own imports fail (say, a renamed private name)
 still skips itself even when the package imports fine.
+
+The second check recognises a module-level
+``pytest.mark.skipif(<bool>, reason="dapr-agents-ext-drasi is not available...")``,
+the form every module in ``tests/`` uses; keep new modules to that form. A
+string condition, ``pytest.importorskip`` or ``pytest.skip`` is not detected.
+Under pytest-xdist the failure is reported as an INTERNALERROR.
 This file sits outside ``tests/`` because both suites have a ``tests`` package,
 and two ``tests.conftest`` modules cannot be registered in one session.
 """
@@ -67,6 +73,17 @@ if _drasi_required():
         )
 
 
+def _drasi_unavailable_skip(marker: pytest.Mark) -> bool:
+    condition = marker.args[0] if marker.args else marker.kwargs.get("condition")
+    if len(marker.args) > 1:
+        reason = marker.args[1]
+    else:
+        reason = marker.kwargs.get("reason", "")
+    return condition is True and str(reason).startswith(DRASI_SKIP_REASON)
+
+
+# trylast: run after -k/-m deselection, so only selected tests count.
+@pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(
     config: pytest.Config, items: List[pytest.Item]
 ) -> None:
@@ -79,9 +96,7 @@ def pytest_collection_modifyitems(
             for item in items
             if _EXTENSION_DIR in item.path.parents
             for marker in item.iter_markers("skipif")
-            if marker.args
-            and marker.args[0] is True
-            and str(marker.kwargs.get("reason", "")).startswith(DRASI_SKIP_REASON)
+            if _drasi_unavailable_skip(marker)
         }
     )
     if skipped:
