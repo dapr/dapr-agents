@@ -434,6 +434,47 @@ class TestHookWorkflowDispatch:
         assert tc["id"] in by_id
         assert by_id[tc["id"]]["hook_decision"] == "denied"
 
+    def test_deny_applies_only_to_its_call_when_ids_are_shared(
+        self, mock_llm, mock_ctx
+    ):
+        """A Deny for one call must not block another call with the same tool_call_id."""
+        calls = [
+            _tool_call(name="DropTable", args={"table": "logs"}, call_id=""),
+            _tool_call(name="DropTable", args={"table": "tmp"}, call_id=""),
+        ]
+
+        def hook(ctx: HookContext):
+            if ctx.payload.get("table") == "logs":
+                return Deny(reason="blocked")
+            return Proceed()
+
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
+        gen = agent.agent_workflow(mock_ctx, {"task": "do something"})
+        next(gen)  # record_initial_entry
+        gen.send(None)  # call_llm
+        gen.send({"tool_calls": calls})  # -> run_tool for the second call
+        gen.send(
+            {"role": "tool", "name": "DropTable", "tool_call_id": "", "content": "ran"}
+        )  # -> save_tool_results
+        gen.close()
+
+        run_tool_inputs = [
+            c[1]["input"]
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.run_tool)
+        ]
+        (save_input,) = [
+            c[1]["input"]
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.save_tool_results)
+        ]
+        assert [
+            json.loads(i["tool_call"]["function"]["arguments"]) for i in run_tool_inputs
+        ] == [{"table": "tmp"}]
+        results = save_input["tool_results"]
+        assert "not executed" in results[0]["content"]
+        assert results[1]["content"] == "ran"
+
     # ------------------------------------------------------------------ #
     # Skip                                                                 #
     # ------------------------------------------------------------------ #
