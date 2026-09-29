@@ -92,12 +92,14 @@ def mock_llm():
     return llm
 
 
-def _make_ctx(instance_id: str = PARENT_INSTANCE_ID) -> DaprWorkflowContext:
+def _make_ctx(
+    instance_id: str = PARENT_INSTANCE_ID, now: datetime = ORCHESTRATION_TIME
+) -> DaprWorkflowContext:
     """A fresh workflow context, as the runtime builds for each replay."""
     ctx = DaprWorkflowContext()
     ctx.instance_id = instance_id
     ctx.is_replaying = False
-    ctx.current_utc_datetime = ORCHESTRATION_TIME
+    ctx.current_utc_datetime = now
     ctx.call_activity = Mock()
     ctx.call_child_workflow = Mock()
     ctx.set_custom_status = Mock()
@@ -116,9 +118,13 @@ def _child_ids(ctx: DaprWorkflowContext) -> List[str]:
     return [c.kwargs["instance_id"] for c in ctx.call_child_workflow.call_args_list]
 
 
-def _run_agent_turn(agent: DurableAgent, tool_calls: List[Dict[str, Any]]):
+def _run_agent_turn(
+    agent: DurableAgent,
+    tool_calls: List[Dict[str, Any]],
+    now: datetime = ORCHESTRATION_TIME,
+):
     """Drive agent_workflow up to the agent-as-tool dispatch of turn 1."""
-    ctx = _make_ctx()
+    ctx = _make_ctx(now=now)
     gen = agent.agent_workflow(ctx, {"task": "ask sam"})
     next(gen)  # record_initial_entry
     gen.send(None)  # call_llm
@@ -207,6 +213,19 @@ class TestAgentAsToolReplay:
         gen.close()
 
         assert _child_ids(ctx_a) != _child_ids(ctx_b)
+
+    def test_reused_instance_id_gets_new_ids_at_a_new_time(self, mock_llm):
+        """A caller that reuses an instance id for a new run must not reuse child ids."""
+        frodo = _make_frodo(mock_llm)
+        calls = [_tool_call("call-1", "first"), _tool_call("call-2", "second")]
+
+        first_run = _child_ids(_run_agent_turn(frodo, calls))
+        second_run = _child_ids(
+            _run_agent_turn(frodo, calls, now=ORCHESTRATION_TIME + timedelta(hours=1))
+        )
+
+        assert len(first_run) == len(second_run) == 2
+        assert set(first_run).isdisjoint(second_run)
 
 
 class TestOrchestrationReplay:
