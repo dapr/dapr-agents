@@ -679,7 +679,9 @@ class AgentBase:
         tool_choice = None
         if self.execution:
             max_iterations = getattr(self.execution, "max_iterations", None)
-            tool_choice = getattr(self.execution, "tool_choice", None)  # Get tool choice as raw string
+            tool_choice = getattr(
+                self.execution, "tool_choice", None
+            )  # Get tool choice as raw string
 
         # Publish the canonical workflow name when the subclass exposes one
         # (e.g. DurableAgent.agent_workflow_name). This lets orchestrators in
