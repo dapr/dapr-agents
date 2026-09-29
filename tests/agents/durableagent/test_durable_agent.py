@@ -993,7 +993,7 @@ class TestDurableAgent:
         assert len(entry.tool_history) == 1
 
     def test_save_tool_results_rerun_after_failed_scan_saves_nothing_new(
-        self, basic_durable_agent
+        self, basic_durable_agent, caplog
     ):
         """If the message scan fails, tool_history still stops a re-run from saving twice."""
         agent = basic_durable_agent
@@ -1006,14 +1006,24 @@ class TestDurableAgent:
         results = [self._tool_reply("call_1", "a")]
         self._save_results(agent, entry, results)
 
-        with patch(
-            "dapr_agents.agents.durable._message_field",
-            side_effect=RuntimeError("unreadable message"),
+        with (
+            caplog.at_level("WARNING", logger="dapr_agents.agents.durable"),
+            patch(
+                "dapr_agents.agents.durable._message_field",
+                side_effect=RuntimeError("unreadable message"),
+            ),
         ):
             self._save_results(agent, entry, results)
 
         assert [m.role for m in entry.messages] == ["assistant", "tool"]
         assert len(entry.tool_history) == 1
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any(
+            "falling back to tool_history dedupe" in r.getMessage()
+            and "unreadable message" in r.getMessage()
+            and "wf-1" in r.getMessage()
+            for r in warnings
+        )
 
     def test_save_tool_results_history_fallback_counts_each_id_once(
         self, basic_durable_agent
@@ -1035,6 +1045,61 @@ class TestDurableAgent:
         )
 
         assert [r.execution_result for r in entry.tool_history] == ["earlier", "y"]
+
+    @pytest.mark.parametrize("call_id", ["call_0", ""])
+    def test_save_tool_results_two_turns_of_repeated_ids_saved_and_idempotent(
+        self, basic_durable_agent, call_id
+    ):
+        """Each turn answers two results with the same id; a re-run changes nothing."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[self._assistant_calling(call_id)],
+            tool_history=[],
+        )
+        turn1 = [self._tool_reply(call_id, "a1"), self._tool_reply(call_id, "b1")]
+        turn2 = [self._tool_reply(call_id, "a2"), self._tool_reply(call_id, "b2")]
+
+        self._save_results(agent, entry, turn1)
+        entry.messages.append(self._assistant_calling(call_id))
+        self._save_results(agent, entry, turn2)
+        self._save_results(agent, entry, turn2)
+
+        assert [m.role for m in entry.messages] == [
+            "assistant",
+            "tool",
+            "tool",
+            "assistant",
+            "tool",
+            "tool",
+        ]
+        assert [r.execution_result for r in entry.tool_history] == [
+            "a1",
+            "b1",
+            "a2",
+            "b2",
+        ]
+
+    def test_save_tool_results_orchestrator_distinct_dispatches_each_saved(
+        self, basic_durable_agent
+    ):
+        """Orchestrator ids are per-dispatch child instance ids; each is recorded once."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        first = [self._tool_reply("child-1", "one")]
+        second = [self._tool_reply("child-2", "two")]
+
+        self._save_results(agent, entry, first, skip_messages=True)
+        self._save_results(agent, entry, second, skip_messages=True)
+        self._save_results(agent, entry, second, skip_messages=True)
+
+        assert [r.execution_result for r in entry.tool_history] == ["one", "two"]
 
     def test_save_tool_results_orchestrator_rerun_saves_once(self, basic_durable_agent):
         agent = basic_durable_agent

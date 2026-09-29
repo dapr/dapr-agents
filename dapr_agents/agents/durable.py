@@ -3277,10 +3277,14 @@ class DurableAgent(AgentBase):
                         role == "assistant" and _message_field(msg, "tool_calls")
                     )
                     break
-            except Exception:
+            except Exception as e:
                 logger.warning(
-                    "Could not scan messages to verify tool result ordering; "
-                    "proceeding with save (optimistic)."
+                    "Could not scan messages to verify tool result ordering "
+                    "for instance %s; proceeding with save (optimistic), "
+                    "falling back to tool_history dedupe: %s",
+                    instance_id,
+                    e,
+                    exc_info=True,
                 )
                 last_message_is_assistant_with_tool_calls = True
                 scan_failed = True
@@ -3294,9 +3298,12 @@ class DurableAgent(AgentBase):
             or scan_failed
             or not last_message_is_assistant_with_tool_calls
         ):
-            # Orchestrator dispatches use the child instance ID, unique per
-            # dispatch. Without a readable message to answer, tool_history is
-            # the only record of an earlier run.
+            # Orchestrator tool_call_ids are the child instance ID, a fresh
+            # uuid4 per dispatch (see the orchestrator dispatch code that sets
+            # "tool_call_id": child_instance_id and skip_messages), so they
+            # cannot repeat across dispatches; the LLM never chooses them.
+            # For the other cases, tool_history is the only record of an
+            # earlier run.
             if entry is not None and hasattr(entry, "tool_history"):
                 for record in getattr(entry, "tool_history", []):
                     tid = getattr(record, "tool_call_id", None)
