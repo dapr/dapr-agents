@@ -32,20 +32,18 @@ from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 
 
-class TestObservabilityConfigFromInstantiation:
-    """Test cases for observability config provided during instantiation."""
+class ObservabilityConfigTestBase:
+    """Shared fixtures and helpers for observability configuration tests."""
 
     @pytest.fixture(autouse=True)
     def setup_env(self, monkeypatch):
         """Set up environment variables and mocks for testing."""
-        # Clear any OTEL environment variables
         for key in list(os.environ.keys()):
             if key.startswith("OTEL_"):
                 monkeypatch.delenv(key, raising=False)
 
-        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
 
-        # Mock DaprClient with no runtime config
         mock_client = MockDaprClient()
         monkeypatch.setattr(
             "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
@@ -55,20 +53,22 @@ class TestObservabilityConfigFromInstantiation:
             lambda: mock_client,
         )
 
-        # Mock AgentMetadata to avoid schema validation failures during initialization
+        # Mock metadata models so these tests focus on observability behavior
+        # rather than metadata validation during agent initialization.
         monkeypatch.setattr(
             "dapr_agents.agents.base.AgentMetadata",
             lambda **kwargs: MagicMock(**kwargs),
         )
-
-        # Mock the observability setup to avoid actual OTel initialization
+        monkeypatch.setattr(
+            "dapr_agents.agents.base.AgentMetadataSchema",
+            lambda **kwargs: MagicMock(**kwargs),
+        )
+        monkeypatch.setattr(
+            "dapr_agents.agents.base.AgentBase.register_agentic_system", Mock()
+        )
         monkeypatch.setattr(
             "dapr_agents.agents.base.AgentBase._setup_agent_observability", Mock()
         )
-
-        yield
-        if "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
 
     @pytest.fixture
     def mock_llm(self):
@@ -80,6 +80,30 @@ class TestObservabilityConfigFromInstantiation:
         mock.api = "MockOpenAIAPI"
         mock.model = "gpt-4o-mock"
         return mock
+
+    def _patch_dapr_client(self, monkeypatch, mock_client):
+        """Patch DaprClient in both locations with the provided client."""
+        captured_client = mock_client
+
+        class MockDaprClientClass:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return captured_client
+
+            def __exit__(self, *args):
+                pass
+
+        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            MockDaprClientClass,
+        )
+
+
+class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
+    """Test cases for observability config provided during instantiation."""
 
     def test_observability_config_from_instantiation_does_not_mutate_input_config(self):
         """Test that observability config resolution copies and leaves the caller's config untouched."""
@@ -226,48 +250,8 @@ class TestObservabilityConfigFromInstantiation:
         assert resolved_config.enabled is False
 
 
-class TestObservabilityConfigFromEnvironment:
+class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
     """Test cases for observability config from environment variables."""
-
-    @pytest.fixture(autouse=True)
-    def setup_env(self, monkeypatch):
-        """Set up environment variables and mocks for testing."""
-        # Clear any existing OTEL environment variables
-        for key in list(os.environ.keys()):
-            if key.startswith("OTEL_"):
-                monkeypatch.delenv(key, raising=False)
-
-        os.environ["OPENAI_API_KEY"] = "test-api-key"
-
-        # Mock DaprClient with no runtime config
-        mock_client = MockDaprClient()
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-            lambda: mock_client,
-        )
-
-        # Mock the observability setup to avoid actual OTel initialization
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.AgentBase._setup_agent_observability", Mock()
-        )
-
-        yield
-        if "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
-
-    @pytest.fixture
-    def mock_llm(self):
-        """Create a mock LLM client."""
-        mock = Mock(spec=OpenAIChatClient)
-        mock.prompt_template = None
-        mock.__class__.__name__ = "MockLLMClient"
-        mock.provider = "MockOpenAIProvider"
-        mock.api = "MockOpenAIAPI"
-        mock.model = "gpt-4o-mock"
-        return mock
 
     def test_observability_config_from_env_all_fields(self, mock_llm, monkeypatch):
         """Test observability config loaded from environment variables."""
@@ -417,60 +401,8 @@ class TestObservabilityConfigFromEnvironment:
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
 
 
-class TestObservabilityConfigFromStateStore:
+class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
     """Test cases for observability config from default statestore."""
-
-    @pytest.fixture(autouse=True)
-    def setup_env(self, monkeypatch):
-        """Set up environment variables and mocks for testing."""
-        # Clear any OTEL environment variables
-        for key in list(os.environ.keys()):
-            if key.startswith("OTEL_"):
-                monkeypatch.delenv(key, raising=False)
-
-        os.environ["OPENAI_API_KEY"] = "test-api-key"
-
-        # Mock the observability setup to avoid actual OTel initialization
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.AgentBase._setup_agent_observability", Mock()
-        )
-
-        yield
-        if "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
-
-    def _patch_dapr_client(self, monkeypatch, mock_client):
-        """Helper to patch DaprClient in both locations."""
-        # Create a mock class that returns the mock_client when instantiated
-        # We need to capture mock_client in a closure
-        captured_client = mock_client
-
-        class MockDaprClientClass:
-            def __init__(self, **kwargs):
-                pass
-
-            def __enter__(self):
-                return captured_client
-
-            def __exit__(self, *args):
-                pass
-
-        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-            MockDaprClientClass,
-        )
-
-    @pytest.fixture
-    def mock_llm(self):
-        """Create a mock LLM client."""
-        mock = Mock(spec=OpenAIChatClient)
-        mock.prompt_template = None
-        mock.__class__.__name__ = "MockLLMClient"
-        mock.provider = "MockOpenAIProvider"
-        mock.api = "MockOpenAIAPI"
-        mock.model = "gpt-4o-mock"
-        return mock
 
     def test_observability_config_from_statestore_all_fields(
         self, mock_llm, monkeypatch
@@ -617,60 +549,8 @@ class TestObservabilityConfigFromStateStore:
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
 
 
-class TestObservabilityConfigPrecedence:
+class TestObservabilityConfigPrecedence(ObservabilityConfigTestBase):
     """Test cases for observability config precedence and merging."""
-
-    @pytest.fixture(autouse=True)
-    def setup_env(self, monkeypatch):
-        """Set up environment variables and mocks for testing."""
-        # Clear any OTEL environment variables
-        for key in list(os.environ.keys()):
-            if key.startswith("OTEL_"):
-                monkeypatch.delenv(key, raising=False)
-
-        os.environ["OPENAI_API_KEY"] = "test-api-key"
-
-        # Mock the observability setup to avoid actual OTel initialization
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.AgentBase._setup_agent_observability", Mock()
-        )
-
-        yield
-        if "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
-
-    def _patch_dapr_client(self, monkeypatch, mock_client):
-        """Helper to patch DaprClient in both locations."""
-        # Create a mock class that returns the mock_client when instantiated
-        # We need to capture mock_client in a closure
-        captured_client = mock_client
-
-        class MockDaprClientClass:
-            def __init__(self, **kwargs):
-                pass
-
-            def __enter__(self):
-                return captured_client
-
-            def __exit__(self, *args):
-                pass
-
-        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-            MockDaprClientClass,
-        )
-
-    @pytest.fixture
-    def mock_llm(self):
-        """Create a mock LLM client."""
-        mock = Mock(spec=OpenAIChatClient)
-        mock.prompt_template = None
-        mock.__class__.__name__ = "MockLLMClient"
-        mock.provider = "MockOpenAIProvider"
-        mock.api = "MockOpenAIAPI"
-        mock.model = "gpt-4o-mock"
-        return mock
 
     def test_precedence_instantiation_over_env(self, mock_llm, monkeypatch):
         """Test instantiation config takes precedence over environment."""
