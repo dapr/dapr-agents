@@ -289,6 +289,10 @@ def validate_positive_int(v: int) -> int:
     return v
 
 
+# Keep validate_max_iterations importable after its rename; the implementation now lives in validate_positive_int.
+validate_max_iterations = validate_positive_int
+
+
 def validate_tool_choice(v: str) -> str:
     """Warn if tool_choice is non-standard, but allow it."""
     try:

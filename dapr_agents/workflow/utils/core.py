@@ -19,10 +19,16 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Callable, Dict, Optional, Type
 import dapr.ext.workflow as wf
 from dapr.ext.workflow import DaprWorkflowContext
-from pydantic import BaseModel
-
 from dapr_agents.tool.workflow.agent_tool import agent_workflow_id
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
+
+# Preserve the pre-rename import path while implementations live in utils.models.
+from dapr_agents.utils.models import (
+    is_pydantic_model,
+    is_supported_model,
+    is_supported_model_instance,
+    is_valid_routable_model,
+)
 
 logger = logging.getLogger(__name__)
 

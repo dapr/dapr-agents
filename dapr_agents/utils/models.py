@@ -42,6 +42,11 @@ def is_supported_model_instance(obj: Any) -> bool:
     return isinstance(obj, dict) or is_dataclass(obj) or isinstance(obj, BaseModel)
 
 
+def is_valid_routable_model(obj: Any) -> bool:
+    """Check if a model class can be used for routed messages."""
+    return is_dataclass(obj) or is_pydantic_model(obj)
+
+
 def get_model_fields(model: Any) -> Any:
     """Return field names for a model."""
     if type(model) is dict:
