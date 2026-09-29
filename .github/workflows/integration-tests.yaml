@@ -89,6 +89,11 @@ jobs:
       with:
         python-version: ${{ matrix.python_ver }}
 
+    - name: Reserve Dapr host ports
+      # Keep outgoing connections from taking the fixed ports dapr init
+      # binds, which sit inside the ephemeral range.
+      run: sudo sysctl -w net.ipv4.ip_local_reserved_ports=50005,50006,52379,58080,59090
+
     - name: Set up Docker
       uses: docker/setup-docker-action@v5
 
@@ -105,11 +110,14 @@ jobs:
           if dapr init; then
             exit 0
           fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "::error::dapr init failed after 3 attempts"
+            exit 1
+          fi
           echo "dapr init failed (attempt $attempt/3); retrying"
           dapr uninstall --all || true
           sleep 5
         done
-        exit 1
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
