@@ -83,6 +83,23 @@ class TestObservabilityConfigFromInstantiation:
         mock.model = "gpt-4o-mock"
         return mock
 
+    def test_observability_config_from_instantiation_does_not_mutate_input_config(self):
+        """Test that observability config resolution copies and leaves the caller's config untouched."""
+        observability_config = AgentObservabilityConfig(
+            logging_exporter="otlp_grpc",
+            tracing_exporter="zipkin",
+        )
+
+        resolved_config = AgentObservabilityConfig.from_instantiation(
+            observability_config
+        )
+
+        assert observability_config is not resolved_config
+        assert observability_config.logging_exporter == "otlp_grpc"
+        assert observability_config.tracing_exporter == "zipkin"
+        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
+        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+
     def test_observability_config_from_instantiation_all_fields(self, mock_llm):
         """Test observability config passed during instantiation with all fields."""
         obs_config = AgentObservabilityConfig(

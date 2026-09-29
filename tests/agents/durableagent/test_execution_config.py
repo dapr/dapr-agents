@@ -207,6 +207,21 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
                 tools=[mock_tool],
             )
 
+    def test_execution_config_from_instantiation_does_not_mutate_input_config(self):
+        """Test that execution config resolution copies and leaves the caller's config untouched."""
+        execution_config = AgentExecutionConfig(
+            tool_choice="auto",
+            tool_execution_mode="parallel",
+        )
+
+        resolved_config = AgentExecutionConfig.from_instantiation(execution_config)
+
+        assert execution_config is not resolved_config
+        assert execution_config.tool_choice == "auto"
+        assert execution_config.tool_execution_mode == "parallel"
+        assert resolved_config.tool_choice == ToolChoice.AUTO
+        assert resolved_config.tool_execution_mode == ToolExecutionMode.PARALLEL
+
     def test_execution_config_from_instantiation_allows_non_standard_tool_choice(
         self, mock_llm, mock_tool, monkeypatch
     ):

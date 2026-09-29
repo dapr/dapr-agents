@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import copy
 import functools
 import logging
 import os
@@ -743,9 +744,11 @@ class AgentExecutionConfig:
             ),
         }
 
-        apply_config_map(instantiated_config, config_field_map)
+        # Copy first so apply_config_map doesn't mutate the caller's config
+        resolved_config = copy.deepcopy(instantiated_config)
+        apply_config_map(resolved_config, config_field_map)
 
-        return instantiated_config
+        return resolved_config
 
     @classmethod
     def from_statestore(
@@ -1151,9 +1154,11 @@ class AgentObservabilityConfig:
             ),
         }
 
-        apply_config_map(instantiated_config, config_field_map)
+        # Copy first so apply_config_map doesn't mutate the caller's config
+        resolved_config = copy.deepcopy(instantiated_config)
+        apply_config_map(resolved_config, config_field_map)
 
-        return instantiated_config
+        return resolved_config
 
     @classmethod
     def from_statestore(
