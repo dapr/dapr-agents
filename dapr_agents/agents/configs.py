@@ -718,7 +718,7 @@ class AgentExecutionConfig:
             ),
             # Non-resolvable instantiated execution fields are structurally validated
             "orchestration_mode": ConfigFieldDescriptor(
-                target_type=Optional[OrchestrationMode],
+                target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
                 getter=lambda: instantiated_config.orchestration_mode,
             ),
@@ -1136,7 +1136,7 @@ class AgentObservabilityConfig:
                 getter=lambda: instantiated_config.logging_enabled,
             ),
             "logging_exporter": ConfigFieldDescriptor(
-                target_type=Optional[AgentLoggingExporter],
+                target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
                 getter=lambda: instantiated_config.logging_exporter,
                 validator=validate_otel_exporter_logging,
@@ -1147,7 +1147,7 @@ class AgentObservabilityConfig:
                 getter=lambda: instantiated_config.tracing_enabled,
             ),
             "tracing_exporter": ConfigFieldDescriptor(
-                target_type=Optional[AgentTracingExporter],
+                target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
                 getter=lambda: instantiated_config.tracing_exporter,
                 validator=validate_otel_exporter_tracing,

@@ -222,6 +222,27 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         assert resolved_config.tool_choice == ToolChoice.AUTO
         assert resolved_config.tool_execution_mode == ToolExecutionMode.PARALLEL
 
+    @pytest.mark.parametrize(
+        ("tool_choice", "tool_execution_mode"),
+        [
+            ("auto", "parallel"),
+            ("AUTO", "PARALLEL"),
+        ],
+    )
+    def test_execution_config_from_instantiation_accepts_case_insensitive_strings(
+        self, tool_choice, tool_execution_mode
+    ):
+        """Test execution config accepts case-insensitive tool choice and execution mode strings."""
+        execution_config = AgentExecutionConfig(
+            tool_choice=tool_choice,
+            tool_execution_mode=tool_execution_mode,
+        )
+
+        resolved_config = AgentExecutionConfig.from_instantiation(execution_config)
+
+        assert resolved_config.tool_choice == ToolChoice.AUTO
+        assert resolved_config.tool_execution_mode == ToolExecutionMode.PARALLEL
+
     def test_execution_config_from_instantiation_allows_non_standard_tool_choice(
         self, mock_llm, mock_tool, monkeypatch
     ):

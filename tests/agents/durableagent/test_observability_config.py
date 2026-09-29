@@ -100,6 +100,29 @@ class TestObservabilityConfigFromInstantiation:
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
         assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
 
+    @pytest.mark.parametrize(
+        ("logging_exporter", "tracing_exporter"),
+        [
+            ("otlp_grpc", "zipkin"),
+            ("OTLP_GRPC", "ZIPKIN"),
+        ],
+    )
+    def test_observability_config_from_instantiation_accepts_case_insensitive_strings(
+        self, logging_exporter, tracing_exporter
+    ):
+        """Test observability config accepts case-insensitive logging and tracing exporter strings."""
+        observability_config = AgentObservabilityConfig(
+            logging_exporter=logging_exporter,
+            tracing_exporter=tracing_exporter,
+        )
+
+        resolved_config = AgentObservabilityConfig.from_instantiation(
+            observability_config
+        )
+
+        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
+        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+
     def test_observability_config_from_instantiation_all_fields(self, mock_llm):
         """Test observability config passed during instantiation with all fields."""
         obs_config = AgentObservabilityConfig(
