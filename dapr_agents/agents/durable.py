@@ -3258,16 +3258,20 @@ class DurableAgent(AgentBase):
             messages_list = getattr(entry, "messages")
 
         # Check if the last non-tool message is an assistant with tool_calls.
-        # Scan messages_list from the end, skipping tool messages already saved.
+        # Scan messages_list from the end, skipping tool messages already saved
+        # and counting them: they are this turn's replies so far.
         # Only set True when we actually confirm the right message is present;
         # an empty messages_list stays False so we never append tool results
         # to a message list that has no preceding assistant+tool_calls message.
+        turn_replies: Counter[str] = Counter()
+        scan_failed = False
         if messages_list:
             try:
                 for msg in reversed(messages_list):
                     role = _message_field(msg, "role")
                     if role == "tool":
-                        continue  # skip existing tool responses, keep scanning back
+                        turn_replies[_message_field(msg, "tool_call_id") or ""] += 1
+                        continue  # keep scanning back
                     # Anything else means it is not safe to append.
                     last_message_is_assistant_with_tool_calls = bool(
                         role == "assistant" and _message_field(msg, "tool_calls")
@@ -3279,30 +3283,30 @@ class DurableAgent(AgentBase):
                     "proceeding with save (optimistic)."
                 )
                 last_message_is_assistant_with_tool_calls = True
+                scan_failed = True
 
-        # Count the results already saved, so a re-run of this activity (Dapr
-        # may re-deliver it) does not save them twice. The state is saved once
-        # at the end, so a re-run finds all of a batch or none of it; counting
-        # per id keeps that true even if the input had repeated ids.
+        # Results already saved, so a re-run of this activity (Dapr may
+        # re-deliver it) does not save them twice. Counted per id, so ids
+        # repeated within a batch ("" or reused) are each matched once.
         already_saved: Counter[str] = Counter()
-        if skip_messages or not last_message_is_assistant_with_tool_calls:
+        if (
+            skip_messages
+            or scan_failed
+            or not last_message_is_assistant_with_tool_calls
+        ):
             # Orchestrator dispatches use the child instance ID, unique per
-            # dispatch. Without a message to answer, tool_history is the only
-            # record of an earlier run.
+            # dispatch. Without a readable message to answer, tool_history is
+            # the only record of an earlier run.
             if entry is not None and hasattr(entry, "tool_history"):
                 for record in getattr(entry, "tool_history", []):
                     tid = getattr(record, "tool_call_id", None)
                     if tid:
                         already_saved[tid] += 1
         else:
-            # Only this turn's replies count: the tool messages after the last
-            # assistant message. Providers reuse tool_call_ids across turns
-            # (e.g. "call_0" every turn), so an id from an earlier turn must
-            # not suppress this turn's result.
-            for msg in reversed(messages_list):
-                if _message_field(msg, "role") != "tool":
-                    break
-                already_saved[_message_field(msg, "tool_call_id") or ""] += 1
+            # Only this turn's replies count. Providers reuse tool_call_ids
+            # across turns (e.g. "call_0" every turn), so an id from an
+            # earlier turn must not suppress this turn's result.
+            already_saved = turn_replies
 
         # Process each tool result
         for tool_result in tool_results:
