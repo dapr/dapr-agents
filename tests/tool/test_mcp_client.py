@@ -22,10 +22,11 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Set
+from typing import Optional, Set
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from anyio import BrokenResourceError
 from mcp.types import CallToolResult, Prompt, TextContent
 from mcp.types import Tool as MCPTool
 
@@ -133,8 +134,10 @@ async def test_concurrent_connect_to_same_server_is_refused():
     """Two connects racing for one name must not both open a session."""
     client = MCPClient()
     release = asyncio.Event()
+    started = asyncio.Event()
 
     async def slow_session(*_args, **_kwargs):
+        started.set()
         await release.wait()
         return _make_session()
 
@@ -144,10 +147,11 @@ async def test_concurrent_connect_to_same_server_is_refused():
         AsyncMock(side_effect=slow_session),
     ) as start:
         first = asyncio.create_task(client.connect(config))
+        await started.wait()
         second = asyncio.create_task(client.connect(config))
-        await asyncio.sleep(0)
+        second_result = (await asyncio.gather(second, return_exceptions=True))[0]
         release.set()
-        results = await asyncio.gather(first, second, return_exceptions=True)
+        results = [await first, second_result]
 
     assert results[0] is None
     assert isinstance(results[1], RuntimeError)
@@ -237,7 +241,7 @@ class _FakeServers:
     ``hang`` block while listing prompts, i.e. after ``initialize()`` has
     succeeded and tools are loaded; servers in ``fail`` raise from
     ``initialize()``. Transport exits are recorded in ``exited``, and raise
-    when ``exit_error`` is set.
+    when ``exit_error`` is set (or raise ``exit_exc`` if given).
     """
 
     def __init__(
@@ -245,10 +249,12 @@ class _FakeServers:
         hang: Set[str] = frozenset(),
         fail: Set[str] = frozenset(),
         exit_error: bool = False,
+        exit_exc: Optional[BaseException] = None,
     ):
         self.hang = hang
         self.fail = fail
         self.exit_error = exit_error
+        self.exit_exc = exit_exc
         self.listing = asyncio.Event()
         self.started: list = []
         self.exited: list = []
@@ -286,6 +292,8 @@ class _FakeServers:
             yield
         finally:
             self.exited.append(name)
+            if self.exit_exc is not None:
+                raise self.exit_exc
             if self.exit_error:
                 raise RuntimeError("transport exit failed")
 
@@ -440,6 +448,18 @@ async def test_persistent_failed_connect_closes_its_transport(
         r for r in _warnings(caplog) if "Error closing transport" in r.getMessage()
     ]
     assert len(cleanup_warnings) == (1 if exit_error else 0)
+
+
+async def test_persistent_failed_connect_does_not_warn_on_benign_teardown(caplog):
+    client = MCPClient(persistent_connections=True)
+    servers = _FakeServers(fail={"new"}, exit_exc=BrokenResourceError())
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        with caplog.at_level(logging.WARNING, logger="dapr_agents.tool.mcp.client"):
+            with pytest.raises(OSError, match="refused"):
+                await client.connect(_NEW)
+
+    assert servers.exited == ["new"]
+    assert _warnings(caplog) == []
 
 
 async def test_persistent_connect_closes_its_transport_on_close():
