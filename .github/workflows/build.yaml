@@ -107,7 +107,14 @@ jobs:
         uv run mypy --config-file mypy.ini
     - name: Run tests
       run: |
-        uv run pytest tests ext -m "not integration"
+        uv run pytest tests -m "not integration"
+    # Own session: tests/conftest.py puts the repo root on sys.path, which
+    # hides the installed Drasi extension, and mocks dapr process-wide.
+    - name: Run Drasi extension tests
+      env:
+        DAPR_AGENTS_REQUIRE_DRASI: "1"
+      run: |
+        uv run pytest ext -m "not integration"
 
   package:
     needs: lint

@@ -15,12 +15,14 @@
 .PHONY: test
 test:
 	@echo "Running tests..."
-	python -m pytest tests/ ext/ -v --tb=short
+	uv run pytest tests -v --tb=short
+	DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -v --tb=short
 
 .PHONY: test-cov
 test-cov:
 	@echo "Running tests with coverage..."
-	python -m pytest tests/ ext/ -v --cov=dapr_agents --cov-report=term-missing --cov-report=html
+	uv run pytest tests -v --cov=dapr_agents --cov-report=
+	DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -v --cov=dapr_agents --cov-append --cov-report=term-missing --cov-report=html
 
 .PHONY: test-install
 test-install:
@@ -73,4 +75,5 @@ typecheck:
 .PHONY: test-unit
 test-unit:
 	@echo "Running unit tests..."
-	uv run pytest tests ext -m "not integration" -v
+	uv run pytest tests -m "not integration" -v
+	DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration" -v
