@@ -26,6 +26,8 @@ on:
       - main
       - feature/*
       - release-*
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 # Refuse any implicit re-resolution. Every `uv sync` / `uv run` uses the
