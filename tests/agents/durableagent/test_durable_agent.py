@@ -992,6 +992,50 @@ class TestDurableAgent:
         assert [m.role for m in entry.messages] == ["user"]
         assert len(entry.tool_history) == 1
 
+    def test_save_tool_results_rerun_after_failed_scan_saves_nothing_new(
+        self, basic_durable_agent
+    ):
+        """If the message scan fails, tool_history still stops a re-run from saving twice."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[self._assistant_calling("call_1")],
+            tool_history=[],
+        )
+        results = [self._tool_reply("call_1", "a")]
+        self._save_results(agent, entry, results)
+
+        with patch(
+            "dapr_agents.agents.durable._message_field",
+            side_effect=RuntimeError("unreadable message"),
+        ):
+            self._save_results(agent, entry, results)
+
+        assert [m.role for m in entry.messages] == ["assistant", "tool"]
+        assert len(entry.tool_history) == 1
+
+    def test_save_tool_results_history_fallback_counts_each_id_once(
+        self, basic_durable_agent
+    ):
+        """One earlier call_0 record suppresses one call_0 result, not every one."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[AgentWorkflowMessage(role="user", content="hi")],
+            tool_history=[],
+        )
+        self._save_results(agent, entry, [self._tool_reply("call_0", "earlier")])
+
+        self._save_results(
+            agent,
+            entry,
+            [self._tool_reply("call_0", "x"), self._tool_reply("call_0", "y")],
+        )
+
+        assert [r.execution_result for r in entry.tool_history] == ["earlier", "y"]
+
     def test_save_tool_results_orchestrator_rerun_saves_once(self, basic_durable_agent):
         agent = basic_durable_agent
         entry = AgentWorkflowEntry(
