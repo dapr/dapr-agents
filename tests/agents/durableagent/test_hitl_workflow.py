@@ -574,6 +574,145 @@ class TestHookWorkflowDispatch:
 
         assert runs == [{"table": "tmp"}]
 
+    @pytest.mark.parametrize(
+        "order",
+        [
+            ("deny", "mutate", "approve"),
+            ("deny", "approve", "mutate"),
+            ("mutate", "deny", "approve"),
+            ("mutate", "approve", "deny"),
+            ("approve", "deny", "mutate"),
+            ("approve", "mutate", "deny"),
+        ],
+        ids="-".join,
+    )
+    @pytest.mark.parametrize("approved", [True, False], ids=["approved", "timeout"])
+    def test_three_decisions_each_apply_to_their_call_when_ids_are_shared(
+        self, mock_llm, mock_ctx, order, approved
+    ):
+        """Deny, Mutate and an approval sharing one non-empty id each act on their own call."""
+        tables = {"deny": "logs", "mutate": "orig", "approve": "tmp"}
+        calls = [
+            _tool_call(name="DropTable", args={"table": tables[k]}, call_id="shared")
+            for k in order
+        ]
+
+        def hook(ctx: HookContext):
+            table = ctx.payload.get("table")
+            if table == "logs":
+                return Deny(reason="blocked")
+            if table == "orig":
+                return Mutate(payload={"table": "safe"})
+            return RequireApproval(timeout_seconds=30)
+
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
+
+        def published_id():
+            return mock_ctx.call_activity.call_args_list[-1][1]["input"]["event"][
+                "approval_request_id"
+            ]
+
+        event_task = Mock(name="event")
+        timer_task = Mock(name="timer")
+        mock_ctx.wait_for_external_event.return_value = event_task
+        mock_ctx.create_timer.return_value = timer_task
+        event_task.get_result.side_effect = lambda: {
+            "approval_request_id": published_id(),
+            "approved": True,
+        }
+
+        # calls that run, in call order, with the arguments they run with
+        expected_runs = [
+            {"table": "safe"} if k == "mutate" else {"table": "tmp"}
+            for k in order
+            if k == "mutate" or (k == "approve" and approved)
+        ]
+        tool_result = {
+            "role": "tool",
+            "name": "DropTable",
+            "tool_call_id": "shared",
+            "content": "ran",
+        }
+
+        gen = agent.agent_workflow(mock_ctx, {"task": "do something"})
+        with patch("dapr.ext.workflow.when_any", return_value=Mock()):
+            next(gen)  # record_initial_entry
+            gen.send(None)  # call_llm
+            gen.send({"tool_calls": calls})  # publish_approval_request
+            gen.send(published_id())  # when_any
+            gen.send(event_task if approved else timer_task)  # first run_tool
+            for _ in expected_runs:
+                gen.send(tool_result)  # next run_tool, then save_tool_results
+        gen.close()
+
+        run_args = [
+            json.loads(c[1]["input"]["tool_call"]["function"]["arguments"])
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.run_tool)
+        ]
+        assert run_args == expected_runs
+        (save_input,) = [
+            c[1]["input"]
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.save_tool_results)
+        ]
+        results = save_input["tool_results"]
+        assert len(results) == 3
+        assert all(r["tool_call_id"] == "shared" for r in results)
+        for kind, result in zip(order, results):
+            if kind == "deny":
+                assert "not executed" in result["content"]
+                assert "blocked" in result["content"]
+            elif kind == "approve" and not approved:
+                assert "not executed" in result["content"]
+                assert "not granted or timed out" in result["content"]
+            else:
+                assert result["content"] == "ran"
+
+    def test_deny_in_one_turn_does_not_carry_to_next_turn_with_same_id(
+        self, mock_llm, mock_ctx
+    ):
+        """A Deny for a tool_call_id on turn 1 must not block a call reusing that id on turn 2."""
+        turn1 = [_tool_call(name="DropTable", args={"table": "logs"}, call_id="shared")]
+        turn2 = [_tool_call(name="DropTable", args={"table": "tmp"}, call_id="shared")]
+
+        def hook(ctx: HookContext):
+            if ctx.payload.get("table") == "logs":
+                return Deny(reason="blocked")
+            return Proceed()
+
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
+        gen = agent.agent_workflow(mock_ctx, {"task": "do something"})
+        next(gen)  # record_initial_entry
+        gen.send(None)  # call_llm (turn 1)
+        gen.send({"tool_calls": turn1})  # save_tool_results (denied, nothing runs)
+        gen.send(None)  # call_llm (turn 2)
+        gen.send({"tool_calls": turn2})  # run_tool
+        gen.send(
+            {
+                "role": "tool",
+                "name": "DropTable",
+                "tool_call_id": "shared",
+                "content": "ran",
+            }
+        )  # save_tool_results
+        gen.close()
+
+        run_args = [
+            json.loads(c[1]["input"]["tool_call"]["function"]["arguments"])
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.run_tool)
+        ]
+        saves = [
+            c[1]["input"]["tool_results"]
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.save_tool_results)
+        ]
+        assert run_args == [{"table": "tmp"}]
+        assert len(saves) == 2
+        assert "not executed" in saves[0][0]["content"]
+        assert saves[1][0]["content"] == "ran"
+
     # ------------------------------------------------------------------ #
     # Skip                                                                 #
     # ------------------------------------------------------------------ #
