@@ -44,6 +44,7 @@ class ObservabilityConfigTestBase:
 
         monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
 
+        # Mock DaprClient with no runtime config
         mock_client = MockDaprClient()
         monkeypatch.setattr(
             "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
@@ -53,8 +54,7 @@ class ObservabilityConfigTestBase:
             lambda: mock_client,
         )
 
-        # Mock metadata models so these tests focus on observability behavior
-        # rather than metadata validation during agent initialization.
+        # Mock metadata models to avoid schema validation failures during initialization
         monkeypatch.setattr(
             "dapr_agents.agents.base.AgentMetadata",
             lambda **kwargs: MagicMock(**kwargs),
@@ -66,6 +66,8 @@ class ObservabilityConfigTestBase:
         monkeypatch.setattr(
             "dapr_agents.agents.base.AgentBase.register_agentic_system", Mock()
         )
+
+        # Mock the observability setup to avoid actual OTel initialization
         monkeypatch.setattr(
             "dapr_agents.agents.base.AgentBase._setup_agent_observability", Mock()
         )
@@ -82,23 +84,12 @@ class ObservabilityConfigTestBase:
         return mock
 
     def _patch_dapr_client(self, monkeypatch, mock_client):
-        """Patch DaprClient in both locations with the provided client."""
-        captured_client = mock_client
-
-        class MockDaprClientClass:
-            def __init__(self, **kwargs):
-                pass
-
-            def __enter__(self):
-                return captured_client
-
-            def __exit__(self, *args):
-                pass
-
-        monkeypatch.setattr("dapr_agents.agents.base.DaprClient", MockDaprClientClass)
+        """
+        Patch DaprClient creation to return the provided mock client.
+        Used by runtime config tests to inject custom runtime config values.
+        """
         monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-            MockDaprClientClass,
+            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
         )
 
 
@@ -560,10 +551,6 @@ class TestObservabilityConfigPrecedence(ObservabilityConfigTestBase):
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://env-endpoint:4317")
         monkeypatch.setenv("OTEL_TRACES_EXPORTER", "console")
 
-        # Mock DaprClient with no runtime config
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
         # Create observability config for instantiation
         obs_config = AgentObservabilityConfig(
             enabled=False,  # Different from env
@@ -700,10 +687,6 @@ class TestObservabilityConfigPrecedence(ObservabilityConfigTestBase):
 
     def test_merge_configs_with_headers(self, mock_llm, monkeypatch):
         """Test merging configs with headers properly combines them."""
-        # Mock DaprClient with no runtime config
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
         # Set environment with headers (creates Authorization header)
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=env-token")
 
@@ -741,10 +724,6 @@ class TestObservabilityConfigPrecedence(ObservabilityConfigTestBase):
 
     def test_no_config_sources_returns_defaults(self, mock_llm, monkeypatch):
         """Test that when no config is provided, defaults are used."""
-        # Mock DaprClient with no runtime config
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
         agent = DurableAgent(
             name="TestAgent",
             role="Test Assistant",
