@@ -27,6 +27,7 @@ PROVIDERS_WITH_STREAMING = (
     "anthropic",
     "claude",
     "huggingface",
+    "iflytek",
 )
 
 #: OpenAI-compatible providers that honor ``stream_options={"include_usage": True}``

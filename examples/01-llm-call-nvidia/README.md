@@ -80,7 +80,10 @@ if response.get_message() is not None:
 llm = NVIDIAChatClient()
 response: LLMChatResponse = llm.generate(messages=[UserMessage("hello")])
 
-if response.get_message() is not None and "hello" in response.get_message().content.lower():
+if (
+    response.get_message() is not None
+    and "hello" in response.get_message().content.lower()
+):
     print("Response with user input: ", response.get_message().content)
 ```
 
@@ -162,7 +165,9 @@ load_dotenv()
 # Basic chat completion
 llm = NVIDIAChatClient()
 
-response: Iterator[LLMChatResponseChunk] = llm.generate("Name a famous dog!", stream=True)
+response: Iterator[LLMChatResponseChunk] = llm.generate(
+    "Name a famous dog!", stream=True
+)
 
 for chunk in response:
     if chunk.result.content:
@@ -195,9 +200,11 @@ load_dotenv()
 # Basic chat completion
 llm = NVIDIAChatClient()
 
+
 # Define a tool for addition
 def add_numbers(a: int, b: int) -> int:
     return a + b
+
 
 # Define the tool function call schema
 add_tool = {
@@ -209,20 +216,22 @@ add_tool = {
             "type": "object",
             "properties": {
                 "a": {"type": "integer", "description": "The first number."},
-                "b": {"type": "integer", "description": "The second number."}
+                "b": {"type": "integer", "description": "The second number."},
             },
-            "required": ["a", "b"]
-        }
-    }
+            "required": ["a", "b"],
+        },
+    },
 }
 
 # Define messages for the chat
 messages = [
     {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "Add 5 and 7 and 2 and 2."}
+    {"role": "user", "content": "Add 5 and 7 and 2 and 2."},
 ]
 
-response: Iterator[LLMChatResponseChunk] = llm.generate(messages=messages, tools=[add_tool], stream=True)
+response: Iterator[LLMChatResponseChunk] = llm.generate(
+    messages=messages, tools=[add_tool], stream=True
+)
 
 for chunk in response:
     print(chunk.result)

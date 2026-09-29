@@ -174,11 +174,15 @@ class ChromaVectorStore(VectorStoreBase):
         else:
             items = self.collection.get(ids=ids, include=include)
 
+        # Chroma returns None (not an empty list) for any field left out of
+        # `include`, so zip() would crash on a customized include list.
+        item_ids = items["ids"]
+        metadatas = items.get("metadatas") or [None] * len(item_ids)
+        documents = items.get("documents") or [None] * len(item_ids)
+
         return [
             {"id": item_id, "metadata": item_meta, "document": item_doc}
-            for item_id, item_meta, item_doc in zip(
-                items["ids"], items["metadatas"], items["documents"]
-            )
+            for item_id, item_meta, item_doc in zip(item_ids, metadatas, documents)
         ]
 
     def reset(self):

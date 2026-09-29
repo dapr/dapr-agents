@@ -240,7 +240,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                 WorkflowActivityRegistrationWrapper(self._tracer)
             )
             wrap_function_wrapper(
-                module="dapr.ext.workflow.workflow_runtime",
+                "dapr.ext.workflow.workflow_runtime",
                 name="WorkflowRuntime.register_activity",
                 wrapper=wrapper,
             )
@@ -267,7 +267,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         """
         try:
             wrap_function_wrapper(
-                module="dapr_agents.tool.executor",
+                "dapr_agents.tool.executor",
                 name="AgentToolExecutor.run_tool",
                 wrapper=self._track_wrapper(RunToolWrapper(self._tracer)),
             )
@@ -281,13 +281,13 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         """
         try:
             wrap_function_wrapper(
-                module="dapr_agents.workflow.runners.base",
+                "dapr_agents.workflow.runners.base",
                 name="WorkflowRunner.run_workflow_async",
                 wrapper=self._track_wrapper(WorkflowMonitorWrapper(self._tracer)),
             )
 
             wrap_function_wrapper(
-                module="dapr_agents.workflow.runners.base",
+                "dapr_agents.workflow.runners.base",
                 name="WorkflowRunner.run_workflow",
                 wrapper=self._track_wrapper(WorkflowRunWrapper(self._tracer)),
             )
@@ -312,7 +312,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
             # Instrument each concrete chat client implementation
             for chat_client_class, module_name in chat_client_classes:
                 wrap_function_wrapper(
-                    module=module_name,
+                    module_name,
                     name=f"{chat_client_class.__name__}.generate",
                     wrapper=self._track_wrapper(LLMWrapper(self._tracer)),
                 )

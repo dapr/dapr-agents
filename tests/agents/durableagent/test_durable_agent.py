@@ -31,6 +31,7 @@ from dapr_agents.agents.configs import (
     AgentRegistryConfig,
     AgentMemoryConfig,
     AgentExecutionConfig,
+    BuiltinTool,
     WorkflowRetryPolicy,
 )
 from dapr_agents.agents.schemas import (
@@ -1650,11 +1651,7 @@ class TestCallLlmRequestShape:
 
     @pytest.fixture
     def agent_with_tool(self, mock_llm):
-        tool = Mock(spec=AgentTool)
-        tool.name = "test_tool"
-        tool.description = "A test tool"
-        tool.run = AsyncMock(return_value="result")
-        tool._is_async = True
+        tool = self._make_tool()
         return DurableAgent(
             name="ShapeAgent",
             role="Test",
@@ -1680,10 +1677,31 @@ class TestCallLlmRequestShape:
             execution=AgentExecutionConfig(max_iterations=5),
         )
 
+    def _make_tool(self, name="test_tool"):
+        tool = Mock(spec=AgentTool)
+        tool.name = name
+        tool.description = "A test tool"
+        tool.run = AsyncMock(return_value="result")
+        tool._is_async = True
+        return tool
+
+    def _make_agent(self, mock_llm, *, execution, tools=None):
+        return DurableAgent(
+            name="LateToolChoiceAgent",
+            role="Test",
+            goal="Test",
+            instructions=["x"],
+            llm=mock_llm,
+            tools=tools,
+            execution=execution,
+        )
+
     def _stub_call_llm_helpers(self, agent, messages):
         """Patch internal helpers so call_llm runs with controlled messages."""
         agent._infra = Mock()
-        agent._infra.get_state = Mock(return_value=Mock(messages=[]))
+        agent._infra.get_state = Mock(
+            return_value=Mock(messages=[], stream_context=None)
+        )
         agent._reconstruct_conversation_history = Mock(return_value=[])
         agent.prompting_helper = Mock()
         agent.prompting_helper.build_initial_messages = Mock(return_value=messages)
@@ -1698,6 +1716,118 @@ class TestCallLlmRequestShape:
         ctx = Mock(spec=DaprWorkflowContext)
         ctx.instance_id = "wf-shape-1"
         return ctx
+
+    def _call_llm(self, agent):
+        messages = [{"role": "user", "content": "hi"}]
+        self._stub_call_llm_helpers(agent, messages)
+        agent.call_llm(
+            self._ctx(),
+            payload={"instance_id": "wf-shape-1", "task": None, "source": "direct"},
+        )
+        return agent.llm.generate.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        ("tool_choice", "expected"),
+        [
+            ("none", "none"),
+            ("required", "required"),
+            ("provider-specific", "provider-specific"),
+            ("default", None),
+            (None, None),
+        ],
+    )
+    def test_direct_registration_preserves_tool_choice(
+        self, mock_llm, tool_choice, expected
+    ):
+        execution = (
+            AgentExecutionConfig()
+            if tool_choice == "default"
+            else AgentExecutionConfig(tool_choice=tool_choice)
+        )
+        agent = self._make_agent(
+            mock_llm,
+            execution=execution,
+        )
+        agent.tool_executor.register_tool(self._make_tool())
+
+        kwargs = self._call_llm(agent)
+
+        assert kwargs["tools"]
+        if expected is None:
+            assert "tool_choice" not in kwargs
+        else:
+            assert kwargs["tool_choice"] == expected
+
+    @pytest.mark.parametrize(
+        ("tool_choice", "expected"),
+        [
+            ("none", "none"),
+            ("required", "required"),
+            ("default", None),
+            (None, None),
+        ],
+    )
+    def test_builtin_registration_preserves_tool_choice(
+        self, mock_llm, tool_choice, expected
+    ):
+        configured_choice = "auto" if tool_choice == "default" else tool_choice
+        execution = AgentExecutionConfig(
+            tool_choice=configured_choice,
+            streaming=True,
+            builtin_tools=[BuiltinTool.ASK_USER],
+        )
+        agent = self._make_agent(mock_llm, execution=execution)
+
+        kwargs = self._call_llm(agent)
+
+        assert kwargs["tools"]
+        if expected is None:
+            assert "tool_choice" not in kwargs
+        else:
+            assert kwargs["tool_choice"] == expected
+
+    def test_default_agent_choice_does_not_override_prompty_default(self, mock_llm):
+        from dapr_agents.prompt.prompty import Prompty
+
+        prompty = Prompty.load(
+            """---
+name: Tool Choice Default
+model:
+  api: chat
+  configuration:
+    type: openai
+    name: gpt-4o-mini
+  parameters:
+    tool_choice: required
+---
+user:
+hello
+"""
+        )
+        original_generate = mock_llm.generate
+        effective_params = {}
+
+        def generate_with_prompty(**kwargs):
+            effective_params.update(
+                {
+                    **prompty.model.parameters.model_dump(),
+                    **kwargs,
+                }
+            )
+            return original_generate(**kwargs)
+
+        mock_llm.prompty = prompty
+        mock_llm.generate = Mock(side_effect=generate_with_prompty)
+        agent = self._make_agent(
+            mock_llm,
+            execution=AgentExecutionConfig(),
+        )
+        agent.tool_executor.register_tool(self._make_tool())
+
+        kwargs = self._call_llm(agent)
+
+        assert "tool_choice" not in kwargs
+        assert effective_params["tool_choice"] == "required"
 
     def test_no_response_format_passes_tools_normally(self, agent_with_tool):
         messages = [{"role": "user", "content": "hi"}]

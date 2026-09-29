@@ -189,11 +189,18 @@ accepted as the workflow input. All receive a `MessageContext` (the CloudEvent e
 ```python
 from dapr_agents.workflow import MessageContext, message_router
 
+
 def is_high_priority(model: StartBlogMessage, msg_ctx: MessageContext) -> bool:
     return model.topic.startswith("URGENT:")
 
+
 def make_blog_outline(model: StartBlogMessage, msg_ctx: MessageContext) -> dict:
-    return {"title": model.topic.removeprefix("URGENT:"), "author": "your name", "content": "lorem ipsum"}
+    return {
+        "title": model.topic.removeprefix("URGENT:"),
+        "author": "your name",
+        "content": "lorem ipsum",
+    }
+
 
 @message_router(
     pubsub="messagepubsub",
@@ -202,8 +209,7 @@ def make_blog_outline(model: StartBlogMessage, msg_ctx: MessageContext) -> dict:
     model_filter=is_high_priority,
     mapper=make_blog_outline,
 )
-def urgent_blog_workflow(ctx, wf_input: dict) -> str:
-    ...
+def urgent_blog_workflow(ctx, wf_input: dict) -> str: ...
 ```
 
 For filters, returning `False` skips the binding (the next binding on the same topic is

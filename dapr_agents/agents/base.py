@@ -656,12 +656,13 @@ class AgentBase:
             runtime_config=self._runtime_conf,
         )
 
-        if not self.tools:
-            if self.execution.tool_choice is not None:
-                logger.debug(
-                    f"No tools configured for agent '{self.name}'; ignoring tool_choice={self.execution.tool_choice!r}."
-                )
+        if not self.tools and self.execution.tool_choice == "auto":
+            logger.debug(
+                f"No tools configured for agent '{self.name}'; ignoring tool_choice={self.execution.tool_choice!r}."
+            )
             self.execution.tool_choice = None
+        elif self.tools and self.execution.tool_choice is None:
+            self.execution.tool_choice = "auto"
 
         # -----------------------------
         # Agent metadata & registry registration

@@ -107,7 +107,9 @@ class NVIDIAEmbeddingClient(NVIDIAClientBase):
             "extra_body": extra_body or {},
         }
 
-        # Add optional parameters if provided
+        # Add optional parameters, falling back to the instance defaults
+        input_type = input_type or self.input_type
+        truncate = truncate or self.truncate
         if input_type:
             body["extra_body"]["input_type"] = input_type
         if truncate:

@@ -73,6 +73,7 @@ The `resources/` folder already includes Redis-backed state stores (`agentstates
 ```python
 mcp = FastMCP("TestServer")
 
+
 @mcp.tool()
 async def get_weather(location: str) -> str:
     temperature = random.randint(60, 80)

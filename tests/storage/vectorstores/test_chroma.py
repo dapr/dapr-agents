@@ -13,23 +13,27 @@
 
 import pytest
 
+# ChromaVectorStore only imports the `chromadb` package lazily inside
+# model_post_init, so the class itself (and its pure-Python methods, e.g.
+# get()) can be imported and unit-tested even when chromadb isn't installed.
+from dapr_agents.storage.vectorstores.chroma import ChromaVectorStore
+
 try:
     import chromadb  # noqa: F401
     from dapr_agents.document.embedder.sentence import SentenceTransformerEmbedder
-    from dapr_agents.storage.vectorstores.chroma import ChromaVectorStore
 
     CHROMA_AVAILABLE = True
 except ImportError:
     CHROMA_AVAILABLE = False
     SentenceTransformerEmbedder = None
-    ChromaVectorStore = None
 
-pytestmark = pytest.mark.skipif(
+requires_chromadb = pytest.mark.skipif(
     not CHROMA_AVAILABLE,
     reason="chromadb or sentence-transformers not installed - optional dependencies",
 )
 
 
+@requires_chromadb
 class TestChromaVectorStore:
     """Test cases for ChromaVectorStore."""
 
@@ -92,3 +96,51 @@ class TestChromaVectorStore:
             )
             assert vector_store is not None
             assert vector_store.name == name
+
+
+class TestChromaVectorStoreGet:
+    """Tests for ChromaVectorStore.get() with a stubbed collection.
+
+    These don't need the real chromadb dependency since get() only touches
+    self.collection, which we substitute with a lightweight stub.
+    """
+
+    @staticmethod
+    def _make_store(collection):
+        store = object.__new__(ChromaVectorStore)
+        object.__setattr__(store, "collection", collection)
+        return store
+
+    def test_get_with_default_include(self):
+        class StubCollection:
+            def get(self, ids=None, include=None):
+                return {
+                    "ids": ["1", "2"],
+                    "metadatas": [{"a": 1}, {"a": 2}],
+                    "documents": ["doc1", "doc2"],
+                }
+
+        store = self._make_store(StubCollection())
+        result = store.get(ids=["1", "2"])
+        assert result == [
+            {"id": "1", "metadata": {"a": 1}, "document": "doc1"},
+            {"id": "2", "metadata": {"a": 2}, "document": "doc2"},
+        ]
+
+    def test_get_with_include_excluding_documents(self):
+        # Chroma returns None (not an empty list) for any field left out of
+        # `include`; get() must not crash when zipping the results together.
+        class StubCollection:
+            def get(self, ids=None, include=None):
+                return {
+                    "ids": ["1", "2"],
+                    "metadatas": [{"a": 1}, {"a": 2}],
+                    "documents": None,
+                }
+
+        store = self._make_store(StubCollection())
+        result = store.get(ids=["1", "2"], include=["metadatas"])
+        assert result == [
+            {"id": "1", "metadata": {"a": 1}, "document": None},
+            {"id": "2", "metadata": {"a": 2}, "document": None},
+        ]

@@ -60,3 +60,22 @@ def test_generate_speech(mock_client_class, tmp_path, test_text, fake_audio_byte
         data = f.read()
         assert data == fake_audio_bytes
     os.remove(result_path)
+
+
+@patch(
+    "dapr_agents.llm.elevenlabs.client.ElevenLabsClientBase.get_client",
+    return_value=MagicMock(),
+)
+def test_create_speech_respects_explicit_zero_latency(mock_get_client):
+    """An explicit optimize_streaming_latency=0 must override a non-zero client default."""
+    from dapr_agents import ElevenLabsSpeechClient
+
+    client = ElevenLabsSpeechClient(
+        api_key="test-key", optimize_streaming_latency=4, voice_settings={}
+    )
+    client.client.text_to_speech.convert.return_value = [b"chunk"]
+
+    client.create_speech(text="hi", optimize_streaming_latency=0)
+
+    _, kwargs = client.client.text_to_speech.convert.call_args
+    assert kwargs["optimize_streaming_latency"] == 0
