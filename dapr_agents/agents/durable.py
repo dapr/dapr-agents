@@ -1336,19 +1336,30 @@ class DurableAgent(AgentBase):
             retry_policy=self._retry_policy,
         )
         # Wait on the id that was actually published, read from the recorded
-        # activity result. Publishes recorded before ids were scoped per turn
-        # returned None; approvers of those runs hold the id derived from the
-        # tool_call_id, so keep waiting on that one.
-        if isinstance(published_id, str) and published_id:
-            approval_request_id = published_id
+        # activity result. A None result means the publish ran on older code:
+        # either before the upgrade (the approver holds the legacy id) or on a
+        # not-yet-upgraded replica during a rolling upgrade (it published the
+        # new id it was given). Listen on both names in that case.
+        if published_id is not None:
+            accepted_ids = [str(published_id)]
         else:
-            approval_request_id = _legacy_approval_request_id(instance_id, tool_call_id)
+            accepted_ids = [
+                approval_request_id,
+                _legacy_approval_request_id(instance_id, tool_call_id),
+            ]
+        approval_request_id = accepted_ids[0]
 
         logger.info(
             f"Approval request {approval_request_id} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
         )
 
-        event_name = f"approval_response_{approval_request_id}"
+        # Waits before the timer, as before: each wait_for_external_event also
+        # schedules an optional timer action, so this order keeps the sequence
+        # ids of histories recorded by the older code.
+        waits = {
+            rid: ctx.wait_for_external_event(f"approval_response_{rid}")
+            for rid in accepted_ids
+        }
         timer_task = (
             ctx.create_timer(timedelta(seconds=timeout_seconds))
             if timeout_seconds is not None
@@ -1356,51 +1367,70 @@ class DurableAgent(AgentBase):
         )
 
         while True:
-            event_task = ctx.wait_for_external_event(event_name)
-            if timer_task is None:
+            pending = [waits[rid] for rid in accepted_ids]
+            if timer_task is None and len(pending) == 1:
                 # No timeout: suspend indefinitely until a human sends the approval event. The workflow stays paused in Dapr's durable state.
-                yield event_task
+                yield pending[0]
+                winner = pending[0]
             else:
-                # Race the approval event against a timer
-                winner = yield wf.when_any([event_task, timer_task])
+                # Race the approval event(s) against the timer, if any
+                race = pending + ([timer_task] if timer_task is not None else [])
+                winner = yield wf.when_any(race)
                 if winner is timer_task:
                     logger.warning(
                         f"Approval request {approval_request_id} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
                     )
                     return False
 
-            # event won the race — read the human decision
-            try:
-                response_data = event_task.get_result()
-                response = ApprovalResponseEvent(**response_data)
-            except Exception as exc:
-                # Fail closed: a malformed response never decides this request.
-                logger.warning(
-                    "Ignoring unparseable approval response for request %s: %s "
-                    "(tool='%s', instance=%s)",
-                    approval_request_id,
-                    exc,
-                    fn_name,
-                    instance_id,
-                )
-                continue
-
-            if response.approval_request_id != approval_request_id:
-                # Fail closed: a response for another request never approves this one.
-                logger.warning(
-                    "Ignoring approval response for request %s while waiting on %s "
-                    "(tool='%s', instance=%s)",
-                    response.approval_request_id,
-                    approval_request_id,
-                    fn_name,
-                    instance_id,
+            wait_id = next(rid for rid in accepted_ids if waits[rid] is winner)
+            response = self._parse_approval_response(
+                winner, wait_id, fn_name, instance_id
+            )
+            if response is None:
+                # Ignored: listen on that name again; other waits and the timer stay.
+                waits[wait_id] = ctx.wait_for_external_event(
+                    f"approval_response_{wait_id}"
                 )
                 continue
 
             logger.info(
-                f"Approval decision for request {approval_request_id}, tool '{fn_name}': {'approved' if response.approved else 'not approved'} (instance={instance_id})"
+                f"Approval decision for request {wait_id}, tool '{fn_name}': {'approved' if response.approved else 'not approved'} (instance={instance_id})"
             )
             return response.approved
+
+    @staticmethod
+    def _parse_approval_response(
+        event_task: Any, wait_id: str, fn_name: str, instance_id: str
+    ) -> Optional[ApprovalResponseEvent]:
+        """Return the response for ``wait_id``, or None if it must be ignored.
+
+        Fails closed: a malformed body, or one whose ``approval_request_id`` does
+        not match the name it arrived on, is logged at WARNING and never decides
+        the request.
+        """
+        try:
+            response = ApprovalResponseEvent(**event_task.get_result())
+        except Exception as exc:
+            logger.warning(
+                "Ignoring unparseable approval response for request %s: %s "
+                "(tool='%s', instance=%s)",
+                wait_id,
+                exc,
+                fn_name,
+                instance_id,
+            )
+            return None
+        if response.approval_request_id != wait_id:
+            logger.warning(
+                "Ignoring approval response for request %s while waiting on %s "
+                "(tool='%s', instance=%s)",
+                response.approval_request_id,
+                wait_id,
+                fn_name,
+                instance_id,
+            )
+            return None
+        return response
 
     def orchestration_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
         """Dedicated orchestration workflow using strategy pattern.
@@ -3568,6 +3598,9 @@ class DurableAgent(AgentBase):
         pubsub_name = payload.get("pubsub_name")
         topic = payload.get("topic")
         approval_request_id = event_data.get("approval_request_id")
+        if not approval_request_id:
+            # The workflow treats a None result as a publish by older code.
+            raise ValueError("approval request event has no approval_request_id")
 
         self._pending_approvals[approval_request_id] = event_data
         self._persist_pending_approvals()
