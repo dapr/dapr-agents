@@ -236,12 +236,19 @@ class _FakeServers:
     answered, and one prompt named after the server. Connects to a server in
     ``hang`` block while listing prompts, i.e. after ``initialize()`` has
     succeeded and tools are loaded; servers in ``fail`` raise from
-    ``initialize()``. Transport exits are recorded in ``exited``.
+    ``initialize()``. Transport exits are recorded in ``exited``, and raise
+    when ``exit_error`` is set.
     """
 
-    def __init__(self, hang: Set[str] = frozenset(), fail: Set[str] = frozenset()):
+    def __init__(
+        self,
+        hang: Set[str] = frozenset(),
+        fail: Set[str] = frozenset(),
+        exit_error: bool = False,
+    ):
         self.hang = hang
         self.fail = fail
+        self.exit_error = exit_error
         self.listing = asyncio.Event()
         self.started: list = []
         self.exited: list = []
@@ -279,6 +286,8 @@ class _FakeServers:
             yield
         finally:
             self.exited.append(name)
+            if self.exit_error:
+                raise RuntimeError("transport exit failed")
 
 
 def _registered(client: MCPClient) -> tuple:
@@ -395,23 +404,42 @@ async def test_connect_stores_a_copy_of_nested_params():
     assert servers.started[-1]["env"] == {"TOKEN": "a"}
 
 
-@pytest.mark.parametrize("fail", ["initialize", "cancel"])
-async def test_persistent_failed_connect_closes_its_transport(fail):
+@pytest.mark.parametrize("exit_error", [False, True])
+@pytest.mark.parametrize(
+    "fail, expected", [("initialize", OSError), ("cancel", asyncio.CancelledError)]
+)
+async def test_persistent_failed_connect_closes_its_transport(
+    fail, expected, exit_error, caplog
+):
     client = MCPClient(persistent_connections=True)
     servers = _FakeServers(
         hang={"new"} if fail == "cancel" else set(),
         fail={"new"} if fail == "initialize" else set(),
+        exit_error=exit_error,
     )
     with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
-        task = asyncio.create_task(client.connect(_NEW))
-        if fail == "cancel":
-            await servers.listing.wait()
-            task.cancel()
-        with pytest.raises((OSError, asyncio.CancelledError)):
-            await task
+        with caplog.at_level(logging.WARNING, logger="dapr_agents.tool.mcp.client"):
+            task = asyncio.create_task(client.connect(_NEW))
+            if fail == "cancel":
+                await servers.listing.wait()
+                task.cancel()
+            with pytest.raises(expected):
+                await task
 
     assert servers.exited == ["new"]
     assert client.get_connected_servers() == []
+    for state in (
+        client._sessions,
+        client._task_locals,
+        client._server_tools,
+        client._server_prompts,
+    ):
+        assert "srv" not in state
+    assert client._connecting == set()
+    cleanup_warnings = [
+        r for r in _warnings(caplog) if "Error closing transport" in r.getMessage()
+    ]
+    assert len(cleanup_warnings) == (1 if exit_error else 0)
 
 
 async def test_persistent_connect_closes_its_transport_on_close():
