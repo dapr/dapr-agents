@@ -355,6 +355,48 @@ class TestToolHistoryWithSharedToolCallIds:
             _child_ids(ctx)
         )
 
+    @pytest.mark.parametrize("bad_meta", [[], [{"bogus": 1}] * 3])
+    def test_mismatched_tool_call_meta_falls_back_without_raising(
+        self, mock_llm, bad_meta
+    ):
+        """A tool_call_meta whose length differs from tool_results is ignored."""
+        frodo = _make_frodo(mock_llm)
+        calls = [_tool_call("call-1", "first")]
+        ctx, payload = _save_tool_results_payload(frodo, calls)
+        payload = {**payload, "tool_call_meta": bad_meta}
+        assistant = AgentWorkflowMessage(
+            role="assistant", content=None, tool_calls=calls
+        )
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[assistant],
+            tool_history=[],
+            last_message=assistant,
+        )
+
+        with (
+            patch.object(frodo, "save_state"),
+            patch.object(frodo._infra, "get_state", return_value=entry),
+        ):
+            frodo.save_tool_results(Mock(), payload)
+
+        assert [r.agent_workflow_instance_id for r in entry.tool_history] == (
+            _child_ids(ctx)
+        )
+
+    def test_tool_calls_by_id_keeps_last_entry_for_shared_id(self, mock_llm):
+        """Old code reads tool_calls_by_id on rollback; the last dispatch wins."""
+        frodo = _make_frodo(mock_llm)
+        calls = [_tool_call("call-1", "first"), _tool_call("call-1", "second")]
+
+        ctx, payload = _save_tool_results_payload(frodo, calls)
+
+        by_id = payload["tool_calls_by_id"]
+        assert list(by_id) == ["call-1"]
+        assert by_id["call-1"]["child_instance_id"] == _child_ids(ctx)[1]
+        assert by_id["call-1"] == payload["tool_call_meta"][1]
+
 
 def _call(call_id: str, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     return {

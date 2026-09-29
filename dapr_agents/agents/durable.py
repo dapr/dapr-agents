@@ -1102,38 +1102,9 @@ class DurableAgent(AgentBase):
                             ).model_dump()
 
                         tool_results = [tr for tr in ordered if tr is not None]
-                        tool_calls_by_id = {
-                            meta["tool_call"]["id"]: {
-                                "tool_call": meta["tool_call"],
-                                "is_agent_call": True,
-                                "child_instance_id": meta.get("child_instance_id"),
-                                "dispatch_time": meta.get("dispatch_time"),
-                            }
-                            for meta in workflow_meta
-                        }
-                        tool_calls_by_id.update(
-                            {
-                                meta["tool_call"]["id"]: {
-                                    "tool_call": meta["tool_call"],
-                                    "is_agent_call": False,
-                                    "dispatch_time": meta.get("dispatch_time"),
-                                }
-                                for meta in activity_meta
-                            }
-                        )
-                        tool_calls_by_id.update(
-                            {
-                                meta["tool_call"]["id"]: {
-                                    "tool_call": meta["tool_call"],
-                                    "is_agent_call": False,
-                                    "dispatch_time": meta.get("dispatch_time"),
-                                }
-                                for meta in generator_meta
-                            }
-                        )
-                        # Positional twin of tool_calls_by_id: tool_call_id can be
-                        # "" or repeated, so save_tool_results matches results to
-                        # their dispatch metadata by position instead.
+                        # Positional map: tool_call_id can be "" or repeated, so
+                        # save_tool_results matches results to their dispatch
+                        # metadata by position instead.
                         meta_by_order: List[Optional[Dict[str, Any]]] = [None] * len(
                             tool_calls
                         )
@@ -1150,6 +1121,12 @@ class DurableAgent(AgentBase):
                                 "is_agent_call": False,
                                 "dispatch_time": meta.get("dispatch_time"),
                             }
+                        # Id-keyed view kept for payloads read by older code; on
+                        # shared ids the later of workflow, activity, generator wins.
+                        tool_calls_by_id: Dict[str, Any] = {
+                            meta["tool_call"]["id"]: meta_by_order[meta["order"]]
+                            for meta in workflow_meta + activity_meta + generator_meta
+                        }
                         # include hook-blocked/skipped tool calls so save_tool_results
                         # can record them in tool_history for observability
                         for idx, tc in enumerate(tool_calls):
@@ -1160,18 +1137,14 @@ class DurableAgent(AgentBase):
                                     if isinstance(decision_for_tracking, Deny)
                                     else "skipped"
                                 )
-                                tool_calls_by_id[tc["id"]] = {
+                                blocked_entry = {
                                     "tool_call": tc,
                                     "is_agent_call": False,
                                     "dispatch_time": ctx.current_utc_datetime.isoformat(),
                                     "hook_decision": hook_label,
                                 }
-                                meta_by_order[idx] = {
-                                    "tool_call": tc,
-                                    "is_agent_call": False,
-                                    "dispatch_time": ctx.current_utc_datetime.isoformat(),
-                                    "hook_decision": hook_label,
-                                }
+                                tool_calls_by_id[tc["id"]] = blocked_entry
+                                meta_by_order[idx] = blocked_entry
                         tool_call_meta = [
                             meta_by_order[i] or {}
                             for i, tr in enumerate(ordered)
