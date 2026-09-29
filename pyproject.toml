@@ -151,7 +151,9 @@ fallback_version = "0.0.0.dev0"
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]
-testpaths = ["tests", "ext"]
+# ext/ runs in its own session (`pytest ext`): sharing one with tests/ hides the
+# installed extension and silently skips its tests.
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 markers = [
