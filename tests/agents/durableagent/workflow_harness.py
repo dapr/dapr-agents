@@ -25,6 +25,9 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
+# NOTE: these imports reach into private SDK modules (_durabletask, worker._Registry,
+# _OrchestrationExecutor). They are tied to the pinned dapr-ext-workflow version and
+# must be re-checked whenever that dependency is bumped.
 from dapr.ext.workflow._durabletask import worker
 from dapr.ext.workflow._durabletask.internal import helpers, protos as pb
 from dapr.ext.workflow._durabletask.internal.timer import (

@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
+from pydantic import ValidationError
 
 from dapr_agents.agents.orchestration import (
     OrchestrationStrategy,
@@ -1335,27 +1336,18 @@ class DurableAgent(AgentBase):
             },
             retry_policy=self._retry_policy,
         )
-        # Wait on the id that was actually published, read from the recorded
-        # activity result. A None result means the publish ran on older code:
-        # either before the upgrade (the approver holds the legacy id) or on a
-        # not-yet-upgraded replica during a rolling upgrade (it published the
-        # new id it was given). Listen on both names in that case.
-        if published_id is not None:
-            accepted_ids = [str(published_id)]
-        else:
-            accepted_ids = [
-                approval_request_id,
-                _legacy_approval_request_id(instance_id, tool_call_id),
-            ]
+        accepted_ids = self._accepted_approval_ids(
+            published_id, approval_request_id, instance_id, tool_call_id
+        )
         approval_request_id = accepted_ids[0]
 
         logger.info(
             f"Approval request {approval_request_id} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
         )
 
-        # Waits before the timer, as before: each wait_for_external_event also
-        # schedules an optional timer action, so this order keeps the sequence
-        # ids of histories recorded by the older code.
+        # History order: waits before the timer, as before. Each
+        # wait_for_external_event also schedules an optional timer action, so
+        # this order keeps the sequence ids of histories recorded by older code.
         waits = {
             rid: ctx.wait_for_external_event(f"approval_response_{rid}")
             for rid in accepted_ids
@@ -1366,6 +1358,43 @@ class DurableAgent(AgentBase):
             else None
         )
 
+        return (
+            yield from self._await_approval_decision(
+                ctx, accepted_ids, waits, timer_task, fn_name, instance_id
+            )
+        )
+
+    @staticmethod
+    def _accepted_approval_ids(
+        published_id: Any, new_id: str, instance_id: str, tool_call_id: str
+    ) -> List[str]:
+        """Return the request ids to listen on, the one to report first.
+
+        Waits on the id that was actually published, read from the recorded
+        activity result. A None result means the publish ran on older code:
+        either before the upgrade (the approver holds the legacy id) or on a
+        not-yet-upgraded replica during a rolling upgrade (it published the new
+        id it was given). Listen on both names in that case.
+        """
+        if published_id is not None:
+            return [str(published_id)]
+        return [new_id, _legacy_approval_request_id(instance_id, tool_call_id)]
+
+    def _await_approval_decision(
+        self,
+        ctx: wf.DaprWorkflowContext,
+        accepted_ids: List[str],
+        waits: Dict[str, Any],
+        timer_task: Optional[Any],
+        fn_name: str,
+        instance_id: str,
+    ):
+        """Wait for a valid approval response or the timer; use ``yield from``.
+
+        Returns True only for a matching, approving response. A timeout returns
+        False. Ignored responses re-arm only their own wait, so the other waits
+        and the single timer stay in place.
+        """
         while True:
             pending = [waits[rid] for rid in accepted_ids]
             if timer_task is None and len(pending) == 1:
@@ -1378,7 +1407,7 @@ class DurableAgent(AgentBase):
                 winner = yield wf.when_any(race)
                 if winner is timer_task:
                     logger.warning(
-                        f"Approval request {approval_request_id} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
+                        f"Approval request {accepted_ids[0]} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
                     )
                     return False
 
@@ -1406,16 +1435,24 @@ class DurableAgent(AgentBase):
 
         Fails closed: a malformed body, or one whose ``approval_request_id`` does
         not match the name it arrived on, is logged at WARNING and never decides
-        the request.
+        the request. Only structured metadata is logged for a bad body: the raw
+        exception embeds the input, which can carry an ``approver_token``.
         """
         try:
             response = ApprovalResponseEvent(**event_task.get_result())
         except Exception as exc:
+            if isinstance(exc, ValidationError):
+                reason: Any = [
+                    (e["loc"], e["type"])
+                    for e in exc.errors(include_input=False, include_url=False)
+                ]
+            else:
+                reason = type(exc).__name__
             logger.warning(
                 "Ignoring unparseable approval response for request %s: %s "
                 "(tool='%s', instance=%s)",
                 wait_id,
-                exc,
+                reason,
                 fn_name,
                 instance_id,
             )

@@ -119,7 +119,13 @@ def _agent_harness(agent, acts: _Activities, **kwargs) -> ReplayHarness:
     return harness
 
 
-def _approval_harness(agent, acts: _Activities, timeout: Optional[int] = 30):
+def _approval_harness(
+    agent,
+    acts: _Activities,
+    timeout: Optional[int] = 30,
+    history: Optional[List[Any]] = None,
+):
+    """Drive one ``_request_approval``: resume ``history`` if given, else start."""
     tc = _tool_call(call_id="call_0")
 
     def orchestrator(ctx, _):
@@ -134,8 +140,11 @@ def _approval_harness(agent, acts: _Activities, timeout: Optional[int] = 30):
             )
         )
 
-    harness = ReplayHarness(orchestrator, acts, instance_id=INSTANCE)
-    harness.start()
+    harness = ReplayHarness(orchestrator, acts, instance_id=INSTANCE, history=history)
+    if history is None:
+        harness.start()
+    else:
+        harness.resume()
     return harness
 
 
@@ -148,9 +157,9 @@ LEGACY_ID = _legacy_approval_request_id(INSTANCE, "call_0")
 def test_late_turn1_reply_cannot_decide_turn2_call(llm):
     """
     Turn 1 times out; its waiter stays registered for the event name. Turn 2
-    reuses call_0. The human denies turn 2, then a late turn-1 approval lands.
-    With a shared id the deny is swallowed by the dead turn-1 waiter and the
-    late approval approves turn 2.
+    reuses call_0 and is still pending when a late turn-1 approval lands. With a
+    shared id the dead turn-1 waiter takes the event and the late approval
+    approves turn 2. Then the real turn-2 reply is the one that decides.
     """
     agent = _approval_agent(llm)
     turn = {"tool_calls": [_tool_call(name="DeleteRepo", call_id="call_0")]}
@@ -158,13 +167,17 @@ def test_late_turn1_reply_cannot_decide_turn2_call(llm):
     h = _agent_harness(agent, acts)
     h.fire_timers()  # turn 1 times out; turn 2 publishes and waits
     turn1_id, turn2_id = acts.ids
+    assert turn1_id != turn2_id
 
-    h.raise_event(_name(turn2_id), _reply(turn2_id, approved=False))
     h.raise_event(_name(turn1_id), _reply(turn1_id, approved=True))
 
+    assert not h.done
     assert acts.tools_run == [], "a late turn-1 approval approved the turn-2 call"
+
+    h.raise_event(_name(turn2_id), _reply(turn2_id, approved=False))
+
     assert h.done
-    assert turn1_id != turn2_id
+    assert acts.tools_run == []
 
 
 def test_reply_after_earlier_timeout_reaches_its_own_call(llm):
@@ -197,7 +210,23 @@ def test_calls_sharing_an_id_in_one_turn_get_their_own_decisions(llm):
     assert acts.tools_run == ["B"]
 
 
-def test_ids_stable_across_replay_and_scoped_to_orchestration_time(llm):
+def _record_request_ids(monkeypatch) -> List[str]:
+    """Wrap ``_approval_request_id`` to record every value it returns."""
+    seen: List[str] = []
+    real = durable._approval_request_id
+
+    def recording(*args: Any, **kwargs: Any) -> str:
+        value = real(*args, **kwargs)
+        seen.append(value)
+        return value
+
+    monkeypatch.setattr(durable, "_approval_request_id", recording)
+    return seen
+
+
+def test_ids_stable_across_replay_and_scoped_to_orchestration_time(llm, monkeypatch):
+    seen = _record_request_ids(monkeypatch)
+
     def ids(start: datetime) -> List[str]:
         agent = _approval_agent(llm)
         turn = {"tool_calls": [_tool_call(call_id="call_0")] * 2}
@@ -213,6 +242,24 @@ def test_ids_stable_across_replay_and_scoped_to_orchestration_time(llm):
     assert len(set(first)) == 4
     assert ids(datetime(2024, 1, 1)) == first
     assert set(ids(datetime(2024, 1, 2))).isdisjoint(first)
+    # Every replay recomputed the id it published, so replay never drifts.
+    assert set(seen) >= set(first)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_request_id_identical_at_every_replay_step(llm, monkeypatch, legacy):
+    seen = _record_request_ids(monkeypatch)
+    agent = _approval_agent(llm)
+    acts = _Activities([], legacy=legacy)
+    h = _approval_harness(agent, acts)
+    rid = acts.ids[0]
+    h.raise_event(_name(rid), _reply(rid, body_id="stale"))  # ignored, replays
+    h.resume()
+    h.raise_event(_name(rid), _reply(rid, approved=True))
+
+    assert h.done and h.output is True
+    assert len(seen) >= 4  # start, ignored reply, resume, decision
+    assert set(seen) == {rid}
 
 
 # Fail closed                                                                  #
@@ -234,6 +281,24 @@ def test_mismatched_reply_is_ignored_and_logged(llm, caplog):
     h.fire_timers()
     assert h.done and h.output is False
     assert h.timers_created == 1
+
+
+@pytest.mark.parametrize("body_id", [None, 42, ""])
+def test_approver_token_never_reaches_logs(llm, caplog, body_id):
+    agent = _approval_agent(llm)
+    acts = _Activities([])
+    h = _approval_harness(agent, acts)
+    rid = acts.ids[0]
+    body: Dict[str, Any] = {"approved": True, "approver_token": "SECRET-TOKEN"}
+    if body_id is not None:
+        body["approval_request_id"] = body_id
+    with caplog.at_level(logging.DEBUG):
+        h.raise_event(_name(rid), body)
+        h.fire_timers()
+
+    assert h.done and h.output is False
+    assert "SECRET-TOKEN" not in caplog.text
+    assert any("Ignoring" in r.getMessage() for r in caplog.records)
 
 
 def test_malformed_replies_are_ignored_and_keep_waiting(llm, caplog):
@@ -313,30 +378,10 @@ def test_run_waiting_at_upgrade_is_released_by_its_old_id(llm, timeout):
     # Upgrade: the new code replays the old history, then the approver replies
     # with the id it was shown, the legacy one.
     acts = _Activities([], legacy=True)
-    h = _approval_harness_on(agent, acts, old.history, timeout)
+    h = _approval_harness(agent, acts, timeout, history=old.history)
     h.raise_event(_name(LEGACY_ID), _reply(LEGACY_ID))
 
     assert h.done and h.output is True
-
-
-def _approval_harness_on(agent, acts, history, timeout):
-    tc = _tool_call(call_id="call_0")
-
-    def orchestrator(ctx, _):
-        return (
-            yield from agent._request_approval(
-                DaprWorkflowContext(ctx),
-                ctx.instance_id,
-                tc,
-                RequireApproval(timeout_seconds=timeout),
-                turn=1,
-                call_index=0,
-            )
-        )
-
-    h = ReplayHarness(orchestrator, acts, instance_id=INSTANCE, history=history)
-    h.resume()
-    return h
 
 
 @pytest.mark.parametrize("on", ["new", "legacy"])
@@ -366,6 +411,20 @@ def test_publish_on_old_replica_ignores_wrong_body_id(llm, on):
     assert not h.done
 
     h.raise_event(_name(other), _reply(other, approved=False))
+    assert h.done and h.output is False
+    assert h.timers_created == 1
+
+
+def test_dual_name_wrong_bodies_do_not_extend_the_timeout(llm):
+    agent = _approval_agent(llm)
+    acts = _Activities([], legacy=True)
+    h = _approval_harness(agent, acts)
+    for rid in (acts.ids[0], LEGACY_ID):
+        h.raise_event(_name(rid), _reply(rid, body_id="someone-else"))
+        assert not h.done
+
+    h.fire_timers()
+
     assert h.done and h.output is False
     assert h.timers_created == 1
 
