@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union, Coroutine
 from dapr_agents.agents.schemas import AgentWorkflowMessage, ConversationSummary
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
+from dapr_agents.types.agent import ToolChoice
 from dapr_agents.utils import (
     AsyncDaprClientFactory,
     DaprClientConfig,
@@ -86,7 +87,6 @@ from dapr_agents.utils.config import (
     ConfigFieldDescriptor,
     apply_config_update,
     normalize_config_key,
-    process_config_update,
 )
 from pydantic import ValidationError
 
@@ -656,13 +656,13 @@ class AgentBase:
             runtime_config=self._runtime_conf,
         )
 
-        if not self.tools and self.execution.tool_choice == "auto":
+        if not self.tools and self.execution.tool_choice == ToolChoice.AUTO:
             logger.debug(
                 f"No tools configured for agent '{self.name}'; ignoring tool_choice={self.execution.tool_choice!r}."
             )
             self.execution.tool_choice = None
         elif self.tools and self.execution.tool_choice is None:
-            self.execution.tool_choice = "auto"
+            self.execution.tool_choice = ToolChoice.AUTO
 
         # -----------------------------
         # Agent metadata & registry registration
@@ -679,7 +679,7 @@ class AgentBase:
         tool_choice = None
         if self.execution:
             max_iterations = getattr(self.execution, "max_iterations", None)
-            tool_choice = getattr(self.execution, "tool_choice", None)
+            tool_choice = getattr(self.execution, "tool_choice", None)  # Get tool choice as raw string
 
         # Publish the canonical workflow name when the subclass exposes one
         # (e.g. DurableAgent.agent_workflow_name). This lets orchestrators in

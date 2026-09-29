@@ -624,8 +624,7 @@ class AgentExecutionConfig:
         provided_fields: set[str] = set()
 
         def resolve_field(field_name: str, value: Any, default: Any) -> Any:
-            """Return the value, or the default if unset. Records the field name when the caller passed a value.
-            """
+            """Return the value, or the default if unset. Records the field name when the caller passed a value."""
             if value is _UNSET:
                 return default
             provided_fields.add(field_name)

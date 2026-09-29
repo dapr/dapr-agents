@@ -13,7 +13,7 @@
 
 """Execution config resolution tests for DurableAgent."""
 
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -52,13 +52,10 @@ class ExecutionConfigTestBase:
 
         monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
 
-        # Mock the observability config resolution and setup
+        # Mock AgentMetadata to avoid schema validation failures during initialization
         monkeypatch.setattr(
-            "dapr_agents.agents.base.AgentObservabilityConfig.resolve_config",
-            lambda config, runtime_config: Mock(),
-        )
-        monkeypatch.setattr(
-            "dapr_agents.agents.base.AgentBase._setup_agent_observability", Mock()
+            "dapr_agents.agents.base.AgentMetadata",
+            lambda **kwargs: MagicMock(**kwargs),
         )
 
         yield

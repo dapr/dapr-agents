@@ -55,12 +55,10 @@ class TestObservabilityConfigFromInstantiation:
             lambda: mock_client,
         )
 
-        # Mock the execution config resolution
-        mock_execution_config = MagicMock()
-        mock_execution_config.orchestration_mode = None
+        # Mock AgentMetadata to avoid schema validation failures during initialization
         monkeypatch.setattr(
-            "dapr_agents.agents.base.AgentExecutionConfig.resolve_config",
-            lambda config, runtime_config: mock_execution_config,
+            "dapr_agents.agents.base.AgentMetadata",
+            lambda **kwargs: MagicMock(**kwargs),
         )
 
         # Mock the observability setup to avoid actual OTel initialization
