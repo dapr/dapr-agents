@@ -34,6 +34,20 @@ from opentelemetry import trace
 logger = logging.getLogger(__name__)
 
 
+def _is_benign_teardown(exc: BaseException) -> bool:
+    """Whether ``exc`` is a BrokenResourceError expected during stdio teardown.
+
+    Matches a bare BrokenResourceError, or an ExceptionGroup (anyio wraps
+    task-group errors) that contains only BrokenResourceError.
+    """
+    if isinstance(exc, BrokenResourceError):
+        return True
+    sub_exceptions = getattr(exc, "exceptions", None)
+    return sub_exceptions is not None and all(
+        isinstance(err, BrokenResourceError) for err in sub_exceptions
+    )
+
+
 def _format_exception_message(exception: BaseException) -> str:
     """
     Format an exception message, unwrapping ExceptionGroup if present.
@@ -162,15 +176,7 @@ class MCPClient(BaseModel):
             try:
                 await stack.aclose()
             except Exception as exc:
-                # Handle both a bare BrokenResourceError and an ExceptionGroup
-                # (anyio wraps task-group errors) that contains only BrokenResourceError.
-                sub_exceptions = getattr(exc, "exceptions", None)
-                if isinstance(exc, BrokenResourceError) or (
-                    sub_exceptions is not None
-                    and all(
-                        isinstance(err, BrokenResourceError) for err in sub_exceptions
-                    )
-                ):
+                if _is_benign_teardown(exc):
                     logger.debug(
                         "Ignoring BrokenResourceError during ephemeral session cleanup "
                         "after failed creation (expected for stdio transport)"
@@ -193,13 +199,7 @@ class MCPClient(BaseModel):
             try:
                 await stack.aclose()
             except Exception as exc:
-                # Handle both a bare BrokenResourceError and an ExceptionGroup
-                # (anyio wraps task-group errors) that contains only BrokenResourceError.
-                sub_exceptions = getattr(exc, "exceptions", None)
-                if isinstance(exc, BrokenResourceError) or (
-                    sub_exceptions is not None
-                    and all(isinstance(e, BrokenResourceError) for e in sub_exceptions)
-                ):
+                if _is_benign_teardown(exc):
                     logger.debug(
                         "Ignoring BrokenResourceError during ephemeral session cleanup "
                         "(expected for stdio transport)"
@@ -297,9 +297,12 @@ class MCPClient(BaseModel):
         try:
             await stack.aclose()
         except Exception as exc:
-            logger.warning(
+            # Expected for stdio teardown; not worth a WARNING.
+            level = logging.DEBUG if _is_benign_teardown(exc) else logging.WARNING
+            logger.log(
+                level,
                 f"Error closing transport for MCP server '{server_name}' after a "
-                f"failed connect: {_format_exception_message(exc)}"
+                f"failed connect: {_format_exception_message(exc)}",
             )
 
     async def connect_many(self, server_configs: list) -> None:
