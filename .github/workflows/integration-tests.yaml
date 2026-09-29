@@ -90,9 +90,7 @@ jobs:
         python-version: ${{ matrix.python_ver }}
 
     - name: Reserve Dapr host ports
-      # Keep outgoing connections from taking the fixed ports dapr init
-      # binds, which sit inside the ephemeral range.
-      run: sudo sysctl -w net.ipv4.ip_local_reserved_ports=50005,50006,58080,58081,59090,59091
+      uses: ./.github/actions/dapr-reserve-ports
 
     - name: Set up Docker
       uses: docker/setup-docker-action@v5
@@ -102,22 +100,7 @@ jobs:
         wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
 
     - name: Initialize Dapr
-      # dapr init binds fixed host ports (e.g. 58080) that sit inside the
-      # runner's ephemeral range, so another process can briefly hold one.
-      # Retry after a clean uninstall instead of failing the job.
-      run: |
-        for attempt in 1 2 3; do
-          if dapr init; then
-            exit 0
-          fi
-          if [ "$attempt" -eq 3 ]; then
-            echo "::error::dapr init failed after 3 attempts"
-            exit 1
-          fi
-          echo "dapr init failed (attempt $attempt/3); retrying"
-          dapr uninstall --all || true
-          sleep 5
-        done
+      uses: ./.github/actions/dapr-init
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7

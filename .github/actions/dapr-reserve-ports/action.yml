@@ -1,0 +1,16 @@
+name: Reserve Dapr host ports
+description: >-
+  Stop outgoing connections from taking the fixed host ports that
+  `dapr init` binds. They sit inside the Linux ephemeral range.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      # Host ports published by `dapr init` on Linux, from the dapr CLI's
+      # pkg/standalone/standalone.go: placement 50005 (health 58080, metrics
+      # 59090) and scheduler 50006 (health 58081, metrics 59091). Redis 6379,
+      # Zipkin 9411 and scheduler etcd 2379 are below the ephemeral range.
+      run: |
+        ports="50005,50006,58080,58081,59090,59091"
+        current="$(sysctl -n net.ipv4.ip_local_reserved_ports)"
+        sudo sysctl -w net.ipv4.ip_local_reserved_ports="${current:+$current,}$ports"

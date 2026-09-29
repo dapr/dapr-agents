@@ -1,0 +1,26 @@
+name: Initialize Dapr
+description: >-
+  Run `dapr init`, retrying only when a host port is briefly taken.
+  Any other failure fails the step immediately.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        log="$(mktemp)"
+        for attempt in 1 2 3; do
+          if dapr init 2>&1 | tee "$log"; then
+            exit 0
+          fi
+          if ! grep -qiE 'address already in use|port is already allocated' "$log"; then
+            echo "::error::dapr init failed"
+            exit 1
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "::error::dapr init failed after 3 attempts: a host port stayed in use"
+            exit 1
+          fi
+          echo "dapr init hit a port conflict (attempt $attempt/3); retrying"
+          dapr uninstall --all || true
+          sleep 5
+        done
