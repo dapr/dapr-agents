@@ -52,10 +52,27 @@ class ExecutionConfigTestBase:
 
         monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
 
-        # Mock AgentMetadata to avoid schema validation failures during initialization
+        # Mock DaprClient with no runtime config
+        mock_client = MockDaprClient()
+        monkeypatch.setattr(
+            "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
+        )
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
+        )
+
+        # Mock metadata models to avoid schema validation failures during initialization
         monkeypatch.setattr(
             "dapr_agents.agents.base.AgentMetadata",
             lambda **kwargs: MagicMock(**kwargs),
+        )
+        monkeypatch.setattr(
+            "dapr_agents.agents.base.AgentMetadataSchema",
+            lambda **kwargs: MagicMock(**kwargs),
+        )
+        monkeypatch.setattr(
+            "dapr_agents.agents.base.AgentBase.register_agentic_system", Mock()
         )
 
         yield
@@ -82,13 +99,12 @@ class ExecutionConfigTestBase:
         return tool
 
     def _patch_dapr_client(self, monkeypatch, mock_client):
-        """Patch DaprClient creation to return the provided mock client."""
+        """
+        Patch DaprClient creation to return the provided mock client.
+        Used by runtime config tests to inject custom runtime config values.
+        """
         monkeypatch.setattr(
             "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
-        )
-        monkeypatch.setattr(
-            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
-            lambda: mock_client,
         )
 
     def _make_agent(self, mock_llm, execution_config=None, tools=None):
@@ -115,13 +131,10 @@ class ExecutionConfigTestBase:
 class TestExecutionConfigDefaults(ExecutionConfigTestBase):
     """Test default execution config resolution through DurableAgent."""
 
-    def test_execution_config_defaults(self, mock_llm, mock_tool, monkeypatch):
+    def test_execution_config_defaults(self, mock_llm, mock_tool):
         """
-        Test defaults are preserved when none of the configuration sources are available.
+        Test that defaults are preserved when none of the configuration sources are available.
         """
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
         assert agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
@@ -134,13 +147,8 @@ class TestExecutionConfigDefaults(ExecutionConfigTestBase):
 class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
     """Test cases for execution config passed during DurableAgent instantiation."""
 
-    def test_execution_config_from_instantiation(
-        self, mock_llm, mock_tool, monkeypatch
-    ):
+    def test_execution_config_from_instantiation(self, mock_llm, mock_tool):
         """Test execution config passed during instantiation."""
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
         execution_config = AgentExecutionConfig(
             max_iterations=5,
             tool_choice=ToolChoice.REQUIRED,
@@ -191,12 +199,9 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         ],
     )
     def test_execution_config_from_instantiation_raises_for_invalid_values(
-        self, mock_llm, mock_tool, monkeypatch, execution_config, expected_match
+        self, mock_llm, mock_tool, execution_config, expected_match
     ):
         """Test that invalid instantiated config values raise for strict fields."""
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
         with pytest.raises(ValueError, match=expected_match):
             self._make_agent(
                 mock_llm,
@@ -241,12 +246,9 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         assert resolved_config.tool_execution_mode == ToolExecutionMode.PARALLEL
 
     def test_execution_config_from_instantiation_allows_non_standard_tool_choice(
-        self, mock_llm, mock_tool, monkeypatch
+        self, mock_llm, mock_tool
     ):
         """Test that a non-standard instantiated tool choice is permitted."""
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
         execution_config = AgentExecutionConfig(
             tool_choice="all",
         )
@@ -277,9 +279,6 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sequential")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "654321")
 
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
         agent = self._make_agent(
             mock_llm,
             tools=[mock_tool],
@@ -297,9 +296,6 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         """Test that execution config accepts lowercase environment variable names."""
         monkeypatch.setenv("dapr_agents_max_iterations", "7")
 
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
         assert agent.execution.max_iterations == 7
@@ -311,9 +307,6 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "zero")
         monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sideways")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "abc")
-
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = self._make_agent(
             mock_llm,
@@ -332,9 +325,6 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
     ):
         """Test that a non-standard environment variable tool choice is permitted."""
         monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "tool")
-
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
 
         agent = self._make_agent(
             mock_llm,
@@ -462,9 +452,6 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sequential")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "4000000")
 
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
-
         execution_config = AgentExecutionConfig(
             tool_choice=ToolChoice.REQUIRED,
             orchestration_mode=OrchestrationMode.AGENT,
@@ -489,9 +476,6 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "2")
         monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "auto")
         monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sequential")
-
-        mock_client = MockDaprClient()
-        self._patch_dapr_client(monkeypatch, mock_client)
 
         execution_config = AgentExecutionConfig(
             max_iterations=5,
