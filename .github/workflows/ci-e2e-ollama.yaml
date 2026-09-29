@@ -89,8 +89,19 @@ jobs:
         dapr uninstall --all
 
     - name: Initialize Dapr
+      # dapr init binds fixed host ports (e.g. 58080) that sit inside the
+      # runner's ephemeral range, so another process can briefly hold one.
+      # Retry after a clean uninstall instead of failing the job.
       run: |
-        dapr init
+        for attempt in 1 2 3; do
+          if dapr init; then
+            exit 0
+          fi
+          echo "dapr init failed (attempt $attempt/3); retrying"
+          dapr uninstall --all || true
+          sleep 5
+        done
+        exit 1
 
     - name: Free up disk space
       run: |
