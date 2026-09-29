@@ -12,7 +12,7 @@
 #
 
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Dict, List, Optional, Set, Any, Type, AsyncIterator
+from typing import Dict, List, Optional, Set, Any, Tuple, Type, AsyncIterator
 from types import TracebackType
 import asyncio
 import logging
@@ -63,6 +63,15 @@ def _format_exception_message(exception: BaseException) -> str:
         return base_msg
 
     return str(exception)
+
+
+def _copy_params(value: Any) -> Any:
+    """Copy nested dicts and lists; other values are shared, as they may not be copyable."""
+    if isinstance(value, dict):
+        return {key: _copy_params(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_copy_params(item) for item in value]
+    return value
 
 
 class MCPClient(BaseModel):
@@ -212,8 +221,9 @@ class MCPClient(BaseModel):
         Args:
             config: dict
         """
-        # Make a copy so we don't mutate the caller's config
-        config = dict(config)
+        # Copy nested dicts and lists too, so a caller mutating its own config
+        # cannot change the stored one.
+        config = _copy_params(config)
         server_name = config.pop("server_name", None)
         transport = config.pop("transport", None)
         if server_name in self._connected_servers:
@@ -222,42 +232,34 @@ class MCPClient(BaseModel):
             raise RuntimeError(f"Server '{server_name}' is already connecting")
         self._connecting.add(server_name)
         new_config = {"transport": transport, "params": config}
+        # Each connect gets its own stack, so a failed one closes its transport
+        # instead of leaving it on the shared stack until close().
+        stack = AsyncExitStack()
         try:
             self._task_locals[server_name] = asyncio.current_task()
-            stack = self._exit_stack
             if self.persistent_connections:
-                # Persistent: session is managed by the main exit stack
-                session = await start_transport_session(transport, config, stack)
-                await session.initialize()
-                logger.debug(
-                    f"Initialized session for server '{server_name}', loading tools and prompts"
+                session, tools, prompts = await self._open_and_load(
+                    server_name, transport, config, stack
                 )
-                await self._load_tools_from_session(server_name, session)
-                await self._load_prompts_from_session(server_name, session)
+                self._exit_stack.push_async_exit(stack)
                 self._sessions[server_name] = session
-                logger.info(
-                    f"Successfully connected to MCP server '{server_name}' (persistent mode)"
-                )
             else:
-                # Ephemeral: use a temporary AsyncExitStack for initial tool/prompt loading
-                async with AsyncExitStack() as ephemeral_stack:
-                    session = await start_transport_session(
-                        transport, config, ephemeral_stack
+                async with stack:
+                    _, tools, prompts = await self._open_and_load(
+                        server_name, transport, config, stack
                     )
-                    await session.initialize()
-                    logger.debug(
-                        f"Initialized ephemeral session for server '{server_name}', loading tools and prompts"
-                    )
-                    await self._load_tools_from_session(server_name, session)
-                    await self._load_prompts_from_session(server_name, session)
-                logger.info(
-                    f"Successfully connected to MCP server '{server_name}' (ephemeral mode)"
-                )
+            self._server_tools[server_name] = tools
+            self._server_prompts[server_name] = prompts
             self._server_configs[server_name] = new_config
             self._connected_servers.add(server_name)
+            mode = "persistent" if self.persistent_connections else "ephemeral"
+            logger.info(
+                f"Successfully connected to MCP server '{server_name}' ({mode} mode)"
+            )
         except (Exception, asyncio.CancelledError) as e:
             reason = _format_exception_message(e) or type(e).__name__
             logger.error(f"Failed to connect to MCP server '{server_name}': {reason}")
+            await self._close_failed_connect(server_name, stack)
             self._sessions.pop(server_name, None)
             self._task_locals.pop(server_name, None)
             previous_config = self._server_configs.get(server_name)
@@ -271,6 +273,34 @@ class MCPClient(BaseModel):
             raise
         finally:
             self._connecting.discard(server_name)
+
+    async def _open_and_load(
+        self,
+        server_name: str,
+        transport: Any,
+        config: Dict[str, Any],
+        stack: AsyncExitStack,
+    ) -> Tuple[ClientSession, List[AgentTool], Dict[str, Prompt]]:
+        """Open and initialize a session on ``stack``, then load its tools and prompts."""
+        session = await start_transport_session(transport, config, stack)
+        await session.initialize()
+        logger.debug(
+            f"Initialized session for server '{server_name}', loading tools and prompts"
+        )
+        tools = await self._load_tools_from_session(server_name, session)
+        prompts = await self._load_prompts_from_session(server_name, session)
+        return session, tools, prompts
+
+    @staticmethod
+    async def _close_failed_connect(server_name: str, stack: AsyncExitStack) -> None:
+        """Close a failed connect's transport without masking the original error."""
+        try:
+            await stack.aclose()
+        except Exception as exc:
+            logger.warning(
+                f"Error closing transport for MCP server '{server_name}' after a "
+                f"failed connect: {_format_exception_message(exc)}"
+            )
 
     async def connect_many(self, server_configs: list) -> None:
         """
@@ -407,13 +437,16 @@ class MCPClient(BaseModel):
 
     async def _load_tools_from_session(
         self, server_name: str, session: ClientSession
-    ) -> None:
+    ) -> List[AgentTool]:
         """
         Load tools from a given MCP session and convert them to AgentTools.
 
         Args:
             server_name: Unique identifier for this server
             session: The MCP client session
+
+        Returns:
+            The converted tools, or an empty list if listing them failed.
         """
         logger.debug(f"Loading tools from server '{server_name}'")
         try:
@@ -438,31 +471,33 @@ class MCPClient(BaseModel):
                         f"Failed to convert tool '{mcp_tool.name}': {str(e)}"
                     )
 
-            self._server_tools[server_name] = converted_tools
             logger.info(
                 f"Loaded {len(converted_tools)} tools from server '{server_name}'"
             )
+            return converted_tools
         except Exception as e:
             logger.warning(
                 f"Failed to load tools from server '{server_name}': {str(e)}"
             )
-            self._server_tools[server_name] = []
+            return []
 
     async def _load_prompts_from_session(
         self, server_name: str, session: ClientSession
-    ) -> None:
+    ) -> Dict[str, Prompt]:
         """
         Load prompts from a given MCP session.
 
         Args:
             server_name: Unique identifier for this server
             session: The MCP client session
+
+        Returns:
+            The prompts keyed by name, or an empty dict if listing them failed.
         """
         logger.debug(f"Loading prompts from server '{server_name}'")
         try:
             response = await session.list_prompts()
             prompt_dict = {prompt.name: prompt for prompt in response.prompts}
-            self._server_prompts[server_name] = prompt_dict
 
             loaded = [
                 f"{p.name} ({len(p.arguments or [])} args)" for p in response.prompts
@@ -471,11 +506,12 @@ class MCPClient(BaseModel):
                 f"Loaded {len(loaded)} prompts from server '{server_name}': "
                 + ", ".join(loaded)
             )
+            return prompt_dict
         except Exception as e:
             logger.warning(
                 f"Failed to load prompts from server '{server_name}': {str(e)}"
             )
-            self._server_prompts[server_name] = {}
+            return {}
 
     async def wrap_mcp_tool(self, server_name: str, mcp_tool: MCPTool) -> AgentTool:
         """

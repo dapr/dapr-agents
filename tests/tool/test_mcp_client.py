@@ -19,6 +19,7 @@ import socket
 import subprocess
 import sys
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Set
@@ -54,7 +55,9 @@ async def test_load_prompts_failure_leaves_accessors_usable():
         list_prompts=AsyncMock(side_effect=RuntimeError("prompts not supported"))
     )
 
-    await client._load_prompts_from_session("srv", session)
+    client._server_prompts["srv"] = await client._load_prompts_from_session(
+        "srv", session
+    )
 
     assert client.get_server_prompts("srv") == []
     assert client.get_all_prompts() == {"srv": []}
@@ -71,7 +74,9 @@ async def test_load_prompts_success_populates_accessors():
         list_prompts=AsyncMock(return_value=SimpleNamespace(prompts=[prompt]))
     )
 
-    await client._load_prompts_from_session("srv", session)
+    client._server_prompts["srv"] = await client._load_prompts_from_session(
+        "srv", session
+    )
 
     assert client.get_prompt_names("srv") == ["greet"]
     assert client.get_server_prompts("srv") == [prompt]
@@ -228,34 +233,59 @@ class _FakeServers:
     """Fake transport keyed on the stdio ``command``, which names the server.
 
     Each session exposes one ``ping`` tool whose result names the server that
-    answered. Connects to a server in ``hang`` block while listing tools, i.e.
-    after ``initialize()`` has succeeded.
+    answered, and one prompt named after the server. Connects to a server in
+    ``hang`` block while listing prompts, i.e. after ``initialize()`` has
+    succeeded and tools are loaded; servers in ``fail`` raise from
+    ``initialize()``. Transport exits are recorded in ``exited``.
     """
 
-    def __init__(self, hang: Set[str]):
+    def __init__(self, hang: Set[str] = frozenset(), fail: Set[str] = frozenset()):
         self.hang = hang
+        self.fail = fail
         self.listing = asyncio.Event()
+        self.started: list = []
+        self.exited: list = []
 
-    async def start(self, _transport, params, _stack):
+    async def start(self, _transport, params, stack):
         name = params["command"]
+        self.started.append(params)
+        await stack.enter_async_context(self._transport(name))
         tool = MCPTool(name="ping", inputSchema={"type": "object", "properties": {}})
 
-        async def list_tools():
+        async def initialize():
+            if name in self.fail:
+                raise OSError("refused")
+
+        async def list_prompts():
             if name in self.hang:
                 self.listing.set()
                 await asyncio.Event().wait()
-            return SimpleNamespace(tools=[tool])
+            return SimpleNamespace(prompts=[Prompt(name=f"{name}_prompt")])
 
         return SimpleNamespace(
-            initialize=AsyncMock(),
-            list_tools=list_tools,
-            list_prompts=AsyncMock(return_value=SimpleNamespace(prompts=[])),
+            initialize=initialize,
+            list_tools=AsyncMock(return_value=SimpleNamespace(tools=[tool])),
+            list_prompts=list_prompts,
             call_tool=AsyncMock(
                 return_value=CallToolResult(
                     content=[TextContent(type="text", text=f"from {name}")]
                 )
             ),
         )
+
+    @asynccontextmanager
+    async def _transport(self, name: str):
+        try:
+            yield
+        finally:
+            self.exited.append(name)
+
+
+def _registered(client: MCPClient) -> tuple:
+    return (
+        [id(tool) for tool in client.get_all_tools()],
+        client.get_all_prompt_names(),
+    )
 
 
 async def _connect_old_then_close(client: MCPClient) -> dict:
@@ -314,6 +344,87 @@ async def test_tool_reaches_previous_server_while_reconnect_in_flight():
                 await task
 
     assert _tool_text(result) == "from old"
+
+
+async def test_cancelled_reconnect_keeps_previous_tools_and_prompts():
+    client = MCPClient()
+    servers = _FakeServers(hang={"new"})
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        await _connect_old_then_close(client)
+        before = _registered(client)
+        task = asyncio.create_task(client.connect(_NEW))
+        await servers.listing.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert _registered(client) == before
+
+
+async def test_cancelled_first_connect_registers_no_tools_or_prompts():
+    client = MCPClient()
+    servers = _FakeServers(hang={"new"})
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        task = asyncio.create_task(client.connect(_NEW))
+        await servers.listing.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert client.get_server_tools("srv") == []
+    assert client.get_server_prompts("srv") == []
+    assert _registered(client) == ([], {})
+
+
+async def test_connect_stores_a_copy_of_nested_params():
+    client = MCPClient()
+    servers = _FakeServers()
+    config = {
+        "server_name": "srv",
+        "transport": "stdio",
+        "command": "old",
+        "env": {"TOKEN": "a"},
+    }
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        await client.connect(config)
+        tools = {tool.name: tool for tool in client.get_all_tools()}
+        config["env"]["TOKEN"] = "b"
+
+        await tools["srv_ping"].arun()
+
+    assert servers.started[-1]["env"] == {"TOKEN": "a"}
+
+
+@pytest.mark.parametrize("fail", ["initialize", "cancel"])
+async def test_persistent_failed_connect_closes_its_transport(fail):
+    client = MCPClient(persistent_connections=True)
+    servers = _FakeServers(
+        hang={"new"} if fail == "cancel" else set(),
+        fail={"new"} if fail == "initialize" else set(),
+    )
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        task = asyncio.create_task(client.connect(_NEW))
+        if fail == "cancel":
+            await servers.listing.wait()
+            task.cancel()
+        with pytest.raises((OSError, asyncio.CancelledError)):
+            await task
+
+    assert servers.exited == ["new"]
+    assert client.get_connected_servers() == []
+
+
+async def test_persistent_connect_closes_its_transport_on_close():
+    client = MCPClient(persistent_connections=True)
+    servers = _FakeServers()
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        await client.connect(_NEW)
+        result = await client.get_all_tools()[0].arun()
+        assert servers.exited == []
+        await client.close()
+
+    assert _tool_text(result) == "from new"
+    assert servers.exited == ["new"]
 
 
 async def test_successful_reconnect_switches_tools_to_new_server():
