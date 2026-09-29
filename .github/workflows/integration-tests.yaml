@@ -92,7 +92,7 @@ jobs:
     - name: Reserve Dapr host ports
       # Keep outgoing connections from taking the fixed ports dapr init
       # binds, which sit inside the ephemeral range.
-      run: sudo sysctl -w net.ipv4.ip_local_reserved_ports=50005,50006,52379,58080,59090
+      run: sudo sysctl -w net.ipv4.ip_local_reserved_ports=50005,50006,58080,58081,59090,59091
 
     - name: Set up Docker
       uses: docker/setup-docker-action@v5
