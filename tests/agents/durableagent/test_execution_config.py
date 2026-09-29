@@ -232,7 +232,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
     def test_execution_config_from_instantiation_accepts_case_insensitive_strings(
         self, tool_choice, tool_execution_mode
     ):
-        """Test execution config accepts case-insensitive tool choice and execution mode strings."""
+        """Test that execution config accepts case-insensitive tool choice and execution mode strings."""
         execution_config = AgentExecutionConfig(
             tool_choice=tool_choice,
             tool_execution_mode=tool_execution_mode,
@@ -246,7 +246,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
     def test_execution_config_from_instantiation_allows_non_standard_tool_choice(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Specifically test that a non-standard instantiated tool choice is permitted."""
+        """Test that a non-standard instantiated tool choice is permitted."""
         mock_client = MockDaprClient()
         self._patch_dapr_client(monkeypatch, mock_client)
 
@@ -297,7 +297,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
     def test_execution_config_from_env_is_case_insensitive(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test execution config accepts lowercase environment variable names."""
+        """Test that execution config accepts lowercase environment variable names."""
         monkeypatch.setenv("dapr_agents_max_iterations", "7")
 
         mock_client = MockDaprClient()
@@ -310,7 +310,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
     def test_execution_config_from_env_ignores_invalid_values(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test invalid environment variable values are ignored."""
+        """Test that invalid environment variable values are ignored."""
         monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "zero")
         monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sideways")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "abc")
@@ -333,7 +333,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
     def test_execution_config_from_env_allows_non_standard_tool_choice(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Specifically test that a non-standard environment variable tool choice is permitted."""
+        """Test that a non-standard environment variable tool choice is permitted."""
         monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "tool")
 
         mock_client = MockDaprClient()
@@ -378,7 +378,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
     def test_execution_config_from_statestore_ignores_invalid_values(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test invalid runtime values are ignored."""
+        """Test that invalid runtime values are ignored."""
         runtime_config = {
             "MAX_ITERATIONS": "two",
         }
@@ -398,7 +398,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
     def test_execution_config_from_statestore_allows_non_standard_tool_choice(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Specifically test that a non-standard runtime tool choice is permitted."""
+        """Test that a non-standard runtime tool choice is permitted."""
         runtime_config = {
             "TOOL_CHOICE": "no",
         }
@@ -455,6 +455,35 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
 
         # All other fields should resolve to defaults since they were not provided
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
+
+    def test_execution_config_partial_instantiation_preserves_env(
+        self, mock_llm, mock_tool, monkeypatch
+    ):
+        """Test that fields omitted from instantiation do not override environment variables."""
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "3")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "auto")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sequential")
+        monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "4000000")
+
+        mock_client = MockDaprClient()
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        execution_config = AgentExecutionConfig(
+            tool_choice=ToolChoice.REQUIRED,
+            orchestration_mode=OrchestrationMode.AGENT,
+        )
+
+        agent = self._make_agent(
+            mock_llm,
+            execution_config=execution_config,
+            tools=[mock_tool],
+        )
+
+        assert agent.execution.max_iterations == 3
+        assert agent.execution.tool_choice == ToolChoice.REQUIRED
+        assert agent.execution.tool_execution_mode == ToolExecutionMode.SEQUENTIAL
+        assert agent.execution.orchestration_mode == OrchestrationMode.AGENT
+        assert agent.execution.max_grpc_inbound_message_size_bytes == 4000000
 
     def test_execution_config_instantiation_over_env(
         self, mock_llm, mock_tool, monkeypatch

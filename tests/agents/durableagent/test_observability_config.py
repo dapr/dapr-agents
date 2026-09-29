@@ -110,7 +110,7 @@ class TestObservabilityConfigFromInstantiation:
     def test_observability_config_from_instantiation_accepts_case_insensitive_strings(
         self, logging_exporter, tracing_exporter
     ):
-        """Test observability config accepts case-insensitive logging and tracing exporter strings."""
+        """Test that observability config accepts case-insensitive logging and tracing exporter strings."""
         observability_config = AgentObservabilityConfig(
             logging_exporter=logging_exporter,
             tracing_exporter=tracing_exporter,

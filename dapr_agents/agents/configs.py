@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import (
     Any,
     Callable,
+    cast,
     Dict,
     List,
     MutableMapping,
@@ -80,6 +81,16 @@ EntryContainerGetter = Callable[[BaseModel], Optional[MutableMapping[str, Any]]]
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
+
+# Temporary sentinel used during instantiated config construction to track caller-omitted fields.
+_UNSET = object()
+_AGENT_EXECUTION_CONFIG_INSTANTIATION_TRACKED_FIELDS = (
+    "max_iterations",
+    "tool_choice",
+    "tool_execution_mode",
+    "orchestration_mode",
+    "max_grpc_inbound_message_size_bytes",
+)
 
 
 @dataclass
@@ -574,12 +585,18 @@ class AgentExecutionConfig:
 
     # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
     # TODO: add stop_at_tokens
-    max_iterations: Optional[int] = AGENT_DEFAULT_MAX_ITERATIONS
-    tool_choice: Optional[str] = AGENT_DEFAULT_TOOL_CHOICE
-    tool_execution_mode: Optional[ToolExecutionMode] = AGENT_DEFAULT_TOOL_EXECUTION_MODE
-    orchestration_mode: Optional[OrchestrationMode] = None
+    max_iterations: Optional[int] = field(default=cast(Optional[int], _UNSET))
+    tool_choice: Optional[str] = field(default=cast(Optional[str], _UNSET))
+    tool_execution_mode: Optional[ToolExecutionMode] = field(
+        default=cast(Optional[ToolExecutionMode], _UNSET)
+    )
+    orchestration_mode: Optional[OrchestrationMode] = field(
+        default=cast(Optional[OrchestrationMode], _UNSET)
+    )
     approval: Optional[AgentApprovalConfig] = field(default_factory=AgentApprovalConfig)
-    max_grpc_inbound_message_size_bytes: Optional[int] = None
+    max_grpc_inbound_message_size_bytes: Optional[int] = field(
+        default=cast(Optional[int], _UNSET)
+    )
 
     # ALPHA: streaming emits AgentStreamChunk (schema "1-alpha") and may change
     # in shape/semantics in future 1.x releases. Enabling it logs a one-time
@@ -596,7 +613,46 @@ class AgentExecutionConfig:
     # validated against ``BuiltinTool`` in ``__post_init__``.
     builtin_tools: List[str] = field(default_factory=list)
 
+    # Tracks which fields the caller explicitly set. Unannotated so dataclasses don't treat it as a field.
+    _provided_fields = frozenset()
+
     def __post_init__(self) -> None:
+        # Record fields explicitly passed by the caller. Omitted fields retain
+        # their real defaults, while explicitly provided ``None`` remains
+        # distinguishable. from_instantiation() uses this to merge only
+        # fields the caller provided.
+        provided_fields: set[str] = set()
+
+        def resolve_field(field_name: str, value: Any, default: Any) -> Any:
+            """Return the value, or the default if unset. Records the field name when the caller passed a value.
+            """
+            if value is _UNSET:
+                return default
+            provided_fields.add(field_name)
+            return value
+
+        self.max_iterations = resolve_field(
+            "max_iterations", self.max_iterations, AGENT_DEFAULT_MAX_ITERATIONS
+        )
+        self.tool_choice = resolve_field(
+            "tool_choice", self.tool_choice, AGENT_DEFAULT_TOOL_CHOICE
+        )
+        self.tool_execution_mode = resolve_field(
+            "tool_execution_mode",
+            self.tool_execution_mode,
+            AGENT_DEFAULT_TOOL_EXECUTION_MODE,
+        )
+        self.orchestration_mode = resolve_field(
+            "orchestration_mode", self.orchestration_mode, None
+        )
+        self.max_grpc_inbound_message_size_bytes = resolve_field(
+            "max_grpc_inbound_message_size_bytes",
+            self.max_grpc_inbound_message_size_bytes,
+            None,
+        )
+
+        object.__setattr__(self, "_provided_fields", frozenset(provided_fields))
+
         # Accept explicit ``builtin_tools=None`` for template configs, skipping validation.
         if self.builtin_tools is not None:
             # Validate builtin_tools up-front so a typo fails at config time with a
@@ -744,8 +800,16 @@ class AgentExecutionConfig:
             ),
         }
 
-        # Copy first so apply_config_map doesn't mutate the caller's config
+        # Copy first so apply_config_map doesn't mutate the caller's config.
         resolved_config = copy.deepcopy(instantiated_config)
+        # Omitted fields must not let constructor defaults overwrite values from
+        # environment configuration. Remove both the copied default and its getter
+        # so the original default is not re-applied during validation.
+        for field_name in _AGENT_EXECUTION_CONFIG_INSTANTIATION_TRACKED_FIELDS:
+            if field_name not in instantiated_config._provided_fields:
+                setattr(resolved_config, field_name, None)
+                config_field_map.pop(field_name)
+
         apply_config_map(resolved_config, config_field_map)
 
         return resolved_config
