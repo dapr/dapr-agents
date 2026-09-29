@@ -47,9 +47,17 @@ MODULE_TO_DISTRIBUTION: Dict[str, str] = {
     "pgvector": "pgvector",
 }
 
-# Modules deliberately left out of the extra. The Postgres store tells users to
-# install its driver separately (`pip install 'psycopg[binary,pool]' pgvector`).
-NOT_IN_EXTRA: Set[str] = {"psycopg", "psycopg_pool", "pgvector"}
+# Modules deliberately left out of the extra, each with the reason. The Postgres
+# store tells users to install its driver separately.
+_POSTGRES_REASON: str = (
+    "the Postgres store tells users to install its driver separately "
+    "(`pip install 'psycopg[binary,pool]' pgvector`)"
+)
+NOT_IN_EXTRA: Dict[str, str] = {
+    "psycopg": _POSTGRES_REASON,
+    "psycopg_pool": _POSTGRES_REASON,
+    "pgvector": _POSTGRES_REASON,
+}
 
 
 def _normalize(name: str) -> str:
@@ -148,18 +156,47 @@ def test_every_lazy_import_has_a_known_distribution() -> None:
     )
 
 
-@pytest.mark.parametrize("module", ["redisvl", "chromadb"])
+def _modules_in_extra() -> List[str]:
+    return sorted(_lazy_third_party_modules() - NOT_IN_EXTRA.keys())
+
+
+def test_not_in_extra_entries_have_reasons() -> None:
+    assert all(reason.strip() for reason in NOT_IN_EXTRA.values())
+    assert NOT_IN_EXTRA.keys() <= _lazy_third_party_modules()
+
+
+def _needs_direct_entry() -> List[str]:
+    """Modules not already pulled in as a dependency of another backend.
+
+    ``redis`` comes with ``redisvl``, so only the top-level backends must be
+    listed in the extra by name.
+    """
+    graph = _locked_dependency_graph()
+    modules = [m for m in _modules_in_extra() if m in MODULE_TO_DISTRIBUTION]
+    result: List[str] = []
+    for module in modules:
+        others = {_normalize(MODULE_TO_DISTRIBUTION[m]) for m in modules if m != module}
+        pulled_in = _closure(others, graph) - others
+        if _normalize(MODULE_TO_DISTRIBUTION[module]) not in pulled_in:
+            result.append(module)
+    return result
+
+
+@pytest.mark.parametrize("module", _needs_direct_entry())
 def test_extra_lists_backend_directly(module: str) -> None:
+    assert module in MODULE_TO_DISTRIBUTION, f"Map {module!r} in MODULE_TO_DISTRIBUTION"
     assert _normalize(MODULE_TO_DISTRIBUTION[module]) in _extra_requirements()
 
 
 def test_extra_installs_every_lazily_imported_backend() -> None:
     installed = _closure(_extra_requirements(), _locked_dependency_graph())
-    missing = sorted(
+    unmapped = [m for m in _modules_in_extra() if m not in MODULE_TO_DISTRIBUTION]
+    assert not unmapped, f"Map {unmapped} in MODULE_TO_DISTRIBUTION"
+    missing = [
         module
-        for module in _lazy_third_party_modules() - NOT_IN_EXTRA
-        if _normalize(MODULE_TO_DISTRIBUTION.get(module, module)) not in installed
-    )
+        for module in _modules_in_extra()
+        if _normalize(MODULE_TO_DISTRIBUTION[module]) not in installed
+    ]
     assert not missing, (
         f"The '{EXTRA_NAME}' extra does not install {missing}, which "
         f"dapr_agents/storage/vectorstores imports lazily."
