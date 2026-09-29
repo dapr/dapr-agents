@@ -436,16 +436,21 @@ class TestHookWorkflowDispatch:
         assert by_id[tc["id"]]["hook_decision"] == "denied"
 
     @pytest.mark.parametrize(
-        "other_decision, expected_runs, other_content",
+        "other_decision, expected_runs, other_content, tracked",
         [
-            (Proceed(), [{"table": "tmp"}], "ran"),
-            (Mutate(payload={"table": "safe"}), [{"table": "safe"}], "ran"),
-            (Skip(result="cached"), [], "cached"),
+            (Proceed(), [{"table": "tmp"}], "ran", (0, "denied")),
+            (
+                Mutate(payload={"table": "safe"}),
+                [{"table": "safe"}],
+                "ran",
+                (0, "denied"),
+            ),
+            (Skip(result="cached"), [], "cached", (1, "skipped")),
         ],
         ids=["proceed", "mutate", "skip"],
     )
     def test_deny_applies_only_to_its_call_when_ids_are_shared(
-        self, mock_llm, mock_ctx, other_decision, expected_runs, other_content
+        self, mock_llm, mock_ctx, other_decision, expected_runs, other_content, tracked
     ):
         """A decision for one call must not apply to another call with the same tool_call_id."""
         calls = [
@@ -490,6 +495,84 @@ class TestHookWorkflowDispatch:
         results = save_input["tool_results"]
         assert "not executed" in results[0]["content"]
         assert results[1]["content"] == other_content
+        # tool_calls_by_id is still keyed by tool_call_id, so the last labelled call wins.
+        tracked_idx, tracked_label = tracked
+        entry = save_input["tool_calls_by_id"][""]
+        assert entry["tool_call"] == calls[tracked_idx]
+        assert entry["hook_decision"] == tracked_label
+
+    def _drive_shared_id_approval(self, agent, mock_ctx, calls, *, approve):
+        event_task = Mock(name="event")
+        timer_task = Mock(name="timer")
+        mock_ctx.wait_for_external_event.return_value = event_task
+        mock_ctx.create_timer.return_value = timer_task
+        event_task.get_result.return_value = {
+            "approval_request_id": str(
+                uuid.uuid5(uuid.NAMESPACE_DNS, f"{mock_ctx.instance_id}:shared")
+            ),
+            "approved": True,
+        }
+
+        gen = agent.agent_workflow(mock_ctx, {"task": "do something"})
+        with patch("dapr.ext.workflow.when_any", return_value=Mock()):
+            next(gen)  # record_initial_entry
+            gen.send(None)  # call_llm
+            gen.send({"tool_calls": calls})  # publish_approval_request
+            gen.send(None)  # when_any
+            gen.send(event_task if approve else timer_task)  # run_tool
+            gen.send(
+                {
+                    "role": "tool",
+                    "name": "DropTable",
+                    "tool_call_id": "shared",
+                    "content": "ran",
+                }
+            )  # save_tool_results
+        gen.close()
+
+        return [
+            json.loads(c[1]["input"]["tool_call"]["function"]["arguments"])
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.run_tool)
+        ]
+
+    def test_approval_does_not_override_deny_when_ids_are_shared(
+        self, mock_llm, mock_ctx
+    ):
+        """An approved call must not un-deny another call with the same tool_call_id."""
+        calls = [
+            _tool_call(name="DropTable", args={"table": "logs"}, call_id="shared"),
+            _tool_call(name="DropTable", args={"table": "tmp"}, call_id="shared"),
+        ]
+
+        def hook(ctx: HookContext):
+            if ctx.payload.get("table") == "logs":
+                return Deny(reason="blocked")
+            return RequireApproval(timeout_seconds=30)
+
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
+        runs = self._drive_shared_id_approval(agent, mock_ctx, calls, approve=True)
+
+        assert runs == [{"table": "tmp"}]
+
+    def test_approval_timeout_denies_only_its_call_when_ids_are_shared(
+        self, mock_llm, mock_ctx
+    ):
+        """A timed-out approval must not deny another call with the same tool_call_id."""
+        calls = [
+            _tool_call(name="DropTable", args={"table": "logs"}, call_id="shared"),
+            _tool_call(name="DropTable", args={"table": "tmp"}, call_id="shared"),
+        ]
+
+        def hook(ctx: HookContext):
+            if ctx.payload.get("table") == "logs":
+                return RequireApproval(timeout_seconds=30)
+            return Proceed()
+
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
+        runs = self._drive_shared_id_approval(agent, mock_ctx, calls, approve=False)
+
+        assert runs == [{"table": "tmp"}]
 
     # ------------------------------------------------------------------ #
     # Skip                                                                 #
