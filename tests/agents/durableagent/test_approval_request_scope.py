@@ -28,6 +28,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from dapr.ext.workflow import DaprWorkflowContext
 
+from dapr_agents.agents.durable import _legacy_approval_request_id
 from dapr_agents.hooks import Hooks, RequireApproval
 from dapr_agents.llm import OpenAIChatClient
 from tests.agents.durableagent.test_hitl_workflow import (  # noqa: F401 (autouse)
@@ -82,11 +83,18 @@ class _FakeRuntime:
         llm_responses: List[Dict[str, Any]],
         on_publish: Optional[Callable[[Dict[str, Any]], None]] = None,
         on_timeout: Optional[Callable[[str], None]] = None,
+        dispatch_time: str = DISPATCH_TIME,
+        legacy_publishes: int = 0,
     ) -> None:
         self.llm_responses = list(llm_responses)
         self.on_publish = on_publish or (lambda event: None)
         self.on_timeout = on_timeout or (lambda request_id: None)
-        self.bus: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        self.bus: Dict[str, List[Any]] = defaultdict(list)
+        self.timers_created = 0
+        self.when_any_timers: List[_TimerTask] = []
+        # the first N publishes replay history recorded by the older code,
+        # whose publish activity returned None and used the legacy id
+        self.legacy_publishes = legacy_publishes
         self.published: List[Dict[str, Any]] = []
         self.tools_run: List[Dict[str, Any]] = []
         self.ctx = DaprWorkflowContext()
@@ -94,12 +102,19 @@ class _FakeRuntime:
         self.ctx.is_replaying = False
         self.ctx.set_custom_status = Mock()
         self.ctx.current_utc_datetime = Mock()
-        self.ctx.current_utc_datetime.isoformat = Mock(return_value=DISPATCH_TIME)
+        self.ctx.current_utc_datetime.isoformat = Mock(return_value=dispatch_time)
         self.ctx.call_activity = lambda fn, input=None, retry_policy=None: _Activity(
             fn, input
         )
         self.ctx.wait_for_external_event = _EventTask
-        self.ctx.create_timer = lambda td: _TimerTask()
+        self.ctx.create_timer = self._create_timer
+
+    def _create_timer(self, td: Any) -> _TimerTask:
+        self.timers_created += 1
+        return _TimerTask()
+
+    def raise_raw(self, request_id: str, body: Any) -> None:
+        self.bus[f"approval_response_{request_id}"].append(body)
 
     def raise_event(self, request_id: str, approved: bool, body_id: str = "") -> None:
         self.bus[f"approval_response_{request_id}"].append(
@@ -117,9 +132,17 @@ class _FakeRuntime:
             if yielded.name.endswith("call_llm"):
                 return self.llm_responses.pop(0)
             if yielded.name.endswith("publish_approval_request"):
-                event = yielded.input["event"]
+                event = dict(yielded.input["event"])
+                if len(self.published) < self.legacy_publishes:
+                    event["approval_request_id"] = _legacy_approval_request_id(
+                        self.ctx.instance_id, event["tool_call_id"]
+                    )
+                    self.published.append(event)
+                    self.on_publish(event)
+                    return None
                 self.published.append(event)
                 self.on_publish(event)
+                return event["approval_request_id"]
             if yielded.name.endswith("run_tool"):
                 tc = yielded.input["tool_call"]
                 self.tools_run.append(tc)
@@ -127,6 +150,7 @@ class _FakeRuntime:
             return None
         if isinstance(yielded, tuple) and yielded[0] == "when_any":
             event, timer = yielded[1]
+            self.when_any_timers.append(timer)
             if self._deliver(event):
                 return event
             self.on_timeout(self.published[-1]["approval_request_id"])
@@ -136,8 +160,7 @@ class _FakeRuntime:
             return None
         raise AssertionError(f"unexpected yield: {yielded!r}")
 
-    def drive(self, gen: Any) -> Any:
-        value = None
+    def drive(self, gen: Any, value: Any = None) -> Any:
         with patch("dapr.ext.workflow.when_any", side_effect=lambda t: ("when_any", t)):
             while True:
                 try:
@@ -208,15 +231,12 @@ def test_two_waits_in_one_turn_resolve_to_their_own_responses(llm):
         for i in range(2)
     ]
     # publish both requests first to learn their ids, then answer in reverse
-    ids = []
-    for gen in requests:
-        rt._respond(next(gen))
-        ids.append(rt.published[-1]["approval_request_id"])
+    ids = [rt._respond(next(gen)) for gen in requests]
     assert ids[0] != ids[1]
     rt.raise_event(ids[1], approved=False)
     rt.raise_event(ids[0], approved=True)
 
-    results = [rt.drive(gen) for gen in requests]
+    results = [rt.drive(gen, rid) for gen, rid in zip(requests, ids)]
     assert results == [True, False]
 
 
@@ -242,39 +262,73 @@ def test_mismatched_response_id_is_ignored_and_logged(llm, caplog):
         r.levelno == logging.WARNING and "someone-else" in r.getMessage()
         for r in caplog.records
     )
+    assert rt.timers_created == 1
 
 
-def test_mismatched_response_keeps_waiting_for_the_real_one(llm):
-    """After ignoring a mismatched response the request still accepts its own."""
-    agent = _approval_agent(llm, timeout_seconds=None)
+def test_unparseable_response_is_ignored_and_keeps_waiting(llm, caplog):
+    """A None or malformed body neither approves nor denies; the wait goes on."""
+    agent = _approval_agent(llm)
     rt = _FakeRuntime([])
 
     def respond(event: Dict[str, Any]) -> None:
         rid = event["approval_request_id"]
-        rt.raise_event(rid, approved=True, body_id="stale")
-        rt.raise_event(rid, approved=False)
+        rt.raise_raw(rid, None)
+        rt.raise_raw(rid, {"not": "a response"})
+        rt.raise_event(rid, approved=True)
 
     rt.on_publish = respond
     gen = agent._request_approval(
         rt.ctx,
         rt.ctx.instance_id,
         _tool_call(),
-        RequireApproval(timeout_seconds=None),
+        RequireApproval(timeout_seconds=30),
         turn=1,
         call_index=0,
     )
-    assert rt.drive(gen) is False
+    with caplog.at_level(logging.WARNING, logger="dapr_agents.agents.durable"):
+        assert rt.drive(gen) is True
+
+    unparseable = [r for r in caplog.records if "unparseable" in r.getMessage()]
+    assert len(unparseable) == 2
+    assert all(r.levelno == logging.WARNING for r in unparseable)
+    assert rt.timers_created == 1
+    assert not any(rt.bus.values())
+
+
+def test_mismatched_response_keeps_waiting_for_the_real_one(llm):
+    """After ignoring a mismatched response the request still accepts its own."""
+    agent = _approval_agent(llm)
+    rt = _FakeRuntime([])
+
+    def respond(event: Dict[str, Any]) -> None:
+        rid = event["approval_request_id"]
+        rt.raise_event(rid, approved=True, body_id="stale")
+        rt.raise_event(rid, approved=True)
+
+    rt.on_publish = respond
+    gen = agent._request_approval(
+        rt.ctx,
+        rt.ctx.instance_id,
+        _tool_call(),
+        RequireApproval(timeout_seconds=30),
+        turn=1,
+        call_index=0,
+    )
+    assert rt.drive(gen) is True
+    # one timer spans the whole wait; the mismatch did not restart it
+    assert rt.timers_created == 1
     assert not any(rt.bus.values())
 
 
 def test_approval_ids_stable_across_replay(llm):
-    """Re-running the same history yields the same approval ids."""
+    """Same history gives the same ids; a different orchestration time does not."""
 
-    def run() -> List[str]:
+    def run(dispatch_time: str) -> List[str]:
         agent = _approval_agent(llm)
         calls = {"tool_calls": [_tool_call(call_id="call_0")] * 2}
         rt = _FakeRuntime(
             [calls, calls, FINAL],
+            dispatch_time=dispatch_time,
             on_publish=lambda e: rt.raise_event(
                 e["approval_request_id"], approved=True
             ),
@@ -282,6 +336,73 @@ def test_approval_ids_stable_across_replay(llm):
         rt.drive(agent.agent_workflow(rt.ctx, {"task": "replay"}))
         return [e["approval_request_id"] for e in rt.published]
 
-    first, second = run(), run()
+    first, replayed = run(DISPATCH_TIME), run(DISPATCH_TIME)
     assert len(first) == 4 and len(set(first)) == 4
-    assert first == second
+    assert first == replayed
+    other = run("2024-01-01T00:05:00.000000")
+    assert set(other).isdisjoint(first)
+
+
+def test_two_mismatches_then_timeout_share_one_timer(llm):
+    """Ignored replies never restart the timeout: one timer spans every wait."""
+    agent = _approval_agent(llm)
+    rt = _FakeRuntime([])
+
+    def respond(event: Dict[str, Any]) -> None:
+        rid = event["approval_request_id"]
+        rt.raise_event(rid, approved=True, body_id="stale-1")
+        rt.raise_event(rid, approved=True, body_id="stale-2")
+
+    rt.on_publish = respond
+    gen = agent._request_approval(
+        rt.ctx,
+        rt.ctx.instance_id,
+        _tool_call(),
+        RequireApproval(timeout_seconds=30),
+        turn=1,
+        call_index=0,
+    )
+    assert rt.drive(gen) is False
+    assert rt.timers_created == 1
+    assert len(rt.when_any_timers) == 3
+    assert all(t is rt.when_any_timers[0] for t in rt.when_any_timers)
+
+
+def test_run_waiting_before_upgrade_is_released_by_its_old_id(llm):
+    """A publish recorded by the older code keeps waiting on the legacy id."""
+    agent = _approval_agent(llm)
+    turn_call = {"tool_calls": [_tool_call(name="DeleteRepo", call_id="call_0")]}
+    rt = _FakeRuntime(
+        [turn_call, FINAL],
+        legacy_publishes=1,
+        on_publish=lambda e: rt.raise_event(e["approval_request_id"], approved=True),
+    )
+    rt.drive(agent.agent_workflow(rt.ctx, {"task": "delete it"}))
+
+    legacy_id = _legacy_approval_request_id(rt.ctx.instance_id, "call_0")
+    assert rt.published[0]["approval_request_id"] == legacy_id
+    assert [tc["id"] for tc in rt.tools_run] == ["call_0"]
+    assert not any(rt.bus.values())
+
+
+def test_late_legacy_approval_does_not_approve_new_request(llm):
+    """An old-format approval that arrives late never approves a new-code request."""
+    agent = _approval_agent(llm)
+    turn_call = {"tool_calls": [_tool_call(name="DeleteRepo", call_id="call_0")]}
+    late: List[str] = []
+
+    def approve_late(request_id: str) -> None:
+        if not late:
+            late.append(request_id)
+            rt.raise_event(request_id, approved=True)
+
+    rt = _FakeRuntime(
+        [turn_call, turn_call, FINAL], legacy_publishes=1, on_timeout=approve_late
+    )
+    rt.drive(agent.agent_workflow(rt.ctx, {"task": "delete it"}))
+
+    assert rt.tools_run == []
+    legacy_id = _legacy_approval_request_id(rt.ctx.instance_id, "call_0")
+    assert late == [legacy_id]
+    assert rt.published[1]["approval_request_id"] != legacy_id
+    assert rt.bus[f"approval_response_{legacy_id}"]

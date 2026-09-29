@@ -251,7 +251,7 @@ class TestRequestApprovalGenerator:
             mock_when_any.return_value = when_any_future
 
             next(gen)  # yields call_activity(publish_approval_request)
-            gen.send(None)  # yields dt.when_any(...)
+            gen.send(_published_request_id(mock_ctx))  # yields dt.when_any(...)
 
             try:
                 gen.send(winning_task)
@@ -520,10 +520,9 @@ class TestHookWorkflowDispatch:
         timer_task = Mock(name="timer")
         mock_ctx.wait_for_external_event.return_value = event_task
         mock_ctx.create_timer.return_value = timer_task
-        event_task.get_result.return_value = {
-            "approval_request_id": str(
-                uuid.uuid5(uuid.NAMESPACE_DNS, f"{mock_ctx.instance_id}:shared")
-            ),
+        # reply with the id that was actually published for the approval call
+        event_task.get_result.side_effect = lambda: {
+            "approval_request_id": _published_request_id(mock_ctx),
             "approved": True,
         }
 
@@ -532,7 +531,7 @@ class TestHookWorkflowDispatch:
             next(gen)  # record_initial_entry
             gen.send(None)  # call_llm
             gen.send({"tool_calls": calls})  # publish_approval_request
-            gen.send(None)  # when_any
+            gen.send(_published_request_id(mock_ctx))  # when_any
             gen.send(event_task if approve else timer_task)  # run_tool
             gen.send(
                 {
@@ -809,7 +808,7 @@ class TestHookWorkflowDispatch:
             next(gen)  # Y0: record_initial_entry
             gen.send(None)  # Y1: call_llm
             gen.send({"tool_calls": [tc]})  # Y2: publish_approval_request
-            gen.send(None)  # Y3: when_any
+            gen.send(_published_request_id(mock_ctx))  # Y3: when_any
             gen.send(timer_task)  # Y4: timer wins → save_tool_results
             gen.send(None)  # Y5: call_llm (final)
             try:
@@ -890,7 +889,7 @@ class TestHookWorkflowDispatch:
             next(gen)  # Y0: record_initial_entry
             gen.send(None)  # Y1: call_llm
             gen.send({"tool_calls": [tc]})  # Y2: publish_approval_request
-            gen.send(None)  # Y3: when_any
+            gen.send(_published_request_id(mock_ctx))  # Y3: when_any
             gen.send(event_task)  # Y4: run_tool (event wins → approved)
             gen.send(tool_result)  # Y5: save_tool_results
             gen.send(None)  # Y6: call_llm (final)

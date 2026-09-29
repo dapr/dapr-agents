@@ -177,6 +177,16 @@ def _approval_request_id(
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
 
 
+def _legacy_approval_request_id(instance_id: str, tool_call_id: str) -> str:
+    """Return the id format used before approval ids were scoped per turn.
+
+    Only used for requests whose publish was recorded by that older code, so
+    runs already waiting at upgrade time keep waiting on the id their approver
+    received. New requests never use it.
+    """
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{instance_id}:{tool_call_id}"))
+
+
 def _get_framework_from_registry(
     agent_name: str, infra: Optional[Any] = None
 ) -> Optional[str]:
@@ -1316,7 +1326,7 @@ class DurableAgent(AgentBase):
 
         # Always yield this activity unconditionally — DurableTask returns the cached
         # result on replay without re-executing the function
-        yield ctx.call_activity(
+        published_id = yield ctx.call_activity(
             self._activity_name(self.publish_approval_request),
             input={
                 "event": approval_event.model_dump(mode="json"),
@@ -1325,6 +1335,14 @@ class DurableAgent(AgentBase):
             },
             retry_policy=self._retry_policy,
         )
+        # Wait on the id that was actually published, read from the recorded
+        # activity result. Publishes recorded before ids were scoped per turn
+        # returned None; approvers of those runs hold the id derived from the
+        # tool_call_id, so keep waiting on that one.
+        if isinstance(published_id, str) and published_id:
+            approval_request_id = published_id
+        else:
+            approval_request_id = _legacy_approval_request_id(instance_id, tool_call_id)
 
         logger.info(
             f"Approval request {approval_request_id} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
@@ -1356,10 +1374,16 @@ class DurableAgent(AgentBase):
                 response_data = event_task.get_result()
                 response = ApprovalResponseEvent(**response_data)
             except Exception as exc:
+                # Fail closed: a malformed response never decides this request.
                 logger.warning(
-                    f"Could not parse approval response for request {approval_request_id}: {exc} — auto-denying"
+                    "Ignoring unparseable approval response for request %s: %s "
+                    "(tool='%s', instance=%s)",
+                    approval_request_id,
+                    exc,
+                    fn_name,
+                    instance_id,
                 )
-                return False
+                continue
 
             if response.approval_request_id != approval_request_id:
                 # Fail closed: a response for another request never approves this one.
@@ -3519,7 +3543,7 @@ class DurableAgent(AgentBase):
 
     def publish_approval_request(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
-    ) -> None:
+    ) -> str:
         """
         Deliver an ApprovalRequiredEvent and track it for HTTP polling.
 
@@ -3535,6 +3559,10 @@ class DurableAgent(AgentBase):
         Args:
             payload: Keys 'event' (serialized ApprovalRequiredEvent dict),
                 'pubsub_name' (optional pub/sub component name), 'topic' (topic name).
+
+        Returns:
+            The published approval_request_id. The workflow waits on this recorded
+            value, so replays keep waiting on the id the approver received.
         """
         event_data = payload["event"]
         pubsub_name = payload.get("pubsub_name")
@@ -3562,6 +3590,7 @@ class DurableAgent(AgentBase):
             logger.info(
                 f"Stored approval request {approval_request_id} for step '{event_data.get('step_name')}' (no pub/sub configured; poll GET /hitl/approvals or use Dapr sidecar raiseEvent API)"
             )
+        return approval_request_id
 
     def broadcast_to_team(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
