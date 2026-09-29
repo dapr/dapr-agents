@@ -3298,10 +3298,10 @@ class DurableAgent(AgentBase):
             or scan_failed
             or not last_message_is_assistant_with_tool_calls
         ):
-            # Orchestrator tool_call_ids are the child instance ID, a fresh
-            # uuid4 per dispatch (see the orchestrator dispatch code that sets
-            # "tool_call_id": child_instance_id and skip_messages), so they
-            # cannot repeat across dispatches; the LLM never chooses them.
+            # Orchestrator tool_call_ids are the child instance ID, which the
+            # orchestrator dispatch code (the only caller that sets
+            # skip_messages) generates once per dispatch, so they cannot repeat
+            # across dispatches; the LLM never chooses them.
             # For the other cases, tool_history is the only record of an
             # earlier run.
             if entry is not None and hasattr(entry, "tool_history"):
