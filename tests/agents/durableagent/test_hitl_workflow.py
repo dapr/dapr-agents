@@ -34,7 +34,7 @@ from dapr_agents.agents.configs import (
     AgentStateConfig,
     ToolExecutionMode,
 )
-from dapr_agents.agents.durable import DurableAgent
+from dapr_agents.agents.durable import DurableAgent, _approval_request_id
 from dapr_agents.hooks import (
     Deny,
     HookContext,
@@ -196,6 +196,11 @@ def _activity_name(mock_ctx, call_index):
     return mock_ctx.call_activity.call_args_list[call_index][0][0]
 
 
+def _published_request_id(mock_ctx):
+    """Return the approval_request_id of the last publish_approval_request call."""
+    return mock_ctx.call_activity.call_args[1]["input"]["event"]["approval_request_id"]
+
+
 def _activity_input(mock_ctx, call_index):
     """Return the input kwarg for the Nth call_activity call."""
     kw = mock_ctx.call_activity.call_args_list[call_index][1]
@@ -228,8 +233,9 @@ class TestRequestApprovalGenerator:
         mock_ctx.create_timer.return_value = timer_task
 
         if winner == "event":
-            event_task.get_result.return_value = {
-                "approval_request_id": "any",
+            # answer with the id that was actually published
+            event_task.get_result.side_effect = lambda: {
+                "approval_request_id": _published_request_id(mock_ctx),
                 "approved": True,
             }
             winning_task = event_task
@@ -237,7 +243,7 @@ class TestRequestApprovalGenerator:
             winning_task = timer_task
 
         gen = agent._request_approval(
-            mock_ctx, mock_ctx.instance_id, tool_call, decision
+            mock_ctx, mock_ctx.instance_id, tool_call, decision, turn=1, call_index=0
         )
 
         with patch("dapr.ext.workflow.when_any") as mock_when_any:
@@ -279,7 +285,7 @@ class TestRequestApprovalGenerator:
         tool_call = _tool_call()
         decision = RequireApproval(timeout_seconds=999)
         gen = agent._request_approval(
-            mock_ctx, mock_ctx.instance_id, tool_call, decision
+            mock_ctx, mock_ctx.instance_id, tool_call, decision, turn=1, call_index=0
         )
 
         with patch("dapr.ext.workflow.when_any", return_value=Mock()):
@@ -297,13 +303,15 @@ class TestRequestApprovalGenerator:
         assert actual_td == timedelta(seconds=999)
 
     def test_deterministic_request_id(self, agent, mock_ctx):
-        """Same instance_id + tool_call_id always produces the same approval_request_id."""
+        """Replaying the same request produces the same approval_request_id."""
         tc = _tool_call(call_id="call-abc")
         decision = RequireApproval()
 
         ids = []
         for _ in range(2):
-            gen = agent._request_approval(mock_ctx, "fixed-instance", tc, decision)
+            gen = agent._request_approval(
+                mock_ctx, "fixed-instance", tc, decision, turn=2, call_index=1
+            )
             with patch("dapr.ext.workflow.when_any", return_value=Mock()):
                 next(gen)
             # read the input that was passed to publish_approval_request
@@ -312,7 +320,11 @@ class TestRequestApprovalGenerator:
             mock_ctx.call_activity.reset_mock()
 
         assert ids[0] == ids[1]
-        assert ids[0] == str(uuid.uuid5(uuid.NAMESPACE_DNS, "fixed-instance:call-abc"))
+        assert ids[0] == _approval_request_id(
+            "fixed-instance", "2024-01-01T00:00:00.000000", 2, 1, "call-abc"
+        )
+        # the old tool_call_id-only formula is no longer used
+        assert ids[0] != str(uuid.uuid5(uuid.NAMESPACE_DNS, "fixed-instance:call-abc"))
 
     def test_publish_activity_receives_correct_event_fields(self, agent, mock_ctx):
         """ApprovalRequiredEvent published to the activity has expected shape."""
@@ -321,7 +333,9 @@ class TestRequestApprovalGenerator:
             timeout_seconds=120,
             instructions="please confirm",
         )
-        gen = agent._request_approval(mock_ctx, mock_ctx.instance_id, tc, decision)
+        gen = agent._request_approval(
+            mock_ctx, mock_ctx.instance_id, tc, decision, turn=1, call_index=0
+        )
 
         with patch("dapr.ext.workflow.when_any", return_value=Mock()):
             next(gen)
@@ -855,8 +869,8 @@ class TestHookWorkflowDispatch:
         mock_ctx.wait_for_external_event.return_value = event_task
         mock_ctx.create_timer.return_value = timer_task
 
-        approval_request_id = str(
-            uuid.uuid5(uuid.NAMESPACE_DNS, f"{mock_ctx.instance_id}:{tc['id']}")
+        approval_request_id = _approval_request_id(
+            mock_ctx.instance_id, "2024-01-01T00:00:00.000000", 1, 0, tc["id"]
         )
         event_task.get_result.return_value = {
             "approval_request_id": approval_request_id,
