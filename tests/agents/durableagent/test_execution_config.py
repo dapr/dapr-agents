@@ -106,6 +106,10 @@ class ExecutionConfigTestBase:
         monkeypatch.setattr(
             "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
         )
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
+        )
 
     def _make_agent(self, mock_llm, execution_config=None, tools=None):
         """Create a DurableAgent with the standard test wiring."""
@@ -229,6 +233,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         [
             ("auto", "parallel"),
             ("AUTO", "PARALLEL"),
+            ("aUtO", "pArAlLeL"),
         ],
     )
     def test_execution_config_from_instantiation_accepts_case_insensitive_strings(
@@ -262,12 +267,6 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         # Tool choice should be preserved
         assert agent.execution.tool_choice == "all"
 
-        # All other fields should resolve to defaults since they were not provided
-        assert agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
-        assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
-        assert agent.execution.orchestration_mode is None
-        assert agent.execution.max_grpc_inbound_message_size_bytes is None
-
 
 class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
     """Test cases for execution config from environment variables."""
@@ -295,10 +294,16 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
     ):
         """Test that execution config accepts lowercase environment variable names."""
         monkeypatch.setenv("dapr_agents_max_iterations", "7")
+        monkeypatch.setenv("dapr_agents_tool_choice", "required")
+        monkeypatch.setenv("dapr_agents_tool_execution_mode", "sequential")
+        monkeypatch.setenv("dapr_grpc_max_inbound_message_size_bytes", "654321")
 
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
         assert agent.execution.max_iterations == 7
+        assert agent.execution.tool_choice == ToolChoice.REQUIRED
+        assert agent.execution.tool_execution_mode == ToolExecutionMode.SEQUENTIAL
+        assert agent.execution.max_grpc_inbound_message_size_bytes == 654321
 
     def test_execution_config_from_env_ignores_invalid_values(
         self, mock_llm, mock_tool, monkeypatch
@@ -315,9 +320,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
 
         # All invalid values should be ignored and defaults should be used
         assert agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
-        assert agent.execution.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
         assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
-        assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
     def test_execution_config_from_env_allows_non_standard_tool_choice(
@@ -361,6 +364,23 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
+
+    def test_execution_config_from_statestore_is_case_insensitive(
+        self, mock_llm, mock_tool, monkeypatch
+    ):
+        """Test that execution config accepts lowercase runtime configuration keys."""
+        runtime_config = {
+            "max_iterations": "9",
+            "tool_choice": "none",
+        }
+
+        mock_client = MockDaprClient(runtime_config=runtime_config)
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = self._make_agent(mock_llm, tools=[mock_tool])
+
+        assert agent.execution.max_iterations == 9
+        assert agent.execution.tool_choice == ToolChoice.NONE
 
     def test_execution_config_from_statestore_ignores_invalid_values(
         self, mock_llm, mock_tool, monkeypatch

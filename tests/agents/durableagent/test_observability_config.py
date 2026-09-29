@@ -91,6 +91,10 @@ class ObservabilityConfigTestBase:
         monkeypatch.setattr(
             "dapr_agents.agents.base.DaprClient", lambda **kwargs: mock_client
         )
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
+        )
 
 
 class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
@@ -118,6 +122,7 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
         [
             ("otlp_grpc", "zipkin"),
             ("OTLP_GRPC", "ZIPKIN"),
+            ("oTlP_gRpC", "zIpKiN"),
         ],
     )
     def test_observability_config_from_instantiation_accepts_case_insensitive_strings(
@@ -288,7 +293,16 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         self, mock_llm, monkeypatch
     ):
         """Test observability config accepts lowercase environment variable names."""
-        monkeypatch.setenv("otel_service_name", "lowercase-service")
+        monkeypatch.setenv("otel_sdk_disabled", "false")
+        monkeypatch.setenv(
+            "otel_exporter_otlp_headers", "Authorization=Bearer env-token"
+        )
+        monkeypatch.setenv("otel_exporter_otlp_endpoint", "http://env-collector:4318")
+        monkeypatch.setenv("otel_service_name", "env-service")
+        monkeypatch.setenv("otel_logging_enabled", "true")
+        monkeypatch.setenv("otel_logs_exporter", "otlp_http")
+        monkeypatch.setenv("otel_tracing_enabled", "true")
+        monkeypatch.setenv("otel_traces_exporter", "console")
 
         agent = DurableAgent(
             name="TestAgent",
@@ -306,7 +320,21 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
             ),
         )
 
-        assert agent._agent_observability.service_name == "lowercase-service"
+        assert agent._agent_observability.enabled is True
+        assert agent._agent_observability.headers == {
+            "Authorization": "Bearer env-token"
+        }
+        assert agent._agent_observability.endpoint == "http://env-collector:4318"
+        assert agent._agent_observability.service_name == "env-service"
+        assert agent._agent_observability.logging_enabled is True
+        assert (
+            agent._agent_observability.logging_exporter
+            == AgentLoggingExporter.OTLP_HTTP
+        )
+        assert agent._agent_observability.tracing_enabled is True
+        assert (
+            agent._agent_observability.tracing_exporter == AgentTracingExporter.CONSOLE
+        )
 
     def test_observability_config_from_env_partial_fields(self, mock_llm, monkeypatch):
         """Test observability config with only some env variables set."""
@@ -434,6 +462,51 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.enabled is True
         assert resolved_config.auth_token == "statestore-token"
         assert resolved_config.endpoint == "http://statestore-collector:4317"  # noqa: E501
+        assert resolved_config.service_name == "statestore-service"
+        assert resolved_config.logging_enabled is True
+        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
+        assert resolved_config.tracing_enabled is True
+        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+
+    def test_observability_config_from_statestore_is_case_insensitive(
+        self, mock_llm, monkeypatch
+    ):
+        """Test that observability config accepts lowercase runtime configuration keys."""
+        runtime_config = {
+            "otel_sdk_disabled": "false",
+            "otel_exporter_otlp_headers": "statestore-token",
+            "otel_exporter_otlp_endpoint": "http://statestore-collector:4317",
+            "otel_service_name": "statestore-service",
+            "otel_logging_enabled": "true",
+            "otel_logs_exporter": "otlp_grpc",
+            "otel_tracing_enabled": "true",
+            "otel_traces_exporter": "zipkin",
+        }
+
+        mock_client = MockDaprClient(runtime_config=runtime_config)
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = DurableAgent(
+            name="TestAgent",
+            role="Test Assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="TestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+        )
+
+        resolved_config = agent._agent_observability
+
+        assert resolved_config.enabled is True
+        assert resolved_config.auth_token == "statestore-token"
+        assert resolved_config.endpoint == "http://statestore-collector:4317"
         assert resolved_config.service_name == "statestore-service"
         assert resolved_config.logging_enabled is True
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
