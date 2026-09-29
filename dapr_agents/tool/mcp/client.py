@@ -203,10 +203,11 @@ class MCPClient(BaseModel):
         Connect to an MCP server using the modular connection layer.
 
         Raises ``RuntimeError`` if the server is already connected, or a
-        connect to it is already in progress. If connecting fails and the
-        server was connected before, its previous configuration is kept, so
-        tools returned by an earlier ``get_all_tools()`` still call the
-        previous server; a WARNING says so.
+        connect to it is already in progress. The new configuration is stored
+        only once the whole connect succeeds. If it fails or is cancelled, the
+        server keeps its previous configuration, so tools returned by an
+        earlier ``get_all_tools()`` still call the previous server; a WARNING
+        says so when the attempted configuration differed.
 
         Args:
             config: dict
@@ -220,7 +221,7 @@ class MCPClient(BaseModel):
         if server_name in self._connecting:
             raise RuntimeError(f"Server '{server_name}' is already connecting")
         self._connecting.add(server_name)
-        previous_config = self._server_configs.get(server_name)
+        new_config = {"transport": transport, "params": config}
         try:
             self._task_locals[server_name] = asyncio.current_task()
             stack = self._exit_stack
@@ -228,10 +229,6 @@ class MCPClient(BaseModel):
                 # Persistent: session is managed by the main exit stack
                 session = await start_transport_session(transport, config, stack)
                 await session.initialize()
-                self._server_configs[server_name] = {
-                    "transport": transport,
-                    "params": config,
-                }
                 logger.debug(
                     f"Initialized session for server '{server_name}', loading tools and prompts"
                 )
@@ -248,10 +245,6 @@ class MCPClient(BaseModel):
                         transport, config, ephemeral_stack
                     )
                     await session.initialize()
-                    self._server_configs[server_name] = {
-                        "transport": transport,
-                        "params": config,
-                    }
                     logger.debug(
                         f"Initialized ephemeral session for server '{server_name}', loading tools and prompts"
                     )
@@ -260,19 +253,20 @@ class MCPClient(BaseModel):
                 logger.info(
                     f"Successfully connected to MCP server '{server_name}' (ephemeral mode)"
                 )
+            self._server_configs[server_name] = new_config
             self._connected_servers.add(server_name)
-        except Exception as e:
-            logger.error(f"Failed to connect to MCP server '{server_name}': {str(e)}")
+        except (Exception, asyncio.CancelledError) as e:
+            reason = _format_exception_message(e) or type(e).__name__
+            logger.error(f"Failed to connect to MCP server '{server_name}': {reason}")
             self._sessions.pop(server_name, None)
             self._task_locals.pop(server_name, None)
-            if previous_config is None:
-                self._server_configs.pop(server_name, None)
-            else:
-                self._server_configs[server_name] = previous_config
+            previous_config = self._server_configs.get(server_name)
+            if previous_config is not None and previous_config != new_config:
                 logger.warning(
-                    f"Reconnecting to MCP server '{server_name}' failed; keeping its "
-                    "previous configuration, so tools already returned by "
-                    "get_all_tools() still call the previous server"
+                    f"Reconnecting to MCP server '{server_name}' with a new "
+                    f"configuration failed ({reason}); keeping its previous "
+                    "configuration, so tools already returned by get_all_tools() "
+                    "still call the previous server"
                 )
             raise
         finally:

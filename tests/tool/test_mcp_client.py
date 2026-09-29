@@ -21,10 +21,12 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Set
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from mcp.types import Prompt
+from mcp.types import CallToolResult, Prompt, TextContent
+from mcp.types import Tool as MCPTool
 
 from dapr_agents.tool.mcp import MCPClient
 
@@ -165,6 +167,10 @@ async def test_failed_connect_can_be_retried():
     assert client.get_connected_servers() == ["srv"]
 
 
+def _warnings(caplog) -> list:
+    return [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
 async def test_failed_reconnect_keeps_previous_config_and_warns(caplog):
     client = MCPClient()
     old = {"server_name": "srv", "transport": "stdio", "command": "old"}
@@ -181,9 +187,145 @@ async def test_failed_reconnect_keeps_previous_config_and_warns(caplog):
 
     assert client._server_configs["srv"]["params"] == {"command": "old"}
     assert client.get_connected_servers() == []
-    assert any(
-        "keeping its previous configuration" in r.getMessage() for r in caplog.records
-    )
+    warnings = [r.getMessage() for r in _warnings(caplog)]
+    assert len(warnings) == 1
+    assert "keeping its previous configuration" in warnings[0]
+    assert "refused" in warnings[0]
+
+
+async def test_failed_first_connect_does_not_warn(caplog):
+    client = MCPClient()
+    config = {"server_name": "srv", "transport": "stdio", "command": "python"}
+    with patch(
+        "dapr_agents.tool.mcp.client.start_transport_session",
+        AsyncMock(side_effect=OSError("refused")),
+    ):
+        with caplog.at_level(logging.WARNING, logger="dapr_agents.tool.mcp.client"):
+            with pytest.raises(OSError):
+                await client.connect(config)
+
+    assert _warnings(caplog) == []
+
+
+async def test_failed_retry_with_same_config_does_not_warn(caplog):
+    client = MCPClient()
+    config = {"server_name": "srv", "transport": "stdio", "command": "python"}
+    with patch(
+        "dapr_agents.tool.mcp.client.start_transport_session",
+        AsyncMock(side_effect=[_make_session(), OSError("refused")]),
+    ):
+        await client.connect(config)
+        await client.close()
+        with caplog.at_level(logging.WARNING, logger="dapr_agents.tool.mcp.client"):
+            with pytest.raises(OSError):
+                await client.connect(config)
+
+    assert _warnings(caplog) == []
+    assert client._server_configs["srv"]["params"] == {"command": "python"}
+
+
+class _FakeServers:
+    """Fake transport keyed on the stdio ``command``, which names the server.
+
+    Each session exposes one ``ping`` tool whose result names the server that
+    answered. Connects to a server in ``hang`` block while listing tools, i.e.
+    after ``initialize()`` has succeeded.
+    """
+
+    def __init__(self, hang: Set[str]):
+        self.hang = hang
+        self.listing = asyncio.Event()
+
+    async def start(self, _transport, params, _stack):
+        name = params["command"]
+        tool = MCPTool(name="ping", inputSchema={"type": "object", "properties": {}})
+
+        async def list_tools():
+            if name in self.hang:
+                self.listing.set()
+                await asyncio.Event().wait()
+            return SimpleNamespace(tools=[tool])
+
+        return SimpleNamespace(
+            initialize=AsyncMock(),
+            list_tools=list_tools,
+            list_prompts=AsyncMock(return_value=SimpleNamespace(prompts=[])),
+            call_tool=AsyncMock(
+                return_value=CallToolResult(
+                    content=[TextContent(type="text", text=f"from {name}")]
+                )
+            ),
+        )
+
+
+async def _connect_old_then_close(client: MCPClient) -> dict:
+    await client.connect({"server_name": "srv", "transport": "stdio", "command": "old"})
+    tools = {tool.name: tool for tool in client.get_all_tools()}
+    await client.close()
+    return tools
+
+
+_NEW = {"server_name": "srv", "transport": "stdio", "command": "new"}
+
+
+async def test_cancelled_reconnect_keeps_previous_config_and_reraises():
+    client = MCPClient()
+    servers = _FakeServers(hang={"new"})
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        tools = await _connect_old_then_close(client)
+        task = asyncio.create_task(client.connect(_NEW))
+        await servers.listing.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        result = await tools["srv_ping"].arun()
+
+    assert _tool_text(result) == "from old"
+    assert client._server_configs["srv"]["params"] == {"command": "old"}
+    assert client.get_connected_servers() == []
+
+
+async def test_tool_reaches_previous_server_after_timed_out_reconnect():
+    client = MCPClient()
+    servers = _FakeServers(hang={"new"})
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        tools = await _connect_old_then_close(client)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(client.connect(_NEW), timeout=0.05)
+
+        result = await tools["srv_ping"].arun()
+
+    assert _tool_text(result) == "from old"
+
+
+async def test_tool_reaches_previous_server_while_reconnect_in_flight():
+    client = MCPClient()
+    servers = _FakeServers(hang={"new"})
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        tools = await _connect_old_then_close(client)
+        task = asyncio.create_task(client.connect(_NEW))
+        await servers.listing.wait()
+        try:
+            result = await tools["srv_ping"].arun()
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    assert _tool_text(result) == "from old"
+
+
+async def test_successful_reconnect_switches_tools_to_new_server():
+    client = MCPClient()
+    servers = _FakeServers(hang=set())
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        tools = await _connect_old_then_close(client)
+        await client.connect(_NEW)
+
+        result = await tools["srv_ping"].arun()
+
+    assert _tool_text(result) == "from new"
 
 
 # --- Real-server tests: the documented connect -> get_all_tools -> close ->
