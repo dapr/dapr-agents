@@ -21,7 +21,7 @@ from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 import pytest
-from dapr.ext.workflow import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext, WorkflowActivityContext
 
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.configs import (
@@ -42,6 +42,7 @@ from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.types import AgentError, DaprWorkflowStatus
+from tests.fake_state_store import FakeEtagStateStore
 
 
 def _activity_method_name(activity: object) -> str:
@@ -1937,3 +1938,130 @@ hello
         assert "provider='openai'" in msg
         assert "model='gpt-4o-mock'" in msg
         assert "agent='ShapeAgent'" in msg
+
+
+class TestCallLlmRedelivery:
+    """call_llm must be safe to re-execute for the same turn.
+
+    Dapr workflow activities are at-least-once: if the worker dies after
+    call_llm saved state but before its completion reached the sidecar, the
+    activity runs again with the same input. The re-run must not append the
+    user's task a second time or leave the first run's assistant tool_calls
+    orphaned, otherwise the next LLM request carries an assistant message whose
+    tool_calls have no tool replies, which providers reject.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_env(self, monkeypatch):
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        mock_client = MockDaprClient()
+        mock_client.get_state.return_value = Mock(data=None)
+        monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
+        )
+        yield
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+
+    @pytest.fixture
+    def mock_llm(self):
+        from dapr_agents.types.message import (
+            AssistantMessage,
+            LLMChatCandidate,
+            LLMChatResponse,
+        )
+
+        mock = Mock(spec=OpenAIChatClient)
+        mock.prompt_template = None
+        mock.__class__.__name__ = "MockLLMClient"
+        mock.provider = "openai"
+        mock.api = "MockOpenAIAPI"
+        mock.model = "gpt-4o-mock"
+        calls = {"n": 0}
+
+        def _generate(**kwargs):
+            calls["n"] += 1
+            return LLMChatResponse(
+                results=[
+                    LLMChatCandidate(
+                        message=AssistantMessage(
+                            content=None,
+                            tool_calls=[
+                                {
+                                    "id": f"call_{calls['n']}",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "test_tool",
+                                        "arguments": "{}",
+                                    },
+                                }
+                            ],
+                        ),
+                        finish_reason="tool_calls",
+                    )
+                ]
+            )
+
+        mock.generate = Mock(side_effect=_generate)
+        return mock
+
+    def _make_agent(self, mock_llm):
+        store = FakeEtagStateStore()
+        store.store_name = "teststatestore"
+        return DurableAgent(
+            name="RedeliveryAgent",
+            role="Test",
+            goal="Test",
+            instructions=["x"],
+            llm=mock_llm,
+            state=AgentStateConfig(store=store),
+        )
+
+    @staticmethod
+    def _activity_ctx(task_id):
+        ctx = Mock(spec=WorkflowActivityContext)
+        ctx.workflow_id = "wf-redeliver-1"
+        ctx.task_id = task_id
+        return ctx
+
+    _payload = {
+        "instance_id": "wf-redeliver-1",
+        "task": "What is the weather?",
+        "source": "direct",
+        "time": "2026-01-01T00:00:00+00:00",
+        "turn": 1,
+    }
+
+    def test_redelivered_call_llm_returns_recorded_message(self, mock_llm):
+        agent = self._make_agent(mock_llm)
+
+        first = agent.call_llm(self._activity_ctx(3), payload=dict(self._payload))
+        # Same activity (same task id and input) delivered again after its
+        # completion was lost.
+        second = agent.call_llm(self._activity_ctx(3), payload=dict(self._payload))
+
+        assert mock_llm.generate.call_count == 1
+        assert second["id"] == first["id"]
+        assert [tc["id"] for tc in second["tool_calls"]] == ["call_1"]
+
+        entry = agent._infra.get_state("wf-redeliver-1")
+        roles = [m.role for m in entry.messages]
+        assert roles == ["user", "assistant"], (
+            "re-executed call_llm duplicated the turn: "
+            + str(
+                [
+                    m.model_dump(include={"role", "content", "tool_calls"})
+                    for m in entry.messages
+                ]
+            )
+        )
+
+    def test_new_activity_task_still_calls_llm(self, mock_llm):
+        agent = self._make_agent(mock_llm)
+
+        agent.call_llm(self._activity_ctx(3), payload=dict(self._payload))
+        agent.call_llm(self._activity_ctx(7), payload=dict(self._payload))
+
+        assert mock_llm.generate.call_count == 2
