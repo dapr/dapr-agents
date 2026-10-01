@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
+from pydantic import ValidationError
 
 from dapr_agents.agents.orchestration import (
     OrchestrationStrategy,
@@ -137,6 +138,54 @@ from dapr_agents.hooks import (
 from dapr_agents.tool.mcp.dapr_workflow_client import mcp_tool_def_to_workflow_tool
 
 logger = get_context_aware_logger(__name__)
+
+
+def _approval_request_id(
+    instance_id: str,
+    dispatch_time: str,
+    turn: int,
+    call_index: int,
+    tool_call_id: str,
+) -> str:
+    """Return the replay-stable id of one approval request.
+
+    A ``uuid5`` of the instance id, the orchestration time at the request, the
+    turn and the call's position in that turn. The LLM-assigned ``tool_call_id``
+    is included but never relied on for uniqueness: models reuse ids such as
+    ``call_0`` across turns and may leave them empty or repeat them in a turn.
+
+    Args:
+        instance_id: Workflow instance id.
+        dispatch_time: ``ctx.current_utc_datetime`` at the request, ISO-formatted.
+        turn: Agent loop turn that produced the tool call.
+        call_index: Position of the call in that turn's ``tool_calls``.
+        tool_call_id: LLM-assigned tool call id (may be empty).
+
+    Returns:
+        The approval request id as a UUID string.
+    """
+    seed = ":".join(
+        str(p)
+        for p in (
+            instance_id,
+            dispatch_time,
+            "approval",
+            turn,
+            call_index,
+            tool_call_id,
+        )
+    )
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
+
+
+def _legacy_approval_request_id(instance_id: str, tool_call_id: str) -> str:
+    """Return the id format used before approval ids were scoped per turn.
+
+    Only used for requests whose publish was recorded by that older code, so
+    runs already waiting at upgrade time keep waiting on the id their approver
+    received. New requests never use it.
+    """
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{instance_id}:{tool_call_id}"))
 
 
 def _get_framework_from_registry(
@@ -711,9 +760,10 @@ class DurableAgent(AgentBase):
                         )
 
                         # hook pass: run before_tool_call for every tool in this turn and collect decisions before dispatching anything.
-                        hook_decisions: Dict[str, HookDecision] = {}
+                        # Keyed by position: tool_call_id can be "" or repeated.
+                        hook_decisions: Dict[int, HookDecision] = {}
                         if self._hooks and self._hooks.before_tool_call:
-                            for tc in tool_calls:
+                            for idx, tc in enumerate(tool_calls):
                                 fn_name_check = tc["function"]["name"]
                                 tool_obj_check = self.tool_executor.get_tool(
                                     fn_name_check
@@ -746,9 +796,14 @@ class DurableAgent(AgentBase):
                                 elif isinstance(decision, RequireApproval):
                                     # suspend here and wait for human; convert outcome to Deny or Proceed
                                     approved = yield from self._request_approval(
-                                        ctx, ctx.instance_id, tc, decision
+                                        ctx,
+                                        ctx.instance_id,
+                                        tc,
+                                        decision,
+                                        turn=turn,
+                                        call_index=idx,
                                     )
-                                    hook_decisions[tc["id"]] = (
+                                    hook_decisions[idx] = (
                                         Proceed()
                                         if approved
                                         else Deny(
@@ -759,7 +814,7 @@ class DurableAgent(AgentBase):
                                         f"RequireApproval for tool '{fn_name_check}': {'approved' if approved else 'not approved'} (instance={ctx.instance_id})"
                                     )
                                 else:
-                                    hook_decisions[tc["id"]] = decision
+                                    hook_decisions[idx] = decision
 
                         ordered: List[Optional[Dict[str, Any]]] = [None] * len(
                             tool_calls
@@ -776,7 +831,7 @@ class DurableAgent(AgentBase):
                             fn_name = tc["function"]["name"]
 
                             # check hook decisions for this tool call
-                            hook_decision = hook_decisions.get(tc["id"])
+                            hook_decision = hook_decisions.get(idx)
 
                             if isinstance(hook_decision, Deny):
                                 # hook blocked the tool outright — synthesize a denial message
@@ -1089,8 +1144,8 @@ class DurableAgent(AgentBase):
                         )
                         # include hook-blocked/skipped tool calls so save_tool_results
                         # can record them in tool_history for observability
-                        for tc in tool_calls:
-                            decision_for_tracking = hook_decisions.get(tc["id"])
+                        for idx, tc in enumerate(tool_calls):
+                            decision_for_tracking = hook_decisions.get(idx)
                             if isinstance(decision_for_tracking, (Deny, Skip)):
                                 hook_label = (
                                     "denied"
@@ -1200,20 +1255,30 @@ class DurableAgent(AgentBase):
         instance_id: str,
         tool_call: Dict[str, Any],
         decision: RequireApproval,
+        *,
+        turn: int,
+        call_index: int,
     ):
         """
         Pause the workflow and wait for a human to approve or deny a tool call.
 
         Called with ``yield from`` from agent_workflow when a before_tool_call hook
-        returns RequireApproval. Publishes an ApprovalRequiredEvent the first time it
-        runs for a given tool_call_id, then suspends via wait_for_external_event. On
-        replay, the activity result is cached so the publish does not fire again.
+        returns RequireApproval. Publishes an ApprovalRequiredEvent, then suspends via
+        wait_for_external_event. On replay, the activity result is cached so the
+        publish does not fire again.
+
+        The approval request id is scoped to the turn and the call's position in
+        that turn, not to the LLM-assigned tool_call_id, which models reuse across
+        turns (``call_0``) and may leave empty or repeat within a turn. A response
+        whose ``approval_request_id`` does not match the pending request is ignored.
 
         Args:
             ctx: Dapr workflow context.
             instance_id: Running workflow instance ID.
             tool_call: Tool call dict with 'id' and 'function' keys.
             decision: The RequireApproval decision returned by the hook.
+            turn: The agent loop turn that produced this tool call.
+            call_index: Position of this call in the turn's ``tool_calls``.
 
         Returns:
             True if the human approved, False if not approved or the timeout elapsed.
@@ -1229,9 +1294,12 @@ class DurableAgent(AgentBase):
             else approval_config.default_timeout_seconds
         )
 
-        # deterministic UUID derived from instance + tool_call so it is identical on replay
-        approval_request_id = str(
-            uuid.uuid5(uuid.NAMESPACE_DNS, f"{instance_id}:{tool_call_id}")
+        approval_request_id = _approval_request_id(
+            instance_id,
+            ctx.current_utc_datetime.isoformat(),
+            turn,
+            call_index,
+            tool_call_id,
         )
 
         raw_args = tool_call.get("function", {}).get("arguments", "")
@@ -1259,7 +1327,7 @@ class DurableAgent(AgentBase):
 
         # Always yield this activity unconditionally — DurableTask returns the cached
         # result on replay without re-executing the function
-        yield ctx.call_activity(
+        published_id = yield ctx.call_activity(
             self._activity_name(self.publish_approval_request),
             input={
                 "event": approval_event.model_dump(mode="json"),
@@ -1268,43 +1336,138 @@ class DurableAgent(AgentBase):
             },
             retry_policy=self._retry_policy,
         )
+        accepted_ids = self._accepted_approval_ids(
+            published_id, approval_request_id, instance_id, tool_call_id
+        )
+        approval_request_id = accepted_ids[0]
 
         logger.info(
             f"Approval request {approval_request_id} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
         )
 
-        event_name = f"approval_response_{approval_request_id}"
-        event_task = ctx.wait_for_external_event(event_name)
-
-        if timeout_seconds is None:
-            # No timeout: suspend indefinitely until a human sends the approval event. The workflow stays paused in Dapr's durable state.
-            yield event_task
-        else:
-            # Race the approval event against a timer
-            timer_task = ctx.create_timer(timedelta(seconds=timeout_seconds))
-            winner = yield wf.when_any([event_task, timer_task])
-
-            if winner is timer_task:
-                logger.warning(
-                    f"Approval request {approval_request_id} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
-                )
-                return False
-
-        # event won the race — read the human decision
-        try:
-            response_data = event_task.get_result()
-            response = ApprovalResponseEvent(**response_data)
-        except Exception as exc:
-            logger.warning(
-                f"Could not parse approval response for request {approval_request_id}: {exc} — auto-denying"
-            )
-            return False
-
-        logger.info(
-            f"Approval decision for request {approval_request_id}, tool '{fn_name}': {'approved' if response.approved else 'not approved'} (instance={instance_id})"
+        # History order: waits before the timer, as before. Each
+        # wait_for_external_event also schedules an optional timer action, so
+        # this order keeps the sequence ids of histories recorded by older code.
+        waits = {
+            rid: ctx.wait_for_external_event(f"approval_response_{rid}")
+            for rid in accepted_ids
+        }
+        timer_task = (
+            ctx.create_timer(timedelta(seconds=timeout_seconds))
+            if timeout_seconds is not None
+            else None
         )
 
-        return response.approved
+        return (
+            yield from self._await_approval_decision(
+                ctx, accepted_ids, waits, timer_task, fn_name, instance_id
+            )
+        )
+
+    @staticmethod
+    def _accepted_approval_ids(
+        published_id: Any, new_id: str, instance_id: str, tool_call_id: str
+    ) -> List[str]:
+        """Return the request ids to listen on, the one to report first.
+
+        Waits on the id that was actually published, read from the recorded
+        activity result. A None result means the publish ran on older code:
+        either before the upgrade (the approver holds the legacy id) or on a
+        not-yet-upgraded replica during a rolling upgrade (it published the new
+        id it was given). Listen on both names in that case.
+        """
+        if published_id is not None:
+            return [str(published_id)]
+        return [new_id, _legacy_approval_request_id(instance_id, tool_call_id)]
+
+    def _await_approval_decision(
+        self,
+        ctx: wf.DaprWorkflowContext,
+        accepted_ids: List[str],
+        waits: Dict[str, Any],
+        timer_task: Optional[Any],
+        fn_name: str,
+        instance_id: str,
+    ):
+        """Wait for a valid approval response or the timer; use ``yield from``.
+
+        Returns True only for a matching, approving response. A timeout returns
+        False. Ignored responses re-arm only their own wait, so the other waits
+        and the single timer stay in place.
+        """
+        while True:
+            pending = [waits[rid] for rid in accepted_ids]
+            if timer_task is None and len(pending) == 1:
+                # No timeout: suspend indefinitely until a human sends the approval event. The workflow stays paused in Dapr's durable state.
+                yield pending[0]
+                winner = pending[0]
+            else:
+                # Race the approval event(s) against the timer, if any
+                race = pending + ([timer_task] if timer_task is not None else [])
+                winner = yield wf.when_any(race)
+                if winner is timer_task:
+                    logger.warning(
+                        f"Approval request {accepted_ids[0]} timed out for tool '{fn_name}' (instance={instance_id}) — auto-denying"
+                    )
+                    return False
+
+            wait_id = next(rid for rid in accepted_ids if waits[rid] is winner)
+            response = self._parse_approval_response(
+                winner, wait_id, fn_name, instance_id
+            )
+            if response is None:
+                # Ignored: listen on that name again; other waits and the timer stay.
+                waits[wait_id] = ctx.wait_for_external_event(
+                    f"approval_response_{wait_id}"
+                )
+                continue
+
+            logger.info(
+                f"Approval decision for request {wait_id}, tool '{fn_name}': {'approved' if response.approved else 'not approved'} (instance={instance_id})"
+            )
+            return response.approved
+
+    @staticmethod
+    def _parse_approval_response(
+        event_task: Any, wait_id: str, fn_name: str, instance_id: str
+    ) -> Optional[ApprovalResponseEvent]:
+        """Return the response for ``wait_id``, or None if it must be ignored.
+
+        Fails closed: a malformed body, or one whose ``approval_request_id`` does
+        not match the name it arrived on, is logged at WARNING and never decides
+        the request. Only structured metadata is logged for a bad body: the raw
+        exception embeds the input, which can carry an ``approver_token``.
+        """
+        try:
+            response = ApprovalResponseEvent(**event_task.get_result())
+        except Exception as exc:
+            if isinstance(exc, ValidationError):
+                reason: Any = [
+                    (e["loc"], e["type"])
+                    for e in exc.errors(include_input=False, include_url=False)
+                ]
+            else:
+                reason = type(exc).__name__
+            logger.warning(
+                "Ignoring unparseable approval response for request %s: %s "
+                "(tool='%s', instance=%s)",
+                wait_id,
+                reason,
+                fn_name,
+                instance_id,
+            )
+            return None
+        if response.approval_request_id != wait_id:
+            logger.warning(
+                "Ignoring approval response for request %s while waiting on %s "
+                "(tool='%s', instance=%s)",
+                response.approval_request_id,
+                wait_id,
+                fn_name,
+                instance_id,
+            )
+            return None
+        return response
 
     def orchestration_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
         """Dedicated orchestration workflow using strategy pattern.
@@ -3447,7 +3610,7 @@ class DurableAgent(AgentBase):
 
     def publish_approval_request(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
-    ) -> None:
+    ) -> str:
         """
         Deliver an ApprovalRequiredEvent and track it for HTTP polling.
 
@@ -3463,11 +3626,18 @@ class DurableAgent(AgentBase):
         Args:
             payload: Keys 'event' (serialized ApprovalRequiredEvent dict),
                 'pubsub_name' (optional pub/sub component name), 'topic' (topic name).
+
+        Returns:
+            The published approval_request_id. The workflow waits on this recorded
+            value, so replays keep waiting on the id the approver received.
         """
         event_data = payload["event"]
         pubsub_name = payload.get("pubsub_name")
         topic = payload.get("topic")
         approval_request_id = event_data.get("approval_request_id")
+        if not approval_request_id:
+            # The workflow treats a None result as a publish by older code.
+            raise ValueError("approval request event has no approval_request_id")
 
         self._pending_approvals[approval_request_id] = event_data
         self._persist_pending_approvals()
@@ -3490,6 +3660,7 @@ class DurableAgent(AgentBase):
             logger.info(
                 f"Stored approval request {approval_request_id} for step '{event_data.get('step_name')}' (no pub/sub configured; poll GET /hitl/approvals or use Dapr sidecar raiseEvent API)"
             )
+        return approval_request_id
 
     def broadcast_to_team(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
