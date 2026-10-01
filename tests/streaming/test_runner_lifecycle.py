@@ -76,6 +76,7 @@ def _make_agent_state(
     agent.tool_executor = AgentToolExecutor(tools=[])
     agent.execution = SimpleNamespace(tool_choice=None)
     agent._infra = None
+    agent._approvals_possible = False
     agent._activations = []
     agent._activation_window_open = True
     agent._started = False
