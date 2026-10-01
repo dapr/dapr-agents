@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 import functools
 import inspect
@@ -224,6 +225,13 @@ def orchestration_workflow_id(
     sanitized_framework = sanitize_agent_name(framework.lower())
 
     return f"dapr.{sanitized_framework}.{sanitized_agent_name}.orchestration"
+
+
+def _message_field(msg: Any, name: str) -> Any:
+    """Read a field from a stored message, which may be a dict or a model."""
+    if isinstance(msg, dict):
+        return msg.get(name)
+    return getattr(msg, name, None)
 
 
 # Registry of built-in tool factories, keyed by the name users list in
@@ -3244,66 +3252,75 @@ class DurableAgent(AgentBase):
             )
             raise
 
-        # Build the set of tool_call_ids already present in messages and tool_history
-        # so we can skip duplicates on workflow replay (Dapr may re-deliver results).
-        existing_tool_ids: set[str] = set()
         last_message_is_assistant_with_tool_calls = False
         messages_list: list = []
-
         if entry is not None and hasattr(entry, "messages"):
             messages_list = getattr(entry, "messages")
-            for msg in messages_list:
-                try:
-                    tid = getattr(msg, "tool_call_id", None)
-                    if tid:
-                        existing_tool_ids.add(tid)
-                except Exception:
-                    pass
-        # Also check tool_history for deduplication when skip_messages=True
-        # (orchestration path) or when messages are skipped
-        if entry is not None and hasattr(entry, "tool_history"):
-            for record in getattr(entry, "tool_history", []):
-                try:
-                    tid = getattr(record, "tool_call_id", None)
-                    if tid:
-                        existing_tool_ids.add(tid)
-                except Exception:
-                    pass
 
         # Check if the last non-tool message is an assistant with tool_calls.
-        # Scan messages_list from the end, skipping tool messages already saved.
+        # Scan messages_list from the end, skipping tool messages already saved
+        # and counting them: they are this turn's replies so far.
         # Only set True when we actually confirm the right message is present;
         # an empty messages_list stays False so we never append tool results
         # to a message list that has no preceding assistant+tool_calls message.
+        turn_replies: Counter[str] = Counter()
+        scan_failed = False
         if messages_list:
             try:
                 for msg in reversed(messages_list):
-                    if isinstance(msg, dict):
-                        role = msg.get("role")
-                        tool_calls_field = msg.get("tool_calls")
-                    else:
-                        role = getattr(msg, "role", None)
-                        tool_calls_field = getattr(msg, "tool_calls", None)
+                    role = _message_field(msg, "role")
                     if role == "tool":
-                        continue  # skip existing tool responses, keep scanning back
-                    if role == "assistant" and tool_calls_field:
-                        last_message_is_assistant_with_tool_calls = True
-                    else:
-                        # Last non-tool message is not an assistant+tool_calls — not safe to append
-                        last_message_is_assistant_with_tool_calls = False
+                        turn_replies[_message_field(msg, "tool_call_id") or ""] += 1
+                        continue  # keep scanning back
+                    # Anything else means it is not safe to append.
+                    last_message_is_assistant_with_tool_calls = bool(
+                        role == "assistant" and _message_field(msg, "tool_calls")
+                    )
                     break
-            except Exception:
+            except Exception as e:
                 logger.warning(
-                    "Could not scan messages to verify tool result ordering; "
-                    "proceeding with save (optimistic)."
+                    "Could not scan messages to verify tool result ordering "
+                    "for instance %s; proceeding with save (optimistic), "
+                    "falling back to tool_history dedupe: %s",
+                    instance_id,
+                    e,
+                    exc_info=True,
                 )
                 last_message_is_assistant_with_tool_calls = True
+                scan_failed = True
+
+        # Results already saved, so a re-run of this activity (Dapr may
+        # re-deliver it) does not save them twice. Counted per id, so ids
+        # repeated within a batch ("" or reused) are each matched once.
+        already_saved: Counter[str] = Counter()
+        if (
+            skip_messages
+            or scan_failed
+            or not last_message_is_assistant_with_tool_calls
+        ):
+            # Orchestrator tool_call_ids are the child instance ID, which the
+            # orchestrator dispatch code (the only caller that sets
+            # skip_messages) generates once per dispatch, so they cannot repeat
+            # across dispatches; the LLM never chooses them.
+            # For the other cases, tool_history is the only record of an
+            # earlier run.
+            if entry is not None and hasattr(entry, "tool_history"):
+                for record in getattr(entry, "tool_history", []):
+                    tid = getattr(record, "tool_call_id", None)
+                    if tid:
+                        already_saved[tid] += 1
+        else:
+            # Only this turn's replies count. Providers reuse tool_call_ids
+            # across turns (e.g. "call_0" every turn), so an id from an
+            # earlier turn must not suppress this turn's result.
+            already_saved = turn_replies
 
         # Process each tool result
         for tool_result in tool_results:
             tool_call_id = tool_result.tool_call_id
 
-            if tool_call_id in existing_tool_ids:
+            if already_saved[tool_call_id or ""] > 0:
+                already_saved[tool_call_id or ""] -= 1
                 logger.debug(f"Tool result {tool_call_id} already in entry, skipping")
                 continue
 
