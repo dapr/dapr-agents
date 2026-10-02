@@ -65,6 +65,9 @@ exclude = ["tests"]
 [tool.setuptools.package-data]
 "dapr_agents.ext.drasi" = ["py.typed"]
 
+# Used only when pytest runs from this directory. CI runs `pytest ext` from the
+# repository root, which uses the root pyproject.toml (--import-mode=importlib);
+# keep the two in step when changing test settings.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
