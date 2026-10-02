@@ -49,6 +49,7 @@ APPLY_METHODS = [
     "_apply_tool_wrappers",
     "_apply_workflow_wrappers",
     "_apply_llm_wrappers",
+    "_apply_executor_wrappers",
 ]
 
 
