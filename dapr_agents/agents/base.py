@@ -567,7 +567,7 @@ class AgentBase:
         # -----------------------------
         self.instrumentor: Optional[DaprAgentsInstrumentor] = None
         self._otel_logging_handler = None
-        self._agent_observability = AgentObservabilityConfig.resolve_config(
+        self._agent_observability = AgentObservabilityConfig._resolve_config(
             config=agent_observability,
             # OTEL_EXPORTER_OTLP_HEADERS may come from runtime config or secrets (as an access token).
             runtime_config={**self._runtime_conf, **self._runtime_secrets},
@@ -651,7 +651,7 @@ class AgentBase:
         # -----------------------------
         # Execution config
         # -----------------------------
-        self.execution = AgentExecutionConfig.resolve_config(
+        self.execution = AgentExecutionConfig._resolve_config(
             config=execution,
             runtime_config=self._runtime_conf,
         )

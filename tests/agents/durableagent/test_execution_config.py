@@ -220,7 +220,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
             tool_execution_mode="parallel",
         )
 
-        resolved_config = AgentExecutionConfig.from_instantiation(execution_config)
+        resolved_config = AgentExecutionConfig._from_instantiation(execution_config)
 
         assert execution_config is not resolved_config
         assert execution_config.tool_choice == "auto"
@@ -245,7 +245,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
             tool_execution_mode=tool_execution_mode,
         )
 
-        resolved_config = AgentExecutionConfig.from_instantiation(execution_config)
+        resolved_config = AgentExecutionConfig._from_instantiation(execution_config)
 
         assert resolved_config.tool_choice == ToolChoice.AUTO
         assert resolved_config.tool_execution_mode == ToolExecutionMode.PARALLEL

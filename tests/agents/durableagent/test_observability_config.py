@@ -107,7 +107,7 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
             tracing_exporter="zipkin",
         )
 
-        resolved_config = AgentObservabilityConfig.from_instantiation(
+        resolved_config = AgentObservabilityConfig._from_instantiation(
             observability_config
         )
 
@@ -134,7 +134,7 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
             tracing_exporter=tracing_exporter,
         )
 
-        resolved_config = AgentObservabilityConfig.from_instantiation(
+        resolved_config = AgentObservabilityConfig._from_instantiation(
             observability_config
         )
 
@@ -835,7 +835,7 @@ class TestObservabilityConfigResolutionSecrets:
         config = AgentObservabilityConfig(auth_token=auth_token)
 
         with caplog.at_level(logging.DEBUG):
-            AgentObservabilityConfig.resolve_config(config=config)
+            AgentObservabilityConfig._resolve_config(config=config)
 
         assert auth_token not in caplog.text
 
@@ -850,7 +850,7 @@ class TestObservabilityConfigResolutionSecrets:
         )
 
         with caplog.at_level(logging.DEBUG):
-            AgentObservabilityConfig.resolve_config(config=config)
+            AgentObservabilityConfig._resolve_config(config=config)
 
         assert auth_token not in caplog.text
         assert custom_value not in caplog.text
@@ -864,7 +864,7 @@ class TestObservabilityConfigResolutionSecrets:
         )
 
         with caplog.at_level(logging.DEBUG):
-            AgentObservabilityConfig.resolve_config()
+            AgentObservabilityConfig._resolve_config()
 
         assert auth_token not in caplog.text
         assert custom_value not in caplog.text
@@ -877,7 +877,7 @@ class TestObservabilityConfigResolutionSecrets:
         }
 
         with caplog.at_level(logging.DEBUG):
-            AgentObservabilityConfig.resolve_config(runtime_config=runtime_config)
+            AgentObservabilityConfig._resolve_config(runtime_config=runtime_config)
 
         assert auth_token not in caplog.text
         assert custom_value not in caplog.text

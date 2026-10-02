@@ -619,7 +619,7 @@ class AgentExecutionConfig:
     def __post_init__(self) -> None:
         # Record fields explicitly passed by the caller. Omitted fields retain
         # their real defaults, while explicitly provided ``None`` remains
-        # distinguishable. from_instantiation() uses this to merge only
+        # distinguishable. _from_instantiation() uses this to merge only
         # fields the caller provided.
         provided_fields: set[str] = set()
 
@@ -671,7 +671,7 @@ class AgentExecutionConfig:
             self.builtin_tools = normalized
 
     @classmethod
-    def from_env(cls) -> "AgentExecutionConfig":
+    def _from_env(cls) -> "AgentExecutionConfig":
         """
         Validate and create execution configuration from environment variables.
         Only resolvable fields are validated; invalid values are ignored and left unset.
@@ -727,7 +727,7 @@ class AgentExecutionConfig:
         return config
 
     @classmethod
-    def from_instantiation(
+    def _from_instantiation(
         cls, instantiated_config: Optional["AgentExecutionConfig"]
     ) -> "AgentExecutionConfig":
         """
@@ -814,7 +814,7 @@ class AgentExecutionConfig:
         return resolved_config
 
     @classmethod
-    def from_statestore(
+    def _from_statestore(
         cls, runtime_config: Optional[Dict[str, Any]]
     ) -> "AgentExecutionConfig":
         """
@@ -852,7 +852,7 @@ class AgentExecutionConfig:
         return config
 
     @classmethod
-    def resolve_config(
+    def _resolve_config(
         cls,
         *,
         config: Optional["AgentExecutionConfig"] = None,
@@ -878,13 +878,13 @@ class AgentExecutionConfig:
             ValueError: If a resolvable field in the instantiated configuration is invalid.
         """
 
-        env_config = AgentExecutionConfig.from_env()
+        env_config = AgentExecutionConfig._from_env()
         logger.debug(f"Environment variable execution config: {env_config}")
 
-        instantiated_config = AgentExecutionConfig.from_instantiation(config)
+        instantiated_config = AgentExecutionConfig._from_instantiation(config)
         logger.debug(f"Instantiated execution config: {instantiated_config}")
 
-        statestore_config = AgentExecutionConfig.from_statestore(runtime_config)
+        statestore_config = AgentExecutionConfig._from_statestore(runtime_config)
         logger.debug(f"State store runtime execution config: {statestore_config}")
 
         resolved_config = functools.reduce(
@@ -1059,7 +1059,7 @@ class AgentObservabilityConfig:
     tracing_exporter: Optional[AgentTracingExporter] = None
 
     @classmethod
-    def from_env(cls) -> "AgentObservabilityConfig":
+    def _from_env(cls) -> "AgentObservabilityConfig":
         """
         Validate and create observability config from standard OTEL environment variables.
         Only resolvable fields are validated; invalid values are ignored and left unset.
@@ -1148,7 +1148,7 @@ class AgentObservabilityConfig:
         return config
 
     @classmethod
-    def from_instantiation(
+    def _from_instantiation(
         cls, instantiated_config: Optional["AgentObservabilityConfig"]
     ) -> "AgentObservabilityConfig":
         """
@@ -1224,7 +1224,7 @@ class AgentObservabilityConfig:
         return resolved_config
 
     @classmethod
-    def from_statestore(
+    def _from_statestore(
         cls, runtime_config: Optional[Dict[str, Any]]
     ) -> "AgentObservabilityConfig":
         """
@@ -1322,7 +1322,7 @@ class AgentObservabilityConfig:
         return config
 
     @classmethod
-    def resolve_config(
+    def _resolve_config(
         cls,
         *,
         config: Optional["AgentObservabilityConfig"] = None,
@@ -1347,13 +1347,13 @@ class AgentObservabilityConfig:
         Raises:
             ValueError: If a resolvable field in the instantiated configuration is invalid.
         """
-        statestore_config = AgentObservabilityConfig.from_statestore(runtime_config)
+        statestore_config = AgentObservabilityConfig._from_statestore(runtime_config)
         logger.debug(f"State store runtime observability config: {statestore_config}")
 
-        env_config = AgentObservabilityConfig.from_env()
+        env_config = AgentObservabilityConfig._from_env()
         logger.debug(f"Environment variable observability config: {env_config}")
 
-        instantiated_config = AgentObservabilityConfig.from_instantiation(config)
+        instantiated_config = AgentObservabilityConfig._from_instantiation(config)
         logger.debug(f"Instantiated observability config: {instantiated_config}")
 
         resolved_config = functools.reduce(
