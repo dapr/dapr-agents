@@ -2542,33 +2542,43 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         """
         Deterministic id for the assistant message a ``call_llm`` execution saves.
 
-        The id is derived from the workflow instance, the activity task id and
-        the activity input, all of which are identical when Dapr re-delivers the
-        same activity, so a re-execution can find what the previous execution
-        recorded. The input is included so that reusing an instance id for a new
-        run does not match messages left over from an earlier run.
+        The id is derived from the workflow instance, the activity attempt key
+        and the activity input, all of which are identical when Dapr re-runs the
+        same ``call_llm`` call, so a re-execution can find what the previous
+        execution recorded. The attempt key is the SDK's ``task_execution_id``,
+        which is stable across both re-delivery and retry-policy retries (a
+        retry is rescheduled under a new ``task_id``). Sidecars that do not send
+        a ``task_execution_id`` fall back to ``task_id``, which still covers
+        re-delivery. The input is included so that reusing an instance id for a
+        new run does not match messages left over from an earlier run.
 
         Returns ``None`` when ``ctx`` is not a ``WorkflowActivityContext`` (for
         example when ``call_llm`` is invoked directly rather than as a workflow
-        activity): there is no task id to key on, so every execution calls the
+        activity): there is nothing to key on, so every execution calls the
         LLM.
 
         Raises:
-            AgentError: If ``ctx`` is a ``WorkflowActivityContext`` whose
-                ``task_id`` is missing or not an ``int``. The Dapr SDK declares
-                ``task_id`` as an ``int``; failing here keeps a change to that
-                contract from silently disabling the re-delivery guard.
+            AgentError: If ``ctx`` is a ``WorkflowActivityContext`` without a
+                ``task_execution_id`` whose ``task_id`` is missing or not an
+                ``int``. The Dapr SDK declares ``task_id`` as an ``int``;
+                failing here keeps a change to that contract from silently
+                disabling the re-delivery guard.
         """
         if not isinstance(ctx, wf.WorkflowActivityContext):
             return None
-        task_id = getattr(ctx, "task_id", None)
-        if not isinstance(task_id, int) or isinstance(task_id, bool):
-            raise AgentError(
-                "call_llm expected WorkflowActivityContext.task_id to be an int, "
-                f"got {type(task_id).__name__}; it is needed to detect a "
-                "re-delivered call_llm activity, so the Dapr workflow SDK in use "
-                "may be incompatible with this version of dapr-agents"
-            )
+        execution_id = DurableAgent._task_execution_id(ctx)
+        if execution_id:
+            attempt_key = f"exec:{execution_id}"
+        else:
+            task_id = getattr(ctx, "task_id", None)
+            if not isinstance(task_id, int) or isinstance(task_id, bool):
+                raise AgentError(
+                    "call_llm expected WorkflowActivityContext.task_id to be an int, "
+                    f"got {type(task_id).__name__}; it is needed to detect a "
+                    "re-delivered call_llm activity, so the Dapr workflow SDK in use "
+                    "may be incompatible with this version of dapr-agents"
+                )
+            attempt_key = f"task:{task_id}"
         workflow_id = getattr(ctx, "workflow_id", None)
         if not isinstance(workflow_id, str):
             workflow_id = str(payload.get("instance_id"))
@@ -2576,9 +2586,25 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         return str(
             uuid.uuid5(
                 uuid.NAMESPACE_URL,
-                f"dapr-agents:call_llm:{workflow_id}:{task_id}:{activity_input}",
+                f"dapr-agents:call_llm:{workflow_id}:{attempt_key}:{activity_input}",
             )
         )
+
+    @staticmethod
+    def _task_execution_id(ctx: wf.WorkflowActivityContext) -> Optional[str]:
+        """
+        Return the activity's ``task_execution_id``, or ``None`` if unavailable.
+
+        ``WorkflowActivityContext`` only exposes it on the inner durabletask
+        ``ActivityContext``. Older sidecars send an empty string.
+        """
+        get_inner_context = getattr(ctx, "get_inner_context", None)
+        if not callable(get_inner_context):
+            return None
+        execution_id = getattr(get_inner_context(), "task_execution_id", None)
+        if isinstance(execution_id, str) and execution_id:
+            return execution_id
+        return None
 
     @staticmethod
     def _find_recorded_message(entry: Any, message_id: str) -> Optional[Dict[str, Any]]:

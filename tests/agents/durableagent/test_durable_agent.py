@@ -16,7 +16,10 @@
 # In future, we should do dependency injection instead of patching at the class-level to make it easier to test.
 # This applies to all areas in this file where we have with patch.object()...
 from datetime import timedelta
+import ast
+import importlib.metadata
 import os
+from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
@@ -2161,3 +2164,101 @@ class TestCallLlmRedelivery:
         mock_llm.generate.assert_not_called()
         entry = agent._infra.get_state("wf-redeliver-1")
         assert entry is None or not entry.messages
+
+    # -- retries: new task id, same task_execution_id --------------------------
+
+    @staticmethod
+    def _sdk_activity_ctx(task_id, task_execution_id=""):
+        # Mirrors the SDK: WorkflowActivityContext exposes task_id directly and
+        # task_execution_id only on the inner durabletask ActivityContext.
+        # test_sdk_exposes_task_execution_id pins that shape against the
+        # installed SDK, since conftest replaces dapr with mocks.
+        ctx = Mock(spec=WorkflowActivityContext)
+        ctx.workflow_id = "wf-redeliver-1"
+        ctx.task_id = task_id
+        ctx.get_inner_context = Mock(
+            return_value=SimpleNamespace(task_execution_id=task_execution_id)
+        )
+        return ctx
+
+    def test_retry_after_committed_save_returns_recorded_message(
+        self, agent, mock_llm, payload
+    ):
+        """Regression: a retry must not repeat a turn whose state was saved.
+
+        The retry policy reschedules a failed activity under a new task_id but
+        keeps its task_execution_id. If the first attempt's save committed but
+        the call still failed (e.g. the state store client timed out after the
+        write landed), the retry must return the recorded message rather than
+        append the user turn again and call the LLM a second time.
+        """
+        commit_save = agent._infra.save_state
+
+        def save_then_time_out(instance_id, entry=None):
+            commit_save(instance_id, entry=entry)
+            raise TimeoutError("state store write timed out after committing")
+
+        with patch.object(agent._infra, "save_state", side_effect=save_then_time_out):
+            with pytest.raises(TimeoutError):
+                agent.call_llm(
+                    self._sdk_activity_ctx(3, "exec-1"), payload=dict(payload)
+                )
+
+        retried = agent.call_llm(
+            self._sdk_activity_ctx(4, "exec-1"), payload=dict(payload)
+        )
+
+        assert mock_llm.generate.call_count == 1
+        assert [tc["id"] for tc in retried["tool_calls"]] == ["call_1"]
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert [m.role for m in entry.messages] == ["user", "assistant"]
+
+    def test_message_id_is_stable_across_retries(self, payload):
+        assert DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(3, "exec-1"), payload
+        ) == DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(4, "exec-1"), payload
+        )
+
+    def test_message_id_differs_per_task_execution_id(self, payload):
+        # Two separate call_activity calls never share a task_execution_id.
+        assert DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(3, "exec-1"), payload
+        ) != DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(3, "exec-2"), payload
+        )
+
+    def test_message_id_falls_back_to_task_id_without_execution_id(
+        self, agent, mock_llm, payload
+    ):
+        # Older sidecars send an empty task_execution_id: redelivery (same
+        # task_id) is still detected, and a new task_id still calls the LLM.
+        agent.call_llm(self._sdk_activity_ctx(3), payload=dict(payload))
+        agent.call_llm(self._sdk_activity_ctx(3), payload=dict(payload))
+        assert mock_llm.generate.call_count == 1
+
+        agent.call_llm(self._sdk_activity_ctx(4), payload=dict(payload))
+        assert mock_llm.generate.call_count == 2
+
+    def test_sdk_exposes_task_execution_id(self):
+        """The installed SDK still provides what _call_llm_message_id reads.
+
+        Without this, a rename in the SDK would quietly drop call_llm back to
+        the task_id key, which does not survive retries.
+        """
+        dist = importlib.metadata.distribution("dapr-ext-workflow")
+
+        def class_members(rel_path, class_name):
+            source = dist.locate_file(rel_path).read_text()
+            for node in ast.walk(ast.parse(source)):
+                if isinstance(node, ast.ClassDef) and node.name == class_name:
+                    return {n.name for n in node.body if isinstance(n, ast.FunctionDef)}
+            raise AssertionError(f"{class_name} not found in {rel_path}")
+
+        assert "get_inner_context" in class_members(
+            "dapr/ext/workflow/workflow_activity_context.py",
+            "WorkflowActivityContext",
+        )
+        assert "task_execution_id" in class_members(
+            "dapr/ext/workflow/_durabletask/task.py", "ActivityContext"
+        )
