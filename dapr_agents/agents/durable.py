@@ -699,9 +699,10 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         )
 
                         # hook pass: run before_tool_call for every tool in this turn and collect decisions before dispatching anything.
-                        hook_decisions: Dict[str, HookDecision] = {}
+                        # Keyed by position: tool_call_id can be "" or repeated.
+                        hook_decisions: Dict[int, HookDecision] = {}
                         if self._hooks and self._hooks.before_tool_call:
-                            for tc in tool_calls:
+                            for idx, tc in enumerate(tool_calls):
                                 fn_name_check = tc["function"]["name"]
                                 tool_obj_check = self.tool_executor.get_tool(
                                     fn_name_check
@@ -736,7 +737,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     approved = yield from self._request_approval(
                                         ctx, ctx.instance_id, tc, decision
                                     )
-                                    hook_decisions[tc["id"]] = (
+                                    hook_decisions[idx] = (
                                         Proceed()
                                         if approved
                                         else Deny(
@@ -747,7 +748,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                         f"RequireApproval for tool '{fn_name_check}': {'approved' if approved else 'not approved'} (instance={ctx.instance_id})"
                                     )
                                 else:
-                                    hook_decisions[tc["id"]] = decision
+                                    hook_decisions[idx] = decision
 
                         ordered: List[Optional[Dict[str, Any]]] = [None] * len(
                             tool_calls
@@ -764,7 +765,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                             fn_name = tc["function"]["name"]
 
                             # check hook decisions for this tool call
-                            hook_decision = hook_decisions.get(tc["id"])
+                            hook_decision = hook_decisions.get(idx)
 
                             if isinstance(hook_decision, Deny):
                                 # hook blocked the tool outright — synthesize a denial message
@@ -1077,8 +1078,8 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         )
                         # include hook-blocked/skipped tool calls so save_tool_results
                         # can record them in tool_history for observability
-                        for tc in tool_calls:
-                            decision_for_tracking = hook_decisions.get(tc["id"])
+                        for idx, tc in enumerate(tool_calls):
+                            decision_for_tracking = hook_decisions.get(idx)
                             if isinstance(decision_for_tracking, (Deny, Skip)):
                                 hook_label = (
                                     "denied"
