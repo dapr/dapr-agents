@@ -69,7 +69,9 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
   - **Typing**: Enforce strong typing (e.g., `variable: Dict[str, List[str]] = ..`)
   - **Pydantic Models**: For validated/serialized data (APIs, configs, external input)
   - **Dataclasses**: For internal data structures without validation
-  - **Logging**: Use module-level logger: `logger = logging.getLogger(__name__)`
+  - **Logging**:
+    - Use module-level logger: `logger = logging.getLogger(__name__)`
+    - For new log messages, prefer f-strings (e.g. logger.debug(f"{variable}")) over format strings (e.g. logger.debug("%s", variable))
   - **ConfigDict**: Add `model_config = ConfigDict(arbitrary_types_allowed=True)` when Pydantic models contain non-serializable types
   - **Custom Exceptions**: Define domain-specific exceptions (inherit from `Exception`); use descriptive names ending in `Error`
   - **Async Execution**:

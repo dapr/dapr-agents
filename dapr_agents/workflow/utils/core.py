@@ -19,10 +19,16 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Callable, Dict, Optional, Type
 import dapr.ext.workflow as wf
 from dapr.ext.workflow import DaprWorkflowContext
-from pydantic import BaseModel
-
 from dapr_agents.tool.workflow.agent_tool import agent_workflow_id
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
+
+# Preserve the pre-rename import path while implementations live in utils.models.
+from dapr_agents.utils.models import (
+    is_pydantic_model,
+    is_supported_model,
+    is_supported_model_instance,
+    is_valid_routable_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -231,25 +237,6 @@ def trigger_agent(
         return state.serialized_output if state is not None else None
     finally:
         wfr.shutdown()
-
-
-def is_pydantic_model(obj: Any) -> bool:
-    """Check if the given type is a subclass of Pydantic's BaseModel."""
-    return isinstance(obj, type) and issubclass(obj, BaseModel)
-
-
-def is_supported_model(cls: Any) -> bool:
-    """Checks if a class is a supported message schema (Pydantic, dataclass, or dict)."""
-    return cls is dict or is_dataclass(cls) or is_pydantic_model(cls)
-
-
-def is_supported_model_instance(obj: Any) -> bool:
-    """Checks if an object is an instance of a supported message schema (Pydantic, dataclass, or dict)."""
-    return isinstance(obj, dict) or is_dataclass(obj) or isinstance(obj, BaseModel)
-
-
-def is_valid_routable_model(cls: Any) -> bool:
-    return is_dataclass(cls) or is_pydantic_model(cls)
 
 
 def get_decorated_methods(instance: Any, attribute_name: str) -> Dict[str, Callable]:

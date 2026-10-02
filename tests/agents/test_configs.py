@@ -11,7 +11,14 @@
 # limitations under the License.
 #
 
-"""Compatibility imports preserving the former ``auth`` module path."""
+import pytest
 
-# Keep dapr_agents.agents.utils.auth importable after its rename; the implementation now lives in headers.py.
-from dapr_agents.agents.utils.headers import construct_auth_headers
+from dapr_agents.agents.configs import validate_max_iterations, validate_positive_int
+
+
+def test_validate_max_iterations_aliases_validate_positive_int():
+    """Test that validate_max_iterations is preserved as an alias for validate_positive_int."""
+    assert validate_max_iterations is validate_positive_int
+    assert validate_max_iterations(1) == 1
+    with pytest.raises(ValueError):
+        validate_max_iterations(0)
