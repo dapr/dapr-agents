@@ -19,13 +19,14 @@ limitations under the License.
 
 ## Quick Commands
 
-- **Setup**: `uv venv && source .venv/bin/activate && uv sync --group test`
-- **Before commit (REQUIRED)**: `uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"`
+- **Setup**: `uv venv && source .venv/bin/activate && uv sync --group test --extra drasi`
+- **Before commit (REQUIRED)**: `uv run ruff format && uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration" && DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"`
 - **Individual checks**:
-  - Auto-format: `uv run ruff format`
-  - Lint: `uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704`
+  - Auto-format: `uv run ruff format` (rewrites files). CI fails if formatting would change anything; the read-only equivalent is `uv run ruff format --check`
+  - Lint: `uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704`
   - Type check: `uv run mypy --config-file mypy.ini`
   - Unit tests: `uv run pytest tests -m "not integration"`
+  - Drasi extension tests (own pytest session, needs `--extra drasi`): `DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"`
 - **Testing**:
   - Integration tests (requires API keys): `uv run pytest tests -m integration`
 
@@ -60,7 +61,7 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
 ```
 
 **Code Quality** (enforced by CI):
-- **Python version**: >=3.11
+- **Python version**: `>=3.11,<3.15` (the optional `vectorstore` group is still `<3.14`). When changing the supported range, update `requires-python` in every workspace member at once (root, `ext/*`, `quickstarts/`, `examples/*`) and run `uv lock`
 - **Formatting**: ruff (auto-format, no exceptions)
 - **Linting**: flake8 (ignores: E501, F401, W503, E203, E704)
 - **Type Checking**: mypy (config: `./mypy.ini`)
@@ -82,21 +83,25 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
     - Use `span.record_exception(e)` for observability when available
   - **Function Signatures**: Return `None` explicitly for functions with no return value (e.g., `def setup() -> None:`)
   - **Module Exports**: Define `__all__` in `__init__.py` to explicitly control public API
+  - **Dependencies**: Anything imported from `dapr_agents/` at runtime must be declared in `[project] dependencies` (or an optional extra that guards the import), not only in a dependency group. The gate installs the `test` group, so a package that only arrives transitively or through the group still passes CI
+  - **Examples**: Nothing in CI imports `examples/` or `quickstarts/`. When you rename or move a public symbol, update its users there too: `git grep -n "<OldName>" -- examples quickstarts`
 
 ## Testing
 
 **Test Structure**: `./tests/` mirrors `./dapr_agents/` structure
 - `agents/`, `llm/`, `workflow/` - Unit tests
 - `quickstarts/` - E2E integration tests (requires API keys: `OPENAI_API_KEY`, etc.)
+- `ext/dapr-agents-ext-drasi/tests/` - Drasi extension tests, run as their own pytest session (see Quick Commands)
+- Tests that need a real MCP server can start a small FastMCP script from `tests/` over stdio (or as a subprocess on a free port for streamable HTTP), as `tests/tool/mcp_echo_server.py` does. No API keys are needed, so these run with `-m "not integration"`
 
-**CI** (`./.github/workflows/build.yaml`): ruff → flake8 → mypy → pytest
-- Matrix: Python 3.11, 3.12, 3.13, 3.14
+**CI** (`./.github/workflows/build.yaml`): ruff → flake8 → mypy → pytest → Drasi extension tests
+- Matrix: Python 3.11, 3.12, 3.13, 3.14. Each `build` job pins uv to its matrix interpreter (`UV_PYTHON`) and fails if the interpreter doesn't match
 - Failures block merge
 
 ## Pull Request Rules
 
 **REQUIRED Before PR**:
-1. Run `uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"` locally - all checks must pass
+1. Run `uv run ruff format && uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration" && DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"` locally - all checks must pass
 2. Use conventional commit format for PR title
 3. Update docs in `dapr/docs` repo for: API changes, new features, breaking changes, config options
    - **Not required** for internal-only changes (bug fixes, refactors, performance, tests) that don't change the public API, features, config options, or documented/observable behavior
