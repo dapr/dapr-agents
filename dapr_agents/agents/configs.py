@@ -843,7 +843,7 @@ class AgentExecutionConfig:
                 validator=validate_tool_choice,
                 raise_on_error=False,
             ),
-            # TODO: support orchestration mode from runtime config
+            # TODO: support tool execution mode and orchestration mode from runtime config
         }
 
         config = cls._template_config()

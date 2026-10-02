@@ -236,10 +236,10 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
             ("aUtO", "pArAlLeL"),
         ],
     )
-    def test_execution_config_from_instantiation_accepts_case_insensitive_strings(
+    def test_execution_config_from_instantiation_accepts_case_insensitive_values(
         self, tool_choice, tool_execution_mode
     ):
-        """Test that execution config accepts case-insensitive tool choice and execution mode strings."""
+        """Test that execution config accepts case-insensitive instantiated values."""
         execution_config = AgentExecutionConfig(
             tool_choice=tool_choice,
             tool_execution_mode=tool_execution_mode,
@@ -289,7 +289,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes == 654321
 
-    def test_execution_config_from_env_is_case_insensitive(
+    def test_execution_config_from_env_accepts_lowercase_keys(
         self, mock_llm, mock_tool, monkeypatch
     ):
         """Test that execution config accepts lowercase environment variable names."""
@@ -304,6 +304,26 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.tool_choice == ToolChoice.REQUIRED
         assert agent.execution.tool_execution_mode == ToolExecutionMode.SEQUENTIAL
         assert agent.execution.max_grpc_inbound_message_size_bytes == 654321
+
+    @pytest.mark.parametrize(
+        ("tool_choice", "tool_execution_mode"),
+        [
+            ("auto", "parallel"),
+            ("AUTO", "PARALLEL"),
+            ("aUtO", "pArAlLeL"),
+        ],
+    )
+    def test_execution_config_from_env_accepts_case_insensitive_values(
+        self, tool_choice, tool_execution_mode, monkeypatch
+    ):
+        """Test that execution config accepts case-insensitive environment variables."""
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", tool_choice)
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", tool_execution_mode)
+
+        resolved_config = AgentExecutionConfig._from_env()
+
+        assert resolved_config.tool_choice == ToolChoice.AUTO
+        assert resolved_config.tool_execution_mode == ToolExecutionMode.PARALLEL
 
     def test_execution_config_from_env_ignores_invalid_values(
         self, mock_llm, mock_tool, monkeypatch
@@ -351,7 +371,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         """Test execution config loaded from runtime configuration."""
         runtime_config = {
             "MAX_ITERATIONS": "9",
-            "TOOL_CHOICE": "none",
+            "TOOL_CHOICE": "any",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
@@ -360,15 +380,15 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
         assert agent.execution.max_iterations == 9
-        assert agent.execution.tool_choice == ToolChoice.NONE
-        assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
+        assert agent.execution.tool_choice == ToolChoice.ANY
+        assert agent.execution.tool_execution_mode == ToolExecutionMode.PARALLEL
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_from_statestore_is_case_insensitive(
+    def test_execution_config_from_statestore_accepts_lowercase_keys(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test that execution config accepts lowercase runtime configuration keys."""
+        """Test that execution config accepts lowercase runtime config keys."""
         runtime_config = {
             "max_iterations": "9",
             "tool_choice": "none",
@@ -381,6 +401,26 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
 
         assert agent.execution.max_iterations == 9
         assert agent.execution.tool_choice == ToolChoice.NONE
+
+    @pytest.mark.parametrize(
+        ("tool_choice"),
+        [
+            ("auto"),
+            ("AUTO"),
+            ("aUtO"),
+        ],
+    )
+    def test_execution_config_from_statestore_accepts_case_insensitive_values(
+        self, tool_choice
+    ):
+        """Test that execution config accepts case-insensitive runtime config values."""
+        runtime_config = {
+            "TOOL_CHOICE": tool_choice,
+        }
+
+        resolved_config = AgentExecutionConfig._from_statestore(runtime_config)
+
+        assert resolved_config.tool_choice == ToolChoice.AUTO
 
     def test_execution_config_from_statestore_ignores_invalid_values(
         self, mock_llm, mock_tool, monkeypatch

@@ -125,10 +125,10 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
             ("oTlP_gRpC", "zIpKiN"),
         ],
     )
-    def test_observability_config_from_instantiation_accepts_case_insensitive_strings(
+    def test_observability_config_from_instantiation_accepts_case_insensitive_values(
         self, logging_exporter, tracing_exporter
     ):
-        """Test that observability config accepts case-insensitive logging and tracing exporter strings."""
+        """Test that observability config accepts case-insensitive instantiated values."""
         observability_config = AgentObservabilityConfig(
             logging_exporter=logging_exporter,
             tracing_exporter=tracing_exporter,
@@ -289,10 +289,10 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert resolved_config.tracing_enabled is True
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
-    def test_observability_config_from_env_is_case_insensitive(
+    def test_observability_config_from_env_accepts_lowercase_keys(
         self, mock_llm, monkeypatch
     ):
-        """Test observability config accepts lowercase environment variable names."""
+        """Test that observability config accepts lowercase environment variable names."""
         monkeypatch.setenv("otel_sdk_disabled", "false")
         monkeypatch.setenv(
             "otel_exporter_otlp_headers", "Authorization=Bearer env-token"
@@ -335,6 +335,26 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert (
             agent._agent_observability.tracing_exporter == AgentTracingExporter.CONSOLE
         )
+
+    @pytest.mark.parametrize(
+        ("logging_exporter", "tracing_exporter"),
+        [
+            ("otlp_grpc", "zipkin"),
+            ("OTLP_GRPC", "ZIPKIN"),
+            ("oTlP_gRpC", "zIpKiN"),
+        ],
+    )
+    def test_observability_config_from_env_accepts_case_insensitive_values(
+        self, logging_exporter, tracing_exporter, monkeypatch
+    ):
+        """Test that observability config accepts case-insensitive environment variables."""
+        monkeypatch.setenv("OTEL_LOGS_EXPORTER", logging_exporter)
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", tracing_exporter)
+
+        resolved_config = AgentObservabilityConfig._from_env()
+
+        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
+        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
 
     def test_observability_config_from_env_partial_fields(self, mock_llm, monkeypatch):
         """Test observability config with only some env variables set."""
@@ -468,10 +488,10 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.tracing_enabled is True
         assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
 
-    def test_observability_config_from_statestore_is_case_insensitive(
+    def test_observability_config_from_statestore_accepts_lowercase_keys(
         self, mock_llm, monkeypatch
     ):
-        """Test that observability config accepts lowercase runtime configuration keys."""
+        """Test that observability config accepts lowercase runtime config keys."""
         runtime_config = {
             "otel_sdk_disabled": "false",
             "otel_exporter_otlp_headers": "statestore-token",
@@ -511,6 +531,28 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.logging_enabled is True
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
         assert resolved_config.tracing_enabled is True
+        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+
+    @pytest.mark.parametrize(
+        ("logging_exporter", "tracing_exporter"),
+        [
+            ("otlp_grpc", "zipkin"),
+            ("OTLP_GRPC", "ZIPKIN"),
+            ("oTlP_gRpC", "zIpKiN"),
+        ],
+    )
+    def test_observability_config_from_statestore_accepts_case_insensitive_values(
+        self, logging_exporter, tracing_exporter
+    ):
+        """Test that observability config accepts case-insensitive runtime config values."""
+        runtime_config = {
+            "OTEL_LOGS_EXPORTER": logging_exporter,
+            "OTEL_TRACES_EXPORTER": tracing_exporter,
+        }
+
+        resolved_config = AgentObservabilityConfig._from_statestore(runtime_config)
+
+        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
         assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
 
     def test_observability_config_from_statestore_partial_fields(
