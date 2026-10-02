@@ -2281,10 +2281,9 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         if assistant_message_id:
             recorded = self._find_recorded_message(entry, assistant_message_id)
             if recorded is not None:
-                logger.info(
-                    "call_llm re-executed for instance %s; returning the "
-                    "assistant message recorded by the previous execution",
-                    instance_id,
+                logger.debug(
+                    f"call_llm re-executed for instance {instance_id}; returning the "
+                    "assistant message recorded by the previous execution"
                 )
                 return recorded
 
@@ -2549,11 +2548,27 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         recorded. The input is included so that reusing an instance id for a new
         run does not match messages left over from an earlier run.
 
-        Returns ``None`` when the context does not expose a task id.
+        Returns ``None`` when ``ctx`` is not a ``WorkflowActivityContext`` (for
+        example when ``call_llm`` is invoked directly rather than as a workflow
+        activity): there is no task id to key on, so every execution calls the
+        LLM.
+
+        Raises:
+            AgentError: If ``ctx`` is a ``WorkflowActivityContext`` whose
+                ``task_id`` is missing or not an ``int``. The Dapr SDK declares
+                ``task_id`` as an ``int``; failing here keeps a change to that
+                contract from silently disabling the re-delivery guard.
         """
+        if not isinstance(ctx, wf.WorkflowActivityContext):
+            return None
         task_id = getattr(ctx, "task_id", None)
         if not isinstance(task_id, int) or isinstance(task_id, bool):
-            return None
+            raise AgentError(
+                "call_llm expected WorkflowActivityContext.task_id to be an int, "
+                f"got {type(task_id).__name__}; it is needed to detect a "
+                "re-delivered call_llm activity, so the Dapr workflow SDK in use "
+                "may be incompatible with this version of dapr-agents"
+            )
         workflow_id = getattr(ctx, "workflow_id", None)
         if not isinstance(workflow_id, str):
             workflow_id = str(payload.get("instance_id"))

@@ -2007,7 +2007,8 @@ class TestCallLlmRedelivery:
         mock.generate = Mock(side_effect=_generate)
         return mock
 
-    def _make_agent(self, mock_llm):
+    @pytest.fixture
+    def agent(self, mock_llm):
         store = FakeEtagStateStore()
         store.store_name = "teststatestore"
         return DurableAgent(
@@ -2019,6 +2020,16 @@ class TestCallLlmRedelivery:
             state=AgentStateConfig(store=store),
         )
 
+    @pytest.fixture
+    def payload(self):
+        return {
+            "instance_id": "wf-redeliver-1",
+            "task": "What is the weather?",
+            "source": "direct",
+            "time": "2026-01-01T00:00:00+00:00",
+            "turn": 1,
+        }
+
     @staticmethod
     def _activity_ctx(task_id):
         ctx = Mock(spec=WorkflowActivityContext)
@@ -2026,21 +2037,13 @@ class TestCallLlmRedelivery:
         ctx.task_id = task_id
         return ctx
 
-    _payload = {
-        "instance_id": "wf-redeliver-1",
-        "task": "What is the weather?",
-        "source": "direct",
-        "time": "2026-01-01T00:00:00+00:00",
-        "turn": 1,
-    }
-
-    def test_redelivered_call_llm_returns_recorded_message(self, mock_llm):
-        agent = self._make_agent(mock_llm)
-
-        first = agent.call_llm(self._activity_ctx(3), payload=dict(self._payload))
+    def test_redelivered_call_llm_returns_recorded_message(
+        self, agent, mock_llm, payload
+    ):
+        first = agent.call_llm(self._activity_ctx(3), payload=dict(payload))
         # Same activity (same task id and input) delivered again after its
         # completion was lost.
-        second = agent.call_llm(self._activity_ctx(3), payload=dict(self._payload))
+        second = agent.call_llm(self._activity_ctx(3), payload=dict(payload))
 
         assert mock_llm.generate.call_count == 1
         assert second["id"] == first["id"]
@@ -2058,10 +2061,103 @@ class TestCallLlmRedelivery:
             )
         )
 
-    def test_new_activity_task_still_calls_llm(self, mock_llm):
-        agent = self._make_agent(mock_llm)
-
-        agent.call_llm(self._activity_ctx(3), payload=dict(self._payload))
-        agent.call_llm(self._activity_ctx(7), payload=dict(self._payload))
+    def test_new_activity_task_still_calls_llm(self, agent, mock_llm, payload):
+        agent.call_llm(self._activity_ctx(3), payload=dict(payload))
+        agent.call_llm(self._activity_ctx(7), payload=dict(payload))
 
         assert mock_llm.generate.call_count == 2
+
+    # -- same task id, different activity input -------------------------------
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("task", "What is the forecast?"),
+            ("turn", 2),
+            ("time", "2026-01-02T00:00:00+00:00"),
+        ],
+    )
+    def test_message_id_differs_for_same_task_id_with_different_payload(
+        self, payload, field, value
+    ):
+        other = {**payload, field: value}
+
+        assert DurableAgent._call_llm_message_id(
+            self._activity_ctx(3), payload
+        ) != DurableAgent._call_llm_message_id(self._activity_ctx(3), other)
+
+    def test_message_id_ignores_payload_key_order(self, payload):
+        reordered = dict(reversed(list(payload.items())))
+
+        assert DurableAgent._call_llm_message_id(
+            self._activity_ctx(3), payload
+        ) == DurableAgent._call_llm_message_id(self._activity_ctx(3), reordered)
+
+    def test_same_task_id_with_different_payload_calls_llm_again(
+        self, agent, mock_llm, payload
+    ):
+        # e.g. the instance id was reused for a new run whose first call_llm
+        # gets the same task id as the earlier run's: the earlier run's
+        # assistant message must not be returned for the new input.
+        first = agent.call_llm(self._activity_ctx(3), payload=dict(payload))
+        second = agent.call_llm(
+            self._activity_ctx(3),
+            payload={**payload, "task": "What is the forecast?"},
+        )
+
+        assert mock_llm.generate.call_count == 2
+        assert second["id"] != first["id"]
+        assert [tc["id"] for tc in second["tool_calls"]] == ["call_2"]
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert [m.id for m in entry.messages if m.role == "assistant"] == [
+            first["id"],
+            second["id"],
+        ]
+
+    # -- missing / non-integer task id ----------------------------------------
+
+    @pytest.mark.parametrize(
+        "ctx",
+        [None, Mock(), Mock(spec=DaprWorkflowContext)],
+        ids=["none", "plain-mock", "workflow-context"],
+    )
+    def test_non_activity_context_has_no_message_id(self, payload, ctx):
+        assert DurableAgent._call_llm_message_id(ctx, payload) is None
+
+    def test_non_activity_context_falls_back_to_calling_llm(
+        self, agent, mock_llm, payload
+    ):
+        # Without an activity context there is nothing to key on, so call_llm
+        # keeps its previous behaviour and calls the LLM on every execution.
+        agent.call_llm(Mock(), payload=dict(payload))
+        agent.call_llm(Mock(), payload=dict(payload))
+
+        assert mock_llm.generate.call_count == 2
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert [m.role for m in entry.messages].count("assistant") == 2
+
+    @pytest.mark.parametrize(
+        "task_id",
+        [None, "3", 3.0, True],
+        ids=["none", "str", "float", "bool"],
+    )
+    def test_activity_context_with_non_int_task_id_fails_fast(self, payload, task_id):
+        with pytest.raises(AgentError, match="task_id to be an int"):
+            DurableAgent._call_llm_message_id(self._activity_ctx(task_id), payload)
+
+    def test_activity_context_without_task_id_fails_fast(self, payload):
+        ctx = Mock(spec=WorkflowActivityContext)
+        ctx.workflow_id = "wf-redeliver-1"
+
+        with pytest.raises(AgentError, match="got NoneType"):
+            DurableAgent._call_llm_message_id(ctx, payload)
+
+    def test_call_llm_fails_fast_before_touching_history_or_llm(
+        self, agent, mock_llm, payload
+    ):
+        with pytest.raises(AgentError, match="task_id to be an int"):
+            agent.call_llm(self._activity_ctx("3"), payload=dict(payload))
+
+        mock_llm.generate.assert_not_called()
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert entry is None or not entry.messages
