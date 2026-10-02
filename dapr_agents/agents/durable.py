@@ -2271,6 +2271,22 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         # Load state once for all sub-operations in this activity
         entry = self._infra.get_state(instance_id)
 
+        # Activities run at least once: if a previous execution of this same
+        # activity already saved its assistant message but the completion never
+        # reached the sidecar, Dapr re-delivers it with the same task id and
+        # input. Return the recorded message instead of appending the user turn
+        # again and calling the LLM a second time, which would leave the first
+        # execution's tool_calls without tool replies.
+        assistant_message_id = self._call_llm_message_id(ctx, payload)
+        if assistant_message_id:
+            recorded = self._find_recorded_message(entry, assistant_message_id)
+            if recorded is not None:
+                logger.debug(
+                    f"call_llm re-executed for instance {instance_id}; returning the "
+                    "assistant message recorded by the previous execution"
+                )
+                return recorded
+
         chat_history = self._reconstruct_conversation_history(instance_id, entry=entry)
         messages = self.prompting_helper.build_initial_messages(
             user_input=task,
@@ -2507,6 +2523,8 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                     assistant_message = result.payload
                     break
 
+        if assistant_message_id:
+            assistant_message["id"] = assistant_message_id
         self._save_assistant_message(
             instance_id, assistant_message, entry=entry, skip_save=True
         )
@@ -2516,6 +2534,88 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         # Single save for the entire activity
         self.save_state(instance_id, entry=entry)
         return assistant_message
+
+    @staticmethod
+    def _call_llm_message_id(
+        ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> Optional[str]:
+        """
+        Deterministic id for the assistant message a ``call_llm`` execution saves.
+
+        The id is derived from the workflow instance, the activity attempt key
+        and the activity input, all of which are identical when Dapr re-runs the
+        same ``call_llm`` call, so a re-execution can find what the previous
+        execution recorded. The attempt key is the SDK's ``task_execution_id``,
+        which is stable across both re-delivery and retry-policy retries (a
+        retry is rescheduled under a new ``task_id``). Sidecars that do not send
+        a ``task_execution_id`` fall back to ``task_id``, which still covers
+        re-delivery. The input is included so that reusing an instance id for a
+        new run does not match messages left over from an earlier run.
+
+        Returns ``None`` when ``ctx`` is not a ``WorkflowActivityContext`` (for
+        example when ``call_llm`` is invoked directly rather than as a workflow
+        activity): there is nothing to key on, so every execution calls the
+        LLM.
+
+        Raises:
+            AgentError: If ``ctx`` is a ``WorkflowActivityContext`` without a
+                ``task_execution_id`` whose ``task_id`` is missing or not an
+                ``int``. The Dapr SDK declares ``task_id`` as an ``int``;
+                failing here keeps a change to that contract from silently
+                disabling the re-delivery guard.
+        """
+        if not isinstance(ctx, wf.WorkflowActivityContext):
+            return None
+        execution_id = DurableAgent._task_execution_id(ctx)
+        if execution_id:
+            attempt_key = f"exec:{execution_id}"
+        else:
+            task_id = getattr(ctx, "task_id", None)
+            if not isinstance(task_id, int) or isinstance(task_id, bool):
+                raise AgentError(
+                    "call_llm expected WorkflowActivityContext.task_id to be an int, "
+                    f"got {type(task_id).__name__}; it is needed to detect a "
+                    "re-delivered call_llm activity, so the Dapr workflow SDK in use "
+                    "may be incompatible with this version of dapr-agents"
+                )
+            attempt_key = f"task:{task_id}"
+        workflow_id = getattr(ctx, "workflow_id", None)
+        if not isinstance(workflow_id, str):
+            workflow_id = str(payload.get("instance_id"))
+        activity_input = json.dumps(payload, sort_keys=True, default=str)
+        return str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"dapr-agents:call_llm:{workflow_id}:{attempt_key}:{activity_input}",
+            )
+        )
+
+    @staticmethod
+    def _task_execution_id(ctx: wf.WorkflowActivityContext) -> Optional[str]:
+        """
+        Return the activity's ``task_execution_id``, or ``None`` if unavailable.
+
+        ``WorkflowActivityContext`` only exposes it on the inner durabletask
+        ``ActivityContext``. Older sidecars send an empty string.
+        """
+        get_inner_context = getattr(ctx, "get_inner_context", None)
+        if not callable(get_inner_context):
+            return None
+        execution_id = getattr(get_inner_context(), "task_execution_id", None)
+        if isinstance(execution_id, str) and execution_id:
+            return execution_id
+        return None
+
+    @staticmethod
+    def _find_recorded_message(entry: Any, message_id: str) -> Optional[Dict[str, Any]]:
+        """Return the message with ``message_id`` from ``entry`` as a dict, if any."""
+        for msg in reversed(getattr(entry, "messages", None) or []):
+            if isinstance(msg, dict):
+                if msg.get("id") == message_id:
+                    return dict(msg)
+            elif getattr(msg, "id", None) == message_id:
+                return msg.model_dump(mode="json", exclude={"timestamp"})
+        return None
 
     # ------------------------------------------------------------------
     # Built-in tool registration
