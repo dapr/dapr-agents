@@ -613,14 +613,11 @@ class AgentExecutionConfig:
     # validated against ``BuiltinTool`` in ``__post_init__``.
     builtin_tools: List[str] = field(default_factory=list)
 
-    # Tracks which fields the caller explicitly set. Unannotated so dataclasses don't treat it as a field.
-    _provided_fields = frozenset()
-
     def __post_init__(self) -> None:
-        # Record fields explicitly passed by the caller. Omitted fields retain
-        # their real defaults, while explicitly provided ``None`` remains
-        # distinguishable. _from_instantiation() uses this to merge only
-        # fields the caller provided.
+        # Track which fields the caller explicitly passed. Omitted fields keep their
+        # normal defaults (for backwards compatibility), and an explicit ``None`` is
+        # distinguishable from "not provided". ``_from_instantiation()`` uses this
+        # to merge only the fields the caller actually set.
         provided_fields: set[str] = set()
 
         def resolve_field(field_name: str, value: Any, default: Any) -> Any:
@@ -649,8 +646,7 @@ class AgentExecutionConfig:
             self.max_grpc_inbound_message_size_bytes,
             None,
         )
-
-        object.__setattr__(self, "_provided_fields", frozenset(provided_fields))
+        self._provided_fields = frozenset(provided_fields)
 
         # Accept explicit ``builtin_tools=None`` for template configs, skipping validation.
         if self.builtin_tools is not None:
