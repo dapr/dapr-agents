@@ -14,6 +14,7 @@
 from dapr_agents.agents.schemas import (
     ApprovalRequiredEvent,
     ApprovalResponseEvent,
+    CallerClaims,
     TriggerAction,
 )
 
@@ -159,7 +160,9 @@ def test_trigger_action_caller_headers_excluded_from_serialization():
     )
     payload = t.model_dump()
     assert "caller_headers" not in payload
-    assert payload == {"task": "x", "workflow_instance_id": "wf-1"}
+    assert payload["task"] == "x"
+    assert payload["workflow_instance_id"] == "wf-1"
+    assert payload.get("caller_claims") is None
 
     # Round-tripping the serialized payload drops the transient headers.
     t2 = TriggerAction.model_validate(payload)
@@ -178,3 +181,64 @@ def test_trigger_action_empty_headers_dict():
     # Empty dict allowed; semantically equivalent to None for plugin behavior
     t = TriggerAction(task="x", caller_headers={})
     assert t.caller_headers == {}
+
+
+# ----- TriggerAction.caller_claims -----
+
+
+def test_trigger_action_caller_claims_default_none():
+    ta = TriggerAction(task="x")
+    assert ta.caller_claims is None
+
+
+def test_trigger_action_caller_claims_populated():
+    ta = TriggerAction(
+        task="x",
+        caller_claims=CallerClaims(
+            subject="alice@acme.com",
+            tenant="acme",
+            scopes=["agent.invoke"],
+            issuer_id="trusted-issuer",
+        ),
+    )
+    assert ta.caller_claims.subject == "alice@acme.com"
+    assert "agent.invoke" in ta.caller_claims.scopes
+
+
+def test_trigger_action_caller_claims_serialization_roundtrip():
+    ta = TriggerAction(
+        task="x",
+        caller_claims=CallerClaims(subject="alice", scopes=["s1"]),
+    )
+    payload = ta.model_dump()
+    assert payload["caller_claims"]["subject"] == "alice"
+    assert payload["caller_claims"]["scopes"] == ["s1"]
+    ta2 = TriggerAction.model_validate(payload)
+    assert ta2.caller_claims.subject == "alice"
+
+
+def test_caller_claims_in_signed_workflow_history():
+    # caller_claims serializes (unlike caller_headers which is excluded).
+    # Important for audit lineage + PropagateLineage propagation.
+    ta = TriggerAction(
+        task="x",
+        caller_headers={"Authorization": "Bearer secret"},  # should NOT serialize
+        caller_claims=CallerClaims(subject="alice"),  # should serialize
+    )
+    payload = ta.model_dump()
+    assert "caller_headers" not in payload
+    assert payload["caller_claims"]["subject"] == "alice"
+    payload_json = ta.model_dump_json()
+    assert "Bearer" not in payload_json
+    assert "secret" not in payload_json
+    assert "alice" in payload_json
+
+
+def test_caller_claims_no_raw_token_field():
+    # Sanity check: CallerClaims doesn't have a field that could carry a raw token.
+    fields = CallerClaims.model_fields
+    forbidden = {"token", "jwt", "authorization", "bearer"}
+    for name in fields:
+        assert not any(term in name.lower() for term in forbidden), (
+            f"CallerClaims must not have a raw-token field: {name}"
+        )
