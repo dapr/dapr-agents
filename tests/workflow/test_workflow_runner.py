@@ -15,10 +15,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import MagicMock, patch
 
+import grpc
 import pytest
 
 from dapr_agents.workflow.runners.base import WorkflowRunner
@@ -145,3 +148,120 @@ def test_run_workflow_retry_on_transient_grpc_error():
 
     assert result == "id-retry-success"
     assert client.schedule_new_workflow.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Issue #520: 'actor is closed' during completion wait must be retried
+# ---------------------------------------------------------------------------
+
+
+class _FakeRpcError(grpc.RpcError):
+    def __init__(self, code, details):
+        self._code = code
+        self._details = details
+
+    def code(self):
+        return self._code
+
+    def details(self):
+        return self._details
+
+
+class _FakeActorClosedError(_FakeRpcError):
+    def __init__(self):
+        super().__init__(
+            grpc.StatusCode.UNKNOWN, "actor is closed, cannot handle deactivated"
+        )
+
+
+class _FakeClock:
+    """Deterministic monotonic clock so retry loops advance instantly."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _patch_clock(clock: _FakeClock):
+    return patch.multiple(
+        "dapr_agents.workflow.runners.base.time",
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+
+def _completed_state() -> MagicMock:
+    state = MagicMock()
+    state.runtime_status = MagicMock()
+    state.runtime_status.name = "COMPLETED"
+    return state
+
+
+def test_wait_for_workflow_completion_retries_actor_closed(caplog):
+    """'actor is closed' is transient: keep waiting instead of raising."""
+    client = MagicMock()
+    state = _completed_state()
+    client.wait_for_workflow_completion.side_effect = [_FakeActorClosedError(), state]
+    runner = _make_runner(client)
+
+    with _patch_clock(_FakeClock()):
+        result = runner.wait_for_workflow_completion("instance-123")
+
+    assert result is state
+    assert client.wait_for_workflow_completion.call_count == 2
+    assert "actor was deactivated" in caplog.text
+
+
+def test_wait_for_workflow_completion_gives_up_after_budget(caplog):
+    """Persistent deactivation exhausts the budget and returns None."""
+    client = MagicMock()
+    client.wait_for_workflow_completion.side_effect = _FakeActorClosedError()
+    runner = _make_runner(client)
+
+    with _patch_clock(_FakeClock()):
+        result = runner.wait_for_workflow_completion(
+            "instance-123", timeout_in_seconds=1
+        )
+
+    assert result is None
+    assert "stayed deactivated" in caplog.text
+
+
+def test_wait_for_workflow_completion_non_transient_error_unchanged(caplog):
+    """Other gRPC errors keep the existing error-and-None contract."""
+    client = MagicMock()
+    client.wait_for_workflow_completion.side_effect = _FakeRpcError(
+        grpc.StatusCode.INTERNAL, "boom"
+    )
+    runner = _make_runner(client)
+
+    with patch("dapr_agents.workflow.runners.base.time.sleep"):
+        result = runner.wait_for_workflow_completion("instance-123")
+
+    assert result is None
+    assert client.wait_for_workflow_completion.call_count == 1
+    assert "Error while waiting" in caplog.text
+
+
+def test_await_and_log_state_survives_actor_closed(caplog):
+    """The fire-and-forget monitor retries and logs the final state."""
+    client = MagicMock()
+    state = _completed_state()
+    state.serialized_output = "done"
+    client.wait_for_workflow_completion.side_effect = [_FakeActorClosedError(), state]
+    runner = _make_runner(client)
+
+    with (
+        caplog.at_level(logging.INFO, logger="dapr_agents.workflow.runners.base"),
+        _patch_clock(_FakeClock()),
+    ):
+        asyncio.run(runner._await_and_log_state("instance-123", 600, True))
+
+    assert client.wait_for_workflow_completion.call_count == 2
+    assert "completed" in caplog.text
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
