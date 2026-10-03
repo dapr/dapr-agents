@@ -61,7 +61,7 @@ class PromptTemplateBase(ABC, BaseModel):
         Returns:
             PromptTemplateBase: A new instance of the prompt template with the pre-filled variables set.
         """
-        input_variables = list(set(self.input_variables) - set(kwargs.keys()))
+        input_variables = [var for var in self.input_variables if var not in kwargs]
         pre_filled_variables = {**self.pre_filled_variables, **kwargs}
 
         # model_copy carries over every other field (messages, template,
