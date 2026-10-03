@@ -36,6 +36,7 @@ from dapr_agents.agents.configs import (
     WorkflowGrpcOptions,
     StateModelBundle,
 )
+from dapr_agents.types.exceptions import WorkflowStateConflictError
 
 
 logger = logging.getLogger(__name__)
@@ -351,11 +352,21 @@ class DaprInfra:
         No-op when no state store is configured. Uses load_with_etag + save(etag=...)
         with a short retry loop to avoid lost updates under contention.
 
+        When the entry was read with get_state, the save is conditional on the ETag
+        it was read at. If another writer saved the same state in the meantime, the
+        entry is stale and resending it would overwrite that write, so a
+        WorkflowStateConflictError is raised instead and the caller can re-read and
+        re-apply its change. Other save failures are retried with the same ETag.
+
         Args:
             workflow_instance_id: The ID of the workflow instance to save state for.
             entry: The state entry to persist. Must be provided to avoid a shared-state
                 race condition when multiple workflow activities run concurrently on the
                 same agent object. If omitted, falls back to self._state_model (legacy).
+
+        Raises:
+            WorkflowStateConflictError: The stored state changed after the entry was
+                read, so saving it would discard another writer's update.
         """
         if not self.state_store:
             logger.debug("No state store configured; skipping state persistence.")
@@ -379,10 +390,13 @@ class DaprInfra:
         )
 
         # Use the per-key cached etag from a prior get_state when available to avoid
-        # an extra round-trip.  Falls back to load_with_etag on the first
-        # attempt when no cached etag exists, and always on retries.
+        # an extra round-trip.  Falls back to load_with_etag when no cached etag
+        # exists; retries keep the cached etag so a stale entry is never resent.
         with self._etag_cache_lock:
             etag = self._etag_cache.pop(key, None)
+        # ETag the entry was read at, if it came from get_state. A save with it
+        # only succeeds while nobody else has written this key since that read.
+        read_etag = etag
 
         if etag is None:
             # No cached etag — ensure the document exists so we get one.
@@ -436,13 +450,34 @@ class DaprInfra:
                     key,
                     exc,
                 )
+                if read_etag is not None:
+                    try:
+                        current, current_etag = self.state_store.load_with_etag(
+                            key=key,
+                            default=self._initial_state(),
+                            state_metadata=meta,
+                        )
+                    except Exception:  # noqa: BLE001
+                        current, current_etag = None, read_etag
+                    if current == value:
+                        # The failed attempt was actually persisted.
+                        return
+                    if current_etag != read_etag:
+                        # Another writer saved after our read. Retrying with a
+                        # refreshed etag would overwrite its update with our
+                        # stale entry, so surface the conflict instead.
+                        raise WorkflowStateConflictError(
+                            f"Workflow state '{key}' was modified concurrently; "
+                            "re-read the state and re-apply the change."
+                        ) from exc
                 if attempt == attempts:
                     logger.exception(
                         "Failed to persist agent state after %d attempts.", attempts
                     )
                     return
-                # Refresh etag for next retry.
-                etag = None
+                if read_etag is None:
+                    # Refresh etag for next retry.
+                    etag = None
                 time.sleep(min(0.25 * attempt, 1.0) * (1 + random.uniform(0, 0.25)))
 
     def purge_state(self, workflow_instance_id: str) -> None:
