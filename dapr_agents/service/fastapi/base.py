@@ -126,6 +126,9 @@ class FastAPIServerBase(APIServerBase, SignalMixin):
 
             # Wait for startup to complete
             while not self.server.started:
+                if server_task.done():
+                    server_task.result()
+                    return
                 await asyncio.sleep(0.1)
 
             # Extract the real port from the bound socket
