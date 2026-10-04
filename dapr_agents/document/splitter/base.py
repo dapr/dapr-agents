@@ -204,7 +204,7 @@ class SplitterBase(BaseModel, ABC):
 
     def _regex_split(self, text: str) -> List[str]:
         """
-        Split text using the fallback regex, retaining separators.
+        Split text using the fallback regex, retaining separators and unmatched text.
 
         Args:
             text (str): The input text to split.
@@ -212,8 +212,14 @@ class SplitterBase(BaseModel, ABC):
         Returns:
             List[str]: List of text segments split using regex.
         """
-        matches = re.findall(self.fallback_regex, text)
-        return [match for match in matches if match.strip()]
+        splits: List[str] = []
+        start = 0
+        for match in re.finditer(self.fallback_regex, text):
+            # Include gaps between matches so the regex cannot discard content.
+            splits.append(text[start : match.end()])
+            start = match.end()
+        splits.append(text[start:])
+        return [split for split in splits if split.strip()]
 
     def _split_adaptively(self, text: str) -> List[str]:
         """
