@@ -56,7 +56,7 @@ jobs:
     - name: Get PR details
       if: github.event_name == 'issue_comment'
       id: pr
-      uses: actions/github-script@v8
+      uses: actions/github-script@v9
       with:
         script: |
           const pr = context.payload.issue.pull_request;
@@ -141,7 +141,7 @@ jobs:
       actions: read
     steps:
     - name: Comment PR with test results summary
-      uses: actions/github-script@v8
+      uses: actions/github-script@v9
       with:
         script: |
           const prNumber = context.payload.issue.number;
