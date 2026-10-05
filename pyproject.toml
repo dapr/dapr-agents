@@ -67,7 +67,7 @@ dependencies = [
     "opentelemetry-exporter-zipkin-json>=1.36.0,<2.0.0",
     "opentelemetry-instrumentation-httpx>=0.60b1,<1.0.0",
     "opentelemetry-semantic-conventions>=0.60b1,<1.0.0",
-    "litellm>=1.80,<1.103",
+    "litellm>=1.80,<1.104",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
