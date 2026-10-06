@@ -41,9 +41,9 @@ jobs:
     env:
       UV_PYTHON: "3.11"
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python 3.11
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.11"
     - name: Install uv
@@ -72,9 +72,9 @@ jobs:
     env:
       UV_PYTHON: "3.11"
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python 3.11
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.11"
     - name: Install uv
@@ -100,9 +100,9 @@ jobs:
       UV_PYTHON: ${{ matrix.python_ver }}
       EXPECTED_PYTHON: ${{ matrix.python_ver }}
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python ${{ matrix.python_ver }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python_ver }}
     - name: Install uv
@@ -111,7 +111,7 @@ jobs:
         version: "latest"
     - name: Install dependencies
       run: |
-        uv sync --frozen --group test --extra drasi
+        uv sync --frozen --group test --extra drasi --extra claude
     - name: Verify interpreter matches matrix version
       run: |
         uv run python -c "import os, sys; exp = os.environ['EXPECTED_PYTHON']; got = f'{sys.version_info.major}.{sys.version_info.minor}'; print(f'Python {sys.version} at {sys.executable}'); sys.exit(0 if got == exp else f'expected Python {exp}, got {got}')"
@@ -135,11 +135,11 @@ jobs:
     env:
       UV_PYTHON: "3.11"
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         fetch-depth: 0
     - name: Set up Python 3.11
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.11"
     - name: Install uv
