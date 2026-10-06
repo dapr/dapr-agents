@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-"""Execution config resolution tests for DurableAgent."""
+"""Test cases for execution configuration in agents."""
 
 from unittest.mock import MagicMock, Mock
 
@@ -139,7 +139,7 @@ class TestExecutionConfigDefaults(ExecutionConfigTestBase):
 
     def test_execution_config_defaults(self, mock_llm, mock_tool):
         """
-        Test that defaults are preserved when none of the configuration sources are available.
+        Test that execution defaults are preserved when none of the configuration sources are available.
         """
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
@@ -150,6 +150,7 @@ class TestExecutionConfigDefaults(ExecutionConfigTestBase):
         assert isinstance(
             agent.execution.approval, AgentApprovalConfig
         )  # test_hitl.py covers approval config defaults
+        assert agent.execution.max_approval_rounds is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
         assert agent.execution.streaming is False
         assert agent.execution.stream_listener is None
@@ -168,6 +169,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
             orchestration_mode=OrchestrationMode.AGENT,
             max_grpc_inbound_message_size_bytes=123456,
             approval=AgentApprovalConfig(),
+            max_approval_rounds=3,
             streaming=False,
             stream_listener=None,
             builtin_tools=[BuiltinTool.ASK_USER],
@@ -184,6 +186,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         assert agent.execution.tool_execution_mode == ToolExecutionMode.SEQUENTIAL
         assert agent.execution.orchestration_mode == OrchestrationMode.AGENT
         assert isinstance(agent.execution.approval, AgentApprovalConfig)
+        assert agent.execution.max_approval_rounds == 3
         assert agent.execution.max_grpc_inbound_message_size_bytes == 123456
         assert agent.execution.streaming is False
         assert agent.execution.stream_listener is None

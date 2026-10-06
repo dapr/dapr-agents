@@ -786,6 +786,11 @@ class AgentExecutionConfig:
                 setter=lambda obj, v: setattr(obj, "approval", v),
                 getter=lambda: instantiated_config.approval,
             ),
+            "max_approval_rounds": ConfigFieldDescriptor(
+                target_type=Optional[int],
+                setter=lambda obj, v: setattr(obj, "max_approval_rounds", v),
+                getter=lambda: instantiated_config.max_approval_rounds,
+            ),
             "streaming": ConfigFieldDescriptor(
                 target_type=bool,
                 setter=lambda obj, v: setattr(obj, "streaming", v),
