@@ -549,6 +549,9 @@ class AgentExecutionConfig:
 
     Attributes:
         max_iterations: Cap on LLM/tool iterations per turn.
+        max_approval_rounds: Cap on human-approval rounds in one executor
+            run (see ``AgentExecutorBase.supports_tool_approval``). ``None``
+            uses ``max_iterations``.
         tool_choice: Pass-through for provider ``tool_choice`` parameter.
         tool_execution_mode: Parallel vs. sequential execution of tool calls.
         orchestration_mode: Enable orchestrator strategy (agent/random/roundrobin).
@@ -598,6 +601,7 @@ class AgentExecutionConfig:
         default=cast(Optional[OrchestrationMode], _UNSET)
     )
     approval: Optional[AgentApprovalConfig] = field(default_factory=AgentApprovalConfig)
+    max_approval_rounds: Optional[int] = None
     max_grpc_inbound_message_size_bytes: Optional[int] = field(
         default=cast(Optional[int], _UNSET)
     )

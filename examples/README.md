@@ -244,6 +244,26 @@ This example demonstrates in-process and cross-app patterns for agents calling o
 
 [Go to Agents as Tools](./08-agents-as-tools)
 
+### Agent Executors
+
+Run a `DurableAgent` on a stateful agent runtime instead of a chat-completion LLM client, by passing `executor=...` instead of `llm=...`. Dapr Workflows still provide durability, state and retries.
+
+#### Echo Agent Executor
+
+A zero-dependency executor that echoes the prompt back over the executor event stream. Use it to see the executor wiring without an LLM provider or API key.
+
+[Go to Echo Agent Executor](./10-agent-executor-echo)
+
+#### Claude Agent Executor
+
+Run the Claude Agent SDK agent loop inside a Dapr workflow with `ClaudeAgentExecutor` (install `dapr-agents[claude]`):
+
+- **Tools**: Expose dapr-agents tools to Claude as an in-process MCP server
+- **Durable Sessions**: Keep Claude session transcripts in a Dapr state store and resume them on any host
+- **Human Approval**: Pause a sensitive tool call with a `RequireApproval` hook and resume it when a decision arrives
+
+[Go to Claude Agent Executor](./13-agent-executor-claude)
+
 ### OpenTelemetry Observability on Kubernetes
 
 Demonstrates four different ways to configure OpenTelemetry observability for Dapr Agents running on Kubernetes:
