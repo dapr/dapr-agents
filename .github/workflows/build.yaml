@@ -130,6 +130,10 @@ jobs:
     name: otel-compat (OTel ${{ matrix.otel_core }} / ${{ matrix.otel_contrib }})
     steps:
     - uses: actions/checkout@v6
+      with:
+        # setuptools-scm needs tags; a shallow clone yields 0.0.0.dev and
+        # fails the drasi ext's dapr-agents>=1.0.6 check in `uv pip check`.
+        fetch-depth: 0
     - name: Set up Python 3.11
       uses: actions/setup-python@v6
       with:
