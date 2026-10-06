@@ -103,7 +103,7 @@ def _lazy_import_roots(tree: ast.AST) -> Iterator[str]:
 
 def _lazy_third_party_modules() -> Set[str]:
     modules: Set[str] = set()
-    for path in sorted(VECTORSTORES_DIR.glob("*.py")):
+    for path in sorted(VECTORSTORES_DIR.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         modules.update(_lazy_import_roots(tree))
     return {
@@ -188,8 +188,21 @@ def test_extra_lists_backend_directly(module: str) -> None:
     assert _normalize(MODULE_TO_DISTRIBUTION[module]) in _extra_requirements()
 
 
+def _core_requirements() -> Set[str]:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
+    names: Set[str] = set()
+    for entry in pyproject["project"]["dependencies"]:
+        match = REQUIREMENT_NAME.match(entry)
+        assert match, f"Cannot parse requirement {entry!r}"
+        names.add(_normalize(match.group(1)))
+    return names
+
+
 def test_extra_installs_every_lazily_imported_backend() -> None:
-    installed = _closure(_extra_requirements(), _locked_dependency_graph())
+    # Every install has the core dependencies, so they count as installed too.
+    installed = _closure(
+        _extra_requirements() | _core_requirements(), _locked_dependency_graph()
+    )
     unmapped = [m for m in _modules_in_extra() if m not in MODULE_TO_DISTRIBUTION]
     assert not unmapped, f"Map {unmapped} in MODULE_TO_DISTRIBUTION"
     missing = [
