@@ -583,6 +583,8 @@ class AgentExecutionConfig:
             (``{"type": "pubsub" | "in_process" | "webhook" | "composite" | "custom",
             ...}``). See ``dapr_agents.streaming.listeners`` for accepted shapes. When
             ``None``, the runner/server picks a topology-safe default per mode.
+        builtin_tools: Optional list of built-in tools to register. Each name must
+            match a member of ``BuiltinTool``. Defaults to an empty list.
     """
 
     # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
