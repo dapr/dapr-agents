@@ -284,7 +284,9 @@ class WorkflowEventDispatcher:
             topic=topic,
             dead_letter_topic=dead_letter_topic,
             event_id=msg_ctx.event.id,
-            message_key=message_key or msg_ctx.event.id or "",
+            message_key=message_key
+            or msg_ctx.event.id
+            or stable_json_sha256(msg_ctx.event.model_dump(mode="json")),
             deduper=deduper,
             state=self._topic_state(pubsub, topic, target),
         )
@@ -378,7 +380,9 @@ class WorkflowEventDispatcher:
             topic=topic,
             dead_letter_topic=dead_letter_topic,
             event_id=msg_ctx.event.id,
-            message_key=message_key or msg_ctx.event.id or "",
+            message_key=message_key
+            or msg_ctx.event.id
+            or stable_json_sha256(msg_ctx.event.model_dump(mode="json")),
             deduper=None,
             state=self._topic_state(pubsub, topic, target),
         )
