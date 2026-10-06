@@ -309,7 +309,7 @@ make hooks-run
 make hooks-run-all
 
 # Run individual checks (same commands as before)
-uv run ruff format dapr_agents tests
+uv run ruff format
 uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
 uv run mypy --config-file mypy.ini
 uv run pytest tests -m "not integration"
