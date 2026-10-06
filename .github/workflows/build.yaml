@@ -123,7 +123,8 @@ jobs:
           # Install floor: pyproject's semconv>=0.60b1 pins opentelemetry-api==1.39.1.
           - otel_core: "1.39.1"
             otel_contrib: "0.60b1"
-          # Current google-adk ceiling.
+          # google-adk 2.11.0 ceiling (opentelemetry-api<=1.42.1, opentelemetry-sdk<=1.42.1).
+          # Bump when a newer google-adk raises its cap.
           - otel_core: "1.42.1"
             otel_contrib: "0.63b1"
     name: otel-compat (OTel ${{ matrix.otel_core }} / ${{ matrix.otel_contrib }})
@@ -138,7 +139,7 @@ jobs:
       with:
         version: "latest"
     - name: Install dependencies
-      run: uv sync --frozen --group test
+      run: uv sync --frozen --group test --extra drasi
     - name: Pin OpenTelemetry to ${{ matrix.otel_core }} / ${{ matrix.otel_contrib }}
       env:
         OTEL_CORE: ${{ matrix.otel_core }}
@@ -174,7 +175,7 @@ jobs:
         uv pip list | grep -i '^opentelemetry'
     - name: Run tests
       run: |
-        uv run --no-sync pytest tests -m "not integration"
+        uv run --no-sync pytest tests ext -m "not integration"
 
   package:
     needs: lint
