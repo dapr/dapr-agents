@@ -61,6 +61,8 @@ from dapr_agents.utils import DaprClientFactory
 from dapr_agents.workflow.runners.base import WorkflowRunner
 from dapr_agents.workflow.utils.core import get_decorated_methods, named_noop_handler
 from dapr_agents.workflow.utils.registration import (
+    _event_route_schemas,
+    _validate_event_route_spec,
     register_http_routes,
     register_message_routes,
 )
@@ -808,6 +810,11 @@ class AgentRunner(WorkflowRunner):
             return
 
         self._check_topic_conflicts(specs, event_specs)
+        # Validate every event spec before subscribing anything, so an invalid
+        # spec cannot leave the agent topics wired and the runner half set up.
+        for event_spec in event_specs:
+            _validate_event_route_spec(event_spec)
+            _event_route_schemas(event_spec.message_model)
         new_specs = [
             spec
             for spec in specs
@@ -853,14 +860,7 @@ class AgentRunner(WorkflowRunner):
         common: Dict[str, Any],
     ) -> None:
         """Subscribe the agent's own (schedule) routes with a shared deduper."""
-        try:
-            deduper = TTLDedupeBackend()
-        except ImportError:
-            logger.warning(
-                "cachetools not installed; disabling pub/sub message deduplication for agent %s",
-                getattr(agent, "name", agent),
-            )
-            deduper = None
+        deduper = TTLDedupeBackend()
         self._pubsub_closers.extend(
             register_message_routes(
                 routes=specs, delivery_mode=delivery_mode, deduper=deduper, **common

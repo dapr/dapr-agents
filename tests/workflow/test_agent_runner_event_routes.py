@@ -280,22 +280,6 @@ def test_nothing_to_wire_skips_dapr_client_setup():
     mock_register.assert_not_called()
 
 
-def test_agent_routes_register_without_dedupe_when_cachetools_missing(caplog):
-    runner = _make_runner()
-    with (
-        patch(
-            "dapr_agents.workflow.runners.agent.TTLDedupeBackend",
-            side_effect=ImportError("cachetools"),
-        ),
-        patch(_REGISTER, return_value=[]) as mock_register,
-        caplog.at_level("WARNING"),
-    ):
-        runner._wire_pubsub_routes(agent=_agent(), **_WIRE_KWARGS)
-    assert mock_register.call_args.kwargs["deduper"] is None
-    assert "direct-topic" in {r.topic for r in _routes(mock_register)}
-    assert "cachetools not installed" in caplog.text
-
-
 def test_discover_entry_uses_registered_workflow_name():
     class _EntryAgent:
         agent_workflow_name = "frodo_agent_workflow"
