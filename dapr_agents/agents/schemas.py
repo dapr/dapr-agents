@@ -255,6 +255,15 @@ class AgentWorkflowEntry(BaseModel):
         default=None,
         description="Optional session identifier for resumable, multi-turn runs.",
     )
+    executor_usage: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Usage reported by an AgentExecutorBase, one record per run_executor "
+            "attempt that ended with complete or paused: round, session_id, "
+            "cost_usd (this run's cost), usage and model_usage token counts, "
+            "num_turns and stop_reason, as far as the executor reports them."
+        ),
+    )
     approval_requests: Dict[str, Dict[str, Any]] = Field(
         default_factory=dict,
         description=(
