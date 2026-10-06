@@ -33,6 +33,7 @@ from typing import (
     TypeVar,
     Union,
 )
+import warnings
 
 from pydantic import BaseModel, Field
 
@@ -1053,6 +1054,15 @@ class AgentObservabilityConfig:
     logging_exporter: Optional[AgentLoggingExporter] = None
     tracing_enabled: Optional[bool] = None
     tracing_exporter: Optional[AgentTracingExporter] = None
+
+    @classmethod
+    def from_env(cls, *args, **kwargs):
+        warnings.warn(
+            "AgentObservabilityConfig.from_env() is deprecated and will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return cls._from_env(*args, **kwargs)
 
     @classmethod
     def _from_env(cls) -> "AgentObservabilityConfig":

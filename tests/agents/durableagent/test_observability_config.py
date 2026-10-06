@@ -16,7 +16,7 @@
 import logging
 import os
 import pytest
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, patch
 
 from tests.conftest import MockDaprClient
 from dapr_agents.agents.durable import DurableAgent
@@ -438,6 +438,27 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         # Should default to CONSOLE for invalid values
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
+
+    # TODO: remove in future release
+    def test_observability_config_from_env_deprecated_warns_and_preserves_behavior(self, monkeypatch):
+        """Contract test for the deprecated public ``from_env`` method."""
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer env-token"
+        )
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://env-collector:4318")
+        monkeypatch.setenv("OTEL_SERVICE_NAME", "env-service")
+        monkeypatch.setenv("OTEL_LOGGING_ENABLED", "true")
+        monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp_http")
+        monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "console")
+
+        expected_config = AgentObservabilityConfig._from_env()
+        with pytest.warns(DeprecationWarning):
+            resolved_config = AgentObservabilityConfig.from_env()
+            
+        assert isinstance(resolved_config, AgentObservabilityConfig)
+        assert resolved_config == expected_config
 
 
 class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
