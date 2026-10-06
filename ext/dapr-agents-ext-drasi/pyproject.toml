@@ -45,7 +45,7 @@ dev = [
     "mypy>=1.15.0,<3.0.0",
     "flake8>=7.3.0",
     "ruff>=0.14.11",
-    "datamodel-code-generator==0.76.2",
+    "datamodel-code-generator==0.83.0",
 ]
 test = [
     "pytest>=8.0.0,<10.0.0",
@@ -65,6 +65,9 @@ exclude = ["tests"]
 [tool.setuptools.package-data]
 "dapr_agents.ext.drasi" = ["py.typed"]
 
+# Used only when pytest runs from this directory. CI runs `pytest ext` from the
+# repository root, which uses the root pyproject.toml (--import-mode=importlib);
+# keep the two in step when changing test settings.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

@@ -21,7 +21,6 @@ conflicts are guaranteed. These tests reproduce that contention and assert that
 every writer converges — no agent is dropped from or stuck in the index.
 """
 
-import copy
 import threading
 
 import pytest
@@ -29,55 +28,7 @@ import pytest
 from dapr_agents.agents.components import DaprInfra, _REGISTRY_AGENTS_KEY
 from dapr_agents.agents.configs import AgentRegistryConfig, RegistryIndexRetryConfig
 from dapr_agents.storage.daprstores.stateservice import StateStoreError
-
-
-class FakeEtagStore:
-    """In-memory state store enforcing ETag optimistic concurrency.
-
-    Models a Dapr state store with first-write-wins: a save whose ``etag`` does
-    not match the currently stored etag raises ``StateStoreError``, exactly as the
-    real store does on a conflict. Thread-safe, so it can model many agents
-    mutating the shared team index simultaneously. Values are deep-copied in and
-    out so callers never share mutable references outside the ETag protection.
-    """
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._values = {}
-        self._etags = {}
-        self._version = 0
-        self.deleted = []
-
-    def seed(self, key, value):
-        with self._lock:
-            self._version += 1
-            self._values[key] = copy.deepcopy(value)
-            self._etags[key] = str(self._version)
-
-    def load_with_etag(self, *, key, default=None, state_metadata=None):
-        with self._lock:
-            if key not in self._values:
-                return (copy.deepcopy(default), None)
-            return (copy.deepcopy(self._values[key]), self._etags[key])
-
-    def save(self, *, key, value, etag=None, state_metadata=None, state_options=None):
-        with self._lock:
-            current = self._etags.get(key)
-            if current is not None and etag != current:
-                raise StateStoreError(
-                    f"etag mismatch for {key}: stored={current} provided={etag}"
-                )
-            if current is None and etag is not None:
-                raise StateStoreError(f"etag provided for missing key {key}")
-            self._version += 1
-            self._values[key] = copy.deepcopy(value)
-            self._etags[key] = str(self._version)
-
-    def delete(self, *, key, state_metadata=None, etag=None):
-        with self._lock:
-            self.deleted.append(key)
-            self._values.pop(key, None)
-            self._etags.pop(key, None)
+from tests.fake_state_store import FakeEtagStateStore
 
 
 def _fast_retry(**overrides):
@@ -122,7 +73,7 @@ def _run_concurrently(targets):
 @pytest.mark.parametrize("num_agents", [8])
 def test_concurrent_deregister_all_converge(num_agents):
     """Every agent deregisters concurrently and the index ends empty."""
-    store = FakeEtagStore()
+    store = FakeEtagStateStore()
     names = [f"agent-{i}" for i in range(num_agents)]
     infras = [_make_infra(n, store) for n in names]
 
@@ -144,7 +95,7 @@ def test_concurrent_deregister_all_converge(num_agents):
 @pytest.mark.parametrize("num_agents", [8])
 def test_concurrent_index_add_all_converge(num_agents):
     """Every agent adds itself to the index concurrently; none is lost."""
-    store = FakeEtagStore()
+    store = FakeEtagStateStore()
     names = [f"agent-{i}" for i in range(num_agents)]
     infras = [_make_infra(n, store) for n in names]
 
@@ -177,7 +128,7 @@ def test_concurrent_index_add_all_converge(num_agents):
 
 def test_mutate_team_index_gives_up_when_always_conflicting():
     """A permanently-conflicting store fails bounded — it must not hang."""
-    store = FakeEtagStore()
+    store = FakeEtagStateStore()
     index_key = "agents:default:_index"
     store.seed(index_key, {_REGISTRY_AGENTS_KEY: ["agent-0"]})
 
@@ -224,7 +175,7 @@ def test_mutate_team_index_gives_up_when_always_conflicting():
 
 def test_mutate_team_index_retries_then_succeeds():
     """A few transient conflicts are absorbed; the write eventually lands."""
-    store = FakeEtagStore()
+    store = FakeEtagStateStore()
     index_key = "agents:default:_index"
     store.seed(index_key, {_REGISTRY_AGENTS_KEY: ["agent-0"]})
 
