@@ -950,11 +950,17 @@ class AgentBase:
                 value=value,
                 descriptor=descriptor,
             )
-        except Exception:
-            logger.warning(
-                f"Agent {self.name} skipping config update",
-                exc_info=True,
-            )
+        except Exception as exc:
+            # Omit tracebacks for sensitive keys; chained coercion/validation errors may contain the raw value
+            if descriptor.sensitive:
+                logger.warning(
+                    f"Agent {self.name} skipping config update: {type(exc).__name__}"
+                )
+            else:
+                logger.warning(
+                    f"Agent {self.name} skipping config update",
+                    exc_info=True,
+                )
             return False
 
         # Rebuild prompt template if a profile key changed

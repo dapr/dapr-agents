@@ -1101,6 +1101,7 @@ class AgentObservabilityConfig:
                 ),
                 validator=parse_header_string,
                 raise_on_error=False,
+                sensitive=True,
             ),
             EnvConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -1180,12 +1181,14 @@ class AgentObservabilityConfig:
                 target_type=dict[str, str],
                 setter=lambda obj, v: setattr(obj, "headers", v),
                 getter=lambda: instantiated_config.headers,
+                sensitive=True,
             ),
             "auth_token": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "auth_token", v),
                 getter=lambda: instantiated_config.auth_token,
                 validator=validate_non_empty_string,
+                sensitive=True,
             ),
             "endpoint": ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -1265,6 +1268,7 @@ class AgentObservabilityConfig:
                 ),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
+                sensitive=True,
             ),
             RuntimeConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
                 target_type=Optional[str],

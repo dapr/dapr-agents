@@ -41,7 +41,7 @@ class ConfigFieldDescriptor:
             Defaults to ``True`` (raise).
         fallback: Default value to apply if mapping fails and ``raise_on_error`` is ``False``.
             Defaults to ``None``.
-        sensitive: (Used for hot-reloading) If ``True``, the value is redacted in log output.
+        sensitive: If ``True``, the value is redacted in log output.
         rebuilds_prompt: (Used for hot-reloading) If ``True``, the prompt template is rebuilt after update.
         triggers_otel_reload: (Used for hot-reloading) If ``True``, triggers an OpenTelemetry configuration reload after update.
     """
@@ -91,7 +91,7 @@ def apply_config_map(
     target_obj: Any, config_field_map: dict[str, ConfigFieldDescriptor]
 ) -> None:
     """
-    Apply a map of configuration field names to field descriptors onto a target object.
+    Apply a map of configuration field names to field descriptors onto a target object, mutating the object in-place.
 
     Raises:
         ValueError: If a config key is unrecognized or processing fails.
@@ -147,26 +147,41 @@ def apply_config_update(
             raise RuntimeError(f"Could not apply setter for key '{key}'") from exc
 
         return processed_value
-    except Exception:
+    except Exception as exc:
         if descriptor.raise_on_error:
             raise
 
         if descriptor.fallback is None:
-            logger.warning(
-                f"Ignoring failed config update for key '{key}'", exc_info=True
-            )
+            # Omit tracebacks for sensitive keys; chained coercion/validation errors may contain the raw value
+            if descriptor.sensitive:
+                logger.warning(
+                    f"Ignoring failed config update for key '{key}': "
+                    f"{type(exc).__name__}"
+                )
+            else:
+                logger.warning(
+                    f"Ignoring failed config update for key '{key}'", exc_info=True
+                )
             return None
 
-        logger.debug(f"Using fallback value for key '{key}': {descriptor.fallback!r}")
+        safe_fallback = "***" if descriptor.sensitive else descriptor.fallback
+        logger.debug(f"Using fallback value for key '{key}': {safe_fallback!r}")
 
         # Best-effort update: fall back to the configured value if available
         try:
             descriptor.setter(target_obj, descriptor.fallback)
-        except Exception:
-            logger.warning(
-                f"Failed to apply fallback for key '{key}', continuing without update",
-                exc_info=True,
-            )
+        except Exception as exc:
+            # Omit tracebacks for sensitive keys; chained coercion/validation errors may contain the raw value
+            if descriptor.sensitive:
+                logger.warning(
+                    f"Failed to apply fallback for key '{key}', continuing without "
+                    f"update: {type(exc).__name__}"
+                )
+            else:
+                logger.warning(
+                    f"Failed to apply fallback for key '{key}', continuing without update",
+                    exc_info=True,
+                )
             return None
 
         return descriptor.fallback

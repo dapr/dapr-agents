@@ -210,6 +210,19 @@ class TestProcessConfigUpdate:
         with pytest.raises(ValueError, match="Unable to retrieve value for key"):
             process_config_update("key", descriptor)
 
+    def test_process_config_update_does_not_expose_sensitive_value_on_failure(self):
+        secret = {"api_key": "secret-key"}
+        descriptor = ConfigFieldDescriptor(
+            target_type=bool,
+            setter=lambda obj, value: setattr(obj, "api_key", value),
+            sensitive=True,
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            process_config_update("api_key", descriptor, value=secret)
+
+        assert secret["api_key"] not in str(exc_info.value)
+
 
 class TestApplyConfigUpdate:
     """Tests for apply_config_update."""
@@ -326,14 +339,83 @@ class TestApplyConfigUpdate:
         assert target.value is None
         assert "Ignoring failed config update for key" in caplog.text
 
+    def test_apply_config_update_does_not_log_sensitive_value_on_processing_failure(
+        self, caplog
+    ):
+        secret = "secret-key"
+        descriptor = ConfigFieldDescriptor(
+            target_type=dict,
+            setter=lambda obj, value: setattr(obj, "config", value),
+            raise_on_error=False,
+            sensitive=True,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            apply_config_update(
+                target_obj=SimpleNamespace(),
+                key="config",
+                descriptor=descriptor,
+                value=secret,
+            )
+
+        assert secret not in caplog.text
+
+    def test_apply_config_update_does_not_log_sensitive_value_on_setter_failure(
+        self, caplog
+    ):
+        def setter(_obj, value):
+            raise ValueError(f"setter rejected {value}")
+
+        secret = "secret-key"
+        descriptor = ConfigFieldDescriptor(
+            target_type=dict,
+            setter=setter,
+            raise_on_error=False,
+            sensitive=True,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            apply_config_update(
+                target_obj=SimpleNamespace(),
+                key="config",
+                descriptor=descriptor,
+                value=secret,
+            )
+
+        assert secret not in caplog.text
+
+    def test_apply_config_update_does_not_log_sensitive_value_on_fallback_failure(
+        self, caplog
+    ):
+        def setter(_obj, value):
+            raise ValueError(f"setter rejected {value}")
+
+        secret = "secret-key"
+        descriptor = ConfigFieldDescriptor(
+            target_type=dict,
+            setter=setter,
+            fallback="default-key",
+            raise_on_error=False,
+            sensitive=True,
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            apply_config_update(
+                target_obj=SimpleNamespace(),
+                key="config",
+                descriptor=descriptor,
+                value=secret,
+            )
+
+        assert secret not in caplog.text
+
     def test_apply_config_update_noop_and_warns_when_fallback_setter_fails(
         self, caplog
     ):
-        target = SimpleNamespace(value=None)
-
         def setter(_obj, _value):
             raise RuntimeError("write failed")
 
+        target = SimpleNamespace(value=None)
         descriptor = ConfigFieldDescriptor(
             target_type=int,
             setter=setter,

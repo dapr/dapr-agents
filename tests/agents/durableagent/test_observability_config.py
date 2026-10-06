@@ -440,7 +440,9 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
 
     # TODO: remove in future release
-    def test_observability_config_from_env_deprecated_warns_and_preserves_behavior(self, monkeypatch):
+    def test_observability_config_from_env_deprecated_warns_and_preserves_behavior(
+        self, monkeypatch
+    ):
         """Contract test for the deprecated public ``from_env`` method."""
         monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
         monkeypatch.setenv(
@@ -456,7 +458,7 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         expected_config = AgentObservabilityConfig._from_env()
         with pytest.warns(DeprecationWarning):
             resolved_config = AgentObservabilityConfig.from_env()
-            
+
         assert isinstance(resolved_config, AgentObservabilityConfig)
         assert resolved_config == expected_config
 
