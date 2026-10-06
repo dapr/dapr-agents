@@ -1183,24 +1183,25 @@ class AgentObservabilityConfig:
                 getter=lambda: instantiated_config.headers,
                 sensitive=True,
             ),
+            # Empty strings for ``auth_token``, ``headers`` and ``endpoint`` are treated as unset for backwards compatibility
             "auth_token": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "auth_token", v),
                 getter=lambda: instantiated_config.auth_token,
-                validator=validate_non_empty_string,
+                validator=lambda v: v or None,
                 sensitive=True,
             ),
             "endpoint": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
                 getter=lambda: instantiated_config.endpoint,
-                validator=validate_non_empty_string,
+                validator=lambda v: v or None,
             ),
             "service_name": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
                 getter=lambda: instantiated_config.service_name,
-                validator=validate_non_empty_string,
+                validator=lambda v: v or None,
             ),
             "logging_enabled": ConfigFieldDescriptor(
                 target_type=Optional[bool],

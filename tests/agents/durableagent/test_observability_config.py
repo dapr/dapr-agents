@@ -245,6 +245,40 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
 
         assert resolved_config.enabled is False
 
+    def test_observability_config_from_instantiation_ignores_empty_strings(
+        self, mock_llm
+    ):
+        """Test that observability config treats empty strings as unset."""
+        obs_config = AgentObservabilityConfig(
+            auth_token="",
+            endpoint="",
+            service_name="",
+        )
+
+        agent = DurableAgent(
+            name="TestAgent",
+            role="Test Assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="TestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+            agent_observability=obs_config,
+        )
+
+        resolved_config = agent._agent_observability
+
+        # Should resolve to defaults
+        assert resolved_config.auth_token is None
+        assert resolved_config.endpoint is None
+        assert resolved_config.service_name is None
+
 
 class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
     """Test cases for observability config from environment variables."""
