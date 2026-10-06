@@ -24,10 +24,12 @@ from dapr_agents.agents.constants import (
 )
 from tests.conftest import MockDaprClient
 from dapr_agents.agents.configs import (
+    AgentApprovalConfig,
     AgentExecutionConfig,
     AgentPubSubConfig,
     AgentRegistryConfig,
     AgentStateConfig,
+    BuiltinTool,
 )
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.llm import OpenAIChatClient
@@ -145,13 +147,19 @@ class TestExecutionConfigDefaults(ExecutionConfigTestBase):
         assert agent.execution.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
         assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
         assert agent.execution.orchestration_mode is None
+        assert isinstance(
+            agent.execution.approval, AgentApprovalConfig
+        )  # test_hitl.py covers approval config defaults
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
+        assert agent.execution.streaming is False
+        assert agent.execution.stream_listener is None
+        assert not agent.execution.builtin_tools
 
 
 class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
     """Test cases for execution config passed during DurableAgent instantiation."""
 
-    def test_execution_config_from_instantiation(self, mock_llm, mock_tool):
+    def test_execution_config_from_instantiation_all_fields(self, mock_llm, mock_tool):
         """Test execution config passed during instantiation."""
         execution_config = AgentExecutionConfig(
             max_iterations=5,
@@ -159,6 +167,10 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
             tool_execution_mode=ToolExecutionMode.SEQUENTIAL,
             orchestration_mode=OrchestrationMode.AGENT,
             max_grpc_inbound_message_size_bytes=123456,
+            approval=AgentApprovalConfig(),
+            streaming=False,
+            stream_listener=None,
+            builtin_tools=[BuiltinTool.ASK_USER],
         )
 
         agent = self._make_agent(
@@ -171,7 +183,11 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         assert agent.execution.tool_choice == ToolChoice.REQUIRED
         assert agent.execution.tool_execution_mode == ToolExecutionMode.SEQUENTIAL
         assert agent.execution.orchestration_mode == OrchestrationMode.AGENT
+        assert isinstance(agent.execution.approval, AgentApprovalConfig)
         assert agent.execution.max_grpc_inbound_message_size_bytes == 123456
+        assert agent.execution.streaming is False
+        assert agent.execution.stream_listener is None
+        assert agent.execution.builtin_tools == [BuiltinTool.ASK_USER]
 
     @pytest.mark.parametrize(
         ("execution_config", "expected_match"),
