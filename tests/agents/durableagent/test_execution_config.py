@@ -250,10 +250,10 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         assert resolved_config.tool_choice == ToolChoice.AUTO
         assert resolved_config.tool_execution_mode == ToolExecutionMode.PARALLEL
 
-    def test_execution_config_from_instantiation_allows_non_standard_tool_choice(
+    def test_execution_config_from_instantiation_accepts_non_standard_tool_choices(
         self, mock_llm, mock_tool
     ):
-        """Test that a non-standard instantiated tool choice is permitted."""
+        """Test that non-standard instantiated tool choices are permitted."""
         execution_config = AgentExecutionConfig(
             tool_choice="all",
         )
@@ -266,6 +266,20 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
 
         # Tool choice should be preserved
         assert agent.execution.tool_choice == "all"
+
+    @pytest.mark.parametrize("tool_choice", ["", " \t\r\n"])
+    def test_execution_config_from_instantiation_rejects_empty_and_whitespace_only_tool_choices(
+        self, mock_llm, mock_tool, tool_choice
+    ):
+        """Test that empty and whitespace-only instantiated tool choices are rejected."""
+        execution_config = AgentExecutionConfig(tool_choice=tool_choice)
+
+        with pytest.raises(ValueError, match="tool_choice"):
+            self._make_agent(
+                mock_llm,
+                execution_config=execution_config,
+                tools=[mock_tool],
+            )
 
 
 class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
@@ -343,10 +357,10 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_from_env_allows_non_standard_tool_choice(
+    def test_execution_config_from_env_accepts_non_standard_tool_choices(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test that a non-standard environment variable tool choice is permitted."""
+        """Test that non-standard environment variable tool choices are permitted."""
         monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", "tool")
 
         agent = self._make_agent(
@@ -362,6 +376,17 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
+
+    @pytest.mark.parametrize("tool_choice", ["", " \t\r\n"])
+    def test_execution_config_from_env_ignores_empty_and_whitespace_only_tool_choices(
+        self, mock_llm, mock_tool, monkeypatch, tool_choice
+    ):
+        """Test that empty and whitespace-only tool choices from environment variables are ignored."""
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", tool_choice)
+
+        agent = self._make_agent(mock_llm, tools=[mock_tool])
+
+        assert agent.execution.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
 
 
 class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
@@ -425,7 +450,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
     def test_execution_config_from_statestore_ignores_invalid_values(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test that invalid runtime values are ignored."""
+        """Test that invalid runtime config values are ignored."""
         runtime_config = {
             "MAX_ITERATIONS": "two",
         }
@@ -442,10 +467,10 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_from_statestore_allows_non_standard_tool_choice(
+    def test_execution_config_from_statestore_accepts_non_standard_tool_choices(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test that a non-standard runtime tool choice is permitted."""
+        """Test that non-standard runtime config tool choices are permitted."""
         runtime_config = {
             "TOOL_CHOICE": "no",
         }
@@ -463,6 +488,20 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
+
+    @pytest.mark.parametrize("tool_choice", ["", " \t\r\n"])
+    def test_execution_config_from_statestore_ignores_empty_and_whitespace_only_tool_choices(
+        self, mock_llm, mock_tool, monkeypatch, tool_choice
+    ):
+        """Test that empty and whitespace-only runtime config tool choices are ignored."""
+        runtime_config = {"TOOL_CHOICE": tool_choice}
+
+        mock_client = MockDaprClient(runtime_config=runtime_config)
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = self._make_agent(mock_llm, tools=[mock_tool])
+
+        assert agent.execution.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
 
 
 class TestExecutionConfigPrecedence(ExecutionConfigTestBase):

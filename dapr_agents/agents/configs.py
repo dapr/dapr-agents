@@ -307,7 +307,8 @@ validate_max_iterations = validate_positive_int
 
 
 def validate_tool_choice(v: str) -> str:
-    """Warn if tool_choice is non-standard, but allow it."""
+    """Warn if tool_choice is non-standard, but allow it. Reject empty and whitespace-only tool choices."""
+    validate_non_empty_string(v)
     try:
         return ToolChoice(v.lower())
     except (ValueError, KeyError):
@@ -1183,7 +1184,8 @@ class AgentObservabilityConfig:
                 getter=lambda: instantiated_config.headers,
                 sensitive=True,
             ),
-            # Empty strings for ``auth_token``, ``headers`` and ``endpoint`` are treated as unset for backwards compatibility
+            # Empty strings for ``auth_token``, ``headers`` and ``endpoint`` are treated as unset for backwards compatibility,
+            # while whitespace-only strings are accepted
             "auth_token": ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "auth_token", v),
