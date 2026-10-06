@@ -187,7 +187,8 @@ class MCPClient(BaseModel):
         except Exception as e:
             # Ensure cleanup errors do not mask the original failure.
             await _close_quietly(
-                stack, f"ephemeral session for MCP server '{server_name}' after a failed creation"
+                stack,
+                f"ephemeral session for MCP server '{server_name}' after a failed creation",
             )
             logger.error(f"Failed to create ephemeral session: {e}")
             raise ToolError(f"Could not create session for '{server_name}': {e}") from e
