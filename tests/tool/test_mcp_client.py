@@ -363,7 +363,7 @@ async def test_tool_reaches_previous_server_while_reconnect_in_flight():
     assert _tool_text(result) == "from old"
 
 
-async def test_cancelled_reconnect_keeps_previous_tools_and_prompts():
+async def test_cancelled_reconnect_registers_no_new_tools_or_prompts():
     client = MCPClient()
     servers = _FakeServers(hang={"new"})
     with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
@@ -376,6 +376,19 @@ async def test_cancelled_reconnect_keeps_previous_tools_and_prompts():
             await task
 
     assert _registered(client) == before
+
+
+async def test_failed_connect_bookkeeping_survives_cancelled_error_on_close():
+    client = MCPClient()
+    servers = _FakeServers(fail={"new"}, exit_exc=asyncio.CancelledError())
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        with pytest.raises(BaseException) as info:
+            await client.connect(_NEW)
+
+    assert info.type in (OSError, asyncio.CancelledError)
+    assert "srv" not in client._sessions
+    assert "srv" not in client._task_locals
+    assert "srv" not in client._connecting
 
 
 async def test_cancelled_first_connect_registers_no_tools_or_prompts():

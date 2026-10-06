@@ -79,13 +79,26 @@ def _format_exception_message(exception: BaseException) -> str:
     return str(exception)
 
 
-def _copy_params(value: Any) -> Any:
+def _copy_config(value: Any) -> Any:
     """Copy nested dicts and lists; other values are shared, as they may not be copyable."""
     if isinstance(value, dict):
-        return {key: _copy_params(item) for key, item in value.items()}
+        return {key: _copy_config(item) for key, item in value.items()}
     if isinstance(value, list):
-        return [_copy_params(item) for item in value]
+        return [_copy_config(item) for item in value]
     return value
+
+
+async def _close_quietly(stack: AsyncExitStack, what: str) -> None:
+    """Close ``stack`` without masking an original error; log what went wrong."""
+    try:
+        await stack.aclose()
+    except Exception as exc:
+        # Expected for stdio teardown; not worth a WARNING.
+        level = logging.DEBUG if _is_benign_teardown(exc) else logging.WARNING
+        logger.log(
+            level,
+            f"Error closing {what}: {_format_exception_message(exc)}",
+        )
 
 
 class MCPClient(BaseModel):
@@ -173,19 +186,9 @@ class MCPClient(BaseModel):
             await session.initialize()
         except Exception as e:
             # Ensure cleanup errors do not mask the original failure.
-            try:
-                await stack.aclose()
-            except Exception as exc:
-                if _is_benign_teardown(exc):
-                    logger.debug(
-                        "Ignoring BrokenResourceError during ephemeral session cleanup "
-                        "after failed creation (expected for stdio transport)"
-                    )
-                else:
-                    logger.warning(
-                        "Error during cleanup after failed ephemeral session creation: %s",
-                        exc,
-                    )
+            await _close_quietly(
+                stack, f"ephemeral session for MCP server '{server_name}' after a failed creation"
+            )
             logger.error(f"Failed to create ephemeral session: {e}")
             raise ToolError(f"Could not create session for '{server_name}': {e}") from e
 
@@ -223,7 +226,7 @@ class MCPClient(BaseModel):
         """
         # Copy nested dicts and lists too, so a caller mutating its own config
         # cannot change the stored one.
-        config = _copy_params(config)
+        config = _copy_config(config)
         server_name = config.pop("server_name", None)
         transport = config.pop("transport", None)
         if server_name in self._connected_servers:
@@ -235,6 +238,7 @@ class MCPClient(BaseModel):
         # Each connect gets its own stack, so a failed one closes its transport
         # instead of leaving it on the shared stack until close().
         stack = AsyncExitStack()
+        failed = False
         try:
             self._task_locals[server_name] = asyncio.current_task()
             if self.persistent_connections:
@@ -257,11 +261,12 @@ class MCPClient(BaseModel):
                 f"Successfully connected to MCP server '{server_name}' ({mode} mode)"
             )
         except (Exception, asyncio.CancelledError) as e:
+            failed = True
             reason = _format_exception_message(e) or type(e).__name__
-            logger.error(f"Failed to connect to MCP server '{server_name}': {reason}")
-            await self._close_failed_connect(server_name, stack)
-            self._sessions.pop(server_name, None)
-            self._task_locals.pop(server_name, None)
+            logger.error(
+                f"Failed to connect to MCP server '{server_name}': {reason}",
+                exc_info=True,
+            )
             previous_config = self._server_configs.get(server_name)
             if previous_config is not None and previous_config != new_config:
                 logger.warning(
@@ -270,8 +275,15 @@ class MCPClient(BaseModel):
                     "configuration, so tools already returned by get_all_tools() "
                     "still call the previous server"
                 )
+            await _close_quietly(
+                stack,
+                f"transport for MCP server '{server_name}' after a failed connect",
+            )
             raise
         finally:
+            if failed:
+                self._sessions.pop(server_name, None)
+                self._task_locals.pop(server_name, None)
             self._connecting.discard(server_name)
 
     async def _open_and_load(
@@ -290,20 +302,6 @@ class MCPClient(BaseModel):
         tools = await self._load_tools_from_session(server_name, session)
         prompts = await self._load_prompts_from_session(server_name, session)
         return session, tools, prompts
-
-    @staticmethod
-    async def _close_failed_connect(server_name: str, stack: AsyncExitStack) -> None:
-        """Close a failed connect's transport without masking the original error."""
-        try:
-            await stack.aclose()
-        except Exception as exc:
-            # Expected for stdio teardown; not worth a WARNING.
-            level = logging.DEBUG if _is_benign_teardown(exc) else logging.WARNING
-            logger.log(
-                level,
-                f"Error closing transport for MCP server '{server_name}' after a "
-                f"failed connect: {_format_exception_message(exc)}",
-            )
 
     async def connect_many(self, server_configs: list) -> None:
         """
