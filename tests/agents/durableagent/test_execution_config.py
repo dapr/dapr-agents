@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-"""Test cases for execution configuration in agents."""
+"""Tests for DurableAgent execution configuration."""
 
 from unittest.mock import MagicMock, Mock
 

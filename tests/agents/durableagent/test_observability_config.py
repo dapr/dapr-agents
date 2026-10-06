@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-"""Test cases for observability configuration in agents."""
+"""Tests for DurableAgent observability configuration."""
 
 import logging
 import os
