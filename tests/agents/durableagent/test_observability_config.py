@@ -286,6 +286,38 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
         assert resolved_config.endpoint is None
         assert resolved_config.service_name is None
 
+    # TODO: remove once Zipkin exporter is removed
+    def test_observability_config_from_instantiation_zipkin_exporter(self, mock_llm):
+        """Test that observability config supports the Zipkin exporter."""
+        obs_config = AgentObservabilityConfig(
+            enabled=True,
+            tracing_enabled=True,
+            tracing_exporter=AgentTracingExporter.ZIPKIN,
+        )
+
+        agent = DurableAgent(
+            name="TestAgent",
+            role="Test Assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="TestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+            agent_observability=obs_config,
+        )
+
+        resolved_config = agent._agent_observability
+
+        assert resolved_config.enabled is True
+        assert resolved_config.tracing_enabled is True
+        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+
 
 class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
     """Test cases for observability config from environment variables."""
@@ -558,6 +590,35 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
 
         assert isinstance(resolved_config, AgentObservabilityConfig)
         assert resolved_config == expected_config
+
+    # TODO: remove once Zipkin exporter is removed
+    def test_observability_config_from_env_zipkin_exporter(self, mock_llm, monkeypatch):
+        """Test that observability config supports the Zipkin exporter."""
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+        monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "zipkin")
+
+        agent = DurableAgent(
+            name="TestAgent",
+            role="Test Assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="TestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+        )
+
+        resolved_config = agent._agent_observability
+
+        assert resolved_config.enabled is True
+        assert resolved_config.tracing_enabled is True
+        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
 
 
 class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
@@ -846,7 +907,7 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
 
         assert resolved_config.enabled is False
 
-    def test_observability_config_statestore_invalid_exporter(
+    def test_observability_config_from_statestore_invalid_exporter(
         self, mock_llm, monkeypatch
     ):
         """Test observability config from statestore with invalid exporters."""
@@ -880,6 +941,42 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         # Should default to CONSOLE for invalid values
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
+
+    # TODO: remove once Zipkin exporter is removed
+    def test_observability_config_from_statestore_zipkin_exporter(
+        self, mock_llm, monkeypatch
+    ):
+        """Test observability config from statestore supports the Zipkin exporter."""
+        runtime_config = {
+            "OTEL_SDK_DISABLED": "false",
+            "OTEL_TRACING_ENABLED": "true",
+            "OTEL_TRACES_EXPORTER": "zipkin",
+        }
+
+        mock_client = MockDaprClient(runtime_config=runtime_config)
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = DurableAgent(
+            name="TestAgent",
+            role="Test Assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="TestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+        )
+
+        resolved_config = agent._agent_observability
+
+        assert resolved_config.enabled is True
+        assert resolved_config.tracing_enabled is True
+        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
 
 
 class TestObservabilityConfigPrecedence(ObservabilityConfigTestBase):

@@ -1024,7 +1024,8 @@ class AgentTracingExporter(StrEnum):
 
     OTLP_GRPC = "otlp_grpc"
     OTLP_HTTP = "otlp_http"
-    ZIPKIN = "zipkin"  # TODO: deprecate Zipkin
+    # TODO: deprecate Zipkin exporter https://opentelemetry.io/blog/2025/deprecating-zipkin-exporters/
+    ZIPKIN = "zipkin"
     CONSOLE = "console"
 
 
