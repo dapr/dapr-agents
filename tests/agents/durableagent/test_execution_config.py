@@ -255,10 +255,10 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
             ("Auto", "Parallel"),
         ],
     )
-    def test_execution_config_from_instantiation_accepts_case_insensitive_values(
+    def test_execution_config_from_instantiation_accepts_case_insensitive_enum_values(
         self, tool_choice, tool_execution_mode
     ):
-        """Test that execution config accepts case-insensitive instantiated values."""
+        """Test that execution config accepts case-insensitive enum instantiated values."""
         execution_config = AgentExecutionConfig(
             tool_choice=tool_choice,
             tool_execution_mode=tool_execution_mode,
@@ -346,10 +346,10 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
             ("Auto", "Parallel"),
         ],
     )
-    def test_execution_config_from_env_accepts_case_insensitive_values(
+    def test_execution_config_from_env_accepts_case_insensitive_enum_values(
         self, tool_choice, tool_execution_mode, monkeypatch
     ):
-        """Test that execution config accepts case-insensitive environment variables."""
+        """Test that execution config accepts case-insensitive enum environment variables."""
         monkeypatch.setenv("DAPR_AGENTS_TOOL_CHOICE", tool_choice)
         monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", tool_execution_mode)
 
@@ -454,10 +454,10 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
             ("Auto"),
         ],
     )
-    def test_execution_config_from_statestore_accepts_case_insensitive_values(
+    def test_execution_config_from_statestore_accepts_case_insensitive_enum_values(
         self, tool_choice
     ):
-        """Test that execution config accepts case-insensitive runtime config values."""
+        """Test that execution config accepts case-insensitive enum runtime config values."""
         runtime_config = {
             "TOOL_CHOICE": tool_choice,
         }

@@ -100,47 +100,6 @@ class ObservabilityConfigTestBase:
 class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
     """Test cases for observability config provided during instantiation."""
 
-    def test_observability_config_from_instantiation_does_not_mutate_input_config(self):
-        """Test that observability config resolution copies and leaves the caller's config untouched."""
-        observability_config = AgentObservabilityConfig(
-            logging_exporter="otlp_grpc",
-            tracing_exporter="zipkin",
-        )
-
-        resolved_config = AgentObservabilityConfig._from_instantiation(
-            observability_config
-        )
-
-        assert observability_config is not resolved_config
-        assert observability_config.logging_exporter == "otlp_grpc"
-        assert observability_config.tracing_exporter == "zipkin"
-        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
-
-    @pytest.mark.parametrize(
-        ("logging_exporter", "tracing_exporter"),
-        [
-            ("otlp_grpc", "zipkin"),
-            ("OTLP_GRPC", "ZIPKIN"),
-            ("Otlp_Grpc", "Zipkin"),
-        ],
-    )
-    def test_observability_config_from_instantiation_accepts_case_insensitive_values(
-        self, logging_exporter, tracing_exporter
-    ):
-        """Test that observability config accepts case-insensitive instantiated values."""
-        observability_config = AgentObservabilityConfig(
-            logging_exporter=logging_exporter,
-            tracing_exporter=tracing_exporter,
-        )
-
-        resolved_config = AgentObservabilityConfig._from_instantiation(
-            observability_config
-        )
-
-        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
-
     def test_observability_config_from_instantiation_all_fields(self, mock_llm):
         """Test observability config passed during instantiation with all fields."""
         obs_config = AgentObservabilityConfig(
@@ -220,6 +179,47 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
         assert resolved_config.endpoint is None
 
+    def test_observability_config_from_instantiation_does_not_mutate_input_config(self):
+        """Test that observability config resolution copies and leaves the caller's config untouched."""
+        observability_config = AgentObservabilityConfig(
+            logging_exporter="otlp_grpc",
+            tracing_exporter="zipkin",
+        )
+
+        resolved_config = AgentObservabilityConfig._from_instantiation(
+            observability_config
+        )
+
+        assert observability_config is not resolved_config
+        assert observability_config.logging_exporter == "otlp_grpc"
+        assert observability_config.tracing_exporter == "zipkin"
+        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
+        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+
+    @pytest.mark.parametrize(
+        ("logging_exporter", "tracing_exporter"),
+        [
+            ("otlp_grpc", "zipkin"),
+            ("OTLP_GRPC", "ZIPKIN"),
+            ("Otlp_Grpc", "Zipkin"),
+        ],
+    )
+    def test_observability_config_from_instantiation_accepts_case_insensitive_values(
+        self, logging_exporter, tracing_exporter
+    ):
+        """Test that observability config accepts case-insensitive instantiated values."""
+        observability_config = AgentObservabilityConfig(
+            logging_exporter=logging_exporter,
+            tracing_exporter=tracing_exporter,
+        )
+
+        resolved_config = AgentObservabilityConfig._from_instantiation(
+            observability_config
+        )
+
+        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
+        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+
     def test_observability_config_disabled_from_instantiation(self, mock_llm):
         """Test observability config explicitly disabled."""
         obs_config = AgentObservabilityConfig(enabled=False)
@@ -253,13 +253,13 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
         ],
     )
     def test_observability_config_from_instantiation_ignores_empty_and_whitespace_only_strings(
-        self, mock_llm
+        self, mock_llm, auth_token, endpoint, service_name
     ):
         """Test that observability config treats empty and whitespace-only strings as unset."""
         obs_config = AgentObservabilityConfig(
-            auth_token="",
-            endpoint="",
-            service_name="",
+            auth_token=auth_token,
+            endpoint=endpoint,
+            service_name=service_name,
         )
 
         agent = DurableAgent(
@@ -385,10 +385,10 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
             ("Otlp_Grpc", "Zipkin"),
         ],
     )
-    def test_observability_config_from_env_accepts_case_insensitive_values(
+    def test_observability_config_from_env_accepts_case_insensitive_enum_values(
         self, logging_exporter, tracing_exporter, monkeypatch
     ):
-        """Test that observability config accepts case-insensitive environment variables."""
+        """Test that observability config accepts case-insensitive enum environment variables."""
         monkeypatch.setenv("OTEL_LOGS_EXPORTER", logging_exporter)
         monkeypatch.setenv("OTEL_TRACES_EXPORTER", tracing_exporter)
 
@@ -396,6 +396,31 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
 
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
         assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("true", True),
+            ("TRUE", True),
+            ("True", True),
+            ("false", False),
+            ("FALSE", False),
+            ("False", False),
+        ],
+    )
+    def test_observability_config_from_env_accepts_case_insensitive_boolean_values(
+        self, value, expected, monkeypatch
+    ):
+        """Test that observability config accepts case-insensitive boolean environment values."""
+        monkeypatch.setenv("OTEL_SDK_DISABLED", value)
+        monkeypatch.setenv("OTEL_LOGGING_ENABLED", value)
+        monkeypatch.setenv("OTEL_TRACING_ENABLED", value)
+
+        resolved_config = AgentObservabilityConfig._from_env()
+
+        assert resolved_config.enabled is (not expected)
+        assert resolved_config.logging_enabled is expected
+        assert resolved_config.tracing_enabled is expected
 
     def test_observability_config_from_env_partial_fields(self, mock_llm, monkeypatch):
         """Test observability config with only some env variables set."""
@@ -618,6 +643,33 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
 
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
         assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("true", True),
+            ("TRUE", True),
+            ("True", True),
+            ("false", False),
+            ("FALSE", False),
+            ("False", False),
+        ],
+    )
+    def test_observability_config_from_statestore_accepts_case_insensitive_boolean_values(
+        self, value, expected
+    ):
+        """Test that observability config accepts case-insensitive boolean runtime values."""
+        runtime_config = {
+            "OTEL_SDK_DISABLED": value,
+            "OTEL_LOGGING_ENABLED": value,
+            "OTEL_TRACING_ENABLED": value,
+        }
+
+        resolved_config = AgentObservabilityConfig._from_statestore(runtime_config)
+
+        assert resolved_config.enabled is (not expected)
+        assert resolved_config.logging_enabled is expected
+        assert resolved_config.tracing_enabled is expected
 
     def test_observability_config_from_statestore_partial_fields(
         self, mock_llm, monkeypatch
