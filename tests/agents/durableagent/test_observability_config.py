@@ -330,6 +330,35 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert resolved_config.tracing_enabled is True
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
+    def test_observability_config_from_env_partial_fields(self, mock_llm, monkeypatch):
+        """Test observability config with only some env variables set."""
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+        monkeypatch.setenv("OTEL_SERVICE_NAME", "partial-service")
+
+        agent = DurableAgent(
+            name="TestAgent",
+            role="Test Assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="TestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+        )
+
+        resolved_config = agent._agent_observability
+
+        assert resolved_config.enabled is True
+        assert resolved_config.service_name == "partial-service"
+        assert resolved_config.endpoint is None
+        # logging_enabled comes from statestore default (False)
+        assert resolved_config.logging_enabled is False
+
     def test_observability_config_from_env_accepts_lowercase_keys(
         self, mock_llm, monkeypatch
     ):
@@ -422,34 +451,33 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert resolved_config.logging_enabled is expected
         assert resolved_config.tracing_enabled is expected
 
-    def test_observability_config_from_env_partial_fields(self, mock_llm, monkeypatch):
-        """Test observability config with only some env variables set."""
-        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
-        monkeypatch.setenv("OTEL_SERVICE_NAME", "partial-service")
+    def test_observability_config_from_env_ignores_empty_boolean_values(
+        self, monkeypatch
+    ):
+        """Test that observability config ignores empty boolean environment values."""
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "")
+        monkeypatch.setenv("OTEL_LOGGING_ENABLED", "")
+        monkeypatch.setenv("OTEL_TRACING_ENABLED", "")
 
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
+        resolved_config = AgentObservabilityConfig._from_env()
 
-        resolved_config = agent._agent_observability
+        assert resolved_config.enabled is None
+        assert resolved_config.logging_enabled is None
+        assert resolved_config.tracing_enabled is None
 
-        assert resolved_config.enabled is True
-        assert resolved_config.service_name == "partial-service"
-        assert resolved_config.endpoint is None
-        # logging_enabled comes from statestore default (False)
-        assert resolved_config.logging_enabled is False
+    def test_observability_config_from_env_ignores_whitespace_only_boolean_values(
+        self, monkeypatch
+    ):
+        """Test that observability config ignores whitespace-only boolean environment values."""
+        monkeypatch.setenv("OTEL_SDK_DISABLED", " \t\r\n")
+        monkeypatch.setenv("OTEL_LOGGING_ENABLED", " \t\r\n")
+        monkeypatch.setenv("OTEL_TRACING_ENABLED", " \t\r\n")
+
+        resolved_config = AgentObservabilityConfig._from_env()
+
+        assert resolved_config.enabled is None
+        assert resolved_config.logging_enabled is None
+        assert resolved_config.tracing_enabled is None
 
     def test_observability_config_from_env_disabled(self, mock_llm, monkeypatch):
         """Test observability explicitly disabled via environment."""
@@ -577,6 +605,40 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.tracing_enabled is True
         assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
 
+    def test_observability_config_from_statestore_partial_fields(
+        self, mock_llm, monkeypatch
+    ):
+        """Test observability config from statestore with partial fields."""
+        runtime_config = {
+            "OTEL_SDK_DISABLED": "false",
+            "OTEL_SERVICE_NAME": "partial-statestore-service",
+        }
+
+        mock_client = MockDaprClient(runtime_config=runtime_config)
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = DurableAgent(
+            name="TestAgent",
+            role="Test Assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="TestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+        )
+
+        resolved_config = agent._agent_observability
+
+        assert resolved_config.enabled is True
+        assert resolved_config.service_name == "partial-statestore-service"
+        assert resolved_config.endpoint is None
+
     def test_observability_config_from_statestore_accepts_lowercase_keys(
         self, mock_llm, monkeypatch
     ):
@@ -658,7 +720,7 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
     def test_observability_config_from_statestore_accepts_case_insensitive_boolean_values(
         self, value, expected
     ):
-        """Test that observability config accepts case-insensitive boolean runtime values."""
+        """Test that observability config accepts case-insensitive boolean runtime config values."""
         runtime_config = {
             "OTEL_SDK_DISABLED": value,
             "OTEL_LOGGING_ENABLED": value,
@@ -671,39 +733,35 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.logging_enabled is expected
         assert resolved_config.tracing_enabled is expected
 
-    def test_observability_config_from_statestore_partial_fields(
-        self, mock_llm, monkeypatch
-    ):
-        """Test observability config from statestore with partial fields."""
+    def test_observability_config_from_statestore_ignores_empty_boolean_values(self):
+        """Test that observability config ignores empty boolean runtime config values."""
         runtime_config = {
-            "OTEL_SDK_DISABLED": "false",
-            "OTEL_SERVICE_NAME": "partial-statestore-service",
+            "OTEL_SDK_DISABLED": "",
+            "OTEL_LOGGING_ENABLED": "",
+            "OTEL_TRACING_ENABLED": "",
         }
 
-        mock_client = MockDaprClient(runtime_config=runtime_config)
-        self._patch_dapr_client(monkeypatch, mock_client)
+        resolved_config = AgentObservabilityConfig._from_statestore(runtime_config)
 
-        agent = DurableAgent(
-            name="TestAgent",
-            role="Test Assistant",
-            llm=mock_llm,
-            pubsub=AgentPubSubConfig(
-                pubsub_name="testpubsub",
-                agent_topic="TestAgent",
-            ),
-            state=AgentStateConfig(
-                store=StateStoreService(store_name="teststatestore")
-            ),
-            registry=AgentRegistryConfig(
-                store=StateStoreService(store_name="testregistry")
-            ),
-        )
+        assert resolved_config.enabled is None
+        assert resolved_config.logging_enabled is None
+        assert resolved_config.tracing_enabled is None
 
-        resolved_config = agent._agent_observability
+    def test_observability_config_from_statestore_ignores_whitespace_only_boolean_values(
+        self,
+    ):
+        """Test that observability config ignores whitespace-only boolean runtime config values."""
+        runtime_config = {
+            "OTEL_SDK_DISABLED": " \t\r\n",
+            "OTEL_LOGGING_ENABLED": " \t\r\n",
+            "OTEL_TRACING_ENABLED": " \t\r\n",
+        }
 
-        assert resolved_config.enabled is True
-        assert resolved_config.service_name == "partial-statestore-service"
-        assert resolved_config.endpoint is None
+        resolved_config = AgentObservabilityConfig._from_statestore(runtime_config)
+
+        assert resolved_config.enabled is None
+        assert resolved_config.logging_enabled is None
+        assert resolved_config.tracing_enabled is None
 
     def test_observability_config_from_statestore_disabled(self, mock_llm, monkeypatch):
         """Test observability disabled from statestore."""
