@@ -1196,7 +1196,7 @@ class AgentObservabilityConfig:
                 sensitive=True,
             ),
             # Empty strings for ``auth_token``, ``headers`` and ``endpoint``
-            # are treated as unset for backwards compatibility,
+            # are treated as unset for backwards compatibility;
             # whitespace-only strings are also treated as unset to match
             "auth_token": ConfigFieldDescriptor(
                 target_type=Optional[str],
