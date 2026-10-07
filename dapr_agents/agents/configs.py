@@ -1026,7 +1026,7 @@ class AgentTracingExporter(StrEnum):
 
     OTLP_GRPC = "otlp_grpc"
     OTLP_HTTP = "otlp_http"
-    ZIPKIN = "zipkin"
+    ZIPKIN = "zipkin"  # TODO: deprecate Zipkin
     CONSOLE = "console"
 
 

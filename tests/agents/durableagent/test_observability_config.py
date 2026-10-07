@@ -109,7 +109,7 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
             endpoint="http://otel-collector:4317",
             service_name="test-service",
             logging_enabled=True,
-            logging_exporter=AgentLoggingExporter.OTLP_GRPC,
+            logging_exporter=AgentLoggingExporter.OTLP_HTTP,
             tracing_enabled=True,
             tracing_exporter=AgentTracingExporter.OTLP_GRPC,
         )
@@ -139,7 +139,7 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
         assert resolved_config.endpoint == "http://otel-collector:4317"
         assert resolved_config.service_name == "test-service"
         assert resolved_config.logging_enabled is True
-        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
+        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_HTTP
         assert resolved_config.tracing_enabled is True
         assert resolved_config.tracing_exporter == AgentTracingExporter.OTLP_GRPC
 
@@ -148,7 +148,7 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
         obs_config = AgentObservabilityConfig(
             enabled=True,
             tracing_enabled=True,
-            tracing_exporter=AgentTracingExporter.ZIPKIN,
+            tracing_exporter=AgentTracingExporter.OTLP_HTTP,
         )
 
         agent = DurableAgent(
@@ -172,7 +172,7 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
 
         assert resolved_config.enabled is True
         assert resolved_config.tracing_enabled is True
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+        assert resolved_config.tracing_exporter == AgentTracingExporter.OTLP_HTTP
         # logging_enabled comes from statestore default (False)
         assert resolved_config.logging_enabled is False
         # logging_exporter comes from statestore default (console)
@@ -182,8 +182,8 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
     def test_observability_config_from_instantiation_does_not_mutate_input_config(self):
         """Test that observability config resolution copies and leaves the caller's config untouched."""
         observability_config = AgentObservabilityConfig(
-            logging_exporter="otlp_grpc",
-            tracing_exporter="zipkin",
+            logging_exporter="console",
+            tracing_exporter="console",
         )
 
         resolved_config = AgentObservabilityConfig._from_instantiation(
@@ -191,17 +191,17 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
         )
 
         assert observability_config is not resolved_config
-        assert observability_config.logging_exporter == "otlp_grpc"
-        assert observability_config.tracing_exporter == "zipkin"
-        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+        assert observability_config.logging_exporter == "console"
+        assert observability_config.tracing_exporter == "console"
+        assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
+        assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
     @pytest.mark.parametrize(
         ("logging_exporter", "tracing_exporter"),
         [
-            ("otlp_grpc", "zipkin"),
-            ("OTLP_GRPC", "ZIPKIN"),
-            ("Otlp_Grpc", "Zipkin"),
+            ("otlp_grpc", "otlp_http"),
+            ("OTLP_GRPC", "OTLP_HTTP"),
+            ("Otlp_Grpc", "Otlp_Http"),
         ],
     )
     def test_observability_config_from_instantiation_accepts_case_insensitive_values(
@@ -218,7 +218,7 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
         )
 
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+        assert resolved_config.tracing_exporter == AgentTracingExporter.OTLP_HTTP
 
     def test_observability_config_disabled_from_instantiation(self, mock_llm):
         """Test observability config explicitly disabled."""
@@ -301,7 +301,7 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         monkeypatch.setenv("OTEL_LOGGING_ENABLED", "true")
         monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp_http")
         monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
-        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "console")
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "otlp_grpc")
 
         agent = DurableAgent(
             name="TestAgent",
@@ -328,7 +328,7 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert resolved_config.logging_enabled is True
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_HTTP
         assert resolved_config.tracing_enabled is True
-        assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
+        assert resolved_config.tracing_exporter == AgentTracingExporter.OTLP_GRPC
 
     def test_observability_config_from_env_partial_fields(self, mock_llm, monkeypatch):
         """Test observability config with only some env variables set."""
@@ -354,10 +354,14 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
-        assert resolved_config.service_name == "partial-service"
+        assert resolved_config.headers == {}
         assert resolved_config.endpoint is None
+        assert resolved_config.service_name == "partial-service"
         # logging_enabled comes from statestore default (False)
         assert resolved_config.logging_enabled is False
+        assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
+        assert resolved_config.tracing_enabled is False
+        assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
     def test_observability_config_from_env_accepts_lowercase_keys(
         self, mock_llm, monkeypatch
@@ -370,7 +374,7 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         monkeypatch.setenv("otel_exporter_otlp_endpoint", "http://env-collector:4318")
         monkeypatch.setenv("otel_service_name", "env-service")
         monkeypatch.setenv("otel_logging_enabled", "true")
-        monkeypatch.setenv("otel_logs_exporter", "otlp_http")
+        monkeypatch.setenv("otel_logs_exporter", "console")
         monkeypatch.setenv("otel_tracing_enabled", "true")
         monkeypatch.setenv("otel_traces_exporter", "console")
 
@@ -398,8 +402,7 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert agent._agent_observability.service_name == "env-service"
         assert agent._agent_observability.logging_enabled is True
         assert (
-            agent._agent_observability.logging_exporter
-            == AgentLoggingExporter.OTLP_HTTP
+            agent._agent_observability.logging_exporter == AgentLoggingExporter.CONSOLE
         )
         assert agent._agent_observability.tracing_enabled is True
         assert (
@@ -409,9 +412,9 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
     @pytest.mark.parametrize(
         ("logging_exporter", "tracing_exporter"),
         [
-            ("otlp_grpc", "zipkin"),
-            ("OTLP_GRPC", "ZIPKIN"),
-            ("Otlp_Grpc", "Zipkin"),
+            ("otlp_grpc", "otlp_http"),
+            ("OTLP_GRPC", "OTLP_HTTP"),
+            ("Otlp_Grpc", "Otlp_Http"),
         ],
     )
     def test_observability_config_from_env_accepts_case_insensitive_enum_values(
@@ -424,7 +427,7 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         resolved_config = AgentObservabilityConfig._from_env()
 
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+        assert resolved_config.tracing_exporter == AgentTracingExporter.OTLP_HTTP
 
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -547,7 +550,7 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         monkeypatch.setenv("OTEL_LOGGING_ENABLED", "true")
         monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp_http")
         monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
-        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "console")
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "otlp_grpc")
 
         expected_config = AgentObservabilityConfig._from_env()
         with pytest.warns(DeprecationWarning):
@@ -570,9 +573,9 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
             "OTEL_EXPORTER_OTLP_ENDPOINT": "http://statestore-collector:4317",
             "OTEL_SERVICE_NAME": "statestore-service",
             "OTEL_LOGGING_ENABLED": "true",
-            "OTEL_LOGS_EXPORTER": "otlp_grpc",
+            "OTEL_LOGS_EXPORTER": "otlp_http",
             "OTEL_TRACING_ENABLED": "true",
-            "OTEL_TRACES_EXPORTER": "zipkin",
+            "OTEL_TRACES_EXPORTER": "otlp_grpc",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
@@ -601,9 +604,9 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.endpoint == "http://statestore-collector:4317"  # noqa: E501
         assert resolved_config.service_name == "statestore-service"
         assert resolved_config.logging_enabled is True
-        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
+        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_HTTP
         assert resolved_config.tracing_enabled is True
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+        assert resolved_config.tracing_exporter == AgentTracingExporter.OTLP_GRPC
 
     def test_observability_config_from_statestore_partial_fields(
         self, mock_llm, monkeypatch
@@ -636,8 +639,13 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         resolved_config = agent._agent_observability
 
         assert resolved_config.enabled is True
-        assert resolved_config.service_name == "partial-statestore-service"
+        assert resolved_config.auth_token is None
         assert resolved_config.endpoint is None
+        assert resolved_config.service_name == "partial-statestore-service"
+        assert resolved_config.logging_enabled is False
+        assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
+        assert resolved_config.tracing_enabled is False
+        assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
     def test_observability_config_from_statestore_accepts_lowercase_keys(
         self, mock_llm, monkeypatch
@@ -649,9 +657,9 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
             "otel_exporter_otlp_endpoint": "http://statestore-collector:4317",
             "otel_service_name": "statestore-service",
             "otel_logging_enabled": "true",
-            "otel_logs_exporter": "otlp_grpc",
+            "otel_logs_exporter": "console",
             "otel_tracing_enabled": "true",
-            "otel_traces_exporter": "zipkin",
+            "otel_traces_exporter": "console",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
@@ -680,16 +688,16 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.endpoint == "http://statestore-collector:4317"
         assert resolved_config.service_name == "statestore-service"
         assert resolved_config.logging_enabled is True
-        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
+        assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
         assert resolved_config.tracing_enabled is True
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+        assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
     @pytest.mark.parametrize(
         ("logging_exporter", "tracing_exporter"),
         [
-            ("otlp_grpc", "zipkin"),
-            ("OTLP_GRPC", "ZIPKIN"),
-            ("Otlp_Grpc", "Zipkin"),
+            ("otlp_grpc", "otlp_http"),
+            ("OTLP_GRPC", "OTLP_HTTP"),
+            ("Otlp_Grpc", "Otlp_Http"),
         ],
     )
     def test_observability_config_from_statestore_accepts_case_insensitive_values(
@@ -704,7 +712,7 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         resolved_config = AgentObservabilityConfig._from_statestore(runtime_config)
 
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+        assert resolved_config.tracing_exporter == AgentTracingExporter.OTLP_HTTP
 
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -844,7 +852,7 @@ class TestObservabilityConfigPrecedence(ObservabilityConfigTestBase):
         obs_config = AgentObservabilityConfig(
             enabled=False,  # Different from env
             service_name="instantiation-service",  # Different from env
-            tracing_exporter=AgentTracingExporter.ZIPKIN,  # Different from env
+            tracing_exporter=AgentTracingExporter.OTLP_GRPC,  # Different from env
         )
 
         agent = DurableAgent(
@@ -869,7 +877,7 @@ class TestObservabilityConfigPrecedence(ObservabilityConfigTestBase):
         # Instantiation should win
         assert resolved_config.enabled is False
         assert resolved_config.service_name == "instantiation-service"
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+        assert resolved_config.tracing_exporter == AgentTracingExporter.OTLP_GRPC
         # Endpoint should come from env since instantiation didn't specify it
         assert resolved_config.endpoint == "http://env-endpoint:4317"
 
@@ -939,7 +947,7 @@ class TestObservabilityConfigPrecedence(ObservabilityConfigTestBase):
         # Create observability config for instantiation (highest priority)
         obs_config = AgentObservabilityConfig(
             service_name="instantiation-service",
-            tracing_exporter=AgentTracingExporter.ZIPKIN,
+            tracing_exporter=AgentTracingExporter.OTLP_HTTP,
         )
 
         agent = DurableAgent(
@@ -963,7 +971,7 @@ class TestObservabilityConfigPrecedence(ObservabilityConfigTestBase):
 
         # Instantiation wins for service_name and tracing_exporter
         assert resolved_config.service_name == "instantiation-service"
-        assert resolved_config.tracing_exporter == AgentTracingExporter.ZIPKIN
+        assert resolved_config.tracing_exporter == AgentTracingExporter.OTLP_HTTP
 
         # Env wins for logging_exporter (not in instantiation)
         assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
