@@ -121,7 +121,10 @@ def _check_int_range(value: Any, name: str, *, upper: int | None = None) -> None
 
 def _check_seconds(value: Any, name: str, *, upper: float | None = None) -> None:
     """Raise ValueError unless ``value`` is a finite number in ``(0, upper]``."""
-    number = float(value) if isinstance(value, Real) else math.nan
+    try:
+        number = float(value) if isinstance(value, Real) else math.nan
+    except OverflowError:
+        number = math.inf
     if (
         isinstance(value, bool)
         or not math.isfinite(number)
