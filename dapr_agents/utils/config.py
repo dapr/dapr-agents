@@ -57,24 +57,25 @@ class ConfigFieldDescriptor:
     triggers_otel_reload: bool = False
 
 
-def get_case_insensitive(mapping: Mapping[str, Any], key: str) -> Any:
+def get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
     """
-    Get a value from a mapping, preferring the uppercase key variant.
-
-    Examples:
-        - If only ``"MY_VAR"`` is in the mapping, returns its value.
-        - If only ``"my_var"`` is in the mapping, returns its value.
-        - If ``"MY_VAR"`` and ``"my_var"`` are both in the mapping,
-          the value associated with ``"MY_VAR"`` is used.
-        - If neither key is in the mapping, returns ``None``.
+    Get a config value from a mapping under common naming conventions
+    in the following order (first non-``None`` value wins):
+        1. ``MY_VAR``  (screaming snake case)
+        2. ``my_var``  (snake case)
+        3. ``my-var``  (kebab case)
+        4. ``MY-VAR``
 
     Returns:
-        The value for the key, or ``None`` if neither case variant is present.
+        The value for the key, or ``None`` if no variant is present.
     """
-    uppercase_key = key.upper()
-    if uppercase_key in mapping:
-        return mapping.get(uppercase_key)
-    return mapping.get(key.lower())
+    snake = key.replace("-", "_")
+    kebab = key.replace("_", "-")
+    for candidate in (snake.upper(), snake.lower(), kebab.upper(), kebab.lower()):
+        value = mapping.get(candidate)
+        if value is not None:
+            return value
+    return None
 
 
 def normalize_config_key(key: str) -> str:

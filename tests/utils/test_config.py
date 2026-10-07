@@ -24,7 +24,7 @@ from dapr_agents.utils.config import (
     apply_config_map,
     apply_config_update,
     coerce_config_value,
-    get_case_insensitive,
+    get_config_value,
     normalize_config_key,
     process_config_update,
 )
@@ -142,34 +142,34 @@ class TestNormalizeConfigKey:
         assert normalize_config_key("already_normal") == "already_normal"
 
 
-class TestGetCaseInsensitive:
-    """Tests for get_case_insensitive."""
+class TestGetConfigValue:
+    """Tests for get_config_value."""
 
-    def test_get_case_insensitive_returns_uppercase_value(self):
+    def test_get_config_value_returns_uppercase_value(self):
         assert (
-            get_case_insensitive({"TEST_VALUE": "uppercase"}, "test_value")
+            get_config_value({"TEST_VALUE": "uppercase"}, "test_value")
             == "uppercase"
         )
 
-    def test_get_case_insensitive_returns_lowercase_value(self):
+    def test_get_config_value_returns_lowercase_value(self):
         assert (
-            get_case_insensitive({"test_value": "lowercase"}, "TEST_VALUE")
+            get_config_value({"test_value": "lowercase"}, "TEST_VALUE")
             == "lowercase"
         )
 
-    def test_get_case_insensitive_returns_empty_uppercase_value(self):
+    def test_get_config_value_returns_empty_uppercase_value(self):
         mapping = {"TEST_VALUE": "", "test_value": "lowercase"}
-        assert get_case_insensitive(mapping, "test_value") == ""
+        assert get_config_value(mapping, "test_value") == ""
 
-    def test_get_case_insensitive_returns_none_when_unset(self):
-        assert get_case_insensitive({}, "test_value") is None
+    def test_get_config_value_returns_none_when_unset(self):
+        assert get_config_value({}, "test_value") is None
 
-    def test_get_case_insensitive_prefers_uppercase_value(self):
+    def test_get_config_value_prefers_uppercase_value(self):
         mapping = {"TEST_VALUE": "uppercase", "test_value": "lowercase"}
-        assert get_case_insensitive(mapping, "test_value") == "uppercase"
+        assert get_config_value(mapping, "test_value") == "uppercase"
 
-    def test_get_case_insensitive_returns_any_mapping_value(self):
-        assert get_case_insensitive({"TEST_VALUE": 42}, "test_value") == 42
+    def test_get_config_value_returns_any_mapping_value(self):
+        assert get_config_value({"TEST_VALUE": 42}, "test_value") == 42
 
 
 class TestProcessConfigUpdate:
