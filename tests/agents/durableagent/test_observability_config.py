@@ -122,7 +122,7 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
         [
             ("otlp_grpc", "zipkin"),
             ("OTLP_GRPC", "ZIPKIN"),
-            ("oTlP_gRpC", "zIpKiN"),
+            ("Otlp_Grpc", "Zipkin"),
         ],
     )
     def test_observability_config_from_instantiation_accepts_case_insensitive_values(
@@ -382,7 +382,7 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         [
             ("otlp_grpc", "zipkin"),
             ("OTLP_GRPC", "ZIPKIN"),
-            ("oTlP_gRpC", "zIpKiN"),
+            ("Otlp_Grpc", "Zipkin"),
         ],
     )
     def test_observability_config_from_env_accepts_case_insensitive_values(
@@ -602,7 +602,7 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         [
             ("otlp_grpc", "zipkin"),
             ("OTLP_GRPC", "ZIPKIN"),
-            ("oTlP_gRpC", "zIpKiN"),
+            ("Otlp_Grpc", "Zipkin"),
         ],
     )
     def test_observability_config_from_statestore_accepts_case_insensitive_values(

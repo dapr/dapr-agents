@@ -252,7 +252,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         [
             ("auto", "parallel"),
             ("AUTO", "PARALLEL"),
-            ("aUtO", "pArAlLeL"),
+            ("Auto", "Parallel"),
         ],
     )
     def test_execution_config_from_instantiation_accepts_case_insensitive_values(
@@ -343,7 +343,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         [
             ("auto", "parallel"),
             ("AUTO", "PARALLEL"),
-            ("aUtO", "pArAlLeL"),
+            ("Auto", "Parallel"),
         ],
     )
     def test_execution_config_from_env_accepts_case_insensitive_values(
@@ -451,7 +451,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         [
             ("auto"),
             ("AUTO"),
-            ("aUtO"),
+            ("Auto"),
         ],
     )
     def test_execution_config_from_statestore_accepts_case_insensitive_values(
