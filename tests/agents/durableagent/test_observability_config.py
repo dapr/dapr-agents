@@ -363,10 +363,10 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert resolved_config.tracing_enabled is False
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
-    def test_observability_config_from_env_accepts_lowercase_keys(
+    def test_observability_config_from_env_accepts_snake_case_keys(
         self, mock_llm, monkeypatch
     ):
-        """Test that observability config accepts lowercase environment variable names."""
+        """Test that observability config accepts snake_case environment variable names."""
         monkeypatch.setenv("otel_sdk_disabled", "false")
         monkeypatch.setenv(
             "otel_exporter_otlp_headers", "Authorization=Bearer env-token"
@@ -647,10 +647,10 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.tracing_enabled is False
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
 
-    def test_observability_config_from_statestore_accepts_lowercase_keys(
+    def test_observability_config_from_statestore_accepts_snake_case_keys(
         self, mock_llm, monkeypatch
     ):
-        """Test that observability config accepts lowercase runtime config keys."""
+        """Test that observability config accepts snake_case runtime config keys."""
         runtime_config = {
             "otel_sdk_disabled": "false",
             "otel_exporter_otlp_headers": "statestore-token",
@@ -691,6 +691,51 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
         assert resolved_config.tracing_enabled is True
         assert resolved_config.tracing_exporter == AgentTracingExporter.CONSOLE
+
+    def test_observability_config_from_statestore_accepts_kebab_case_keys(
+        self, mock_llm, monkeypatch
+    ):
+        """Test that observability config accepts kebab-case runtime config keys."""
+        runtime_config = {
+            "otel-sdk-disabled": "false",
+            "otel-exporter-otlp-headers": "statestore-token",
+            "otel-exporter-otlp-endpoint": "http://statestore-collector:4317",
+            "otel-service-name": "statestore-service",
+            "otel-logging-enabled": "true",
+            "otel-logs-exporter": "otlp_grpc",
+            "otel-tracing-enabled": "true",
+            "otel-traces-exporter": "otlp_grpc",
+        }
+
+        mock_client = MockDaprClient(runtime_config=runtime_config)
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = DurableAgent(
+            name="TestAgent",
+            role="Test Assistant",
+            llm=mock_llm,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="TestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            registry=AgentRegistryConfig(
+                store=StateStoreService(store_name="testregistry")
+            ),
+        )
+
+        resolved_config = agent._agent_observability
+
+        assert resolved_config.enabled is True
+        assert resolved_config.auth_token == "statestore-token"
+        assert resolved_config.endpoint == "http://statestore-collector:4317"
+        assert resolved_config.service_name == "statestore-service"
+        assert resolved_config.logging_enabled is True
+        assert resolved_config.logging_exporter == AgentLoggingExporter.OTLP_GRPC
+        assert resolved_config.tracing_enabled is True
+        assert resolved_config.tracing_exporter == AgentTracingExporter.OTLP_GRPC
 
     @pytest.mark.parametrize(
         ("logging_exporter", "tracing_exporter"),

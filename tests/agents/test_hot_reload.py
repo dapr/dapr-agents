@@ -21,7 +21,6 @@ from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
     AgentMetadata,
     AgentMetadataSchema,
-    ConfigFieldDescriptor,
     LLMMetadata,
     RuntimeSubscriptionConfig,
 )
@@ -109,6 +108,15 @@ class TestApplyConfigUpdate:
     def test_hyphenated_key_normalized(self, basic_agent):
         basic_agent._apply_config_update("agent-role", "Hyphen Role")
         assert basic_agent.profile.role == "Hyphen Role"
+
+    def test_invalid_key_naming_convention_rejected(self, basic_agent, caplog):
+        """A key under an unsupported naming convention should be
+        logged as a warning and the original value preserved."""
+        original = basic_agent.execution.tool_choice
+        with caplog.at_level(logging.WARNING):
+            basic_agent._apply_config_update("TOOL-CHOICE", "auto")
+        assert "invalid config key" in caplog.text.lower()
+        assert basic_agent.execution.tool_choice == original
 
     def test_invalid_type_for_valid_key_rejected(self, basic_agent, caplog):
         """Passing a non-coercible type (e.g. dict for an int key) should be

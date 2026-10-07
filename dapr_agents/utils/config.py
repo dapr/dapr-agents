@@ -60,32 +60,43 @@ class ConfigFieldDescriptor:
 def get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
     """
     Get a config value from a mapping under common naming conventions
-    in the following order (first non-``None`` value wins):
-        1. ``MY_VAR``  (screaming snake case)
-        2. ``my_var``  (snake case)
-        3. ``my-var``  (kebab case)
-        4. ``MY-VAR``
+    in the following order (first non-``None``, non-empty value wins):
+        1. SCREAMING_SNAKE_CASE
+        2. snake_case
+        3. kebab-case
 
     Returns:
         The value for the key, or ``None`` if no variant is present.
     """
     snake = key.replace("-", "_")
     kebab = key.replace("_", "-")
-    for candidate in (snake.upper(), snake.lower(), kebab.upper(), kebab.lower()):
-        value = mapping.get(candidate)
-        if value is not None:
+    for candidate in (snake.upper(), snake.lower(), kebab.lower()):
+        value = mapping.get(candidate, None)
+        if value is not None and value != "":
             return value
     return None
 
 
 def normalize_config_key(key: str) -> str:
     """
-    Normalize a configuration key to an attribute name.
+    Normalize a configuration key to snake_case.
+    Accepts SCREAMING_SNAKE_CASE, snake_case, and kebab-case naming conventions.
 
     Returns:
-        The normalized attribute name, lowercased and with hyphens replaced by underscores.
+        The normalized key in snake_case.
+
+    Raises:
+        ValueError: If the key does not follow a supported naming convention.
     """
-    return key.lower().replace("-", "_")
+    normalized = key.lower().replace("-", "_")
+    is_lower = key == key.lower()
+    is_screaming_snake = key == key.upper() and "-" not in key
+    if not (is_lower or is_screaming_snake):
+        raise ValueError(
+            f"Configuration key '{key}' does not follow a supported naming convention "
+            "(SCREAMING_SNAKE_CASE, snake_case, kebab-case). "
+        )
+    return normalized
 
 
 def apply_config_map(

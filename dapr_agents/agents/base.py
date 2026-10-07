@@ -931,9 +931,15 @@ class AgentBase:
         Returns:
             True if the update triggers an OTel reload, False otherwise.
         """
-        normalized_key = normalize_config_key(key)
-        descriptor = self._CONFIG_FIELD_MAP.get(normalized_key)
+        try:
+            normalized_key = normalize_config_key(key)
+        except ValueError:
+            logger.warning(
+                f"Agent {self.name} ignoring invalid config key: {key}", exc_info=True
+            )
+            return False
 
+        descriptor = self._CONFIG_FIELD_MAP.get(normalized_key)
         if descriptor is None:
             logger.debug(f"Agent {self.name} ignoring unrecognized config key: {key}")
             return False

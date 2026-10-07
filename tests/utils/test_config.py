@@ -14,6 +14,7 @@
 """Tests for config helper functions used by agents."""
 
 from enum import Enum
+import itertools
 import logging
 from types import SimpleNamespace
 
@@ -137,39 +138,81 @@ class TestCoerceConfigValue:
 class TestNormalizeConfigKey:
     """Tests for normalize_config_key."""
 
-    def test_normalize_config_key(self):
-        assert normalize_config_key("NOT-NORMAL") == "not_normal"
-        assert normalize_config_key("already_normal") == "already_normal"
+    def test_normalize_config_key_normalizes_supported_naming_conventions(self):
+        assert normalize_config_key("NOT_NORMALIZED") == "not_normalized"
+        assert normalize_config_key("not-normalized") == "not_normalized"
+        assert normalize_config_key("already_normalized") == "already_normalized"
+
+    def test_normalize_config_key_rejects_unsupported_naming_conventions(self):
+        with pytest.raises(ValueError):
+            normalize_config_key("NotNormalized")
+        with pytest.raises(ValueError):
+            normalize_config_key("NOT-NORMALIZED")
 
 
 class TestGetConfigValue:
     """Tests for get_config_value."""
 
-    def test_get_config_value_returns_uppercase_value(self):
-        assert (
-            get_config_value({"TEST_VALUE": "uppercase"}, "test_value")
-            == "uppercase"
-        )
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_finds_screaming_snake_case_key(self, key):
+        assert get_config_value({"TEST_KEY": "val"}, key) == "val"
 
-    def test_get_config_value_returns_lowercase_value(self):
-        assert (
-            get_config_value({"test_value": "lowercase"}, "TEST_VALUE")
-            == "lowercase"
-        )
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_finds_snake_case_key(self, key):
+        assert get_config_value({"test_key": "val"}, key) == "val"
 
-    def test_get_config_value_returns_empty_uppercase_value(self):
-        mapping = {"TEST_VALUE": "", "test_value": "lowercase"}
-        assert get_config_value(mapping, "test_value") == ""
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_finds_kebab_case_key(self, key):
+        assert get_config_value({"test-key": "val"}, key) == "val"
 
-    def test_get_config_value_returns_none_when_unset(self):
-        assert get_config_value({}, "test_value") is None
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_prefers_screaming_snake_case_over_snake_case(self, key):
+        mapping = {"TEST_KEY": "val1", "test_key": "val2"}
+        assert get_config_value(mapping, key) == "val1"
 
-    def test_get_config_value_prefers_uppercase_value(self):
-        mapping = {"TEST_VALUE": "uppercase", "test_value": "lowercase"}
-        assert get_config_value(mapping, "test_value") == "uppercase"
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_prefers_snake_case_over_kebab_case(self, key):
+        mapping = {"test_key": "val1", "test-key": "val2"}
+        assert get_config_value(mapping, key) == "val1"
 
-    def test_get_config_value_returns_any_mapping_value(self):
-        assert get_config_value({"TEST_VALUE": 42}, "test_value") == 42
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_full_precedence(self, key):
+        mapping = {"TEST_KEY": "val1", "test_key": "val2", "test-key": "val3"}
+        assert get_config_value(mapping, key) == "val1"
+
+    @pytest.mark.parametrize(
+        "mapping",
+        [
+            {k: v for d in perm for k, v in d.items()}
+            for perm in itertools.permutations(
+                [{"TEST_KEY": "val1"}, {"test_key": "val2"}, {"test-key": "val3"}]
+            )
+        ],
+    )
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_random_key_order(self, key, mapping):
+        """Test that get_config_value does not depend on the order of keys in the mapping."""
+        assert get_config_value(mapping, key) == "val1"
+
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_ignores_empty_values(self, key):
+        mapping = {"TEST_KEY": "", "test_key": "", "test-key": "val"}
+        assert get_config_value(mapping, key) == "val"
+
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_ignores_none_values(self, key):
+        mapping = {"TEST_KEY": None, "test_key": "val1", "test-key": "val2"}
+        assert get_config_value(mapping, key) == "val1"
+
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_ignores_invalid_naming_conventions(self, key):
+        mapping = {"TEST-KEY": "val1", "Test_Key": "val2", "test_key": "val3"}
+        assert get_config_value(mapping, key) == "val3"
+
+    @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
+    def test_get_config_value_defaults_to_none(self, key):
+        mapping = {"TEST_KEY": None, "test_key": None, "test-key": None}
+        assert get_config_value(mapping, key) is None
 
 
 class TestProcessConfigUpdate:

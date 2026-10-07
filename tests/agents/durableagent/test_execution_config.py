@@ -322,10 +322,10 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes == 654321
 
-    def test_execution_config_from_env_accepts_lowercase_keys(
+    def test_execution_config_from_env_accepts_snake_case_keys(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test that execution config accepts lowercase environment variable names."""
+        """Test that execution config accepts snake_case environment variable names."""
         monkeypatch.setenv("dapr_agents_max_iterations", "7")
         monkeypatch.setenv("dapr_agents_tool_choice", "required")
         monkeypatch.setenv("dapr_agents_tool_execution_mode", "sequential")
@@ -429,12 +429,12 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_from_statestore_accepts_lowercase_keys(
+    def test_execution_config_from_statestore_accepts_snake_case_keys(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test that execution config accepts lowercase runtime config keys."""
+        """Test that execution config accepts snake_case runtime config keys."""
         runtime_config = {
-            "max_iterations": "9",
+            "max_iterations": "10",
             "tool_choice": "none",
         }
 
@@ -443,8 +443,25 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
 
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
-        assert agent.execution.max_iterations == 9
+        assert agent.execution.max_iterations == 10
         assert agent.execution.tool_choice == ToolChoice.NONE
+
+    def test_execution_config_from_statestore_accepts_kebab_case_keys(
+        self, mock_llm, mock_tool, monkeypatch
+    ):
+        """Test that execution config accepts kebab-case runtime config keys."""
+        runtime_config = {
+            "max-iterations": "11",
+            "tool-choice": "required",
+        }
+
+        mock_client = MockDaprClient(runtime_config=runtime_config)
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = self._make_agent(mock_llm, tools=[mock_tool])
+
+        assert agent.execution.max_iterations == 11
+        assert agent.execution.tool_choice == ToolChoice.REQUIRED
 
     @pytest.mark.parametrize(
         ("tool_choice"),
