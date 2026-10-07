@@ -245,10 +245,17 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
 
         assert resolved_config.enabled is False
 
-    def test_observability_config_from_instantiation_ignores_empty_strings(
+    @pytest.mark.parametrize(
+        ("auth_token", "endpoint", "service_name"),
+        [
+            ("", "", ""),
+            (" \t\r\n", " \t\r\n", " \t\r\n"),
+        ],
+    )
+    def test_observability_config_from_instantiation_ignores_empty_and_whitespace_only_strings(
         self, mock_llm
     ):
-        """Test that observability config treats empty strings as unset."""
+        """Test that observability config treats empty and whitespace-only strings as unset."""
         obs_config = AgentObservabilityConfig(
             auth_token="",
             endpoint="",
