@@ -17,6 +17,7 @@ from dapr_agents.agents.executors.claude_transcript import (
     DeferredCall,
     final_assistant_text,
     last_total_cost,
+    last_user_prompt,
     pending_deferred_call,
 )
 
@@ -107,6 +108,75 @@ class TestFinalAssistantText:
     def test_none_without_text(self):
         assert final_assistant_text([_assistant("m1", tool_use=True)]) is None
         assert final_assistant_text([]) is None
+
+
+class TestLastUserPrompt:
+    def test_string_and_text_block_prompts(self):
+        assert last_user_prompt([{"type": "user", "message": {"content": "q"}}]) == "q"
+        entries = [
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "a "},
+                        {"type": "text", "text": "b"},
+                    ]
+                },
+            }
+        ]
+        assert last_user_prompt(entries) == "a b"
+
+    def test_skips_tool_results_and_meta_entries(self):
+        entries = [
+            {"type": "user", "message": {"content": "task"}},
+            _assistant("m1", tool_use=True),
+            _tool_result("t1"),
+            {"type": "user", "isMeta": True, "message": {"content": "caveat"}},
+            _assistant("m2", "done"),
+        ]
+        assert last_user_prompt(entries) == "task"
+
+    def test_skips_sidechain_and_interrupt_entries(self):
+        entries = [
+            {"type": "user", "message": {"content": "task"}},
+            {"type": "user", "isSidechain": True, "message": {"content": "sub"}},
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "[Request interrupted by user]"}
+                    ]
+                },
+            },
+        ]
+        assert last_user_prompt(entries) == "task"
+
+    def test_skips_text_beside_a_tool_result(self):
+        entries = [
+            {"type": "user", "message": {"content": "task"}},
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "t1"},
+                        {"type": "text", "text": "note"},
+                    ]
+                },
+            },
+        ]
+        assert last_user_prompt(entries) == "task"
+
+    def test_latest_prompt_wins(self):
+        entries = [
+            {"type": "user", "message": {"content": "first"}},
+            _assistant("m1", "ok"),
+            {"type": "user", "message": {"content": "second"}},
+        ]
+        assert last_user_prompt(entries) == "second"
+
+    def test_none_without_a_prompt(self):
+        assert last_user_prompt([]) is None
+        assert last_user_prompt([_tool_result("t1"), {"type": "user"}]) is None
 
 
 class TestLastTotalCost:

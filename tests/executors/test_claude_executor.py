@@ -13,8 +13,10 @@
 
 """Tests for ``ClaudeAgentExecutor`` against a scripted SDK client (no network)."""
 
+import json
 import os
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -480,6 +482,261 @@ class TestResume:
         events = await _collect(executor, session_id=SESSION_ID)
         assert [e.type for e in events] == ["error"]
         assert "state store down" in events[0].content
+
+
+def _write_local_transcript(
+    config_dir, executor, *entries, junk=False, truncated="", folder_name=None
+):
+    """Write a CLI transcript where the CLI keeps it under ``config_dir``."""
+    folder = config_dir / "projects" / (folder_name or executor.project_key)
+    folder.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(entry) for entry in entries]
+    if junk:
+        lines.insert(0, "{not json")
+    text = "\n".join(lines) + "\n" + truncated
+    (folder / f"{SESSION_ID}.jsonl").write_text(text)
+
+
+def _user_prompt(text, uuid_="u1"):
+    return {"type": "user", "uuid": uuid_, "message": {"role": "user", "content": text}}
+
+
+def _assistant_text(text, message_id="m1"):
+    return {
+        "type": "assistant",
+        "uuid": f"a-{message_id}",
+        "message": {"id": message_id, "content": [{"type": "text", "text": text}]},
+    }
+
+
+class TestLocalTranscriptFallback:
+    """A retried run whose earlier attempt never reached the session store."""
+
+    async def test_store_without_entries_resumes_local_transcript(self, cwd, tmp_path):
+        home = tmp_path / "cli-home"
+        executor = _executor(
+            cwd, session_store=InMemorySessionStore(), env={"HOME": str(home)}
+        )
+        _write_local_transcript(
+            home / ".claude",
+            executor,
+            _user_prompt("task"),
+            _assistant_text("Done."),
+            {"type": "cost-state", "totalCostUSD": 0.004},
+        )
+        FakeClaudeClient.reset([result_message(total_cost_usd=0.01)])
+
+        events = await _collect(executor, "next", session_id=SESSION_ID)
+
+        client = FakeClaudeClient.last()
+        assert client.options.resume == SESSION_ID
+        assert client.options.session_id is None
+        assert client.prompts == ["next"]
+        assert events[-1].metadata["cost_usd"] == pytest.approx(0.006)
+
+    async def test_claude_config_dir_wins_over_home(self, cwd, tmp_path):
+        config_dir = tmp_path / "claude-config"
+        executor = _executor(
+            cwd,
+            session_store=InMemorySessionStore(),
+            env={
+                "HOME": str(tmp_path / "unused-home"),
+                "CLAUDE_CONFIG_DIR": str(config_dir),
+            },
+        )
+        _write_local_transcript(config_dir, executor, _user_prompt("task"))
+        FakeClaudeClient.reset([result_message()])
+
+        await _collect(executor, "next", session_id=SESSION_ID)
+
+        assert FakeClaudeClient.last().options.resume == SESSION_ID
+
+    async def test_unfinished_turn_for_same_prompt_is_continued(self, cwd, tmp_path):
+        # The earlier attempt crashed mid-turn: sending the task again would
+        # make the model see it twice, so the turn is continued instead.
+        home = tmp_path / "cli-home"
+        executor = _executor(
+            cwd, session_store=InMemorySessionStore(), env={"HOME": str(home)}
+        )
+        _write_local_transcript(
+            home / ".claude",
+            executor,
+            _user_prompt("task"),
+            {
+                "type": "assistant",
+                "uuid": "a1",
+                "message": {
+                    "id": "m1",
+                    "content": [{"type": "tool_use", "id": "t1", "name": "Bash"}],
+                },
+            },
+            {
+                "type": "user",
+                "uuid": "u2",
+                "message": {"content": [{"type": "tool_result", "tool_use_id": "t1"}]},
+            },
+            junk=True,
+        )
+        FakeClaudeClient.reset([result_message(result="Done")])
+
+        events = await _collect(executor, "task", session_id=SESSION_ID)
+
+        client = FakeClaudeClient.last()
+        assert client.options.resume == SESSION_ID
+        assert client.prompts == [CONTINUE_PROMPT]
+        assert events[-1].type == "complete"
+
+    async def test_finished_turn_for_same_prompt_sends_it_again(self, cwd, tmp_path):
+        # A finished turn may be a caller repeating itself; it gets an answer.
+        home = tmp_path / "cli-home"
+        executor = _executor(
+            cwd, session_store=InMemorySessionStore(), env={"HOME": str(home)}
+        )
+        _write_local_transcript(
+            home / ".claude", executor, _user_prompt("yes"), _assistant_text("Ok.")
+        )
+        FakeClaudeClient.reset([result_message()])
+
+        await _collect(executor, "yes", session_id=SESSION_ID)
+
+        assert FakeClaudeClient.last().prompts == ["yes"]
+
+    async def test_unfinished_turn_in_store_is_continued(self, cwd):
+        store = InMemorySessionStore()
+        executor = _executor(cwd, session_store=store)
+        await _seed(store, executor, _user_prompt("task"))
+        FakeClaudeClient.reset([result_message()])
+
+        await _collect(executor, "task", session_id=SESSION_ID)
+
+        client = FakeClaudeClient.last()
+        assert client.options.resume == SESSION_ID
+        assert client.prompts == [CONTINUE_PROMPT]
+
+    async def test_pending_deferred_call_wins_over_continue(self, cwd):
+        store = InMemorySessionStore()
+        executor = _executor(cwd, session_store=store, tools=[transfer])
+        await _seed(store, executor, _user_prompt("task"), _deferred_entry())
+        FakeClaudeClient.reset([result_message()])
+        FakeClaudeClient.responses = [[result_message(result="denied")]]
+
+        await _collect(executor, "task", session_id=SESSION_ID)
+
+        assert FakeClaudeClient.last().prompts == ["task"]
+
+    async def test_unreadable_local_transcript_still_resumes(
+        self, cwd, tmp_path, monkeypatch
+    ):
+        home = tmp_path / "cli-home"
+        executor = _executor(
+            cwd, session_store=InMemorySessionStore(), env={"HOME": str(home)}
+        )
+        _write_local_transcript(home / ".claude", executor, _user_prompt("task"))
+        real_read_text = Path.read_text
+
+        def deny(path, *args, **kwargs):
+            if path.suffix == ".jsonl":
+                raise PermissionError("denied")
+            return real_read_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", deny)
+        FakeClaudeClient.reset([result_message()])
+
+        await _collect(executor, "task", session_id=SESSION_ID)
+
+        client = FakeClaudeClient.last()
+        assert client.options.resume == SESSION_ID
+        assert client.prompts == ["task"]
+
+    async def test_claude_config_dir_from_process_env(self, cwd, tmp_path, monkeypatch):
+        config_dir = tmp_path / "process-config"
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+        executor = _executor(cwd, session_store=InMemorySessionStore())
+        _write_local_transcript(config_dir, executor, _user_prompt("task"))
+        FakeClaudeClient.reset([result_message()])
+
+        await _collect(executor, "next", session_id=SESSION_ID)
+
+        assert FakeClaudeClient.last().options.resume == SESSION_ID
+
+    async def test_truncated_last_line_and_padded_prompt_are_continued(
+        self, cwd, tmp_path
+    ):
+        home = tmp_path / "cli-home"
+        executor = _executor(
+            cwd, session_store=InMemorySessionStore(), env={"HOME": str(home)}
+        )
+        _write_local_transcript(
+            home / ".claude",
+            executor,
+            _user_prompt("task\n"),
+            truncated='{"type": "assistant", "mess',
+        )
+        FakeClaudeClient.reset([result_message()])
+
+        await _collect(executor, "  task", session_id=SESSION_ID)
+
+        assert FakeClaudeClient.last().prompts == [CONTINUE_PROMPT]
+
+    async def test_long_project_key_matches_on_prefix(self, cwd, tmp_path, monkeypatch):
+        # Past the length limit the CLI's hash suffix differs from the SDK's.
+        monkeypatch.setattr(claude_module, "_MAX_PROJECT_KEY_LENGTH", 8)
+        home = tmp_path / "cli-home"
+        executor = _executor(
+            cwd, session_store=InMemorySessionStore(), env={"HOME": str(home)}
+        )
+        _write_local_transcript(
+            home / ".claude",
+            executor,
+            _user_prompt("task"),
+            folder_name=f"{executor.project_key[:8]}-clihash",
+        )
+        FakeClaudeClient.reset([result_message()])
+
+        await _collect(executor, "next", session_id=SESSION_ID)
+
+        assert FakeClaudeClient.last().options.resume == SESSION_ID
+
+    async def test_store_entries_take_precedence(self, cwd, tmp_path):
+        home = tmp_path / "cli-home"
+        store = InMemorySessionStore()
+        executor = _executor(cwd, session_store=store, env={"HOME": str(home)})
+        await _seed(store, executor, _user_prompt("task"), _assistant_text("Hi"))
+        _write_local_transcript(home / ".claude", executor, _user_prompt("task"))
+        FakeClaudeClient.reset([result_message()])
+
+        await _collect(executor, "task", session_id=SESSION_ID)
+
+        assert FakeClaudeClient.last().prompts == ["task"]
+
+    async def test_no_transcript_anywhere_starts_new_session(self, cwd, tmp_path):
+        executor = _executor(
+            cwd,
+            session_store=InMemorySessionStore(),
+            env={"HOME": str(tmp_path / "cli-home")},
+        )
+        FakeClaudeClient.reset([result_message()])
+
+        await _collect(executor, "task", session_id=SESSION_ID)
+
+        client = FakeClaudeClient.last()
+        assert client.options.resume is None
+        assert client.options.session_id == SESSION_ID
+
+    async def test_without_store_finds_transcript_under_cli_home(
+        self, cwd, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            claude_module, "get_session_info", lambda sid, directory: None
+        )
+        home = tmp_path / "cli-home"
+        executor = _executor(cwd, env={"HOME": str(home)})
+        _write_local_transcript(home / ".claude", executor, _user_prompt("task"))
+        FakeClaudeClient.reset([result_message()])
+
+        await _collect(executor, "next", session_id=SESSION_ID)
+
+        assert FakeClaudeClient.last().options.resume == SESSION_ID
 
 
 class TestErrors:
