@@ -459,6 +459,29 @@ class TestMCPToolExecutor:
         )
         assert call_kwargs["input"] == {"arguments": {"a": 1, "b": 2}}
 
+    def test_call_tool_omits_unset_optional_args(self):
+        """Optional args the LLM left out must not be sent as null, since MCP
+        servers reject null for a typed field."""
+        publish_def = {
+            "name": "publish_event",
+            "description": "Publish an event.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "contentType": {"type": "string"},
+                },
+                "required": ["topic"],
+            },
+        }
+        publish = _make_mcp_tools("dapr-server", [publish_def])[0]
+
+        ctx = MagicMock()
+        publish(ctx=ctx, topic="orders")
+
+        call_kwargs = ctx.call_child_workflow.call_args.kwargs
+        assert call_kwargs["input"] == {"arguments": {"topic": "orders"}}
+
 
 class TestRunToolFailureScenarios:
     """run_tool activity error handling for non-MCP tools."""

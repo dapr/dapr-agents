@@ -92,7 +92,7 @@ class WorkflowContextInjectedTool(AgentTool):
                 from pydantic import ValidationError
 
                 try:
-                    coerced = self.args_model(**kwargs).model_dump()
+                    coerced = self.args_model(**kwargs).model_dump(exclude_none=True)
                 except ValidationError as ve:
                     raise ToolError(
                         f"Validation error in tool '{self.name}': {ve}"
