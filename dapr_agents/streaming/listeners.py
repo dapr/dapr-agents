@@ -32,6 +32,7 @@ import queue
 import threading
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Protocol
 
+import httpx
 from dapr.aio.clients import DaprClient as AsyncDaprClient
 
 from dapr_agents.types.streaming import AgentStreamChunk
@@ -471,15 +472,6 @@ class WebhookListener:
     # -- internal ----------------------------------------------------------
 
     def _run(self) -> None:
-        # httpx is a runtime dependency; the import stays lazy so a broken
-        # install logs from the worker thread instead of failing module import.
-        try:
-            import httpx
-        except ImportError as exc:  # pragma: no cover - broken install
-            logger.error(
-                "WebhookListener cannot import httpx (broken install?): %s", exc
-            )
-            return
         client = httpx.Client(timeout=self._timeout, headers=self._headers)
         try:
             while True:
