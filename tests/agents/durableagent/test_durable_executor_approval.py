@@ -129,13 +129,18 @@ class _WorkflowDriver:
         self.outcome = outcome
         self.activities: List[Dict[str, Any]] = []
         self.event_task = Mock(name="event_task")
-        self.event_task.get_result.return_value = {
-            "approval_request_id": "x",
-            "approved": outcome == "approve",
-            "reason": "not today" if outcome == "deny" else None,
-        }
+        self.event_task.get_result.side_effect = self._approval_body
         self.timer_task = Mock(name="timer_task")
         self.ctx = self._context()
+
+    def _approval_body(self) -> Dict[str, Any]:
+        # Answer the request that was just published: a response whose id does
+        # not match the pending request is ignored.
+        return {
+            "approval_request_id": self.published()[-1]["approval_request_id"],
+            "approved": self.outcome == "approve",
+            "reason": "not today" if self.outcome == "deny" else None,
+        }
 
     def _context(self):
         ctx = Mock()
