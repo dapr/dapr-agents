@@ -482,6 +482,31 @@ class TestMCPToolExecutor:
         call_kwargs = ctx.call_child_workflow.call_args.kwargs
         assert call_kwargs["input"] == {"arguments": {"topic": "orders"}}
 
+    def test_call_tool_drops_explicit_null_for_known_optional_arg(self):
+        """An explicit null for a schema field is dropped, not passed through
+        as an 'extra' kwarg."""
+        publish_def = {
+            "name": "publish_event",
+            "description": "Publish an event.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "contentType": {"type": "string"},
+                },
+                "required": ["topic"],
+            },
+        }
+        publish = _make_mcp_tools("dapr-server", [publish_def])[0]
+
+        ctx = MagicMock()
+        publish(ctx=ctx, topic="orders", contentType=None, unmodeled="x")
+
+        call_kwargs = ctx.call_child_workflow.call_args.kwargs
+        assert call_kwargs["input"] == {
+            "arguments": {"topic": "orders", "unmodeled": "x"}
+        }
+
 
 class TestRunToolFailureScenarios:
     """run_tool activity error handling for non-MCP tools."""

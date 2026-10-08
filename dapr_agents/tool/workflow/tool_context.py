@@ -100,7 +100,11 @@ class WorkflowContextInjectedTool(AgentTool):
                 # Use Pydantic-coerced values for known schema fields; pass
                 # through any extra kwargs unchanged (MCP tools may accept
                 # fields the local schema doesn't model).
-                extras = {k: v for k, v in kwargs.items() if k not in coerced}
+                known = set(self.args_model.model_fields)
+                known.update(
+                    f.alias for f in self.args_model.model_fields.values() if f.alias
+                )
+                extras = {k: v for k, v in kwargs.items() if k not in known}
                 validated = {**coerced, **extras}
 
         validated[self.context_kwarg] = ctx
