@@ -38,7 +38,7 @@ from dapr_agents.agents.executors import (
 from dapr_agents.agents.schemas import AgentWorkflowEntry
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
-from dapr_agents.types import AgentError
+from dapr_agents.types import AgentError, WorkflowStateConflictError
 from dapr_agents.types.tools import ToolExecutionStatus
 
 
@@ -298,6 +298,42 @@ class TestConsumeExecutor:
 
         # At least two save_state calls: one on `session`, one terminal.
         assert save_state.call_count >= 2
+
+    def test_session_save_conflict_skips_final_flush(self):
+        """A conflicting checkpoint must not be followed by a blind final save."""
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(type="session", content={}, session_id="s"),
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "done"},
+                    session_id="s",
+                ),
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        with (
+            patch.object(
+                agent,
+                "save_state",
+                side_effect=WorkflowStateConflictError("conflict"),
+            ) as save_state,
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+            pytest.raises(WorkflowStateConflictError),
+        ):
+            asyncio.run(
+                agent._consume_executor(
+                    {
+                        "task": "hi",
+                        "instance_id": "inst-1",
+                        "session_id": "s",
+                    }
+                )
+            )
+
+        assert save_state.call_count == 1
 
     def test_tool_call_and_result_update_history(self):
         executor = _ScriptedExecutor(

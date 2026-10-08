@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import copy
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Generator, Optional, Tuple
 from unittest.mock import Mock, patch
@@ -21,6 +22,8 @@ import pytest
 
 from dapr_agents.agents.components import DaprInfra, _ETAG_CACHE_MAXSIZE
 from dapr_agents.agents.configs import AgentStateConfig
+from dapr_agents.agents.schemas import AgentWorkflowMessage
+from dapr_agents.types.exceptions import WorkflowStateConflictError
 
 
 def _load_with_etag(
@@ -132,3 +135,96 @@ def test_sync_system_messages_calls_get_state_once_when_entry_omitted(
         infra.sync_system_messages("no-entry", [], entry=None)
 
     assert spied_get_state.call_count == 1
+
+
+class _EtagEnforcingStore:
+    """Minimal in-memory state store with Dapr first-write-wins ETag semantics.
+
+    A save whose ``etag`` does not match the stored etag raises, like a real
+    Dapr state store does on an optimistic-concurrency conflict.
+    """
+
+    store_name = "state"
+
+    def __init__(self) -> None:
+        self._values: Dict[str, Dict[str, Any]] = {}
+        self._etags: Dict[str, str] = {}
+        self._version = 0
+
+    def load_with_etag(
+        self, *, key: str, default: Optional[Dict[str, Any]] = None, **_: Any
+    ) -> Tuple[Dict[str, Any], Optional[str]]:
+        if key not in self._values:
+            return copy.deepcopy(default if isinstance(default, dict) else {}), None
+        return copy.deepcopy(self._values[key]), self._etags[key]
+
+    def save(
+        self, *, key: str, value: Dict[str, Any], etag: Optional[str] = None, **_: Any
+    ) -> None:
+        current = self._etags.get(key)
+        if current is not None and etag != current:
+            raise RuntimeError(f"etag mismatch for {key}: {etag} != {current}")
+        self._version += 1
+        self._values[key] = copy.deepcopy(value)
+        self._etags[key] = str(self._version)
+
+
+def test_save_state_conflict_retry_does_not_overwrite_concurrent_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An ETag conflict in save_state must not silently discard the other write.
+
+    Two writers read the same workflow entry. Writer B saves first, so writer
+    A's entry is stale and its save is rejected. save_state used to refresh
+    only the etag and re-send A's stale snapshot, which wiped out B's message.
+    It must instead surface the conflict and leave B's write in place.
+    """
+    monkeypatch.setattr("dapr_agents.agents.components.time.sleep", lambda _: None)
+    store = _EtagEnforcingStore()
+    writer_a = DaprInfra(name="tester", state=AgentStateConfig(store=store))
+    writer_b = DaprInfra(name="tester", state=AgentStateConfig(store=store))
+    instance_id = "wf-1"
+    writer_a.save_state(instance_id, entry=writer_a.get_state(instance_id))
+
+    entry_a = writer_a.get_state(instance_id)
+    entry_b = writer_b.get_state(instance_id)
+
+    entry_b.messages.append(AgentWorkflowMessage(role="user", content="from B"))
+    writer_b.save_state(instance_id, entry=entry_b)
+
+    entry_a.messages.append(AgentWorkflowMessage(role="assistant", content="from A"))
+    with pytest.raises(WorkflowStateConflictError):
+        writer_a.save_state(instance_id, entry=entry_a)
+
+    persisted = [m.content for m in writer_a.get_state(instance_id).messages]
+    assert persisted == ["from B"], f"concurrent write was lost: {persisted}"
+
+
+def test_save_state_retries_transient_failure_with_read_etag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed save that is not a conflict is retried with the same etag."""
+    monkeypatch.setattr("dapr_agents.agents.components.time.sleep", lambda _: None)
+    store = _EtagEnforcingStore()
+    infra = DaprInfra(name="tester", state=AgentStateConfig(store=store))
+    instance_id = "wf-1"
+    infra.save_state(instance_id, entry=infra.get_state(instance_id))
+
+    entry = infra.get_state(instance_id)
+    entry.messages.append(AgentWorkflowMessage(role="user", content="hello"))
+
+    real_save = store.save
+    calls = {"n": 0}
+
+    def flaky_save(**kwargs: Any) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient store error")
+        real_save(**kwargs)
+
+    monkeypatch.setattr(store, "save", flaky_save)
+    infra.save_state(instance_id, entry=entry)
+
+    assert calls["n"] == 2
+    persisted = [m.content for m in infra.get_state(instance_id).messages]
+    assert persisted == ["hello"]
