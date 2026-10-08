@@ -227,6 +227,31 @@ def orchestration_workflow_id(
     return f"dapr.{sanitized_framework}.{sanitized_agent_name}.orchestration"
 
 
+def child_workflow_instance_id(
+    parent_instance_id: str,
+    dispatch_time: str,
+    *parts: Any,
+) -> str:
+    """Return a replay-stable instance ID for a child workflow.
+
+    Workflow code is replayed from history, so an ID generated with
+    ``uuid4()`` changes on every replay. The ID is a ``uuid5`` of the parent
+    instance ID, the orchestration time at dispatch, and the caller's position
+    in the workflow (e.g. turn and tool-call index), all of which are identical
+    on replay.
+
+    Args:
+        parent_instance_id: Instance ID of the workflow scheduling the child.
+        dispatch_time: ``ctx.current_utc_datetime`` at dispatch, ISO-formatted.
+        *parts: Values that identify the call site uniquely within the parent.
+
+    Returns:
+        The child workflow instance ID as a UUID string.
+    """
+    seed = ":".join(str(p) for p in (parent_instance_id, dispatch_time, *parts))
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
+
+
 # Registry of built-in tool factories, keyed by the name users list in
 # ``AgentExecutionConfig.builtin_tools``. Each factory receives the agent and
 # returns a ready tool. The indirection is required because built-ins late-bind
@@ -759,6 +784,9 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         activity_meta: List[Dict[str, Any]] = []
                         generator_tools: List[Any] = []
                         generator_meta: List[Dict[str, Any]] = []
+                        # Calls answered inline without dispatch (ask_user with
+                        # no stream), kept for tool_history metadata.
+                        inline_meta: List[Dict[str, Any]] = []
 
                         for idx, tc in enumerate(tool_calls):
                             fn_name = tc["function"]["name"]
@@ -835,6 +863,13 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     name=fn_name,
                                     tool_call_id=tc["id"],
                                 ).model_dump()
+                                inline_meta.append(
+                                    {
+                                        "order": idx,
+                                        "tool_call": tc,
+                                        "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                    }
+                                )
                                 logger.info(
                                     "Skipping ask_user for '%s': session has no stream "
                                     "channel (instance=%s)",
@@ -864,7 +899,16 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     **args,
                                 }
                                 if isinstance(tool_obj, AgentWorkflowTool):
-                                    child_instance_id = str(uuid.uuid4())
+                                    # tool_call_id may be "" or repeated, so
+                                    # the turn and index keep the ID unique.
+                                    child_instance_id = child_workflow_instance_id(
+                                        ctx.instance_id,
+                                        ctx.current_utc_datetime.isoformat(),
+                                        "tool",
+                                        turn,
+                                        idx,
+                                        tc.get("id", ""),
+                                    )
                                     call_kwargs["_child_instance_id"] = (
                                         child_instance_id
                                     )
@@ -1046,38 +1090,34 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                             ).model_dump()
 
                         tool_results = [tr for tr in ordered if tr is not None]
-                        tool_calls_by_id = {
-                            meta["tool_call"]["id"]: {
+                        # Positional map: tool_call_id can be "" or repeated, so
+                        # save_tool_results matches results to their dispatch
+                        # metadata by position instead.
+                        meta_by_order: List[Optional[Dict[str, Any]]] = [None] * len(
+                            tool_calls
+                        )
+                        for meta in workflow_meta:
+                            meta_by_order[meta["order"]] = {
                                 "tool_call": meta["tool_call"],
                                 "is_agent_call": True,
                                 "child_instance_id": meta.get("child_instance_id"),
                                 "dispatch_time": meta.get("dispatch_time"),
                             }
-                            for meta in workflow_meta
+                        for meta in activity_meta + generator_meta + inline_meta:
+                            meta_by_order[meta["order"]] = {
+                                "tool_call": meta["tool_call"],
+                                "is_agent_call": False,
+                                "dispatch_time": meta.get("dispatch_time"),
+                            }
+                        # Id-keyed view kept for payloads read by older code; on
+                        # shared ids the later of workflow, activity, generator wins.
+                        tool_calls_by_id: Dict[str, Any] = {
+                            meta["tool_call"]["id"]: meta_by_order[meta["order"]]
+                            for meta in workflow_meta + activity_meta + generator_meta
                         }
-                        tool_calls_by_id.update(
-                            {
-                                meta["tool_call"]["id"]: {
-                                    "tool_call": meta["tool_call"],
-                                    "is_agent_call": False,
-                                    "dispatch_time": meta.get("dispatch_time"),
-                                }
-                                for meta in activity_meta
-                            }
-                        )
-                        tool_calls_by_id.update(
-                            {
-                                meta["tool_call"]["id"]: {
-                                    "tool_call": meta["tool_call"],
-                                    "is_agent_call": False,
-                                    "dispatch_time": meta.get("dispatch_time"),
-                                }
-                                for meta in generator_meta
-                            }
-                        )
                         # include hook-blocked/skipped tool calls so save_tool_results
                         # can record them in tool_history for observability
-                        for tc in tool_calls:
+                        for idx, tc in enumerate(tool_calls):
                             decision_for_tracking = hook_decisions.get(tc["id"])
                             if isinstance(decision_for_tracking, (Deny, Skip)):
                                 hook_label = (
@@ -1085,18 +1125,26 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     if isinstance(decision_for_tracking, Deny)
                                     else "skipped"
                                 )
-                                tool_calls_by_id[tc["id"]] = {
+                                blocked_entry = {
                                     "tool_call": tc,
                                     "is_agent_call": False,
                                     "dispatch_time": ctx.current_utc_datetime.isoformat(),
                                     "hook_decision": hook_label,
                                 }
+                                tool_calls_by_id[tc["id"]] = blocked_entry
+                                meta_by_order[idx] = blocked_entry
+                        tool_call_meta = [
+                            meta_by_order[i] or {}
+                            for i, tr in enumerate(ordered)
+                            if tr is not None
+                        ]
                         yield ctx.call_activity(
                             self._activity_name(self.save_tool_results),
                             input={
                                 "tool_results": tool_results,
                                 "instance_id": ctx.instance_id,
                                 "tool_calls_by_id": tool_calls_by_id,
+                                "tool_call_meta": tool_call_meta,
                             },
                             retry_policy=self._retry_policy,
                         )
@@ -1542,8 +1590,10 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
 
             framework = agent_meta.get("framework")
 
-            child_instance_id = str(uuid.uuid4())
             dispatch_time = ctx.current_utc_datetime.isoformat()
+            child_instance_id = child_workflow_instance_id(
+                ctx.instance_id, dispatch_time, "orchestration", turn
+            )
             agent_workflow_name = (
                 agent_meta.get("metadata", {}).get("workflow_name")
                 if isinstance(agent_meta.get("metadata"), dict)
@@ -3079,6 +3129,10 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 - ``tool_calls_by_id`` (dict): tool_call_id → dispatch metadata
                   (``tool_call``, ``is_agent_call``, ``child_instance_id``,
                   ``dispatch_time``)
+                - ``tool_call_meta`` (list[dict], optional): the same metadata,
+                  one entry per ``tool_results`` item. Preferred over
+                  ``tool_calls_by_id`` because tool_call_id can be empty or
+                  repeated.
                 - ``skip_messages`` (bool, default ``False``): when ``True``,
                   skip appending to ``entry.messages`` (orchestration workflow
                   path — see above)
@@ -3087,6 +3141,12 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         tool_results_raw: List[Dict[str, Any]] = payload.get("tool_results", [])
         tool_results: List[ToolMessage] = [ToolMessage(**tr) for tr in tool_results_raw]
         tool_calls_by_id: Dict[str, Any] = payload.get("tool_calls_by_id", {})
+        tool_call_meta = payload.get("tool_call_meta")
+        if not isinstance(tool_call_meta, list) or len(tool_call_meta) != len(
+            tool_results
+        ):
+            # Payloads scheduled before tool_call_meta existed.
+            tool_call_meta = None
         # When True, results go to tool_history only — not entry.messages.
         # See docstring for the full rationale.
         skip_messages: bool = payload.get("skip_messages", False)
@@ -3155,7 +3215,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 last_message_is_assistant_with_tool_calls = True
 
         # Process each tool result
-        for tool_result in tool_results:
+        for position, tool_result in enumerate(tool_results):
             tool_call_id = tool_result.tool_call_id
 
             if tool_call_id in existing_tool_ids:
@@ -3189,7 +3249,11 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             # Always record in tool_history regardless of skip_messages so that
             # every agent dispatch (including orchestrator ones) is observable.
             if entry is not None and hasattr(entry, "tool_history"):
-                tc_info = tool_calls_by_id.get(tool_call_id, {})
+                tc_info = (
+                    tool_call_meta[position]
+                    if tool_call_meta is not None
+                    else tool_calls_by_id.get(tool_call_id, {})
+                )
                 tc = tc_info.get("tool_call", {})
                 fn = tc.get("function", {})
                 raw_args = fn.get("arguments", "")
