@@ -29,10 +29,10 @@ jobs:
     timeout-minutes: 30
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.11"
 
@@ -46,7 +46,7 @@ jobs:
 
     - name: Cache Ollama model
       id: cache-ollama
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ~/.ollama
         key: ollama-qwen3-0.6b-${{ runner.os }}

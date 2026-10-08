@@ -16,12 +16,15 @@
 # In future, we should do dependency injection instead of patching at the class-level to make it easier to test.
 # This applies to all areas in this file where we have with patch.object()...
 from datetime import timedelta
+import ast
+import importlib.metadata
 import os
+from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 import pytest
-from dapr.ext.workflow import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext, WorkflowActivityContext
 
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.configs import (
@@ -30,6 +33,7 @@ from dapr_agents.agents.configs import (
     AgentRegistryConfig,
     AgentMemoryConfig,
     AgentExecutionConfig,
+    BuiltinTool,
     WorkflowRetryPolicy,
 )
 from dapr_agents.agents.schemas import (
@@ -41,6 +45,7 @@ from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.types import AgentError, DaprWorkflowStatus
+from tests.fake_state_store import FakeEtagStateStore
 
 
 def _activity_method_name(activity: object) -> str:
@@ -1649,11 +1654,7 @@ class TestCallLlmRequestShape:
 
     @pytest.fixture
     def agent_with_tool(self, mock_llm):
-        tool = Mock(spec=AgentTool)
-        tool.name = "test_tool"
-        tool.description = "A test tool"
-        tool.run = AsyncMock(return_value="result")
-        tool._is_async = True
+        tool = self._make_tool()
         return DurableAgent(
             name="ShapeAgent",
             role="Test",
@@ -1679,10 +1680,31 @@ class TestCallLlmRequestShape:
             execution=AgentExecutionConfig(max_iterations=5),
         )
 
+    def _make_tool(self, name="test_tool"):
+        tool = Mock(spec=AgentTool)
+        tool.name = name
+        tool.description = "A test tool"
+        tool.run = AsyncMock(return_value="result")
+        tool._is_async = True
+        return tool
+
+    def _make_agent(self, mock_llm, *, execution, tools=None):
+        return DurableAgent(
+            name="LateToolChoiceAgent",
+            role="Test",
+            goal="Test",
+            instructions=["x"],
+            llm=mock_llm,
+            tools=tools,
+            execution=execution,
+        )
+
     def _stub_call_llm_helpers(self, agent, messages):
         """Patch internal helpers so call_llm runs with controlled messages."""
         agent._infra = Mock()
-        agent._infra.get_state = Mock(return_value=Mock(messages=[]))
+        agent._infra.get_state = Mock(
+            return_value=Mock(messages=[], stream_context=None)
+        )
         agent._reconstruct_conversation_history = Mock(return_value=[])
         agent.prompting_helper = Mock()
         agent.prompting_helper.build_initial_messages = Mock(return_value=messages)
@@ -1697,6 +1719,118 @@ class TestCallLlmRequestShape:
         ctx = Mock(spec=DaprWorkflowContext)
         ctx.instance_id = "wf-shape-1"
         return ctx
+
+    def _call_llm(self, agent):
+        messages = [{"role": "user", "content": "hi"}]
+        self._stub_call_llm_helpers(agent, messages)
+        agent.call_llm(
+            self._ctx(),
+            payload={"instance_id": "wf-shape-1", "task": None, "source": "direct"},
+        )
+        return agent.llm.generate.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        ("tool_choice", "expected"),
+        [
+            ("none", "none"),
+            ("required", "required"),
+            ("provider-specific", "provider-specific"),
+            ("default", None),
+            (None, None),
+        ],
+    )
+    def test_direct_registration_preserves_tool_choice(
+        self, mock_llm, tool_choice, expected
+    ):
+        execution = (
+            AgentExecutionConfig()
+            if tool_choice == "default"
+            else AgentExecutionConfig(tool_choice=tool_choice)
+        )
+        agent = self._make_agent(
+            mock_llm,
+            execution=execution,
+        )
+        agent.tool_executor.register_tool(self._make_tool())
+
+        kwargs = self._call_llm(agent)
+
+        assert kwargs["tools"]
+        if expected is None:
+            assert "tool_choice" not in kwargs
+        else:
+            assert kwargs["tool_choice"] == expected
+
+    @pytest.mark.parametrize(
+        ("tool_choice", "expected"),
+        [
+            ("none", "none"),
+            ("required", "required"),
+            ("default", None),
+            (None, None),
+        ],
+    )
+    def test_builtin_registration_preserves_tool_choice(
+        self, mock_llm, tool_choice, expected
+    ):
+        configured_choice = "auto" if tool_choice == "default" else tool_choice
+        execution = AgentExecutionConfig(
+            tool_choice=configured_choice,
+            streaming=True,
+            builtin_tools=[BuiltinTool.ASK_USER],
+        )
+        agent = self._make_agent(mock_llm, execution=execution)
+
+        kwargs = self._call_llm(agent)
+
+        assert kwargs["tools"]
+        if expected is None:
+            assert "tool_choice" not in kwargs
+        else:
+            assert kwargs["tool_choice"] == expected
+
+    def test_default_agent_choice_does_not_override_prompty_default(self, mock_llm):
+        from dapr_agents.prompt.prompty import Prompty
+
+        prompty = Prompty.load(
+            """---
+name: Tool Choice Default
+model:
+  api: chat
+  configuration:
+    type: openai
+    name: gpt-4o-mini
+  parameters:
+    tool_choice: required
+---
+user:
+hello
+"""
+        )
+        original_generate = mock_llm.generate
+        effective_params = {}
+
+        def generate_with_prompty(**kwargs):
+            effective_params.update(
+                {
+                    **prompty.model.parameters.model_dump(),
+                    **kwargs,
+                }
+            )
+            return original_generate(**kwargs)
+
+        mock_llm.prompty = prompty
+        mock_llm.generate = Mock(side_effect=generate_with_prompty)
+        agent = self._make_agent(
+            mock_llm,
+            execution=AgentExecutionConfig(),
+        )
+        agent.tool_executor.register_tool(self._make_tool())
+
+        kwargs = self._call_llm(agent)
+
+        assert "tool_choice" not in kwargs
+        assert effective_params["tool_choice"] == "required"
 
     def test_no_response_format_passes_tools_normally(self, agent_with_tool):
         messages = [{"role": "user", "content": "hi"}]
@@ -1807,3 +1941,324 @@ class TestCallLlmRequestShape:
         assert "provider='openai'" in msg
         assert "model='gpt-4o-mock'" in msg
         assert "agent='ShapeAgent'" in msg
+
+
+class TestCallLlmRedelivery:
+    """call_llm must be safe to re-execute for the same turn.
+
+    Dapr workflow activities are at-least-once: if the worker dies after
+    call_llm saved state but before its completion reached the sidecar, the
+    activity runs again with the same input. The re-run must not append the
+    user's task a second time or leave the first run's assistant tool_calls
+    orphaned, otherwise the next LLM request carries an assistant message whose
+    tool_calls have no tool replies, which providers reject.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_env(self, monkeypatch):
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        mock_client = MockDaprClient()
+        mock_client.get_state.return_value = Mock(data=None)
+        monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
+        )
+        yield
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+
+    @pytest.fixture
+    def mock_llm(self):
+        from dapr_agents.types.message import (
+            AssistantMessage,
+            LLMChatCandidate,
+            LLMChatResponse,
+        )
+
+        mock = Mock(spec=OpenAIChatClient)
+        mock.prompt_template = None
+        mock.__class__.__name__ = "MockLLMClient"
+        mock.provider = "openai"
+        mock.api = "MockOpenAIAPI"
+        mock.model = "gpt-4o-mock"
+        calls = {"n": 0}
+
+        def _generate(**kwargs):
+            calls["n"] += 1
+            return LLMChatResponse(
+                results=[
+                    LLMChatCandidate(
+                        message=AssistantMessage(
+                            content=None,
+                            tool_calls=[
+                                {
+                                    "id": f"call_{calls['n']}",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "test_tool",
+                                        "arguments": "{}",
+                                    },
+                                }
+                            ],
+                        ),
+                        finish_reason="tool_calls",
+                    )
+                ]
+            )
+
+        mock.generate = Mock(side_effect=_generate)
+        return mock
+
+    @pytest.fixture
+    def agent(self, mock_llm):
+        store = FakeEtagStateStore()
+        store.store_name = "teststatestore"
+        return DurableAgent(
+            name="RedeliveryAgent",
+            role="Test",
+            goal="Test",
+            instructions=["x"],
+            llm=mock_llm,
+            state=AgentStateConfig(store=store),
+        )
+
+    @pytest.fixture
+    def payload(self):
+        return {
+            "instance_id": "wf-redeliver-1",
+            "task": "What is the weather?",
+            "source": "direct",
+            "time": "2026-01-01T00:00:00+00:00",
+            "turn": 1,
+        }
+
+    @staticmethod
+    def _activity_ctx(task_id):
+        ctx = Mock(spec=WorkflowActivityContext)
+        ctx.workflow_id = "wf-redeliver-1"
+        ctx.task_id = task_id
+        return ctx
+
+    def test_redelivered_call_llm_returns_recorded_message(
+        self, agent, mock_llm, payload
+    ):
+        first = agent.call_llm(self._activity_ctx(3), payload=dict(payload))
+        # Same activity (same task id and input) delivered again after its
+        # completion was lost.
+        second = agent.call_llm(self._activity_ctx(3), payload=dict(payload))
+
+        assert mock_llm.generate.call_count == 1
+        assert second["id"] == first["id"]
+        assert [tc["id"] for tc in second["tool_calls"]] == ["call_1"]
+
+        entry = agent._infra.get_state("wf-redeliver-1")
+        roles = [m.role for m in entry.messages]
+        assert roles == ["user", "assistant"], (
+            "re-executed call_llm duplicated the turn: "
+            + str(
+                [
+                    m.model_dump(include={"role", "content", "tool_calls"})
+                    for m in entry.messages
+                ]
+            )
+        )
+
+    def test_new_activity_task_still_calls_llm(self, agent, mock_llm, payload):
+        agent.call_llm(self._activity_ctx(3), payload=dict(payload))
+        agent.call_llm(self._activity_ctx(7), payload=dict(payload))
+
+        assert mock_llm.generate.call_count == 2
+
+    # -- same task id, different activity input -------------------------------
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("task", "What is the forecast?"),
+            ("turn", 2),
+            ("time", "2026-01-02T00:00:00+00:00"),
+        ],
+    )
+    def test_message_id_differs_for_same_task_id_with_different_payload(
+        self, payload, field, value
+    ):
+        other = {**payload, field: value}
+
+        assert DurableAgent._call_llm_message_id(
+            self._activity_ctx(3), payload
+        ) != DurableAgent._call_llm_message_id(self._activity_ctx(3), other)
+
+    def test_message_id_ignores_payload_key_order(self, payload):
+        reordered = dict(reversed(list(payload.items())))
+
+        assert DurableAgent._call_llm_message_id(
+            self._activity_ctx(3), payload
+        ) == DurableAgent._call_llm_message_id(self._activity_ctx(3), reordered)
+
+    def test_same_task_id_with_different_payload_calls_llm_again(
+        self, agent, mock_llm, payload
+    ):
+        # e.g. the instance id was reused for a new run whose first call_llm
+        # gets the same task id as the earlier run's: the earlier run's
+        # assistant message must not be returned for the new input.
+        first = agent.call_llm(self._activity_ctx(3), payload=dict(payload))
+        second = agent.call_llm(
+            self._activity_ctx(3),
+            payload={**payload, "task": "What is the forecast?"},
+        )
+
+        assert mock_llm.generate.call_count == 2
+        assert second["id"] != first["id"]
+        assert [tc["id"] for tc in second["tool_calls"]] == ["call_2"]
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert [m.id for m in entry.messages if m.role == "assistant"] == [
+            first["id"],
+            second["id"],
+        ]
+
+    # -- missing / non-integer task id ----------------------------------------
+
+    @pytest.mark.parametrize(
+        "ctx",
+        [None, Mock(), Mock(spec=DaprWorkflowContext)],
+        ids=["none", "plain-mock", "workflow-context"],
+    )
+    def test_non_activity_context_has_no_message_id(self, payload, ctx):
+        assert DurableAgent._call_llm_message_id(ctx, payload) is None
+
+    def test_non_activity_context_falls_back_to_calling_llm(
+        self, agent, mock_llm, payload
+    ):
+        # Without an activity context there is nothing to key on, so call_llm
+        # keeps its previous behaviour and calls the LLM on every execution.
+        agent.call_llm(Mock(), payload=dict(payload))
+        agent.call_llm(Mock(), payload=dict(payload))
+
+        assert mock_llm.generate.call_count == 2
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert [m.role for m in entry.messages].count("assistant") == 2
+
+    @pytest.mark.parametrize(
+        "task_id",
+        [None, "3", 3.0, True],
+        ids=["none", "str", "float", "bool"],
+    )
+    def test_activity_context_with_non_int_task_id_fails_fast(self, payload, task_id):
+        with pytest.raises(AgentError, match="task_id to be an int"):
+            DurableAgent._call_llm_message_id(self._activity_ctx(task_id), payload)
+
+    def test_activity_context_without_task_id_fails_fast(self, payload):
+        ctx = Mock(spec=WorkflowActivityContext)
+        ctx.workflow_id = "wf-redeliver-1"
+
+        with pytest.raises(AgentError, match="got NoneType"):
+            DurableAgent._call_llm_message_id(ctx, payload)
+
+    def test_call_llm_fails_fast_before_touching_history_or_llm(
+        self, agent, mock_llm, payload
+    ):
+        with pytest.raises(AgentError, match="task_id to be an int"):
+            agent.call_llm(self._activity_ctx("3"), payload=dict(payload))
+
+        mock_llm.generate.assert_not_called()
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert entry is None or not entry.messages
+
+    # -- retries: new task id, same task_execution_id --------------------------
+
+    @staticmethod
+    def _sdk_activity_ctx(task_id, task_execution_id=""):
+        # Mirrors the SDK: WorkflowActivityContext exposes task_id directly and
+        # task_execution_id only on the inner durabletask ActivityContext.
+        # test_sdk_exposes_task_execution_id pins that shape against the
+        # installed SDK, since conftest replaces dapr with mocks.
+        ctx = Mock(spec=WorkflowActivityContext)
+        ctx.workflow_id = "wf-redeliver-1"
+        ctx.task_id = task_id
+        ctx.get_inner_context = Mock(
+            return_value=SimpleNamespace(task_execution_id=task_execution_id)
+        )
+        return ctx
+
+    def test_retry_after_committed_save_returns_recorded_message(
+        self, agent, mock_llm, payload
+    ):
+        """Regression: a retry must not repeat a turn whose state was saved.
+
+        The retry policy reschedules a failed activity under a new task_id but
+        keeps its task_execution_id. If the first attempt's save committed but
+        the call still failed (e.g. the state store client timed out after the
+        write landed), the retry must return the recorded message rather than
+        append the user turn again and call the LLM a second time.
+        """
+        commit_save = agent._infra.save_state
+
+        def save_then_time_out(instance_id, entry=None):
+            commit_save(instance_id, entry=entry)
+            raise TimeoutError("state store write timed out after committing")
+
+        with patch.object(agent._infra, "save_state", side_effect=save_then_time_out):
+            with pytest.raises(TimeoutError):
+                agent.call_llm(
+                    self._sdk_activity_ctx(3, "exec-1"), payload=dict(payload)
+                )
+
+        retried = agent.call_llm(
+            self._sdk_activity_ctx(4, "exec-1"), payload=dict(payload)
+        )
+
+        assert mock_llm.generate.call_count == 1
+        assert [tc["id"] for tc in retried["tool_calls"]] == ["call_1"]
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert [m.role for m in entry.messages] == ["user", "assistant"]
+
+    def test_message_id_is_stable_across_retries(self, payload):
+        assert DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(3, "exec-1"), payload
+        ) == DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(4, "exec-1"), payload
+        )
+
+    def test_message_id_differs_per_task_execution_id(self, payload):
+        # Two separate call_activity calls never share a task_execution_id.
+        assert DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(3, "exec-1"), payload
+        ) != DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(3, "exec-2"), payload
+        )
+
+    def test_message_id_falls_back_to_task_id_without_execution_id(
+        self, agent, mock_llm, payload
+    ):
+        # Older sidecars send an empty task_execution_id: redelivery (same
+        # task_id) is still detected, and a new task_id still calls the LLM.
+        agent.call_llm(self._sdk_activity_ctx(3), payload=dict(payload))
+        agent.call_llm(self._sdk_activity_ctx(3), payload=dict(payload))
+        assert mock_llm.generate.call_count == 1
+
+        agent.call_llm(self._sdk_activity_ctx(4), payload=dict(payload))
+        assert mock_llm.generate.call_count == 2
+
+    def test_sdk_exposes_task_execution_id(self):
+        """The installed SDK still provides what _call_llm_message_id reads.
+
+        Without this, a rename in the SDK would quietly drop call_llm back to
+        the task_id key, which does not survive retries.
+        """
+        dist = importlib.metadata.distribution("dapr-ext-workflow")
+
+        def class_members(rel_path, class_name):
+            source = dist.locate_file(rel_path).read_text()
+            for node in ast.walk(ast.parse(source)):
+                if isinstance(node, ast.ClassDef) and node.name == class_name:
+                    return {n.name for n in node.body if isinstance(n, ast.FunctionDef)}
+            raise AssertionError(f"{class_name} not found in {rel_path}")
+
+        assert "get_inner_context" in class_members(
+            "dapr/ext/workflow/workflow_activity_context.py",
+            "WorkflowActivityContext",
+        )
+        assert "task_execution_id" in class_members(
+            "dapr/ext/workflow/_durabletask/task.py", "ActivityContext"
+        )
