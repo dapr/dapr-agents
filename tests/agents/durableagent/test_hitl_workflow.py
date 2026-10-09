@@ -202,6 +202,16 @@ def _activity_input(mock_ctx, call_index):
     return kw.get("input", {})
 
 
+def _saved_call_metadata(save_input, calls, call_index):
+    """Return the hook metadata save_tool_results received for calls[call_index].
+
+    tool_calls_by_id is still keyed by tool_call_id, so when calls share an id the
+    last labelled call wins and tests must pick that call. PR #833 sends this
+    metadata as a positional list; update this one lookup when rebasing onto it.
+    """
+    return save_input["tool_calls_by_id"][calls[call_index]["id"]]
+
+
 # Section 1: _request_approval sub-generator                                  #
 
 
@@ -495,9 +505,9 @@ class TestHookWorkflowDispatch:
         results = save_input["tool_results"]
         assert "not executed" in results[0]["content"]
         assert results[1]["content"] == other_content
-        # tool_calls_by_id is still keyed by tool_call_id, so the last labelled call wins.
         tracked_idx, tracked_label = tracked
-        entry = save_input["tool_calls_by_id"][""]
+        # Last-labelled-wins until #833; see _saved_call_metadata.
+        entry = _saved_call_metadata(save_input, calls, tracked_idx)
         assert entry["tool_call"] == calls[tracked_idx]
         assert entry["hook_decision"] == tracked_label
 
