@@ -106,17 +106,18 @@ class TestApplyConfigUpdate:
         assert "***" in caplog.text
 
     def test_hyphenated_key_normalized(self, basic_agent):
-        basic_agent._apply_config_update("agent-role", "Hyphen Role")
-        assert basic_agent.profile.role == "Hyphen Role"
+        basic_agent._apply_config_update("agent-role", "role")
+        assert basic_agent.profile.role == "role"
 
-    def test_invalid_key_naming_convention_rejected(self, basic_agent, caplog):
-        """A key under an unsupported naming convention should be
-        logged as a warning and the original value preserved."""
-        original = basic_agent.execution.tool_choice
-        with caplog.at_level(logging.WARNING):
-            basic_agent._apply_config_update("TOOL-CHOICE", "auto")
-        assert "invalid config key" in caplog.text.lower()
-        assert basic_agent.execution.tool_choice == original
+    @pytest.mark.parametrize(
+        "key", ["Tool-Choice", "Tool-choice", "TOOL-CHOICE", "Tool_Choice"]
+    )
+    def test_lenient_normalization_for_existing_keys(self, basic_agent, key):
+        """Existing config keys that do not follow supported naming conventions
+        for initial runtime config resolution (SCREAMING_SNAKE_CASE, snake_case, kebab-case)
+        should still be normalized."""
+        basic_agent._apply_config_update(key, "auto")
+        assert basic_agent.execution.tool_choice == "auto"
 
     def test_invalid_type_for_valid_key_rejected(self, basic_agent, caplog):
         """Passing a non-coercible type (e.g. dict for an int key) should be

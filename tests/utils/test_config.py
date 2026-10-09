@@ -26,7 +26,7 @@ from dapr_agents.utils.config import (
     apply_config_update,
     coerce_config_value,
     get_config_value,
-    normalize_config_key,
+    _normalize_config_key,
     process_config_update,
 )
 
@@ -148,18 +148,22 @@ class TestCoerceConfigValue:
 
 
 class TestNormalizeConfigKey:
-    """Tests for normalize_config_key."""
+    """Tests for _normalize_config_key."""
 
-    def test_normalize_config_key_normalizes_supported_naming_conventions(self):
-        assert normalize_config_key("NOT_NORMALIZED") == "not_normalized"
-        assert normalize_config_key("not-normalized") == "not_normalized"
-        assert normalize_config_key("already_normalized") == "already_normalized"
-
-    def test_normalize_config_key_rejects_unsupported_naming_conventions(self):
-        with pytest.raises(ValueError):
-            normalize_config_key("NotNormalized")
-        with pytest.raises(ValueError):
-            normalize_config_key("NOT-NORMALIZED")
+    @pytest.mark.parametrize(
+        ("key", "expected"),
+        [
+            ("NOT_NORMALIZED", "not_normalized"),
+            ("not-normalized", "not_normalized"),
+            ("already_normalized", "already_normalized"),
+            ("Not-Normalized", "not_normalized"),
+            ("Not_normalized", "not_normalized"),
+            ("NOT-NORMALIZED", "not_normalized"),
+            ("Not_Normalized", "not_normalized"),
+        ],
+    )
+    def test_normalize_config_key_is_lenient(self, key, expected):
+        assert _normalize_config_key(key) == expected
 
 
 class TestGetConfigValue:

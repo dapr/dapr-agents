@@ -87,7 +87,7 @@ from dapr_agents.types import (
 from dapr_agents.utils.config import (
     ConfigFieldDescriptor,
     apply_config_update,
-    normalize_config_key,
+    _normalize_config_key,
 )
 from pydantic import ValidationError
 
@@ -933,14 +933,7 @@ class AgentBase:
         Returns:
             True if the update triggers an OTel reload, False otherwise.
         """
-        try:
-            normalized_key = normalize_config_key(key)
-        except ValueError:
-            logger.warning(
-                f"Agent {self.name} ignoring invalid config key: {key}", exc_info=True
-            )
-            return False
-
+        normalized_key = _normalize_config_key(key)
         descriptor = self._CONFIG_FIELD_MAP.get(normalized_key)
         if descriptor is None:
             logger.debug(f"Agent {self.name} ignoring unrecognized config key: {key}")
