@@ -34,6 +34,8 @@ class ConfigFieldDescriptor:
         setter: Callable ``(obj, value) -> None`` that applies the value after coercion and validation.
         getter: Optional callable ``() -> Any`` that retrieves the value before coercion.
             Defaults to ``None``.
+        pre_validator: Optional callable ``(value) -> Any`` to validate/transform the raw value before coercion.
+            Defaults to ``None`` (no pre-validation).
         validator: Optional idempotent callable ``(value) -> Any`` to validate/transform the coerced value.
             Defaults to ``None`` (no validation).
         raise_on_error: If ``True``, propagates exceptions if mapping fails.
@@ -49,6 +51,7 @@ class ConfigFieldDescriptor:
     target_type: type
     setter: Callable[..., None]
     getter: Callable[[], Any] | None = None
+    pre_validator: Callable[..., Any] | None = None
     validator: Callable[..., Any] | None = None
     raise_on_error: bool = True
     fallback: Any = None
@@ -232,6 +235,8 @@ def process_config_update(
             # Pass through unset ``None``` values
             processed_value = None
         else:
+            if descriptor.pre_validator:
+                value = descriptor.pre_validator(value)
             processed_value = coerce_config_value(value, descriptor.target_type)
     except Exception as exc:
         raise ValueError(f"Invalid value for key '{key}'") from exc

@@ -295,6 +295,20 @@ def validate_non_empty_string(v: str) -> str:
     return v.strip()
 
 
+def validate_strict_int(v: Any) -> Any:
+    """Reject values that would be truncated when coerced to an integer."""
+    if isinstance(v, bool) or isinstance(v, float):
+        raise ValueError(f"Value must be an integer, got {v!r}")
+    if isinstance(v, str):
+        stripped = v.strip()
+        if not stripped or not stripped.lstrip("+-").isdigit():
+            raise ValueError(f"Value must be an integer, got {v!r}")
+        return v
+    if not isinstance(v, int):
+        raise ValueError(f"Value must be an integer, got {v!r}")
+    return v
+
+
 def validate_positive_int(v: int) -> int:
     """Ensure an integer is greater than zero."""
     if v <= 0:
@@ -690,6 +704,7 @@ class AgentExecutionConfig:
                 getter=lambda: get_config_value(
                     os.environ, "DAPR_AGENTS_MAX_ITERATIONS"
                 ),
+                pre_validator=validate_strict_int,
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
@@ -751,6 +766,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: instantiated_config.max_iterations,
+                pre_validator=validate_strict_int,
                 validator=validate_positive_int,
             ),
             "tool_choice": ConfigFieldDescriptor(
@@ -841,6 +857,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: get_config_value(runtime_config, "max_iterations"),
+                pre_validator=validate_strict_int,
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),

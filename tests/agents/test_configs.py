@@ -13,7 +13,11 @@
 
 import pytest
 
-from dapr_agents.agents.configs import validate_max_iterations, validate_positive_int
+from dapr_agents.agents.configs import (
+    validate_max_iterations,
+    validate_positive_int,
+    validate_strict_int,
+)
 
 
 def test_validate_max_iterations_aliases_validate_positive_int():
@@ -22,3 +26,14 @@ def test_validate_max_iterations_aliases_validate_positive_int():
     assert validate_max_iterations(1) == 1
     with pytest.raises(ValueError):
         validate_max_iterations(0)
+
+
+@pytest.mark.parametrize("value", [1, -1, "1", "-1", " 10 "])
+def test_validate_strict_int_accepts_integer_values(value):
+    assert validate_strict_int(value) == value
+
+
+@pytest.mark.parametrize("value", [True, False, 10.0, 10.5, "10.0", "10.5", "abc"])
+def test_validate_strict_int_rejects_non_integer_values(value):
+    with pytest.raises(ValueError):
+        validate_strict_int(value)

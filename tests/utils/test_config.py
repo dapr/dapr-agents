@@ -232,6 +232,30 @@ class TestProcessConfigUpdate:
         assert result == 43
         assert not hasattr(target, "value")
 
+    def test_process_config_update_applies_pre_validator_before_coercion(self):
+        descriptor = ConfigFieldDescriptor(
+            target_type=int,
+            setter=lambda obj, value: setattr(obj, "value", value),
+            pre_validator=lambda value: f"{value}0",
+        )
+
+        result = process_config_update("key", descriptor, value="4")
+
+        assert result == 40
+
+    def test_process_config_update_raises_when_pre_validator_fails(self):
+        def pre_validator(_value):
+            raise ValueError("invalid raw value")
+
+        descriptor = ConfigFieldDescriptor(
+            target_type=int,
+            setter=lambda obj, value: setattr(obj, "value", value),
+            pre_validator=pre_validator,
+        )
+
+        with pytest.raises(ValueError, match="Invalid value for key"):
+            process_config_update("key", descriptor, value="4")
+
     def test_process_config_update_returns_none_without_value(self):
         descriptor = ConfigFieldDescriptor(
             target_type=int,

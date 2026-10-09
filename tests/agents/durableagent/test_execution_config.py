@@ -200,6 +200,18 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
                 "max_iterations",
             ),
             (
+                AgentExecutionConfig(max_iterations=-1),
+                "max_iterations",
+            ),
+            (
+                AgentExecutionConfig(max_iterations=10.0),
+                "max_iterations",
+            ),
+            (
+                AgentExecutionConfig(max_iterations="10.5"),
+                "max_iterations",
+            ),
+            (
                 AgentExecutionConfig(tool_execution_mode="yes"),
                 "tool_execution_mode",
             ),
@@ -217,6 +229,10 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
             ),
             (
                 AgentExecutionConfig(max_grpc_inbound_message_size_bytes=-1),
+                "max_grpc_inbound_message_size_bytes",
+            ),
+            (
+                AgentExecutionConfig(max_grpc_inbound_message_size_bytes=111.11),
                 "max_grpc_inbound_message_size_bytes",
             ),
         ],
