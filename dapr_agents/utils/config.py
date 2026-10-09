@@ -19,10 +19,36 @@ from enum import Enum
 import logging
 import json
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from types import UnionType
 from typing import Any, Callable, Mapping, Union, get_origin, get_args
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_integral(value: Any) -> int:
+    """Convert a value that represents an exact integer to an ``int``.
+
+    Accepts ints, integral floats (``10.0``), ``Decimal`` values, and numeric
+    strings (``"10"``, ``"10.0"``, ``"1e3"``). Conversion is exact: nothing is
+    rounded or truncated.
+
+    Raises:
+        ValueError: if ``value`` is a ``bool``, is not numeric, is not finite
+            (``nan``/``inf``), or has a fractional part (``10.5``).
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"Value must be an integer, got {value!r}")
+
+    try:
+        numeric = Decimal(str(value))
+    except InvalidOperation as exc:
+        raise ValueError(f"Value must be an integer, got {value!r}") from exc
+
+    if not numeric.is_finite() or numeric != numeric.to_integral_value():
+        raise ValueError(f"Value must be an integer, got {value!r}")
+
+    return int(numeric)
 
 
 @dataclass(frozen=True)
@@ -290,7 +316,7 @@ def coerce_config_value(value: Any, target_type: type) -> Any:
         return str(value)
 
     if target_type is int:
-        return int(float(value))
+        return _coerce_integral(value)
 
     if target_type is float:
         return float(value)

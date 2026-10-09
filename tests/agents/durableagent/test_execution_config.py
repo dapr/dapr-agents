@@ -193,9 +193,19 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         assert agent.execution.stream_listener is None
         assert agent.execution.builtin_tools == [BuiltinTool.ASK_USER]
 
-    @pytest.mark.parametrize("value", [3.0, "3", "3.0"])
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (3, 3),
+            ("3", 3),
+            ("3.0", 3),
+            # Large integral strings should not be rounded or truncated
+            ("9007199254740993", 9007199254740993),
+            ("9007199254740993.0", 9007199254740993),
+        ],
+    )
     def test_execution_config_from_instantiation_accepts_integral_values(
-        self, mock_llm, mock_tool, value
+        self, mock_llm, mock_tool, value, expected
     ):
         """Test that execution config accepts integral values."""
         execution_config = AgentExecutionConfig(
@@ -210,9 +220,9 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
             tools=[mock_tool],
         )
 
-        assert agent.execution.max_iterations == 3
-        assert agent.execution.max_grpc_inbound_message_size_bytes == 3
-        assert agent.execution.max_approval_rounds == 3
+        assert agent.execution.max_iterations == expected
+        assert agent.execution.max_grpc_inbound_message_size_bytes == expected
+        assert agent.execution.max_approval_rounds == expected
 
     @pytest.mark.parametrize(
         ("execution_config", "expected_match"),
@@ -405,9 +415,19 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes == 654321
 
-    @pytest.mark.parametrize("value", [3.0, "3", "3.0"])
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (3, 3),
+            ("3", 3),
+            ("3.0", 3),
+            # Large integral strings should not be rounded or truncated
+            ("9007199254740993", 9007199254740993),
+            ("9007199254740993.0", 9007199254740993),
+        ],
+    )
     def test_execution_config_from_env_accepts_integral_values(
-        self, mock_llm, mock_tool, monkeypatch, value
+        self, mock_llm, mock_tool, monkeypatch, value, expected
     ):
         """Test that execution config accepts integral values."""
         monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", str(value))
@@ -415,8 +435,8 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
 
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
-        assert agent.execution.max_iterations == 3
-        assert agent.execution.max_grpc_inbound_message_size_bytes == 3
+        assert agent.execution.max_iterations == expected
+        assert agent.execution.max_grpc_inbound_message_size_bytes == expected
 
     def test_execution_config_from_env_accepts_snake_case_keys(
         self, mock_llm, mock_tool, monkeypatch
@@ -558,9 +578,19 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    @pytest.mark.parametrize("value", [3.0, "3", "3.0"])
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (3, 3),
+            ("3", 3),
+            ("3.0", 3),
+            # Large integral strings should not be rounded or truncated
+            ("9007199254740993", 9007199254740993),
+            ("9007199254740993.0", 9007199254740993),
+        ],
+    )
     def test_execution_config_from_statestore_accepts_integral_values(
-        self, mock_llm, mock_tool, monkeypatch, value
+        self, mock_llm, mock_tool, monkeypatch, value, expected
     ):
         """Test that execution config accepts integral values."""
         runtime_config = {
@@ -572,7 +602,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
 
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
-        assert agent.execution.max_iterations == 3
+        assert agent.execution.max_iterations == expected
 
     def test_execution_config_from_statestore_accepts_snake_case_keys(
         self, mock_llm, mock_tool, monkeypatch

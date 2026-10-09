@@ -18,7 +18,6 @@ import functools
 import logging
 import os
 import re
-from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from dataclasses import dataclass, field
 from typing import (
@@ -41,6 +40,7 @@ from pydantic import BaseModel, Field
 from dapr_agents.agents.utils.headers import parse_header_string
 from dapr_agents.utils.config import (
     ConfigFieldDescriptor,
+    _coerce_integral,
     apply_config_map,
     get_config_value,
 )
@@ -296,25 +296,9 @@ def validate_non_empty_string(v: str) -> str:
     return v.strip()
 
 
-def validate_exact_int(v: Any) -> Any:
+def validate_integral(v: Any) -> Any:
     """Reject non-integral values with fractional parts."""
-    if isinstance(v, bool):
-        raise ValueError(f"Value must be an integer, got {v!r}")
-    if isinstance(v, float):
-        if not v.is_integer():
-            raise ValueError(f"Value must be an integer, got {v!r}")
-        return v
-    if isinstance(v, str):
-        stripped = v.strip()
-        try:
-            numeric = Decimal(stripped)
-        except InvalidOperation as exc:
-            raise ValueError(f"Value must be an integer, got {v!r}") from exc
-        if not numeric.is_finite() or numeric != numeric.to_integral_value():
-            raise ValueError(f"Value must be an integer, got {v!r}")
-        return v
-    if not isinstance(v, int):
-        raise ValueError(f"Value must be an integer, got {v!r}")
+    _coerce_integral(v)
     return v
 
 
@@ -732,7 +716,7 @@ class AgentExecutionConfig:
                 getter=lambda: get_config_value(
                     os.environ, "DAPR_AGENTS_MAX_ITERATIONS"
                 ),
-                pre_validator=validate_exact_int,
+                pre_validator=validate_integral,
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
@@ -760,7 +744,7 @@ class AgentExecutionConfig:
                 getter=lambda: get_config_value(
                     os.environ, "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES"
                 ),
-                pre_validator=validate_exact_int,
+                pre_validator=validate_integral,
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
@@ -795,7 +779,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: instantiated_config.max_iterations,
-                pre_validator=validate_exact_int,
+                pre_validator=validate_integral,
                 validator=validate_positive_int,
             ),
             "tool_choice": ConfigFieldDescriptor(
@@ -816,7 +800,7 @@ class AgentExecutionConfig:
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
                 getter=lambda: instantiated_config.max_grpc_inbound_message_size_bytes,
-                pre_validator=validate_exact_int,
+                pre_validator=validate_integral,
                 validator=validate_positive_int,
             ),
             # Non-resolvable instantiated execution fields are structurally validated
@@ -835,7 +819,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_approval_rounds", v),
                 getter=lambda: instantiated_config.max_approval_rounds,
-                pre_validator=validate_exact_int,
+                pre_validator=validate_integral,
                 validator=validate_positive_int,
             ),
             "streaming": ConfigFieldDescriptor(
@@ -889,7 +873,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: get_config_value(runtime_config, "max_iterations"),
-                pre_validator=validate_exact_int,
+                pre_validator=validate_integral,
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),

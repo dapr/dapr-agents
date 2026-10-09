@@ -43,7 +43,6 @@ in sync.
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
 import logging
 import os
 from dataclasses import dataclass
@@ -52,28 +51,14 @@ from typing import Any, Callable, Dict, Optional
 from dapr.aio.clients import DaprClient as AsyncDaprClient
 from dapr.clients import DaprClient
 
+from dapr_agents.utils.config import _coerce_integral
+
 INBOUND_MESSAGE_SIZE_ENV: str = "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES"
 
 logger = logging.getLogger(__name__)
 
 DaprClientFactory = Callable[[], DaprClient]
 AsyncDaprClientFactory = Callable[[], AsyncDaprClient]
-
-
-def _coerce_integral(value: Any) -> int:
-    """Convert an integral numeric representation to an ``int``."""
-    if isinstance(value, bool):
-        raise ValueError(f"Value must be an integer, got {value!r}")
-
-    try:
-        numeric = Decimal(str(value))
-    except InvalidOperation as exc:
-        raise ValueError(f"Value must be an integer, got {value!r}") from exc
-
-    if not numeric.is_finite() or numeric != numeric.to_integral_value():
-        raise ValueError(f"Value must be an integer, got {value!r}")
-
-    return int(numeric)
 
 
 def _coerce_positive_int(value: Any) -> int:

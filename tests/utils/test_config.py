@@ -53,11 +53,23 @@ class TestCoerceConfigValue:
     def test_coerce_config_value_str_from_int(self):
         assert coerce_config_value(42, str) == "42"
 
-    def test_coerce_config_value_int_from_string(self):
+    def test_coerce_config_value_int_from_str(self):
         assert coerce_config_value("42", int) == 42
 
-    def test_coerce_config_value_int_from_float_string(self):
+    def test_coerce_config_value_int_from_float_str(self):
         assert coerce_config_value("10.0", int) == 10
+
+    def test_coerce_config_value_int_from_float(self):
+        assert coerce_config_value(10.0, int) == 10
+
+    @pytest.mark.parametrize("value", ["9007199254740993", "9007199254740993.0"])
+    def test_coerce_config_value_int_from_large_integral_str(self, value):
+        assert coerce_config_value(value, int) == 9007199254740993
+
+    @pytest.mark.parametrize("value", ["10.5", "NaN", "Infinity"])
+    def test_coerce_config_value_int_rejects_non_integral_values(self, value):
+        with pytest.raises(ValueError):
+            coerce_config_value(value, int)
 
     def test_coerce_config_value_int_already_int(self):
         assert coerce_config_value(7, int) == 7
@@ -70,7 +82,7 @@ class TestCoerceConfigValue:
         with pytest.raises((ValueError, TypeError)):
             coerce_config_value("not_a_number", int)
 
-    def test_coerce_config_value_float_from_string(self):
+    def test_coerce_config_value_float_from_str(self):
         assert coerce_config_value("10.5", float) == 10.5
 
     def test_coerce_config_value_bool_true_variants(self):
@@ -89,7 +101,7 @@ class TestCoerceConfigValue:
         result = coerce_config_value('["a", "b"]', list)
         assert result == ["a", "b"]
 
-    def test_coerce_config_value_list_wraps_single_string(self):
+    def test_coerce_config_value_list_wraps_single_str(self):
         result = coerce_config_value("single", list)
         assert result == ["single"]
 
@@ -120,7 +132,7 @@ class TestCoerceConfigValue:
         with pytest.raises(ValueError):
             coerce_config_value("foobar", int | None)
 
-    def test_coerce_config_value_enum_type_string(self):
+    def test_coerce_config_value_enum_type_str(self):
         assert coerce_config_value("option_a", FakeEnum) == FakeEnum.OPTION_A
 
     def test_coerce_config_value_enum_type_enum_passthrough(self):
