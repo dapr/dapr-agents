@@ -14,7 +14,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum, StrEnum
 import uuid
 
 
@@ -69,7 +69,7 @@ class OrchestrationMode(StrEnum):
     ROUNDROBIN = "roundrobin"
 
 
-class AgentStatus(StrEnum):
+class AgentStatus(str, Enum):
     """Enumeration of possible agent statuses for standardized tracking."""
 
     ACTIVE = "active"  # The agent is actively working on tasks
@@ -79,7 +79,7 @@ class AgentStatus(StrEnum):
     ERROR = "error"  # The agent encountered an error and needs attention
 
 
-class AgentTaskStatus(StrEnum):
+class AgentTaskStatus(str, Enum):
     """Enumeration of possible task statuses for standardizing task tracking."""
 
     IN_PROGRESS = "in-progress"  # Task is currently in progress
