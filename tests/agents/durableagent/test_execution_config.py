@@ -200,15 +200,23 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
                 "max_iterations",
             ),
             (
+                AgentExecutionConfig(max_iterations=0),
+                "max_iterations",
+            ),
+            (
                 AgentExecutionConfig(max_iterations=-1),
                 "max_iterations",
             ),
             (
-                AgentExecutionConfig(max_iterations=10.0),
+                AgentExecutionConfig(max_iterations=3.0),
                 "max_iterations",
             ),
             (
-                AgentExecutionConfig(max_iterations="10.5"),
+                AgentExecutionConfig(max_iterations=3.5),
+                "max_iterations",
+            ),
+            (
+                AgentExecutionConfig(max_iterations="3.0"),
                 "max_iterations",
             ),
             (
@@ -232,8 +240,40 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
                 "max_grpc_inbound_message_size_bytes",
             ),
             (
+                AgentExecutionConfig(max_grpc_inbound_message_size_bytes=100.0),
+                "max_grpc_inbound_message_size_bytes",
+            ),
+            (
                 AgentExecutionConfig(max_grpc_inbound_message_size_bytes=111.11),
                 "max_grpc_inbound_message_size_bytes",
+            ),
+            (
+                AgentExecutionConfig(max_grpc_inbound_message_size_bytes="100.0"),
+                "max_grpc_inbound_message_size_bytes",
+            ),
+            (
+                AgentExecutionConfig(max_approval_rounds="many"),
+                "max_approval_rounds",
+            ),
+            (
+                AgentExecutionConfig(max_approval_rounds=0),
+                "max_approval_rounds",
+            ),
+            (
+                AgentExecutionConfig(max_approval_rounds=-1),
+                "max_approval_rounds",
+            ),
+            (
+                AgentExecutionConfig(max_approval_rounds=10.0),
+                "max_approval_rounds",
+            ),
+            (
+                AgentExecutionConfig(max_approval_rounds=123.45),
+                "max_approval_rounds",
+            ),
+            (
+                AgentExecutionConfig(max_approval_rounds="10.0"),
+                "max_approval_rounds",
             ),
         ],
     )
@@ -374,13 +414,51 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert resolved_config.tool_choice == ToolChoice.AUTO
         assert resolved_config.tool_execution_mode == ToolExecutionMode.PARALLEL
 
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        [
+            (
+                "DAPR_AGENTS_MAX_ITERATIONS",
+                "invalid",
+            ),
+            (
+                "DAPR_AGENTS_MAX_ITERATIONS",
+                "0",
+            ),
+            (
+                "DAPR_AGENTS_MAX_ITERATIONS",
+                "-1",
+            ),
+            (
+                "DAPR_AGENTS_MAX_ITERATIONS",
+                "3.0",
+            ),
+            (
+                "DAPR_AGENTS_MAX_ITERATIONS",
+                "3.5",
+            ),
+            (
+                "DAPR_AGENTS_TOOL_EXECUTION_MODE",
+                "yes",
+            ),
+            (
+                "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES",
+                "large",
+            ),
+            (
+                "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES",
+                "0",
+            ),
+            ("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "-1"),
+            ("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "100.0"),
+            ("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "111.11"),
+        ],
+    )
     def test_execution_config_from_env_ignores_invalid_values(
-        self, mock_llm, mock_tool, monkeypatch
+        self, mock_llm, mock_tool, monkeypatch, name, value
     ):
         """Test that invalid environment variable values are ignored."""
-        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "5.0")
-        monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "manual")
-        monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "abc")
+        monkeypatch.setenv(name, value)
 
         agent = self._make_agent(
             mock_llm,
@@ -499,12 +577,37 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
 
         assert resolved_config.tool_choice == ToolChoice.AUTO
 
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            (
+                "MAX_ITERATIONS",
+                "invalid",
+            ),
+            (
+                "MAX_ITERATIONS",
+                "0",
+            ),
+            (
+                "MAX_ITERATIONS",
+                "-1",
+            ),
+            (
+                "MAX_ITERATIONS",
+                "3.0",
+            ),
+            (
+                "MAX_ITERATIONS",
+                "3.5",
+            ),
+        ],
+    )
     def test_execution_config_from_statestore_ignores_invalid_values(
-        self, mock_llm, mock_tool, monkeypatch
+        self, mock_llm, mock_tool, monkeypatch, key, value
     ):
         """Test that invalid runtime config values are ignored."""
         runtime_config = {
-            "MAX_ITERATIONS": "5.0",
+            key: value,
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
@@ -514,10 +617,6 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
 
         # All invalid values should be ignored and defaults should be used
         assert agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
-        assert agent.execution.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
-        assert agent.execution.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
-        assert agent.execution.orchestration_mode is None
-        assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
     def test_execution_config_from_statestore_accepts_non_standard_tool_choices(
         self, mock_llm, mock_tool, monkeypatch
@@ -533,7 +632,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
         # Tool choice should be preserved
-        assert agent.execution.tool_choice == "no"
+        assert agent.execution.tool_choice == "no_mistakes"
 
         # All other fields should resolve to defaults since they were not provided
         assert agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
