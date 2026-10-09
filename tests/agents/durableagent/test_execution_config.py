@@ -192,6 +192,27 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         assert agent.execution.stream_listener is None
         assert agent.execution.builtin_tools == [BuiltinTool.ASK_USER]
 
+    @pytest.mark.parametrize("value", [3.0, "3.0"])
+    def test_execution_config_from_instantiation_accepts_integral_float_values(
+        self, mock_llm, mock_tool, value
+    ):
+        """Test that integral floats are accepted without truncating fractional values."""
+        execution_config = AgentExecutionConfig(
+            max_iterations=value,
+            max_grpc_inbound_message_size_bytes=value,
+            max_approval_rounds=value,
+        )
+
+        agent = self._make_agent(
+            mock_llm,
+            execution_config=execution_config,
+            tools=[mock_tool],
+        )
+
+        assert agent.execution.max_iterations == 3
+        assert agent.execution.max_grpc_inbound_message_size_bytes == 3
+        assert agent.execution.max_approval_rounds == 3
+
     @pytest.mark.parametrize(
         ("execution_config", "expected_match"),
         [
@@ -208,15 +229,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
                 "max_iterations",
             ),
             (
-                AgentExecutionConfig(max_iterations=3.0),
-                "max_iterations",
-            ),
-            (
                 AgentExecutionConfig(max_iterations=3.5),
-                "max_iterations",
-            ),
-            (
-                AgentExecutionConfig(max_iterations="3.0"),
                 "max_iterations",
             ),
             (
@@ -240,15 +253,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
                 "max_grpc_inbound_message_size_bytes",
             ),
             (
-                AgentExecutionConfig(max_grpc_inbound_message_size_bytes=100.0),
-                "max_grpc_inbound_message_size_bytes",
-            ),
-            (
                 AgentExecutionConfig(max_grpc_inbound_message_size_bytes=111.11),
-                "max_grpc_inbound_message_size_bytes",
-            ),
-            (
-                AgentExecutionConfig(max_grpc_inbound_message_size_bytes="100.0"),
                 "max_grpc_inbound_message_size_bytes",
             ),
             (
@@ -264,15 +269,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
                 "max_approval_rounds",
             ),
             (
-                AgentExecutionConfig(max_approval_rounds=10.0),
-                "max_approval_rounds",
-            ),
-            (
                 AgentExecutionConfig(max_approval_rounds=123.45),
-                "max_approval_rounds",
-            ),
-            (
-                AgentExecutionConfig(max_approval_rounds="10.0"),
                 "max_approval_rounds",
             ),
         ],
@@ -378,6 +375,18 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes == 654321
 
+    def test_execution_config_from_env_accepts_integral_float_values(
+        self, mock_llm, mock_tool, monkeypatch
+    ):
+        """Test that integral float strings are accepted from the environment."""
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "5.0")
+        monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "123456.0")
+
+        agent = self._make_agent(mock_llm, tools=[mock_tool])
+
+        assert agent.execution.max_iterations == 5
+        assert agent.execution.max_grpc_inbound_message_size_bytes == 123456
+
     def test_execution_config_from_env_accepts_snake_case_keys(
         self, mock_llm, mock_tool, monkeypatch
     ):
@@ -431,10 +440,6 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
             ),
             (
                 "DAPR_AGENTS_MAX_ITERATIONS",
-                "3.0",
-            ),
-            (
-                "DAPR_AGENTS_MAX_ITERATIONS",
                 "3.5",
             ),
             (
@@ -450,7 +455,6 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
                 "0",
             ),
             ("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "-1"),
-            ("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "100.0"),
             ("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "111.11"),
         ],
     )
@@ -523,6 +527,21 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
+    def test_execution_config_from_env_accepts_integral_float_values(
+        self, mock_llm, mock_tool, monkeypatch
+    ):
+        """Test that integral float strings are accepted from the environment."""
+        runtime_config = {
+            "max_iterations": "5.0",
+        }
+
+        mock_client = MockDaprClient(runtime_config=runtime_config)
+        self._patch_dapr_client(monkeypatch, mock_client)
+
+        agent = self._make_agent(mock_llm, tools=[mock_tool])
+
+        assert agent.execution.max_iterations == 5
+
     def test_execution_config_from_statestore_accepts_snake_case_keys(
         self, mock_llm, mock_tool, monkeypatch
     ):
@@ -591,10 +610,6 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
             (
                 "MAX_ITERATIONS",
                 "-1",
-            ),
-            (
-                "MAX_ITERATIONS",
-                "3.0",
             ),
             (
                 "MAX_ITERATIONS",

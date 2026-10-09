@@ -28,12 +28,12 @@ def test_validate_max_iterations_aliases_validate_positive_int():
         validate_max_iterations(0)
 
 
-@pytest.mark.parametrize("value", [1, -1, "1", "-1", " 10 "])
-def test_validate_exact_int_accepts_integer_values(value):
+@pytest.mark.parametrize("value", [1, -1, "1", "-1", " 10 ", 10.0, "10.0"])
+def test_validate_exact_int_accepts_integral_values(value):
     assert validate_exact_int(value) == value
 
 
-@pytest.mark.parametrize("value", [True, False, 10.0, 10.5, "10.0", "10.5", "abc"])
+@pytest.mark.parametrize("value", [True, False, 10.5, "10.5", "abc"])
 def test_validate_exact_int_rejects_non_integer_values(value):
     with pytest.raises(ValueError):
         validate_exact_int(value)

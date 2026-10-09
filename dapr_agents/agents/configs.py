@@ -18,6 +18,7 @@ import functools
 import logging
 import os
 import re
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from dataclasses import dataclass, field
 from typing import (
@@ -296,13 +297,20 @@ def validate_non_empty_string(v: str) -> str:
 
 
 def validate_exact_int(v: Any) -> Any:
-    """Reject values that would be truncated when coerced to an integer."""
-    if isinstance(v, bool) or isinstance(v, float):
+    """Reject non-integral values with fractional parts."""
+    if isinstance(v, bool):
         raise ValueError(f"Value must be an integer, got {v!r}")
+    if isinstance(v, float):
+        if not v.is_integer():
+            raise ValueError(f"Value must be an integer, got {v!r}")
+        return v
     if isinstance(v, str):
-        # Whitespace-agnostic
         stripped = v.strip()
-        if not stripped or not stripped.lstrip("+-").isdigit():
+        try:
+            numeric = Decimal(stripped)
+        except InvalidOperation as exc:
+            raise ValueError(f"Value must be an integer, got {v!r}") from exc
+        if not numeric.is_finite() or numeric != numeric.to_integral_value():
             raise ValueError(f"Value must be an integer, got {v!r}")
         return v
     if not isinstance(v, int):
