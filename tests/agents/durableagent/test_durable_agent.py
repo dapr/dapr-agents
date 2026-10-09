@@ -788,6 +788,59 @@ class TestDurableAgent:
         )  # Check tool_call_id, not the message UUID id
         assert tool_messages[0].name == "test_tool"
 
+    def test_save_tool_results_records_each_call_sharing_an_id(
+        self, basic_durable_agent
+    ):
+        """Positional tool_call_meta records every call, even when ids collide."""
+        from dapr_agents.types.tools import ToolExecutionStatus
+
+        calls = [
+            {"id": "", "function": {"name": "DropTable", "arguments": "{}"}},
+            {"id": "", "function": {"name": "DropTable", "arguments": "{}"}},
+        ]
+        assistant_message = AgentWorkflowMessage(
+            role="assistant",
+            content="",
+            tool_calls=[{"type": "function", **c} for c in calls],
+        )
+        entry = AgentWorkflowEntry(
+            source="test_source",
+            triggering_workflow_instance_id=None,
+            messages=[assistant_message],
+            tool_history=[],
+            last_message=assistant_message,
+        )
+        basic_durable_agent._infra._state_model = entry
+        results = [
+            {"role": "tool", "name": "DropTable", "tool_call_id": "", "content": c}
+            for c in ("denied", "skipped")
+        ]
+        meta = [
+            {"tool_call": calls[0], "is_agent_call": False, "hook_decision": "denied"},
+            {"tool_call": calls[1], "is_agent_call": False, "hook_decision": "skipped"},
+        ]
+        with (
+            patch.object(basic_durable_agent, "save_state"),
+            patch.object(
+                basic_durable_agent._infra,
+                "get_state",
+                side_effect=lambda wid: basic_durable_agent._infra._state_model,
+            ),
+        ):
+            basic_durable_agent.save_tool_results(
+                Mock(),
+                {
+                    "tool_results": results,
+                    "instance_id": "test-instance-123",
+                    # by-id metadata can hold only one of the two calls
+                    "tool_calls_by_id": {"": meta[1]},
+                    "tool_call_meta": meta,
+                },
+            )
+
+        statuses = [r.status for r in basic_durable_agent._state_model.tool_history]
+        assert statuses == [ToolExecutionStatus.DENIED, ToolExecutionStatus.SKIPPED]
+
     def test_append_tool_message_to_instance(self, basic_durable_agent):
         """Test that tool messages are appended to instance via save_tool_results activity."""
         instance_id = "test-instance-123"

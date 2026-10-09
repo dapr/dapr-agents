@@ -1151,12 +1151,48 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     "dispatch_time": ctx.current_utc_datetime.isoformat(),
                                     "hook_decision": hook_label,
                                 }
+                        # tool_calls_by_id loses calls that share a tool_call_id
+                        # ("" or repeated), so also send the metadata by position,
+                        # aligned with tool_results.
+                        meta_by_order: Dict[int, Dict[str, Any]] = {}
+                        for meta in workflow_meta:
+                            meta_by_order[meta["order"]] = {
+                                "tool_call": meta["tool_call"],
+                                "is_agent_call": True,
+                                "child_instance_id": meta.get("child_instance_id"),
+                                "dispatch_time": meta.get("dispatch_time"),
+                            }
+                        for meta in activity_meta + generator_meta:
+                            meta_by_order[meta["order"]] = {
+                                "tool_call": meta["tool_call"],
+                                "is_agent_call": False,
+                                "dispatch_time": meta.get("dispatch_time"),
+                            }
+                        for idx, tc in enumerate(tool_calls):
+                            decision_for_tracking = hook_decisions.get(idx)
+                            if isinstance(decision_for_tracking, (Deny, Skip)):
+                                meta_by_order[idx] = {
+                                    "tool_call": tc,
+                                    "is_agent_call": False,
+                                    "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                    "hook_decision": (
+                                        "denied"
+                                        if isinstance(decision_for_tracking, Deny)
+                                        else "skipped"
+                                    ),
+                                }
+                        tool_call_meta = [
+                            meta_by_order.get(idx)
+                            for idx, tr in enumerate(ordered)
+                            if tr is not None
+                        ]
                         yield ctx.call_activity(
                             self._activity_name(self.save_tool_results),
                             input={
                                 "tool_results": tool_results,
                                 "instance_id": ctx.instance_id,
                                 "tool_calls_by_id": tool_calls_by_id,
+                                "tool_call_meta": tool_call_meta,
                             },
                             retry_policy=self._retry_policy,
                         )
@@ -3268,6 +3304,9 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 - ``tool_calls_by_id`` (dict): tool_call_id → dispatch metadata
                   (``tool_call``, ``is_agent_call``, ``child_instance_id``,
                   ``dispatch_time``)
+                - ``tool_call_meta`` (list, optional): the same metadata by
+                  position, aligned with ``tool_results``; preferred over
+                  ``tool_calls_by_id`` so calls sharing an id are each recorded
                 - ``skip_messages`` (bool, default ``False``): when ``True``,
                   skip appending to ``entry.messages`` (orchestration workflow
                   path — see above)
@@ -3276,6 +3315,11 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         tool_results_raw: List[Dict[str, Any]] = payload.get("tool_results", [])
         tool_results: List[ToolMessage] = [ToolMessage(**tr) for tr in tool_results_raw]
         tool_calls_by_id: Dict[str, Any] = payload.get("tool_calls_by_id", {})
+        tool_call_meta: List[Optional[Dict[str, Any]]] = payload.get(
+            "tool_call_meta"
+        ) or [None] * len(tool_results)
+        if len(tool_call_meta) != len(tool_results):
+            tool_call_meta = [None] * len(tool_results)
         # When True, results go to tool_history only — not entry.messages.
         # See docstring for the full rationale.
         skip_messages: bool = payload.get("skip_messages", False)
@@ -3344,7 +3388,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 last_message_is_assistant_with_tool_calls = True
 
         # Process each tool result
-        for tool_result in tool_results:
+        for tool_result, positional_info in zip(tool_results, tool_call_meta):
             tool_call_id = tool_result.tool_call_id
 
             if tool_call_id in existing_tool_ids:
@@ -3378,7 +3422,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             # Always record in tool_history regardless of skip_messages so that
             # every agent dispatch (including orchestrator ones) is observable.
             if entry is not None and hasattr(entry, "tool_history"):
-                tc_info = tool_calls_by_id.get(tool_call_id, {})
+                tc_info = positional_info or tool_calls_by_id.get(tool_call_id, {})
                 tc = tc_info.get("tool_call", {})
                 fn = tc.get("function", {})
                 raw_args = fn.get("arguments", "")
