@@ -13,6 +13,7 @@
 
 """Tests for DurableAgent execution configuration."""
 
+import copy
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -285,18 +286,47 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
                 tools=[mock_tool],
             )
 
-    def test_execution_config_from_instantiation_does_not_mutate_input_config(self):
+    def test_execution_config_from_instantiation_preserves_mutations_after_construction(
+        self, mock_llm, mock_tool
+    ):
+        """Test that assignments after construction are preserved through resolution."""
+        execution_config = AgentExecutionConfig()
+        execution_config.max_iterations = 3
+        execution_config.tool_choice = "none"
+
+        agent = self._make_agent(
+            mock_llm,
+            execution_config=execution_config,
+            tools=[mock_tool],
+        )
+
+        assert agent.execution.max_iterations == 3
+        assert agent.execution.tool_choice == "none"
+
+    def test_execution_config_from_instantiation_does_not_mutate_input_config(
+        self, mock_llm, mock_tool
+    ):
         """Test that execution config resolution copies and leaves the caller's config untouched."""
         execution_config = AgentExecutionConfig(
             tool_choice="auto",
             tool_execution_mode="parallel",
         )
 
-        resolved_config = AgentExecutionConfig._from_instantiation(execution_config)
+        agent = self._make_agent(
+            mock_llm,
+            execution_config=execution_config,
+            tools=[mock_tool],
+        )
+
+        resolved_config = agent.execution
 
         assert execution_config is not resolved_config
+        # ``tool_choice`` and ``tool_execution_mode`` should still be raw strings on the caller's config
+        assert type(execution_config.tool_choice) is str
         assert execution_config.tool_choice == "auto"
+        assert type(execution_config.tool_execution_mode) is str
         assert execution_config.tool_execution_mode == "parallel"
+        # ``tool_choice`` and ``tool_execution_mode`` should be resolved to enums on the agent's config
         assert resolved_config.tool_choice == ToolChoice.AUTO
         assert resolved_config.tool_execution_mode == ToolExecutionMode.PARALLEL
 
@@ -768,6 +798,27 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
 
         # All other fields should resolve to defaults since they were not provided
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
+
+    def test_execution_config_instantiation_over_env_assigned_default(
+        self, monkeypatch
+    ):
+        """Test that an assigned default value still overrides environment variables."""
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "7")
+        execution_config = AgentExecutionConfig()
+        execution_config.max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
+
+        resolved_config = AgentExecutionConfig._resolve_config(config=execution_config)
+
+        assert resolved_config.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
+
+    def test_execution_config_instantiation_none_removes_override(self):
+        """Test that assigning ``None`` after instantiation restores the field's normal precedence."""
+        execution_config = AgentExecutionConfig(max_iterations=3)
+        execution_config.max_iterations = None
+
+        resolved_config = AgentExecutionConfig._resolve_config(config=execution_config)
+
+        assert resolved_config.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
 
     def test_execution_config_statestore_over_env(
         self, mock_llm, mock_tool, monkeypatch
