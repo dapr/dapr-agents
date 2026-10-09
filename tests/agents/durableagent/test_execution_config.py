@@ -378,8 +378,8 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         self, mock_llm, mock_tool, monkeypatch
     ):
         """Test that invalid environment variable values are ignored."""
-        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "zero")
-        monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "sideways")
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "5.0")
+        monkeypatch.setenv("DAPR_AGENTS_TOOL_EXECUTION_MODE", "manual")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "abc")
 
         agent = self._make_agent(
@@ -504,7 +504,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
     ):
         """Test that invalid runtime config values are ignored."""
         runtime_config = {
-            "MAX_ITERATIONS": "two",
+            "MAX_ITERATIONS": "5.0",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
@@ -524,7 +524,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
     ):
         """Test that non-standard runtime config tool choices are permitted."""
         runtime_config = {
-            "TOOL_CHOICE": "no",
+            "TOOL_CHOICE": "no_mistakes",
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
