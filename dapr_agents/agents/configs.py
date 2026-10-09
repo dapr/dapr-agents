@@ -778,6 +778,7 @@ class AgentExecutionConfig:
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
                 getter=lambda: instantiated_config.orchestration_mode,
+                validator=validate_orchestration_mode,
             ),
             "approval": ConfigFieldDescriptor(
                 target_type=Optional[AgentApprovalConfig],
