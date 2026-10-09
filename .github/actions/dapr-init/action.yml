@@ -8,6 +8,7 @@ runs:
     - shell: bash
       run: |
         log="$(mktemp)"
+        trap 'rm -f "$log"' EXIT
         for attempt in 1 2 3; do
           if dapr init 2>&1 | tee "$log"; then
             exit 0
