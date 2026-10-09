@@ -89,6 +89,9 @@ jobs:
       with:
         python-version: ${{ matrix.python_ver }}
 
+    - name: Reserve Dapr host ports
+      uses: ./.github/actions/dapr-reserve-ports
+
     - name: Set up Docker
       uses: docker/setup-docker-action@v5
 
@@ -97,8 +100,7 @@ jobs:
         wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
 
     - name: Initialize Dapr
-      run: |
-        dapr init
+      uses: ./.github/actions/dapr-init
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
