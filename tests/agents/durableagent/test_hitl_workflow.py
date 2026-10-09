@@ -363,6 +363,61 @@ class TestHookWorkflowDispatch:
     # Helpers                                                              #
     # ------------------------------------------------------------------ #
 
+    def test_sequential_mode_schedules_each_tool_after_previous_result(
+        self, mock_llm, mock_ctx
+    ):
+        first_tool = AgentTool(
+            name="SaveState",
+            description="Save state",
+            func=lambda value: value,
+        )
+        second_tool = AgentTool(
+            name="GetState",
+            description="Get state",
+            func=lambda: "value",
+        )
+        agent = _make_agent(mock_llm, tools=[first_tool, second_tool])
+        tool_calls = [
+            _tool_call(name="SaveState", args={"value": "new"}, call_id="save"),
+            _tool_call(name="GetState", call_id="get"),
+        ]
+        gen = agent.agent_workflow(mock_ctx, {"task": "save then read"})
+
+        next(gen)  # record_initial_entry
+        gen.send(None)  # call_llm
+        gen.send({"tool_calls": tool_calls})  # schedules and yields SaveState
+
+        run_tool_name = agent._activity_name(agent.run_tool)
+        run_tool_calls = [
+            activity_call
+            for activity_call in mock_ctx.call_activity.call_args_list
+            if activity_call[0][0] == run_tool_name
+        ]
+        assert [
+            activity_call[1]["input"]["tool_call"]["id"]
+            for activity_call in run_tool_calls
+        ] == ["save"]
+
+        gen.send(
+            {
+                "content": "saved",
+                "role": "tool",
+                "name": "SaveState",
+                "tool_call_id": "save",
+            }
+        )  # only now schedules and yields GetState
+
+        run_tool_calls = [
+            activity_call
+            for activity_call in mock_ctx.call_activity.call_args_list
+            if activity_call[0][0] == run_tool_name
+        ]
+        assert [
+            activity_call[1]["input"]["tool_call"]["id"]
+            for activity_call in run_tool_calls
+        ] == ["save", "get"]
+        gen.close()
+
     def _drive_workflow_deny_skip(self, agent, mock_ctx, hook_fn, tool_calls_turn1):
         """
         Drive agent_workflow for one tool-bearing turn (Deny / Skip path).

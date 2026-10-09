@@ -759,6 +759,9 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         activity_meta: List[Dict[str, Any]] = []
                         generator_tools: List[Any] = []
                         generator_meta: List[Dict[str, Any]] = []
+                        sequential_dispatches: List[
+                            Tuple[str, Callable[[], Any], Dict[str, Any]]
+                        ] = []
 
                         for idx, tc in enumerate(tool_calls):
                             fn_name = tc["function"]["name"]
@@ -890,7 +893,21 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                             "dispatch_time": ctx.current_utc_datetime.isoformat(),
                                         }
                                     )
-                                    workflow_tasks.append(tool_obj(**call_kwargs))
+                                    if (
+                                        self.execution.tool_execution_mode
+                                        == ToolExecutionMode.SEQUENTIAL
+                                    ):
+                                        sequential_dispatches.append(
+                                            (
+                                                "workflow",
+                                                lambda tool_obj=tool_obj, call_kwargs=call_kwargs: (
+                                                    tool_obj(**call_kwargs)
+                                                ),
+                                                workflow_meta[-1],
+                                            )
+                                        )
+                                    else:
+                                        workflow_tasks.append(tool_obj(**call_kwargs))
                                 else:
                                     # Non-agent context-injected tool. Calling it
                                     # returns either a Dapr workflow Task or a
@@ -899,46 +916,72 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     # must be driven inline with `yield from` and
                                     # cannot be scheduled into when_all, so route it
                                     # to a separate bucket.
-                                    produced = tool_obj(**call_kwargs)
-                                    if inspect.isgenerator(produced):
-                                        generator_meta.append(
-                                            {
-                                                "order": idx,
-                                                "tool_call": tc,
-                                                "dispatch_time": ctx.current_utc_datetime.isoformat(),
-                                            }
-                                        )
-                                        generator_tools.append(produced)
-                                    else:
-                                        workflow_meta.append(
-                                            {
-                                                "order": idx,
-                                                "tool_call": tc,
-                                                "dispatch_time": ctx.current_utc_datetime.isoformat(),
-                                            }
-                                        )
-                                        workflow_tasks.append(produced)
-                            # Invoke and execute regular tools.
-                            else:
-                                activity_tasks.append(
-                                    ctx.call_activity(
-                                        self._activity_name(self.run_tool),
-                                        input={
-                                            "tool_call": tc,
-                                            "instance_id": ctx.instance_id,
-                                            "time": ctx.current_utc_datetime.isoformat(),
-                                            "order": idx,
-                                        },
-                                        retry_policy=self._retry_policy,
-                                    )
-                                )
-                                activity_meta.append(
-                                    {
+                                    meta = {
                                         "order": idx,
                                         "tool_call": tc,
                                         "dispatch_time": ctx.current_utc_datetime.isoformat(),
                                     }
-                                )
+                                    if (
+                                        self.execution.tool_execution_mode
+                                        == ToolExecutionMode.SEQUENTIAL
+                                    ):
+                                        generator_meta.append(meta)
+                                        sequential_dispatches.append(
+                                            (
+                                                "workflow",
+                                                lambda tool_obj=tool_obj, call_kwargs=call_kwargs: (
+                                                    tool_obj(**call_kwargs)
+                                                ),
+                                                meta,
+                                            )
+                                        )
+                                    else:
+                                        produced = tool_obj(**call_kwargs)
+                                        if inspect.isgenerator(produced):
+                                            generator_meta.append(meta)
+                                            generator_tools.append(produced)
+                                        else:
+                                            workflow_meta.append(meta)
+                                            workflow_tasks.append(produced)
+                            # Invoke and execute regular tools.
+                            else:
+                                meta = {
+                                    "order": idx,
+                                    "tool_call": tc,
+                                    "dispatch_time": ctx.current_utc_datetime.isoformat(),
+                                }
+                                activity_meta.append(meta)
+                                activity_input = {
+                                    "tool_call": tc,
+                                    "instance_id": ctx.instance_id,
+                                    "time": ctx.current_utc_datetime.isoformat(),
+                                    "order": idx,
+                                }
+                                if (
+                                    self.execution.tool_execution_mode
+                                    == ToolExecutionMode.SEQUENTIAL
+                                ):
+                                    sequential_dispatches.append(
+                                        (
+                                            "activity",
+                                            lambda activity_input=activity_input: (
+                                                ctx.call_activity(
+                                                    self._activity_name(self.run_tool),
+                                                    input=activity_input,
+                                                    retry_policy=self._retry_policy,
+                                                )
+                                            ),
+                                            meta,
+                                        )
+                                    )
+                                else:
+                                    activity_tasks.append(
+                                        ctx.call_activity(
+                                            self._activity_name(self.run_tool),
+                                            input=activity_input,
+                                            retry_policy=self._retry_policy,
+                                        )
+                                    )
 
                         all_tasks = workflow_tasks + activity_tasks
 
@@ -976,17 +1019,32 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                 retry_policy=self._retry_policy,
                             )
 
-                        if not all_tasks:
-                            results: List[Any] = []
-                        elif (
+                        if (
                             self.execution.tool_execution_mode
                             == ToolExecutionMode.SEQUENTIAL
                         ):
                             results: List[Any] = []
-                            for task in all_tasks:
-                                results.append((yield task))
+                            for dispatch_kind, dispatch, meta in sequential_dispatches:
+                                task = dispatch()
+                                if inspect.isgenerator(task):
+                                    result = yield from task
+                                else:
+                                    result = yield task
+
+                                if dispatch_kind == "activity":
+                                    ordered[meta["order"]] = result
+                                else:
+                                    tc = meta["tool_call"]
+                                    ordered[meta["order"]] = ToolMessage(
+                                        content=serialize_tool_result(result),
+                                        role="tool",
+                                        name=tc["function"]["name"],
+                                        tool_call_id=tc["id"],
+                                    ).model_dump()
+                        elif not all_tasks:
+                            results = []
                         else:
-                            results: List[Any] = yield wf.when_all(all_tasks)
+                            results = yield wf.when_all(all_tasks)
 
                         if stream_ctx and child_agent_dispatches:
                             yield ctx.call_activity(
