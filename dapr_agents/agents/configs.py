@@ -295,11 +295,12 @@ def validate_non_empty_string(v: str) -> str:
     return v.strip()
 
 
-def validate_strict_int(v: Any) -> Any:
+def validate_exact_int(v: Any) -> Any:
     """Reject values that would be truncated when coerced to an integer."""
     if isinstance(v, bool) or isinstance(v, float):
         raise ValueError(f"Value must be an integer, got {v!r}")
     if isinstance(v, str):
+        # Whitespace-agnostic
         stripped = v.strip()
         if not stripped or not stripped.lstrip("+-").isdigit():
             raise ValueError(f"Value must be an integer, got {v!r}")
@@ -704,7 +705,7 @@ class AgentExecutionConfig:
                 getter=lambda: get_config_value(
                     os.environ, "DAPR_AGENTS_MAX_ITERATIONS"
                 ),
-                pre_validator=validate_strict_int,
+                pre_validator=validate_exact_int,
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
@@ -732,7 +733,7 @@ class AgentExecutionConfig:
                 getter=lambda: get_config_value(
                     os.environ, "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES"
                 ),
-                pre_validator=validate_strict_int,
+                pre_validator=validate_exact_int,
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
@@ -767,7 +768,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: instantiated_config.max_iterations,
-                pre_validator=validate_strict_int,
+                pre_validator=validate_exact_int,
                 validator=validate_positive_int,
             ),
             "tool_choice": ConfigFieldDescriptor(
@@ -788,7 +789,7 @@ class AgentExecutionConfig:
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
                 getter=lambda: instantiated_config.max_grpc_inbound_message_size_bytes,
-                pre_validator=validate_strict_int,
+                pre_validator=validate_exact_int,
                 validator=validate_positive_int,
             ),
             # Non-resolvable instantiated execution fields are structurally validated
@@ -807,7 +808,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_approval_rounds", v),
                 getter=lambda: instantiated_config.max_approval_rounds,
-                pre_validator=validate_strict_int,
+                pre_validator=validate_exact_int,
                 validator=validate_positive_int,
             ),
             "streaming": ConfigFieldDescriptor(
@@ -861,7 +862,7 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: get_config_value(runtime_config, "max_iterations"),
-                pre_validator=validate_strict_int,
+                pre_validator=validate_exact_int,
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
