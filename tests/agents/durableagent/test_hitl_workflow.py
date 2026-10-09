@@ -34,11 +34,12 @@ from dapr_agents.agents.configs import (
     AgentStateConfig,
     ToolExecutionMode,
 )
-from dapr_agents.agents.durable import DurableAgent
+from dapr_agents.agents.durable import DurableAgent, _approval_request_id
 from dapr_agents.hooks import (
     Deny,
     HookContext,
     Hooks,
+    Mutate,
     Proceed,
     RequireApproval,
     Skip,
@@ -195,6 +196,11 @@ def _activity_name(mock_ctx, call_index):
     return mock_ctx.call_activity.call_args_list[call_index][0][0]
 
 
+def _published_request_id(mock_ctx):
+    """Return the approval_request_id of the last publish_approval_request call."""
+    return mock_ctx.call_activity.call_args[1]["input"]["event"]["approval_request_id"]
+
+
 def _activity_input(mock_ctx, call_index):
     """Return the input kwarg for the Nth call_activity call."""
     kw = mock_ctx.call_activity.call_args_list[call_index][1]
@@ -227,8 +233,9 @@ class TestRequestApprovalGenerator:
         mock_ctx.create_timer.return_value = timer_task
 
         if winner == "event":
-            event_task.get_result.return_value = {
-                "approval_request_id": "any",
+            # answer with the id that was actually published
+            event_task.get_result.side_effect = lambda: {
+                "approval_request_id": _published_request_id(mock_ctx),
                 "approved": True,
             }
             winning_task = event_task
@@ -236,7 +243,7 @@ class TestRequestApprovalGenerator:
             winning_task = timer_task
 
         gen = agent._request_approval(
-            mock_ctx, mock_ctx.instance_id, tool_call, decision
+            mock_ctx, mock_ctx.instance_id, tool_call, decision, turn=1, call_index=0
         )
 
         with patch("dapr.ext.workflow.when_any") as mock_when_any:
@@ -244,7 +251,7 @@ class TestRequestApprovalGenerator:
             mock_when_any.return_value = when_any_future
 
             next(gen)  # yields call_activity(publish_approval_request)
-            gen.send(None)  # yields dt.when_any(...)
+            gen.send(_published_request_id(mock_ctx))  # yields dt.when_any(...)
 
             try:
                 gen.send(winning_task)
@@ -278,7 +285,7 @@ class TestRequestApprovalGenerator:
         tool_call = _tool_call()
         decision = RequireApproval(timeout_seconds=999)
         gen = agent._request_approval(
-            mock_ctx, mock_ctx.instance_id, tool_call, decision
+            mock_ctx, mock_ctx.instance_id, tool_call, decision, turn=1, call_index=0
         )
 
         with patch("dapr.ext.workflow.when_any", return_value=Mock()):
@@ -296,13 +303,15 @@ class TestRequestApprovalGenerator:
         assert actual_td == timedelta(seconds=999)
 
     def test_deterministic_request_id(self, agent, mock_ctx):
-        """Same instance_id + tool_call_id always produces the same approval_request_id."""
+        """Replaying the same request produces the same approval_request_id."""
         tc = _tool_call(call_id="call-abc")
         decision = RequireApproval()
 
         ids = []
         for _ in range(2):
-            gen = agent._request_approval(mock_ctx, "fixed-instance", tc, decision)
+            gen = agent._request_approval(
+                mock_ctx, "fixed-instance", tc, decision, turn=2, call_index=1
+            )
             with patch("dapr.ext.workflow.when_any", return_value=Mock()):
                 next(gen)
             # read the input that was passed to publish_approval_request
@@ -311,7 +320,11 @@ class TestRequestApprovalGenerator:
             mock_ctx.call_activity.reset_mock()
 
         assert ids[0] == ids[1]
-        assert ids[0] == str(uuid.uuid5(uuid.NAMESPACE_DNS, "fixed-instance:call-abc"))
+        assert ids[0] == _approval_request_id(
+            "fixed-instance", "2024-01-01T00:00:00.000000", 2, 1, "call-abc"
+        )
+        # the old tool_call_id-only formula is no longer used
+        assert ids[0] != str(uuid.uuid5(uuid.NAMESPACE_DNS, "fixed-instance:call-abc"))
 
     def test_publish_activity_receives_correct_event_fields(self, agent, mock_ctx):
         """ApprovalRequiredEvent published to the activity has expected shape."""
@@ -320,7 +333,9 @@ class TestRequestApprovalGenerator:
             timeout_seconds=120,
             instructions="please confirm",
         )
-        gen = agent._request_approval(mock_ctx, mock_ctx.instance_id, tc, decision)
+        gen = agent._request_approval(
+            mock_ctx, mock_ctx.instance_id, tc, decision, turn=1, call_index=0
+        )
 
         with patch("dapr.ext.workflow.when_any", return_value=Mock()):
             next(gen)
@@ -434,6 +449,283 @@ class TestHookWorkflowDispatch:
         assert tc["id"] in by_id
         assert by_id[tc["id"]]["hook_decision"] == "denied"
 
+    @pytest.mark.parametrize(
+        "other_decision, expected_runs, other_content, tracked",
+        [
+            (Proceed(), [{"table": "tmp"}], "ran", ["denied", None]),
+            (
+                Mutate(payload={"table": "safe"}),
+                [{"table": "safe"}],
+                "ran",
+                ["denied", None],
+            ),
+            (Skip(result="cached"), [], "cached", ["denied", "skipped"]),
+        ],
+        ids=["proceed", "mutate", "skip"],
+    )
+    def test_deny_applies_only_to_its_call_when_ids_are_shared(
+        self, mock_llm, mock_ctx, other_decision, expected_runs, other_content, tracked
+    ):
+        """A decision for one call must not apply to another call with the same tool_call_id."""
+        calls = [
+            _tool_call(name="DropTable", args={"table": "logs"}, call_id=""),
+            _tool_call(name="DropTable", args={"table": "tmp"}, call_id=""),
+        ]
+
+        def hook(ctx: HookContext):
+            if ctx.payload.get("table") == "logs":
+                return Deny(reason="blocked")
+            return other_decision
+
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
+        gen = agent.agent_workflow(mock_ctx, {"task": "do something"})
+        next(gen)  # record_initial_entry
+        gen.send(None)  # call_llm
+        gen.send({"tool_calls": calls})  # -> run_tool, or save_tool_results
+        if expected_runs:
+            gen.send(
+                {
+                    "role": "tool",
+                    "name": "DropTable",
+                    "tool_call_id": "",
+                    "content": "ran",
+                }
+            )  # -> save_tool_results
+        gen.close()
+
+        run_tool_inputs = [
+            c[1]["input"]
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.run_tool)
+        ]
+        (save_input,) = [
+            c[1]["input"]
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.save_tool_results)
+        ]
+        assert [
+            json.loads(i["tool_call"]["function"]["arguments"]) for i in run_tool_inputs
+        ] == expected_runs
+        results = save_input["tool_results"]
+        assert "not executed" in results[0]["content"]
+        assert results[1]["content"] == other_content
+        # tool_call_meta is positional, so each call keeps its own entry.
+        meta = save_input["tool_call_meta"]
+        assert len(meta) == 2
+        assert meta[0]["tool_call"] == calls[0]
+        assert [m.get("hook_decision") for m in meta] == tracked
+
+    def _drive_shared_id_approval(self, agent, mock_ctx, calls, *, approve):
+        event_task = Mock(name="event")
+        timer_task = Mock(name="timer")
+        mock_ctx.wait_for_external_event.return_value = event_task
+        mock_ctx.create_timer.return_value = timer_task
+        # reply with the id that was actually published for the approval call
+        event_task.get_result.side_effect = lambda: {
+            "approval_request_id": _published_request_id(mock_ctx),
+            "approved": True,
+        }
+
+        gen = agent.agent_workflow(mock_ctx, {"task": "do something"})
+        with patch("dapr.ext.workflow.when_any", return_value=Mock()):
+            next(gen)  # record_initial_entry
+            gen.send(None)  # call_llm
+            gen.send({"tool_calls": calls})  # publish_approval_request
+            gen.send(_published_request_id(mock_ctx))  # when_any
+            gen.send(event_task if approve else timer_task)  # run_tool
+            gen.send(
+                {
+                    "role": "tool",
+                    "name": "DropTable",
+                    "tool_call_id": "shared",
+                    "content": "ran",
+                }
+            )  # save_tool_results
+        gen.close()
+
+        return [
+            json.loads(c[1]["input"]["tool_call"]["function"]["arguments"])
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.run_tool)
+        ]
+
+    def test_approval_does_not_override_deny_when_ids_are_shared(
+        self, mock_llm, mock_ctx
+    ):
+        """An approved call must not un-deny another call with the same tool_call_id."""
+        calls = [
+            _tool_call(name="DropTable", args={"table": "logs"}, call_id="shared"),
+            _tool_call(name="DropTable", args={"table": "tmp"}, call_id="shared"),
+        ]
+
+        def hook(ctx: HookContext):
+            if ctx.payload.get("table") == "logs":
+                return Deny(reason="blocked")
+            return RequireApproval(timeout_seconds=30)
+
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
+        runs = self._drive_shared_id_approval(agent, mock_ctx, calls, approve=True)
+
+        assert runs == [{"table": "tmp"}]
+
+    def test_approval_timeout_denies_only_its_call_when_ids_are_shared(
+        self, mock_llm, mock_ctx
+    ):
+        """A timed-out approval must not deny another call with the same tool_call_id."""
+        calls = [
+            _tool_call(name="DropTable", args={"table": "logs"}, call_id="shared"),
+            _tool_call(name="DropTable", args={"table": "tmp"}, call_id="shared"),
+        ]
+
+        def hook(ctx: HookContext):
+            if ctx.payload.get("table") == "logs":
+                return RequireApproval(timeout_seconds=30)
+            return Proceed()
+
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
+        runs = self._drive_shared_id_approval(agent, mock_ctx, calls, approve=False)
+
+        assert runs == [{"table": "tmp"}]
+
+    @pytest.mark.parametrize(
+        "order",
+        [
+            ("deny", "mutate", "approve"),
+            ("deny", "approve", "mutate"),
+            ("mutate", "deny", "approve"),
+            ("mutate", "approve", "deny"),
+            ("approve", "deny", "mutate"),
+            ("approve", "mutate", "deny"),
+        ],
+        ids="-".join,
+    )
+    @pytest.mark.parametrize("approved", [True, False], ids=["approved", "timeout"])
+    def test_three_decisions_each_apply_to_their_call_when_ids_are_shared(
+        self, mock_llm, mock_ctx, order, approved
+    ):
+        """Deny, Mutate and an approval sharing one non-empty id each act on their own call."""
+        tables = {"deny": "logs", "mutate": "orig", "approve": "tmp"}
+        calls = [
+            _tool_call(name="DropTable", args={"table": tables[k]}, call_id="shared")
+            for k in order
+        ]
+
+        def hook(ctx: HookContext):
+            table = ctx.payload.get("table")
+            if table == "logs":
+                return Deny(reason="blocked")
+            if table == "orig":
+                return Mutate(payload={"table": "safe"})
+            return RequireApproval(timeout_seconds=30)
+
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
+
+        def published_id():
+            return mock_ctx.call_activity.call_args_list[-1][1]["input"]["event"][
+                "approval_request_id"
+            ]
+
+        event_task = Mock(name="event")
+        timer_task = Mock(name="timer")
+        mock_ctx.wait_for_external_event.return_value = event_task
+        mock_ctx.create_timer.return_value = timer_task
+        event_task.get_result.side_effect = lambda: {
+            "approval_request_id": published_id(),
+            "approved": True,
+        }
+
+        # calls that run, in call order, with the arguments they run with
+        expected_runs = [
+            {"table": "safe"} if k == "mutate" else {"table": "tmp"}
+            for k in order
+            if k == "mutate" or (k == "approve" and approved)
+        ]
+        tool_result = {
+            "role": "tool",
+            "name": "DropTable",
+            "tool_call_id": "shared",
+            "content": "ran",
+        }
+
+        gen = agent.agent_workflow(mock_ctx, {"task": "do something"})
+        with patch("dapr.ext.workflow.when_any", return_value=Mock()):
+            next(gen)  # record_initial_entry
+            gen.send(None)  # call_llm
+            gen.send({"tool_calls": calls})  # publish_approval_request
+            gen.send(published_id())  # when_any
+            gen.send(event_task if approved else timer_task)  # first run_tool
+            for _ in expected_runs:
+                gen.send(tool_result)  # next run_tool, then save_tool_results
+        gen.close()
+
+        run_args = [
+            json.loads(c[1]["input"]["tool_call"]["function"]["arguments"])
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.run_tool)
+        ]
+        assert run_args == expected_runs
+        (save_input,) = [
+            c[1]["input"]
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.save_tool_results)
+        ]
+        results = save_input["tool_results"]
+        assert len(results) == 3
+        assert all(r["tool_call_id"] == "shared" for r in results)
+        for kind, result in zip(order, results):
+            if kind == "deny":
+                assert "not executed" in result["content"]
+                assert "blocked" in result["content"]
+            elif kind == "approve" and not approved:
+                assert "not executed" in result["content"]
+                assert "not granted or timed out" in result["content"]
+            else:
+                assert result["content"] == "ran"
+
+    def test_deny_in_one_turn_does_not_carry_to_next_turn_with_same_id(
+        self, mock_llm, mock_ctx
+    ):
+        """A Deny for a tool_call_id on turn 1 must not block a call reusing that id on turn 2."""
+        turn1 = [_tool_call(name="DropTable", args={"table": "logs"}, call_id="shared")]
+        turn2 = [_tool_call(name="DropTable", args={"table": "tmp"}, call_id="shared")]
+
+        def hook(ctx: HookContext):
+            if ctx.payload.get("table") == "logs":
+                return Deny(reason="blocked")
+            return Proceed()
+
+        agent = _make_agent(mock_llm, hooks=Hooks(before_tool_call=[hook]))
+        gen = agent.agent_workflow(mock_ctx, {"task": "do something"})
+        next(gen)  # record_initial_entry
+        gen.send(None)  # call_llm (turn 1)
+        gen.send({"tool_calls": turn1})  # save_tool_results (denied, nothing runs)
+        gen.send(None)  # call_llm (turn 2)
+        gen.send({"tool_calls": turn2})  # run_tool
+        gen.send(
+            {
+                "role": "tool",
+                "name": "DropTable",
+                "tool_call_id": "shared",
+                "content": "ran",
+            }
+        )  # save_tool_results
+        gen.close()
+
+        run_args = [
+            json.loads(c[1]["input"]["tool_call"]["function"]["arguments"])
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.run_tool)
+        ]
+        saves = [
+            c[1]["input"]["tool_results"]
+            for c in mock_ctx.call_activity.call_args_list
+            if c[0][0] == agent._activity_name(agent.save_tool_results)
+        ]
+        assert run_args == [{"table": "tmp"}]
+        assert len(saves) == 2
+        assert "not executed" in saves[0][0]["content"]
+        assert saves[1][0]["content"] == "ran"
+
     # ------------------------------------------------------------------ #
     # Skip                                                                 #
     # ------------------------------------------------------------------ #
@@ -516,7 +808,7 @@ class TestHookWorkflowDispatch:
             next(gen)  # Y0: record_initial_entry
             gen.send(None)  # Y1: call_llm
             gen.send({"tool_calls": [tc]})  # Y2: publish_approval_request
-            gen.send(None)  # Y3: when_any
+            gen.send(_published_request_id(mock_ctx))  # Y3: when_any
             gen.send(timer_task)  # Y4: timer wins → save_tool_results
             gen.send(None)  # Y5: call_llm (final)
             try:
@@ -576,8 +868,8 @@ class TestHookWorkflowDispatch:
         mock_ctx.wait_for_external_event.return_value = event_task
         mock_ctx.create_timer.return_value = timer_task
 
-        approval_request_id = str(
-            uuid.uuid5(uuid.NAMESPACE_DNS, f"{mock_ctx.instance_id}:{tc['id']}")
+        approval_request_id = _approval_request_id(
+            mock_ctx.instance_id, "2024-01-01T00:00:00.000000", 1, 0, tc["id"]
         )
         event_task.get_result.return_value = {
             "approval_request_id": approval_request_id,
@@ -597,7 +889,7 @@ class TestHookWorkflowDispatch:
             next(gen)  # Y0: record_initial_entry
             gen.send(None)  # Y1: call_llm
             gen.send({"tool_calls": [tc]})  # Y2: publish_approval_request
-            gen.send(None)  # Y3: when_any
+            gen.send(_published_request_id(mock_ctx))  # Y3: when_any
             gen.send(event_task)  # Y4: run_tool (event wins → approved)
             gen.send(tool_result)  # Y5: save_tool_results
             gen.send(None)  # Y6: call_llm (final)
