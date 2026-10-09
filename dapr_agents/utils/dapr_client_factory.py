@@ -119,7 +119,7 @@ def dapr_client_kwargs(
         if explicit is None:
             # Drop the unset kwarg so we fall through to config/env resolution.
             del resolved["max_grpc_message_length"]
-        elif not type(explicit) is int or explicit <= 0:
+        elif type(explicit) is not int or explicit <= 0:
             raise ValueError(
                 f"max_grpc_message_length must be a positive integer, got {explicit!r}"
             )
