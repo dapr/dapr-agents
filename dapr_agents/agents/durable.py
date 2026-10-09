@@ -3168,6 +3168,13 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             # Only this turn's replies count. Providers reuse tool_call_ids
             # across turns (e.g. "call_0" every turn), so an id from an
             # earlier turn must not suppress this turn's result.
+            # This relies on each turn's results being saved in one call:
+            # agent_workflow collects every result of a turn (executed,
+            # hook-denied, hook-skipped, approval outcomes, ask_user) into one
+            # list before calling this activity once. Any reply already after
+            # the assistant message therefore comes from a re-run of this same
+            # call. Splitting a turn's save across calls would need a
+            # different dedupe key.
             already_saved = turn_replies
 
         # Process each tool result
