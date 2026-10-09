@@ -48,6 +48,14 @@ def test_env_set_adds_max_grpc_message_length() -> None:
     assert result == {"max_grpc_message_length": 16 * 1024 * 1024}
 
 
+@pytest.mark.parametrize("value", [3.0, "3.0"])
+def test_integral_float_env_is_normalized(value: object) -> None:
+    with mock.patch.dict(os.environ, {INBOUND_MESSAGE_SIZE_ENV: str(value)}):
+        result = dapr_client_kwargs()
+
+    assert result == {"max_grpc_message_length": 3}
+
+
 def test_env_set_preserves_other_explicit_kwargs() -> None:
     with mock.patch.dict(os.environ, {INBOUND_MESSAGE_SIZE_ENV: "8388608"}):
         result = dapr_client_kwargs(http_timeout_seconds=10)
@@ -63,6 +71,13 @@ def test_explicit_max_grpc_message_length_wins_over_env() -> None:
         result = dapr_client_kwargs(max_grpc_message_length=64 * 1024 * 1024)
 
     assert result == {"max_grpc_message_length": 64 * 1024 * 1024}
+
+
+@pytest.mark.parametrize("value", [3.0, "3.0"])
+def test_explicit_integral_float_is_normalized(value: object) -> None:
+    assert dapr_client_kwargs(max_grpc_message_length=value) == {
+        "max_grpc_message_length": 3
+    }
 
 
 def test_invalid_env_logs_warning_and_returns_empty(
@@ -112,6 +127,14 @@ def test_config_supplies_max_grpc_message_length() -> None:
     assert dapr_client_kwargs(config=config) == {
         "max_grpc_message_length": 16 * 1024 * 1024
     }
+
+
+@pytest.mark.parametrize("value", [3.0, "3.0"])
+def test_config_normalizes_integral_float(value: object) -> None:
+    config = DaprClientConfig(max_grpc_message_length=value)  # type: ignore[arg-type]
+
+    assert config.max_grpc_message_length == 3
+    assert dapr_client_kwargs(config=config) == {"max_grpc_message_length": 3}
 
 
 def test_config_with_none_falls_through_to_env() -> None:
@@ -169,7 +192,9 @@ def test_explicit_kwarg_none_with_no_other_source_returns_empty() -> None:
     assert dapr_client_kwargs(max_grpc_message_length=None) == {}
 
 
-@pytest.mark.parametrize("value", [0, -1])
-def test_explicit_kwarg_rejects_non_positive_int(value: int) -> None:
-    with pytest.raises(ValueError, match="positive integer"):
+@pytest.mark.parametrize("value", [0, -1, 3.5, "3.5"])
+def test_explicit_kwarg_rejects_non_positive_or_fractional_values(
+    value: object,
+) -> None:
+    with pytest.raises(ValueError, match="positive integer|integer"):
         dapr_client_kwargs(max_grpc_message_length=value)

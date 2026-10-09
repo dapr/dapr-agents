@@ -196,7 +196,7 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
     def test_execution_config_from_instantiation_accepts_integral_float_values(
         self, mock_llm, mock_tool, value
     ):
-        """Test that integral floats are accepted without truncating fractional values."""
+        """Test that execution config accepts integral floats."""
         execution_config = AgentExecutionConfig(
             max_iterations=value,
             max_grpc_inbound_message_size_bytes=value,
@@ -378,7 +378,7 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
     def test_execution_config_from_env_accepts_integral_float_values(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test that integral float strings are accepted from the environment."""
+        """Test that execution config accepts integral floats."""
         monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "5.0")
         monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "123456.0")
 
@@ -527,10 +527,10 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_from_env_accepts_integral_float_values(
+    def test_execution_config_from_statestore_accepts_integral_float_values(
         self, mock_llm, mock_tool, monkeypatch
     ):
-        """Test that integral float strings are accepted from the environment."""
+        """Test that execution config accepts integral floats."""
         runtime_config = {
             "max_iterations": "5.0",
         }
