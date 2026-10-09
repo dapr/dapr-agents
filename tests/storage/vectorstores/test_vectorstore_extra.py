@@ -165,18 +165,30 @@ def test_not_in_extra_entries_have_reasons() -> None:
     assert NOT_IN_EXTRA.keys() <= _lazy_third_party_modules()
 
 
+def _core_requirements() -> Set[str]:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
+    names: Set[str] = set()
+    for entry in pyproject["project"]["dependencies"]:
+        match = REQUIREMENT_NAME.match(entry)
+        assert match, f"Cannot parse requirement {entry!r}"
+        names.add(_normalize(match.group(1)))
+    return names
+
+
 def _needs_direct_entry() -> List[str]:
-    """Modules not already pulled in as a dependency of another backend.
+    """Modules not already installed by the core dependencies or another backend.
 
     ``redis`` comes with ``redisvl``, so only the top-level backends must be
-    listed in the extra by name.
+    listed in the extra by name. A module that a core dependency provides is
+    installed everywhere and needs no entry either.
     """
     graph = _locked_dependency_graph()
+    core = _core_requirements()
     modules = [m for m in _modules_in_extra() if m in MODULE_TO_DISTRIBUTION]
     result: List[str] = []
     for module in modules:
         others = {_normalize(MODULE_TO_DISTRIBUTION[m]) for m in modules if m != module}
-        pulled_in = _closure(others, graph) - others
+        pulled_in = _closure(others | core, graph) - others
         if _normalize(MODULE_TO_DISTRIBUTION[module]) not in pulled_in:
             result.append(module)
     return result
@@ -186,16 +198,6 @@ def _needs_direct_entry() -> List[str]:
 def test_extra_lists_backend_directly(module: str) -> None:
     assert module in MODULE_TO_DISTRIBUTION, f"Map {module!r} in MODULE_TO_DISTRIBUTION"
     assert _normalize(MODULE_TO_DISTRIBUTION[module]) in _extra_requirements()
-
-
-def _core_requirements() -> Set[str]:
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
-    names: Set[str] = set()
-    for entry in pyproject["project"]["dependencies"]:
-        match = REQUIREMENT_NAME.match(entry)
-        assert match, f"Cannot parse requirement {entry!r}"
-        names.add(_normalize(match.group(1)))
-    return names
 
 
 def test_extra_installs_every_lazily_imported_backend() -> None:
