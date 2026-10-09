@@ -340,6 +340,25 @@ def test_ignored_replies_share_one_timer_until_timeout(llm):
     assert all(tasks[-1] is raced[0][-1] for tasks in raced)
 
 
+@pytest.mark.parametrize("timeout", [None, 30])
+def test_too_many_ignored_replies_deny_the_request(llm, caplog, timeout):
+    """Ignored replies grow history, so after a cap the request is denied."""
+    agent = _approval_agent(llm)
+    acts = _Activities([])
+    h = _approval_harness(agent, acts, timeout=timeout)
+    rid = acts.ids[0]
+    cap = durable.MAX_IGNORED_APPROVAL_RESPONSES
+    for i in range(cap - 1):
+        h.raise_event(_name(rid), _reply(rid, body_id=f"stale-{i}"))
+    assert not h.done
+
+    with caplog.at_level(logging.WARNING, logger="dapr_agents.agents.durable"):
+        h.raise_event(_name(rid), None)
+
+    assert h.done and h.output is False
+    assert any("denying" in r.getMessage() for r in caplog.records)
+
+
 # Runs whose publish was recorded by older code                                #
 
 

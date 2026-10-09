@@ -140,6 +140,11 @@ from dapr_agents.tool.mcp.dapr_workflow_client import mcp_tool_def_to_workflow_t
 
 logger = get_context_aware_logger(__name__)
 
+# Ignored (malformed or mismatched) replies a single approval request tolerates
+# before it is denied. Each one adds history events and re-arms the wait, so
+# without a cap a request with no timeout could grow its history without bound.
+MAX_IGNORED_APPROVAL_RESPONSES = 20
+
 
 def _approval_request_id(
     instance_id: str,
@@ -1415,8 +1420,11 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
 
         Returns ``(approved, reason)``; approved is True only for a matching,
         approving response. A timeout returns ``(False, None)``. Ignored responses re-arm only their own wait, so the other waits
-        and the single timer stay in place.
+        and the single timer stay in place. After
+        ``MAX_IGNORED_APPROVAL_RESPONSES`` ignored responses the request is
+        denied with ``(False, None)``.
         """
+        ignored = 0
         while True:
             pending = [waits[rid] for rid in accepted_ids]
             if timer_task is None and len(pending) == 1:
@@ -1438,6 +1446,17 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 winner, wait_id, fn_name, instance_id
             )
             if response is None:
+                ignored += 1
+                if ignored >= MAX_IGNORED_APPROVAL_RESPONSES:
+                    logger.warning(
+                        "Approval request %s ignored %d responses for tool '%s' "
+                        "(instance=%s) — denying",
+                        accepted_ids[0],
+                        ignored,
+                        fn_name,
+                        instance_id,
+                    )
+                    return False, None
                 # Ignored: listen on that name again; other waits and the timer stay.
                 waits[wait_id] = ctx.wait_for_external_event(
                     f"approval_response_{wait_id}"
