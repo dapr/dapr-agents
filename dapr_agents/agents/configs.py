@@ -610,7 +610,7 @@ class AgentExecutionConfig:
     # in shape/semantics in future 1.x releases. Enabling it logs a one-time
     # alpha warning; consumers should branch on AgentStreamChunk.schema_version.
     streaming: bool = False
-    stream_listener: Optional[Dict[str, Any]] = None
+    stream_listener: Optional[Dict[str, Any]] = field(default=None, repr=False)
 
     # Built-in tools are opt-in. Default is an empty list to preserve strict
     # backwards compatibility — upgrading agents do not suddenly see new tools
