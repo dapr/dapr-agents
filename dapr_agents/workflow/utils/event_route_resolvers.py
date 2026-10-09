@@ -131,7 +131,7 @@ def resolve_field(
         return resolver(message, msg_ctx)
     except Exception as exc:
         raise EventRouteResolutionError(
-            field, f"resolver raised {type(exc).__name__}: {exc}"
+            field, f"resolver raised {type(exc).__name__}"
         ) from exc
 
 
@@ -184,7 +184,7 @@ def serialize_event_data(
             raise
         except Exception as exc:
             raise EventRouteResolutionError(
-                "data", f"serialization failed: {type(exc).__name__}: {exc}"
+                "data", f"serialization failed: {type(exc).__name__}"
             ) from exc
     else:
         result = resolve_field(resolver, message, msg_ctx, field="data")
@@ -193,7 +193,7 @@ def serialize_event_data(
         encoded = json.dumps(result)
     except Exception as exc:
         raise EventRouteResolutionError(
-            "data", f"not JSON-serializable: {type(exc).__name__}: {exc}"
+            "data", f"not JSON-serializable: {type(exc).__name__}"
         ) from exc
     size = len(encoded.encode("utf-8"))
     if max_bytes is not None and size > max_bytes:

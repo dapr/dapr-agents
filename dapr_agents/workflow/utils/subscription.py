@@ -516,7 +516,7 @@ def _serialize_event_default_data(parsed: Any) -> Any:
         data, _ = _serialize_workflow_input(parsed, json_mode=True)
     except Exception as exc:
         raise EventRouteResolutionError(
-            "data", f"serialization failed: {type(exc).__name__}: {exc}"
+            "data", f"serialization failed: {type(exc).__name__}"
         ) from exc
     if hasattr(parsed, "model_dump") and not isinstance(parsed, dict):
         return data  # model_dump(mode="json") output is already JSON-safe

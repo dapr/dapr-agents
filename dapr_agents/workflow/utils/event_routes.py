@@ -301,6 +301,14 @@ class WorkflowEventDispatcher:
                 ctx.event_id,
                 topic,
             )
+            # The cause's message can echo message content, so it is only
+            # logged at DEBUG.
+            logger.debug(
+                "Event route %r resolution failure detail for message id=%r.",
+                route_name,
+                ctx.event_id,
+                exc_info=exc,
+            )
             return _DROP
         key = resolved.dedupe_key(ctx.message_key)
         status = self._dispatch_resolved(ctx, resolved, key, message, msg_ctx)
@@ -496,7 +504,7 @@ class WorkflowEventDispatcher:
             raise
         except Exception as exc:
             raise EventRouteResolutionError(
-                "message", f"unexpected {type(exc).__name__}: {exc}"
+                "message", f"unexpected {type(exc).__name__}"
             ) from exc
 
     def _resolve_fields(

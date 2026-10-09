@@ -352,6 +352,26 @@ def test_resolve_callable_error_is_wrapped():
     assert "KeyError" in info.value.reason
 
 
+def test_resolution_reasons_omit_exception_message():
+    """Reasons are logged at WARNING; exception text can echo message content."""
+    secret = "secret-payload-value"
+
+    def resolver(msg, ctx):
+        raise ValueError(secret)
+
+    def serializer(_: Any) -> Any:
+        raise ValueError(secret)
+
+    with pytest.raises(EventRouteResolutionError) as info:
+        resolve_field(resolver, {}, _ctx(), field="data")
+    assert secret not in info.value.reason
+    assert "ValueError" in info.value.reason
+    with pytest.raises(EventRouteResolutionError) as info:
+        serialize_event_data(None, {}, _ctx(), default_serializer=serializer)
+    assert secret not in info.value.reason
+    assert info.value.__cause__ is not None
+
+
 def test_coerce_identifier():
     assert coerce_identifier("abc", field="instance_id") == "abc"
     assert coerce_identifier(42, field="instance_id") == "42"
