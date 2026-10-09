@@ -572,7 +572,7 @@ class AgentBase:
             # OTEL_EXPORTER_OTLP_HEADERS may come from runtime config or secrets (as an access token).
             runtime_config={**self._runtime_conf, **self._runtime_secrets},
         )
-        self._setup_agent_observability()
+        self._setup_agent_observability(self._agent_observability)
 
         # -----------------------------
         # Registry wiring
@@ -1843,14 +1843,12 @@ class AgentBase:
                 pass
         return datetime.now(timezone.utc)
 
-    def _setup_agent_observability(self) -> None:
+    def _setup_agent_observability(self, config: AgentObservabilityConfig) -> None:
         """Setup agent runtime configuration."""
         self._otel_logging_handler = None
 
-        if self._agent_observability.enabled:
-            tracer_provider, logger_provider = self._build_otel_providers(
-                self._agent_observability
-            )
+        if config.enabled:
+            tracer_provider, logger_provider = self._build_otel_providers(config)
 
             if logger_provider is not None:
                 _logs.set_logger_provider(logger_provider)
