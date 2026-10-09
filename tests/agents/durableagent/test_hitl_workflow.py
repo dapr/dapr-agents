@@ -452,14 +452,14 @@ class TestHookWorkflowDispatch:
     @pytest.mark.parametrize(
         "other_decision, expected_runs, other_content, tracked",
         [
-            (Proceed(), [{"table": "tmp"}], "ran", (0, "denied")),
+            (Proceed(), [{"table": "tmp"}], "ran", ["denied", None]),
             (
                 Mutate(payload={"table": "safe"}),
                 [{"table": "safe"}],
                 "ran",
-                (0, "denied"),
+                ["denied", None],
             ),
-            (Skip(result="cached"), [], "cached", (1, "skipped")),
+            (Skip(result="cached"), [], "cached", ["denied", "skipped"]),
         ],
         ids=["proceed", "mutate", "skip"],
     )
@@ -509,11 +509,11 @@ class TestHookWorkflowDispatch:
         results = save_input["tool_results"]
         assert "not executed" in results[0]["content"]
         assert results[1]["content"] == other_content
-        # tool_calls_by_id is still keyed by tool_call_id, so the last labelled call wins.
-        tracked_idx, tracked_label = tracked
-        entry = save_input["tool_calls_by_id"][""]
-        assert entry["tool_call"] == calls[tracked_idx]
-        assert entry["hook_decision"] == tracked_label
+        # tool_call_meta is positional, so each call keeps its own entry.
+        meta = save_input["tool_call_meta"]
+        assert len(meta) == 2
+        assert meta[0]["tool_call"] == calls[0]
+        assert [m.get("hook_decision") for m in meta] == tracked
 
     def _drive_shared_id_approval(self, agent, mock_ctx, calls, *, approve):
         event_task = Mock(name="event")
