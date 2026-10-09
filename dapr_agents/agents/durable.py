@@ -712,6 +712,11 @@ class DurableAgent(AgentBase):
 
                         # hook pass: run before_tool_call for every tool in this turn and collect decisions before dispatching anything.
                         # Keyed by position: tool_call_id can be "" or repeated.
+                        # Upgrade note: before this keying, calls sharing a tool_call_id
+                        # with mixed decisions were dispatched differently. A run paused
+                        # inside such a turn across the upgrade replays different
+                        # activities and can fail with a non-determinism error; drain or
+                        # restart those runs before upgrading.
                         hook_decisions: Dict[int, HookDecision] = {}
                         if self._hooks and self._hooks.before_tool_call:
                             for idx, tc in enumerate(tool_calls):
