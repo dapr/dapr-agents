@@ -192,11 +192,11 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
         assert agent.execution.stream_listener is None
         assert agent.execution.builtin_tools == [BuiltinTool.ASK_USER]
 
-    @pytest.mark.parametrize("value", [3.0, "3.0"])
-    def test_execution_config_from_instantiation_accepts_integral_float_values(
+    @pytest.mark.parametrize("value", [3.0, "3", "3.0"])
+    def test_execution_config_from_instantiation_accepts_integral_values(
         self, mock_llm, mock_tool, value
     ):
-        """Test that execution config accepts integral floats."""
+        """Test that execution config accepts integral values."""
         execution_config = AgentExecutionConfig(
             max_iterations=value,
             max_grpc_inbound_message_size_bytes=value,
@@ -375,17 +375,18 @@ class TestExecutionConfigFromEnvironment(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes == 654321
 
-    def test_execution_config_from_env_accepts_integral_float_values(
-        self, mock_llm, mock_tool, monkeypatch
+    @pytest.mark.parametrize("value", [3.0, "3", "3.0"])
+    def test_execution_config_from_env_accepts_integral_values(
+        self, mock_llm, mock_tool, monkeypatch, value
     ):
-        """Test that execution config accepts integral floats."""
-        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "5.0")
-        monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", "123456.0")
+        """Test that execution config accepts integral values."""
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", str(value))
+        monkeypatch.setenv("DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES", str(value))
 
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
-        assert agent.execution.max_iterations == 5
-        assert agent.execution.max_grpc_inbound_message_size_bytes == 123456
+        assert agent.execution.max_iterations == 3
+        assert agent.execution.max_grpc_inbound_message_size_bytes == 3
 
     def test_execution_config_from_env_accepts_snake_case_keys(
         self, mock_llm, mock_tool, monkeypatch
@@ -527,12 +528,13 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
         assert agent.execution.orchestration_mode is None
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_from_statestore_accepts_integral_float_values(
-        self, mock_llm, mock_tool, monkeypatch
+    @pytest.mark.parametrize("value", [3.0, "3", "3.0"])
+    def test_execution_config_from_statestore_accepts_integral_values(
+        self, mock_llm, mock_tool, monkeypatch, value
     ):
-        """Test that execution config accepts integral floats."""
+        """Test that execution config accepts integral values."""
         runtime_config = {
-            "max_iterations": "5.0",
+            "max_iterations": str(value),
         }
 
         mock_client = MockDaprClient(runtime_config=runtime_config)
@@ -540,7 +542,7 @@ class TestExecutionConfigFromStateStore(ExecutionConfigTestBase):
 
         agent = self._make_agent(mock_llm, tools=[mock_tool])
 
-        assert agent.execution.max_iterations == 5
+        assert agent.execution.max_iterations == 3
 
     def test_execution_config_from_statestore_accepts_snake_case_keys(
         self, mock_llm, mock_tool, monkeypatch

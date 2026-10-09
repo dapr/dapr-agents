@@ -48,8 +48,8 @@ def test_env_set_adds_max_grpc_message_length() -> None:
     assert result == {"max_grpc_message_length": 16 * 1024 * 1024}
 
 
-@pytest.mark.parametrize("value", [3.0, "3.0"])
-def test_integral_float_env_is_normalized(value: object) -> None:
+@pytest.mark.parametrize("value", [3.0, "3", "3.0"])
+def test_integral_max_grpc_message_length_env_is_normalized(value: object) -> None:
     with mock.patch.dict(os.environ, {INBOUND_MESSAGE_SIZE_ENV: str(value)}):
         result = dapr_client_kwargs()
 
@@ -73,8 +73,8 @@ def test_explicit_max_grpc_message_length_wins_over_env() -> None:
     assert result == {"max_grpc_message_length": 64 * 1024 * 1024}
 
 
-@pytest.mark.parametrize("value", [3.0, "3.0"])
-def test_explicit_integral_float_is_normalized(value: object) -> None:
+@pytest.mark.parametrize("value", [3.0, "3", "3.0"])
+def test_explicit_integral_max_grpc_message_length_is_normalized(value: object) -> None:
     assert dapr_client_kwargs(max_grpc_message_length=value) == {
         "max_grpc_message_length": 3
     }
@@ -129,8 +129,8 @@ def test_config_supplies_max_grpc_message_length() -> None:
     }
 
 
-@pytest.mark.parametrize("value", [3.0, "3.0"])
-def test_config_normalizes_integral_float(value: object) -> None:
+@pytest.mark.parametrize("value", [3.0, "3", "3.0"])
+def test_config_normalizes_integral_max_grpc_message_length(value: object) -> None:
     config = DaprClientConfig(max_grpc_message_length=value)  # type: ignore[arg-type]
 
     assert config.max_grpc_message_length == 3
