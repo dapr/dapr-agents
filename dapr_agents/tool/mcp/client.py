@@ -242,17 +242,17 @@ class MCPClient(BaseModel):
         failed = False
         try:
             self._task_locals[server_name] = asyncio.current_task()
+            # Not ``async with stack``: on failure its exit would run first, and
+            # a cleanup error there would replace the original one. The except
+            # block below closes the stack quietly instead, in both modes.
+            session, tools, prompts = await self._open_and_load(
+                server_name, transport, config, stack
+            )
             if self.persistent_connections:
-                session, tools, prompts = await self._open_and_load(
-                    server_name, transport, config, stack
-                )
                 self._exit_stack.push_async_exit(stack)
                 self._sessions[server_name] = session
             else:
-                async with stack:
-                    _, tools, prompts = await self._open_and_load(
-                        server_name, transport, config, stack
-                    )
+                await stack.aclose()
             self._server_tools[server_name] = tools
             self._server_prompts[server_name] = prompts
             self._server_configs[server_name] = new_config

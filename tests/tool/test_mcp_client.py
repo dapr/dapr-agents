@@ -378,14 +378,27 @@ async def test_cancelled_reconnect_registers_no_new_tools_or_prompts():
     assert _registered(client) == before
 
 
-async def test_failed_connect_bookkeeping_survives_cancelled_error_on_close():
-    client = MCPClient()
-    servers = _FakeServers(fail={"new"}, exit_exc=asyncio.CancelledError())
+@pytest.mark.parametrize("persistent", [False, True])
+@pytest.mark.parametrize(
+    "exit_exc, expected",
+    [
+        # An ordinary cleanup error is logged; the original error wins.
+        (RuntimeError("exit failed"), OSError),
+        # Cancellation during cleanup is not swallowed.
+        (asyncio.CancelledError(), asyncio.CancelledError),
+    ],
+)
+async def test_failed_connect_cleanup_error_precedence_and_bookkeeping(
+    persistent, exit_exc, expected
+):
+    client = MCPClient(persistent_connections=persistent)
+    servers = _FakeServers(fail={"new"}, exit_exc=exit_exc)
     with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
         with pytest.raises(BaseException) as info:
             await client.connect(_NEW)
 
-    assert info.type in (OSError, asyncio.CancelledError)
+    assert info.type is expected
+    assert servers.exited == ["new"]
     assert "srv" not in client._sessions
     assert "srv" not in client._task_locals
     assert "srv" not in client._connecting
