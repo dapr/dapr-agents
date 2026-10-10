@@ -364,7 +364,6 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         import dapr_agents.llm as llm_pkg
 
         chat_client_classes = []
-        seen: set[type] = set()
 
         for module_info in pkgutil.iter_modules(llm_pkg.__path__):
             if not module_info.ispkg:
@@ -372,8 +371,15 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
             module_name = f"dapr_agents.llm.{module_info.name}.chat"
             try:
                 module = importlib.import_module(module_name)
-            except ImportError:
-                logger.debug("Could not import %s", module_name)
+            except ImportError as exc:
+                if isinstance(exc, ModuleNotFoundError) and exc.name == module_name:
+                    logger.debug("No chat module in %s", module_info.name)
+                else:
+                    logger.warning(
+                        "Could not import %s; its chat clients will not be traced: %s",
+                        module_name,
+                        exc,
+                    )
                 continue
 
             for attr_name in dir(module):
@@ -382,9 +388,8 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                     isinstance(attr, type)
                     and issubclass(attr, base_class)
                     and attr is not base_class
-                    and attr not in seen
+                    and attr.__module__ == module_name
                 ):
-                    seen.add(attr)
                     chat_client_classes.append((attr, module_name))
 
         return chat_client_classes
