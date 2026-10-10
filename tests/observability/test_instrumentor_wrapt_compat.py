@@ -63,3 +63,52 @@ def test_wrap_calls_pass_target_positionally(method, instrumentor, recorded_call
     for args, kwargs in recorded_calls:
         assert "module" not in kwargs and "target" not in kwargs
         assert isinstance(args[0], str) and args[0]
+
+
+def test_discover_chat_clients_includes_anthropic_litellm_mistral(instrumentor):
+    """Every *ChatClient under dapr_agents.llm must be discovered (#882)."""
+    from dapr_agents.llm.anthropic.chat import AnthropicChatClient
+    from dapr_agents.llm.chat import ChatClientBase
+    from dapr_agents.llm.litellm.chat import LiteLLMChatClient
+    from dapr_agents.llm.mistral.chat import MistralChatClient
+
+    discovered = instrumentor._discover_chat_clients(ChatClientBase)
+    names = {cls.__name__ for cls, _ in discovered}
+    modules = {module for _, module in discovered}
+
+    assert AnthropicChatClient.__name__ in names
+    assert LiteLLMChatClient.__name__ in names
+    assert MistralChatClient.__name__ in names
+    assert "dapr_agents.llm.anthropic.chat" in modules
+    assert "dapr_agents.llm.litellm.chat" in modules
+    assert "dapr_agents.llm.mistral.chat" in modules
+
+
+def test_apply_llm_wrappers_instruments_anthropic_generate(
+    instrumentor, recorded_calls
+):
+    """AnthropicChatClient.generate must be wrapped so LLM spans are emitted."""
+    with patch("dapr_agents.observability.instrumentor.logger") as log:
+        instrumentor._apply_llm_wrappers()
+
+    log.error.assert_not_called()
+    # wrap_function_wrapper(module, name=..., wrapper=...) — name may be kw or positional
+    wrapped = set()
+    for args, kwargs in recorded_calls:
+        module = args[0]
+        name = kwargs.get("name")
+        if name is None and len(args) > 1:
+            name = args[1]
+        wrapped.add((module, name))
+    assert (
+        "dapr_agents.llm.anthropic.chat",
+        "AnthropicChatClient.generate",
+    ) in wrapped
+    assert (
+        "dapr_agents.llm.litellm.chat",
+        "LiteLLMChatClient.generate",
+    ) in wrapped
+    assert (
+        "dapr_agents.llm.mistral.chat",
+        "MistralChatClient.generate",
+    ) in wrapped
