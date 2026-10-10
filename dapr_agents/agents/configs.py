@@ -629,26 +629,23 @@ class AgentExecutionConfig:
     builtin_tools: List[str] = field(default_factory=list)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        """Track assignments to fields used for instantiation precedence."""
+        """Track assignments to fields before and after construction."""
         object.__setattr__(self, name, value)
 
         # During dataclass ``__init__`` and ``__post_init__``, tracked fields are assigned before
-        # ``_provided_fields`` exists, so those assignments do not alter the constructor-derived
-        # set of explicitly provided fields. After initialization, assignments update that
-        # set; assigning None removes the field and treats it as omitted.
+        # ``_provided_fields`` exists, so those assignments do not need to update ``_provided_fields``.
+        # After construction, assignments must update ``_provided_fields`` so that they can be read
+        # during config resolution via ``_from_instantiation()``.
         if (
             name in _AGENT_EXECUTION_CONFIG_INSTANTIATION_TRACKED_FIELDS
             and "_provided_fields" in self.__dict__
         ):
             provided_fields = set(self._provided_fields)
-            if value is None:
-                provided_fields.discard(name)
-            else:
-                provided_fields.add(name)
+            provided_fields.add(name)
             object.__setattr__(self, "_provided_fields", frozenset(provided_fields))
 
     def __post_init__(self) -> None:
-        # Track which fields the caller explicitly passed. Omitted fields keep their
+        # Track which fields the caller explicitly passed. Unset fields keep their
         # normal defaults (for backwards compatibility), and an explicit ``None`` is
         # distinguishable from "not provided". ``_from_instantiation()`` uses this
         # to merge only the fields the caller actually set.

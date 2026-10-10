@@ -829,11 +829,12 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
         # All other fields should resolve to defaults since they were not provided
         assert agent.execution.max_grpc_inbound_message_size_bytes is None
 
-    def test_execution_config_instantiation_over_env_assigned_default(
+    def test_execution_config_instantiation_over_env_post_construction_default_overrides(
         self, monkeypatch
     ):
-        """Test that an assigned default value still overrides environment variables."""
+        """Test that assigning a default value after construction still overrides environment variables."""
         monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "7")
+
         execution_config = AgentExecutionConfig()
         execution_config.max_iterations = AGENT_DEFAULT_MAX_ITERATIONS
 
@@ -841,14 +842,18 @@ class TestExecutionConfigPrecedence(ExecutionConfigTestBase):
 
         assert resolved_config.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
 
-    def test_execution_config_instantiation_none_removes_override(self):
-        """Test that assigning ``None`` after instantiation restores the field's normal precedence."""
+    def test_execution_config_instantiation_over_env_post_construction_none_treated_as_no_override(
+        self, monkeypatch
+    ):
+        """Test that assigning ``None`` after construction is treated as "no override"."""
+        monkeypatch.setenv("DAPR_AGENTS_MAX_ITERATIONS", "7")
+
         execution_config = AgentExecutionConfig(max_iterations=3)
         execution_config.max_iterations = None
 
         resolved_config = AgentExecutionConfig._resolve_config(config=execution_config)
 
-        assert resolved_config.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
+        assert resolved_config.max_iterations == 7
 
     def test_execution_config_statestore_over_env(
         self, mock_llm, mock_tool, monkeypatch
