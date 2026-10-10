@@ -348,33 +348,44 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         """
         Discover all ChatClient subclasses across LLM provider modules.
 
+        Scans every subpackage under ``dapr_agents.llm`` for a ``chat``
+        module so new providers (anthropic, litellm, mistral, …) are
+        instrumented without updating a hard-coded list.
+
         Args:
             base_class: Base ChatClientBase class
 
         Returns:
             list: List of (class, module_name) tuples
         """
+        import importlib
+        import pkgutil
+
+        import dapr_agents.llm as llm_pkg
+
         chat_client_classes = []
+        seen: set[type] = set()
 
-        # Check each LLM provider module for ChatClient classes
-        for provider in ["openai", "nvidia", "huggingface", "dapr", "iflytek"]:
-            try:
-                module = __import__(f"dapr_agents.llm.{provider}.chat", fromlist=[""])
-
-                for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
-                    if (
-                        isinstance(attr, type)
-                        and issubclass(attr, base_class)
-                        and attr is not base_class
-                    ):
-                        chat_client_classes.append(
-                            (attr, f"dapr_agents.llm.{provider}.chat")
-                        )
-
-            except ImportError:
-                logger.debug(f"Could not import dapr_agents.llm.{provider}.chat")
+        for module_info in pkgutil.iter_modules(llm_pkg.__path__):
+            if not module_info.ispkg:
                 continue
+            module_name = f"dapr_agents.llm.{module_info.name}.chat"
+            try:
+                module = importlib.import_module(module_name)
+            except ImportError:
+                logger.debug("Could not import %s", module_name)
+                continue
+
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if (
+                    isinstance(attr, type)
+                    and issubclass(attr, base_class)
+                    and attr is not base_class
+                    and attr not in seen
+                ):
+                    seen.add(attr)
+                    chat_client_classes.append((attr, module_name))
 
         return chat_client_classes
 
