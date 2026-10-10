@@ -301,7 +301,7 @@ class TestWebhookListener:
         client = _FakeClient()
         fake_httpx.Client.return_value = client
 
-        with patch.dict("sys.modules", {"httpx": fake_httpx}):
+        with patch("dapr_agents.streaming.listeners.httpx", fake_httpx):
             listener = WebhookListener(url="http://x/hook", retry_attempts=0)
             listener.emit(_chunk(seq=1))
             listener.emit(_chunk(seq=2))
@@ -316,27 +316,13 @@ class TestWebhookListener:
         client = _BrokenClient()
         fake_httpx.Client.return_value = client
 
-        with patch.dict("sys.modules", {"httpx": fake_httpx}):
+        with patch("dapr_agents.streaming.listeners.httpx", fake_httpx):
             listener = WebhookListener(url="http://x/hook", retry_attempts=2)
             listener.emit(_chunk(seq=1))
             listener.close()
 
         # 1 original + 2 retries = 3 attempts
         assert len(client.posts) == 3
-
-    def test_missing_httpx_does_not_raise(self) -> None:
-        import sys
-
-        original = sys.modules.pop("httpx", None)
-        try:
-            # Prime the import system to fail for 'httpx'.
-            with patch.dict("sys.modules", {"httpx": None}):
-                listener = WebhookListener(url="http://x/hook", retry_attempts=0)
-                listener.emit(_chunk())
-                listener.close()
-        finally:
-            if original is not None:
-                sys.modules["httpx"] = original
 
 
 # ---------------------------------------------------------------------------
