@@ -144,6 +144,9 @@ anthropic = "2026-08-23T00:00:00Z"
 # the override once 0.2.159 is older than 7 days (after 2026-09-30) so the
 # package falls back under the repo-wide cooldown.
 claude-agent-sdk = "2026-09-24T00:00:00Z"
+# Admit the published router contract only; remove after 2026-10-17T00:40:00Z,
+# when 0.1.0a1 is older than the repository's seven-day cooldown.
+drasi-agent-router-contracts = "2026-10-10T00:40:00Z"
 
 [project.urls]
 Documentation = "https://github.com/dapr/docs"

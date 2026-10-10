@@ -26,6 +26,7 @@ claude-agent-sdk = "2026-09-24T00:00:00Z"
 dapr = "2026-05-21T00:00:00Z"
 dapr-ext-fastapi = "2026-05-21T00:00:00Z"
 dapr-ext-workflow = "2026-05-21T00:00:00Z"
+drasi-agent-router-contracts = "2026-10-10T00:40:00Z"
 durabletask-dapr = "2026-05-21T00:00:00Z"
 
 [manifest]
@@ -1986,6 +1987,7 @@ version = "0.1.0"
 source = { editable = "ext/dapr-agents-ext-drasi" }
 dependencies = [
     { name = "dapr-agents" },
+    { name = "drasi-agent-router-contracts" },
 ]
 
 [package.dev-dependencies]
@@ -2003,7 +2005,10 @@ test = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "dapr-agents", editable = "." }]
+requires-dist = [
+    { name = "dapr-agents", editable = "." },
+    { name = "drasi-agent-router-contracts", specifier = "==0.1.0a1" },
+]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2157,6 +2162,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b2/9d/c3b43da9515bd270df0f80548d9944e389870713cc1fe2b8fb35fe2bcefd/docstring_parser-0.17.0.tar.gz", hash = "sha256:583de4a309722b3315439bb31d64ba3eebada841f2e2cee23b99df001434c912", size = 27442, upload-time = "2025-07-21T07:35:01.868Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/55/e2/2537ebcff11c1ee1ff17d8d0b6f4db75873e3b0fb32c2d4a2ee31ecb310a/docstring_parser-0.17.0-py3-none-any.whl", hash = "sha256:cf2569abd23dce8099b300f9b4fa8191e9582dda731fd533daf54c4551658708", size = 36896, upload-time = "2025-07-21T07:35:00.684Z" },
+]
+
+[[package]]
+name = "drasi-agent-router-contracts"
+version = "0.1.0a1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "pydantic" },
+    { name = "referencing" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/42/fd/6d9e36f1e315ab991fd64b5970320f570efe09c9cccb876b24d93ccae7f6/drasi_agent_router_contracts-0.1.0a1.tar.gz", hash = "sha256:155408ba7f552f200cfc34c7fb262a2ca73ff8be8737af6be5dc6ea44c6d571e", size = 25312, upload-time = "2026-10-10T00:39:27.96Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/7a/78890633cb8369943017142d7959ce92bd338501ce9c154dfab7eead7c55/drasi_agent_router_contracts-0.1.0a1-py3-none-any.whl", hash = "sha256:d683262c9c67977d21016f1f0d6b0046035dfba1bbbc17d3482c1549d6bbd6fe", size = 34080, upload-time = "2026-10-10T00:39:26.73Z" },
 ]
 
 [[package]]
