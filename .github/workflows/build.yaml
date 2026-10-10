@@ -123,7 +123,11 @@ jobs:
     - uses: actions/checkout@v7
       with:
         fetch-depth: 0
+    - name: Fetch upstream release tags for forks
+      if: github.event.repository.fork
+      run: git fetch --no-recurse-submodules https://github.com/dapr/dapr-agents.git 'refs/tags/*:refs/tags/*'
     - name: Set up Python 3.11
+      id: python
       uses: actions/setup-python@v7
       with:
         python-version: "3.11"
@@ -131,15 +135,81 @@ jobs:
       uses: astral-sh/setup-uv@v3
       with:
         version: "latest"
-    - name: Install dependencies
-      run: uv sync --frozen --group test
     - name: Build packages
       run: |
         uv build --wheel --out-dir dist/core
         uv build --package dapr-agents-ext-drasi --wheel --out-dir dist/drasi
-    - name: Verify Drasi extension wheel
+    - name: Verify wheels in a clean environment
+      shell: bash
+      env:
+        PACKAGE_PYTHON: ${{ steps.python.outputs.python-path }}
       run: |
-        uv pip install --target .wheel-test --no-deps dist/core/*.whl dist/drasi/*.whl
-        cd /tmp
-        PYTHONPATH="$GITHUB_WORKSPACE/.wheel-test" "$GITHUB_WORKSPACE/.venv/bin/python" \
-          -c "from dapr_agents.ext.drasi import DrasiChangeEvent, DrasiOperation, drasi_trigger"
+        set -euo pipefail
+        SECONDS=0
+        wheel_test_dir=$(mktemp -d)
+        trap 'status=$?; rm -rf -- "$wheel_test_dir"; echo "Wheel verification took ${SECONDS}s (exit ${status})"; exit "$status"' EXIT
+
+        shopt -s nullglob
+        core_wheels=("$GITHUB_WORKSPACE"/dist/core/*.whl)
+        drasi_wheels=("$GITHUB_WORKSPACE"/dist/drasi/*.whl)
+        if (( ${#core_wheels[@]} != 1 || ${#drasi_wheels[@]} != 1 )); then
+          echo "::error::Expected exactly one core wheel and one Drasi wheel"
+          exit 1
+        fi
+
+        cd "$wheel_test_dir"
+        uv venv --no-config --no-project --no-python-downloads \
+          --python "$PACKAGE_PYTHON" "$wheel_test_dir/venv"
+        wheel_python="$wheel_test_dir/venv/bin/python"
+
+        for stage in core drasi; do
+          echo "Verifying ${stage} installation"
+          wheels=("${core_wheels[0]}")
+          if [[ "$stage" == drasi ]]; then
+            wheels+=("${drasi_wheels[0]}")
+          fi
+          uv pip install --no-config --python "$wheel_python" "${wheels[@]}"
+          uv pip check --no-config --python "$wheel_python"
+          "$wheel_python" -I - "${wheels[@]}" <<'PY'
+        import sys
+        from email.parser import BytesParser
+        from importlib.metadata import distributions, version
+        from pathlib import Path
+        from zipfile import ZipFile
+
+        import dapr_agents
+        from dapr_agents import AgentRunner, DurableAgent, tool
+
+        modules = [dapr_agents]
+        if len(sys.argv) == 3:
+            import dapr_agents.ext.drasi as drasi
+            from dapr_agents.ext.drasi import DrasiChangeEvent, DrasiOperation, drasi_trigger
+
+            modules.append(drasi)
+        else:
+            assert "dapr-agents-ext-drasi" not in {
+                dist.metadata["Name"] for dist in distributions()
+            }, "Core-only installation unexpectedly includes Drasi"
+
+        for wheel in sys.argv[1:]:
+            with ZipFile(wheel) as archive:
+                metadata_files = [
+                    name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+                ]
+                assert len(metadata_files) == 1, f"Expected one METADATA file in {wheel}"
+                metadata = BytesParser().parsebytes(archive.read(metadata_files[0]))
+            name, expected_version = metadata["Name"], metadata["Version"]
+            installed_version = version(name)
+            assert installed_version == expected_version, (
+                f"{name}: installed {installed_version}, wheel has {expected_version}"
+            )
+            print(f"Verified {name}=={installed_version}")
+
+        for module in modules:
+            location = Path(module.__file__).resolve()
+            assert location.is_relative_to(Path(sys.prefix).resolve()), (
+                f"{module.__name__} imported from outside the clean environment: {location}"
+            )
+            print(f"Imported {module.__name__} from {location}")
+        PY
+        done
