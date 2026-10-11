@@ -109,14 +109,18 @@ class TestApplyConfigUpdate:
         basic_agent._apply_config_update("agent-role", "role")
         assert basic_agent.profile.role == "role"
 
+    # TODO: Remove when deprecated key normalization support is removed
     @pytest.mark.parametrize(
         "key", ["Tool-Choice", "Tool-choice", "TOOL-CHOICE", "Tool_Choice"]
     )
-    def test_lenient_normalization_for_existing_keys(self, basic_agent, key):
-        """Existing config keys that do not follow supported naming conventions
-        for initial runtime config resolution (SCREAMING_SNAKE_CASE, snake_case, kebab-case)
-        should still be normalized."""
-        basic_agent._apply_config_update(key, "auto")
+    def test_unsupported_key_naming_convention_warns_but_is_normalized(
+        self, basic_agent, key
+    ):
+        """Existing config keys not using supported naming conventions
+        (SCREAMING_SNAKE_CASE, snake_case, kebab-case) should emit a deprecation warning
+        but still be normalized."""
+        with pytest.warns(DeprecationWarning, match="deprecated naming convention"):
+            basic_agent._apply_config_update(key, "auto")
         assert basic_agent.execution.tool_choice == "auto"
 
     def test_invalid_type_for_valid_key_rejected(self, basic_agent, caplog):

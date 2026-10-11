@@ -156,14 +156,21 @@ class TestNormalizeConfigKey:
             ("NOT_NORMALIZED", "not_normalized"),
             ("not-normalized", "not_normalized"),
             ("already_normalized", "already_normalized"),
-            ("Not-Normalized", "not_normalized"),
-            ("Not_normalized", "not_normalized"),
-            ("NOT-NORMALIZED", "not_normalized"),
-            ("Not_Normalized", "not_normalized"),
         ],
     )
-    def test_normalize_config_key_is_lenient(self, key, expected):
+    def test_normalize_config_key_normalizes_supported_conventions(self, key, expected):
         assert _normalize_config_key(key) == expected
+
+    # TODO: Remove when deprecated key normalization support is removed
+    @pytest.mark.parametrize(
+        "key",
+        ["Not-Normalized", "Not_normalized", "NOT-NORMALIZED", "Not_Normalized"],
+    )
+    def test_normalize_config_key_warns_but_normalizes_unsupported_conventions(
+        self, key
+    ):
+        with pytest.warns(DeprecationWarning, match="deprecated naming convention"):
+            assert _normalize_config_key(key) == "not_normalized"
 
 
 class TestGetConfigValue:

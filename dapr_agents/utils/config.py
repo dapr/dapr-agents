@@ -16,14 +16,21 @@
 from __future__ import annotations
 
 from enum import Enum
-import logging
 import json
+import logging
+import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from types import UnionType
 from typing import Any, Callable, Mapping, Union, get_origin, get_args
+import warnings
 
 logger = logging.getLogger(__name__)
+
+# Supported configuration-key naming conventions
+_SCREAMING_SNAKE_CASE_PATTERN = re.compile(r"^[A-Z0-9]+(?:_[A-Z0-9]+)*$")
+_SNAKE_CASE_PATTERN = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")
+_KEBAB_CASE_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def _coerce_integral(value: Any) -> int:
@@ -55,13 +62,26 @@ def _normalize_config_key(key: str) -> str:
     """
     Normalize a configuration key to snake_case.
 
-    Normalization is intentionally lenient for compatibility with existing
-    configuration-store keys: casing is lowercased and hyphens are replaced
-    with underscores without rejecting other naming conventions.
+    Supports configuration keys in SCREAMING_SNAKE_CASE, snake_case, and kebab-case.
+    Other naming conventions remain supported for backward compatibility but emit
+    a ``DeprecationWarning``.
 
     Returns:
-        The normalized key in snake_case.
+        str: The normalized key in snake_case.
     """
+    if not (
+        _SCREAMING_SNAKE_CASE_PATTERN.fullmatch(key)
+        or _SNAKE_CASE_PATTERN.fullmatch(key)
+        or _KEBAB_CASE_PATTERN.fullmatch(key)
+    ):
+        warnings.warn(
+            f"Configuration key {key!r} uses a deprecated naming convention; "
+            "support may be removed in a future release. Use "
+            "SCREAMING_SNAKE_CASE, snake_case, or kebab-case instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     return key.lower().replace("-", "_")
 
 
