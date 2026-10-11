@@ -128,14 +128,15 @@ class ConfigFieldDescriptor:
 
 def get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
     """
-    Get a config value from a mapping under common naming conventions
-    in the following order (first non-``None``, non-empty value wins):
+    Look up a config value from a mapping, trying common key naming conventions.
+
+    Conventions are tried in the following order (first non-``None``, non-empty value wins):
         1. SCREAMING_SNAKE_CASE
         2. snake_case
         3. kebab-case
 
     Returns:
-        The value for the key, or ``None`` if no variant is present.
+        The value for the key, or ``None`` if no key variant has a non-empty value.
     """
     if not _is_supported_config_key(key):
         return None
