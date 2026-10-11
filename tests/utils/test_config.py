@@ -26,7 +26,6 @@ from dapr_agents.utils.config import (
     apply_config_update,
     coerce_config_value,
     get_config_value,
-    _normalize_config_key,
     process_config_update,
 )
 
@@ -145,33 +144,6 @@ class TestCoerceConfigValue:
     def test_coerce_config_value_unsupported_target_type_raises(self):
         with pytest.raises(ValueError):
             coerce_config_value("anything", set)
-
-
-class TestNormalizeConfigKey:
-    """Tests for _normalize_config_key."""
-
-    @pytest.mark.parametrize(
-        ("key", "expected"),
-        [
-            ("NOTNORMALIZED", "notnormalized"),
-            ("NOT_NORMALIZED", "not_normalized"),
-            ("not-normalized", "not_normalized"),
-            ("already_normalized", "already_normalized"),
-        ],
-    )
-    def test_normalize_config_key_normalizes_supported_conventions(self, key, expected):
-        assert _normalize_config_key(key) == expected
-
-    # TODO: Remove when deprecated key conventions are removed
-    @pytest.mark.parametrize(
-        "key",
-        ["Not-Normalized", "Not_normalized", "NOT-NORMALIZED", "Not_Normalized"],
-    )
-    def test_normalize_config_key_warns_but_normalizes_unsupported_conventions(
-        self, key
-    ):
-        with pytest.warns(DeprecationWarning, match="deprecated naming convention"):
-            assert _normalize_config_key(key) == "not_normalized"
 
 
 class TestGetConfigValue:

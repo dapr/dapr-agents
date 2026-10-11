@@ -109,19 +109,53 @@ class TestApplyConfigUpdate:
         basic_agent._apply_config_update("agent-role", "role")
         assert basic_agent.profile.role == "role"
 
-    # TODO: Remove when deprecated key conventions are removed
     @pytest.mark.parametrize(
-        "key", ["Tool-Choice", "Tool-choice", "TOOL-CHOICE", "Tool_Choice"]
+        ("key", "value"),
+        [
+            ("AGENT_SYSTEM_PROMPT", "prompt"),
+            ("agent-system-prompt", "prompt"),
+            ("agent_system_prompt", "prompt"),
+        ],
     )
-    def test_unsupported_key_naming_convention_warns_but_is_normalized(
-        self, basic_agent, key
-    ):
-        """Existing config keys not using supported naming conventions
-        (SCREAMING_SNAKE_CASE, snake_case, kebab-case) should emit a deprecation warning
-        but still be normalized."""
-        with pytest.warns(DeprecationWarning, match="deprecated naming convention"):
-            basic_agent._apply_config_update(key, "auto")
-        assert basic_agent.execution.tool_choice == "auto"
+    def test_supported_key_formats_are_normalized(self, basic_agent, key, value):
+        """Config keys using supported naming conventions
+        (SCREAMING_SNAKE_CASE, snake_case, kebab-case) should be normalized."""
+        basic_agent._apply_config_update(key, value)
+        assert basic_agent.profile.system_prompt == value
+
+    # TODO: Remove when deprecated key formats are removed
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("TOOL-CHOICE", "choice"),
+            ("Tool_Choice", "choice"),
+            ("Tool-Choice", "choice"),
+        ],
+    )
+    def test_deprecated_key_formats_are_normalized(self, basic_agent, key, value):
+        """Existing config keys using deprecated naming conventions
+        should still be normalized."""
+        basic_agent._apply_config_update(key, value)
+        assert basic_agent.execution.tool_choice == "choice"
+
+    # TODO: Remove when deprecated key formats are removed
+    def test_deprecated_key_formats_warn(self, basic_agent, caplog):
+        """Deprecated naming conventions should log a warning."""
+        keys = ["TOOL-CHOICE", "Tool_Choice", "Tool-Choice"]
+
+        with caplog.at_level(logging.WARNING):
+            for key in keys:
+                basic_agent._apply_config_update(key, "a choice")
+                basic_agent._apply_config_update(key, "another choice")
+
+        messages = [
+            record
+            for record in caplog.records
+            if "deprecated naming convention" in record.message
+        ]
+
+        # Updates are sequential so each key format should log a warning once
+        assert len(messages) == 3
 
     def test_invalid_type_for_valid_key_rejected(self, basic_agent, caplog):
         """Passing a non-coercible type (e.g. dict for an int key) should be

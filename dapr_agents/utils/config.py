@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from types import UnionType
 from typing import Any, Callable, Mapping, Union, get_origin, get_args
-import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -66,29 +65,6 @@ def _coerce_integral(value: Any) -> int:
         raise ValueError(f"Value must be an integer, got {value!r}")
 
     return int(numeric)
-
-
-def _normalize_config_key(key: str) -> str:
-    """
-    Normalize a configuration key to snake_case.
-
-    Supports configuration keys in SCREAMING_SNAKE_CASE, snake_case, and kebab-case.
-    Other naming conventions remain supported for backward compatibility but emit
-    a ``DeprecationWarning``.
-
-    Returns:
-        str: The normalized key in snake_case.
-    """
-    if not _is_supported_config_key(key):
-        warnings.warn(
-            f"Configuration key {key!r} uses a deprecated naming convention; "
-            "support may be removed in a future release. Use "
-            "SCREAMING_SNAKE_CASE, snake_case, or kebab-case instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-    return key.lower().replace("-", "_")
 
 
 @dataclass(frozen=True)

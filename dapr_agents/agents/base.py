@@ -87,7 +87,7 @@ from dapr_agents.types import (
 from dapr_agents.utils.config import (
     ConfigFieldDescriptor,
     apply_config_update,
-    _normalize_config_key,
+    _is_supported_config_key,
 )
 from pydantic import ValidationError
 
@@ -386,6 +386,9 @@ class AgentBase:
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
         self.configuration = configuration
+        # Track deprecated key formats to reduce noise from repeated warning logs;
+        # best-effort as concurrent config updates may still produce multiple warning logs.
+        self._seen_deprecated_config_key_formats: set[str] = set()
         self._subscription_id: Optional[str] = None
         self.appid = (
             None  # We set the appid to None as standalone agents may not have one
@@ -925,6 +928,30 @@ class AgentBase:
     # Config update application
     # ------------------------------------------------------------------
 
+    def _normalize_config_key(self, key: str) -> str:
+        """
+        Normalize a configuration key to snake_case.
+
+        Supports configuration keys in SCREAMING_SNAKE_CASE, snake_case, and kebab-case.
+        Other naming conventions remain supported for backward compatibility but log
+        a warning.
+
+        Returns:
+            str: The normalized key in snake_case.
+        """
+        if (
+            key not in self._seen_deprecated_config_key_formats
+            and not _is_supported_config_key(key)
+        ):
+            self._seen_deprecated_config_key_formats.add(key)
+            logger.warning(
+                f"Config key {key!r} uses a deprecated naming convention; "
+                "support may be removed in a future release. Use "
+                "SCREAMING_SNAKE_CASE, snake_case, or kebab-case instead."
+            )
+
+        return key.lower().replace("-", "_")
+
     def _apply_config_update(self, key: str, value: Any) -> bool:
         """
         Apply a configuration update to the agent state (best-effort).
@@ -933,7 +960,7 @@ class AgentBase:
         Returns:
             True if the update triggers an OTel reload, False otherwise.
         """
-        normalized_key = _normalize_config_key(key)
+        normalized_key = self._normalize_config_key(key)
         descriptor = self._CONFIG_FIELD_MAP.get(normalized_key)
         if descriptor is None:
             logger.debug(f"Agent {self.name} ignoring unrecognized config key: {key}")
