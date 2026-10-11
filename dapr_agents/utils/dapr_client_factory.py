@@ -51,12 +51,24 @@ from typing import Any, Callable, Dict, Optional
 from dapr.aio.clients import DaprClient as AsyncDaprClient
 from dapr.clients import DaprClient
 
+from dapr_agents.utils.config import _coerce_integral
+
 INBOUND_MESSAGE_SIZE_ENV: str = "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES"
 
 logger = logging.getLogger(__name__)
 
 DaprClientFactory = Callable[[], DaprClient]
 AsyncDaprClientFactory = Callable[[], AsyncDaprClient]
+
+
+def _coerce_positive_int(value: Any) -> int:
+    """Convert a positive integral numeric representation to an ``int``."""
+    parsed = _coerce_integral(value)
+    if parsed <= 0:
+        raise ValueError(
+            f"max_grpc_message_length must be a positive integer, got {value!r}"
+        )
+    return parsed
 
 
 @dataclass(frozen=True)
@@ -69,19 +81,19 @@ class DaprClientConfig:
 
     Attributes:
         max_grpc_message_length: gRPC inbound message size limit in bytes.
-            When ``None``, the env var (and ultimately the SDK default) is used.
+            Integral numeric values such as ``3.0`` and ``"3.0"`` are normalized
+            to ``int``. When ``None``, the env var (and ultimately the SDK
+            default) is used.
     """
 
     max_grpc_message_length: Optional[int] = None
 
     def __post_init__(self) -> None:
-        if (
-            self.max_grpc_message_length is not None
-            and self.max_grpc_message_length <= 0
-        ):
-            raise ValueError(
-                "max_grpc_message_length must be a positive integer, "
-                f"got {self.max_grpc_message_length!r}"
+        if self.max_grpc_message_length is not None:
+            object.__setattr__(
+                self,
+                "max_grpc_message_length",
+                _coerce_positive_int(self.max_grpc_message_length),
             )
 
 
@@ -101,15 +113,15 @@ def dapr_client_kwargs(
         **explicit_kwargs: Kwargs to pass through to the SDK constructor
             (``http_timeout_seconds``, ``address``, ``interceptors``, ...).
             An explicit ``max_grpc_message_length`` of ``None`` is dropped (so
-            callers can pass it unconditionally); a non-positive int raises
-            ``ValueError`` to match :class:`DaprClientConfig` validation.
+            callers can pass it unconditionally); non-positive or fractional
+            values raise ``ValueError``.
 
     Returns:
         A new dict suitable for ``DaprClient(**dapr_client_kwargs(...))``.
 
     Raises:
-        ValueError: If an explicit ``max_grpc_message_length`` is a
-            non-positive integer.
+        ValueError: If an explicit ``max_grpc_message_length`` is non-positive
+            or has a fractional part.
     """
     resolved = dict(explicit_kwargs)
     if "max_grpc_message_length" in resolved:
@@ -117,11 +129,8 @@ def dapr_client_kwargs(
         if explicit is None:
             # Drop the unset kwarg so we fall through to config/env resolution.
             del resolved["max_grpc_message_length"]
-        elif not isinstance(explicit, int) or explicit <= 0:
-            raise ValueError(
-                f"max_grpc_message_length must be a positive integer, got {explicit!r}"
-            )
         else:
+            resolved["max_grpc_message_length"] = _coerce_positive_int(explicit)
             return resolved
 
     if config is not None and config.max_grpc_message_length is not None:
@@ -133,7 +142,7 @@ def dapr_client_kwargs(
         return resolved
 
     try:
-        parsed = int(raw)
+        parsed = _coerce_integral(raw)
     except ValueError:
         logger.warning(
             f"Ignoring invalid {INBOUND_MESSAGE_SIZE_ENV}={raw!r}; "

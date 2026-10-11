@@ -11,7 +11,11 @@
 # limitations under the License.
 #
 
-"""Compatibility imports preserving the former ``auth`` module path."""
+"""Tests for the legacy authentication module import shim."""
 
-# Keep dapr_agents.agents.utils.auth importable after its rename; the implementation now lives in headers.py.
-from dapr_agents.agents.utils.headers import construct_auth_headers
+from dapr_agents.agents.utils.auth import construct_auth_headers
+from dapr_agents.agents.utils.headers import construct_auth_headers as headers_auth
+
+
+def test_construct_auth_headers_is_preserved():
+    assert construct_auth_headers is headers_auth
