@@ -153,6 +153,7 @@ class TestNormalizeConfigKey:
     @pytest.mark.parametrize(
         ("key", "expected"),
         [
+            ("NOTNORMALIZED", "notnormalized"),
             ("NOT_NORMALIZED", "not_normalized"),
             ("not-normalized", "not_normalized"),
             ("already_normalized", "already_normalized"),
@@ -161,7 +162,7 @@ class TestNormalizeConfigKey:
     def test_normalize_config_key_normalizes_supported_conventions(self, key, expected):
         assert _normalize_config_key(key) == expected
 
-    # TODO: Remove when deprecated key normalization support is removed
+    # TODO: Remove when deprecated key conventions are removed
     @pytest.mark.parametrize(
         "key",
         ["Not-Normalized", "Not_normalized", "NOT-NORMALIZED", "Not_Normalized"],

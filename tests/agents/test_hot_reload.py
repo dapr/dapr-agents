@@ -109,7 +109,7 @@ class TestApplyConfigUpdate:
         basic_agent._apply_config_update("agent-role", "role")
         assert basic_agent.profile.role == "role"
 
-    # TODO: Remove when deprecated key normalization support is removed
+    # TODO: Remove when deprecated key conventions are removed
     @pytest.mark.parametrize(
         "key", ["Tool-Choice", "Tool-choice", "TOOL-CHOICE", "Tool_Choice"]
     )
