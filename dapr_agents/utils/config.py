@@ -27,7 +27,7 @@ import warnings
 
 logger = logging.getLogger(__name__)
 
-# Supported configuration-key naming conventions
+# Supported naming conventions for configuration keys
 _SCREAMING_SNAKE_CASE_PATTERN = re.compile(r"^[A-Z0-9]+(?:_[A-Z0-9]+)*$")
 _SNAKE_CASE_PATTERN = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")
 _KEBAB_CASE_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
