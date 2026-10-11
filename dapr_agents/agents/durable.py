@@ -760,7 +760,12 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         generator_tools: List[Any] = []
                         generator_meta: List[Dict[str, Any]] = []
                         sequential_dispatches: List[
-                            Tuple[str, Callable[[], Any], Dict[str, Any]]
+                            Tuple[
+                                str,
+                                Callable[[], Any],
+                                Dict[str, Any],
+                                Optional[Dict[str, Any]],
+                            ]
                         ] = []
 
                         for idx, tc in enumerate(tool_calls):
@@ -890,7 +895,6 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                             "order": idx,
                                             "tool_call": tc,
                                             "child_instance_id": child_instance_id,
-                                            "dispatch_time": ctx.current_utc_datetime.isoformat(),
                                         }
                                     )
                                     if (
@@ -899,14 +903,18 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     ):
                                         sequential_dispatches.append(
                                             (
-                                                "workflow",
+                                                "agent_workflow",
                                                 lambda tool_obj=tool_obj, call_kwargs=call_kwargs: (
                                                     tool_obj(**call_kwargs)
                                                 ),
                                                 workflow_meta[-1],
+                                                None,
                                             )
                                         )
                                     else:
+                                        workflow_meta[-1]["dispatch_time"] = (
+                                            ctx.current_utc_datetime.isoformat()
+                                        )
                                         workflow_tasks.append(tool_obj(**call_kwargs))
                                 else:
                                     # Non-agent context-injected tool. Calling it
@@ -919,13 +927,11 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     meta = {
                                         "order": idx,
                                         "tool_call": tc,
-                                        "dispatch_time": ctx.current_utc_datetime.isoformat(),
                                     }
                                     if (
                                         self.execution.tool_execution_mode
                                         == ToolExecutionMode.SEQUENTIAL
                                     ):
-                                        generator_meta.append(meta)
                                         sequential_dispatches.append(
                                             (
                                                 "workflow",
@@ -933,9 +939,13 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                                     tool_obj(**call_kwargs)
                                                 ),
                                                 meta,
+                                                None,
                                             )
                                         )
                                     else:
+                                        meta["dispatch_time"] = (
+                                            ctx.current_utc_datetime.isoformat()
+                                        )
                                         produced = tool_obj(**call_kwargs)
                                         if inspect.isgenerator(produced):
                                             generator_meta.append(meta)
@@ -948,13 +958,11 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                 meta = {
                                     "order": idx,
                                     "tool_call": tc,
-                                    "dispatch_time": ctx.current_utc_datetime.isoformat(),
                                 }
                                 activity_meta.append(meta)
                                 activity_input = {
                                     "tool_call": tc,
                                     "instance_id": ctx.instance_id,
-                                    "time": ctx.current_utc_datetime.isoformat(),
                                     "order": idx,
                                 }
                                 if (
@@ -972,9 +980,14 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                                 )
                                             ),
                                             meta,
+                                            activity_input,
                                         )
                                     )
                                 else:
+                                    meta["dispatch_time"] = (
+                                        ctx.current_utc_datetime.isoformat()
+                                    )
+                                    activity_input["time"] = meta["dispatch_time"]
                                     activity_tasks.append(
                                         ctx.call_activity(
                                             self._activity_name(self.run_tool),
@@ -1024,11 +1037,24 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                             == ToolExecutionMode.SEQUENTIAL
                         ):
                             results: List[Any] = []
-                            for dispatch_kind, dispatch, meta in sequential_dispatches:
+                            for (
+                                dispatch_kind,
+                                dispatch,
+                                meta,
+                                activity_input,
+                            ) in sequential_dispatches:
+                                dispatch_time = ctx.current_utc_datetime.isoformat()
+                                meta["dispatch_time"] = dispatch_time
+                                if activity_input is not None:
+                                    activity_input["time"] = dispatch_time
                                 task = dispatch()
                                 if inspect.isgenerator(task):
+                                    if dispatch_kind == "workflow":
+                                        generator_meta.append(meta)
                                     result = yield from task
                                 else:
+                                    if dispatch_kind == "workflow":
+                                        workflow_meta.append(meta)
                                     result = yield task
 
                                 if dispatch_kind == "activity":
