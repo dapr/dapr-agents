@@ -228,9 +228,13 @@ class TestGetConfigValue:
         assert get_config_value(mapping, key) == "val1"
 
     @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
-    def test_get_config_value_ignores_invalid_naming_conventions(self, key):
+    def test_get_config_value_ignores_unsupported_mapping_keys(self, key):
         mapping = {"TEST-KEY": "val1", "Test_Key": "val2", "test_key": "val3"}
         assert get_config_value(mapping, key) == "val3"
+
+    @pytest.mark.parametrize("key", ["Test-Key", "Test_key", "TEST-KEY", "Test_Key"])
+    def test_get_config_value_rejects_unsupported_requested_keys(self, key):
+        assert get_config_value({"test_key": "val"}, key) is None
 
     @pytest.mark.parametrize("key", ["TEST_KEY", "test_key", "test-key"])
     def test_get_config_value_defaults_to_none(self, key):

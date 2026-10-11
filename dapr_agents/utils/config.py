@@ -31,6 +31,16 @@ logger = logging.getLogger(__name__)
 _SCREAMING_SNAKE_CASE_PATTERN = re.compile(r"^[A-Z0-9]+(?:_[A-Z0-9]+)*$")
 _SNAKE_CASE_PATTERN = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")
 _KEBAB_CASE_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_CONFIG_KEY_PATTERNS = (
+    _SCREAMING_SNAKE_CASE_PATTERN,
+    _SNAKE_CASE_PATTERN,
+    _KEBAB_CASE_PATTERN,
+)
+
+
+def _is_supported_config_key(key: str) -> bool:
+    """Check if a configuration key matches any of the supported naming conventions."""
+    return any(pattern.fullmatch(key) for pattern in _CONFIG_KEY_PATTERNS)
 
 
 def _coerce_integral(value: Any) -> int:
@@ -69,11 +79,7 @@ def _normalize_config_key(key: str) -> str:
     Returns:
         str: The normalized key in snake_case.
     """
-    if not (
-        _SCREAMING_SNAKE_CASE_PATTERN.fullmatch(key)
-        or _SNAKE_CASE_PATTERN.fullmatch(key)
-        or _KEBAB_CASE_PATTERN.fullmatch(key)
-    ):
+    if not _is_supported_config_key(key):
         warnings.warn(
             f"Configuration key {key!r} uses a deprecated naming convention; "
             "support may be removed in a future release. Use "
@@ -131,6 +137,9 @@ def get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
     Returns:
         The value for the key, or ``None`` if no variant is present.
     """
+    if not _is_supported_config_key(key):
+        return None
+
     snake = key.replace("-", "_")
     kebab = key.replace("_", "-")
     for candidate in (snake.upper(), snake.lower(), kebab.lower()):
