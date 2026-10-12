@@ -100,6 +100,7 @@ from dapr_agents.types import (
     UserMessage,
     ToolMessage,
     AssistantMessage,
+    WorkflowStateConflictError,
 )
 from dapr_agents.types.streaming import (
     STREAM_SCHEMA_VERSION,
@@ -3511,15 +3512,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             data = event_data or {}
             req_id = data.get("request_id")
             if req_id:
-                if event_type_raw == "user_input_requested":
-                    entry.pending_inputs[req_id] = dict(data)
-                    self.save_state(instance_id, entry=entry)
-                elif event_type_raw in (
-                    "user_input_received",
-                    "user_input_timed_out",
-                ):
-                    if entry.pending_inputs.pop(req_id, None) is not None:
-                        self.save_state(instance_id, entry=entry)
+                self._save_pending_input(instance_id, entry, event_type_raw, data)
 
         emitter = self._build_stream_emitter(
             stream_ctx=stream_ctx,
@@ -3534,6 +3527,50 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             emitter.emit_event(event_type, event_data=event_data)
         finally:
             emitter.close()
+
+    def _save_pending_input(
+        self,
+        instance_id: str,
+        entry: Any,
+        event_type_raw: str,
+        data: Dict[str, Any],
+    ) -> None:
+        """Record or clear one ask_user prompt in ``entry.pending_inputs``.
+
+        ask_user schedules ``publish_stream_event`` without a retry policy, and
+        the chunk it emits must still go out, so a save conflict is handled
+        here: the change is re-applied once to a freshly read entry. If that
+        save conflicts too, the bookkeeping is skipped with a warning rather
+        than overwriting the newer state or failing the activity.
+        """
+        req_id = data["request_id"]
+        for attempt in (1, 2):
+            if event_type_raw == "user_input_requested":
+                entry.pending_inputs[req_id] = dict(data)
+            elif event_type_raw in ("user_input_received", "user_input_timed_out"):
+                if entry.pending_inputs.pop(req_id, None) is None:
+                    return
+            else:
+                return
+            try:
+                self.save_state(instance_id, entry=entry)
+                return
+            except WorkflowStateConflictError:
+                if attempt == 2:
+                    logger.warning(
+                        "publish_stream_event: pending input %s for %s not "
+                        "persisted after repeated state conflicts",
+                        req_id,
+                        instance_id,
+                    )
+                    return
+            try:
+                entry = self._infra.get_state(instance_id)
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "publish_stream_event: reload state failed for %s", instance_id
+                )
+                return
 
     def _publish_session_complete(
         self,

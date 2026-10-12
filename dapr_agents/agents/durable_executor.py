@@ -235,6 +235,11 @@ class DurableExecutorMixin:
         Raises:
             AgentError: If the executor is not configured, yields an
                 ``error`` event, or ends without a terminal event.
+            WorkflowStateConflictError: If a checkpoint or the final state
+                save finds the stored entry changed since it was read. The
+                activity is retried under the agent's ``retry_policy``
+                (3 attempts by default); with ``max_attempts=1``, or once the
+                attempts are used up, the conflict fails the workflow.
         """
         if self.executor is None:  # Defensive; agent_workflow guards this.
             raise AgentError(
@@ -297,7 +302,9 @@ class DurableExecutorMixin:
         except WorkflowStateConflictError as exc:
             # A checkpoint lost an optimistic-concurrency race, so the entry is
             # stale. Skip the final flush, which would overwrite the newer
-            # state, and let the activity retry re-run against fresh state.
+            # state, and let the activity retry (``_executor_workflow`` passes
+            # ``self._retry_policy``) re-run against fresh state. Without a
+            # retry left, the conflict fails the workflow.
             failure = exc
             state_conflict = True
             raise

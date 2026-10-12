@@ -228,3 +228,70 @@ def test_save_state_retries_transient_failure_with_read_etag(
     assert calls["n"] == 2
     persisted = [m.content for m in infra.get_state(instance_id).messages]
     assert persisted == ["hello"]
+
+
+def test_save_state_returns_when_failed_save_actually_landed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A save that raised but was persisted is reported as success, not resent."""
+    monkeypatch.setattr("dapr_agents.agents.components.time.sleep", lambda _: None)
+    store = _EtagEnforcingStore()
+    infra = DaprInfra(name="tester", state=AgentStateConfig(store=store))
+    instance_id = "wf-1"
+    infra.save_state(instance_id, entry=infra.get_state(instance_id))
+
+    entry = infra.get_state(instance_id)
+    entry.messages.append(AgentWorkflowMessage(role="user", content="hello"))
+
+    real_save = store.save
+    calls = {"n": 0}
+
+    def save_then_raise(**kwargs: Any) -> None:
+        calls["n"] += 1
+        real_save(**kwargs)
+        raise RuntimeError("response lost after the write was applied")
+
+    monkeypatch.setattr(store, "save", save_then_raise)
+    infra.save_state(instance_id, entry=entry)
+
+    assert calls["n"] == 1
+    persisted = [m.content for m in infra.get_state(instance_id).messages]
+    assert persisted == ["hello"]
+
+
+def test_save_state_retries_with_read_etag_when_reread_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the post-failure re-read raises, the retry still uses the read etag."""
+    monkeypatch.setattr("dapr_agents.agents.components.time.sleep", lambda _: None)
+    store = _EtagEnforcingStore()
+    infra = DaprInfra(name="tester", state=AgentStateConfig(store=store))
+    instance_id = "wf-1"
+    infra.save_state(instance_id, entry=infra.get_state(instance_id))
+
+    entry = infra.get_state(instance_id)
+    key = f"{infra.state_key_prefix}_{instance_id}".lower()
+    read_etag = store._etags[key]
+    entry.messages.append(AgentWorkflowMessage(role="user", content="hello"))
+
+    real_save = store.save
+    real_load = store.load_with_etag
+    save_etags = []
+
+    def flaky_save(**kwargs: Any) -> None:
+        save_etags.append(kwargs.get("etag"))
+        if len(save_etags) == 1:
+            raise RuntimeError("transient store error")
+        real_save(**kwargs)
+
+    def failing_load(**kwargs: Any) -> Tuple[Dict[str, Any], Optional[str]]:
+        raise RuntimeError("store unavailable")
+
+    monkeypatch.setattr(store, "save", flaky_save)
+    monkeypatch.setattr(store, "load_with_etag", failing_load)
+    infra.save_state(instance_id, entry=entry)
+    monkeypatch.setattr(store, "load_with_etag", real_load)
+
+    assert save_etags == [read_etag, read_etag]
+    persisted = [m.content for m in infra.get_state(instance_id).messages]
+    assert persisted == ["hello"]

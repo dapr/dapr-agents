@@ -335,6 +335,43 @@ class TestConsumeExecutor:
 
         assert save_state.call_count == 1
 
+    def test_final_flush_conflict_propagates(self):
+        """A conflict on the final flush fails the activity so it is retried."""
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(type="session", content={}, session_id="s"),
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "done"},
+                    session_id="s",
+                ),
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+
+        with (
+            patch.object(
+                agent,
+                "save_state",
+                side_effect=[None, WorkflowStateConflictError("conflict")],
+            ) as save_state,
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+            pytest.raises(WorkflowStateConflictError),
+        ):
+            asyncio.run(
+                agent._consume_executor(
+                    {
+                        "task": "hi",
+                        "instance_id": "inst-1",
+                        "session_id": "s",
+                    }
+                )
+            )
+
+        # One checkpoint on `session`, then the final flush that conflicted.
+        assert save_state.call_count == 2
+
     def test_tool_call_and_result_update_history(self):
         executor = _ScriptedExecutor(
             [

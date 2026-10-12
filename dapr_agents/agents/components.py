@@ -366,7 +366,11 @@ class DaprInfra:
 
         Raises:
             WorkflowStateConflictError: The stored state changed after the entry was
-                read, so saving it would discard another writer's update.
+                read, so saving it would discard another writer's update. Only raised
+                when the entry was read with get_state. DurableAgent activities let
+                it propagate so the activity retry policy re-runs them on fresh state;
+                publish_stream_event, which ask_user schedules without a retry
+                policy, re-applies its change instead.
         """
         if not self.state_store:
             logger.debug("No state store configured; skipping state persistence.")
@@ -458,6 +462,11 @@ class DaprInfra:
                             state_metadata=meta,
                         )
                     except Exception:  # noqa: BLE001
+                        logger.debug(
+                            "Re-read of '%s' after failed save failed",
+                            key,
+                            exc_info=True,
+                        )
                         current, current_etag = None, read_etag
                     if current == value:
                         # The failed attempt was actually persisted.
