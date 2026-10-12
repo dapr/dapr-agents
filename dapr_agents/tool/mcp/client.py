@@ -252,7 +252,19 @@ class MCPClient(BaseModel):
                 self._exit_stack.push_async_exit(stack)
                 self._sessions[server_name] = session
             else:
-                await stack.aclose()
+                # Tools and prompts are already loaded, so a benign stdio
+                # teardown error must not fail the connect (as in
+                # create_ephemeral_session). Other close errors still fail it.
+                try:
+                    await stack.aclose()
+                except Exception as exc:
+                    if not _is_benign_teardown(exc):
+                        raise
+                    logger.debug(
+                        "Ignoring BrokenResourceError while closing ephemeral "
+                        f"connect session for MCP server '{server_name}' "
+                        "(expected for stdio transport)"
+                    )
             self._server_tools[server_name] = tools
             self._server_prompts[server_name] = prompts
             self._server_configs[server_name] = new_config

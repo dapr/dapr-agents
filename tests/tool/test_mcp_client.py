@@ -488,6 +488,30 @@ async def test_persistent_failed_connect_does_not_warn_on_benign_teardown(caplog
     assert _warnings(caplog) == []
 
 
+async def test_ephemeral_connect_succeeds_on_benign_teardown(caplog):
+    client = MCPClient()
+    servers = _FakeServers(exit_exc=BrokenResourceError())
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        with caplog.at_level(logging.WARNING, logger="dapr_agents.tool.mcp.client"):
+            await client.connect(_NEW)
+
+    assert servers.exited == ["new"]
+    assert client.get_connected_servers() == ["srv"]
+    assert len(client.get_all_tools()) == 1
+    assert _warnings(caplog) == []
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+async def test_ephemeral_connect_fails_on_other_teardown_error():
+    client = MCPClient()
+    servers = _FakeServers(exit_exc=RuntimeError("close failed"))
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        with pytest.raises(RuntimeError, match="close failed"):
+            await client.connect(_NEW)
+
+    assert client.get_connected_servers() == []
+
+
 async def test_persistent_connect_closes_its_transport_on_close():
     client = MCPClient(persistent_connections=True)
     servers = _FakeServers()
