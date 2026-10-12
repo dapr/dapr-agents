@@ -67,7 +67,7 @@ def _coerce_integral(value: Any) -> int:
     return int(numeric)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ConfigFieldDescriptor:
     """Describes how a configuration key maps to a configuration attribute.
 

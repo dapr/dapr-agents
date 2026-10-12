@@ -315,7 +315,7 @@ validate_max_iterations = validate_positive_int
 
 def validate_tool_choice(v: str) -> str:
     """Warn if tool_choice is non-standard, but allow it. Reject empty and whitespace-only tool choices."""
-    validate_non_empty_string(v)
+    v = validate_non_empty_string(v)
     try:
         return ToolChoice(v.lower())
     except (ValueError, KeyError):
