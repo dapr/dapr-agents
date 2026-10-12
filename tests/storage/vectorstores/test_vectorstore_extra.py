@@ -151,8 +151,9 @@ def test_lazy_imports_are_found() -> None:
 def test_every_lazy_import_has_a_known_distribution() -> None:
     unknown = _lazy_third_party_modules() - MODULE_TO_DISTRIBUTION.keys()
     assert not unknown, (
-        f"Add {sorted(unknown)} to MODULE_TO_DISTRIBUTION and to the "
-        f"'{EXTRA_NAME}' extra in pyproject.toml (or to NOT_IN_EXTRA with a reason)."
+        f"Map {sorted(unknown)} in MODULE_TO_DISTRIBUTION. If a core dependency "
+        f"does not already install them, also add them to the '{EXTRA_NAME}' "
+        f"extra in pyproject.toml (or to NOT_IN_EXTRA with a reason)."
     )
 
 
