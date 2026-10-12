@@ -13,7 +13,7 @@
 
 """Tests for DurableAgent execution configuration."""
 
-import copy
+from dataclasses import fields
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -156,6 +156,35 @@ class TestExecutionConfigDefaults(ExecutionConfigTestBase):
         assert agent.execution.streaming is False
         assert agent.execution.stream_listener is None
         assert not agent.execution.builtin_tools
+
+    def test_execution_config_exposes_real_dataclass_defaults(self):
+        """Ensure dataclass introspection exposes defaults instead of the field tracking sentinel."""
+        config = AgentExecutionConfig()
+        config_fields = {
+            config_field.name: config_field for config_field in fields(config)
+        }
+
+        assert AgentExecutionConfig.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
+        assert config_fields["max_iterations"].default == AGENT_DEFAULT_MAX_ITERATIONS
+        assert config.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
+        assert AgentExecutionConfig.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
+        assert config_fields["tool_choice"].default == AGENT_DEFAULT_TOOL_CHOICE
+        assert config.tool_choice == AGENT_DEFAULT_TOOL_CHOICE
+        assert (
+            AgentExecutionConfig.tool_execution_mode
+            == AGENT_DEFAULT_TOOL_EXECUTION_MODE
+        )
+        assert (
+            config_fields["tool_execution_mode"].default
+            == AGENT_DEFAULT_TOOL_EXECUTION_MODE
+        )
+        assert config.tool_execution_mode == AGENT_DEFAULT_TOOL_EXECUTION_MODE
+        assert AgentExecutionConfig.orchestration_mode is None
+        assert config_fields["orchestration_mode"].default is None
+        assert config.orchestration_mode is None
+        assert AgentExecutionConfig.max_grpc_inbound_message_size_bytes is None
+        assert config_fields["max_grpc_inbound_message_size_bytes"].default is None
+        assert config.max_grpc_inbound_message_size_bytes is None
 
 
 class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):

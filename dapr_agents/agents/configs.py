@@ -23,8 +23,8 @@ from dataclasses import dataclass, field
 from typing import (
     Any,
     Callable,
-    cast,
     Dict,
+    overload,
     List,
     MutableMapping,
     Optional,
@@ -549,7 +549,7 @@ class AgentApprovalConfig:
     default_timeout_seconds: Optional[int] = 300
 
 
-@dataclass
+@dataclass(init=False)
 class AgentExecutionConfig:
     """
     Dials to configure the agent execution.
@@ -599,19 +599,13 @@ class AgentExecutionConfig:
 
     # TODO: add a forceFinalAnswer field in case max_iterations is near/reached. Or do we have a conclusion baked in by default? Do we want this to derive a conclusion by default?
     # TODO: add stop_at_tokens
-    max_iterations: Optional[int] = field(default=cast(Optional[int], _UNSET))
-    tool_choice: Optional[str] = field(default=cast(Optional[str], _UNSET))
-    tool_execution_mode: Optional[ToolExecutionMode] = field(
-        default=cast(Optional[ToolExecutionMode], _UNSET)
-    )
-    orchestration_mode: Optional[OrchestrationMode] = field(
-        default=cast(Optional[OrchestrationMode], _UNSET)
-    )
+    max_iterations: Optional[int] = AGENT_DEFAULT_MAX_ITERATIONS
+    tool_choice: Optional[str] = AGENT_DEFAULT_TOOL_CHOICE
+    tool_execution_mode: Optional[ToolExecutionMode] = AGENT_DEFAULT_TOOL_EXECUTION_MODE
+    orchestration_mode: Optional[OrchestrationMode] = None
     approval: Optional[AgentApprovalConfig] = field(default_factory=AgentApprovalConfig)
     max_approval_rounds: Optional[int] = None
-    max_grpc_inbound_message_size_bytes: Optional[int] = field(
-        default=cast(Optional[int], _UNSET)
-    )
+    max_grpc_inbound_message_size_bytes: Optional[int] = None
 
     # ALPHA: streaming emits AgentStreamChunk (schema "1-alpha") and may change
     # in shape/semantics in future 1.x releases. Enabling it logs a one-time
@@ -628,12 +622,84 @@ class AgentExecutionConfig:
     # validated against ``BuiltinTool`` in ``__post_init__``.
     builtin_tools: List[str] = field(default_factory=list)
 
+    # Keep the public constructor signature typed with real defaults
+    # while the runtime implementation uses the``_UNSET`` sentinel to distinguish omitted arguments.
+    @overload
+    def __init__(
+        self,
+        max_iterations: Optional[int] = AGENT_DEFAULT_MAX_ITERATIONS,
+        tool_choice: Optional[str] = AGENT_DEFAULT_TOOL_CHOICE,
+        tool_execution_mode: Optional[
+            ToolExecutionMode
+        ] = AGENT_DEFAULT_TOOL_EXECUTION_MODE,
+        orchestration_mode: Optional[OrchestrationMode] = None,
+        approval: Optional[AgentApprovalConfig] = ...,
+        max_approval_rounds: Optional[int] = None,
+        max_grpc_inbound_message_size_bytes: Optional[int] = None,
+        streaming: bool = False,
+        stream_listener: Optional[Dict[str, Any]] = None,
+        builtin_tools: List[str] = ...,
+    ) -> None: ...
+
+    def __init__(
+        self,
+        max_iterations: Any = _UNSET,
+        tool_choice: Any = _UNSET,
+        tool_execution_mode: Any = _UNSET,
+        orchestration_mode: Any = _UNSET,
+        approval: Any = _UNSET,
+        max_approval_rounds: Any = _UNSET,
+        max_grpc_inbound_message_size_bytes: Any = _UNSET,
+        streaming: Any = _UNSET,
+        stream_listener: Any = _UNSET,
+        builtin_tools: Any = _UNSET,
+    ) -> None:
+        """Initialize execution fields with public defaults.
+
+        The constructor uses the ``_UNSET`` sentinel to distinguish omitted
+        values from explicit overrides. This preserves real defaults in the
+        dataclass fields for callers and introspection.
+        """
+        self.max_iterations = (
+            AGENT_DEFAULT_MAX_ITERATIONS if max_iterations is _UNSET else max_iterations
+        )
+        self.tool_choice = (
+            AGENT_DEFAULT_TOOL_CHOICE if tool_choice is _UNSET else tool_choice
+        )
+        self.tool_execution_mode = (
+            AGENT_DEFAULT_TOOL_EXECUTION_MODE
+            if tool_execution_mode is _UNSET
+            else tool_execution_mode
+        )
+        self.orchestration_mode = (
+            None if orchestration_mode is _UNSET else orchestration_mode
+        )
+        self.approval = AgentApprovalConfig() if approval is _UNSET else approval
+        self.max_approval_rounds = (
+            None if max_approval_rounds is _UNSET else max_approval_rounds
+        )
+        self.max_grpc_inbound_message_size_bytes = (
+            None
+            if max_grpc_inbound_message_size_bytes is _UNSET
+            else max_grpc_inbound_message_size_bytes
+        )
+        self.streaming = False if streaming is _UNSET else streaming
+        self.stream_listener = None if stream_listener is _UNSET else stream_listener
+        self.builtin_tools = [] if builtin_tools is _UNSET else builtin_tools
+        provided_values = locals()
+        self._provided_fields = frozenset(
+            field_name
+            for field_name in _AGENT_EXECUTION_CONFIG_INSTANTIATION_TRACKED_FIELDS
+            if provided_values[field_name] is not _UNSET
+        )
+        self.__post_init__()
+
     def __setattr__(self, name: str, value: Any) -> None:
         """Track assignments to fields before and after construction."""
         object.__setattr__(self, name, value)
 
-        # During dataclass ``__init__`` and ``__post_init__``, tracked fields are assigned before
-        # ``_provided_fields`` exists, so those assignments do not need to update ``_provided_fields``.
+        # During the custom ``__init__``, tracked fields are assigned before
+        # ``_provided_fields`` exists, so those assignments don't need to update it.
         # After construction, assignments must update ``_provided_fields`` so that they can be read
         # during config resolution via ``_from_instantiation()``.
         if (
@@ -645,40 +711,6 @@ class AgentExecutionConfig:
             object.__setattr__(self, "_provided_fields", frozenset(provided_fields))
 
     def __post_init__(self) -> None:
-        # Track which fields the caller explicitly passed. Unset fields keep their
-        # normal defaults (for backwards compatibility), and an explicit ``None`` is
-        # distinguishable from "not provided". ``_from_instantiation()`` uses this
-        # to merge only the fields the caller actually set.
-        provided_fields: set[str] = set()
-
-        def resolve_field(field_name: str, value: Any, default: Any) -> Any:
-            """Return the value, or the default if unset. Records the field name when the caller passed a value."""
-            if value is _UNSET:
-                return default
-            provided_fields.add(field_name)
-            return value
-
-        self.max_iterations = resolve_field(
-            "max_iterations", self.max_iterations, AGENT_DEFAULT_MAX_ITERATIONS
-        )
-        self.tool_choice = resolve_field(
-            "tool_choice", self.tool_choice, AGENT_DEFAULT_TOOL_CHOICE
-        )
-        self.tool_execution_mode = resolve_field(
-            "tool_execution_mode",
-            self.tool_execution_mode,
-            AGENT_DEFAULT_TOOL_EXECUTION_MODE,
-        )
-        self.orchestration_mode = resolve_field(
-            "orchestration_mode", self.orchestration_mode, None
-        )
-        self.max_grpc_inbound_message_size_bytes = resolve_field(
-            "max_grpc_inbound_message_size_bytes",
-            self.max_grpc_inbound_message_size_bytes,
-            None,
-        )
-        self._provided_fields = frozenset(provided_fields)
-
         # Accept explicit ``builtin_tools=None`` for template configs, skipping validation.
         if self.builtin_tools is not None:
             # Validate builtin_tools up-front so a typo fails at config time with a
