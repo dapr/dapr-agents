@@ -60,8 +60,8 @@ from dapr_agents.agents.configs import (
     RuntimeSubscriptionConfig,
     ToolMetadata,
     WorkflowGrpcOptions,
-    validate_positive_int,
-    validate_integral,
+    _validate_positive_int,
+    _validate_integral,
     validate_non_empty_string,
     validate_tool_choice,
     validate_otel_exporter_tracing,
@@ -187,8 +187,8 @@ class AgentBase:
         RuntimeConfigKey.MAX_ITERATIONS: _ConfigFieldDescriptor(
             target_type=int,
             setter=lambda agent, v: setattr(agent.execution, "max_iterations", v),
-            pre_validator=validate_integral,
-            validator=validate_positive_int,
+            pre_validator=_validate_integral,
+            validator=_validate_positive_int,
         ),
         RuntimeConfigKey.TOOL_CHOICE: _ConfigFieldDescriptor(
             target_type=str,

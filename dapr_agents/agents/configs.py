@@ -37,7 +37,7 @@ import warnings
 
 from pydantic import BaseModel, Field
 
-from dapr_agents.agents.utils.headers import parse_header_string
+from dapr_agents.agents.utils.headers import _parse_header_string
 from dapr_agents.utils._config import (
     _ConfigFieldDescriptor,
     _coerce_integral,
@@ -68,7 +68,7 @@ _JSON_SCHEMA_VERSION_KEY = "version"
 
 
 class _LegacyConfigFieldDescriptor(_ConfigFieldDescriptor):
-    """Compatibility wrapper preserving the former positional ``ConfigFieldDescriptor`` API.
+    """Compatibility wrapper preserving the former positional ``ConfigFieldDescriptor``.
 
     Retained temporarily for backward compatibility and will be removed in a future release.
 
@@ -329,21 +329,21 @@ def validate_non_empty_string(v: str) -> str:
     return v.strip()
 
 
-def validate_integral(v: Any) -> Any:
+def _validate_integral(v: Any) -> Any:
     """Reject non-integral values with fractional parts."""
     _coerce_integral(v)
     return v
 
 
-def validate_positive_int(v: int) -> int:
+def _validate_positive_int(v: int) -> int:
     """Ensure an integer is greater than zero."""
     if v <= 0:
         raise ValueError(f"Value must be greater than 0, got {v}")
     return v
 
 
-# Keep validate_max_iterations importable after its rename; the implementation now lives in validate_positive_int.
-validate_max_iterations = validate_positive_int
+# Keep validate_max_iterations importable after its rename; the implementation now lives in _validate_positive_int.
+validate_max_iterations = _validate_positive_int
 
 
 def validate_tool_choice(v: str) -> str:
@@ -358,7 +358,7 @@ def validate_tool_choice(v: str) -> str:
         return v
 
 
-def validate_tool_execution_mode(v: str) -> ToolExecutionMode:
+def _validate_tool_execution_mode(v: str) -> ToolExecutionMode:
     """Validate that the tool execution mode is a known ``ToolExecutionMode`` value."""
     try:
         return ToolExecutionMode(v.lower())
@@ -369,7 +369,7 @@ def validate_tool_execution_mode(v: str) -> ToolExecutionMode:
         )
 
 
-def validate_orchestration_mode(v: str) -> OrchestrationMode:
+def _validate_orchestration_mode(v: str) -> OrchestrationMode:
     """Validate that the orchestration mode is a known ``OrchestrationMode`` value."""
     try:
         return OrchestrationMode(v.lower())
@@ -772,33 +772,33 @@ class AgentExecutionConfig:
             AgentExecutionConfig instance created from environment variables.
         """
         config_field_map = {
-            EnvConfigKey.MAX_ITERATIONS: _ConfigFieldDescriptor(
+            _EnvConfigKey.MAX_ITERATIONS: _ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: _get_config_value(
                     os.environ, "DAPR_AGENTS_MAX_ITERATIONS"
                 ),
-                pre_validator=validate_integral,
-                validator=validate_positive_int,
+                pre_validator=_validate_integral,
+                validator=_validate_positive_int,
                 raise_on_error=False,
             ),
-            EnvConfigKey.TOOL_CHOICE: _ConfigFieldDescriptor(
+            _EnvConfigKey.TOOL_CHOICE: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
                 getter=lambda: _get_config_value(os.environ, "DAPR_AGENTS_TOOL_CHOICE"),
                 validator=validate_tool_choice,
                 raise_on_error=False,
             ),
-            EnvConfigKey.TOOL_EXECUTION_MODE: _ConfigFieldDescriptor(
+            _EnvConfigKey.TOOL_EXECUTION_MODE: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
                 getter=lambda: _get_config_value(
                     os.environ, "DAPR_AGENTS_TOOL_EXECUTION_MODE"
                 ),
-                validator=validate_tool_execution_mode,
+                validator=_validate_tool_execution_mode,
                 raise_on_error=False,
             ),
-            EnvConfigKey.MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES: _ConfigFieldDescriptor(
+            _EnvConfigKey.MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES: _ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(
                     obj, "max_grpc_inbound_message_size_bytes", v
@@ -806,8 +806,8 @@ class AgentExecutionConfig:
                 getter=lambda: _get_config_value(
                     os.environ, "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES"
                 ),
-                pre_validator=validate_integral,
-                validator=validate_positive_int,
+                pre_validator=_validate_integral,
+                validator=_validate_positive_int,
                 raise_on_error=False,
             ),
             # TODO: support orchestration_mode from env
@@ -841,8 +841,8 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: instantiated_config.max_iterations,
-                pre_validator=validate_integral,
-                validator=validate_positive_int,
+                pre_validator=_validate_integral,
+                validator=_validate_positive_int,
             ),
             "tool_choice": _ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -854,7 +854,7 @@ class AgentExecutionConfig:
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
                 getter=lambda: instantiated_config.tool_execution_mode,
-                validator=validate_tool_execution_mode,
+                validator=_validate_tool_execution_mode,
             ),
             "max_grpc_inbound_message_size_bytes": _ConfigFieldDescriptor(
                 target_type=Optional[int],
@@ -862,15 +862,15 @@ class AgentExecutionConfig:
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
                 getter=lambda: instantiated_config.max_grpc_inbound_message_size_bytes,
-                pre_validator=validate_integral,
-                validator=validate_positive_int,
+                pre_validator=_validate_integral,
+                validator=_validate_positive_int,
             ),
             # Non-resolvable instantiated execution fields are structurally validated
             "orchestration_mode": _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
                 getter=lambda: instantiated_config.orchestration_mode,
-                validator=validate_orchestration_mode,
+                validator=_validate_orchestration_mode,
             ),
             "approval": _ConfigFieldDescriptor(
                 target_type=Optional[AgentApprovalConfig],
@@ -881,8 +881,8 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_approval_rounds", v),
                 getter=lambda: instantiated_config.max_approval_rounds,
-                pre_validator=validate_integral,
-                validator=validate_positive_int,
+                pre_validator=_validate_integral,
+                validator=_validate_positive_int,
             ),
             "streaming": _ConfigFieldDescriptor(
                 target_type=bool,
@@ -935,8 +935,8 @@ class AgentExecutionConfig:
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: _get_config_value(runtime_config, "max_iterations"),
-                pre_validator=validate_integral,
-                validator=validate_positive_int,
+                pre_validator=_validate_integral,
+                validator=_validate_positive_int,
                 raise_on_error=False,
             ),
             RuntimeConfigKey.TOOL_CHOICE: _ConfigFieldDescriptor(
@@ -1053,7 +1053,7 @@ class WorkflowRetryPolicy:
     retry_timeout: Optional[Union[int, None]] = None
 
 
-class EnvConfigKey(StrEnum):
+class _EnvConfigKey(StrEnum):
     """Supported keys for environment variable configuration resolution."""
 
     # Execution fields
@@ -1191,7 +1191,7 @@ class AgentObservabilityConfig:
             AgentObservabilityConfig instance created from environment variables.
         """
         config_field_map = {
-            EnvConfigKey.OTEL_SDK_DISABLED: _ConfigFieldDescriptor(
+            _EnvConfigKey.OTEL_SDK_DISABLED: _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "enabled", v),
                 getter=lambda: _get_config_value(os.environ, "OTEL_SDK_DISABLED"),
@@ -1200,17 +1200,17 @@ class AgentObservabilityConfig:
                 ),  # Invert the disabled flag to set enabled
                 raise_on_error=False,
             ),
-            EnvConfigKey.OTEL_EXPORTER_OTLP_HEADERS: _ConfigFieldDescriptor(
+            _EnvConfigKey.OTEL_EXPORTER_OTLP_HEADERS: _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "headers", v),
                 getter=lambda: _get_config_value(
                     os.environ, "OTEL_EXPORTER_OTLP_HEADERS"
                 ),
-                validator=parse_header_string,
+                validator=_parse_header_string,
                 raise_on_error=False,
                 sensitive=True,
             ),
-            EnvConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: _ConfigFieldDescriptor(
+            _EnvConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
                 getter=lambda: _get_config_value(
@@ -1219,20 +1219,20 @@ class AgentObservabilityConfig:
                 validator=validate_non_empty_string,
                 raise_on_error=False,
             ),
-            EnvConfigKey.OTEL_SERVICE_NAME: _ConfigFieldDescriptor(
+            _EnvConfigKey.OTEL_SERVICE_NAME: _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
                 getter=lambda: _get_config_value(os.environ, "OTEL_SERVICE_NAME"),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
             ),
-            EnvConfigKey.OTEL_LOGGING_ENABLED: _ConfigFieldDescriptor(
+            _EnvConfigKey.OTEL_LOGGING_ENABLED: _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "logging_enabled", v),
                 getter=lambda: _get_config_value(os.environ, "OTEL_LOGGING_ENABLED"),
                 raise_on_error=False,
             ),
-            EnvConfigKey.OTEL_LOGS_EXPORTER: _ConfigFieldDescriptor(
+            _EnvConfigKey.OTEL_LOGS_EXPORTER: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
                 getter=lambda: _get_config_value(os.environ, "OTEL_LOGS_EXPORTER"),
@@ -1240,13 +1240,13 @@ class AgentObservabilityConfig:
                 raise_on_error=False,
                 fallback=AgentLoggingExporter.CONSOLE,
             ),
-            EnvConfigKey.OTEL_TRACING_ENABLED: _ConfigFieldDescriptor(
+            _EnvConfigKey.OTEL_TRACING_ENABLED: _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
                 getter=lambda: _get_config_value(os.environ, "OTEL_TRACING_ENABLED"),
                 raise_on_error=False,
             ),
-            EnvConfigKey.OTEL_TRACES_EXPORTER: _ConfigFieldDescriptor(
+            _EnvConfigKey.OTEL_TRACES_EXPORTER: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
                 getter=lambda: _get_config_value(os.environ, "OTEL_TRACES_EXPORTER"),

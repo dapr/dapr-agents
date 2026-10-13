@@ -15,8 +15,8 @@ import pytest
 
 from dapr_agents.agents.configs import (
     validate_max_iterations,
-    validate_positive_int,
-    validate_integral,
+    _validate_positive_int,
+    _validate_integral,
 )
 
 
@@ -59,8 +59,8 @@ def test_deprecated_config_field_descriptor_defaults() -> None:
 
 
 def test_validate_max_iterations_aliases_validate_positive_int():
-    """Test that ``validate_max_iterations`` is preserved as an alias for ``validate_positive_int``."""
-    assert validate_max_iterations is validate_positive_int
+    """Test that ``validate_max_iterations`` remains an alias for the private validator."""
+    assert validate_max_iterations is _validate_positive_int
     assert validate_max_iterations(1) == 1
     with pytest.raises(ValueError):
         validate_max_iterations(0)
@@ -81,10 +81,10 @@ def test_validate_max_iterations_aliases_validate_positive_int():
     ],
 )
 def test_validate_integral_accepts_integral_values(value, expected):
-    assert validate_integral(value) == expected
+    assert _validate_integral(value) == expected
 
 
 @pytest.mark.parametrize("value", [True, False, 10.5, "10.5", "abc"])
 def test_validate_integral_rejects_non_integral_values(value):
     with pytest.raises(ValueError):
-        validate_integral(value)
+        _validate_integral(value)

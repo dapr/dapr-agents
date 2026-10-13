@@ -63,7 +63,7 @@ def construct_auth_headers(auth_url, grant_type="client_credentials", **kwargs):
     return {"Authorization": f"Bearer {access_token}"}
 
 
-def parse_header_string(raw_headers: str) -> dict:
+def _parse_header_string(raw_headers: str) -> dict:
     """
     Parse a header string in the form "Key1=Value1,Key2=Value2,..." into a dictionary.
 
