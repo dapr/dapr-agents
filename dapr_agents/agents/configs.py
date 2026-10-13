@@ -39,10 +39,10 @@ from pydantic import BaseModel, Field
 
 from dapr_agents.agents.utils.headers import parse_header_string
 from dapr_agents.utils.config import (
-    ConfigFieldDescriptor,
+    _ConfigFieldDescriptor,
     _coerce_integral,
-    apply_config_map,
-    get_config_value,
+    _apply_config_map,
+    _get_config_value,
 )
 from dapr_agents.utils.models import merge_models
 from dapr_agents.types.agent import ToolChoice, ToolExecutionMode, OrchestrationMode
@@ -65,6 +65,39 @@ _JINJA_PLACEHOLDER_PATTERN = re.compile(r"(?<!\{)\{\s*(\w+)\s*\}(?!\})")
 _JSON_SCHEMA_KEY = "$schema"
 _JSON_SCHEMA_DRAFT_URL = "https://json-schema.org/draft/2020-12/schema"
 _JSON_SCHEMA_VERSION_KEY = "version"
+
+
+class _LegacyConfigFieldDescriptor(_ConfigFieldDescriptor):
+    """Compatibility wrapper preserving the former positional ``ConfigFieldDescriptor`` API.
+
+    Retained temporarily for backward compatibility and will be removed in a future release.
+
+    Attributes:
+        target_type: Expected Python type for the coerced value.
+        setter: Callable ``(obj, value) -> None`` that applies the value.
+        validator: Optional callable that validates or transforms the coerced value.
+        sensitive: If ``True``, redact the value in log output.
+        rebuilds_prompt: If ``True``, rebuild the prompt after an update.
+        triggers_otel_reload: If ``True``, reload OpenTelemetry after an update.
+    """
+
+    def __init__(
+        self,
+        target_type: type,
+        setter: Callable[..., None],
+        validator: Optional[Callable[..., Any]] = None,
+        sensitive: bool = False,
+        rebuilds_prompt: bool = False,
+        triggers_otel_reload: bool = False,
+    ) -> None:
+        super().__init__(
+            target_type=target_type,
+            setter=setter,
+            validator=validator,
+            sensitive=sensitive,
+            rebuilds_prompt=rebuilds_prompt,
+            triggers_otel_reload=triggers_otel_reload,
+        )
 
 
 def _ensure_jinja_placeholders(text: str) -> str:
@@ -739,38 +772,38 @@ class AgentExecutionConfig:
             AgentExecutionConfig instance created from environment variables.
         """
         config_field_map = {
-            EnvConfigKey.MAX_ITERATIONS: ConfigFieldDescriptor(
+            EnvConfigKey.MAX_ITERATIONS: _ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
-                getter=lambda: get_config_value(
+                getter=lambda: _get_config_value(
                     os.environ, "DAPR_AGENTS_MAX_ITERATIONS"
                 ),
                 pre_validator=validate_integral,
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
-            EnvConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
+            EnvConfigKey.TOOL_CHOICE: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
-                getter=lambda: get_config_value(os.environ, "DAPR_AGENTS_TOOL_CHOICE"),
+                getter=lambda: _get_config_value(os.environ, "DAPR_AGENTS_TOOL_CHOICE"),
                 validator=validate_tool_choice,
                 raise_on_error=False,
             ),
-            EnvConfigKey.TOOL_EXECUTION_MODE: ConfigFieldDescriptor(
+            EnvConfigKey.TOOL_EXECUTION_MODE: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
-                getter=lambda: get_config_value(
+                getter=lambda: _get_config_value(
                     os.environ, "DAPR_AGENTS_TOOL_EXECUTION_MODE"
                 ),
                 validator=validate_tool_execution_mode,
                 raise_on_error=False,
             ),
-            EnvConfigKey.MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES: ConfigFieldDescriptor(
+            EnvConfigKey.MAX_GRPC_INBOUND_MESSAGE_SIZE_BYTES: _ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(
                     obj, "max_grpc_inbound_message_size_bytes", v
                 ),
-                getter=lambda: get_config_value(
+                getter=lambda: _get_config_value(
                     os.environ, "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES"
                 ),
                 pre_validator=validate_integral,
@@ -781,7 +814,7 @@ class AgentExecutionConfig:
         }
 
         config = cls._template_config()
-        apply_config_map(config, config_field_map)
+        _apply_config_map(config, config_field_map)
 
         return config
 
@@ -804,26 +837,26 @@ class AgentExecutionConfig:
         """
         instantiated_config = instantiated_config or cls._template_config()
         config_field_map = {
-            "max_iterations": ConfigFieldDescriptor(
+            "max_iterations": _ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: instantiated_config.max_iterations,
                 pre_validator=validate_integral,
                 validator=validate_positive_int,
             ),
-            "tool_choice": ConfigFieldDescriptor(
+            "tool_choice": _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
                 getter=lambda: instantiated_config.tool_choice,
                 validator=validate_tool_choice,
             ),
-            "tool_execution_mode": ConfigFieldDescriptor(
+            "tool_execution_mode": _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "tool_execution_mode", v),
                 getter=lambda: instantiated_config.tool_execution_mode,
                 validator=validate_tool_execution_mode,
             ),
-            "max_grpc_inbound_message_size_bytes": ConfigFieldDescriptor(
+            "max_grpc_inbound_message_size_bytes": _ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(
                     obj, "max_grpc_inbound_message_size_bytes", v
@@ -833,42 +866,42 @@ class AgentExecutionConfig:
                 validator=validate_positive_int,
             ),
             # Non-resolvable instantiated execution fields are structurally validated
-            "orchestration_mode": ConfigFieldDescriptor(
+            "orchestration_mode": _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "orchestration_mode", v),
                 getter=lambda: instantiated_config.orchestration_mode,
                 validator=validate_orchestration_mode,
             ),
-            "approval": ConfigFieldDescriptor(
+            "approval": _ConfigFieldDescriptor(
                 target_type=Optional[AgentApprovalConfig],
                 setter=lambda obj, v: setattr(obj, "approval", v),
                 getter=lambda: instantiated_config.approval,
             ),
-            "max_approval_rounds": ConfigFieldDescriptor(
+            "max_approval_rounds": _ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_approval_rounds", v),
                 getter=lambda: instantiated_config.max_approval_rounds,
                 pre_validator=validate_integral,
                 validator=validate_positive_int,
             ),
-            "streaming": ConfigFieldDescriptor(
+            "streaming": _ConfigFieldDescriptor(
                 target_type=bool,
                 setter=lambda obj, v: setattr(obj, "streaming", v),
                 getter=lambda: instantiated_config.streaming,
             ),
-            "stream_listener": ConfigFieldDescriptor(
+            "stream_listener": _ConfigFieldDescriptor(
                 target_type=Optional[Dict[str, Any]],
                 setter=lambda obj, v: setattr(obj, "stream_listener", v),
                 getter=lambda: instantiated_config.stream_listener,
             ),
-            "builtin_tools": ConfigFieldDescriptor(
+            "builtin_tools": _ConfigFieldDescriptor(
                 target_type=List[str],
                 setter=lambda obj, v: setattr(obj, "builtin_tools", v),
                 getter=lambda: instantiated_config.builtin_tools,
             ),
         }
 
-        # Copy first so apply_config_map doesn't mutate the caller's config.
+        # Copy first so _apply_config_map doesn't mutate the caller's config.
         resolved_config = copy.deepcopy(instantiated_config)
         # Omitted fields must not let constructor defaults overwrite values from
         # environment configuration. Remove both the copied default and its getter
@@ -878,7 +911,7 @@ class AgentExecutionConfig:
                 setattr(resolved_config, field_name, None)
                 config_field_map.pop(field_name)
 
-        apply_config_map(resolved_config, config_field_map)
+        _apply_config_map(resolved_config, config_field_map)
 
         return resolved_config
 
@@ -898,18 +931,18 @@ class AgentExecutionConfig:
         """
         runtime_config = runtime_config or {}
         config_field_map = {
-            RuntimeConfigKey.MAX_ITERATIONS: ConfigFieldDescriptor(
+            RuntimeConfigKey.MAX_ITERATIONS: _ConfigFieldDescriptor(
                 target_type=Optional[int],
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
-                getter=lambda: get_config_value(runtime_config, "max_iterations"),
+                getter=lambda: _get_config_value(runtime_config, "max_iterations"),
                 pre_validator=validate_integral,
                 validator=validate_positive_int,
                 raise_on_error=False,
             ),
-            RuntimeConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
+            RuntimeConfigKey.TOOL_CHOICE: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tool_choice", v),
-                getter=lambda: get_config_value(runtime_config, "tool_choice"),
+                getter=lambda: _get_config_value(runtime_config, "tool_choice"),
                 validator=validate_tool_choice,
                 raise_on_error=False,
             ),
@@ -917,7 +950,7 @@ class AgentExecutionConfig:
         }
 
         config = cls._template_config()
-        apply_config_map(config, config_field_map)
+        _apply_config_map(config, config_field_map)
 
         return config
 
@@ -1158,65 +1191,65 @@ class AgentObservabilityConfig:
             AgentObservabilityConfig instance created from environment variables.
         """
         config_field_map = {
-            EnvConfigKey.OTEL_SDK_DISABLED: ConfigFieldDescriptor(
+            EnvConfigKey.OTEL_SDK_DISABLED: _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "enabled", v),
-                getter=lambda: get_config_value(os.environ, "OTEL_SDK_DISABLED"),
+                getter=lambda: _get_config_value(os.environ, "OTEL_SDK_DISABLED"),
                 validator=lambda v: (
                     v if v is None else not v
                 ),  # Invert the disabled flag to set enabled
                 raise_on_error=False,
             ),
-            EnvConfigKey.OTEL_EXPORTER_OTLP_HEADERS: ConfigFieldDescriptor(
+            EnvConfigKey.OTEL_EXPORTER_OTLP_HEADERS: _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "headers", v),
-                getter=lambda: get_config_value(
+                getter=lambda: _get_config_value(
                     os.environ, "OTEL_EXPORTER_OTLP_HEADERS"
                 ),
                 validator=parse_header_string,
                 raise_on_error=False,
                 sensitive=True,
             ),
-            EnvConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
+            EnvConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
-                getter=lambda: get_config_value(
+                getter=lambda: _get_config_value(
                     os.environ, "OTEL_EXPORTER_OTLP_ENDPOINT"
                 ),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
             ),
-            EnvConfigKey.OTEL_SERVICE_NAME: ConfigFieldDescriptor(
+            EnvConfigKey.OTEL_SERVICE_NAME: _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
-                getter=lambda: get_config_value(os.environ, "OTEL_SERVICE_NAME"),
+                getter=lambda: _get_config_value(os.environ, "OTEL_SERVICE_NAME"),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
             ),
-            EnvConfigKey.OTEL_LOGGING_ENABLED: ConfigFieldDescriptor(
+            EnvConfigKey.OTEL_LOGGING_ENABLED: _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "logging_enabled", v),
-                getter=lambda: get_config_value(os.environ, "OTEL_LOGGING_ENABLED"),
+                getter=lambda: _get_config_value(os.environ, "OTEL_LOGGING_ENABLED"),
                 raise_on_error=False,
             ),
-            EnvConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
+            EnvConfigKey.OTEL_LOGS_EXPORTER: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
-                getter=lambda: get_config_value(os.environ, "OTEL_LOGS_EXPORTER"),
+                getter=lambda: _get_config_value(os.environ, "OTEL_LOGS_EXPORTER"),
                 validator=validate_otel_exporter_logging,
                 raise_on_error=False,
                 fallback=AgentLoggingExporter.CONSOLE,
             ),
-            EnvConfigKey.OTEL_TRACING_ENABLED: ConfigFieldDescriptor(
+            EnvConfigKey.OTEL_TRACING_ENABLED: _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
-                getter=lambda: get_config_value(os.environ, "OTEL_TRACING_ENABLED"),
+                getter=lambda: _get_config_value(os.environ, "OTEL_TRACING_ENABLED"),
                 raise_on_error=False,
             ),
-            EnvConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
+            EnvConfigKey.OTEL_TRACES_EXPORTER: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
-                getter=lambda: get_config_value(os.environ, "OTEL_TRACES_EXPORTER"),
+                getter=lambda: _get_config_value(os.environ, "OTEL_TRACES_EXPORTER"),
                 validator=validate_otel_exporter_tracing,
                 raise_on_error=False,
                 fallback=AgentTracingExporter.CONSOLE,
@@ -1224,7 +1257,7 @@ class AgentObservabilityConfig:
         }
 
         config = cls._template_config()
-        apply_config_map(config, config_field_map)
+        _apply_config_map(config, config_field_map)
 
         return config
 
@@ -1246,12 +1279,12 @@ class AgentObservabilityConfig:
         """
         instantiated_config = instantiated_config or cls._template_config()
         config_field_map = {
-            "enabled": ConfigFieldDescriptor(
+            "enabled": _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "enabled", v),
                 getter=lambda: instantiated_config.enabled,
             ),
-            "headers": ConfigFieldDescriptor(
+            "headers": _ConfigFieldDescriptor(
                 target_type=dict[str, str],
                 setter=lambda obj, v: setattr(obj, "headers", v),
                 getter=lambda: instantiated_config.headers,
@@ -1260,42 +1293,42 @@ class AgentObservabilityConfig:
             # Empty strings for ``auth_token``, ``headers`` and ``endpoint``
             # are treated as unset for backwards compatibility;
             # whitespace-only strings are also treated as unset to match
-            "auth_token": ConfigFieldDescriptor(
+            "auth_token": _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "auth_token", v),
                 getter=lambda: instantiated_config.auth_token,
                 validator=lambda v: (v and v.strip()) or None,
                 sensitive=True,
             ),
-            "endpoint": ConfigFieldDescriptor(
+            "endpoint": _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
                 getter=lambda: instantiated_config.endpoint,
                 validator=lambda v: (v and v.strip()) or None,
             ),
-            "service_name": ConfigFieldDescriptor(
+            "service_name": _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
                 getter=lambda: instantiated_config.service_name,
                 validator=lambda v: (v and v.strip()) or None,
             ),
-            "logging_enabled": ConfigFieldDescriptor(
+            "logging_enabled": _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "logging_enabled", v),
                 getter=lambda: instantiated_config.logging_enabled,
             ),
-            "logging_exporter": ConfigFieldDescriptor(
+            "logging_exporter": _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
                 getter=lambda: instantiated_config.logging_exporter,
                 validator=validate_otel_exporter_logging,
             ),
-            "tracing_enabled": ConfigFieldDescriptor(
+            "tracing_enabled": _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
                 getter=lambda: instantiated_config.tracing_enabled,
             ),
-            "tracing_exporter": ConfigFieldDescriptor(
+            "tracing_exporter": _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
                 getter=lambda: instantiated_config.tracing_exporter,
@@ -1303,9 +1336,9 @@ class AgentObservabilityConfig:
             ),
         }
 
-        # Copy first so apply_config_map doesn't mutate the caller's config
+        # Copy first so _apply_config_map doesn't mutate the caller's config
         resolved_config = copy.deepcopy(instantiated_config)
-        apply_config_map(resolved_config, config_field_map)
+        _apply_config_map(resolved_config, config_field_map)
 
         return resolved_config
 
@@ -1325,66 +1358,72 @@ class AgentObservabilityConfig:
         """
         runtime_config = runtime_config or {}
         config_field_map = {
-            RuntimeConfigKey.OTEL_SDK_DISABLED: ConfigFieldDescriptor(
+            RuntimeConfigKey.OTEL_SDK_DISABLED: _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "enabled", v),
-                getter=lambda: get_config_value(runtime_config, "OTEL_SDK_DISABLED"),
+                getter=lambda: _get_config_value(runtime_config, "OTEL_SDK_DISABLED"),
                 validator=lambda v: (
                     v if v is None else not v
                 ),  # Invert the disabled flag to set enabled
                 raise_on_error=False,
             ),
-            RuntimeConfigKey.OTEL_EXPORTER_OTLP_HEADERS: ConfigFieldDescriptor(
+            RuntimeConfigKey.OTEL_EXPORTER_OTLP_HEADERS: _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 # Target the auth_token field as runtime secrets may contain an access token
                 setter=lambda obj, v: setattr(obj, "auth_token", v),
-                getter=lambda: get_config_value(
+                getter=lambda: _get_config_value(
                     runtime_config, "OTEL_EXPORTER_OTLP_HEADERS"
                 ),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
                 sensitive=True,
             ),
-            RuntimeConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
+            RuntimeConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "endpoint", v),
-                getter=lambda: get_config_value(
+                getter=lambda: _get_config_value(
                     runtime_config, "OTEL_EXPORTER_OTLP_ENDPOINT"
                 ),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
             ),
-            RuntimeConfigKey.OTEL_SERVICE_NAME: ConfigFieldDescriptor(
+            RuntimeConfigKey.OTEL_SERVICE_NAME: _ConfigFieldDescriptor(
                 target_type=Optional[str],
                 setter=lambda obj, v: setattr(obj, "service_name", v),
-                getter=lambda: get_config_value(runtime_config, "OTEL_SERVICE_NAME"),
+                getter=lambda: _get_config_value(runtime_config, "OTEL_SERVICE_NAME"),
                 validator=validate_non_empty_string,
                 raise_on_error=False,
             ),
-            RuntimeConfigKey.OTEL_LOGGING_ENABLED: ConfigFieldDescriptor(
+            RuntimeConfigKey.OTEL_LOGGING_ENABLED: _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "logging_enabled", v),
-                getter=lambda: get_config_value(runtime_config, "OTEL_LOGGING_ENABLED"),
+                getter=lambda: _get_config_value(
+                    runtime_config, "OTEL_LOGGING_ENABLED"
+                ),
                 raise_on_error=False,
             ),
-            RuntimeConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
+            RuntimeConfigKey.OTEL_LOGS_EXPORTER: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "logging_exporter", v),
-                getter=lambda: get_config_value(runtime_config, "OTEL_LOGS_EXPORTER"),
+                getter=lambda: _get_config_value(runtime_config, "OTEL_LOGS_EXPORTER"),
                 validator=validate_otel_exporter_logging,
                 raise_on_error=False,
                 fallback=AgentLoggingExporter.CONSOLE,
             ),
-            RuntimeConfigKey.OTEL_TRACING_ENABLED: ConfigFieldDescriptor(
+            RuntimeConfigKey.OTEL_TRACING_ENABLED: _ConfigFieldDescriptor(
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
-                getter=lambda: get_config_value(runtime_config, "OTEL_TRACING_ENABLED"),
+                getter=lambda: _get_config_value(
+                    runtime_config, "OTEL_TRACING_ENABLED"
+                ),
                 raise_on_error=False,
             ),
-            RuntimeConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
+            RuntimeConfigKey.OTEL_TRACES_EXPORTER: _ConfigFieldDescriptor(
                 target_type=str,
                 setter=lambda obj, v: setattr(obj, "tracing_exporter", v),
-                getter=lambda: get_config_value(runtime_config, "OTEL_TRACES_EXPORTER"),
+                getter=lambda: _get_config_value(
+                    runtime_config, "OTEL_TRACES_EXPORTER"
+                ),
                 validator=validate_otel_exporter_tracing,
                 raise_on_error=False,
                 fallback=AgentTracingExporter.CONSOLE,
@@ -1392,7 +1431,7 @@ class AgentObservabilityConfig:
         }
 
         config = cls._template_config()
-        apply_config_map(config, config_field_map)
+        _apply_config_map(config, config_field_map)
 
         return config
 
@@ -1625,3 +1664,16 @@ class AgentMetadataSchema(BaseModel):
         schema[_JSON_SCHEMA_KEY] = _JSON_SCHEMA_DRAFT_URL
         schema[_JSON_SCHEMA_VERSION_KEY] = version
         return schema
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve the deprecated legacy descriptor name."""
+    if name == "ConfigFieldDescriptor":
+        warnings.warn(
+            "dapr_agents.agents.configs.ConfigFieldDescriptor is deprecated "
+            "and will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _LegacyConfigFieldDescriptor
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -20,8 +20,31 @@ from dapr_agents.agents.configs import (
 )
 
 
+# TODO: Remove this compatibility test when ConfigFieldDescriptor is removed.
+def test_deprecated_config_field_descriptor_remains_available() -> None:
+    """Test that the positional ``ConfigFieldDescriptor`` remains importable from the original location
+    but raises a deprecation warning."""
+    with pytest.warns(DeprecationWarning, match="ConfigFieldDescriptor.*deprecated"):
+        from dapr_agents.agents.configs import ConfigFieldDescriptor
+
+    def setter(_obj: object, _value: object) -> None:
+        return None
+
+    def validator(value: str) -> str:
+        return value.strip()
+
+    descriptor = ConfigFieldDescriptor(str, setter, validator, True, True, True)
+
+    assert descriptor.target_type is str
+    assert descriptor.setter is setter
+    assert descriptor.validator is validator
+    assert descriptor.sensitive is True
+    assert descriptor.rebuilds_prompt is True
+    assert descriptor.triggers_otel_reload is True
+
+
 def test_validate_max_iterations_aliases_validate_positive_int():
-    """Test that validate_max_iterations is preserved as an alias for validate_positive_int."""
+    """Test that ``validate_max_iterations`` is preserved as an alias for ``validate_positive_int``."""
     assert validate_max_iterations is validate_positive_int
     assert validate_max_iterations(1) == 1
     with pytest.raises(ValueError):

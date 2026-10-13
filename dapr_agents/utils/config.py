@@ -68,7 +68,7 @@ def _coerce_integral(value: Any) -> int:
 
 
 @dataclass(frozen=True, kw_only=True)
-class ConfigFieldDescriptor:
+class _ConfigFieldDescriptor:
     """Describes how a configuration key maps to a configuration attribute.
 
     Attributes:
@@ -102,7 +102,7 @@ class ConfigFieldDescriptor:
     triggers_otel_reload: bool = False
 
 
-def get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
+def _get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
     """
     Look up a config value from a mapping, trying common key naming conventions.
 
@@ -126,8 +126,8 @@ def get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
     return None
 
 
-def apply_config_map(
-    target_obj: Any, config_field_map: dict[str, ConfigFieldDescriptor]
+def _apply_config_map(
+    target_obj: Any, config_field_map: dict[str, _ConfigFieldDescriptor]
 ) -> None:
     """
     Apply a map of configuration field names to field descriptors onto a target object, mutating the object in-place.
@@ -137,14 +137,14 @@ def apply_config_map(
         RuntimeError: If a value cannot be applied to the target object.
     """
     for key, descriptor in config_field_map.items():
-        apply_config_update(target_obj=target_obj, key=key, descriptor=descriptor)
+        _apply_config_update(target_obj=target_obj, key=key, descriptor=descriptor)
 
 
-def apply_config_update(
+def _apply_config_update(
     target_obj: Any,
     *,
     key: str,
-    descriptor: ConfigFieldDescriptor,
+    descriptor: _ConfigFieldDescriptor,
     value: Any = None,
 ) -> Any:
     """
@@ -175,7 +175,7 @@ def apply_config_update(
         RuntimeError: If the value cannot be applied.
     """
     try:
-        processed_value = process_config_update(
+        processed_value = _process_config_update(
             key=key, value=value, descriptor=descriptor
         )
 
@@ -226,9 +226,9 @@ def apply_config_update(
         return descriptor.fallback
 
 
-def process_config_update(
+def _process_config_update(
     key: str,
-    descriptor: ConfigFieldDescriptor,
+    descriptor: _ConfigFieldDescriptor,
     value: Any = None,
 ) -> Any:
     """
@@ -261,7 +261,7 @@ def process_config_update(
         else:
             if descriptor.pre_validator:
                 value = descriptor.pre_validator(value)
-            processed_value = coerce_config_value(value, descriptor.target_type)
+            processed_value = _coerce_config_value(value, descriptor.target_type)
     except Exception as exc:
         raise ValueError(f"Invalid value for key '{key}'") from exc
 
@@ -275,7 +275,7 @@ def process_config_update(
     return processed_value
 
 
-def coerce_config_value(value: Any, target_type: type) -> Any:
+def _coerce_config_value(value: Any, target_type: type) -> Any:
     """
     Coerce a configuration value to the target Python type.
     Coercion explicitly enforces the requested target type; subtypes are not accepted.
@@ -293,7 +293,7 @@ def coerce_config_value(value: Any, target_type: type) -> Any:
         # Handle PEP 604 / ``typing.Union`` types by trying each branch in order
         for arg in get_args(target_type):
             try:
-                return coerce_config_value(value, arg)
+                return _coerce_config_value(value, arg)
             except (ValueError, TypeError):
                 continue
         raise ValueError(f"Cannot coerce {value!r} to any type in {target_type}")

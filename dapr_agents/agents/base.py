@@ -85,8 +85,8 @@ from dapr_agents.types import (
     ToolExecutionRecord,
 )
 from dapr_agents.utils.config import (
-    ConfigFieldDescriptor,
-    apply_config_update,
+    _ConfigFieldDescriptor,
+    _apply_config_update,
     _is_supported_config_key,
 )
 from pydantic import ValidationError
@@ -139,9 +139,9 @@ class AgentBase:
     Infrastructure (pub/sub, durable state, registry) is provided by `DaprInfra`.
     """
 
-    _CONFIG_FIELD_MAP: Dict[str, ConfigFieldDescriptor] = {
+    _CONFIG_FIELD_MAP: Dict[str, _ConfigFieldDescriptor] = {
         # Profile fields — setter callbacks replace dot-path strings.
-        RuntimeConfigKey.AGENT_ROLE: ConfigFieldDescriptor(
+        RuntimeConfigKey.AGENT_ROLE: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: (
                 setattr(agent.profile, "role", v),
@@ -150,7 +150,7 @@ class AgentBase:
             validator=validate_non_empty_string,
             rebuilds_prompt=True,
         ),
-        RuntimeConfigKey.AGENT_GOAL: ConfigFieldDescriptor(
+        RuntimeConfigKey.AGENT_GOAL: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: (
                 setattr(agent.profile, "goal", v),
@@ -159,7 +159,7 @@ class AgentBase:
             validator=validate_non_empty_string,
             rebuilds_prompt=True,
         ),
-        RuntimeConfigKey.AGENT_INSTRUCTIONS: ConfigFieldDescriptor(
+        RuntimeConfigKey.AGENT_INSTRUCTIONS: _ConfigFieldDescriptor(
             target_type=list,
             setter=lambda agent, v: (
                 setattr(agent.profile, "instructions", v),
@@ -167,7 +167,7 @@ class AgentBase:
             ),
             rebuilds_prompt=True,
         ),
-        RuntimeConfigKey.AGENT_SYSTEM_PROMPT: ConfigFieldDescriptor(
+        RuntimeConfigKey.AGENT_SYSTEM_PROMPT: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: (
                 setattr(agent.profile, "system_prompt", v),
@@ -175,7 +175,7 @@ class AgentBase:
             ),
             rebuilds_prompt=True,
         ),
-        RuntimeConfigKey.AGENT_STYLE_GUIDELINES: ConfigFieldDescriptor(
+        RuntimeConfigKey.AGENT_STYLE_GUIDELINES: _ConfigFieldDescriptor(
             target_type=list,
             setter=lambda agent, v: (
                 setattr(agent.profile, "style_guidelines", v),
@@ -184,33 +184,33 @@ class AgentBase:
             rebuilds_prompt=True,
         ),
         # Execution fields
-        RuntimeConfigKey.MAX_ITERATIONS: ConfigFieldDescriptor(
+        RuntimeConfigKey.MAX_ITERATIONS: _ConfigFieldDescriptor(
             target_type=int,
             setter=lambda agent, v: setattr(agent.execution, "max_iterations", v),
             pre_validator=validate_integral,
             validator=validate_positive_int,
         ),
-        RuntimeConfigKey.TOOL_CHOICE: ConfigFieldDescriptor(
+        RuntimeConfigKey.TOOL_CHOICE: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: setattr(agent.execution, "tool_choice", v),
             validator=validate_tool_choice,
         ),
         # LLM fields
-        RuntimeConfigKey.LLM_API_KEY: ConfigFieldDescriptor(
+        RuntimeConfigKey.LLM_API_KEY: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: setattr(agent.llm, "api_key", v),
             sensitive=True,
         ),
-        RuntimeConfigKey.LLM_PROVIDER: ConfigFieldDescriptor(
+        RuntimeConfigKey.LLM_PROVIDER: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: setattr(agent.llm, "provider", v),
         ),
-        RuntimeConfigKey.LLM_MODEL: ConfigFieldDescriptor(
+        RuntimeConfigKey.LLM_MODEL: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: setattr(agent.llm, "model", v),
         ),
         # Component references
-        RuntimeConfigKey.AGENT_WORKFLOW: ConfigFieldDescriptor(
+        RuntimeConfigKey.AGENT_WORKFLOW: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: (
                 setattr(agent.state_store, "store_name", str(v))
@@ -218,7 +218,7 @@ class AgentBase:
                 else None
             ),
         ),
-        RuntimeConfigKey.AGENT_REGISTRY: ConfigFieldDescriptor(
+        RuntimeConfigKey.AGENT_REGISTRY: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: (
                 setattr(agent.registry_state, "store_name", str(v))
@@ -226,7 +226,7 @@ class AgentBase:
                 else None
             ),
         ),
-        RuntimeConfigKey.AGENT_MEMORY: ConfigFieldDescriptor(
+        RuntimeConfigKey.AGENT_MEMORY: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: (
                 setattr(agent.memory, "store_name", str(v))
@@ -235,19 +235,19 @@ class AgentBase:
             ),
         ),
         # OTel fields — setters mutate self._agent_observability
-        RuntimeConfigKey.OTEL_SDK_DISABLED: ConfigFieldDescriptor(
+        RuntimeConfigKey.OTEL_SDK_DISABLED: _ConfigFieldDescriptor(
             target_type=bool,
             setter=lambda agent, v: setattr(
                 agent._agent_observability, "enabled", not v
             ),
             triggers_otel_reload=True,
         ),
-        RuntimeConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
+        RuntimeConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: setattr(agent._agent_observability, "endpoint", v),
             triggers_otel_reload=True,
         ),
-        RuntimeConfigKey.OTEL_EXPORTER_OTLP_HEADERS: ConfigFieldDescriptor(
+        RuntimeConfigKey.OTEL_EXPORTER_OTLP_HEADERS: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: setattr(
                 agent._agent_observability, "auth_token", v
@@ -255,21 +255,21 @@ class AgentBase:
             sensitive=True,
             triggers_otel_reload=True,
         ),
-        RuntimeConfigKey.OTEL_SERVICE_NAME: ConfigFieldDescriptor(
+        RuntimeConfigKey.OTEL_SERVICE_NAME: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: setattr(
                 agent._agent_observability, "service_name", v
             ),
             triggers_otel_reload=True,
         ),
-        RuntimeConfigKey.OTEL_TRACING_ENABLED: ConfigFieldDescriptor(
+        RuntimeConfigKey.OTEL_TRACING_ENABLED: _ConfigFieldDescriptor(
             target_type=bool,
             setter=lambda agent, v: setattr(
                 agent._agent_observability, "tracing_enabled", v
             ),
             triggers_otel_reload=True,
         ),
-        RuntimeConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
+        RuntimeConfigKey.OTEL_TRACES_EXPORTER: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: setattr(
                 agent._agent_observability, "tracing_exporter", AgentTracingExporter(v)
@@ -277,14 +277,14 @@ class AgentBase:
             validator=validate_otel_exporter_tracing,
             triggers_otel_reload=True,
         ),
-        RuntimeConfigKey.OTEL_LOGGING_ENABLED: ConfigFieldDescriptor(
+        RuntimeConfigKey.OTEL_LOGGING_ENABLED: _ConfigFieldDescriptor(
             target_type=bool,
             setter=lambda agent, v: setattr(
                 agent._agent_observability, "logging_enabled", v
             ),
             triggers_otel_reload=True,
         ),
-        RuntimeConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(
+        RuntimeConfigKey.OTEL_LOGS_EXPORTER: _ConfigFieldDescriptor(
             target_type=str,
             setter=lambda agent, v: setattr(
                 agent._agent_observability, "logging_exporter", AgentLoggingExporter(v)
@@ -972,7 +972,7 @@ class AgentBase:
 
         # Process and apply the configuration update to the agent
         try:
-            applied_value = apply_config_update(
+            applied_value = _apply_config_update(
                 target_obj=self,
                 key=normalized_key,
                 value=value,
