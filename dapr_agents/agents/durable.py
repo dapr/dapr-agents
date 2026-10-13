@@ -473,7 +473,6 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
 
         self._orchestration_strategy: Optional[OrchestrationStrategy] = None
         # Initialize orchestration strategy if this agent is an orchestrator
-        # Otherwise default to the standard "agent" mode
         if self.execution.orchestration_mode:
             match self.execution.orchestration_mode:
                 case OrchestrationMode.AGENT:

@@ -75,8 +75,8 @@ class _LegacyConfigFieldDescriptor(_ConfigFieldDescriptor):
     Attributes:
         target_type: Expected Python type for the coerced value.
         setter: Callable ``(obj, value) -> None`` that applies the value.
-        validator: Optional callable that validates or transforms the coerced value.
         sensitive: If ``True``, redact the value in log output.
+        validator: Optional callable that validates or transforms the coerced value.
         rebuilds_prompt: If ``True``, rebuild the prompt after an update.
         triggers_otel_reload: If ``True``, reload OpenTelemetry after an update.
     """
@@ -85,8 +85,8 @@ class _LegacyConfigFieldDescriptor(_ConfigFieldDescriptor):
         self,
         target_type: type,
         setter: Callable[..., None],
-        validator: Optional[Callable[..., Any]] = None,
         sensitive: bool = False,
+        validator: Optional[Callable[..., Any]] = None,
         rebuilds_prompt: bool = False,
         triggers_otel_reload: bool = False,
     ) -> None:
