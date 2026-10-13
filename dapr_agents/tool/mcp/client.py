@@ -226,8 +226,9 @@ class MCPClient(BaseModel):
             config: dict
         """
         # Copy nested dicts and lists too, so a caller mutating its own config
-        # cannot change the stored one.
-        config = _copy_config(config)
+        # cannot change the stored one. dict() first so any Mapping works and
+        # the caller's own object is never popped from.
+        config = _copy_config(dict(config))
         server_name = config.pop("server_name", None)
         transport = config.pop("transport", None)
         if server_name in self._connected_servers:

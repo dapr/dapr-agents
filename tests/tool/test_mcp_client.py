@@ -21,7 +21,7 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from typing import Optional, Set
 from unittest.mock import AsyncMock, patch
 
@@ -463,6 +463,23 @@ async def test_connect_stores_a_copy_of_nested_params():
         await tools["srv_ping"].arun()
 
     assert servers.started[-1]["env"] == {"TOKEN": "a"}
+
+
+async def test_connect_accepts_a_read_only_mapping():
+    client = MCPClient()
+    servers = _FakeServers()
+    config = MappingProxyType(
+        {"server_name": "srv", "transport": "stdio", "command": "old"}
+    )
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        await client.connect(config)
+
+    assert client.get_connected_servers() == ["srv"]
+    assert dict(config) == {
+        "server_name": "srv",
+        "transport": "stdio",
+        "command": "old",
+    }
 
 
 @pytest.mark.parametrize("exit_error", [False, True])
