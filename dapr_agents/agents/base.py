@@ -84,7 +84,7 @@ from dapr_agents.types import (
     AgentError,
     ToolExecutionRecord,
 )
-from dapr_agents.utils.config import (
+from dapr_agents.utils._config import (
     _ConfigFieldDescriptor,
     _apply_config_update,
     _is_supported_config_key,

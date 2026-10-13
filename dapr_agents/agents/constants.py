@@ -22,10 +22,6 @@ AGENT_DEFAULT_TOOL_CHOICE = ToolChoice.AUTO
 AGENT_DEFAULT_TOOL_EXECUTION_MODE = ToolExecutionMode.PARALLEL
 
 
-# ============================================================================
-# Public API Exports
-# ============================================================================
-
 __all__ = [
     "AGENT_DEFAULT_MAX_ITERATIONS",
     "AGENT_DEFAULT_TOOL_CHOICE",

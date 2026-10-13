@@ -20,7 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dapr_agents.utils.config import (
+from dapr_agents.utils._config import (
     _ConfigFieldDescriptor,
     _apply_config_map,
     _apply_config_update,

@@ -38,7 +38,7 @@ import warnings
 from pydantic import BaseModel, Field
 
 from dapr_agents.agents.utils.headers import parse_header_string
-from dapr_agents.utils.config import (
+from dapr_agents.utils._config import (
     _ConfigFieldDescriptor,
     _coerce_integral,
     _apply_config_map,

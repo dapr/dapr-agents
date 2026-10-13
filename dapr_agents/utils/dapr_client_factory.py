@@ -51,7 +51,7 @@ from typing import Any, Callable, Dict, Optional
 from dapr.aio.clients import DaprClient as AsyncDaprClient
 from dapr.clients import DaprClient
 
-from dapr_agents.utils.config import _coerce_integral
+from dapr_agents.utils._config import _coerce_integral
 
 INBOUND_MESSAGE_SIZE_ENV: str = "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES"
 
