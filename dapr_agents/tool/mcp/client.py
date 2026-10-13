@@ -276,10 +276,16 @@ class MCPClient(BaseModel):
         except (Exception, asyncio.CancelledError) as e:
             failed = True
             reason = _format_exception_message(e) or type(e).__name__
-            logger.error(
-                f"Failed to connect to MCP server '{server_name}': {reason}",
-                exc_info=True,
-            )
+            if isinstance(e, asyncio.CancelledError):
+                # Expected under asyncio.wait_for timeouts: no ERROR or traceback.
+                logger.warning(
+                    f"Connection to MCP server '{server_name}' was cancelled"
+                )
+            else:
+                logger.error(
+                    f"Failed to connect to MCP server '{server_name}': {reason}",
+                    exc_info=True,
+                )
             previous_config = self._server_configs.get(server_name)
             if previous_config is not None and previous_config != new_config:
                 logger.warning(

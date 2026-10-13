@@ -346,6 +346,33 @@ async def test_tool_reaches_previous_server_after_timed_out_reconnect():
     assert _tool_text(result) == "from old"
 
 
+async def test_cancelled_connect_logs_warning_without_error(caplog):
+    client = MCPClient()
+    servers = _FakeServers(hang={"new"})
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        with caplog.at_level(logging.DEBUG, logger="dapr_agents.tool.mcp.client"):
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(client.connect(_NEW), timeout=0.05)
+
+    records = [r for r in caplog.records if "was cancelled" in r.getMessage()]
+    assert [r.levelno for r in records] == [logging.WARNING]
+    assert records[0].exc_info is None
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+async def test_failed_connect_logs_error_with_traceback(caplog):
+    client = MCPClient()
+    servers = _FakeServers(fail={"new"})
+    with patch("dapr_agents.tool.mcp.client.start_transport_session", servers.start):
+        with caplog.at_level(logging.DEBUG, logger="dapr_agents.tool.mcp.client"):
+            with pytest.raises(OSError):
+                await client.connect(_NEW)
+
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert errors[0].exc_info is not None
+
+
 async def test_tool_reaches_previous_server_while_reconnect_in_flight():
     client = MCPClient()
     servers = _FakeServers(hang={"new"})
