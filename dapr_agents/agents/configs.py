@@ -322,13 +322,6 @@ class AgentStateConfig:
 # ---------------------------------------------------------------------------
 
 
-def validate_non_empty_string(v: str) -> str:
-    """Reject empty or whitespace-only strings."""
-    if not v or not v.strip():
-        raise ValueError("Value must not be empty")
-    return v.strip()
-
-
 def _validate_integral(v: Any) -> Any:
     """Reject non-integral values with fractional parts."""
     _coerce_integral(v)
@@ -336,14 +329,27 @@ def _validate_integral(v: Any) -> Any:
 
 
 def _validate_positive_int(v: int) -> int:
-    """Ensure an integer is greater than zero."""
-    if v <= 0:
-        raise ValueError(f"Value must be greater than 0, got {v}")
+    """Ensure an integer is at least 1."""
+    if isinstance(v, bool) or not isinstance(v, int):
+        raise ValueError(f"Value must be an integer, got {v!r}")
+    if v < 1:
+        raise ValueError(f"Value must be at least 1, got {v}")
     return v
 
 
-# Keep validate_max_iterations importable after its rename; the implementation now lives in _validate_positive_int.
-validate_max_iterations = _validate_positive_int
+def validate_non_empty_string(v: str) -> str:
+    """Reject empty or whitespace-only strings."""
+    if not v or not v.strip():
+        raise ValueError("Value must not be empty")
+    return v.strip()
+
+
+def validate_max_iterations(v: int) -> int:
+    """Ensure max_iterations is at least 1."""
+    try:
+        return _validate_positive_int(v)
+    except ValueError:
+        raise ValueError(f"max_iterations must be >= 1, got {v}") from None
 
 
 def validate_tool_choice(v: str) -> str:
@@ -779,7 +785,7 @@ class AgentExecutionConfig:
                     os.environ, "DAPR_AGENTS_MAX_ITERATIONS"
                 ),
                 pre_validator=_validate_integral,
-                validator=_validate_positive_int,
+                validator=validate_max_iterations,
                 raise_on_error=False,
             ),
             _EnvConfigKey.TOOL_CHOICE: _ConfigFieldDescriptor(
@@ -842,7 +848,7 @@ class AgentExecutionConfig:
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: instantiated_config.max_iterations,
                 pre_validator=_validate_integral,
-                validator=_validate_positive_int,
+                validator=validate_max_iterations,
             ),
             "tool_choice": _ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -936,7 +942,7 @@ class AgentExecutionConfig:
                 setter=lambda obj, v: setattr(obj, "max_iterations", v),
                 getter=lambda: _get_config_value(runtime_config, "max_iterations"),
                 pre_validator=_validate_integral,
-                validator=_validate_positive_int,
+                validator=validate_max_iterations,
                 raise_on_error=False,
             ),
             RuntimeConfigKey.TOOL_CHOICE: _ConfigFieldDescriptor(

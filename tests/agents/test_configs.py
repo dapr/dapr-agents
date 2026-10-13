@@ -13,11 +13,7 @@
 
 import pytest
 
-from dapr_agents.agents.configs import (
-    validate_max_iterations,
-    _validate_positive_int,
-    _validate_integral,
-)
+from dapr_agents.agents.configs import validate_max_iterations, _validate_integral
 
 
 # TODO: Remove this compatibility test when ConfigFieldDescriptor is removed.
@@ -58,12 +54,21 @@ def test_deprecated_config_field_descriptor_defaults() -> None:
     assert descriptor.triggers_otel_reload is False
 
 
-def test_validate_max_iterations_aliases_validate_positive_int():
-    """Test that ``validate_max_iterations`` remains an alias for the private validator."""
-    assert validate_max_iterations is _validate_positive_int
-    assert validate_max_iterations(1) == 1
-    with pytest.raises(ValueError):
-        validate_max_iterations(0)
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (1, 1),
+        (10, 10),
+    ],
+)
+def test_validate_max_iterations_accepts_positive_integers(value, expected):
+    assert validate_max_iterations(value) == expected
+
+
+@pytest.mark.parametrize("value", [0, 0.99, -1])
+def test_validate_max_iterations_rejects_non_positive_integers(value):
+    with pytest.raises(ValueError, match="max_iterations"):
+        validate_max_iterations(value)
 
 
 @pytest.mark.parametrize(
