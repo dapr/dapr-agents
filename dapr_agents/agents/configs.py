@@ -337,6 +337,28 @@ def _validate_positive_int(v: int) -> int:
     return v
 
 
+def _validate_tool_execution_mode(v: str) -> ToolExecutionMode:
+    """Validate that the tool execution mode is a known ``ToolExecutionMode`` value."""
+    try:
+        return ToolExecutionMode(v.lower())
+    except (ValueError, KeyError):
+        raise ValueError(
+            f"Unknown tool execution mode '{v}'. "
+            f"Valid options: {sorted([e.value for e in ToolExecutionMode])}"
+        )
+
+
+def _validate_orchestration_mode(v: str) -> OrchestrationMode:
+    """Validate that the orchestration mode is a known ``OrchestrationMode`` value."""
+    try:
+        return OrchestrationMode(v.lower())
+    except (ValueError, KeyError):
+        raise ValueError(
+            f"Unknown orchestration mode '{v}'. "
+            f"Valid options: {sorted([e.value for e in OrchestrationMode])}"
+        )
+
+
 def validate_non_empty_string(v: str) -> str:
     """Reject empty or whitespace-only strings."""
     if not v or not v.strip():
@@ -362,28 +384,6 @@ def validate_tool_choice(v: str) -> str:
             f"Tool choice '{v}' not in standard set {sorted([e.value for e in ToolChoice])}; allowing anyway."
         )
         return v
-
-
-def _validate_tool_execution_mode(v: str) -> ToolExecutionMode:
-    """Validate that the tool execution mode is a known ``ToolExecutionMode`` value."""
-    try:
-        return ToolExecutionMode(v.lower())
-    except (ValueError, KeyError):
-        raise ValueError(
-            f"Unknown tool execution mode '{v}'. "
-            f"Valid options: {sorted([e.value for e in ToolExecutionMode])}"
-        )
-
-
-def _validate_orchestration_mode(v: str) -> OrchestrationMode:
-    """Validate that the orchestration mode is a known ``OrchestrationMode`` value."""
-    try:
-        return OrchestrationMode(v.lower())
-    except (ValueError, KeyError):
-        raise ValueError(
-            f"Unknown orchestration mode '{v}'. "
-            f"Valid options: {sorted([e.value for e in OrchestrationMode])}"
-        )
 
 
 def validate_otel_exporter_tracing(v: str) -> AgentTracingExporter:
