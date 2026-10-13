@@ -11,11 +11,21 @@
 # limitations under the License.
 #
 
-"""Tests for the legacy authentication module import shim."""
 
-from dapr_agents.agents.utils.auth import construct_auth_headers
-from dapr_agents.agents.utils.headers import construct_auth_headers as headers_auth
+def _parse_header_string(raw_headers: str) -> dict:
+    """
+    Parse a header string in the form "Key1=Value1,Key2=Value2,..." into a dictionary.
 
+    :param raw_headers: The raw header string.
 
-def test_construct_auth_headers_is_preserved():
-    assert construct_auth_headers is headers_auth
+    :return: A dictionary containing the parsed headers.
+    """
+    headers: dict[str, str] = {}
+
+    for pair in raw_headers.split(","):
+        pair = pair.strip()
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            headers[k.strip()] = v.strip()
+
+    return headers
