@@ -1143,22 +1143,6 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                 for meta in generator_meta
                             }
                         )
-                        # include hook-blocked/skipped tool calls so save_tool_results
-                        # can record them in tool_history for observability
-                        for idx, tc in enumerate(tool_calls):
-                            decision_for_tracking = hook_decisions.get(idx)
-                            if isinstance(decision_for_tracking, (Deny, Skip)):
-                                hook_label = (
-                                    "denied"
-                                    if isinstance(decision_for_tracking, Deny)
-                                    else "skipped"
-                                )
-                                tool_calls_by_id[tc["id"]] = {
-                                    "tool_call": tc,
-                                    "is_agent_call": False,
-                                    "dispatch_time": ctx.current_utc_datetime.isoformat(),
-                                    "hook_decision": hook_label,
-                                }
                         # tool_calls_by_id loses calls that share a tool_call_id
                         # ("" or repeated), so also send the metadata by position,
                         # aligned with tool_results.
@@ -1176,10 +1160,13 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                 "is_agent_call": False,
                                 "dispatch_time": meta.get("dispatch_time"),
                             }
+                        # include hook-blocked/skipped tool calls so save_tool_results
+                        # can record them in tool_history for observability. Both
+                        # payloads get the same dict so they cannot disagree.
                         for idx, tc in enumerate(tool_calls):
                             decision_for_tracking = hook_decisions.get(idx)
                             if isinstance(decision_for_tracking, (Deny, Skip)):
-                                meta_by_order[idx] = {
+                                hook_meta: Dict[str, Any] = {
                                     "tool_call": tc,
                                     "is_agent_call": False,
                                     "dispatch_time": ctx.current_utc_datetime.isoformat(),
@@ -1189,6 +1176,8 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                         else "skipped"
                                     ),
                                 }
+                                tool_calls_by_id[tc["id"]] = hook_meta
+                                meta_by_order[idx] = hook_meta
                         tool_call_meta = [
                             meta_by_order.get(idx)
                             for idx, tr in enumerate(ordered)
