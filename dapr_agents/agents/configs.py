@@ -324,7 +324,7 @@ class AgentStateConfig:
 
 def _validate_integral(v: Any) -> Any:
     """Reject non-integral values with fractional parts."""
-    _coerce_integral(v)
+    _coerce_integral(v)  # validate only
     return v
 
 
