@@ -20,12 +20,12 @@ import pytest
 from pydantic import BaseModel, Field, model_validator
 
 from dapr_agents.utils.models import (
-    get_model_factory,
-    get_model_fields,
+    _get_model_factory,
+    _get_model_fields,
     is_pydantic_model,
     is_supported_model,
     is_supported_model_instance,
-    merge_models,
+    _merge_models,
 )
 
 
@@ -85,44 +85,44 @@ class TestIsSupportedModelInstance:
 
 
 class TestGetModelFields:
-    """Tests for get_model_fields."""
+    """Tests for _get_model_fields."""
 
     def test_get_model_fields_for_dict(self):
-        fields = get_model_fields({"name": "base", "metadata": {}})
+        fields = _get_model_fields({"name": "base", "metadata": {}})
         assert list(fields) == ["name", "metadata"]
 
     def test_get_model_fields_for_dataclass(self):
-        fields = get_model_fields(ExampleDataclass(name="base"))
+        fields = _get_model_fields(ExampleDataclass(name="base"))
         assert fields == ["name", "metadata", "description"]
 
     def test_get_model_fields_for_pydantic_model(self):
-        fields = get_model_fields(ExampleModel(name="base"))
+        fields = _get_model_fields(ExampleModel(name="base"))
         assert list(fields) == ["name", "metadata", "description"]
 
     def test_get_model_fields_unsupported_type_raises(self):
         with pytest.raises(TypeError, match="Unsupported model type"):
-            get_model_fields(object())
+            _get_model_fields(object())
 
 
 class TestGetModelFactory:
-    """Tests for get_model_factory."""
+    """Tests for _get_model_factory."""
 
     def test_get_model_factory_for_dict(self):
-        factory = get_model_factory({"name": "base"})
+        factory = _get_model_factory({"name": "base"})
 
         result = factory({"name": "updated", "metadata": {"k": "v"}})
 
         assert result == {"name": "updated", "metadata": {"k": "v"}}
 
     def test_get_model_factory_for_dataclass(self):
-        factory = get_model_factory(ExampleDataclass(name="base"))
+        factory = _get_model_factory(ExampleDataclass(name="base"))
 
         result = factory({"name": "updated", "metadata": {"k": "v"}})
 
         assert result == ExampleDataclass(name="updated", metadata={"k": "v"})
 
     def test_get_model_factory_for_pydantic_model(self):
-        factory = get_model_factory(ExampleModel(name="base"))
+        factory = _get_model_factory(ExampleModel(name="base"))
 
         result = factory({"name": "updated", "metadata": {"k": "v"}})
 
@@ -130,11 +130,11 @@ class TestGetModelFactory:
 
     def test_get_model_factory_unsupported_type_raises(self):
         with pytest.raises(TypeError, match="Unsupported model type"):
-            get_model_factory(object())
+            _get_model_factory(object())
 
 
 class TestMergeModels:
-    """Tests for merge_models across supported model types."""
+    """Tests for _merge_models across supported model types."""
 
     def test_merge_models_dict_returns_shallow_merged(self):
         base = {
@@ -145,7 +145,7 @@ class TestMergeModels:
             "metadata": {"override_only": "override"},
         }
 
-        merged = merge_models(base, override)
+        merged = _merge_models(base, override)
 
         assert merged == {
             "name": "base",  # Base wins
@@ -164,7 +164,7 @@ class TestMergeModels:
             description="override-description",
         )
 
-        merged = merge_models(base, override)
+        merged = _merge_models(base, override)
 
         # Override wins for all shared fields
         assert merged.name == "override"
@@ -187,7 +187,7 @@ class TestMergeModels:
             description="override-description",
         )
 
-        merged = merge_models(base, override)
+        merged = _merge_models(base, override)
 
         # Override wins for all shared fields
         assert merged.name == "override"
@@ -202,7 +202,7 @@ class TestMergeModels:
         base = ExampleDataclass(name="base")
         override = ExampleModel(name="override")
 
-        merged = merge_models(base, override)
+        merged = _merge_models(base, override)
 
         assert merged is base
 
@@ -210,7 +210,7 @@ class TestMergeModels:
         base = ExampleDataclass(name="base")
         override = object()
 
-        merged = merge_models(base, override)
+        merged = _merge_models(base, override)
 
         assert merged is base
 
@@ -218,7 +218,7 @@ class TestMergeModels:
         base = object()
         override = ExampleDataclass(name="override")
 
-        merged = merge_models(base, override)
+        merged = _merge_models(base, override)
 
         assert merged is override
 
@@ -249,7 +249,7 @@ class TestMergeModels:
             description=None,
         )
 
-        merged = merge_models(base, override)
+        merged = _merge_models(base, override)
 
         # Override wins for all values except description (None is ignored)
         assert merged.enabled is False
@@ -279,6 +279,6 @@ class TestMergeModels:
         base = DateRange(start_date="2024-01-01", end_date="2024-06-01")
         override = DateRange(start_date="2024-12-01", end_date=None)
 
-        result = merge_models(base, override)
+        result = _merge_models(base, override)
 
         assert result == base

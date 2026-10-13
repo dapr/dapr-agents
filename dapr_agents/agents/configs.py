@@ -44,7 +44,7 @@ from dapr_agents.utils.config import (
     _apply_config_map,
     _get_config_value,
 )
-from dapr_agents.utils.models import merge_models
+from dapr_agents.utils.models import _merge_models
 from dapr_agents.types.agent import ToolChoice, ToolExecutionMode, OrchestrationMode
 from dapr_agents.agents.constants import (
     AGENT_DEFAULT_MAX_ITERATIONS,
@@ -991,7 +991,7 @@ class AgentExecutionConfig:
         logger.debug(f"State store runtime execution config: {statestore_config}")
 
         resolved_config = functools.reduce(
-            merge_models,
+            _merge_models,
             [cls._base_config(), env_config, instantiated_config, statestore_config],
         )
 
@@ -1471,7 +1471,7 @@ class AgentObservabilityConfig:
         logger.debug(f"Instantiated observability config: {instantiated_config}")
 
         resolved_config = functools.reduce(
-            merge_models,
+            _merge_models,
             [cls._base_config(), statestore_config, env_config, instantiated_config],
         )
 

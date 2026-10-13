@@ -47,7 +47,7 @@ def is_valid_routable_model(obj: Any) -> bool:
     return is_dataclass(obj) or is_pydantic_model(obj)
 
 
-def get_model_fields(model: Any) -> Any:
+def _get_model_fields(model: Any) -> Any:
     """Return field names for a model."""
     if type(model) is dict:
         return model.keys()
@@ -66,7 +66,7 @@ def get_model_fields(model: Any) -> Any:
     raise TypeError(f"Unsupported model type: {model!r}")
 
 
-def get_model_factory(model: Any) -> Callable[..., Any]:
+def _get_model_factory(model: Any) -> Callable[..., Any]:
     """Return a factory function that takes a dictionary of values and creates a model instance."""
     if type(model) is dict:
         return lambda vals: dict(**vals)
@@ -85,7 +85,7 @@ def get_model_factory(model: Any) -> Callable[..., Any]:
     raise TypeError(f"Unsupported model type: {model!r}")
 
 
-def merge_models(base: T, override: T) -> T:
+def _merge_models(base: T, override: T) -> T:
     """
     Merge two models of the same type, with override taking precedence.
     Only override a base field if the override field is not ``None``.
@@ -119,8 +119,8 @@ def merge_models(base: T, override: T) -> T:
 
     try:
         # Infer model type from the base model
-        model_fields = get_model_fields(base)
-        model_factory = get_model_factory(base)
+        model_fields = _get_model_fields(base)
+        model_factory = _get_model_factory(base)
 
         logger.debug(
             (f"Merging models:\nBase model: {base!r}\nOverride model: {override!r}")
