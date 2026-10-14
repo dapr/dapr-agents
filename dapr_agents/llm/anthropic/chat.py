@@ -18,6 +18,8 @@ from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
+from anthropic import Timeout
 from pydantic import BaseModel, Field, model_validator
 
 from dapr_agents.llm.anthropic.client import PROVIDER, AnthropicClientBase
@@ -66,7 +68,7 @@ class AnthropicChatClient(AnthropicClientBase, ChatClientBase):
     def from_prompty(
         cls,
         prompty_source: str | Path,
-        timeout: int | float | dict[str, Any] = 1500,
+        timeout: int | float | dict[str, Any] | Timeout | httpx.Timeout | None = 1500,
     ) -> "AnthropicChatClient":
         prompty = Prompty.load(prompty_source)
         config = prompty.model.configuration
