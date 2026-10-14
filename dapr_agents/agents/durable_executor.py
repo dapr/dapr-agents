@@ -184,11 +184,14 @@ class DurableExecutorMixin:
                     first_input, paused, False, round_, _LIMIT_REASON
                 )
                 continue
+            # Each round pauses on exactly one call, so its position is 0.
             approved, reason = yield from self._await_approval(
                 ctx,
                 ctx.instance_id,
                 paused.tool_call(),
                 paused.require_approval(),
+                turn=round_,
+                call_index=0,
                 source=paused.source,
             )
             payload = _resume_input(first_input, paused, approved, round_, reason)
