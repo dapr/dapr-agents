@@ -125,7 +125,7 @@ jobs:
         fetch-depth: 0
     - name: Fetch upstream release tags for forks
       if: github.event.repository.fork
-      run: git fetch --no-recurse-submodules https://github.com/dapr/dapr-agents.git 'refs/tags/*:refs/tags/*'
+      run: git fetch --no-recurse-submodules https://github.com/dapr/dapr-agents.git '+refs/tags/*:refs/tags/*'
     - name: Set up Python 3.11
       id: python
       uses: actions/setup-python@v7
@@ -170,7 +170,7 @@ jobs:
           fi
           uv pip install --no-config --python "$wheel_python" "${wheels[@]}"
           uv pip check --no-config --python "$wheel_python"
-          "$wheel_python" -I - "${wheels[@]}" <<'PY'
+          "$wheel_python" -I - "$stage" "${wheels[@]}" <<'PY'
         import sys
         from email.parser import BytesParser
         from importlib.metadata import distributions, version
@@ -181,7 +181,7 @@ jobs:
         from dapr_agents import AgentRunner, DurableAgent, tool
 
         modules = [dapr_agents]
-        if len(sys.argv) == 3:
+        if sys.argv[1] == "drasi":
             import dapr_agents.ext.drasi as drasi
             from dapr_agents.ext.drasi import DrasiChangeEvent, DrasiOperation, drasi_trigger
 
@@ -191,7 +191,7 @@ jobs:
                 dist.metadata["Name"] for dist in distributions()
             }, "Core-only installation unexpectedly includes Drasi"
 
-        for wheel in sys.argv[1:]:
+        for wheel in sys.argv[2:]:
             with ZipFile(wheel) as archive:
                 metadata_files = [
                     name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
