@@ -11,6 +11,9 @@
 # limitations under the License.
 #
 
+import pytest
+
+from dapr_agents.document.splitter import base
 from dapr_agents.document.splitter.text import TextSplitter
 
 
@@ -75,3 +78,35 @@ def test_split_long_text_preserves_all_content():
         assert any(f"paragraph {i} " in chunk for chunk in chunks), (
             f"paragraph {i} missing from output chunks"
         )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("abcdefg", ["abcdefg"]),
+        ("首句。末尾没有标点", ["首句。", "末尾没有标点"]),
+        ("首句。末句。", ["首句。", "末句。"]),
+        ("。首句。末句。", ["。首句。", "末句。"]),
+        ("首句。。末句。", ["首句。", "。末句。"]),
+    ],
+)
+def test_split_regex_fallback_preserves_all_content(monkeypatch, text, expected):
+    monkeypatch.setattr(base, "NLTK_AVAILABLE", False)
+    splitter = TextSplitter(chunk_size=4, chunk_overlap=0)
+
+    chunks = splitter.split(text)
+
+    assert chunks == expected
+    assert "".join(chunks) == text
+
+
+@pytest.mark.parametrize("pattern", [r"\d+", r"(\d+)", r"(\d)(\d)", r"(?=\d)"])
+def test_split_custom_regex_preserves_unmatched_content(monkeypatch, pattern):
+    monkeypatch.setattr(base, "NLTK_AVAILABLE", False)
+    splitter = TextSplitter(chunk_size=4, chunk_overlap=0, fallback_regex=pattern)
+    text = "prefix12middle34tail"
+
+    chunks = splitter.split(text)
+
+    assert all(chunks)
+    assert "".join(chunks) == text
