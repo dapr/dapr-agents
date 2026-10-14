@@ -277,7 +277,7 @@ def test_unsubscribe_removes_local_intent_only_after_confirmed_router_absence(
     assert len(router.unsubscribe_requests) == 1
 
 
-@pytest.mark.parametrize("operation", ("subscribe", "unsubscribe"))
+@pytest.mark.parametrize("operation", ("subscribe", "update", "unsubscribe"))
 @pytest.mark.parametrize(
     "category",
     (
@@ -289,7 +289,7 @@ def test_unsubscribe_removes_local_intent_only_after_confirmed_router_absence(
         "incarnation_conflict",
     ),
 )
-def test_router_failures_preserve_pending_intent_and_last_outcome(
+def test_router_failures_preserve_intent_and_classify_recovery(
     manager: DrasiSubscriptionManager,
     repository: _Repository,
     router: _Router,
@@ -297,30 +297,95 @@ def test_router_failures_preserve_pending_intent_and_last_outcome(
     category: RouterFailureCategory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    if operation == "subscribe":
-        router.queue_subscribe_error(category)
-        pending_status = "pending_subscribe"
-    else:
+    if operation != "subscribe":
         _confirm_subscribe(router)
         _subscribe(manager)
+    if operation == "unsubscribe":
         router.queue_unsubscribe_error(category)
         pending_status = "pending_unsubscribe"
+    else:
+        router.queue_subscribe_error(category)
+        pending_status = (
+            "pending_update" if operation == "update" else "pending_subscribe"
+        )
 
     with pytest.raises(RouterError) as failure:
-        if operation == "subscribe":
-            _subscribe(manager)
-        else:
+        if operation == "unsubscribe":
             manager.unsubscribe(_QUERY)
+        elif operation == "update":
+            manager.subscribe(
+                _QUERY, operations=(Operation.d,), instructions="Updated instructions"
+            )
+        else:
+            _subscribe(manager)
     assert failure.value.category == category
-    pending = repository.get(_QUERY)
-    assert pending is not None
-    assert pending.status == pending_status
-    assert pending.incarnation == _incarnation()
-    assert pending.last_outcome is not None
-    assert pending.last_outcome.operation == operation
-    assert pending.last_outcome.error_category == category
-    assert pending.last_outcome.outcome == failure.value.mutation_outcome
+    retained = repository.get(_QUERY)
+    assert retained is not None
+    assert retained.status == (
+        "unavailable"
+        if category in {"invalid_arguments", "unknown_query", "incarnation_conflict"}
+        else pending_status
+    )
+    assert retained.incarnation == _incarnation()
+    assert retained.instructions == (
+        "Updated instructions" if operation == "update" else _INSTRUCTIONS
+    )
+    assert retained.operations == (
+        (Operation.d,) if operation == "update" else _OPERATIONS
+    )
+    assert retained.last_outcome is not None
+    assert retained.last_outcome.operation == (
+        "unsubscribe" if operation == "unsubscribe" else "subscribe"
+    )
+    assert retained.last_outcome.error_category == category
+    assert retained.last_outcome.outcome == failure.value.mutation_outcome
     assert _INSTRUCTIONS not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "category", ("invalid_arguments", "unknown_query", "incarnation_conflict")
+)
+@pytest.mark.parametrize("removed", (False, True))
+def test_rejected_intent_requires_incarnation_checked_cleanup_before_resubscribe(
+    manager: DrasiSubscriptionManager,
+    repository: _Repository,
+    router: _Router,
+    category: RouterFailureCategory,
+    removed: bool,
+) -> None:
+    router.queue_subscribe_error(category)
+    with pytest.raises(RouterError):
+        _subscribe(manager)
+    rejected = repository.get(_QUERY)
+    assert rejected is not None and rejected.status == "unavailable"
+
+    with pytest.raises(SubscriptionCommandError) as blocked:
+        _subscribe(manager)
+    assert blocked.value.category == "unavailable"
+    assert len(router.subscribe_requests) == 1
+
+    router.queue_unsubscribe_error("incarnation_conflict")
+    with pytest.raises(RouterError) as conflict:
+        manager.unsubscribe(_QUERY)
+    assert conflict.value.category == "incarnation_conflict"
+    retained = repository.get(_QUERY)
+    assert retained is not None and retained.status == "unavailable"
+    assert retained.incarnation == rejected.incarnation
+    assert retained.last_outcome is not None
+    assert retained.last_outcome.operation == "unsubscribe"
+    assert retained.last_outcome.error_category == "incarnation_conflict"
+
+    _confirm_unsubscribe(router, removed=removed)
+    manager.unsubscribe(_QUERY)
+    assert repository.get(_QUERY) is None
+    assert {
+        request.subscription_incarnation for request in router.unsubscribe_requests
+    } == {rejected.incarnation}
+
+    _confirm_subscribe(router, incarnation=_incarnation(2))
+    fresh = _subscribe(manager)
+    assert fresh.status == "active"
+    assert fresh.incarnation != rejected.incarnation
 
 
 def test_failed_update_retains_desired_pending_state_and_resumes_same_incarnation(
@@ -521,6 +586,109 @@ def test_reconciliation_removals_precede_failing_reassertions(
     with pytest.raises(SubscriptionCommandError) as failure:
         _subscribe(manager)
     assert failure.value.category == "unavailable"
+
+
+@pytest.mark.parametrize(
+    "status", ("active", "pending_subscribe", "pending_update", "pending_unsubscribe")
+)
+@pytest.mark.parametrize(
+    "category", ("invalid_arguments", "unknown_query", "incarnation_conflict")
+)
+def test_rejected_reconciliation_does_not_block_other_queries_or_restarts(
+    repository: _Repository,
+    router: _Router,
+    catalog: ListQueriesResponse,
+    intent_document: IntentDocument,
+    status: SubscriptionStatus,
+    category: RouterFailureCategory,
+) -> None:
+    rejected = intent_document.intents[_QUERY].model_copy(
+        update={"status": status}, deep=True
+    )
+    other = intent_document.intents["rollout-status"]
+    _seed(repository, rejected, other)
+    if status == "pending_unsubscribe":
+        router.queue_unsubscribe_error(category)
+    else:
+        router.queue_subscribe_error(category)
+    _confirm_subscribe(
+        router,
+        query_id=other.query_id,
+        incarnation=other.incarnation,
+        operations=other.operations,
+    )
+    manager = DrasiSubscriptionManager(repository=repository, router=router)
+    manager.reconcile(catalog)
+
+    retained = repository.get(_QUERY)
+    assert retained is not None and retained.status == "unavailable"
+    assert retained.incarnation == rejected.incarnation
+    assert retained.instructions == rejected.instructions
+    assert retained.last_outcome is not None
+    assert retained.last_outcome.outcome == "rejected"
+    assert retained.last_outcome.error_category == category
+    recovered = repository.get(other.query_id)
+    assert recovered is not None and recovered.status == "active"
+    assert (
+        manager.subscribe(
+            other.query_id, operations=other.operations, instructions=other.instructions
+        )
+        == recovered
+    )
+
+    fresh_router = _Router(repository.scope)
+    _confirm_subscribe(
+        fresh_router,
+        query_id=other.query_id,
+        incarnation=other.incarnation,
+        operations=other.operations,
+    )
+    restarted = DrasiSubscriptionManager(repository=repository, router=fresh_router)
+    restarted.reconcile(catalog)
+    assert repository.get(_QUERY) == retained
+    assert [request.query_id for request in fresh_router.subscribe_requests] == [
+        other.query_id
+    ]
+    assert fresh_router.unsubscribe_requests == ()
+
+
+@pytest.mark.parametrize("status", ("pending_subscribe", "pending_unsubscribe"))
+def test_failure_to_persist_reconciliation_rejection_still_blocks_preparation(
+    repository: _Repository,
+    router: _Router,
+    catalog: ListQueriesResponse,
+    intent_document: IntentDocument,
+    status: SubscriptionStatus,
+) -> None:
+    pending = intent_document.intents[_QUERY].model_copy(
+        update={"status": status}, deep=True
+    )
+    other = intent_document.intents["rollout-status"]
+    _seed(repository, pending, other)
+
+    def fail_rejection(document: IntentDocument) -> None:
+        assert document.intents[_QUERY].status == "unavailable"
+        raise IntentStoreError("unavailable")
+
+    repository.before_save = fail_rejection
+    if status == "pending_unsubscribe":
+        router.queue_unsubscribe_error("incarnation_conflict")
+    else:
+        router.queue_subscribe_error("incarnation_conflict")
+    manager = DrasiSubscriptionManager(repository=repository, router=router)
+    with pytest.raises(IntentStoreError):
+        manager.reconcile(catalog)
+
+    assert repository.get(_QUERY) == pending
+    assert repository.get(other.query_id) == other
+    assert not any(
+        request.query_id == other.query_id for request in router.subscribe_requests
+    )
+    with pytest.raises(SubscriptionCommandError) as unavailable:
+        manager.subscribe(
+            other.query_id, operations=other.operations, instructions=other.instructions
+        )
+    assert unavailable.value.category == "unavailable"
 
 
 @pytest.mark.parametrize("stage", ("pending_subscribe", "active"))

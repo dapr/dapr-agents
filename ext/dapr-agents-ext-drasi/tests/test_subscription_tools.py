@@ -33,6 +33,7 @@ from dapr_agents.ext.drasi._interfaces import (
     SubscriptionCommandError,
 )
 from dapr_agents.ext.drasi._models import (
+    RouterOperationOutcome,
     SubscriptionIntent,
     SubscriptionStatus,
 )
@@ -447,6 +448,7 @@ def test_listing_reports_all_local_statuses_without_internal_metadata(
                     "operations": [operation.value for operation in intent.operations],
                     "instructions": intent.instructions,
                     "status": intent.status,
+                    "last_outcome": None,
                 }
                 for intent in status_intents.values()
             ],
@@ -456,8 +458,42 @@ def test_listing_reports_all_local_statuses_without_internal_metadata(
     serialized = result.model_dump_json()
     assert "catalog_snapshot" not in serialized
     assert "incarnation" not in serialized
-    assert "last_outcome" not in serialized
     assert json.loads(serialized)["isError"] is False
+
+
+def test_listing_exposes_rejection_without_infrastructure_coordinates(
+    tools: list[AgentTool],
+    manager: ScriptedSubscriptionManager,
+    active_intent: SubscriptionIntent,
+) -> None:
+    outcome = RouterOperationOutcome(
+        operation="subscribe", outcome="rejected", error_category="incarnation_conflict"
+    )
+    rejected = active_intent.model_copy(
+        update={"status": "unavailable", "last_outcome": outcome}, deep=True
+    )
+    manager.set_subscriptions((rejected,))
+    result = tools[-1].run()
+
+    assert result.isError is False
+    assert result.structuredContent == {
+        "result": {
+            "source": "local_intent",
+            "subscriptions": [
+                {
+                    "query_id": rejected.query_id,
+                    "operations": [
+                        operation.value for operation in rejected.operations
+                    ],
+                    "instructions": rejected.instructions,
+                    "status": "unavailable",
+                    "last_outcome": outcome.model_dump(mode="json"),
+                }
+            ],
+        }
+    }
+    assert rejected.incarnation not in result.model_dump_json()
+    assert rejected.catalog_snapshot.router_id not in result.model_dump_json()
 
 
 def test_listing_includes_retired_intent_missing_from_current_catalog(
@@ -517,6 +553,14 @@ def test_classified_failures_remain_readable_errors(
             assert "may have taken effect" in result.content[0].text
         else:
             assert "may have taken effect" not in result.content[0].text
+    if (
+        isinstance(error, RouterError)
+        and error.category == "incarnation_conflict"
+        and command != "list"
+    ):
+        assert "operator" in result.content[0].text
+        assert "administration API" in result.content[0].text
+        assert "retry unsubscribe" in result.content[0].text
     if isinstance(error, IntentStoreError):
         if command == "list":
             assert "read failed" in result.content[0].text

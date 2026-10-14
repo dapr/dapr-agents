@@ -126,9 +126,9 @@ def _command_failure(
             ),
             "unavailable": (
                 "The subscription is unavailable. Inspect local subscription "
-                "status. If retained intent is marked unavailable, unsubscribe "
-                "first, then subscribe again. Otherwise check preparation and "
-                "the operator's configuration."
+                "status and last router outcome. If retained intent is marked "
+                "unavailable, unsubscribe first, then subscribe again. Otherwise "
+                "check preparation and the operator's configuration."
             ),
         }[error.category]
     elif isinstance(error, RouterError):
@@ -138,6 +138,12 @@ def _command_failure(
             detail += (
                 " The change may have taken effect and local intent may remain "
                 "pending. Inspect local status after recovery."
+            )
+        elif command != "list" and error.category == "incarnation_conflict":
+            detail += (
+                " Ask the operator to inspect and resolve the conflicting router "
+                "rule through its administration API, then retry unsubscribe. "
+                "The conflicting rule has not been changed."
             )
     else:
         source = "intent_store"
@@ -253,6 +259,9 @@ def build_subscription_tools(
                 "operations": [operation.value for operation in intent.operations],
                 "instructions": intent.instructions,
                 "status": intent.status,
+                "last_outcome": intent.last_outcome.model_dump(mode="json")
+                if intent.last_outcome is not None
+                else None,
             }
             for intent in intents
         ]
@@ -276,7 +285,8 @@ def build_subscription_tools(
             description=(
                 "Inspect locally persisted Drasi subscription intent: query IDs, "
                 "operation filters, handling instructions, and active, pending, "
-                "or unavailable status. This does not query or verify live router "
+                "or unavailable status, plus the last router operation outcome. "
+                "This does not query or verify live router "
                 "state. An empty list means no local intent, not a failed read."
             ),
             args_model=_NoArgs,

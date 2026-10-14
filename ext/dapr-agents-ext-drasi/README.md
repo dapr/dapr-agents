@@ -118,15 +118,31 @@ The durable transitions are:
 absent -> pending_subscribe -> active
 active -> pending_update -> active
 active/unavailable -> pending_unsubscribe -> absent intent
+rejected subscribe/update/unsubscribe -> unavailable (intent and error retained)
 retired query -> unavailable (historical intent retained)
 ```
 
 Pending intent is committed before router I/O; success follows the final local
-commit. Rejections and uncertain outcomes remain explicit. Timeouts or malformed
-confirmations can follow a committed remote mutation, so they retain pending
-intent rather than implying rollback. Reconciliation finishes pending removals
-first, reasserts supported intent without invoking a model, and retains unavailable
-intent without automatic revival. Updates and recovery preserve incarnation;
+commit. A definitive router rejection (`invalid_arguments`, `unknown_query`, or
+`incarnation_conflict`) leaves that intent `unavailable`, preserving its
+instructions, incarnation, and `last_outcome`. Explicit commands still report the
+error, but startup reconciliation continues with the other queries once the
+rejection is durably recorded. Listing includes the last router operation outcome;
+it does not assert live router health.
+
+Timeouts, malformed confirmations, and router state failures can follow a committed
+remote mutation, so they retain pending intent rather than implying rollback.
+These uncertain outcomes, or a failure to persist the rejection, still abort
+reconciliation. Reconciliation finishes pending removals first, reasserts supported
+intent without invoking a model, and retains unavailable intent without automatic
+revival.
+
+Recover unavailable intent through an explicit unsubscribe, then subscribe again.
+Unsubscribe retains the existing incarnation and removes local intent only after
+the router confirms removal or absence. An incarnation conflict is not permission
+to delete another rule: an operator must inspect and resolve the conflicting rule
+using the router's administration API before retrying unsubscribe. No backing-store
+edit or forced replacement is required. Updates and recovery preserve incarnation;
 a completed unsubscribe followed by a new subscription creates a new one.
 
 All queries share one document and one ETag. Conflicts reload the document and

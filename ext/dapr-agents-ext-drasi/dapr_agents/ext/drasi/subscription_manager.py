@@ -168,27 +168,37 @@ class DrasiSubscriptionManager(SubscriptionManager):
                 key=lambda intent: intent.status != "pending_unsubscribe",
             )
             for current in intents:
-                if current.status == "pending_unsubscribe":
-                    self._commit(current.query_id, before=current, after=current)
-                    self._finish_unsubscribe(current)
-                elif current.status == "unavailable":
-                    continue
-                elif current.query_id not in query_ids:
-                    unavailable = current.model_copy(
-                        update={"status": "unavailable"}, deep=True
-                    )
-                    self._commit(current.query_id, before=current, after=unavailable)
-                else:
-                    pending = (
-                        current
-                        if current.status in _PENDING_SUBSCRIPTIONS
-                        else current.model_copy(
-                            update={"status": "pending_update", "last_outcome": None},
-                            deep=True,
+                try:
+                    if current.status == "pending_unsubscribe":
+                        self._commit(current.query_id, before=current, after=current)
+                        self._finish_unsubscribe(current)
+                    elif current.status == "unavailable":
+                        continue
+                    elif current.query_id not in query_ids:
+                        unavailable = current.model_copy(
+                            update={"status": "unavailable"}, deep=True
                         )
-                    )
-                    self._commit(current.query_id, before=current, after=pending)
-                    self._finish_subscribe(pending)
+                        self._commit(
+                            current.query_id, before=current, after=unavailable
+                        )
+                    else:
+                        pending = (
+                            current
+                            if current.status in _PENDING_SUBSCRIPTIONS
+                            else current.model_copy(
+                                update={
+                                    "status": "pending_update",
+                                    "last_outcome": None,
+                                },
+                                deep=True,
+                            )
+                        )
+                        self._commit(current.query_id, before=current, after=pending)
+                        self._finish_subscribe(pending)
+                except RouterError as error:
+                    if error.mutation_outcome != "rejected":
+                        raise
+                    # The failed operation already persisted unavailable intent.
             self._catalog = owned_catalog
 
     def _finish_subscribe(self, pending: SubscriptionIntent) -> SubscriptionIntent:
@@ -243,18 +253,22 @@ class DrasiSubscriptionManager(SubscriptionManager):
         operation: Literal["subscribe", "unsubscribe"],
     ) -> None:
         logger.error(
-            "Drasi router %s failed (%s), scope=%s.",
+            "Drasi router %s failed (%s), query=%s, scope=%s.",
             operation,
             error.category,
+            pending.query_id,
             self._scope.inbox_topic,
         )
         failed = pending.model_copy(
             update={
+                "status": "unavailable"
+                if error.mutation_outcome == "rejected"
+                else pending.status,
                 "last_outcome": RouterOperationOutcome(
                     operation=operation,
                     outcome=error.mutation_outcome,
                     error_category=error.category,
-                )
+                ),
             },
             deep=True,
         )

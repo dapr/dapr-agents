@@ -165,6 +165,7 @@ class SubscriptionManager(Protocol):
     Serialize unresolved same-query transitions; do not overwrite them.
     Router mutations follow durable pending writes; success follows the final
     local commit. Retries/updates retain incarnation, a new lifecycle does not.
+    Rejected mutations retain unavailable intent; uncertain mutations stay pending.
     """
 
     def subscribe(
@@ -176,8 +177,9 @@ class SubscriptionManager(Protocol):
     def unsubscribe(self, query_id: str) -> None:
         """Persist pending-unsubscribe before RPC; remove intent only after confirmation.
 
-        Already absent local intent is a successful no-op. An unresolved failure
-        retains pending intent. Retired catalog queries can still unsubscribe.
+        Already absent local intent is a successful no-op. An uncertain failure
+        retains pending intent; rejection retains unavailable intent for explicit
+        recovery. Retired catalog queries can still unsubscribe.
         """
         ...
 
@@ -191,6 +193,8 @@ class SubscriptionManager(Protocol):
         Finish pending unsubscriptions even for retired queries; otherwise
         retain removed queries as unavailable, without automatic revival.
         Reassert active/pending subscriptions using their existing incarnation.
+        Continue other queries after a rejection is persisted as unavailable.
+        Uncertain router failures and state failures still abort preparation.
         Retain an owned catalog copy. No periodic refresh or startup model turn.
         """
         ...
