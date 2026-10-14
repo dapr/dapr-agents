@@ -58,3 +58,12 @@ class PubSubNotAvailableError(Exception):
                 "Ensure the PubSub component is configured and the Dapr sidecar is running."
             )
         super().__init__(message)
+
+
+class WorkflowStateConflictError(Exception):
+    """Raised when a workflow state save loses an optimistic-concurrency race.
+
+    The entry being saved was read at an ETag that is no longer current: another
+    writer persisted the same workflow state in between. Re-read the state and
+    re-apply the change instead of overwriting the other write.
+    """
