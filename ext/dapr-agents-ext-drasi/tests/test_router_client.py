@@ -582,6 +582,37 @@ def test_domain_errors_preserve_categories_and_do_not_leak_payloads(
     assert "private-router-response" not in caplog.text
 
 
+@pytest.mark.parametrize("operation", ["list_queries", "subscribe", "unsubscribe"])
+def test_unmapped_contract_error_stays_a_typed_uncertain_failure(
+    client: MCPRouterClient,
+    server: _Server,
+    subscription: SubscribeRequest,
+    removal: UnsubscribeRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    monkeypatch.delitem(
+        router_client._ERROR_CATEGORIES, router_client.Code.invalid_arguments
+    )
+    if operation != "list_queries":
+        client.list_queries()
+    server.queue(operation, _error("invalid_arguments"))
+
+    with pytest.raises(RouterError) as failure:
+        if operation == "subscribe":
+            client.subscribe(subscription)
+        elif operation == "unsubscribe":
+            client.unsubscribe(removal)
+        else:
+            client.list_queries()
+
+    assert failure.value.category == "invalid_response"
+    assert failure.value.mutation_outcome == "uncertain"
+    assert "private-router-response" not in "".join(
+        traceback.format_exception(failure.value)
+    )
+
+
 @pytest.mark.parametrize(
     "result",
     [

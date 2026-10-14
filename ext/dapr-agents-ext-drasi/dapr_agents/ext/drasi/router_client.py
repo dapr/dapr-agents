@@ -230,7 +230,9 @@ class MCPRouterClient(RouterClient):
                 error_result = parse(ToolError, _text_document(result))
             except _WIRE_ERRORS:
                 self._fail("invalid_response", operation)
-            self._fail(_ERROR_CATEGORIES[error_result.code], operation)
+            self._fail(
+                _ERROR_CATEGORIES.get(error_result.code, "invalid_response"), operation
+            )
 
         if result.structuredContent is not None:
             return result.structuredContent
