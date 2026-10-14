@@ -23,7 +23,7 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from dapr.clients import DaprClient
@@ -75,12 +75,19 @@ def _grpc_error(status: StatusCode) -> DaprGrpcError:
     return DaprGrpcError(_RpcFailure(status))
 
 
-def _native_sdk_client(stub: MagicMock, retry_policy: RetryPolicy) -> DaprClient:
-    """Keep real SDK methods and retries; replace only the gRPC transport."""
-    client = object.__new__(DaprClient)
-    client._stub = stub
-    client._channel = MagicMock()
-    client.retry_policy = retry_policy
+def _native_sdk_client(
+    stub: MagicMock, retry_policy: RetryPolicy, monkeypatch: pytest.MonkeyPatch
+) -> DaprClient:
+    """Exercise SDK construction; replace only health-check and state RPC I/O."""
+    with patch("dapr.clients.health.urllib.request.urlopen") as health_request:
+        health_request.return_value.__enter__.return_value.status = 204
+        client = DaprClient(address="127.0.0.1:1", retry_policy=retry_policy)
+
+    assert client.retry_policy is retry_policy
+    assert callable(client.retry_policy.run_rpc)
+    # Default raising=True ensures a removed SDK member fails the test.
+    monkeypatch.setattr(client._stub.GetState, "with_call", stub.GetState.with_call)
+    monkeypatch.setattr(client._stub.SaveState, "with_call", stub.SaveState.with_call)
     return client
 
 
@@ -701,6 +708,7 @@ def test_uncertain_writes_do_not_retry_inside_the_native_sdk(
     intent_document: IntentDocument,
     operation: str,
     status: StatusCode,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     persisted = (
         api_v1.GetStateResponse(
@@ -732,7 +740,7 @@ def test_uncertain_writes_do_not_retry_inside_the_native_sdk(
     clients: list[DaprClient] = []
 
     def factory() -> DaprClient:
-        client = _native_sdk_client(stub, configured_policy)
+        client = _native_sdk_client(stub, configured_policy, monkeypatch)
         clients.append(client)
         return client
 
@@ -781,6 +789,7 @@ def test_native_sdk_missing_state_and_string_etag_semantics(
     empty_payload: bool,
     etag: str,
     error_category: str | None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     response = api_v1.GetStateResponse(
         data=b"" if empty_payload else intent_document.model_dump_json().encode(),
@@ -795,7 +804,7 @@ def test_native_sdk_missing_state_and_string_etag_semantics(
         store=StateStoreService(
             store_name=_STORE_NAME,
             client_factory=lambda: _native_sdk_client(
-                stub, RetryPolicy(max_attempts=0)
+                stub, RetryPolicy(max_attempts=0), monkeypatch
             ),
         ),
     )
@@ -821,6 +830,7 @@ def test_repository_uses_strong_reads_instead_of_stale_replica_intent(
     scope: SubscriptionScope,
     active_intent: SubscriptionIntent,
     pending_unsubscribe: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     active = IntentDocument(
         format_version=1, scope=scope, intents={active_intent.query_id: active_intent}
@@ -852,7 +862,7 @@ def test_repository_uses_strong_reads_instead_of_stale_replica_intent(
         store=StateStoreService(
             store_name=_STORE_NAME,
             client_factory=lambda: _native_sdk_client(
-                stub, RetryPolicy(max_attempts=0)
+                stub, RetryPolicy(max_attempts=0), monkeypatch
             ),
         ),
     )

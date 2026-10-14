@@ -153,6 +153,10 @@ write wrapper cannot disable automatic retries per call. Writes use first-write
 concurrency and no SDK retries; strong reads retain the configured retry policy.
 The adapter does not change the agent's store configuration, workflow model, or
 local mirroring behavior. Tests exercise native SDK writes and stale-replica reads.
+Those compatibility cases construct real storage wrappers and SDK clients, mocking
+only health-check and state RPC I/O rather than injecting private client attributes.
+Changes to the private storage/client methods used by the adapter therefore fail
+these cases instead of being hidden by a fabricated client.
 
 The owner closes the router client, never the borrowed agent state store.
 Each bounded MCP exchange closes its own stateless resources; closing the client
