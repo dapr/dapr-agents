@@ -20,6 +20,11 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
+      # litellm 1.84 through at least 1.103.1 requires openai<3, so an
+      # openai 3.x bump downgrades litellm to 1.83.0. Remove this once a
+      # litellm release allows openai 3.
+      - dependency-name: "openai"
+        update-types: ["version-update:semver-major"]
   # Docker - Frodo service
   - package-ecosystem: "docker"
     directory: "/quickstarts/05-multi-agent-workflow-k8s/services/frodo"

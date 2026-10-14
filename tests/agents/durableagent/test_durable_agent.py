@@ -16,12 +16,15 @@
 # In future, we should do dependency injection instead of patching at the class-level to make it easier to test.
 # This applies to all areas in this file where we have with patch.object()...
 from datetime import timedelta
+import ast
+import importlib.metadata
 import os
-from typing import Optional
+from types import SimpleNamespace
+from typing import Any, Dict, Optional
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 import pytest
-from dapr.ext.workflow import DaprWorkflowContext
+from dapr.ext.workflow import DaprWorkflowContext, WorkflowActivityContext
 
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.configs import (
@@ -42,6 +45,7 @@ from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.tool.base import AgentTool
 from dapr_agents.types import AgentError, DaprWorkflowStatus
+from tests.fake_state_store import FakeEtagStateStore
 
 
 def _activity_method_name(activity: object) -> str:
@@ -874,6 +878,248 @@ class TestDurableAgent:
         assert (
             tool_messages[0].tool_call_id == "call_123"
         )  # Check tool_call_id, not the message UUID id
+
+    def _save_results(self, agent, entry, tool_results, **extra):
+        agent._infra._state_model = entry
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "load_state"),
+            patch.object(agent._infra, "get_state", return_value=entry),
+        ):
+            agent.save_tool_results(
+                Mock(),
+                {"tool_results": tool_results, "instance_id": "wf-1", **extra},
+            )
+
+    @staticmethod
+    def _assistant_calling(call_id: str) -> AgentWorkflowMessage:
+        return AgentWorkflowMessage(
+            role="assistant",
+            content=None,
+            tool_calls=[
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": "Lookup", "arguments": "{}"},
+                }
+            ],
+        )
+
+    @staticmethod
+    def _tool_reply(call_id: str, content: str) -> Dict[str, Any]:
+        return {
+            "role": "tool",
+            "name": "Lookup",
+            "tool_call_id": call_id,
+            "content": content,
+        }
+
+    def test_save_tool_results_keeps_tool_call_id_reused_in_later_turn(
+        self, basic_durable_agent
+    ):
+        """Providers reuse ids such as "call_0" every turn; each turn's result must be saved."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[self._assistant_calling("call_0")],
+            tool_history=[],
+        )
+        self._save_results(agent, entry, [self._tool_reply("call_0", "first")])
+
+        entry.messages.append(self._assistant_calling("call_0"))
+        self._save_results(agent, entry, [self._tool_reply("call_0", "second")])
+
+        assert [m.role for m in entry.messages] == [
+            "assistant",
+            "tool",
+            "assistant",
+            "tool",
+        ]
+        assert entry.messages[-1].content == "second"
+        assert [r.execution_result for r in entry.tool_history] == [
+            "first",
+            "second",
+        ]
+
+    def test_save_tool_results_rerun_in_same_turn_saves_once(self, basic_durable_agent):
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[self._assistant_calling("call_0")],
+            tool_history=[],
+        )
+        results = [self._tool_reply("call_0", "first")]
+
+        self._save_results(agent, entry, results)
+        self._save_results(agent, entry, results)
+
+        assert [m.role for m in entry.messages] == ["assistant", "tool"]
+        assert len(entry.tool_history) == 1
+
+    def test_save_tool_results_rerun_with_empty_ids_saves_each_once(
+        self, basic_durable_agent
+    ):
+        """Two results with tool_call_id "" in one turn: both saved, neither twice."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[self._assistant_calling("")],
+            tool_history=[],
+        )
+        results = [self._tool_reply("", "a"), self._tool_reply("", "b")]
+
+        self._save_results(agent, entry, results)
+        self._save_results(agent, entry, results)
+
+        assert [m.content for m in entry.messages[1:]] == ["a", "b"]
+        assert [r.execution_result for r in entry.tool_history] == ["a", "b"]
+
+    def test_save_tool_results_rerun_without_assistant_message_saves_history_once(
+        self, basic_durable_agent
+    ):
+        """When results can't follow an assistant message, tool_history still dedupes."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[AgentWorkflowMessage(role="user", content="hi")],
+            tool_history=[],
+        )
+        results = [self._tool_reply("call_0", "a")]
+
+        self._save_results(agent, entry, results)
+        self._save_results(agent, entry, results)
+
+        assert [m.role for m in entry.messages] == ["user"]
+        assert len(entry.tool_history) == 1
+
+    def test_save_tool_results_rerun_after_failed_scan_saves_nothing_new(
+        self, basic_durable_agent, caplog
+    ):
+        """If the message scan fails, tool_history still stops a re-run from saving twice."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[self._assistant_calling("call_1")],
+            tool_history=[],
+        )
+        results = [self._tool_reply("call_1", "a")]
+        self._save_results(agent, entry, results)
+
+        with (
+            caplog.at_level("WARNING", logger="dapr_agents.agents.durable"),
+            patch(
+                "dapr_agents.agents.durable._message_field",
+                side_effect=RuntimeError("unreadable message"),
+            ),
+        ):
+            self._save_results(agent, entry, results)
+
+        assert [m.role for m in entry.messages] == ["assistant", "tool"]
+        assert len(entry.tool_history) == 1
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any(
+            "falling back to tool_history dedupe" in r.getMessage()
+            and "unreadable message" in r.getMessage()
+            and "wf-1" in r.getMessage()
+            for r in warnings
+        )
+
+    def test_save_tool_results_history_fallback_counts_each_id_once(
+        self, basic_durable_agent
+    ):
+        """One earlier call_0 record suppresses one call_0 result, not every one."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[AgentWorkflowMessage(role="user", content="hi")],
+            tool_history=[],
+        )
+        self._save_results(agent, entry, [self._tool_reply("call_0", "earlier")])
+
+        self._save_results(
+            agent,
+            entry,
+            [self._tool_reply("call_0", "x"), self._tool_reply("call_0", "y")],
+        )
+
+        assert [r.execution_result for r in entry.tool_history] == ["earlier", "y"]
+
+    @pytest.mark.parametrize("call_id", ["call_0", ""])
+    def test_save_tool_results_two_turns_of_repeated_ids_saved_and_idempotent(
+        self, basic_durable_agent, call_id
+    ):
+        """Each turn answers two results with the same id; a re-run changes nothing."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[self._assistant_calling(call_id)],
+            tool_history=[],
+        )
+        turn1 = [self._tool_reply(call_id, "a1"), self._tool_reply(call_id, "b1")]
+        turn2 = [self._tool_reply(call_id, "a2"), self._tool_reply(call_id, "b2")]
+
+        self._save_results(agent, entry, turn1)
+        entry.messages.append(self._assistant_calling(call_id))
+        self._save_results(agent, entry, turn2)
+        self._save_results(agent, entry, turn2)
+
+        assert [m.role for m in entry.messages] == [
+            "assistant",
+            "tool",
+            "tool",
+            "assistant",
+            "tool",
+            "tool",
+        ]
+        assert [r.execution_result for r in entry.tool_history] == [
+            "a1",
+            "b1",
+            "a2",
+            "b2",
+        ]
+
+    def test_save_tool_results_orchestrator_distinct_dispatches_each_saved(
+        self, basic_durable_agent
+    ):
+        """Orchestrator ids are per-dispatch child instance ids; each is recorded once."""
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        first = [self._tool_reply("child-1", "one")]
+        second = [self._tool_reply("child-2", "two")]
+
+        self._save_results(agent, entry, first, skip_messages=True)
+        self._save_results(agent, entry, second, skip_messages=True)
+        self._save_results(agent, entry, second, skip_messages=True)
+
+        assert [r.execution_result for r in entry.tool_history] == ["one", "two"]
+
+    def test_save_tool_results_orchestrator_rerun_saves_once(self, basic_durable_agent):
+        agent = basic_durable_agent
+        entry = AgentWorkflowEntry(
+            source="test",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+        results = [self._tool_reply("child-1", "done")]
+
+        self._save_results(agent, entry, results, skip_messages=True)
+        self._save_results(agent, entry, results, skip_messages=True)
+
+        assert entry.messages == []
+        assert len(entry.tool_history) == 1
 
     def test_update_agent_memory_and_history(self, basic_durable_agent):
         """Test that memory is updated via save_tool_results activity."""
@@ -1937,3 +2183,324 @@ hello
         assert "provider='openai'" in msg
         assert "model='gpt-4o-mock'" in msg
         assert "agent='ShapeAgent'" in msg
+
+
+class TestCallLlmRedelivery:
+    """call_llm must be safe to re-execute for the same turn.
+
+    Dapr workflow activities are at-least-once: if the worker dies after
+    call_llm saved state but before its completion reached the sidecar, the
+    activity runs again with the same input. The re-run must not append the
+    user's task a second time or leave the first run's assistant tool_calls
+    orphaned, otherwise the next LLM request carries an assistant message whose
+    tool_calls have no tool replies, which providers reject.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_env(self, monkeypatch):
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        mock_client = MockDaprClient()
+        mock_client.get_state.return_value = Mock(data=None)
+        monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
+        )
+        yield
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+
+    @pytest.fixture
+    def mock_llm(self):
+        from dapr_agents.types.message import (
+            AssistantMessage,
+            LLMChatCandidate,
+            LLMChatResponse,
+        )
+
+        mock = Mock(spec=OpenAIChatClient)
+        mock.prompt_template = None
+        mock.__class__.__name__ = "MockLLMClient"
+        mock.provider = "openai"
+        mock.api = "MockOpenAIAPI"
+        mock.model = "gpt-4o-mock"
+        calls = {"n": 0}
+
+        def _generate(**kwargs):
+            calls["n"] += 1
+            return LLMChatResponse(
+                results=[
+                    LLMChatCandidate(
+                        message=AssistantMessage(
+                            content=None,
+                            tool_calls=[
+                                {
+                                    "id": f"call_{calls['n']}",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "test_tool",
+                                        "arguments": "{}",
+                                    },
+                                }
+                            ],
+                        ),
+                        finish_reason="tool_calls",
+                    )
+                ]
+            )
+
+        mock.generate = Mock(side_effect=_generate)
+        return mock
+
+    @pytest.fixture
+    def agent(self, mock_llm):
+        store = FakeEtagStateStore()
+        store.store_name = "teststatestore"
+        return DurableAgent(
+            name="RedeliveryAgent",
+            role="Test",
+            goal="Test",
+            instructions=["x"],
+            llm=mock_llm,
+            state=AgentStateConfig(store=store),
+        )
+
+    @pytest.fixture
+    def payload(self):
+        return {
+            "instance_id": "wf-redeliver-1",
+            "task": "What is the weather?",
+            "source": "direct",
+            "time": "2026-01-01T00:00:00+00:00",
+            "turn": 1,
+        }
+
+    @staticmethod
+    def _activity_ctx(task_id):
+        ctx = Mock(spec=WorkflowActivityContext)
+        ctx.workflow_id = "wf-redeliver-1"
+        ctx.task_id = task_id
+        return ctx
+
+    def test_redelivered_call_llm_returns_recorded_message(
+        self, agent, mock_llm, payload
+    ):
+        first = agent.call_llm(self._activity_ctx(3), payload=dict(payload))
+        # Same activity (same task id and input) delivered again after its
+        # completion was lost.
+        second = agent.call_llm(self._activity_ctx(3), payload=dict(payload))
+
+        assert mock_llm.generate.call_count == 1
+        assert second["id"] == first["id"]
+        assert [tc["id"] for tc in second["tool_calls"]] == ["call_1"]
+
+        entry = agent._infra.get_state("wf-redeliver-1")
+        roles = [m.role for m in entry.messages]
+        assert roles == ["user", "assistant"], (
+            "re-executed call_llm duplicated the turn: "
+            + str(
+                [
+                    m.model_dump(include={"role", "content", "tool_calls"})
+                    for m in entry.messages
+                ]
+            )
+        )
+
+    def test_new_activity_task_still_calls_llm(self, agent, mock_llm, payload):
+        agent.call_llm(self._activity_ctx(3), payload=dict(payload))
+        agent.call_llm(self._activity_ctx(7), payload=dict(payload))
+
+        assert mock_llm.generate.call_count == 2
+
+    # -- same task id, different activity input -------------------------------
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("task", "What is the forecast?"),
+            ("turn", 2),
+            ("time", "2026-01-02T00:00:00+00:00"),
+        ],
+    )
+    def test_message_id_differs_for_same_task_id_with_different_payload(
+        self, payload, field, value
+    ):
+        other = {**payload, field: value}
+
+        assert DurableAgent._call_llm_message_id(
+            self._activity_ctx(3), payload
+        ) != DurableAgent._call_llm_message_id(self._activity_ctx(3), other)
+
+    def test_message_id_ignores_payload_key_order(self, payload):
+        reordered = dict(reversed(list(payload.items())))
+
+        assert DurableAgent._call_llm_message_id(
+            self._activity_ctx(3), payload
+        ) == DurableAgent._call_llm_message_id(self._activity_ctx(3), reordered)
+
+    def test_same_task_id_with_different_payload_calls_llm_again(
+        self, agent, mock_llm, payload
+    ):
+        # e.g. the instance id was reused for a new run whose first call_llm
+        # gets the same task id as the earlier run's: the earlier run's
+        # assistant message must not be returned for the new input.
+        first = agent.call_llm(self._activity_ctx(3), payload=dict(payload))
+        second = agent.call_llm(
+            self._activity_ctx(3),
+            payload={**payload, "task": "What is the forecast?"},
+        )
+
+        assert mock_llm.generate.call_count == 2
+        assert second["id"] != first["id"]
+        assert [tc["id"] for tc in second["tool_calls"]] == ["call_2"]
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert [m.id for m in entry.messages if m.role == "assistant"] == [
+            first["id"],
+            second["id"],
+        ]
+
+    # -- missing / non-integer task id ----------------------------------------
+
+    @pytest.mark.parametrize(
+        "ctx",
+        [None, Mock(), Mock(spec=DaprWorkflowContext)],
+        ids=["none", "plain-mock", "workflow-context"],
+    )
+    def test_non_activity_context_has_no_message_id(self, payload, ctx):
+        assert DurableAgent._call_llm_message_id(ctx, payload) is None
+
+    def test_non_activity_context_falls_back_to_calling_llm(
+        self, agent, mock_llm, payload
+    ):
+        # Without an activity context there is nothing to key on, so call_llm
+        # keeps its previous behaviour and calls the LLM on every execution.
+        agent.call_llm(Mock(), payload=dict(payload))
+        agent.call_llm(Mock(), payload=dict(payload))
+
+        assert mock_llm.generate.call_count == 2
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert [m.role for m in entry.messages].count("assistant") == 2
+
+    @pytest.mark.parametrize(
+        "task_id",
+        [None, "3", 3.0, True],
+        ids=["none", "str", "float", "bool"],
+    )
+    def test_activity_context_with_non_int_task_id_fails_fast(self, payload, task_id):
+        with pytest.raises(AgentError, match="task_id to be an int"):
+            DurableAgent._call_llm_message_id(self._activity_ctx(task_id), payload)
+
+    def test_activity_context_without_task_id_fails_fast(self, payload):
+        ctx = Mock(spec=WorkflowActivityContext)
+        ctx.workflow_id = "wf-redeliver-1"
+
+        with pytest.raises(AgentError, match="got NoneType"):
+            DurableAgent._call_llm_message_id(ctx, payload)
+
+    def test_call_llm_fails_fast_before_touching_history_or_llm(
+        self, agent, mock_llm, payload
+    ):
+        with pytest.raises(AgentError, match="task_id to be an int"):
+            agent.call_llm(self._activity_ctx("3"), payload=dict(payload))
+
+        mock_llm.generate.assert_not_called()
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert entry is None or not entry.messages
+
+    # -- retries: new task id, same task_execution_id --------------------------
+
+    @staticmethod
+    def _sdk_activity_ctx(task_id, task_execution_id=""):
+        # Mirrors the SDK: WorkflowActivityContext exposes task_id directly and
+        # task_execution_id only on the inner durabletask ActivityContext.
+        # test_sdk_exposes_task_execution_id pins that shape against the
+        # installed SDK, since conftest replaces dapr with mocks.
+        ctx = Mock(spec=WorkflowActivityContext)
+        ctx.workflow_id = "wf-redeliver-1"
+        ctx.task_id = task_id
+        ctx.get_inner_context = Mock(
+            return_value=SimpleNamespace(task_execution_id=task_execution_id)
+        )
+        return ctx
+
+    def test_retry_after_committed_save_returns_recorded_message(
+        self, agent, mock_llm, payload
+    ):
+        """Regression: a retry must not repeat a turn whose state was saved.
+
+        The retry policy reschedules a failed activity under a new task_id but
+        keeps its task_execution_id. If the first attempt's save committed but
+        the call still failed (e.g. the state store client timed out after the
+        write landed), the retry must return the recorded message rather than
+        append the user turn again and call the LLM a second time.
+        """
+        commit_save = agent._infra.save_state
+
+        def save_then_time_out(instance_id, entry=None):
+            commit_save(instance_id, entry=entry)
+            raise TimeoutError("state store write timed out after committing")
+
+        with patch.object(agent._infra, "save_state", side_effect=save_then_time_out):
+            with pytest.raises(TimeoutError):
+                agent.call_llm(
+                    self._sdk_activity_ctx(3, "exec-1"), payload=dict(payload)
+                )
+
+        retried = agent.call_llm(
+            self._sdk_activity_ctx(4, "exec-1"), payload=dict(payload)
+        )
+
+        assert mock_llm.generate.call_count == 1
+        assert [tc["id"] for tc in retried["tool_calls"]] == ["call_1"]
+        entry = agent._infra.get_state("wf-redeliver-1")
+        assert [m.role for m in entry.messages] == ["user", "assistant"]
+
+    def test_message_id_is_stable_across_retries(self, payload):
+        assert DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(3, "exec-1"), payload
+        ) == DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(4, "exec-1"), payload
+        )
+
+    def test_message_id_differs_per_task_execution_id(self, payload):
+        # Two separate call_activity calls never share a task_execution_id.
+        assert DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(3, "exec-1"), payload
+        ) != DurableAgent._call_llm_message_id(
+            self._sdk_activity_ctx(3, "exec-2"), payload
+        )
+
+    def test_message_id_falls_back_to_task_id_without_execution_id(
+        self, agent, mock_llm, payload
+    ):
+        # Older sidecars send an empty task_execution_id: redelivery (same
+        # task_id) is still detected, and a new task_id still calls the LLM.
+        agent.call_llm(self._sdk_activity_ctx(3), payload=dict(payload))
+        agent.call_llm(self._sdk_activity_ctx(3), payload=dict(payload))
+        assert mock_llm.generate.call_count == 1
+
+        agent.call_llm(self._sdk_activity_ctx(4), payload=dict(payload))
+        assert mock_llm.generate.call_count == 2
+
+    def test_sdk_exposes_task_execution_id(self):
+        """The installed SDK still provides what _call_llm_message_id reads.
+
+        Without this, a rename in the SDK would quietly drop call_llm back to
+        the task_id key, which does not survive retries.
+        """
+        dist = importlib.metadata.distribution("dapr-ext-workflow")
+
+        def class_members(rel_path, class_name):
+            source = dist.locate_file(rel_path).read_text()
+            for node in ast.walk(ast.parse(source)):
+                if isinstance(node, ast.ClassDef) and node.name == class_name:
+                    return {n.name for n in node.body if isinstance(n, ast.FunctionDef)}
+            raise AssertionError(f"{class_name} not found in {rel_path}")
+
+        assert "get_inner_context" in class_members(
+            "dapr/ext/workflow/workflow_activity_context.py",
+            "WorkflowActivityContext",
+        )
+        assert "task_execution_id" in class_members(
+            "dapr/ext/workflow/_durabletask/task.py", "ActivityContext"
+        )

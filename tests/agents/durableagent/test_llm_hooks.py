@@ -177,6 +177,9 @@ def _patch_activity_deps(agent):
         patch.object(agent, "_save_assistant_message"),
         patch.object(agent, "save_state"),
         patch.object(agent.text_formatter, "print_message"),
+        # The re-delivery guard is covered in test_durable_agent.py; keep these
+        # tests focused on hook dispatch.
+        patch.object(agent, "_call_llm_message_id", return_value=None),
     ]
 
 

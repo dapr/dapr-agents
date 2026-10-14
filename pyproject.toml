@@ -44,6 +44,7 @@ dependencies = [
     "fastapi>=0.110.0,<1.0.0",
     "uvicorn>=0.27.0,<1.0.0",
     "aiohttp>=3.9.0,<4.0.0",
+    "httpx>=0.27.0,<1.0.0",
     "cloudevents>=1.11.0,<3.0.0",
     "numpy>=2.2.2,<3.0.0",
     "mcp>=1.26.0,<2.0.0",
@@ -55,6 +56,7 @@ dependencies = [
     "opentelemetry-api>=1.35.0,<2.0.0",
     "opentelemetry-exporter-otlp>=1.35.0,<2.0.0",
     "opentelemetry-proto>=1.35.0,<2.0.0",
+    "opentelemetry-sdk>=1.35.0,<2.0.0",
     "tiktoken>=0.9.0",
     "cachetools>=6.1.0,<8.0.0",
     "wrapt>=1.14.0,<3.0.0",
@@ -63,10 +65,10 @@ dependencies = [
     "mistralai>=2.9.2",
     "anthropic>=0.98.0,<2.0.0",
     "opentelemetry-instrumentation-grpc>=0.60b1,<1.0.0",
-    "opentelemetry-exporter-zipkin-json>=1.36.0",
+    "opentelemetry-exporter-zipkin-json>=1.36.0,<2.0.0",
     "opentelemetry-instrumentation-httpx>=0.60b1,<1.0.0",
     "opentelemetry-semantic-conventions>=0.60b1,<1.0.0",
-    "litellm>=1.80,<1.103",
+    "litellm>=1.80,<1.104",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -84,11 +86,18 @@ classifiers = [
 drasi = [
     "dapr-agents-ext-drasi>=0.1.0,<1.0.0",
 ]
+# Claude Agent SDK executor (ClaudeAgentExecutor). The wheels bundle the
+# Claude Code CLI (~100 MB); there is no musllinux wheel, so Alpine images
+# need the ``claude`` CLI on PATH.
+claude = [
+    "claude-agent-sdk>=0.2.159,<0.3.0",
+]
 vectorstore = [
     "torch>=2.7.0",
     "sentence-transformers>=4.1.0,<7.0.0",
     "chromadb>=0.4.22,<2.0.0",
     "nltk>=3.9.3,<4.0.0",
+    "redisvl>=0.4.0,<1.0.0",
 ]
 
 [dependency-groups]
@@ -105,7 +114,6 @@ test = [
     "pytest-cov>=4.1.0,<8.0.0",
     "pytest-mock>=3.12.0,<4.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",  # For parallel test execution on quickstart tests
-    "httpx>=0.27.0,<1.0.0",  # For testing FastAPI endpoints
     "pytest-timeout>=2.3.0,<3.0.0",
     "docker>=7.0.0,<8.0.0",
     "pytest-rerunfailures>=14.0,<17.0",
@@ -132,6 +140,11 @@ dapr-ext-fastapi = "2026-05-21T00:00:00Z"
 dapr-ext-workflow = "2026-05-21T00:00:00Z"
 durabletask-dapr = "2026-05-21T00:00:00Z"
 anthropic = "2026-08-23T00:00:00Z"
+# claude-agent-sdk 0.2.159 (the minimum the claude extra needs) is newer than
+# the 7-day cooldown. This fixed date admits nothing released after it; drop
+# the override once 0.2.159 is older than 7 days (after 2026-09-30) so the
+# package falls back under the repo-wide cooldown.
+claude-agent-sdk = "2026-09-24T00:00:00Z"
 
 [project.urls]
 Documentation = "https://github.com/dapr/docs"
@@ -151,7 +164,9 @@ fallback_version = "0.0.0.dev0"
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]
-testpaths = ["tests", "ext"]
+# ext/ runs in its own session (`pytest ext`): sharing one with tests/ hides the
+# installed extension and silently skips its tests.
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 markers = [
@@ -191,6 +206,7 @@ members = [
     "examples/09-agents-as-tools",
     "examples/10-mcpserver",
     "examples/11-expert-agent-tavily",
+    "examples/13-agent-executor-claude",
     "examples/ext-drasi-change-driven-agents-k8s",
     "ext/*",
 ]

@@ -39,13 +39,16 @@ _KEY = "release-agent:pending_approvals"
 
 def _fake_agent(state_store, pending):
     """Minimal stand-in exposing only what persist/restore touch on ``self``."""
+    client = MagicMock()
     return SimpleNamespace(
         name="release-agent",
         _hooks=Hooks(before_tool_call=[lambda ctx: None]),
         state_store=state_store,
         _pending_approvals=pending,
         _pending_approvals_key=lambda: _KEY,
-        _wf_client=MagicMock(),
+        _approvals_possible=True,
+        _wf_client=client,
+        _get_wf_client=lambda: client,
     )
 
 
@@ -93,6 +96,17 @@ class TestPendingApprovalPersistenceAPI:
         agent = _fake_agent(state_store=None, pending={"req-1": {}})
         # Should simply return without raising.
         DurableAgent._persist_pending_approvals(agent)
+
+    def test_persist_is_noop_when_agent_cannot_wait_for_approvals(self):
+        # A workflow client created lazily for bridged tools must not turn
+        # approval persistence on.
+        store = MagicMock(spec=StateStoreService)
+        agent = _fake_agent(store, pending={})
+        agent._approvals_possible = False
+        DurableAgent._persist_pending_approvals(agent)
+        DurableAgent._restore_pending_approvals(agent)
+        store.save.assert_not_called()
+        store.load.assert_not_called()
 
     def test_statestore_service_lacks_legacy_api(self):
         # Pin the contract that motivated the fix: these methods do not exist.

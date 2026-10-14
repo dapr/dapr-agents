@@ -32,6 +32,7 @@ import queue
 import threading
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Protocol
 
+import httpx
 from dapr.aio.clients import DaprClient as AsyncDaprClient
 
 from dapr_agents.types.streaming import AgentStreamChunk
@@ -471,15 +472,6 @@ class WebhookListener:
     # -- internal ----------------------------------------------------------
 
     def _run(self) -> None:
-        # Import lazily so we don't impose httpx on users who never use the
-        # webhook listener.
-        try:
-            import httpx
-        except ImportError as exc:  # pragma: no cover - optional dep
-            logger.error(
-                "WebhookListener requires httpx but it is not installed: %s", exc
-            )
-            return
         client = httpx.Client(timeout=self._timeout, headers=self._headers)
         try:
             while True:
