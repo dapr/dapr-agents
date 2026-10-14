@@ -189,6 +189,8 @@ class DurableExecutorMixin:
                 ctx.instance_id,
                 paused.tool_call(),
                 paused.require_approval(),
+                turn=round_,
+                call_index=0,
                 source=paused.source,
             )
             payload = _resume_input(first_input, paused, approved, round_, reason)
