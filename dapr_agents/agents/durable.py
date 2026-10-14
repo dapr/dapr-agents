@@ -1399,10 +1399,8 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         accepted_ids = self._accepted_approval_ids(
             published_id, approval_request_id, instance_id, tool_call_id
         )
-        approval_request_id = accepted_ids[0]
-
         logger.info(
-            f"Approval request {approval_request_id} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
+            f"Approval request {' / '.join(accepted_ids)} published to topic '{approval_config.topic}' (tool='{fn_name}', instance={instance_id})"
         )
 
         # History order: waits before the timer, as before. Each
@@ -1426,7 +1424,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
 
     @staticmethod
     def _accepted_approval_ids(
-        published_id: Any, new_id: str, instance_id: str, tool_call_id: str
+        published_id: Optional[str], new_id: str, instance_id: str, tool_call_id: str
     ) -> List[str]:
         """Return the request ids to listen on, the one to report first.
 
@@ -1435,11 +1433,15 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         either before the upgrade (the approver holds the legacy id) or on a
         not-yet-upgraded replica during a rolling upgrade (it published the new
         id it was given). Listen on both names in that case.
+
+        The legacy name only serves runs that were waiting on an approval when
+        they were upgraded; it can be removed once no such runs remain.
         """
         if published_id is not None:
             return [str(published_id)]
         return [new_id, _legacy_approval_request_id(instance_id, tool_call_id)]
 
+    # Task arguments are typed Any: dapr.ext.workflow exposes no public Task type.
     def _await_approval_decision(
         self,
         ctx: wf.DaprWorkflowContext,
@@ -1512,16 +1514,8 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         the request. Only structured metadata is logged for a bad body: the raw
         exception embeds the input, which can carry an ``approver_token``.
         """
-        try:
-            response = ApprovalResponseEvent(**event_task.get_result())
-        except Exception as exc:
-            if isinstance(exc, ValidationError):
-                reason: Any = [
-                    (e["loc"], e["type"])
-                    for e in exc.errors(include_input=False, include_url=False)
-                ]
-            else:
-                reason = type(exc).__name__
+
+        def _ignore_unparseable(reason: Any) -> None:
             logger.warning(
                 "Ignoring unparseable approval response for request %s: %s "
                 "(tool='%s', instance=%s)",
@@ -1530,6 +1524,19 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 fn_name,
                 instance_id,
             )
+
+        try:
+            response = ApprovalResponseEvent(**event_task.get_result())
+        except ValidationError as exc:
+            _ignore_unparseable(
+                [
+                    (e["loc"], e["type"])
+                    for e in exc.errors(include_input=False, include_url=False)
+                ]
+            )
+            return None
+        except Exception as exc:
+            _ignore_unparseable(type(exc).__name__)
             return None
         if response.approval_request_id != wait_id:
             logger.warning(
@@ -3316,6 +3323,12 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             "tool_call_meta"
         ) or [None] * len(tool_results)
         if len(tool_call_meta) != len(tool_results):
+            logger.debug(
+                "tool_call_meta has %d entries for %d results; falling back to "
+                "tool_calls_by_id",
+                len(tool_call_meta),
+                len(tool_results),
+            )
             tool_call_meta = [None] * len(tool_results)
         # When True, results go to tool_history only — not entry.messages.
         # See docstring for the full rationale.
@@ -3582,6 +3595,12 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         approval_request_id = event_data.get("approval_request_id")
         if not approval_request_id:
             # The workflow treats a None result as a publish by older code.
+            logger.error(
+                "Refusing to publish approval request without an id "
+                "(tool='%s', instance=%s)",
+                event_data.get("step_name"),
+                event_data.get("instance_id"),
+            )
             raise ValueError("approval request event has no approval_request_id")
 
         self._pending_approvals[approval_request_id] = event_data
