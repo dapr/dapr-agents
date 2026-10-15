@@ -13,6 +13,7 @@ updates:
   # Python
   - package-ecosystem: "uv"
     directory: "/"
+    open-pull-requests-limit: 10
     schedule:
       interval: "daily"
     cooldown:
