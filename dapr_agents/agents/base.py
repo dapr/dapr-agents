@@ -386,8 +386,8 @@ class AgentBase:
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
         self.configuration = configuration
-        # Track deprecated key formats to reduce noise from repeated warning logs;
-        # best-effort as concurrent config updates may still produce multiple warning logs.
+        # Track deprecated key formats to suppress repeated warnings on config hot-reload.
+        # Best-effort: concurrent updates may still emit duplicates for the same key.
         self._seen_deprecated_config_key_formats: set[str] = set()
         self._subscription_id: Optional[str] = None
         self.appid = (
