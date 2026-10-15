@@ -22,12 +22,11 @@ from dapr.ext.workflow import DaprWorkflowContext
 from dapr_agents.tool.workflow.agent_tool import agent_workflow_id
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 
-# Preserve the pre-rename import path while implementations live in utils.models.
+# Preserve the existing import path for the model helpers in dapr_agents.utils.models.
 from dapr_agents.utils.models import (
     is_pydantic_model,
     is_supported_model,
     is_supported_model_instance,
-    is_valid_routable_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -237,6 +236,11 @@ def trigger_agent(
         return state.serialized_output if state is not None else None
     finally:
         wfr.shutdown()
+
+
+def is_valid_routable_model(obj: Any) -> bool:
+    """Check if a model class can be used for routed messages."""
+    return is_dataclass(obj) or is_pydantic_model(obj)
 
 
 def get_decorated_methods(instance: Any, attribute_name: str) -> Dict[str, Callable]:
