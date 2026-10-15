@@ -18,8 +18,8 @@ from dapr_agents.agents.configs import validate_max_iterations, _validate_integr
 
 # TODO: Remove this compatibility test when ConfigFieldDescriptor is removed.
 def test_deprecated_config_field_descriptor_remains_available() -> None:
-    """Test that the positional ``ConfigFieldDescriptor`` remains importable from the original location
-    but raises a deprecation warning."""
+    """Test that the positional ``ConfigFieldDescriptor``
+    remains importable from the original import path but raises a deprecation warning."""
     with pytest.warns(DeprecationWarning, match="ConfigFieldDescriptor.*deprecated"):
         from dapr_agents.agents.configs import ConfigFieldDescriptor
 
