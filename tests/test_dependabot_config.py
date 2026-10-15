@@ -72,6 +72,16 @@ def test_root_uv_groups_minor_and_patch_only() -> None:
     assert sorted(group["update-types"]) == ["minor", "patch"]
 
 
+def test_pip_entries_are_security_updates_only() -> None:
+    # pip entries cover uv workspace members locked by the root uv.lock;
+    # version updates there would edit a pyproject.toml without the lock.
+    pip = [e for e in _updates() if e["package-ecosystem"] == "pip"]
+    assert pip
+    for entry in pip:
+        assert entry["open-pull-requests-limit"] == 0
+        assert "groups" not in entry
+
+
 def test_every_entry_keeps_a_schedule() -> None:
     for entry in _updates():
         assert entry["schedule"]["interval"] == "daily"

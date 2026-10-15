@@ -35,6 +35,11 @@ updates:
   # pyproject.toml but no uv.lock of its own (they are workspace members
   # locked by the root uv.lock), so they use the pip ecosystem. This lets
   # alerts on these manifests get security update PRs.
+  # open-pull-requests-limit: 0 turns off version updates for this entry:
+  # a version bump here edits a member pyproject.toml without regenerating
+  # the root uv.lock, and CI installs with --frozen, so a stale lock would
+  # pass unnoticed. When a security PR bumps one of these manifests, run
+  # `uv lock` at the repository root and commit the updated uv.lock.
   - package-ecosystem: "pip"
     directories:
       - "/examples/01-llm-call-anthropic"
@@ -66,16 +71,7 @@ updates:
       - "/quickstarts"
     schedule:
       interval: "daily"
-    cooldown:
-      default-days: 7
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-patch"]
-    groups:
-      pip-minor-and-patch:
-        applies-to: version-updates
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 0
   # Docker - Frodo service
   - package-ecosystem: "docker"
     directory: "/quickstarts/05-multi-agent-workflow-k8s/services/frodo"
