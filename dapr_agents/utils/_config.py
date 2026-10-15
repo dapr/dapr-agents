@@ -37,12 +37,12 @@ _CONFIG_KEY_PATTERNS = (
 )
 
 
-def _is_supported_config_key(key: str) -> bool:
+def is_supported_config_key(key: str) -> bool:
     """Check if a configuration key matches any of the supported naming conventions."""
     return any(pattern.fullmatch(key) for pattern in _CONFIG_KEY_PATTERNS)
 
 
-def _coerce_integral(value: Any) -> int:
+def coerce_integral(value: Any) -> int:
     """Convert a value that represents an exact integer to an ``int``.
 
     Accepts ints, integral floats (``10.0``), ``Decimal`` values, and numeric
@@ -68,7 +68,7 @@ def _coerce_integral(value: Any) -> int:
 
 
 @dataclass(frozen=True, kw_only=True)
-class _ConfigFieldDescriptor:
+class ConfigFieldDescriptor:
     """Describes how a configuration key maps to a configuration attribute.
 
     Attributes:
@@ -102,7 +102,7 @@ class _ConfigFieldDescriptor:
     triggers_otel_reload: bool = False
 
 
-def _get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
+def get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
     """
     Look up a config value from a mapping, trying common key naming conventions.
 
@@ -114,7 +114,7 @@ def _get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
     Returns:
         The value for the key, or ``None`` if no key variant has a non-empty value.
     """
-    if not _is_supported_config_key(key):
+    if not is_supported_config_key(key):
         return None
 
     snake = key.replace("-", "_")
@@ -126,8 +126,8 @@ def _get_config_value(mapping: Mapping[str, Any], key: str) -> Any:
     return None
 
 
-def _apply_config_map(
-    target_obj: Any, config_field_map: dict[str, _ConfigFieldDescriptor]
+def apply_config_map(
+    target_obj: Any, config_field_map: dict[str, ConfigFieldDescriptor]
 ) -> None:
     """
     Apply a map of configuration field names to field descriptors onto a target object, mutating the object in-place.
@@ -137,14 +137,14 @@ def _apply_config_map(
         RuntimeError: If a value cannot be applied to the target object.
     """
     for key, descriptor in config_field_map.items():
-        _apply_config_update(target_obj=target_obj, key=key, descriptor=descriptor)
+        apply_config_update(target_obj=target_obj, key=key, descriptor=descriptor)
 
 
-def _apply_config_update(
+def apply_config_update(
     target_obj: Any,
     *,
     key: str,
-    descriptor: _ConfigFieldDescriptor,
+    descriptor: ConfigFieldDescriptor,
     value: Any = None,
 ) -> Any:
     """
@@ -175,7 +175,7 @@ def _apply_config_update(
         RuntimeError: If the value cannot be applied.
     """
     try:
-        processed_value = _process_config_update(
+        processed_value = process_config_update(
             key=key, value=value, descriptor=descriptor
         )
 
@@ -226,9 +226,9 @@ def _apply_config_update(
         return descriptor.fallback
 
 
-def _process_config_update(
+def process_config_update(
     key: str,
-    descriptor: _ConfigFieldDescriptor,
+    descriptor: ConfigFieldDescriptor,
     value: Any = None,
 ) -> Any:
     """
@@ -261,7 +261,7 @@ def _process_config_update(
         else:
             if descriptor.pre_validator:
                 value = descriptor.pre_validator(value)
-            processed_value = _coerce_config_value(value, descriptor.target_type)
+            processed_value = coerce_config_value(value, descriptor.target_type)
     except Exception as exc:
         raise ValueError(f"Invalid value for key '{key}'") from exc
 
@@ -275,7 +275,7 @@ def _process_config_update(
     return processed_value
 
 
-def _coerce_config_value(value: Any, target_type: type) -> Any:
+def coerce_config_value(value: Any, target_type: type) -> Any:
     """
     Coerce a configuration value to the target Python type.
     Coercion explicitly enforces the requested target type; subtypes are not accepted.
@@ -293,7 +293,7 @@ def _coerce_config_value(value: Any, target_type: type) -> Any:
         # Handle PEP 604 / ``typing.Union`` types by trying each branch in order
         for arg in get_args(target_type):
             try:
-                return _coerce_config_value(value, arg)
+                return coerce_config_value(value, arg)
             except (ValueError, TypeError):
                 continue
         raise ValueError(f"Cannot coerce {value!r} to any type in {target_type}")
@@ -314,7 +314,7 @@ def _coerce_config_value(value: Any, target_type: type) -> Any:
         return str(value)
 
     if target_type is int:
-        return _coerce_integral(value)
+        return coerce_integral(value)
 
     if target_type is float:
         return float(value)

@@ -51,7 +51,7 @@ from typing import Any, Callable, Dict, Optional
 from dapr.aio.clients import DaprClient as AsyncDaprClient
 from dapr.clients import DaprClient
 
-from dapr_agents.utils._config import _coerce_integral
+from dapr_agents.utils._config import coerce_integral
 
 INBOUND_MESSAGE_SIZE_ENV: str = "DAPR_GRPC_MAX_INBOUND_MESSAGE_SIZE_BYTES"
 
@@ -63,7 +63,7 @@ AsyncDaprClientFactory = Callable[[], AsyncDaprClient]
 
 def _coerce_positive_int(value: Any) -> int:
     """Convert a positive integral numeric representation to an ``int``."""
-    parsed = _coerce_integral(value)
+    parsed = coerce_integral(value)
     if parsed <= 0:
         raise ValueError(
             f"max_grpc_message_length must be a positive integer, got {value!r}"
@@ -142,7 +142,7 @@ def dapr_client_kwargs(
         return resolved
 
     try:
-        parsed = _coerce_integral(raw)
+        parsed = coerce_integral(raw)
     except ValueError:
         logger.warning(
             f"Ignoring invalid {INBOUND_MESSAGE_SIZE_ENV}={raw!r}; "

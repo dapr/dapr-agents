@@ -12,7 +12,7 @@
 #
 
 
-def _parse_header_string(raw_headers: str) -> dict:
+def parse_header_string(raw_headers: str) -> dict:
     """
     Parse a header string in the form "Key1=Value1,Key2=Value2,..." into a dictionary.
 
