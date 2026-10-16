@@ -322,6 +322,18 @@ class TestApprovalLoop:
         assert first["session_id"] == "caller-session"
         assert resume["session_id"] == "caller-session"
 
+    def test_resume_uses_caller_session_over_executor_session(self):
+        # The executor reports its own id (Claude derives a UUID from a
+        # non-UUID caller id); the resumed run still gets the caller's id.
+        agent = _approval_agent()
+        driver = _WorkflowDriver(
+            agent, [_paused(), {"role": "assistant", "content": "ok"}]
+        )
+        driver.run({"task": "pay", "session_id": "project-42-issue-7"})
+        first, resume = driver.run_inputs()
+        assert first["session_id"] == "project-42-issue-7"
+        assert resume["session_id"] == "project-42-issue-7"
+
 
 class TestPausedExecutorRun:
     def test_round_trip_and_tool_call_shape(self):

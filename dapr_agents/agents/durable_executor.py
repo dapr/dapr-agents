@@ -106,7 +106,9 @@ def _resume_input(
         "context": context,
         "round": round_,
     }
-    session_id = paused.session_id or first_input.get("session_id")
+    # Same priority as ``run_executor``: the caller's id first. Executors may
+    # report a different id (Claude derives a UUID from a non-UUID one).
+    session_id = first_input.get("session_id") or paused.session_id
     if session_id:
         resumed["session_id"] = session_id
     return resumed
