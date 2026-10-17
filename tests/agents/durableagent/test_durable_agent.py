@@ -18,6 +18,7 @@
 from datetime import timedelta
 import ast
 import importlib.metadata
+import json
 import os
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
@@ -34,6 +35,7 @@ from dapr_agents.agents.configs import (
     AgentMemoryConfig,
     AgentExecutionConfig,
     BuiltinTool,
+    ToolExecutionMode,
     WorkflowRetryPolicy,
 )
 from dapr_agents.agents.schemas import (
@@ -44,6 +46,8 @@ from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.memory import ConversationDaprStateMemory
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
 from dapr_agents.tool.base import AgentTool
+from dapr_agents.tool.workflow.agent_tool import agent_to_tool
+from dapr_agents.tool.workflow.tool_context import WorkflowContextInjectedTool
 from dapr_agents.types import AgentError, DaprWorkflowStatus
 from tests.fake_state_store import FakeEtagStateStore
 
@@ -123,6 +127,341 @@ class MockDaprClient:
         response.registered_components = []
         response.application_id = "test-app-id"
         return response
+
+
+class TestSequentialToolDispatch:
+    """Regression coverage for core sequential tool scheduling."""
+
+    @pytest.fixture(autouse=True)
+    def setup_env(self, monkeypatch):
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        mock_client = MockDaprClient()
+        monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
+        )
+        yield
+        os.environ.pop("OPENAI_API_KEY", None)
+
+    @pytest.fixture
+    def mock_llm(self):
+        mock = Mock(spec=OpenAIChatClient)
+        mock.generate = AsyncMock()
+        mock.prompt_template = None
+        mock.__class__.__name__ = "MockLLMClient"
+        mock.provider = "MockOpenAIProvider"
+        mock.api = "MockOpenAIAPI"
+        mock.model = "gpt-4o-mock"
+        return mock
+
+    @pytest.fixture
+    def mock_workflow_context(self):
+        context = DaprWorkflowContext()
+        context.instance_id = "sequential-dispatch-test"
+        context.is_replaying = False
+        context.call_activity = Mock()
+        context.call_child_workflow = Mock()
+        context.wait_for_external_event = Mock()
+        context.set_custom_status = Mock()
+        context.current_utc_datetime = Mock()
+        context.current_utc_datetime.isoformat = Mock(
+            return_value="2024-01-01T00:00:00.000000"
+        )
+        return context
+
+    @staticmethod
+    def _make_agent(mock_llm, tools):
+        return DurableAgent(
+            name="SequentialTestAgent",
+            role="Sequential Tool Tester",
+            goal="Test sequential dispatch",
+            instructions=[],
+            llm=mock_llm,
+            tools=tools,
+            pubsub=AgentPubSubConfig(
+                pubsub_name="testpubsub",
+                agent_topic="SequentialTestAgent",
+            ),
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            execution=AgentExecutionConfig(
+                max_iterations=3,
+                tool_execution_mode=ToolExecutionMode.SEQUENTIAL,
+            ),
+        )
+
+    @staticmethod
+    def _tool_call(name, *, call_id, args=None):
+        return {
+            "id": call_id,
+            "function": {
+                "name": name,
+                "arguments": json.dumps(args or {}),
+            },
+        }
+
+    @staticmethod
+    def _save_input(agent, context):
+        save_call = next(
+            activity_call
+            for activity_call in reversed(context.call_activity.call_args_list)
+            if activity_call[0][0] == agent._activity_name(agent.save_tool_results)
+        )
+        return save_call[1]["input"]
+
+    def test_regular_tools_wait_for_previous_result(
+        self, mock_llm, mock_workflow_context
+    ):
+        mock_workflow_context.current_utc_datetime.isoformat.side_effect = [
+            "llm-time",
+            "save-time",
+            "get-time",
+        ]
+        tools = [
+            AgentTool(
+                name="SaveState",
+                description="Save state",
+                func=lambda value: value,
+            ),
+            AgentTool(
+                name="GetState",
+                description="Get state",
+                func=lambda: "value",
+            ),
+        ]
+        agent = self._make_agent(mock_llm, tools)
+        tool_calls = [
+            self._tool_call("SaveState", call_id="save", args={"value": "new"}),
+            self._tool_call("GetState", call_id="get"),
+        ]
+        gen = agent.agent_workflow(mock_workflow_context, {"task": "save then read"})
+
+        next(gen)
+        gen.send(None)
+        gen.send({"tool_calls": tool_calls})
+
+        run_tool_name = agent._activity_name(agent.run_tool)
+        run_tool_calls = [
+            activity_call
+            for activity_call in mock_workflow_context.call_activity.call_args_list
+            if activity_call[0][0] == run_tool_name
+        ]
+        assert [
+            activity_call[1]["input"]["tool_call"]["id"]
+            for activity_call in run_tool_calls
+        ] == ["save"]
+
+        gen.send(
+            {
+                "content": "saved",
+                "role": "tool",
+                "name": "SaveState",
+                "tool_call_id": "save",
+            }
+        )
+        run_tool_calls = [
+            activity_call
+            for activity_call in mock_workflow_context.call_activity.call_args_list
+            if activity_call[0][0] == run_tool_name
+        ]
+        assert [
+            activity_call[1]["input"]["tool_call"]["id"]
+            for activity_call in run_tool_calls
+        ] == ["save", "get"]
+        assert [
+            activity_call[1]["input"]["time"] for activity_call in run_tool_calls
+        ] == ["save-time", "get-time"]
+
+        gen.send(
+            {
+                "content": "value",
+                "role": "tool",
+                "name": "GetState",
+                "tool_call_id": "get",
+            }
+        )
+        save_input = self._save_input(agent, mock_workflow_context)
+        assert [result["tool_call_id"] for result in save_input["tool_results"]] == [
+            "save",
+            "get",
+        ]
+        gen.close()
+
+    def test_task_and_generator_workflow_tools_preserve_order_and_metadata(
+        self, mock_llm, mock_workflow_context
+    ):
+        task_marker = Mock(name="task_marker")
+        generator_marker = Mock(name="generator_marker")
+
+        def task_tool(ctx, _source_agent):
+            return task_marker
+
+        def generator_tool(ctx, _source_agent):
+            result = yield generator_marker
+            return result
+
+        tools = [
+            WorkflowContextInjectedTool(
+                name="TaskTool",
+                description="Return a workflow task.",
+                func=task_tool,
+            ),
+            WorkflowContextInjectedTool(
+                name="GeneratorTool",
+                description="Run a generator-bodied workflow tool.",
+                func=generator_tool,
+            ),
+        ]
+        agent = self._make_agent(mock_llm, tools)
+        tool_calls = [
+            self._tool_call("TaskTool", call_id="task"),
+            self._tool_call("GeneratorTool", call_id="generator"),
+        ]
+        gen = agent.agent_workflow(
+            mock_workflow_context, {"task": "run workflow tools"}
+        )
+
+        next(gen)
+        gen.send(None)
+        assert gen.send({"tool_calls": tool_calls}) is task_marker
+        assert gen.send("task-result") is generator_marker
+        gen.send("generator-result")
+
+        save_input = self._save_input(agent, mock_workflow_context)
+        assert [result["tool_call_id"] for result in save_input["tool_results"]] == [
+            "task",
+            "generator",
+        ]
+        assert save_input["tool_calls_by_id"]["task"]["is_agent_call"] is True
+        assert save_input["tool_calls_by_id"]["generator"]["is_agent_call"] is False
+        gen.close()
+
+    def test_agent_workflow_tools_wait_for_previous_child(
+        self, mock_llm, mock_workflow_context
+    ):
+        first_marker = Mock(name="first_child")
+        second_marker = Mock(name="second_child")
+        mock_workflow_context.call_child_workflow.side_effect = [
+            first_marker,
+            second_marker,
+        ]
+        mock_workflow_context.current_utc_datetime.isoformat.side_effect = [
+            "llm-time",
+            "first-child-time",
+            "second-child-time",
+        ]
+        tools = [
+            agent_to_tool("ResearchAgent", "Research a topic."),
+            agent_to_tool("SummaryAgent", "Summarize research."),
+        ]
+        agent = self._make_agent(mock_llm, tools)
+        tool_calls = [
+            self._tool_call(
+                "ResearchAgent", call_id="research", args={"task": "topic"}
+            ),
+            self._tool_call(
+                "SummaryAgent", call_id="summary", args={"task": "results"}
+            ),
+        ]
+        gen = agent.agent_workflow(
+            mock_workflow_context, {"task": "research then summarize"}
+        )
+
+        next(gen)
+        gen.send(None)
+        assert gen.send({"tool_calls": tool_calls}) is first_marker
+        assert mock_workflow_context.call_child_workflow.call_count == 1
+
+        assert gen.send("research-result") is second_marker
+        assert mock_workflow_context.call_child_workflow.call_count == 2
+        gen.send("summary-result")
+
+        save_input = self._save_input(agent, mock_workflow_context)
+        assert [result["tool_call_id"] for result in save_input["tool_results"]] == [
+            "research",
+            "summary",
+        ]
+        expected_times = ["first-child-time", "second-child-time"]
+        for index, call_id in enumerate(["research", "summary"]):
+            metadata = save_input["tool_calls_by_id"][call_id]
+            child_call = mock_workflow_context.call_child_workflow.call_args_list[index]
+            assert metadata["is_agent_call"] is True
+            assert metadata["child_instance_id"] == child_call.kwargs["instance_id"]
+            assert metadata["dispatch_time"] == expected_times[index]
+        gen.close()
+
+    def test_activity_completes_before_generator_tool_starts(
+        self, mock_llm, mock_workflow_context
+    ):
+        generator_marker = Mock(name="generator_marker")
+        events = []
+        mock_workflow_context.current_utc_datetime.isoformat.side_effect = [
+            "llm-time",
+            "activity-time",
+            "generator-time",
+        ]
+
+        def generator_tool(ctx, _source_agent):
+            events.append("generator-started")
+            result = yield generator_marker
+            return result
+
+        tools = [
+            AgentTool(
+                name="FetchData",
+                description="Fetch data",
+                func=lambda: "data",
+            ),
+            WorkflowContextInjectedTool(
+                name="ProcessData",
+                description="Process data in the workflow.",
+                func=generator_tool,
+            ),
+        ]
+        agent = self._make_agent(mock_llm, tools)
+        tool_calls = [
+            self._tool_call("FetchData", call_id="fetch"),
+            self._tool_call("ProcessData", call_id="process"),
+        ]
+        gen = agent.agent_workflow(
+            mock_workflow_context, {"task": "fetch then process"}
+        )
+
+        next(gen)
+        gen.send(None)
+        gen.send({"tool_calls": tool_calls})
+        assert events == []
+
+        assert (
+            gen.send(
+                {
+                    "content": "data",
+                    "role": "tool",
+                    "name": "FetchData",
+                    "tool_call_id": "fetch",
+                }
+            )
+            is generator_marker
+        )
+        assert events == ["generator-started"]
+        gen.send("processed-data")
+
+        save_input = self._save_input(agent, mock_workflow_context)
+        assert [result["tool_call_id"] for result in save_input["tool_results"]] == [
+            "fetch",
+            "process",
+        ]
+        assert save_input["tool_calls_by_id"]["fetch"]["is_agent_call"] is False
+        assert save_input["tool_calls_by_id"]["process"]["is_agent_call"] is False
+        assert save_input["tool_calls_by_id"]["fetch"]["dispatch_time"] == (
+            "activity-time"
+        )
+        assert save_input["tool_calls_by_id"]["process"]["dispatch_time"] == (
+            "generator-time"
+        )
+        gen.close()
 
 
 class TestDurableAgent:
