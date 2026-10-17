@@ -77,6 +77,12 @@ class _ApprovalExecutor(_ScriptedExecutor):
         return self
 
 
+class _AliasingApprovalExecutor(_ApprovalExecutor):
+    """Maps a caller's session id to its own session the same way every time."""
+
+    supports_caller_session_alias = True
+
+
 class _RecordingObserver(ExecutorRunObserver):
     def __init__(self) -> None:
         self.events: List[AgentEvent] = []
@@ -187,8 +193,8 @@ class _WorkflowDriver:
                 return stop.value
 
 
-def _approval_agent(max_iterations: int = 1):
-    agent = _make_agent(_ApprovalExecutor([]))
+def _approval_agent(max_iterations: int = 1, executor_cls=_ApprovalExecutor):
+    agent = _make_agent(executor_cls([]))
     agent.execution.max_iterations = max_iterations
     return agent
 
@@ -322,10 +328,19 @@ class TestApprovalLoop:
         assert first["session_id"] == "caller-session"
         assert resume["session_id"] == "caller-session"
 
-    def test_resume_uses_caller_session_over_executor_session(self):
-        # The executor reports its own id (Claude derives a UUID from a
-        # non-UUID caller id); the resumed run still gets the caller's id.
+    def test_resume_uses_paused_session_by_default(self):
+        # The executor paused in a session of its own for the caller's id.
         agent = _approval_agent()
+        driver = _WorkflowDriver(
+            agent, [_paused(), {"role": "assistant", "content": "ok"}]
+        )
+        driver.run({"task": "pay", "session_id": "project-42-issue-7"})
+        first, resume = driver.run_inputs()
+        assert first["session_id"] == "project-42-issue-7"
+        assert resume["session_id"] == SESSION
+
+    def test_resume_keeps_caller_session_when_executor_aliases_it(self):
+        agent = _approval_agent(executor_cls=_AliasingApprovalExecutor)
         driver = _WorkflowDriver(
             agent, [_paused(), {"role": "assistant", "content": "ok"}]
         )
@@ -722,6 +737,66 @@ class TestClaudeInDurableAgent:
         options = client.last().options
         assert options.resume == SESSION
         assert options.session_id is None
+
+    def test_approval_resumes_claude_session_from_caller_session(self, claude):
+        from claude_agent_sdk.types import DeferredToolUse
+
+        from dapr_agents.agents.executors.claude import session_uuid
+        from tests.executors.claude_fakes import result_message
+
+        make_agent, client, store = claude
+        agent = self._gated_agent(make_agent)
+        caller_session = "project-42-issue-7"
+        sid = session_uuid(caller_session)
+        tool_name = f"mcp__dapr__{get_weather.name}"
+        client.reset(
+            [
+                result_message(
+                    session_id=sid,
+                    result="",
+                    stop_reason="tool_deferred",
+                    deferred_tool_use=DeferredToolUse(
+                        id="t1", name=tool_name, input={"city": "P"}
+                    ),
+                )
+            ]
+        )
+        paused, _ = _consume(
+            agent,
+            {"task": "weather?", "instance_id": "i", "session_id": caller_session},
+        )
+        assert client.last().options.session_id == sid
+        assert paused[EXECUTOR_PAUSED_KEY]["session_id"] == sid
+
+        # Approved in the workflow; Claude opts in to keeping the caller's id.
+        done = {"role": "assistant", "content": "sunny in P"}
+        driver = _WorkflowDriver(agent, [paused, done])
+        driver.run({"task": "weather?", "session_id": caller_session})
+        resume = driver.run_inputs()[1]
+        assert resume["session_id"] == caller_session
+
+        # The fake client saves no transcript; store the one the CLI would
+        # have left, paused on the deferred call.
+        key = {"project_key": agent.executor.project_key, "session_id": sid}
+        deferred = {
+            "type": "attachment",
+            "uuid": "a-t1",
+            "attachment": {
+                "type": "hook_deferred_tool",
+                "toolUseID": "t1",
+                "toolName": tool_name,
+                "toolInput": {"city": "P"},
+            },
+        }
+        asyncio.run(store.append(key, [{"type": "user", "uuid": "u1"}, deferred]))
+        client.reset([result_message(session_id=sid, result="sunny in P")])
+        result, _ = _consume(agent, resume)
+
+        assert result == done
+        resumed = client.last()
+        assert resumed.options.resume == sid
+        assert resumed.options.session_id is None
+        assert resumed.prompt is None
 
 
 def _recorder(agent):
