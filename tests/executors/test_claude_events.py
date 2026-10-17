@@ -244,13 +244,22 @@ class TestResultMapping:
         assert terminal.metadata["model_usage"] == {"claude-x": {}}
         assert terminal.metadata["stop_reason"] == "end_turn"
 
-    def test_cost_delta_never_negative_and_none_without_total(self):
+    def test_cost_uses_run_total_when_cli_does_not_include_prior(self):
+        # DaprSessionStore resume: CLI total is this run alone (< prior).
         mapper = _mapper(prior_cost_usd=1.0)
         mapper.map(result_message(total_cost_usd=0.5))
-        assert mapper.terminal.metadata["cost_usd"] == 0.0
+        assert mapper.terminal.metadata["cost_usd"] == pytest.approx(0.5)
+        assert mapper.terminal.metadata["session_total_cost_usd"] == 0.5
+
+    def test_cost_none_without_total(self):
         mapper = _mapper()
         mapper.map(result_message(total_cost_usd=None))
         assert mapper.terminal.metadata["cost_usd"] is None
+
+    def test_cost_delta_when_cli_total_includes_prior(self):
+        mapper = _mapper(prior_cost_usd=0.004)
+        mapper.map(result_message(total_cost_usd=0.01))
+        assert mapper.terminal.metadata["cost_usd"] == pytest.approx(0.006)
 
     def test_complete_falls_back_to_last_text(self):
         mapper = _mapper()
