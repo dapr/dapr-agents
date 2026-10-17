@@ -113,10 +113,11 @@ class ClaudeEventMapper:
             ``tool_use_id`` (from ``ToolGate``), if any.
         include_text_deltas: Emit ``text_delta`` events.
         prior_cost_usd: Session cost before this run, used to report the
-            per-run cost delta (``total_cost_usd`` is session-cumulative).
-            It is read from the session store transcript; without a store
-            it is ``None`` and a resumed run's ``cost_usd`` is the session
-            total.
+            per-run cost when the CLI's ``total_cost_usd`` is
+            session-cumulative. Read from the session store transcript.
+            When the CLI rebuilds from a store and reports only this run's
+            cost (``total < prior``), ``cost_usd`` is that run total
+            unchanged. Without a store it is ``None``.
     """
 
     def __init__(
@@ -254,7 +255,14 @@ class ClaudeEventMapper:
         total = message.total_cost_usd
         cost = None
         if total is not None:
-            cost = max(total - (self._prior_cost or 0.0), 0.0)
+            prior = self._prior_cost or 0.0
+            # Subtract prior only when the CLI total includes it. A resume
+            # from DaprSessionStore rebuilds the CLI config, so total starts
+            # at this run alone and must not be reduced by the stored prior.
+            if prior > 0.0 and total >= prior:
+                cost = total - prior
+            else:
+                cost = total
         return {
             "usage": message.usage or {},
             "model_usage": message.model_usage or {},
