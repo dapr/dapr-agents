@@ -19,7 +19,7 @@ import inspect
 import json
 import threading
 import uuid
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Tuple, Union
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
@@ -239,6 +239,8 @@ BUILTIN_TOOL_FACTORIES: Dict[str, Callable[[Any], Any]] = {
         agent._activity_name(agent.publish_stream_event)
     ),
 }
+
+_DispatchKind = Literal["activity", "workflow", "agent_workflow"]
 
 _STREAMING_ALPHA_WARNED = False
 
@@ -761,7 +763,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         generator_meta: List[Dict[str, Any]] = []
                         sequential_dispatches: List[
                             Tuple[
-                                str,
+                                _DispatchKind,
                                 Callable[[], Any],
                                 Dict[str, Any],
                                 Optional[Dict[str, Any]],
