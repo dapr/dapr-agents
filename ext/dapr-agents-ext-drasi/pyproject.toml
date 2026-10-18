@@ -28,6 +28,7 @@ authors = [
 ]
 dependencies = [
     "dapr-agents>=1.0.6,<2.0.0",
+    "drasi-agent-router-contracts==0.1.0a1",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
