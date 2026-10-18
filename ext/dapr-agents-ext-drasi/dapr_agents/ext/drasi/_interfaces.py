@@ -19,7 +19,7 @@ not call these I/O methods. The router client owns loop-affine MCP adaptation.
 
 All returned models are detached caller-owned snapshots. Implementations must
 also detach retained inputs. Dependency injection borrows resources: the
-composition owner closes the router client, not tools or the manager.
+composition owner closes the router client and inbox, not tools or the manager.
 The agent retains ownership of its configured state-store primitive.
 """
 
@@ -37,6 +37,7 @@ from drasi_agent_router_contracts import (
 from drasi_agent_router_contracts.models.Operation import Operation
 
 from ._models import (
+    AdmissionResult,
     IntentDocument,
     IntentSnapshot,
     RouterFailureCategory,
@@ -196,5 +197,18 @@ class SubscriptionManager(Protocol):
         Continue other queries after a rejection is persisted as unavailable.
         Uncertain router failures and state failures still abort preparation.
         Retain an owned catalog copy. No periodic refresh or startup model turn.
+        """
+        ...
+
+
+class AdmissionHandler(Protocol):
+    def admit(self, data: object) -> AdmissionResult:
+        """Consume decoded M2 CloudEvent DATA, not its outer CloudEvent.
+
+        Parse the shared envelope, then read intent. Missing/unavailable,
+        pending-unsubscribe and stale incarnation discard; matching pending
+        subscribe/update retries BEFORE operation filtering. Store failures
+        retry, invalid deliveries poison, and matching active intent produces
+        an owned complete scheduling task. No scheduling or ACK occurs here.
         """
         ...

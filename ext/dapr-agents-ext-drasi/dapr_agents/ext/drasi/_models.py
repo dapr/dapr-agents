@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-"""Private configuration and durable intent for Drasi subscriptions."""
+"""Private configuration, durable intent, and admission values for Drasi."""
 
 from __future__ import annotations
 
@@ -248,3 +248,45 @@ class IntentSnapshot:
 
     document: IntentDocument = field(repr=False)
     etag: str
+
+
+@dataclass(frozen=True)
+class Discard:
+    reason: Literal[
+        "no_intent",
+        "unavailable",
+        "pending_unsubscribe",
+        "stale_incarnation",
+        "operation_excluded",
+    ]
+
+
+@dataclass(frozen=True)
+class Retry:
+    reason: Literal[
+        "pending_subscription",
+        "state_unavailable",
+        "state_corrupt",
+        "unsupported_state_version",
+    ]
+
+
+@dataclass(frozen=True)
+class Poison:
+    reason: Literal["invalid_delivery", "router_mismatch"]
+
+
+@dataclass(frozen=True)
+class SchedulingInput:
+    """A complete admitted task, not a live intent lookup or scheduling receipt.
+
+    Admission derives the bounded instance ID from scope, incarnation and
+    canonical event ID. Delivery supplies the configured workflow name.
+    """
+
+    instance_id: str
+    event_id: str
+    task: str = field(repr=False)
+
+
+AdmissionResult: TypeAlias = Discard | Retry | Poison | SchedulingInput

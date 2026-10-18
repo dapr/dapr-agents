@@ -32,14 +32,19 @@ ext/dapr-agents-ext-drasi/
 │   └── ext/
 │       └── drasi/                          # PEP 420 namespace package under dapr_agents.ext
 │           ├── __init__.py                 # Public package exports
-│           ├── activations.py              # drasi_trigger activation wiring
+│           ├── activations.py              # register_drasi_trigger activation wiring
+│           ├── subscriptions.py            # Extension-owned managed lifecycle
+│           ├── admission.py                # Intent-based event admission
+│           ├── task_builder.py             # Frozen independent task construction
+│           ├── delivery.py                 # Inbox and native workflow scheduling
 │           ├── types.py                    # Re-exported Drasi event models and public names
 │           ├── schemas/                    # Generated Drasi schema models
 │           │   └── unpacked/               # Generated model files (do not edit by hand)
 │           └── utils/
 │               └── validation.py           # Event/model validation helpers
 └── tests/
-    ├── test_drasi_trigger.py               # Activation wiring and trigger behavior tests
+    ├── test_register_drasi_trigger.py      # Static activation wiring and trigger tests
+    ├── test_subscription_lifecycle.py      # Managed preparation and cleanup tests
     ├── schemas/
     │   └── test_unpacked_event_models.py   # Generated event model smoke tests
     └── utils/
@@ -50,7 +55,7 @@ ext/dapr-agents-ext-drasi/
 
 ```mermaid
 flowchart LR
-    A["drasi_trigger"] --> R["register_message_routes"]
+    A["register_drasi_trigger"] --> R["register_message_routes"]
     R --> S["Pub/sub router"]
     S <--> T["Dapr streaming subscription"]
     S --> D["DurableAgent"]
@@ -59,9 +64,14 @@ flowchart LR
 
 The extension is intentionally thin:
 
-- `drasi_trigger` resolves and validates configuration at activation time.
+- `register_drasi_trigger` resolves and validates configuration at activation time.
 - Configuration is used to customize filtering/mapping/routing logic to be executed by the core pub/sub routing infrastructure via the `register_message_routes` interface.
 - Drasi change events arrive through Dapr pub/sub, pass through the core pub/sub routing infrastructure, and trigger agent workflows.
+
+Agent-managed mode instead uses `drasi_subscription_lifecycle`, an extension-owned
+one-shot async context. It prepares and reconciles durable intent, attaches tools,
+hosts through the ordinary runner, waits for worker readiness, and opens its inbox
+last. It does not add core startup hooks or mix with static activation wiring.
 
 ## Public API
 
@@ -69,7 +79,10 @@ All public symbols are exported from `dapr_agents.ext.drasi`:
 
 ```python
 from dapr_agents.ext.drasi import (
-    drasi_trigger,  # Register Drasi query subscriptions for an agent
+    register_drasi_trigger,
+    drasi_subscription_lifecycle,
+    DrasiSubscriptionLifecycle,
+    DrasiLifecycleError,
     DrasiChangeEvent,  # Drasi change event model emitted by a query
     DrasiOperation,  # Drasi operation enum: i, u, or d
 )
@@ -83,17 +96,17 @@ Notes:
     public names, including `DrasiChangeEvent` and `DrasiOperation`.
 - Anything under `activations.py` or `utils/` should be treated as internal
     unless it is explicitly re-exported or documented here.
-- The subscription modules (`_models.py`, `_interfaces.py`, `intent_store.py`,
+- The supporting subscription modules (`_models.py`, `_interfaces.py`, `intent_store.py`,
     `router_client.py`, `subscription_manager.py`, and `subscription_tools.py`)
-    are private and do not extend these exports. See the README's
-    [private component notes](README.md#private-subscription-components) for
+    remain private. See the README's
+    [architecture notes](README.md#agent-managed-architecture) for
     state transitions, ownership, and verification boundaries.
 
 ## Gotchas
 
 - `dapr_agents.ext` is a PEP 420 namespace package. Do not add an
     `__init__.py` to `dapr_agents/ext/`; that would change import behavior.
-- `drasi_trigger` is activation-time wiring only. It does not start the agent
+- `register_drasi_trigger` is activation-time wiring only. It does not start the agent
     runtime by itself; it registers pub/sub routes on the target `DurableAgent`.
 - The default topic is derived from the query ID as
     `drasi-events-<query_id>`.
@@ -104,7 +117,17 @@ Notes:
     `d` are supported.
 - `change_model` must be a supported dict, dataclass, or Pydantic model.
 - Dedupe is best-effort. If `cachetools` is unavailable, duplicate detection is
-    disabled and the extension logs a warning.
+    disabled for static triggers and the extension logs a warning. Managed mode
+    uses deterministic workflow correlation, not a permanent deduplication ledger.
+- Managed hosting requires a fresh ordinary `DurableAgent` with no injected/shared
+    runtime, existing activation callbacks, or runtime subscription configuration.
+    Shutdown preserves intent and router rules; unresolved cleanup can be retried
+    with `aclose()`, but rehosting always needs fresh objects.
+- Definitive router rejections retain unavailable intent and its outcome without
+    blocking other queries. Uncertain outcomes remain pending and fail preparation.
+    Unsubscribe must never bypass incarnation checks.
+- The lifecycle owns its default workflow client and retries failed closure.
+    Injected `workflow_client=` instances remain caller-owned and are never closed.
 - Generated schema files under `schemas/unpacked/` should be regenerated via
     `scripts/generate-drasi-models.sh`; do not hand-edit them.
 
@@ -112,11 +135,8 @@ Notes:
 
 - For shared setup, testing, code quality, and PR guidance, use the root
     [AGENTS.md](../../AGENTS.md).
-- To install the extension in a consuming project:
-
-    ```bash
-    uv add dapr-agents[drasi]
-    ```
+- Published `0.1.0` predates the managed API. Use the source checkout for this
+    layer; see the README for the verified minimum core and pending release choice.
 
 - To install the extension in editable mode from the repo root:
 
@@ -129,12 +149,17 @@ Notes:
 - To run extension tests from the repo root:
 
     ```bash
-    uv run --group test pytest ext/dapr-agents-ext-drasi -m "not integration" -v
+    DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"
     ```
+
+- Run core tests in a separate process. Keep the required-import and skip guards;
+    do not replace ordinary installation with a strict-editable namespace setup.
+- Real-runtime tests run separately with `--confcutdir`; see
+    [the harness instructions](../../tests/integration/drasi_managed/README.md).
 
 - Extension tests currently live in:
 
-    - `tests/test_drasi_trigger.py` — activation wiring and end-to-end trigger
+    - `tests/test_register_drasi_trigger.py` — activation wiring and end-to-end trigger
         behavior at the extension boundary
     - `tests/utils/test_validation.py` — validation helpers and schema
         coercion behavior

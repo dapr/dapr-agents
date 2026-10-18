@@ -825,13 +825,14 @@ def test_native_sdk_missing_state_and_string_etag_semantics(
     stub.SaveState.with_call.assert_not_called()
 
 
-@pytest.mark.parametrize("pending_unsubscribe", (False, True))
-def test_repository_uses_strong_reads_instead_of_stale_replica_intent(
+@pytest.fixture
+def replica_repository(
     scope: SubscriptionScope,
     active_intent: SubscriptionIntent,
-    pending_unsubscribe: bool,
+    request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+) -> tuple[DaprIntentRepository, IntentDocument, MagicMock]:
+    pending_unsubscribe = request.param
     active = IntentDocument(
         format_version=1, scope=scope, intents={active_intent.query_id: active_intent}
     )
@@ -866,10 +867,43 @@ def test_repository_uses_strong_reads_instead_of_stale_replica_intent(
             ),
         ),
     )
+    return repository, current, stub
+
+
+@pytest.mark.parametrize("replica_repository", (False, True), indirect=True)
+def test_repository_uses_strong_reads_instead_of_stale_replica_intent(
+    replica_repository: tuple[DaprIntentRepository, IntentDocument, MagicMock],
+    active_intent: SubscriptionIntent,
+) -> None:
+    repository, current, stub = replica_repository
     assert (
         repository.get(active_intent.query_id)
         == current.intents[active_intent.query_id]
     )
+    request = stub.GetState.with_call.call_args.args[0]
+    assert request.consistency == Consistency.strong.value
+    stub.SaveState.with_call.assert_not_called()
+
+
+@pytest.mark.parametrize("replica_repository", (False, True), indirect=True)
+def test_admission_uses_strong_reads_instead_of_stale_replica_intent(
+    replica_repository: tuple[DaprIntentRepository, IntentDocument, MagicMock],
+    scope: SubscriptionScope,
+    insert_delivery,
+) -> None:
+    from drasi_agent_router_contracts import to_wire
+
+    from dapr_agents.ext.drasi._models import Discard, SchedulingInput
+    from dapr_agents.ext.drasi.admission import DrasiAdmissionHandler
+
+    repository, current, stub = replica_repository
+    result = DrasiAdmissionHandler(scope=scope, intents=repository).admit(
+        to_wire(insert_delivery)
+    )
+    if current.intents["service-errors"].status == "pending_unsubscribe":
+        assert result == Discard(reason="pending_unsubscribe")
+    else:
+        assert isinstance(result, SchedulingInput)
     request = stub.GetState.with_call.call_args.args[0]
     assert request.consistency == Consistency.strong.value
     stub.SaveState.with_call.assert_not_called()

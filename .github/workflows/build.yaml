@@ -282,7 +282,10 @@ jobs:
         modules = [dapr_agents]
         if sys.argv[1] == "drasi":
             import dapr_agents.ext.drasi as drasi
-            from dapr_agents.ext.drasi import DrasiChangeEvent, DrasiOperation, drasi_trigger
+            from dapr_agents.ext.drasi import (
+                DrasiChangeEvent, DrasiOperation, register_drasi_trigger,
+                drasi_subscription_lifecycle, DrasiSubscriptionLifecycle, DrasiLifecycleError,
+            )
 
             modules.append(drasi)
         else:
