@@ -355,6 +355,29 @@ class TestResume:
         assert client.options.session_id is None
         assert events[-1].metadata["cost_usd"] == pytest.approx(0.006)
 
+    async def test_store_resume_uses_run_total_when_cli_excludes_prior(self, cwd):
+        """DaprSessionStore rebuild: CLI total is this run alone (< prior).
+
+        Supported Python SDK range (0.2.159+/CLI 2.1.281+) restored native
+        resume to session-cumulative totals (see anthropics/claude-agent-sdk-
+        typescript#469). A store-backed rebuild can still report a per-run
+        total that is smaller than the transcript prior — only then must we
+        keep ``total`` instead of subtracting.
+        """
+        store = InMemorySessionStore()
+        executor = _executor(cwd, session_store=store)
+        await _seed(
+            store,
+            executor,
+            {"type": "user", "uuid": "u1"},
+            {"type": "cost-state", "totalCostUSD": 1.0},
+        )
+        FakeClaudeClient.reset([result_message(total_cost_usd=0.5)])
+        events = await _collect(executor, "next", session_id=SESSION_ID)
+        assert FakeClaudeClient.last().options.resume == SESSION_ID
+        assert events[-1].metadata["cost_usd"] == pytest.approx(0.5)
+        assert events[-1].metadata["session_total_cost_usd"] == pytest.approx(0.5)
+
     async def test_decision_resumes_pending_call_without_prompt(self, cwd):
         store = InMemorySessionStore()
         executor = _executor(
