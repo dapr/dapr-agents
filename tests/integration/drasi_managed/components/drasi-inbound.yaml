@@ -1,0 +1,16 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: drasi-inbound
+spec:
+  type: pubsub.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: broker:6379
+    - name: redisPassword
+      value: ""
+    - name: concurrency
+      value: "1"
+scopes:
+  - drasi-router

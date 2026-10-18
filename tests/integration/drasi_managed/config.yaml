@@ -1,0 +1,10 @@
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: drasi-managed-runtime
+spec:
+  nameResolution:
+    component: nameformat
+    version: v1
+    configuration:
+      format: "{appid}-dapr:50002"
