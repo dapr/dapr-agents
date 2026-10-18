@@ -765,7 +765,6 @@ class TestClaudeInDurableAgent:
             agent,
             {"task": "weather?", "instance_id": "i", "session_id": caller_session},
         )
-        assert client.last().options.session_id == sid
         assert paused[EXECUTOR_PAUSED_KEY]["session_id"] == sid
 
         # Approved in the workflow; Claude opts in to keeping the caller's id.
@@ -789,12 +788,16 @@ class TestClaudeInDurableAgent:
             },
         }
         asyncio.run(store.append(key, [{"type": "user", "uuid": "u1"}, deferred]))
-        client.reset([result_message(session_id=sid, result="sunny in P")])
+        # Queue the resume response without clearing the initial client.
+        client.responses = [[result_message(session_id=sid, result="sunny in P")]]
         result, _ = _consume(agent, resume)
 
         assert result == done
-        resumed = client.last()
-        assert resumed.options.resume == sid
+        # Each run opens its own SDK client; the resumed one picks up the
+        # session the initial one started.
+        initial, resumed = client.instances
+        assert initial.options.session_id == sid
+        assert resumed.options.resume == initial.options.session_id
         assert resumed.options.session_id is None
         assert resumed.prompt is None
 

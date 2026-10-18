@@ -90,13 +90,9 @@ def _resume_input(
     round_: int,
     reason: Optional[str] = None,
     *,
-    caller_session_alias: bool = False,
+    supports_caller_session_alias: bool = False,
 ) -> Dict[str, Any]:
-    """Build the ``run_executor`` input that resumes ``paused`` with a decision.
-
-    ``caller_session_alias`` is the executor's
-    ``AgentExecutorBase.supports_caller_session_alias``.
-    """
+    """Build the ``run_executor`` input that resumes ``paused`` with a decision."""
     decision = ToolCallDecision(
         tool_call_id=paused.tool_call_id,
         approved=approved,
@@ -116,7 +112,7 @@ def _resume_input(
     # caller's id to that same session (Claude derives a UUID from a non-UUID
     # id); then keep the caller's id, as the first run had it.
     caller_session = first_input.get("session_id")
-    if caller_session_alias:
+    if supports_caller_session_alias:
         session_id = caller_session or paused.session_id
     else:
         session_id = paused.session_id or caller_session
@@ -174,7 +170,7 @@ class DurableExecutorMixin:
             if self.execution.max_approval_rounds is not None
             else self.execution.max_iterations
         )
-        caller_session_alias = self.executor.supports_caller_session_alias
+        supports_caller_session_alias = self.executor.supports_caller_session_alias
         payload = first_input
         round_ = 0
         while True:
@@ -200,7 +196,7 @@ class DurableExecutorMixin:
                     False,
                     round_,
                     _LIMIT_REASON,
-                    caller_session_alias=caller_session_alias,
+                    supports_caller_session_alias=supports_caller_session_alias,
                 )
                 continue
             approved, reason = yield from self._await_approval(
@@ -216,7 +212,7 @@ class DurableExecutorMixin:
                 approved,
                 round_,
                 reason,
-                caller_session_alias=caller_session_alias,
+                supports_caller_session_alias=supports_caller_session_alias,
             )
 
         return {"role": "assistant", "content": _APPROVAL_LIMIT_MESSAGE}
