@@ -134,6 +134,10 @@ class _RunPlan:
     resume: bool = False
     send_prompt: bool = False
     prior_cost_usd: Optional[float] = None
+    # True: local-disk resume kept the CLI cost counter (subtract prior).
+    # False: SessionStore materialize into a temp config dir (#900) — CLI
+    # total is this run alone even when total >= prior.
+    cli_total_includes_prior: Optional[bool] = None
     replay_text: Optional[str] = None
     error: Optional[str] = None
     prompt: Optional[str] = None
@@ -266,6 +270,7 @@ class ClaudeAgentExecutor(AgentExecutorBase):
             approval_for=lambda call_id: _approval_dict(gate, call_id),
             include_text_deltas=self._config.include_partial_messages,
             prior_cost_usd=plan.prior_cost_usd,
+            cli_total_includes_prior=plan.cli_total_includes_prior,
             tool_names={
                 call_id: gate.display_name(name)[0]
                 for call_id, name in (plan.paused_call_name or {}).items()
@@ -350,35 +355,40 @@ class ClaudeAgentExecutor(AgentExecutorBase):
 
     async def _find_transcript(
         self, sid: str
-    ) -> Tuple[Optional[List[Dict[str, Any]]], bool]:
+    ) -> Tuple[Optional[List[Dict[str, Any]]], bool, Optional[bool]]:
         """
-        Return ``(entries, exists)`` for ``sid``.
+        Return ``(entries, exists, from_session_store)`` for ``sid``.
 
         ``entries`` come from the session store, or from the CLI's local
         transcript when the store has none for a session the CLI already
         holds. Without a store, ``entries`` is ``None`` and only existence
         on local disk is checked.
 
-        Local entries are only read, never copied into the store, and they
-        carry no cost record, so a resumed run reports no prior cost.
+        ``from_session_store`` is ``True`` when ``entries`` were loaded from
+        the configured store (CLI will materialize into a temp config dir),
+        ``False`` when they came from the local transcript, and ``None``
+        when there are no entries.
+
+        Local entries are only read, never copied into the store. When the
+        store is unset they are not used for prior cost either.
         """
         store = self._config.session_store
         if store is None:
             exists = await asyncio.to_thread(self._local_session_exists, sid)
-            return None, exists
+            return None, exists, None
         key = {"project_key": self.project_key, "session_id": sid}
         entries = await store.load(key)
         if entries:
-            return entries, True
+            return entries, True, True
         local = await asyncio.to_thread(self._read_local_transcript, sid)
         if local is None:
-            return entries, False
+            return entries, False, None
         logger.info(
             "Session store has no entries for Claude session %s; "
             "resuming the CLI's local transcript",
             sid,
         )
-        return local, True
+        return local, True, False
 
     def _cli_config_dir(self) -> Path:
         """The config directory the CLI process keeps its transcripts in."""
@@ -444,10 +454,18 @@ class ClaudeAgentExecutor(AgentExecutorBase):
             return _RunPlan(session_id=str(uuid.uuid4()), send_prompt=True)
 
         sid = session_uuid(session_id)
-        entries, exists = await self._find_transcript(sid)
+        entries, exists, from_session_store = await self._find_transcript(sid)
         # Without a store there are no entries, so an unfinished turn cannot be
         # detected and the prompt is sent again on resume.
         prior_cost = last_total_cost(entries) if entries else None
+        # SessionStore materialize (#900): CLI total is this run alone.
+        # Local-disk fallback keeps the CLI cost counter (cumulative).
+        if prior_cost is None:
+            cli_includes_prior = None
+        elif from_session_store:
+            cli_includes_prior = False
+        else:
+            cli_includes_prior = True
         if not decisions:
             if not exists:
                 logger.info("Starting Claude session %s", sid)
@@ -462,12 +480,14 @@ class ClaudeAgentExecutor(AgentExecutorBase):
                     send_prompt=True,
                     prompt=CONTINUE_PROMPT,
                     prior_cost_usd=prior_cost,
+                    cli_total_includes_prior=cli_includes_prior,
                 )
             return _RunPlan(
                 session_id=sid,
                 resume=exists,
                 send_prompt=True,
                 prior_cost_usd=prior_cost,
+                cli_total_includes_prior=cli_includes_prior,
                 stale_call_id=stale.tool_call_id if stale else None,
             )
         if not exists:
@@ -484,6 +504,7 @@ class ClaudeAgentExecutor(AgentExecutorBase):
                 send_prompt=True,
                 prompt=CONTINUE_PROMPT,
                 prior_cost_usd=prior_cost,
+                cli_total_includes_prior=cli_includes_prior,
             )
         # Resume without a prompt: the CLI re-runs the deferred call through
         # PreToolUse, where the ToolGate applies the decision.
@@ -492,6 +513,7 @@ class ClaudeAgentExecutor(AgentExecutorBase):
             session_id=sid,
             resume=True,
             prior_cost_usd=prior_cost,
+            cli_total_includes_prior=cli_includes_prior,
             paused_call_name={pending.tool_call_id: pending.name} if pending else None,
         )
 
