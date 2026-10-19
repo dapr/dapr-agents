@@ -115,9 +115,14 @@ class ClaudeEventMapper:
         prior_cost_usd: Session cost before this run, used to report the
             per-run cost when the CLI's ``total_cost_usd`` is
             session-cumulative. Read from the session store transcript.
-            When the CLI rebuilds from a store and reports only this run's
-            cost (``total < prior``), ``cost_usd`` is that run total
-            unchanged. Without a store it is ``None``.
+            Without a store it is ``None``.
+        cli_total_includes_prior: Whether ``total_cost_usd`` already includes
+            ``prior_cost_usd``. ``True`` for a local-disk resume that kept the
+            CLI cost counter; ``False`` for a ``SessionStore`` materialize into
+            a fresh config dir (issue #900), where the CLI total is this run
+            alone. When ``None``, infer from ``total`` vs ``prior`` (``total <
+            prior`` means excluded); that inference cannot detect an expensive
+            per-run total that is still ``>= prior``.
     """
 
     def __init__(
@@ -128,6 +133,7 @@ class ClaudeEventMapper:
         approval_for: ApprovalLookup,
         include_text_deltas: bool,
         prior_cost_usd: Optional[float] = None,
+        cli_total_includes_prior: Optional[bool] = None,
         tool_names: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.session_id = session_id
@@ -135,6 +141,7 @@ class ClaudeEventMapper:
         self._approval_for = approval_for
         self._include_text_deltas = include_text_deltas
         self._prior_cost = prior_cost_usd
+        self._cli_total_includes_prior = cli_total_includes_prior
         self._tool_names: Dict[str, str] = dict(tool_names or {})
         self._last_text: Optional[str] = None
         self.terminal: Optional[AgentEvent] = None
@@ -254,20 +261,27 @@ class ClaudeEventMapper:
     def _usage_metadata(self, message: ResultMessage) -> Dict[str, Any]:
         total = message.total_cost_usd
         cost = None
+        session_total = total
         if total is not None:
             prior = self._prior_cost or 0.0
-            # Subtract prior only when the CLI total includes it. A resume
-            # from DaprSessionStore rebuilds the CLI config, so total starts
-            # at this run alone and must not be reduced by the stored prior.
-            if prior > 0.0 and total >= prior:
+            includes_prior = self._cli_total_includes_prior
+            if includes_prior is None and prior > 0.0:
+                # total < prior is definitive (CLI excluded prior). total >=
+                # prior is ambiguous (cumulative vs expensive per-run) — prefer
+                # the cumulative reading only when the caller did not say.
+                includes_prior = total >= prior
+            if includes_prior and prior > 0.0:
                 cost = total - prior
+                session_total = total
             else:
+                # Per-run CLI total (SessionStore materialize / #900).
                 cost = total
+                session_total = prior + total if prior > 0.0 else total
         return {
             "usage": message.usage or {},
             "model_usage": message.model_usage or {},
             "cost_usd": cost,
-            "session_total_cost_usd": total,
+            "session_total_cost_usd": session_total,
             "num_turns": message.num_turns,
             "duration_ms": message.duration_ms,
             "stop_reason": message.stop_reason,

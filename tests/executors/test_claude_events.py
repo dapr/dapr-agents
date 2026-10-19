@@ -229,7 +229,7 @@ class TestStreamMapping:
 
 class TestResultMapping:
     def test_complete_with_usage_and_cost_delta(self):
-        mapper = _mapper(prior_cost_usd=0.004)
+        mapper = _mapper(prior_cost_usd=0.004, cli_total_includes_prior=True)
         events = mapper.map(
             result_message(total_cost_usd=0.01, model_usage={"claude-x": {}})
         )
@@ -245,11 +245,11 @@ class TestResultMapping:
         assert terminal.metadata["stop_reason"] == "end_turn"
 
     def test_cost_uses_run_total_when_cli_does_not_include_prior(self):
-        # DaprSessionStore resume: CLI total is this run alone (< prior).
-        mapper = _mapper(prior_cost_usd=1.0)
+        # SessionStore materialize: CLI total is this run alone (< prior).
+        mapper = _mapper(prior_cost_usd=1.0, cli_total_includes_prior=False)
         mapper.map(result_message(total_cost_usd=0.5))
         assert mapper.terminal.metadata["cost_usd"] == pytest.approx(0.5)
-        assert mapper.terminal.metadata["session_total_cost_usd"] == 0.5
+        assert mapper.terminal.metadata["session_total_cost_usd"] == pytest.approx(1.5)
 
     def test_cost_none_without_total(self):
         mapper = _mapper()
@@ -257,9 +257,17 @@ class TestResultMapping:
         assert mapper.terminal.metadata["cost_usd"] is None
 
     def test_cost_delta_when_cli_total_includes_prior(self):
-        mapper = _mapper(prior_cost_usd=0.004)
+        mapper = _mapper(prior_cost_usd=0.004, cli_total_includes_prior=True)
         mapper.map(result_message(total_cost_usd=0.01))
         assert mapper.terminal.metadata["cost_usd"] == pytest.approx(0.006)
+        assert mapper.terminal.metadata["session_total_cost_usd"] == pytest.approx(0.01)
+
+    def test_cost_uses_run_total_when_expensive_run_exceeds_prior(self):
+        # JeffreyJPZ edge case: per-run total >= prior must not subtract.
+        mapper = _mapper(prior_cost_usd=0.30, cli_total_includes_prior=False)
+        mapper.map(result_message(total_cost_usd=0.50))
+        assert mapper.terminal.metadata["cost_usd"] == pytest.approx(0.50)
+        assert mapper.terminal.metadata["session_total_cost_usd"] == pytest.approx(0.80)
 
     def test_complete_falls_back_to_last_text(self):
         mapper = _mapper()
