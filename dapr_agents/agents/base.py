@@ -386,9 +386,9 @@ class AgentBase:
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
         self.configuration = configuration
-        # Track deprecated key formats to suppress repeated warnings on config hot-reload.
+        # Track recognized deprecated keys to suppress repeated warnings on config hot-reload.
         # Best-effort: concurrent updates may still emit duplicates for the same key.
-        self._seen_deprecated_config_key_formats: set[str] = set()
+        self._seen_deprecated_config_keys: set[str] = set()
         self._subscription_id: Optional[str] = None
         self.appid = (
             None  # We set the appid to None as standalone agents may not have one
@@ -933,23 +933,12 @@ class AgentBase:
         Normalize a configuration key to snake_case.
 
         Supports configuration keys in SCREAMING_SNAKE_CASE, snake_case, and kebab-case.
-        Other naming conventions remain supported for backward compatibility but log
-        a warning.
+        Other naming conventions remain supported for backward compatibility; callers
+        decide whether to log a warning after validating the normalized key.
 
         Returns:
             str: The normalized key in snake_case.
         """
-        if (
-            key not in self._seen_deprecated_config_key_formats
-            and not is_supported_config_key(key)
-        ):
-            self._seen_deprecated_config_key_formats.add(key)
-            logger.warning(
-                f"Config key {key!r} uses a deprecated naming convention; "
-                "support may be removed in a future release. Use "
-                "SCREAMING_SNAKE_CASE, snake_case, or kebab-case instead."
-            )
-
         return key.lower().replace("-", "_")
 
     def _apply_config_update(self, key: str, value: Any) -> bool:
@@ -965,6 +954,17 @@ class AgentBase:
         if descriptor is None:
             logger.debug(f"Agent {self.name} ignoring unrecognized config key: {key}")
             return False
+
+        # Track only recognized deprecated keys to keep the warning-suppression set bounded
+        if key not in self._seen_deprecated_config_keys and not is_supported_config_key(
+            key
+        ):
+            self._seen_deprecated_config_keys.add(key)
+            logger.warning(
+                f"Agent {self.name}: config key {key!r} uses a deprecated naming convention; "
+                "support may be removed in a future release. Use "
+                "SCREAMING_SNAKE_CASE, snake_case, or kebab-case instead."
+            )
 
         safe_value = "***" if descriptor.sensitive else value
 
