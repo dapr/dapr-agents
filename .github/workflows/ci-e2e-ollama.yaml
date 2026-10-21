@@ -29,15 +29,15 @@ jobs:
     timeout-minutes: 30
 
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v7
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
       with:
         python-version: "3.11"
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v3
+      uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
       with:
         version: "latest"
 
@@ -46,7 +46,7 @@ jobs:
 
     - name: Cache Ollama model
       id: cache-ollama
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.ollama
         key: ollama-qwen3-0.6b-${{ runner.os }}
@@ -77,7 +77,7 @@ jobs:
         echo "Ollama ready with qwen3:0.6b"
 
     - name: Set up Docker
-      uses: docker/setup-docker-action@v5
+      uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5 # v5.6.0
 
     - name: Install Dapr CLI
       run: |
