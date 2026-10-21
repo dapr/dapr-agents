@@ -19,6 +19,10 @@ from dapr_agents.prompt.engine import (
     DEFAULT_FORMATTER_MAPPING,
     DEFAULT_VARIABLE_EXTRACTOR_MAPPING,
     TemplateEngine,
+    extract_fstring_variables,
+    extract_jinja_variables,
+    render_fstring_template,
+    render_jinja_template,
 )
 
 
@@ -62,4 +66,8 @@ __all__ = [
     "StringPromptHelper",
     "DEFAULT_FORMATTER_MAPPING",
     "DEFAULT_VARIABLE_EXTRACTOR_MAPPING",
+    "render_fstring_template",
+    "extract_fstring_variables",
+    "render_jinja_template",
+    "extract_jinja_variables",
 ]

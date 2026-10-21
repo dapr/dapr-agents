@@ -468,4 +468,10 @@ __all__ = [
     "extract_fstring_variables",
     "render_jinja_template",
     "extract_jinja_variables",
+    "BaseMessage",
+    "SystemMessage",
+    "UserMessage",
+    "AssistantMessage",
+    "ToolMessage",
+    "MessagePlaceHolder",
 ]

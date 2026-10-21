@@ -15,6 +15,7 @@ from typing import Any, Literal, Union
 
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.engine import TemplateEngine
+from dapr_agents.prompt.utils.string import StringPromptHelper
 
 
 class StringPromptTemplate(PromptTemplateBase):
@@ -143,4 +144,7 @@ class StringPromptTemplate(PromptTemplateBase):
             raise NotImplementedError(f"Unsupported operand type for +: {type(other)}")
 
 
-__all__ = ["StringPromptTemplate"]
+__all__ = [
+    "StringPromptTemplate",
+    "StringPromptHelper",
+]

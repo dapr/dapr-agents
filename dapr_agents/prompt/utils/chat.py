@@ -17,10 +17,32 @@ from dapr_agents.prompt.chat import (
     DEFAULT_FORMATTER_MAPPING,
     DEFAULT_VARIABLE_EXTRACTOR_MAPPING,
     ChatPromptHelper,
+    extract_fstring_variables,
+    extract_jinja_variables,
+    render_fstring_template,
+    render_jinja_template,
+)
+from dapr_agents.types.message import (
+    AssistantMessage,
+    BaseMessage,
+    MessagePlaceHolder,
+    SystemMessage,
+    ToolMessage,
+    UserMessage,
 )
 
 __all__ = [
     "ChatPromptHelper",
     "DEFAULT_FORMATTER_MAPPING",
     "DEFAULT_VARIABLE_EXTRACTOR_MAPPING",
+    "render_fstring_template",
+    "extract_fstring_variables",
+    "render_jinja_template",
+    "extract_jinja_variables",
+    "BaseMessage",
+    "SystemMessage",
+    "UserMessage",
+    "AssistantMessage",
+    "ToolMessage",
+    "MessagePlaceHolder",
 ]
